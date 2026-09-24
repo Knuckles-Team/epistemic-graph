@@ -346,9 +346,9 @@ pub(crate) async fn handle_unified_query_text(
     let core = ctx.core.clone();
     #[cfg(feature = "security")]
     let rls = ctx.rls;
-    let plan = match eg_plan::uql::parse(&text) {
+    let plan = match parse_uql(req_id, &text) {
         Ok(plan) => plan,
-        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+        Err(refusal) => return Ok(refusal),
     };
     // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
     let legs = match ctx.served_legs(&plan).await {

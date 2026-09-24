@@ -502,9 +502,9 @@ async fn handle_unified_query_text_with_lease(
     let core = ctx.core;
     let policy_lease = ctx.policy_lease;
     let store = ctx.store;
-    let plan = match eg_plan::uql::parse(&text) {
+    let plan = match parse_uql(req_id, &text) {
         Ok(plan) => plan,
-        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+        Err(refusal) => return Ok(refusal),
     };
     // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
     let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await?;

@@ -14,9 +14,9 @@ pub(crate) async fn handle_txn_unified_query_text(
     let rls = ctx.rls;
     // UQL front-end: parse to the SAME `wire::Plan`, then run the IDENTICAL
     // overlaid in-txn executor. A parse error is a caret-annotated Response.
-    let plan = match eg_plan::uql::parse(&text) {
-        Ok(p) => p,
-        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+    let plan = match parse_uql(req_id, &text) {
+        Ok(plan) => plan,
+        Err(refusal) => return Ok(refusal),
     };
     Ok(run_unified_overlaid::<query_results::TxnUnifiedQueryText>(
         state,

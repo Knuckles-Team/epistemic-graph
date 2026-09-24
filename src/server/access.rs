@@ -35,6 +35,7 @@ pub(crate) struct CarrierAuthority {
 /// catalog. The carrier is derived from the verified envelope only, never a request
 /// field.
 #[cfg(any(feature = "wasm-udf", feature = "federation"))]
+#[derive(Clone, Copy)]
 pub(crate) struct OwnerScopedCall<'a> {
     pub(crate) state: &'a Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
     pub(crate) req_id: u64,
