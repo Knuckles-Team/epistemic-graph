@@ -114,9 +114,14 @@ pub(crate) fn tsdb_scan_op(
     let mut scored: Vec<(String, f32)> = Vec::new();
     let mut values = ValueChannels::new();
     for sid in series {
-        let staged_pts = staged.map(|s| s.range(sid, from_ns, to_ns)).unwrap_or_default();
+        let staged_pts = staged
+            .map(|s| s.range(sid, from_ns, to_ns))
+            .unwrap_or_default();
         let mut merged: BTreeMap<i64, Vec<f64>> = BTreeMap::new();
-        for (ts, vals) in staged_pts.into_iter().chain(committed.range(sid, from_ns, to_ns)) {
+        for (ts, vals) in staged_pts
+            .into_iter()
+            .chain(committed.range(sid, from_ns, to_ns))
+        {
             merged.entry(ts).or_insert(vals);
         }
         for (ts, vals) in merged {

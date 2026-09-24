@@ -85,6 +85,8 @@ pub use wire_query_samples::{uql_sample_op, uql_sample_pred};
 pub use wire_query_uql::*;
 #[cfg(feature = "query")]
 pub use wire_query_uql_pred::*;
+#[cfg(feature = "timeseries")]
+pub use wire_query_uql_modal::uql_series_expr;
 #[cfg(feature = "streaming")]
 pub use wire_streaming::*;
 

@@ -26,7 +26,10 @@ fn every_spec() -> Vec<Spec> {
         Spec::Map(Map::Abs),
         Spec::Map(Map::Sign),
         Spec::Map(Map::Neg),
-        Spec::Map(Map::Clip { lo: 90.0, hi: 110.0 }),
+        Spec::Map(Map::Clip {
+            lo: 90.0,
+            hi: 110.0,
+        }),
     ];
     for op in [Shift::Lag, Shift::Diff, Shift::Ret, Shift::LogRet] {
         specs.push(Spec::Shift(op, 3));
@@ -45,7 +48,7 @@ fn every_spec() -> Vec<Spec> {
     for op in [Arith::Add, Arith::Sub, Arith::Mul, Arith::Div] {
         specs.push(Spec::Arith(op));
     }
-    for op in [PairStat::Corr, PairStat::RankCorr, PairStat::WeightedMean] {
+    for op in [PairStat::Corr, PairStat::RankCorr, PairStat::WeightedSum] {
         specs.push(Spec::Pair(op, 9));
     }
     specs
@@ -69,7 +72,8 @@ fn advancing_a_restored_checkpoint_equals_the_whole_history_run() {
             let checkpoint = rmp_serde::to_vec(&state).unwrap();
             let mut restored: State = rmp_serde::from_slice(&checkpoint).unwrap();
             got.extend(run(&mut restored, &xs[split..], &ys[split..]));
-            let bits = |v: &[Option<f64>]| v.iter().map(|o| o.map(f64::to_bits)).collect::<Vec<_>>();
+            let bits =
+                |v: &[Option<f64>]| v.iter().map(|o| o.map(f64::to_bits)).collect::<Vec<_>>();
             assert_eq!(bits(&got), bits(&whole), "{spec:?} split at {split}");
         }
     }
@@ -88,7 +92,11 @@ fn rolling_zscore_matches_the_two_pass_population_formula() {
         let win = &xs[i + 1 - w..=i];
         let mean = win.iter().sum::<f64>() / w as f64;
         let var = win.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / w as f64;
-        let want = if var.sqrt() > 1e-12 { (xs[i] - mean) / var.sqrt() } else { 0.0 };
+        let want = if var.sqrt() > 1e-12 {
+            (xs[i] - mean) / var.sqrt()
+        } else {
+            0.0
+        };
         assert!((g.unwrap() - want).abs() < 1e-9, "at {i}: {g:?} vs {want}");
     }
 }
@@ -135,8 +143,13 @@ fn pair_statistics() {
     assert!((corr[2].unwrap() - 1.0).abs() < 1e-12);
     let ic = apply_pair(Spec::Pair(PairStat::RankCorr, 4), &xs, &up).unwrap();
     assert_eq!(ic[3], Some(1.0), "a monotone pair has rank correlation 1");
-    let vwap = apply_pair(Spec::Pair(PairStat::WeightedMean, 2), &[10.0, 20.0], &[1.0, 3.0]).unwrap();
-    assert_eq!(vwap[1], Some(17.5));
+    let wsum = apply_pair(
+        Spec::Pair(PairStat::WeightedSum, 2),
+        &[10.0, 20.0],
+        &[1.0, 3.0],
+    )
+    .unwrap();
+    assert_eq!(wsum, vec![None, Some(70.0)]);
     let flat = apply_pair(Spec::Pair(PairStat::Corr, 2), &[1.0, 1.0], &[1.0, 2.0]).unwrap();
     assert_eq!(flat[1], None, "a constant side has no correlation");
 }
@@ -160,4 +173,3 @@ fn out_of_domain_specs_are_refused() {
     assert!(State::new(Spec::Map(Map::Clip { lo: 2.0, hi: 1.0 })).is_err());
     assert!(State::new(Spec::Shift(Shift::Lag, MAX_WINDOW + 1)).is_err());
 }
-

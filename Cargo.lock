@@ -3317,6 +3317,7 @@ dependencies = [
  "eg-compute",
  "eg-core",
  "eg-modality",
+ "eg-numeric",
  "eg-storage",
  "eg-transaction",
  "eg-types",

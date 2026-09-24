@@ -128,12 +128,14 @@ impl RollingState {
             Rolling::Min => RollingState::Extremum(Extremum::new(Side::Min, window)),
             Rolling::Max => RollingState::Extremum(Extremum::new(Side::Max, window)),
             Rolling::Rank => RollingState::Rank(Sorted::new(window)),
-            Rolling::Mean | Rolling::Std | Rolling::Sum | Rolling::Zscore => RollingState::Moments {
-                op,
-                window,
-                values: VecDeque::with_capacity(window + 1),
-                moments: Moments::default(),
-            },
+            Rolling::Mean | Rolling::Std | Rolling::Sum | Rolling::Zscore => {
+                RollingState::Moments {
+                    op,
+                    window,
+                    values: VecDeque::with_capacity(window + 1),
+                    moments: Moments::default(),
+                }
+            }
         }
     }
 
@@ -150,7 +152,10 @@ impl RollingState {
                 values.push_back(x);
                 moments.add(x);
                 if values.len() > *window {
-                    values.pop_front().into_iter().for_each(|old| moments.remove(old));
+                    values
+                        .pop_front()
+                        .into_iter()
+                        .for_each(|old| moments.remove(old));
                 }
                 (values.len() == *window).then(|| moment_stat(*op, moments, x))?
             }
@@ -171,7 +176,11 @@ fn moment_stat(op: Rolling, m: &Moments, x: f64) -> Option<f64> {
 
 fn zscore(m: &Moments, x: f64) -> Option<f64> {
     let (mean, std) = (m.mean()?, m.population_std()?);
-    Some(if std > STD_FLOOR { (x - mean) / std } else { 0.0 })
+    Some(if std > STD_FLOOR {
+        (x - mean) / std
+    } else {
+        0.0
+    })
 }
 
 /// The recursive EWMA seeded with the first observation.
@@ -230,7 +239,7 @@ impl PairState {
         (self.pairs.len() == self.window).then_some(())?;
         match self.op {
             PairStat::Corr => self.moments.corr(),
-            PairStat::WeightedMean => self.moments.weighted_mean(),
+            PairStat::WeightedSum => Some(self.moments.weighted_sum()),
             PairStat::RankCorr => self.rank_corr(),
         }
     }

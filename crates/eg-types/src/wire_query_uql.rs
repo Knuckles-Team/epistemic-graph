@@ -95,6 +95,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "CROSSES",
     "DECIDE",
     "DECISIONS",
+    "DERIVE",
     "DIFFERENCE",
     "DISJOINT",
     "DIV",
@@ -359,6 +360,8 @@ pub fn uql_op(op: &Op) -> Printed {
         } => super::wire_query_uql_modal::sensor_align(streams, clock, *tolerance_ns),
         #[cfg(feature = "timeseries")]
         Op::TsScan { series, from, to } => super::wire_query_uql_modal::ts_scan(series, *from, *to),
+        #[cfg(feature = "timeseries")]
+        Op::Derive { columns } => super::wire_query_uql_modal::derive(columns),
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => super::wire_query_uql_modal::probabilistic(query),
         #[cfg(feature = "epistemic")]

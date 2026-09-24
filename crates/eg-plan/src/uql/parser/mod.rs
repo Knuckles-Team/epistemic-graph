@@ -54,6 +54,7 @@ pub(super) mod program;
 mod rank;
 mod report;
 mod semantic;
+mod series;
 mod shape;
 mod traverse;
 
@@ -87,6 +88,8 @@ pub(super) struct Parser<'a> {
     inlined: BTreeSet<String>,
     /// `DERIVE … AS name` aliases declared so far (a later `RETURN`/`DERIVE` may name them).
     derived: BTreeSet<String>,
+    /// A derived-series definition is being parsed: its sources bind the channel names.
+    pub(super) free_channels: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -104,6 +107,7 @@ impl<'a> Parser<'a> {
             referenced: BTreeSet::new(),
             inlined: BTreeSet::new(),
             derived: BTreeSet::new(),
+            free_channels: false,
         }
     }
 
@@ -119,7 +123,7 @@ impl<'a> Parser<'a> {
     /// Every stage/source keyword → its parser. MATCH (it may lower to two ops) and
     /// `VALIDATE SHAPE` (the two-keyword lead `parser::shape` owns, so that every other
     /// `VALIDATE …` still reaches the DecideText refusal) are handled by [`Self::stage`].
-    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 30] {
+    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 31] {
         [
             ("WHERE", Self::where_stage),
             ("TRAVERSE", Self::traverse),
@@ -150,6 +154,7 @@ impl<'a> Parser<'a> {
             ("CEP", Self::cep),
             ("SENSOR", Self::sensor),
             ("TSSCAN", Self::tsscan),
+            ("DERIVE", Self::derive),
             ("PROB", Self::prob),
         ]
     }

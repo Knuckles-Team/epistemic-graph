@@ -143,6 +143,8 @@ pub mod quantum;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
+// EH-522 — the series-expression algebra (`DERIVE` columns, derived series). Pure serde.
+pub mod series_expr;
 // F3: the typed result contract -- one marker per method result, compile-checked at every
 // handler site and walked by `eg-capabilities` to publish the result schemas.
 pub mod result_contract;

@@ -161,6 +161,8 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
             from: 0.0,
             to: 3600.0,
         },
+        #[cfg(feature = "timeseries")]
+        OpKind::Derive => derive_sample(),
         #[cfg(feature = "probabilistic")]
         OpKind::Probabilistic => Op::Probabilistic {
             query: ProbQuery::Conditional {
@@ -338,5 +340,35 @@ fn spatial(kind: PredKind) -> Pred {
         | PredKind::Or
         | PredKind::Not
         | PredKind::JsonPath => Pred::SpatialWithin { column, wkt },
+    }
+}
+
+/// A `DERIVE` with nesting, a real and an integer parameter, a negative constant, a
+/// two-series call and an alias that must be back-quoted.
+#[cfg(feature = "timeseries")]
+fn derive_sample() -> Op {
+    use crate::series_expr::{DeriveColumn, SeriesExpr, SeriesFunc};
+    let v0 = || SeriesExpr::channel("v0");
+    let smooth = SeriesExpr::call(SeriesFunc::Ewma, vec![v0()], vec![12.5]);
+    let spread = SeriesExpr::call(
+        SeriesFunc::Sub,
+        vec![v0(), SeriesExpr::Const { value: -0.25 }],
+        vec![],
+    );
+    Op::Derive {
+        columns: vec![
+            DeriveColumn {
+                expr: SeriesExpr::call(SeriesFunc::Zscore, vec![smooth], vec![60.0]),
+                name: "lat_z".into(),
+            },
+            DeriveColumn {
+                expr: SeriesExpr::call(
+                    SeriesFunc::Ic,
+                    vec![SeriesExpr::channel("lat_z"), spread],
+                    vec![20.0],
+                ),
+                name: "match".into(),
+            },
+        ],
     }
 }

@@ -89,8 +89,9 @@ pub enum PairStat {
     Corr,
     /// Spearman rank correlation — the rolling information coefficient.
     RankCorr,
-    /// `Σ x·w / Σ w` — `x` weighted by the second series (VWAP-style).
-    WeightedMean,
+    /// `Σ x·w` — the rolling sum of `x` weighted by the second series (VWAP is
+    /// `wsum(price, volume, w) / rsum(volume, w)`).
+    WeightedSum,
 }
 
 /// One kernel to build.
