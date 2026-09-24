@@ -3,6 +3,9 @@
 #[cfg(feature = "query")]
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "query")]
+use super::{AttributionInput, AttributionMethod, AttributionValue};
+
 #[cfg(feature = "stream")]
 use super::CepPatternSpec;
 #[cfg(feature = "federation")]
