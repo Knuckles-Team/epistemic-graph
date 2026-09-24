@@ -39,7 +39,12 @@ TEST_POLICY_VERSION = "policy:test"
 # `"namespace:*"` prefix would not match these bare role names anyway. Any test
 # that registers an identity with a new RBAC role name must add it here -- that
 # is the scoping working, not friction to route around.
-TEST_SIGNER_ALLOWED_ROLES = ["commons-access", "worker1-access"]
+TEST_SIGNER_ALLOWED_ROLES = [
+    "commons-access",
+    "worker1-access",
+    "flip-reader",
+    "lease-writer",
+]
 
 
 #: A node -> edge -> commit write as real, engine-decodable requests. Mock
