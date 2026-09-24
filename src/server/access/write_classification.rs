@@ -108,13 +108,15 @@ fn requires_write_back_surface(method: &Method) -> Option<bool> {
     }
 }
 
-/// The fleet catalog (EH-345) carries its read/write split on the op, so this
-/// classifier and the capability ledger cannot disagree about an operation.
-fn requires_write_fleet_catalog_surface(method: &Method) -> Option<bool> {
-    if let Method::FleetCatalog { op } = method {
-        return Some(op.is_mutation());
+/// The op families that carry their read/write split on the op -- the fleet
+/// catalog (EH-345) and policy evolution (EH-346/EH-347) -- so this classifier
+/// and the capability ledger cannot disagree about an operation.
+fn requires_write_op_family_surface(method: &Method) -> Option<bool> {
+    match method {
+        Method::FleetCatalog { op } => Some(op.is_mutation()),
+        Method::PolicyEvolution { op } => Some(op.is_mutation()),
+        _ => None,
     }
-    None
 }
 
 /// EH-280 — `IndexRepository` commits its branch-aware projection only
@@ -356,7 +358,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         requires_write_agent_surface,
         requires_write_decision_surface,
         requires_write_back_surface,
-        requires_write_fleet_catalog_surface,
+        requires_write_op_family_surface,
         requires_write_ingestion_surface,
         requires_write_native_surface,
         requires_write_query_surface,

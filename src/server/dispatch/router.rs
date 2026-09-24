@@ -8,6 +8,7 @@ use super::graph_pipeline::dispatch_graph_op;
 use super::graph_pipeline::dispatch_knowledge_stream;
 #[cfg(feature = "modality-serving")]
 use super::graph_pipeline::dispatch_served_modality;
+use super::policy_evolution::{handle_policy_evolution, PolicyEvolutionTarget};
 #[cfg(feature = "cost")]
 use super::request_boundary::dispatch_resource_stats;
 use super::request_boundary::{
@@ -36,7 +37,7 @@ mod telemetry;
 use channels::dispatch_channel_methods;
 use control_plane::{
     dispatch_agent_library_methods, dispatch_cluster_admin_methods,
-    dispatch_compute_and_media_methods, dispatch_fleet_catalog_methods,
+    dispatch_compute_and_media_methods, dispatch_graph_translated_op_families,
 };
 #[cfg(feature = "query")]
 use data_plane::dispatch_sql_source_methods;
@@ -131,7 +132,7 @@ async fn dispatch_control_plane_methods(
     let method = dispatch_agent_library_methods(ctx, method).await?;
     let method = dispatch_decision_plane_methods(ctx, method).await?;
     let method = dispatch_cluster_admin_methods(ctx, method).await?;
-    let method = dispatch_fleet_catalog_methods(ctx, method).await?;
+    let method = dispatch_graph_translated_op_families(ctx, method).await?;
     let method = dispatch_channel_methods(ctx, method).await?;
     let method = dispatch_identity_and_access_methods(ctx, method).await?;
     dispatch_compute_and_media_methods(ctx, method).await

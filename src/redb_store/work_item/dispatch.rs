@@ -160,6 +160,10 @@ pub(crate) fn apply_work_item_rows(
         }),
         // graph-os EG-2 control-lease writes share this kernel; anything else
         // is not a WorkItem-family row transition and answers `None`.
-        other => apply_control_lease_rows(graph, other, nodes, crypto),
+        // EH-346 policy-evolution records are the kernel's other row writer.
+        other => match apply_control_lease_rows(graph, other, nodes, crypto)? {
+            Some(result) => Ok(Some(result)),
+            None => apply_policy_record_rows(graph, other, nodes, crypto),
+        },
     }
 }

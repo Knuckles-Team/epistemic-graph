@@ -80,6 +80,23 @@ $($variants)*
         #[serde(with = "serde_bytes")]
         policy_msgpack: Vec<u8>,
     },
+    // ── Policy evolution (EH-346 / EH-347) ────────────────────────────────
+    /// Capture-first open-weight policy evolution: the attested capability,
+    /// trajectory captures, immutable model-policy versions, external
+    /// training-run receipts and held-out evaluation receipts. Every record is
+    /// immutable and content-addressed in the request graph; each write
+    /// self-translates into exactly one `CreateNodeIfAbsent`. EG records and
+    /// relates -- it never trains. See [`crate::policy_evolution`].
+    PolicyEvolution {
+        op: Box<crate::policy_evolution::PolicyEvolutionOp>,
+    },
+    /// ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one
+    /// record `PolicyEvolution` already admitted. Refused from the wire; the
+    /// only way a policy-evolution row can be created (generic graph writes to
+    /// such rows are refused by the row guard).
+    PolicyEvolutionStore {
+        request: Box<crate::policy_evolution::StoredPolicyRecord>,
+    },
         ]);
     };
 }

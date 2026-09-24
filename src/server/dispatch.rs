@@ -392,6 +392,7 @@ const MAX_REGISTER_SERVER_TTL_SECS: u64 = 24 * 60 * 60;
 mod change_envelope;
 mod consensus;
 mod graph_pipeline;
+mod policy_evolution;
 mod request_boundary;
 mod router;
 

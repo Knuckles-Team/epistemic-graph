@@ -74,7 +74,8 @@ class MethodPolicyRow:
 # `TransitionControlLease` and `GetControlLease`.
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
 # 437 -> 438: EH-408/EH-409's served `TelemetryDerive`.
-EXPECTED_METHOD_POLICY_ROWS = 438
+# 438 -> 440: EH-346/EH-347 `PolicyEvolution` + engine-internal `PolicyEvolutionStore`.
+EXPECTED_METHOD_POLICY_ROWS = 440
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

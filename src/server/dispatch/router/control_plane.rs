@@ -267,38 +267,54 @@ async fn dispatch_cluster_admin_methods_arm_4(ctx: DispatchCtx<'_>, method: Meth
         _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
-/// The fleet catalog (EH-345): the server registry's discovery and override
-/// records and the projection that joins them with connector-pack components.
-/// Self-routing like the registry above -- fleet-wide, never request-graph
-/// scoped -- and its own link in the control-plane chain, so it adds no arm to
-/// the registry's dispatcher.
-pub(super) async fn dispatch_fleet_catalog_methods(
+/// The op families whose writes self-translate into graph primitives, each
+/// its own arm so neither adds a branch to another dispatcher:
+///
+/// * the fleet catalog (EH-345) -- the server registry's discovery and override
+///   records and the projection joining them with connector-pack components;
+///   fleet-wide, always `__commons__`, never request-graph scoped;
+/// * policy evolution (EH-346/EH-347) -- immutable capability, capture,
+///   model-policy version, training-run and evaluation records in the REQUEST
+///   graph, beside the trajectories they describe.
+pub(super) async fn dispatch_graph_translated_op_families(
     ctx: DispatchCtx<'_>,
     method: Method,
 ) -> ControlFlow<Response, Method> {
-    let Method::FleetCatalog { op } = method else {
-        return ControlFlow::Continue(method);
-    };
     let DispatchCtx {
         state,
         req,
         verified_context,
         ..
     } = ctx;
-    ControlFlow::Break(
-        dispatch_boxed(async {
-            let req_agent_id = req.agent_id.clone();
-            handle_fleet_catalog(
+    let caller = req.agent_id.as_deref();
+    let response = match method {
+        Method::FleetCatalog { op } => {
+            dispatch_boxed(handle_fleet_catalog(
                 state,
                 req.id,
-                req_agent_id.as_deref(),
+                caller,
                 verified_context,
                 *op,
-            )
+            ))
             .await
-        })
-        .await,
-    )
+        }
+        Method::PolicyEvolution { op } => {
+            let target = PolicyEvolutionTarget {
+                req_id: req.id,
+                graph: &req.graph,
+                caller,
+            };
+            dispatch_boxed(handle_policy_evolution(
+                state,
+                target,
+                verified_context,
+                *op,
+            ))
+            .await
+        }
+        other => return ControlFlow::Continue(other),
+    };
+    ControlFlow::Break(response)
 }
 
 pub(super) async fn dispatch_agent_library_methods(

@@ -330,6 +330,10 @@ mod support_04;
 pub use support_04::*;
 
 mod method;
-pub use method::{Method, MethodWriteFamily};
+#[cfg(test)]
+pub(crate) use method::carrier_fixtures as method_carrier_fixtures;
+pub use method::{
+    CarrierRefusal, Method, MethodWriteFamily, CARRIER_REFUSAL_CODE, ENGINE_INTERNAL_CODE,
+};
 #[cfg(test)]
 mod tests;

@@ -123,9 +123,11 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # cardinality, so it moves only with a reviewed catalog change.
     # 100 -> 102: graph-os EG-2/EG-3 native records -- the tenant-bound
     # `IssueControlLease` / `TransitionControlLease` control-lease rows.
+    # 102 -> 103: EH-346 `PolicyEvolutionStore`, the internal kernel write of
+    # an admitted policy-evolution record.
     require(
-        len(entries) == 102,
-        f"native method catalog must contain 102 entries, observed {len(entries)}",
+        len(entries) == 103,
+        f"native method catalog must contain 103 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -151,7 +153,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         == {
             "GraphState": 23,
             "Transaction": 15,
-            "WorkItem": 20,  # +2 IssueControlLease, TransitionControlLease
+            "WorkItem": 21,  # +2 control leases, +1 PolicyEvolutionStore
             "Blob": 6,
             "KeyValue": 3,
             "TimeSeries": 3,
@@ -579,6 +581,7 @@ def _check_mutation_applier_inventory(
         # graph-os EG-2: native control-lease writes in the same WorkItem kernel.
         "IssueControlLease",
         "TransitionControlLease",
+        "PolicyEvolutionStore",
     }
     require(
         work_items == expected_work_items,
