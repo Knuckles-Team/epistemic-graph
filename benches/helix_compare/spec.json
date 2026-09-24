@@ -1,0 +1,38 @@
+{
+  "comment": "EH-353 pinned inputs. Changing any value changes the evidence: re-pin dataset_sha256/queries_sha256 from a --repin run and say why in the commit.",
+  "helix": {
+    "repository": "https://github.com/HelixDB/helix-db",
+    "commit": "81e1e741e8d3d61e6b09577e1d46137850fc9343",
+    "build": "cargo build --release --locked -p server",
+    "sdk": "sdks/python/src at the same commit"
+  },
+  "dataset": {
+    "seed": 20260924,
+    "docs": 20000,
+    "citations_per_doc": 5,
+    "categories": 16,
+    "vocabulary": 2000,
+    "words_per_doc": 24,
+    "dim": 32,
+    "year_min": 2000,
+    "year_max": 2025
+  },
+  "dataset_sha256": "0c4b998910eb8fa97dd022df3310bcae0adf069bd12e89075c035116998c51c1",
+  "queries_sha256": "f38f5d9cf9e512b8e18f62196f2879a7c91a44ae6fccaeeaca926ae0688c2974",
+  "workloads": {
+    "point_get": {"ops": 3000},
+    "one_hop": {"ops": 3000},
+    "filtered_hop": {"ops": 2000, "min_year": 2012},
+    "txn_batch": {"ops": 400, "batch_docs": 10},
+    "text_prefilter": {"ops": 1000, "k": 10, "text_terms": 200},
+    "vector_prefilter": {"ops": 1000, "k": 10},
+    "mixed": {"ops": 1000, "k": 10}
+  },
+  "plan": {
+    "gate_ops": 100,
+    "warmup_ops": 200,
+    "cold_ops": 50,
+    "concurrency": [1, 8]
+  },
+  "cpus": {"server": "0-3", "client": "4-7"}
+}
