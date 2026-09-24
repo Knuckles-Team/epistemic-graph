@@ -60,16 +60,11 @@ impl CircuitBuild {
         if self.window.is_some() {
             return Err(unsupported(i, "Filter after WindowAgg is not supported"));
         }
-        for p in preds {
-            match p {
-                Pred::Eq { .. } | Pred::GtNum { .. } | Pred::LtNum { .. } => {}
-                _ => {
-                    return Err(unsupported(
-                        i,
-                        "Filter carries a non-relational predicate (JsonPath/spatial)",
-                    ))
-                }
-            }
+        if !preds.iter().all(crate::pred_eval::is_relational) {
+            return Err(unsupported(
+                i,
+                "Filter carries a non-relational predicate (JsonPath/spatial)",
+            ));
         }
         self.stages.push(Stage::new(StagePred::Filter {
             preds: preds.to_vec(),
