@@ -330,6 +330,7 @@ class AssemblyRequirements(BaseModel):
     pins: BoundedVec_ComponentDependency_64 = Field(default_factory=list)
     task_mappings: BoundedVec_ClaimedTaskMapping_32 = Field(default_factory=list)
     tasks: BoundedVec_string_32 = Field(default_factory=list)
+    topology: TopologyRequirements | None = None
     unmapped_task_digests: BoundedVec_string_32 = Field(default_factory=list)
 
 
@@ -364,10 +365,52 @@ class CandidateSourceRecordGraph(BaseModel):
     source: Literal["graph"]
 
 
+class CandidateSourceRecordDeclared(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    options_digest: str
+    source: Literal["declared"]
+
+
 CandidateSourceRecord = Annotated[
-    CandidateSourceRecordAgentLibrary | CandidateSourceRecordGraph,
+    CandidateSourceRecordAgentLibrary
+    | CandidateSourceRecordGraph
+    | CandidateSourceRecordDeclared,
     Field(discriminator="source"),
 ]
+
+
+class CapacityHeadroom(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    available: Annotated[int, Field(ge=0)]
+    cell_id: str
+    class_: CapacityResourceClass = Field(..., alias="class")
+    epoch: Annotated[int, Field(ge=0)]
+
+
+class CapacityResourceClass(str, Enum):
+    LLM_GENERATOR = "llm_generator"
+    LLM_EMBEDDING = "llm_embedding"
+    GPU = "gpu"
+    WORKER = "worker"
+    CPU = "cpu"
+    BROKER = "broker"
+
+
+class CapacityScope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    cells: BoundedVec_string_8
+    priority: LeasePriority
+
+
+class CellLease(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    amount: Annotated[int, Field(ge=0)]
+    cell_id: str
+    class_: CapacityResourceClass = Field(..., alias="class")
 
 
 class Certificate(BaseModel):
@@ -517,6 +560,7 @@ class DecisionInputs(BaseModel):
     request: AssemblyRequest
     solver: SolverIdentity
     templates: BoundedVec_TemplateFacts_8 = Field(default_factory=list)
+    topology: TopologyInputs | None = None
 
 
 class DecisionOutcomeSolved(BaseModel):
@@ -526,6 +570,7 @@ class DecisionOutcomeSolved(BaseModel):
     graph_digest: str
     outcome: Literal["solved"]
     slots: BoundedVec_SlotAssignment_64
+    topology: TopologyPlan | None = None
 
 
 class DecisionOutcomeAbstained(BaseModel):
@@ -555,6 +600,7 @@ class DecisionPolicy(BaseModel):
     objective: ObjectiveOrder
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     statistical: StatisticalPolicy | None = None
+    topology: TopologyPolicy | None = None
     unknown_cost: UnknownCostRule
 
 
@@ -693,6 +739,27 @@ class LagrangeDual(BaseModel):
     entries: list[DualEntry]
 
 
+class LeaseDemand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    amount: Annotated[int, Field(ge=0)]
+    class_: CapacityResourceClass = Field(..., alias="class")
+
+
+class LeasePlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    per_cell: BoundedVec_CellLease_8
+    priority: LeasePriority
+
+
+class LeasePriority(str, Enum):
+    INTERACTIVE = "interactive"
+    ORCHESTRATION = "orchestration"
+    HYDRATION = "hydration"
+    BACKGROUND_INGESTION = "background_ingestion"
+
+
 class LevelValue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -816,6 +883,22 @@ class PremiseProvenanceRequest(BaseModel):
     provenance: Literal["request"]
 
 
+class PremiseProvenanceSchemaSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provenance: Literal["schema_source"]
+    schema_digest: str
+    source_key: str
+
+
+class PremiseProvenanceCapacityCell(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    cell_id: str
+    epoch: Annotated[int, Field(ge=0)]
+    provenance: Literal["capacity_cell"]
+
+
 PremiseProvenance = Annotated[
     PremiseProvenanceNativeOntology
     | PremiseProvenancePolicy
@@ -823,7 +906,9 @@ PremiseProvenance = Annotated[
     | PremiseProvenanceConnectorPack
     | PremiseProvenanceClaimedMapping
     | PremiseProvenanceObservation
-    | PremiseProvenanceRequest,
+    | PremiseProvenanceRequest
+    | PremiseProvenanceSchemaSource
+    | PremiseProvenanceCapacityCell,
     Field(discriminator="provenance"),
 ]
 
@@ -889,11 +974,47 @@ class ResolutionKind(str, Enum):
     ABSTENTION = "abstention"
 
 
+class SchemaAuthority(str, Enum):
+    ADMIN = "admin"
+    PACK = "pack"
+
+
 class SlotAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     component: ComponentDependency
     slot: str
+
+
+class SlotPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    node_id: str
+    rounds: Annotated[int, Field(ge=0, le=255)]
+    tokens: Annotated[int, Field(ge=0)] | None = None
+    width: Annotated[int, Field(ge=0, le=255)]
+
+
+class SlotRole(str, Enum):
+    PARENT = "parent"
+    CHILD = "child"
+    PEER = "peer"
+    AGGREGATOR = "aggregator"
+    VERIFIER = "verifier"
+
+
+class SlotTopology(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    harness: str | None = None
+    lease: BoundedVec_LeaseDemand_6 = Field(default_factory=list)
+    max_rounds: Annotated[int, Field(ge=0, le=255)]
+    max_width: Annotated[int, Field(ge=0, le=255)]
+    min_width: Annotated[int, Field(ge=0, le=255)]
+    node_id: str
+    p95_ms: Annotated[int, Field(ge=0)] | None = None
+    role: SlotRole
+    tokens: Annotated[int, Field(ge=0)] | None = None
 
 
 class SolverBudget(BaseModel):
@@ -936,6 +1057,80 @@ class StatisticalPolicy(BaseModel):
     tenant_public_features: bool
 
 
+class StopRuleMaxRounds(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    n: Annotated[int, Field(ge=0, le=255)]
+    rule: Literal["max_rounds"]
+
+
+class StopRuleQuorum(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    k: Annotated[int, Field(ge=0, le=255)]
+    n: Annotated[int, Field(ge=0, le=255)]
+    rule: Literal["quorum"]
+
+
+class StopRuleVerifierPass(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_rounds: Annotated[int, Field(ge=0, le=255)]
+    rule: Literal["verifier_pass"]
+
+
+class StopRuleBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rule: Literal["budget"]
+
+
+class StopRuleDeadline(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    rule: Literal["deadline"]
+
+
+StopRule = Annotated[
+    StopRuleMaxRounds
+    | StopRuleQuorum
+    | StopRuleVerifierPass
+    | StopRuleBudget
+    | StopRuleDeadline,
+    Field(discriminator="rule"),
+]
+
+
+class SubagentAllowance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    fallback: SubagentFallback
+    harness: str
+    max_children: Annotated[int, Field(ge=0, le=255)]
+    max_depth: Annotated[int, Field(ge=0, le=255)]
+    max_tokens: Annotated[int, Field(ge=0)] | None = None
+    node_id: str
+
+
+class SubagentFallbackDisabled(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    fallback: Literal["disabled"]
+
+
+class SubagentFallbackTokenBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    fallback: Literal["token_budget"]
+    max_tokens: Annotated[int, Field(ge=0)]
+
+
+SubagentFallback = Annotated[
+    SubagentFallbackDisabled | SubagentFallbackTokenBudget,
+    Field(discriminator="fallback"),
+]
+
+
 class TemplateFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -943,6 +1138,7 @@ class TemplateFacts(BaseModel):
     entry_revision: Annotated[int, Field(ge=0)]
     graph_id: str
     shape: AgentGraphShape
+    topology: TopologyFacts | None = None
 
 
 class ToolEffect(str, Enum):
@@ -954,6 +1150,73 @@ class ToolsetTransport(str, Enum):
     MCP = "mcp"
     FUNCTION = "function"
     SKILL = "skill"
+
+
+class TopologyAdmission(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    admit_class: str
+    authority: SchemaAuthority
+    axioms: BoundedVec_string_16 = Field(default_factory=list)
+    source_key: str
+    task_class: str
+    topology_class: str
+
+
+class TopologyCaps(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    max_depth: Annotated[int, Field(ge=0, le=255)]
+    max_rounds: Annotated[int, Field(ge=0, le=255)]
+    max_tokens: Annotated[int, Field(ge=0)] | None = None
+    max_width: Annotated[int, Field(ge=0, le=255)]
+
+
+class TopologyFacts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    class_iri: str
+    depth: Annotated[int, Field(ge=0, le=255)]
+    slots: BoundedVec_SlotTopology_6
+    stop: StopRule
+
+
+class TopologyInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    admissions: BoundedVec_TopologyAdmission_64 = Field(default_factory=list)
+    headroom: BoundedVec_CapacityHeadroom_8 = Field(default_factory=list)
+    schema_digest: str
+    verify_required_by: BoundedVec_string_8 = Field(default_factory=list)
+
+
+class TopologyPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    allowances: BoundedVec_SubagentAllowance_6 = Field(default_factory=list)
+    class_iri: str
+    lease: LeasePlan
+    makespan_ms: Annotated[int, Field(ge=0)] | None = None
+    slots: BoundedVec_SlotPlan_6
+    stop: StopRule
+
+
+class TopologyPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    caps: TopologyCaps
+    token_budget_harnesses: BoundedVec_string_16 = Field(default_factory=list)
+
+
+class TopologyRequirements(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    capacity: CapacityScope
+    caps: TopologyCaps
+    deadline_ms: Annotated[int, Field(ge=0)] | None = None
+    per_agent_subtasks: Annotated[int, Field(ge=0)]
+    subtasks: Annotated[int, Field(ge=0)]
+    task_classes: BoundedVec_string_8
 
 
 class TraceFidelityFullStep(BaseModel):
@@ -1167,6 +1430,12 @@ BoundedVec_AgentGraphEntryRef_8 = Annotated[
 BoundedVec_CandidateFacts_64 = Annotated[list[CandidateFacts], Field(max_length=64)]
 
 
+BoundedVec_CapacityHeadroom_8 = Annotated[list[CapacityHeadroom], Field(max_length=8)]
+
+
+BoundedVec_CellLease_8 = Annotated[list[CellLease], Field(max_length=8)]
+
+
 BoundedVec_ClaimedTaskMapping_32 = Annotated[
     list[ClaimedTaskMapping],
     Field(
@@ -1205,6 +1474,9 @@ BoundedVec_DerivationEdge_16 = Annotated[list[DerivationEdge], Field(max_length=
 BoundedVec_Elimination_64 = Annotated[list[Elimination], Field(max_length=64)]
 
 
+BoundedVec_LeaseDemand_6 = Annotated[list[LeaseDemand], Field(max_length=6)]
+
+
 BoundedVec_ObjectiveLevelKind_8 = Annotated[
     list[ObjectiveLevelKind],
     Field(
@@ -1222,7 +1494,24 @@ BoundedVec_PremiseRef_32 = Annotated[list[PremiseRef], Field(max_length=32)]
 BoundedVec_SlotAssignment_64 = Annotated[list[SlotAssignment], Field(max_length=64)]
 
 
+BoundedVec_SlotPlan_6 = Annotated[list[SlotPlan], Field(max_length=6)]
+
+
+BoundedVec_SlotTopology_6 = Annotated[list[SlotTopology], Field(max_length=6)]
+
+
+BoundedVec_SubagentAllowance_6 = Annotated[list[SubagentAllowance], Field(max_length=6)]
+
+
 BoundedVec_TemplateFacts_8 = Annotated[list[TemplateFacts], Field(max_length=8)]
+
+
+BoundedVec_TopologyAdmission_64 = Annotated[
+    list[TopologyAdmission],
+    Field(
+        max_length=64,
+    ),
+]
 
 
 BoundedVec_WeightedLevel_8 = Annotated[list[WeightedLevel], Field(max_length=8)]
@@ -1295,6 +1584,14 @@ CandidateSourceRecordAgentLibrary.model_rebuild()
 
 CandidateSourceRecordGraph.model_rebuild()
 
+CandidateSourceRecordDeclared.model_rebuild()
+
+CapacityHeadroom.model_rebuild()
+
+CapacityScope.model_rebuild()
+
+CellLease.model_rebuild()
+
 Certificate.model_rebuild()
 
 ClaimProvenance.model_rebuild()
@@ -1357,6 +1654,10 @@ Incumbent.model_rebuild()
 
 LagrangeDual.model_rebuild()
 
+LeaseDemand.model_rebuild()
+
+LeasePlan.model_rebuild()
+
 LevelValue.model_rebuild()
 
 LibraryCandidateScope.model_rebuild()
@@ -1385,6 +1686,10 @@ PremiseProvenanceObservation.model_rebuild()
 
 PremiseProvenanceRequest.model_rebuild()
 
+PremiseProvenanceSchemaSource.model_rebuild()
+
+PremiseProvenanceCapacityCell.model_rebuild()
+
 PremiseRef.model_rebuild()
 
 PriceSourcePublisher.model_rebuild()
@@ -1397,6 +1702,10 @@ QuantisedValue.model_rebuild()
 
 SlotAssignment.model_rebuild()
 
+SlotPlan.model_rebuild()
+
+SlotTopology.model_rebuild()
+
 SolverBudget.model_rebuild()
 
 SolverConfig.model_rebuild()
@@ -1405,7 +1714,37 @@ SolverIdentity.model_rebuild()
 
 StatisticalPolicy.model_rebuild()
 
+StopRuleMaxRounds.model_rebuild()
+
+StopRuleQuorum.model_rebuild()
+
+StopRuleVerifierPass.model_rebuild()
+
+StopRuleBudget.model_rebuild()
+
+StopRuleDeadline.model_rebuild()
+
+SubagentAllowance.model_rebuild()
+
+SubagentFallbackDisabled.model_rebuild()
+
+SubagentFallbackTokenBudget.model_rebuild()
+
 TemplateFacts.model_rebuild()
+
+TopologyAdmission.model_rebuild()
+
+TopologyCaps.model_rebuild()
+
+TopologyFacts.model_rebuild()
+
+TopologyInputs.model_rebuild()
+
+TopologyPlan.model_rebuild()
+
+TopologyPolicy.model_rebuild()
+
+TopologyRequirements.model_rebuild()
 
 TraceFidelityFullStep.model_rebuild()
 

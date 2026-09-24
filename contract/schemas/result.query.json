@@ -195,6 +195,100 @@
         }
       ]
     },
+    "AbstentionResolution": {
+      "additionalProperties": false,
+      "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+      "properties": {
+        "option_id": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "resolution_id": {
+          "type": "string"
+        },
+        "resolver": {
+          "$ref": "#/$defs/AbstentionResolver"
+        }
+      },
+      "required": [
+        "record_id",
+        "resolution_id",
+        "option_id",
+        "resolver"
+      ],
+      "type": "object"
+    },
+    "AbstentionResolver": {
+      "description": "Who resolved an abstention (EH-037, §6.4 \"abstentions as labels\").",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+          "properties": {
+            "resolver": {
+              "const": "human",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+          "properties": {
+            "producer": {
+              "type": "string"
+            },
+            "prompt_digest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resolver": {
+              "const": "model",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver",
+            "producer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AdapterSpec": {
+      "description": "What the run trains. Adapter-only: full-weight mutation is not expressible.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "adapter": {
+              "const": "lora",
+              "type": "string"
+            },
+            "rank": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "adapter",
+            "rank"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AgentComponentContentRequest": {
       "additionalProperties": false,
       "description": "Read one component revision's bytes.",
@@ -998,6 +1092,17 @@
         },
         "tenant_id": {
           "type": "string"
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyFacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The topology facts a graph TEMPLATE declares for swarm-topology\ndecisions. Inside the definition digest; absent from every graph that\ndeclares none, so their digests do not move."
         },
         "version": {
           "type": "string"
@@ -2460,6 +2565,31 @@
       ],
       "type": "string"
     },
+    "ArrayEncoding": {
+      "description": "How the elements of a referenced array are encoded.",
+      "oneOf": [
+        {
+          "const": "u32_le",
+          "description": "Little-endian `u32` (token ids, sampler Top-K / auxiliary ids).",
+          "type": "string"
+        },
+        {
+          "const": "f32_le",
+          "description": "Little-endian IEEE-754 `f32` (log-probabilities).",
+          "type": "string"
+        },
+        {
+          "const": "u8_mask",
+          "description": "One byte per token, `1` = policy token (prompt, padding and tool\noutput tokens are `0` and masked from the loss).",
+          "type": "string"
+        },
+        {
+          "const": "bytes",
+          "description": "Opaque bytes (logs, reports). Carries no element width.",
+          "type": "string"
+        }
+      ]
+    },
     "AsrOp": {
       "description": "`Method::Asr { op }`'s request shape. `audio_wav` carries the actual PCM\nbytes over the wire (MessagePack handles binary natively — no base64\ninflation); `model_path`/`model_sha256` are a caller-resolved,\nalready-verified model reference (GOC-36 owns acquisition; this crate\nnever resolves a bare model name into a path or URL).",
       "oneOf": [
@@ -2662,6 +2792,17 @@
           "$ref": "#/$defs/BoundedVec_string_32",
           "default": [],
           "description": "Native `eg:task/*` IRIs."
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyRequirements"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A swarm-topology question over the request's templates. Absent from a\nplain assembly, so a v1 request keeps its exact digest."
         },
         "unmapped_task_digests": {
           "$ref": "#/$defs/BoundedVec_string_32",
@@ -2969,6 +3110,20 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_CapacityHeadroom_8": {
+      "items": {
+        "$ref": "#/$defs/CapacityHeadroom"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_CellLease_8": {
+      "items": {
+        "$ref": "#/$defs/CellLease"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_ClaimedTaskMapping_32": {
       "items": {
         "$ref": "#/$defs/ClaimedTaskMapping"
@@ -2995,6 +3150,27 @@
         "$ref": "#/$defs/CoverageDerivation"
       },
       "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredNumber_32": {
+      "items": {
+        "$ref": "#/$defs/DeclaredNumber"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredOption_64": {
+      "items": {
+        "$ref": "#/$defs/DeclaredOption"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredText_8": {
+      "items": {
+        "$ref": "#/$defs/DeclaredText"
+      },
+      "maxItems": 8,
       "type": "array"
     },
     "BoundedVec_DerivationEdge_16": {
@@ -3044,6 +3220,13 @@
         "$ref": "#/$defs/LabelledItem"
       },
       "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_LeaseDemand_6": {
+      "items": {
+        "$ref": "#/$defs/LeaseDemand"
+      },
+      "maxItems": 6,
       "type": "array"
     },
     "BoundedVec_ObjectiveLevelKind_8": {
@@ -3109,6 +3292,20 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_SlotPlan_6": {
+      "items": {
+        "$ref": "#/$defs/SlotPlan"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "BoundedVec_SlotTopology_6": {
+      "items": {
+        "$ref": "#/$defs/SlotTopology"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
     "BoundedVec_SourceEntityRef_16384": {
       "items": {
         "$ref": "#/$defs/SourceEntityRef"
@@ -3151,11 +3348,25 @@
       "maxItems": 256,
       "type": "array"
     },
+    "BoundedVec_SubagentAllowance_6": {
+      "items": {
+        "$ref": "#/$defs/SubagentAllowance"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
     "BoundedVec_TemplateFacts_8": {
       "items": {
         "$ref": "#/$defs/TemplateFacts"
       },
       "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_TopologyAdmission_64": {
+      "items": {
+        "$ref": "#/$defs/TopologyAdmission"
+      },
+      "maxItems": 64,
       "type": "array"
     },
     "BoundedVec_TypedParam_16": {
@@ -3452,6 +3663,24 @@
             "plan"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The caller's own options, each fact a claim the caller makes\n([`declared`]). Visible to the declaring principal only.",
+          "properties": {
+            "options": {
+              "$ref": "#/$defs/BoundedVec_DeclaredOption_64"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3498,6 +3727,24 @@
           "required": [
             "source",
             "plan_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Options the caller declared, pinned by the digest of the declaration.",
+          "properties": {
+            "options_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options_digest"
           ],
           "type": "object"
         }
@@ -3702,6 +3949,37 @@
       ],
       "type": "object"
     },
+    "CapacityHeadroom": {
+      "additionalProperties": false,
+      "description": "One capacity cell's headroom, observed through `CapacityStatus` at the\nrequest's priority when the decision was taken. An OBSERVATION premise:\nit is recorded in the inputs, so replay reads the same number.",
+      "properties": {
+        "available": {
+          "description": "What the request's priority may still lease from the cell: capacity\nminus live leases, minus the reserved floor when that priority may not\nspend it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell_id": {
+          "type": "string"
+        },
+        "class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        },
+        "epoch": {
+          "description": "The cell epoch the observation was read at.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cell_id",
+        "class",
+        "available",
+        "epoch"
+      ],
+      "type": "object"
+    },
     "CapacityLeaseFence": {
       "additionalProperties": false,
       "properties": {
@@ -3848,6 +4126,23 @@
         }
       ]
     },
+    "CapacityScope": {
+      "additionalProperties": false,
+      "description": "The capacity cells a plan must fit, read at one priority.",
+      "properties": {
+        "cells": {
+          "$ref": "#/$defs/BoundedVec_string_8"
+        },
+        "priority": {
+          "$ref": "#/$defs/LeasePriority"
+        }
+      },
+      "required": [
+        "cells",
+        "priority"
+      ],
+      "type": "object"
+    },
     "CapacityStatusRequest": {
       "additionalProperties": false,
       "properties": {
@@ -3887,6 +4182,23 @@
         "max_count"
       ],
       "type": "object"
+    },
+    "CaptureCompletion": {
+      "description": "How the episode ended.",
+      "enum": [
+        "terminal",
+        "truncated",
+        "aborted"
+      ],
+      "type": "string"
+    },
+    "CaptureTraceFidelity": {
+      "description": "How much of the trace the capture kept.",
+      "enum": [
+        "full",
+        "redacted"
+      ],
+      "type": "string"
     },
     "CasWorkItemMetadataLeaseFence": {
       "additionalProperties": false,
@@ -4110,6 +4422,29 @@
         "Observe"
       ],
       "type": "string"
+    },
+    "CellLease": {
+      "additionalProperties": false,
+      "description": "The amount one cell must lease for the plan.",
+      "properties": {
+        "amount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell_id": {
+          "type": "string"
+        },
+        "class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        }
+      },
+      "required": [
+        "cell_id",
+        "class",
+        "amount"
+      ],
+      "type": "object"
     },
     "CepAttrPredSpec": {
       "description": "STREAM — a per-event attribute predicate for a CEP matcher (CONCEPT:EG-KG.query.pipelined-execution). Mirrors\neg-stream's `AttrPredicate`, but defined HERE (pure serde, no eg-stream dep) so the\nwire stays Pi-safe; the executor maps it to eg-stream's enum behind eg-plan's\n`stream` gate.",
@@ -5878,6 +6213,25 @@
       ],
       "type": "string"
     },
+    "ControlSetting": {
+      "additionalProperties": false,
+      "description": "One of the three independent controls. Disabled unless a record says so.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "scope": {
+          "default": null,
+          "description": "The authorization scope allowed to request this control. An enabled\ncontrol must name one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "CostBudget": {
       "additionalProperties": false,
       "description": "A currency-denominated ceiling on the selection's declared cost.",
@@ -6402,6 +6756,17 @@
           "$ref": "#/$defs/BoundedVec_TemplateFacts_8",
           "default": [],
           "description": "The graph templates the request named, read at their pinned revisions.\nEmpty asks for a one-agent graph."
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyInputs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a topology question read beside the library: the composed schema\ndigest, the entailed admissibility facts and the capacity headroom."
         }
       },
       "required": [
@@ -6564,6 +6929,50 @@
             "record_id"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Record how an escalation resolved one logged abstention (EH-037).",
+          "properties": {
+            "op": {
+              "const": "resolve",
+              "type": "string"
+            },
+            "resolution": {
+              "$ref": "#/$defs/AbstentionResolution"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "resolution"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One read-only SQL statement over the caller's visible log (EH-066,\n[`super::log_view`]).",
+          "properties": {
+            "op": {
+              "const": "query",
+              "type": "string"
+            },
+            "sql": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "sql"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -6586,6 +6995,17 @@
             },
             "slots": {
               "$ref": "#/$defs/BoundedVec_SlotAssignment_64"
+            },
+            "topology": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TopologyPlan"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The decided widths, rounds, stop rule, leases and allowances, when\nthe request asked a topology question."
             }
           },
           "required": [
@@ -6721,6 +7141,17 @@
             }
           ],
           "default": null
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Topology caps and the per-harness sub-agent opt-in. Absent means the\nengine default ([`super::topology::TopologyPolicy::engine_default`]),\nand keeps an existing policy's digest."
         },
         "unknown_cost": {
           "$ref": "#/$defs/UnknownCostRule"
@@ -6950,6 +7381,69 @@
       "required": [
         "p50_ms",
         "p95_ms"
+      ],
+      "type": "object"
+    },
+    "DeclaredNumber": {
+      "additionalProperties": false,
+      "description": "One named numeric fact of a declared option, already on the `Q32` scale.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "q32": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "q32"
+      ],
+      "type": "object"
+    },
+    "DeclaredOption": {
+      "additionalProperties": false,
+      "description": "One option a caller declares.",
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": [],
+          "description": "Native capability IRIs the option claims; read by `CoverageFraction`."
+        },
+        "numbers": {
+          "$ref": "#/$defs/BoundedVec_DeclaredNumber_32",
+          "default": [],
+          "description": "Sorted by key and unique."
+        },
+        "option_id": {
+          "type": "string"
+        },
+        "texts": {
+          "$ref": "#/$defs/BoundedVec_DeclaredText_8",
+          "default": [],
+          "description": "Sorted by key and unique."
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "type": "object"
+    },
+    "DeclaredText": {
+      "additionalProperties": false,
+      "description": "One named text field of a declared option.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "text"
       ],
       "type": "object"
     },
@@ -8489,6 +8983,71 @@
           "type": "object"
         }
       ]
+    },
+    "EvaluationMetrics": {
+      "additionalProperties": false,
+      "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
+      "properties": {
+        "baseline_task_success_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "gpu_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "latency_p50_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "latency_p95_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "task_success_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trace_completeness_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unsupported_replay_mass_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_success_ppm",
+        "baseline_task_success_ppm",
+        "cost_micros",
+        "latency_p50_ms",
+        "latency_p95_ms",
+        "gpu_seconds",
+        "trace_completeness_ppm",
+        "unsupported_replay_mass_ppm"
+      ],
+      "type": "object"
+    },
+    "EvaluationVerdict": {
+      "description": "The evaluator's decision. Loss movement is diagnostic, never a verdict.",
+      "enum": [
+        "accepted",
+        "rejected"
+      ],
+      "type": "string"
     },
     "EvidenceAddressWire": {
       "description": "DAG-safe wire mirror of `eg_modality::EvidenceAddress`.",
@@ -10888,6 +11447,37 @@
         }
       ]
     },
+    "HeldBlobRef": {
+      "additionalProperties": false,
+      "description": "A Blob-CAS object this record depends on. The engine checks, at commit,\nthat the caller holds a blob with this digest and exact length.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "The Blob CAS digest `BlobCommit` returned."
+        },
+        "elements": {
+          "default": 0,
+          "description": "Element count; `0` for [`ArrayEncoding::Bytes`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encoding": {
+          "$ref": "#/$defs/ArrayEncoding"
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "digest",
+        "length",
+        "encoding"
+      ],
+      "type": "object"
+    },
     "HttpFieldMap": {
       "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
       "properties": {
@@ -11900,6 +12490,90 @@
         }
       ]
     },
+    "KlEstimator": {
+      "description": "The KL estimator a KLPO job uses. Chosen by measured cost; there is no\nplatform default.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "sampled_token",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "top_k",
+              "type": "string"
+            },
+            "k": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "estimator",
+            "k"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "binary",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "full_vocabulary",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "draws": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "estimator": {
+              "const": "monte_carlo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator",
+            "draws"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "KnowledgeResultFamily": {
       "description": "The seven result-producing families sharing the native batch currency.",
       "enum": [
@@ -12511,6 +13185,42 @@
         }
       ]
     },
+    "LeaseDemand": {
+      "additionalProperties": false,
+      "description": "How much of one resource class one agent of a slot needs.",
+      "properties": {
+        "amount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        }
+      },
+      "required": [
+        "class",
+        "amount"
+      ],
+      "type": "object"
+    },
+    "LeasePlan": {
+      "additionalProperties": false,
+      "description": "Every lease the plan needs, acquired all-or-nothing after commit.",
+      "properties": {
+        "per_cell": {
+          "$ref": "#/$defs/BoundedVec_CellLease_8"
+        },
+        "priority": {
+          "$ref": "#/$defs/LeasePriority"
+        }
+      },
+      "required": [
+        "per_cell",
+        "priority"
+      ],
+      "type": "object"
+    },
     "LeasePriority": {
       "description": "The same four priority tiers `resource_priority.py::PriorityClass` defines,\nvendored here (not imported — this crate has no Python interop and must not\ndepend on AU) so a `CapacityLease` carries the identical vocabulary the AU\nscheduler already enforces at the LLM gate. `#[derive(Ord)]` on a fieldless\nenum compares by DECLARATION ORDER, so listing `Interactive` first and\n`BackgroundIngestion` last gives `Interactive < Orchestration < Hydration <\nBackgroundIngestion`, matching `core/cognitive_scheduler.py::SchedulerPriority`'s\n\"lower value = higher priority\" convention. `Orchestration`/`Hydration` are\nNOT equal-priority under this `Ord` (AU's equal LLM-gate WEIGHT for the two\nis a separate lookup table, `_PRIORITY_WEIGHTS`, not an enum-ordinal fact —\nsee `resource_priority.py`); only `may_spend_reserved_floor` below is a\nhard cell-admission rule.",
       "enum": [
@@ -12630,6 +13340,31 @@
     "LogicalName": {
       "description": "Validated graph or native-resource name with no filesystem semantics.",
       "type": "string"
+    },
+    "LogprobSupport": {
+      "additionalProperties": false,
+      "description": "What an endpoint's sampler reports about the tokens it chose.\n\nAttested by the capability probe, never inferred from a provider or host\nname. `top_k == 0` means no alternative-token records are available.",
+      "properties": {
+        "auxiliary_draws": {
+          "default": false,
+          "type": "boolean"
+        },
+        "chosen_token": {
+          "description": "The log-probability of each sampled token. Capture fails closed without it.",
+          "type": "boolean"
+        },
+        "top_k": {
+          "default": 0,
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chosen_token"
+      ],
+      "type": "object"
     },
     "MaintenanceEnvelope": {
       "additionalProperties": false,
@@ -29087,6 +29822,60 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Capture-first open-weight policy evolution: the attested capability,\ntrajectory captures, immutable model-policy versions, external\ntraining-run receipts and held-out evaluation receipts. Every record is\nimmutable and content-addressed in the request graph; each write\nself-translates into exactly one `CreateNodeIfAbsent`. EG records and\nrelates -- it never trains. See [`crate::policy_evolution`].",
+          "properties": {
+            "method": {
+              "const": "PolicyEvolution",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/PolicyEvolutionOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+          "properties": {
+            "method": {
+              "const": "PolicyEvolutionStore",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/StoredPolicyRecord"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -29153,6 +29942,49 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "ModelPolicyVersion": {
+      "additionalProperties": false,
+      "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
+      "properties": {
+        "adapter_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "artifact_ref": {
+          "type": "string"
+        },
+        "checkpoint_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "origin": {
+          "$ref": "#/$defs/VersionOrigin"
+        },
+        "parent_version_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokenizer_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "checkpoint_digest",
+        "tokenizer_digest",
+        "artifact_ref",
+        "origin"
+      ],
       "type": "object"
     },
     "ModelSpec": {
@@ -30966,6 +31798,83 @@
       ],
       "type": "string"
     },
+    "OpenWeightPolicyCapability": {
+      "additionalProperties": false,
+      "description": "`OpenWeightPolicyCapability/v1`: the attested serving endpoint policy\nevolution may use. Endpoint credentials stay in graph-os's secret provider;\n`endpoint_ref` is only its opaque id.",
+      "properties": {
+        "adapter_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "artifact_destination_ref": {
+          "description": "Where a trained artifact is written. Always a NEW artifact: the live\none is never overwritten.",
+          "type": "string"
+        },
+        "base_checkpoint_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "controls": {
+          "$ref": "#/$defs/PolicyControls",
+          "default": {
+            "capture": {
+              "enabled": false,
+              "scope": null
+            },
+            "promote": {
+              "enabled": false,
+              "scope": null
+            },
+            "train": {
+              "enabled": false,
+              "scope": null
+            }
+          }
+        },
+        "decode_params_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "endpoint_ref": {
+          "type": "string"
+        },
+        "logprobs": {
+          "$ref": "#/$defs/LogprobSupport"
+        },
+        "probe_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "Digest of the probe evidence that attested this record."
+        },
+        "probed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "tokenizer_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "provider",
+        "endpoint_ref",
+        "base_checkpoint_digest",
+        "tokenizer_digest",
+        "decode_params_digest",
+        "artifact_destination_ref",
+        "logprobs",
+        "probe_digest",
+        "probed_at_ms"
+      ],
+      "type": "object"
+    },
     "OperationEnvelope": {
       "additionalProperties": false,
       "description": "The verified authority one caller operation was admitted under.",
@@ -31814,6 +32723,395 @@
       ],
       "type": "object"
     },
+    "PolicyCapture": {
+      "additionalProperties": false,
+      "description": "`PolicyCapture/v1`.",
+      "properties": {
+        "action_mask": {
+          "$ref": "#/$defs/HeldBlobRef"
+        },
+        "auxiliary_draws": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "capability_id": {
+          "description": "The attested capability the sampler ran under; its `capture` control\nmust be enabled.",
+          "type": "string"
+        },
+        "captured_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "completion": {
+          "$ref": "#/$defs/CaptureCompletion"
+        },
+        "log_q": {
+          "$ref": "#/$defs/HeldBlobRef",
+          "description": "Frozen chosen-token log-probabilities, one per policy token."
+        },
+        "policy_token_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "reward": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RewardRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sampler_top_k": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sampler_version_id": {
+          "description": "The exact behaviour-policy version that sampled every policy token.",
+          "type": "string"
+        },
+        "token_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "token_ids": {
+          "$ref": "#/$defs/HeldBlobRef"
+        },
+        "trace_fidelity": {
+          "$ref": "#/$defs/CaptureTraceFidelity"
+        },
+        "trajectory_id": {
+          "description": "The durable `:Trajectory` in the request graph (`StartTrajectory`).",
+          "type": "string"
+        },
+        "trajectory_steps": {
+          "description": "The trajectory's step count at capture. Later appends never change\nwhat this capture describes.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "capability_id",
+        "sampler_version_id",
+        "trajectory_id",
+        "trajectory_steps",
+        "completion",
+        "token_count",
+        "policy_token_count",
+        "token_ids",
+        "log_q",
+        "action_mask",
+        "purpose",
+        "trace_fidelity",
+        "captured_at_ms"
+      ],
+      "type": "object"
+    },
+    "PolicyControls": {
+      "additionalProperties": false,
+      "description": "`capture`, `train` and `promote` are independent: enabling one never\nimplies another. All three default to off.",
+      "properties": {
+        "capture": {
+          "$ref": "#/$defs/ControlSetting",
+          "default": {
+            "enabled": false,
+            "scope": null
+          }
+        },
+        "promote": {
+          "$ref": "#/$defs/ControlSetting",
+          "default": {
+            "enabled": false,
+            "scope": null
+          }
+        },
+        "train": {
+          "$ref": "#/$defs/ControlSetting",
+          "default": {
+            "enabled": false,
+            "scope": null
+          }
+        }
+      },
+      "type": "object"
+    },
+    "PolicyEvaluation": {
+      "additionalProperties": false,
+      "description": "`PolicyEvaluation/v1`: an independent held-out evaluation of one version.",
+      "properties": {
+        "baseline_version_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evaluation_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "evaluator_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "metrics": {
+          "$ref": "#/$defs/EvaluationMetrics"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "safety": {
+          "$ref": "#/$defs/SafetyOutcome"
+        },
+        "verdict": {
+          "$ref": "#/$defs/EvaluationVerdict"
+        },
+        "version_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_id",
+        "evaluation_set_digest",
+        "evaluator_digest",
+        "metrics",
+        "safety",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "PolicyEvolutionOp": {
+      "description": "Every policy-evolution operation. The read/write split and the\nauthorization action live on the op, so the capability ledger and the\nserver's write classifier cannot disagree about an operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`PolicyCapabilityPut`: record one attested capability.",
+          "properties": {
+            "op": {
+              "const": "put_capability",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/OpenWeightPolicyCapability"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PolicyCaptureCommit`: record one terminal trajectory capture.",
+          "properties": {
+            "op": {
+              "const": "commit_capture",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/PolicyCapture"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`ModelPolicyVersionRegister`: register one immutable version identity.",
+          "properties": {
+            "op": {
+              "const": "register_model_policy_version",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ModelPolicyVersion"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`TrainingRunCommit`: record one external training run receipt.",
+          "properties": {
+            "op": {
+              "const": "commit_training_run",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/TrainingRun"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PolicyEvaluationCommit`: record one held-out evaluation receipt.",
+          "properties": {
+            "op": {
+              "const": "commit_policy_evaluation",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/PolicyEvaluation"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PolicyRecordGet`: read one record, re-verified against its id.",
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/PolicyRecordGetRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PolicyEvolutionRecord": {
+      "description": "One stored record, tagged by kind.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "capability",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/OpenWeightPolicyCapability"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "capture",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/PolicyCapture"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "model_policy_version",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/ModelPolicyVersion"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "training_run",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/TrainingRun"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "policy_evaluation",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/PolicyEvaluation"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "PolicyRecord": {
       "description": "Policy rows carry an opaque subject-set digest, never raw principals.",
       "properties": {
@@ -31855,6 +33153,19 @@
         "classification",
         "policy_version",
         "subject_set_digest"
+      ],
+      "type": "object"
+    },
+    "PolicyRecordGetRequest": {
+      "additionalProperties": false,
+      "description": "Read one record by id.",
+      "properties": {
+        "record_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id"
       ],
       "type": "object"
     },
@@ -32362,6 +33673,52 @@
           "required": [
             "provenance",
             "field"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A keyed graph schema source, at the composed schema digest the fact\nwas entailed under (swarm-topology admissibility).",
+          "properties": {
+            "provenance": {
+              "const": "schema_source",
+              "type": "string"
+            },
+            "schema_digest": {
+              "type": "string"
+            },
+            "source_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "source_key",
+            "schema_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A live capacity cell read at an epoch (swarm-topology headroom).",
+          "properties": {
+            "cell_id": {
+              "type": "string"
+            },
+            "epoch": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "provenance": {
+              "const": "capacity_cell",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "cell_id",
+            "epoch"
           ],
           "type": "object"
         }
@@ -33814,6 +35171,33 @@
       ],
       "type": "string"
     },
+    "ResourceObservation": {
+      "additionalProperties": false,
+      "description": "Observed resource use of one run.",
+      "properties": {
+        "gpu_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "peak_memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wall_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "wall_ms",
+        "gpu_seconds",
+        "peak_memory_bytes"
+      ],
+      "type": "object"
+    },
     "ResourceRequirement": {
       "additionalProperties": false,
       "properties": {
@@ -34266,6 +35650,41 @@
       ],
       "type": "object"
     },
+    "RewardEvidenceSource": {
+      "description": "Where a reward's evidence came from. `self_reported` is the acting\nagent's own claim: kept as evidence, never trained on.",
+      "enum": [
+        "independent_verifier",
+        "rubric",
+        "self_reported"
+      ],
+      "type": "string"
+    },
+    "RewardRecord": {
+      "additionalProperties": false,
+      "description": "The terminal reward and the verifier that produced it. Micros, never a\nfloat, so the record digest is exact.",
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/RewardEvidenceSource"
+        },
+        "value_micros": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "verifier_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "verifier_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value_micros",
+        "verifier_id",
+        "verifier_digest",
+        "evidence"
+      ],
+      "type": "object"
+    },
     "RewindTarget": {
       "description": "Where a rewind puts the consumer's cursor.",
       "oneOf": [
@@ -34496,8 +35915,24 @@
       ],
       "type": "object"
     },
+    "SafetyOutcome": {
+      "description": "Whether the safety policy passed on the frozen set.",
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "type": "string"
+    },
     "Scalar": {
       "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
+      "type": "string"
+    },
+    "SchemaAuthority": {
+      "description": "Who attached the schema source an admissibility fact was entailed under.\nAn admin-attached vocabulary is a DEFINITION premise; a pack-attached one\nis a CLAIM (SWARM-TOPOLOGY-DECIDE-DESIGN §4).",
+      "enum": [
+        "admin",
+        "pack"
+      ],
       "type": "string"
     },
     "ScopeTenantId": {
@@ -37655,6 +39090,123 @@
       ],
       "type": "object"
     },
+    "SlotPlan": {
+      "additionalProperties": false,
+      "description": "One slot's decided width and rounds.",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "rounds": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "description": "The slot's declared tokens at this width and rounds, when declared;\nthe runtime admission's token ceiling is their sum.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "width",
+        "rounds"
+      ],
+      "type": "object"
+    },
+    "SlotRole": {
+      "description": "What one slot does in the topology. Closed, because the model rows act on\nit: a `Verifier` satisfies the `verify` row, a `Child` slot is the fan-out\nslot `demand` sizes, and a `Peer` slot repeats for rounds.",
+      "enum": [
+        "parent",
+        "child",
+        "peer",
+        "aggregator",
+        "verifier"
+      ],
+      "type": "string"
+    },
+    "SlotTopology": {
+      "additionalProperties": false,
+      "description": "The topology facts of one template slot (one `Agent` node).",
+      "properties": {
+        "harness": {
+          "description": "The L4 harness the slot's agent runs on, when it runs on one. Recorded\nas a slot fact so the plan can derive its sub-agent allowance.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lease": {
+          "$ref": "#/$defs/BoundedVec_LeaseDemand_6",
+          "default": [],
+          "description": "Per-agent lease, one entry per resource class."
+        },
+        "max_rounds": {
+          "description": "`1` for a slot that runs once.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "description": "The template `Agent` node this slot is.",
+          "type": "string"
+        },
+        "p95_ms": {
+          "description": "Declared p95 of one agent turn of this slot. Unknown is never zero: a\ndeadline over a slot without one abstains with `UnknownFact`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "role": {
+          "$ref": "#/$defs/SlotRole"
+        },
+        "tokens": {
+          "description": "Declared tokens one agent turn spends.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "node_id",
+        "role",
+        "min_width",
+        "max_width",
+        "max_rounds"
+      ],
+      "type": "object"
+    },
     "SolveModelSpec": {
       "additionalProperties": false,
       "description": "A complete 0-1 integer programme: binary variables, labelled constraints and\na lexicographic objective whose first level is the most significant.",
@@ -39293,6 +40845,135 @@
       ],
       "type": "object"
     },
+    "StopRule": {
+      "description": "When a running topology stops. Evaluating it is execution, not decision.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "n": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rule": {
+              "const": "max_rounds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule",
+            "n"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "k": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "n": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rule": {
+              "const": "quorum",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule",
+            "k",
+            "n"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "max_rounds": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rule": {
+              "const": "verifier_pass",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule",
+            "max_rounds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "rule": {
+              "const": "budget",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "rule": {
+              "const": "deadline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StoredPolicyRecord": {
+      "additionalProperties": false,
+      "description": "One admitted record, stamped by the engine from the verified request\ncontext. Carried by the internal `PolicyEvolutionStore` method so the\nkernel write -- and its raft replay -- is fully determined by the method.",
+      "properties": {
+        "record": {
+          "$ref": "#/$defs/PolicyEvolutionRecord"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recorded_by": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id",
+        "tenant_id",
+        "recorded_by",
+        "recorded_at_ms",
+        "record"
+      ],
+      "type": "object"
+    },
     "StructuralEquationWire": {
       "description": "Wire mirror of `eg_epistemic::StructuralEquation` (EPI-P3-3), keyed by the\nvariable `id` it defines — one entry of `Method::CausalEstimate::variables`.\n`parents` MUST name only ids that appear EARLIER in that same list (parents\nbefore children), mirroring `eg_epistemic::CausalGraph::add_variable`'s own\ntopological-order invariant; the handler surfaces a violation as an explicit\nerror, never a panic.",
       "properties": {
@@ -39334,6 +41015,87 @@
         "noise_var"
       ],
       "type": "object"
+    },
+    "SubagentAllowance": {
+      "additionalProperties": false,
+      "description": "The sub-agent allowance of one harness node, derived by the plan. The\nharness improvises only inside it.",
+      "properties": {
+        "fallback": {
+          "$ref": "#/$defs/SubagentFallback"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "max_children": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_depth": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "The node's share of the plan's token ceiling, when there is one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "node_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "harness",
+        "max_children",
+        "max_depth",
+        "fallback"
+      ],
+      "type": "object"
+    },
+    "SubagentFallback": {
+      "description": "What a harness that cannot enforce a child count does with its native\nsub-agents (operator ruling 2026-09-24, Q1): disabled by default; a\nper-harness policy opt-in allows them under a token budget instead.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fallback": {
+              "const": "disabled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "fallback"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fallback": {
+              "const": "token_budget",
+              "type": "string"
+            },
+            "max_tokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fallback",
+            "max_tokens"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SubgraphAlgorithm": {
       "description": "Which algorithm `MineSubgraph` runs (CONCEPT:EG-KG.mining.gspan-frequent-subgraph\n— Phase 4). `gspan` is the default (labeled frequent-subgraph patterns);\n`motif` is a label-agnostic topological census.",
@@ -39597,6 +41359,17 @@
         },
         "shape": {
           "$ref": "#/$defs/AgentGraphShape"
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyFacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The template's published topology facts, when it declares them."
         }
       },
       "required": [
@@ -39928,6 +41701,237 @@
         }
       ]
     },
+    "TopologyAdmission": {
+      "additionalProperties": false,
+      "description": "One entailed admissibility fact: `task_class` admits `topology_class`\nthrough the named restriction class of the attached schema. `axioms` are\nthe proof's axioms (bounded), so `OwlExplain(task_class, admit_class)`\nre-checks it.",
+      "properties": {
+        "admit_class": {
+          "type": "string"
+        },
+        "authority": {
+          "$ref": "#/$defs/SchemaAuthority"
+        },
+        "axioms": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": []
+        },
+        "source_key": {
+          "description": "The schema source key the restriction class came from.",
+          "type": "string"
+        },
+        "task_class": {
+          "type": "string"
+        },
+        "topology_class": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_class",
+        "topology_class",
+        "admit_class",
+        "source_key",
+        "authority"
+      ],
+      "type": "object"
+    },
+    "TopologyCaps": {
+      "additionalProperties": false,
+      "description": "A request's (or a policy's) caps on the shape. A request may only tighten\nthe policy's caps.",
+      "properties": {
+        "max_depth": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_rounds": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Ceiling on the declared tokens the whole plan may spend.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_width",
+        "max_depth",
+        "max_rounds"
+      ],
+      "type": "object"
+    },
+    "TopologyFacts": {
+      "additionalProperties": false,
+      "description": "The topology facts a published graph template carries. Inside its\ndefinition digest, so pinning a template pins its topology too.",
+      "properties": {
+        "class_iri": {
+          "description": "The template's topology class IRI, a class of the attached schema.",
+          "type": "string"
+        },
+        "depth": {
+          "description": "Nesting depth of the template (1 = no nested graph).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slots": {
+          "$ref": "#/$defs/BoundedVec_SlotTopology_6"
+        },
+        "stop": {
+          "$ref": "#/$defs/StopRule"
+        }
+      },
+      "required": [
+        "class_iri",
+        "depth",
+        "slots",
+        "stop"
+      ],
+      "type": "object"
+    },
+    "TopologyInputs": {
+      "additionalProperties": false,
+      "description": "What a topology question read beside the library, recorded in the inputs\nso replay reads the same facts.",
+      "properties": {
+        "admissions": {
+          "$ref": "#/$defs/BoundedVec_TopologyAdmission_64",
+          "default": [],
+          "description": "Every entailed admissibility fact, sorted."
+        },
+        "headroom": {
+          "$ref": "#/$defs/BoundedVec_CapacityHeadroom_8",
+          "default": [],
+          "description": "Headroom of every requested cell, in request order."
+        },
+        "schema_digest": {
+          "description": "Composed digest of the request graph's schema sources the\nadmissibility facts were entailed under.",
+          "type": "string"
+        },
+        "verify_required_by": {
+          "$ref": "#/$defs/BoundedVec_string_8",
+          "default": [],
+          "description": "Task classes entailed to need an independent check (a verifier slot)."
+        }
+      },
+      "required": [
+        "schema_digest"
+      ],
+      "type": "object"
+    },
+    "TopologyPlan": {
+      "additionalProperties": false,
+      "description": "The decided topology, carried in a `Solved` outcome.",
+      "properties": {
+        "allowances": {
+          "$ref": "#/$defs/BoundedVec_SubagentAllowance_6",
+          "default": []
+        },
+        "class_iri": {
+          "type": "string"
+        },
+        "lease": {
+          "$ref": "#/$defs/LeasePlan"
+        },
+        "makespan_ms": {
+          "description": "Declared makespan bound: slots taken as sequential, an upper bound for\nany parallel branch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "slots": {
+          "$ref": "#/$defs/BoundedVec_SlotPlan_6"
+        },
+        "stop": {
+          "$ref": "#/$defs/StopRule"
+        }
+      },
+      "required": [
+        "class_iri",
+        "slots",
+        "stop",
+        "lease"
+      ],
+      "type": "object"
+    },
+    "TopologyPolicy": {
+      "additionalProperties": false,
+      "description": "A decision policy's topology section: the caps a request may only tighten\nand the harnesses whose native sub-agents may run under a token budget\nwhen they cannot enforce a child count (operator ruling 2026-09-24, Q1).\nThere is no exploration budget: width and rounds are never explored until\nthe synthetic benchmark shows width buys quality (Q2).",
+      "properties": {
+        "caps": {
+          "$ref": "#/$defs/TopologyCaps"
+        },
+        "token_budget_harnesses": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": []
+        }
+      },
+      "required": [
+        "caps"
+      ],
+      "type": "object"
+    },
+    "TopologyRequirements": {
+      "additionalProperties": false,
+      "description": "What a topology request asks for, beside the assembly's own requirements.",
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/CapacityScope"
+        },
+        "caps": {
+          "$ref": "#/$defs/TopologyCaps"
+        },
+        "deadline_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "per_agent_subtasks": {
+          "description": "Subtasks one agent handles; `demand` needs `width ≥ ⌈subtasks/this⌉`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subtasks": {
+          "description": "Independent subtasks the fan-out slot has to cover.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "task_classes": {
+          "$ref": "#/$defs/BoundedVec_string_8",
+          "description": "Task-shape class IRIs (`swarm:IndependentSubtasks`, ...). Admissibility\nof a template's class is entailed from these under the attached schema."
+        }
+      },
+      "required": [
+        "task_classes",
+        "subtasks",
+        "per_agent_subtasks",
+        "caps",
+        "capacity"
+      ],
+      "type": "object"
+    },
     "TraceFidelity": {
       "description": "How complete the recorded trace is.",
       "oneOf": [
@@ -39973,6 +41977,197 @@
         "final_output"
       ],
       "type": "string"
+    },
+    "TrainingMethod": {
+      "description": "The external optimisation method. KLPO is one option beside the existing\nGRPO/DPO/SFT choices.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "sft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "dpo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "grpo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "$ref": "#/$defs/KlEstimator"
+            },
+            "method": {
+              "const": "klpo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "estimator"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TrainingOutput": {
+      "additionalProperties": false,
+      "description": "The new artifact a succeeded run produced.",
+      "properties": {
+        "artifact_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "artifact_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "artifact_ref"
+      ],
+      "type": "object"
+    },
+    "TrainingRun": {
+      "additionalProperties": false,
+      "description": "`TrainingRun/v1`: the receipt of one external training job. EG records it;\nit never optimises weights.",
+      "properties": {
+        "adapter": {
+          "$ref": "#/$defs/AdapterSpec"
+        },
+        "base_version_id": {
+          "type": "string"
+        },
+        "capability_id": {
+          "type": "string"
+        },
+        "hyperparameters_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "input_capture_ids": {
+          "$ref": "#/$defs/BoundedVec_string_256"
+        },
+        "log": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "method": {
+          "$ref": "#/$defs/TrainingMethod"
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceObservation",
+          "default": {
+            "gpu_seconds": 0,
+            "peak_memory_bytes": 0,
+            "wall_ms": 0
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/TrainingRunStatus"
+        },
+        "trainer_image_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "work_item_id": {
+          "description": "The native WorkItem that owned the attempt.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_id",
+        "work_item_id",
+        "base_version_id",
+        "input_capture_ids",
+        "method",
+        "adapter",
+        "trainer_image_digest",
+        "hyperparameters_digest",
+        "status"
+      ],
+      "type": "object"
+    },
+    "TrainingRunStatus": {
+      "description": "Terminal status. Only a succeeded run carries an output, so a failed or\ncancelled run has nothing a version could name.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "output": {
+              "$ref": "#/$defs/TrainingOutput"
+            },
+            "status": {
+              "const": "succeeded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "output"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "TransactionSource": {
       "description": "A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).\n\nEach node carrying `node_label` becomes one \"basket owner\"; the basket is the set\nof `item_field` values gathered from its neighbors (following edges in\n`direction`), optionally filtered to a `relation`. This turns node neighborhoods\ninto transactions so mining runs directly over resident graph data — the\ncross-modal hook (e.g. \"for each :Capability, the set of concepts it touches\" =\none transaction ⇒ concept-co-occurrence rules).",
@@ -40294,6 +42489,43 @@
           "const": "unversioned",
           "description": "Valid only for a capability-bearing reserved-system operation.",
           "type": "string"
+        }
+      ]
+    },
+    "VersionOrigin": {
+      "description": "How a model-policy version came to exist.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A served base checkpoint (optionally with an existing adapter).",
+          "properties": {
+            "origin": {
+              "const": "base",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The output of one succeeded training run.",
+          "properties": {
+            "origin": {
+              "const": "trained",
+              "type": "string"
+            },
+            "training_run_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "training_run_id"
+          ],
+          "type": "object"
         }
       ]
     },

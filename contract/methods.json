@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 437,
+  "method_count": 439,
   "methods": [
     {
       "consumer_profiles": [
@@ -8754,6 +8754,14 @@
             "dynamic": null,
             "encoding": "Raw"
           },
+          "query": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "resolve": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "verify": {
             "dynamic": null,
             "encoding": "Raw"
@@ -9783,6 +9791,118 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.graph.json#/methods/SceneChildren",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "graph",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "PolicyEvolution",
+      "note": "EH-346/EH-347 capture-first policy evolution, runtime-conditional: get is a snapshot read (policy:read); put_capability / commit_capture / register_model_policy_version / commit_training_run / commit_policy_evaluation each self-translate into ONE CreateNodeIfAbsent of an immutable content-addressed record in the request graph. The row names the capture leg; PolicyEvolutionOp::authz_action is the authority for each operation (the other writes are admin: gated)",
+      "policy": {
+        "audited": true,
+        "authz_action": "policy:capture-write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/PolicyEvolution"
+      },
+      "result_schema": {
+        "bodies": {
+          "commit_capture": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "commit_policy_evaluation": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "commit_training_run": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "get": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "put_capability": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "register_model_policy_version": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/PolicyEvolution",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "graph",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "PolicyEvolutionStore",
+      "note": "EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer",
+      "policy": {
+        "audited": true,
+        "authz_action": "admin:policy-evolution-store",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/PolicyEvolutionStore"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/PolicyEvolutionStore",
         "selected_by": null
       },
       "stability": "internal"

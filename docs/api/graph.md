@@ -1,6 +1,6 @@
 # Graph API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.graph.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 64 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.graph.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 66 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AddEdge`
 
@@ -1436,6 +1436,79 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Node
 | `result` | integer (uint64) | Count |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/OutDegree`, `contract/schemas/result.graph.json#/methods/OutDegree`.
+
+## `PolicyEvolution`
+
+EH-346/EH-347 capture-first policy evolution, runtime-conditional: get is a snapshot read (policy:read); put_capability / commit_capture / register_model_policy_version / commit_training_run / commit_policy_evaluation each self-translate into ONE CreateNodeIfAbsent of an immutable content-addressed record in the request graph. The row names the capture leg; PolicyEvolutionOp::authz_action is the authority for each operation (the other writes are admin: gated)
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `policy:capture-write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `true` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `PolicyEvolutionOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `commit_capture` | `PolicyRecordReceipt` | Raw |  |
+| `commit_policy_evaluation` | `PolicyRecordReceipt` | Raw |  |
+| `commit_training_run` | `PolicyRecordReceipt` | Raw |  |
+| `get` | one of: `PolicyRecordView` \| null | Raw |  |
+| `put_capability` | `PolicyRecordReceipt` | Raw |  |
+| `register_model_policy_version` | `PolicyRecordReceipt` | Raw |  |
+
+> Multi-body result: the `op` request field selects which body above is returned.
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/PolicyEvolution`, `contract/schemas/result.graph.json#/methods/PolicyEvolution`.
+
+## `PolicyEvolutionStore`
+
+EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer
+
+| Property | Value |
+|---|---|
+| Stability | `internal` |
+| Authz action | `admin:policy-evolution-store` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles |  |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `StoredPolicyRecord` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `PolicyRecordStored` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/PolicyEvolutionStore`, `contract/schemas/result.graph.json#/methods/PolicyEvolutionStore`.
 
 ## `PruneByLifecycle`
 

@@ -104,12 +104,54 @@ AbstainReason = Annotated[
 ]
 
 
+class AbstentionResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    option_id: str
+    record_id: str
+    resolution_id: str
+    resolver: AbstentionResolver
+
+
+class AbstentionResolverHuman(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    resolver: Literal["human"]
+
+
+class AbstentionResolverModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    producer: str
+    prompt_digest: str | None = None
+    resolver: Literal["model"]
+
+
+AbstentionResolver = Annotated[
+    AbstentionResolverHuman | AbstentionResolverModel,
+    Field(discriminator="resolver"),
+]
+
+
 class AdamResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     m: list[float]
     params: list[float]
     v: list[float]
+
+
+class AdapterSpecLora(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter: Literal["lora"]
+    rank: Annotated[int, Field(ge=0, le=65535)]
+
+
+AdapterSpec = Annotated[
+    AdapterSpecLora,
+    Field(discriminator="adapter"),
+]
 
 
 class AdfResult(BaseModel):
@@ -425,6 +467,7 @@ class AgentGraphDraft(BaseModel):
     shape: AgentGraphShape
     synthesis_evidence: ComponentDependency | None = None
     tenant_id: str
+    topology: TopologyFacts | None = None
     version: str
 
 
@@ -453,6 +496,7 @@ class AgentGraphEntry(BaseModel):
     shape_digest: str
     synthesis_evidence: ComponentDependency | None = None
     tenant_id: str
+    topology: TopologyFacts | None = None
     updated_at_ms: Annotated[int, Field(ge=0)]
     version: str
 
@@ -1058,6 +1102,13 @@ class AnomalyRow(BaseModel):
     is_anomaly: bool
 
 
+class ArrayEncoding(str, Enum):
+    U32_LE = "u32_le"
+    F32_LE = "f32_le"
+    U8_MASK = "u8_mask"
+    BYTES = "bytes"
+
+
 class AsrOpTranscribeFile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1128,6 +1179,7 @@ class AssemblyRequirements(BaseModel):
     pins: BoundedVec_ComponentDependency_64 = Field(default_factory=list)
     task_mappings: BoundedVec_ClaimedTaskMapping_32 = Field(default_factory=list)
     tasks: BoundedVec_string_32 = Field(default_factory=list)
+    topology: TopologyRequirements | None = None
     unmapped_task_digests: BoundedVec_string_32 = Field(default_factory=list)
 
 
@@ -1349,8 +1401,15 @@ class CandidateSourceGraph(BaseModel):
     source: Literal["graph"]
 
 
+class CandidateSourceDeclared(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    options: BoundedVec_DeclaredOption_64
+    source: Literal["declared"]
+
+
 CandidateSource = Annotated[
-    CandidateSourceAgentLibrary | CandidateSourceGraph,
+    CandidateSourceAgentLibrary | CandidateSourceGraph | CandidateSourceDeclared,
     Field(discriminator="source"),
 ]
 
@@ -1370,8 +1429,17 @@ class CandidateSourceRecordGraph(BaseModel):
     source: Literal["graph"]
 
 
+class CandidateSourceRecordDeclared(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    options_digest: str
+    source: Literal["declared"]
+
+
 CandidateSourceRecord = Annotated[
-    CandidateSourceRecordAgentLibrary | CandidateSourceRecordGraph,
+    CandidateSourceRecordAgentLibrary
+    | CandidateSourceRecordGraph
+    | CandidateSourceRecordDeclared,
     Field(discriminator="source"),
 ]
 
@@ -1475,6 +1543,15 @@ class CapacityDemand(BaseModel):
     resource_class: CapacityResourceClass
 
 
+class CapacityHeadroom(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    available: Annotated[int, Field(ge=0)]
+    cell_id: str
+    class_: CapacityResourceClass = Field(..., alias="class")
+    epoch: Annotated[int, Field(ge=0)]
+
+
 class CapacityLease(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1556,6 +1633,13 @@ class CapacityResourceClass(str, Enum):
     BROKER = "broker"
 
 
+class CapacityScope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cells: BoundedVec_string_8
+    priority: LeasePriority
+
+
 class CapacityStatusRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1574,6 +1658,24 @@ class CapacityStatusResult(BaseModel):
     leases: list[CapacityLease]
     next_cursor: str | None = None
     schema_version: NativeControlSchemaVersion
+
+
+class CaptureCompletion(str, Enum):
+    TERMINAL = "terminal"
+    TRUNCATED = "truncated"
+    ABORTED = "aborted"
+
+
+class CaptureEligibility(str, Enum):
+    ELIGIBLE = "eligible"
+    NOT_TERMINAL = "not_terminal"
+    NO_REWARD = "no_reward"
+    UNVERIFIED_REWARD = "unverified_reward"
+
+
+class CaptureTraceFidelity(str, Enum):
+    FULL = "full"
+    REDACTED = "redacted"
 
 
 class CasWorkItemMetadataLeaseFence(BaseModel):
@@ -1715,6 +1817,14 @@ class CdcReadResult(BaseModel):
     gap: bool
     head_seq: Annotated[int, Field(ge=0)]
     watermark: Annotated[int, Field(ge=0)]
+
+
+class CellLease(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount: Annotated[int, Field(ge=0)]
+    cell_id: str
+    class_: CapacityResourceClass = Field(..., alias="class")
 
 
 class CepAttrPredSpecEq(BaseModel):
@@ -2809,6 +2919,13 @@ class ControlLeaseView(BaseModel):
     status: ControlLeaseStatus
 
 
+class ControlSetting(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    enabled: bool | None = None
+    scope: str | None = None
+
+
 class ConvergenceGate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -3096,6 +3213,7 @@ class DecisionInputs(BaseModel):
     request: AssemblyRequest
     solver: SolverIdentity
     templates: BoundedVec_TemplateFacts_8 = Field(default_factory=list)
+    topology: TopologyInputs | None = None
 
 
 class DecisionJobKind(str, Enum):
@@ -3265,15 +3383,41 @@ class DecisionLogOpVerify(BaseModel):
     tenant_id: str
 
 
+class DecisionLogOpResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["resolve"]
+    resolution: AbstentionResolution
+    tenant_id: str
+
+
+class DecisionLogOpQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["query"]
+    sql: str
+    tenant_id: str
+
+
 DecisionLogOp = Annotated[
     DecisionLogOpCommit
     | DecisionLogOpEvaluate
     | DecisionLogOpGet
     | DecisionLogOpAggregate
     | DecisionLogOpCompact
-    | DecisionLogOpVerify,
+    | DecisionLogOpVerify
+    | DecisionLogOpResolve
+    | DecisionLogOpQuery,
     Field(discriminator="op"),
 ]
+
+
+class DecisionLogRows(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: BoundedVec_string_64
+    rows: BoundedVec_BoundedVec_ViewCell_64_10000
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
 
 
 class DecisionLogVerificationVerified(BaseModel):
@@ -3304,6 +3448,7 @@ class DecisionOutcomeSolved(BaseModel):
     graph_digest: str
     outcome: Literal["solved"]
     slots: BoundedVec_SlotAssignment_64
+    topology: TopologyPlan | None = None
 
 
 class DecisionOutcomeAbstained(BaseModel):
@@ -3345,6 +3490,7 @@ class DecisionPolicy(BaseModel):
     objective: ObjectiveOrder
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     statistical: StatisticalPolicy | None = None
+    topology: TopologyPolicy | None = None
     unknown_cost: UnknownCostRule
 
 
@@ -3415,6 +3561,29 @@ class DeclaredLatency(BaseModel):
 
     p50_ms: Annotated[int, Field(ge=0)]
     p95_ms: Annotated[int, Field(ge=0)]
+
+
+class DeclaredNumber(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key: str
+    q32: int
+
+
+class DeclaredOption(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    classification: BoundedVec_string_16 = Field(default_factory=list)
+    numbers: BoundedVec_DeclaredNumber_32 = Field(default_factory=list)
+    option_id: str
+    texts: BoundedVec_DeclaredText_8 = Field(default_factory=list)
+
+
+class DeclaredText(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key: str
+    text: str
 
 
 class DelegationTargetAgent(BaseModel):
@@ -4404,6 +4573,24 @@ EvalCandidate = Annotated[
     EvalCandidateDraftArtifact | EvalCandidatePublishedHead,
     Field(discriminator="candidate"),
 ]
+
+
+class EvaluationMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    baseline_task_success_ppm: Annotated[int, Field(ge=0)]
+    cost_micros: Annotated[int, Field(ge=0)]
+    gpu_seconds: Annotated[int, Field(ge=0)]
+    latency_p50_ms: Annotated[int, Field(ge=0)]
+    latency_p95_ms: Annotated[int, Field(ge=0)]
+    task_success_ppm: Annotated[int, Field(ge=0)]
+    trace_completeness_ppm: Annotated[int, Field(ge=0)]
+    unsupported_replay_mass_ppm: Annotated[int, Field(ge=0)]
+
+
+class EvaluationVerdict(str, Enum):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
 
 
 class EvidenceAddressWireCharacterRange(BaseModel):
@@ -5737,6 +5924,15 @@ class HealthReport(BaseModel):
     version: str
 
 
+class HeldBlobRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: Digest256
+    elements: Annotated[int, Field(ge=0)] | None = None
+    encoding: ArrayEncoding
+    length: Annotated[int, Field(ge=0)]
+
+
 class HttpFieldMap(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6365,6 +6561,48 @@ class KgDelegateSchemaVersion(str, Enum):
     V_2 = "2"
 
 
+class KlEstimatorSampledToken(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["sampled_token"]
+
+
+class KlEstimatorTopK(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["top_k"]
+    k: Annotated[int, Field(ge=0, le=65535)]
+
+
+class KlEstimatorBinary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["binary"]
+
+
+class KlEstimatorFullVocabulary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["full_vocabulary"]
+
+
+class KlEstimatorMonteCarlo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    draws: Annotated[int, Field(ge=0, le=65535)]
+    estimator: Literal["monte_carlo"]
+
+
+KlEstimator = Annotated[
+    KlEstimatorSampledToken
+    | KlEstimatorTopK
+    | KlEstimatorBinary
+    | KlEstimatorFullVocabulary
+    | KlEstimatorMonteCarlo,
+    Field(discriminator="estimator"),
+]
+
+
 class KnowledgeResultFamily(str, Enum):
     GRAPH = "graph"
     SQL = "sql"
@@ -6599,6 +6837,20 @@ class LeafProofInfeasibleBody(BaseModel):
     dual: LagrangeDual
 
 
+class LeaseDemand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    amount: Annotated[int, Field(ge=0)]
+    class_: CapacityResourceClass = Field(..., alias="class")
+
+
+class LeasePlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    per_cell: BoundedVec_CellLease_8
+    priority: LeasePriority
+
+
 class LeasePriority(str, Enum):
     INTERACTIVE = "interactive"
     ORCHESTRATION = "orchestration"
@@ -6685,6 +6937,14 @@ class LoadReport(BaseModel):
 
     multivalue: Annotated[int, Field(ge=0)]
     triples: Annotated[int, Field(ge=0)]
+
+
+class LogprobSupport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    auxiliary_draws: bool | None = None
+    chosen_token: bool
+    top_k: Annotated[int, Field(ge=0, le=65535)] | None = None
 
 
 class MaintenanceEnvelope(BaseModel):
@@ -9799,6 +10059,20 @@ class MethodGetControlLease(BaseModel):
     params: MethodGetControlLeaseParams
 
 
+class MethodPolicyEvolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PolicyEvolution"]
+    params: MethodPolicyEvolutionParams
+
+
+class MethodPolicyEvolutionStore(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PolicyEvolutionStore"]
+    params: MethodPolicyEvolutionStoreParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -10236,7 +10510,9 @@ Method = Annotated[
     | MethodGetWorkItemOutcome
     | MethodIssueControlLease
     | MethodTransitionControlLease
-    | MethodGetControlLease,
+    | MethodGetControlLease
+    | MethodPolicyEvolution
+    | MethodPolicyEvolutionStore,
     Field(discriminator="method"),
 ]
 
@@ -12493,6 +12769,18 @@ class MethodPlanMatViewRefreshParams(BaseModel):
     name: str
 
 
+class MethodPolicyEvolutionParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: PolicyEvolutionOp
+
+
+class MethodPolicyEvolutionStoreParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: StoredPolicyRecord
+
+
 class MethodPruneByLifecycleParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13407,6 +13695,17 @@ class ModalityFacts(BaseModel):
     output: list[str] = Field(default_factory=list)
 
 
+class ModelPolicyVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter_digest: Digest256 | None = None
+    artifact_ref: str
+    checkpoint_digest: Digest256
+    origin: VersionOrigin
+    parent_version_id: str | None = None
+    tokenizer_digest: Digest256
+
+
 class ModelSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14267,6 +14566,22 @@ class OpeEstimatorKind(str, Enum):
     DOUBLY_ROBUST = "doubly_robust"
 
 
+class OpenWeightPolicyCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter_digest: Digest256 | None = None
+    artifact_destination_ref: str
+    base_checkpoint_digest: Digest256
+    controls: PolicyControls | None = None
+    decode_params_digest: Digest256
+    endpoint_ref: str
+    logprobs: LogprobSupport
+    probe_digest: Digest256
+    probed_at_ms: Annotated[int, Field(ge=0)]
+    provider: str
+    tokenizer_digest: Digest256
+
+
 class OperationEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15026,6 +15341,146 @@ class Plan(BaseModel):
     ops: list[Op]
 
 
+class PolicyCapture(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    action_mask: HeldBlobRef
+    auxiliary_draws: HeldBlobRef | None = None
+    capability_id: str
+    captured_at_ms: Annotated[int, Field(ge=0)]
+    completion: CaptureCompletion
+    log_q: HeldBlobRef
+    policy_token_count: Annotated[int, Field(ge=0)]
+    purpose: str
+    reward: RewardRecord | None = None
+    sampler_top_k: HeldBlobRef | None = None
+    sampler_version_id: str
+    token_count: Annotated[int, Field(ge=0)]
+    token_ids: HeldBlobRef
+    trace_fidelity: CaptureTraceFidelity
+    trajectory_id: str
+    trajectory_steps: Annotated[int, Field(ge=0)]
+
+
+class PolicyControls(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capture: ControlSetting | None = None
+    promote: ControlSetting | None = None
+    train: ControlSetting | None = None
+
+
+class PolicyEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    baseline_version_id: str | None = None
+    evaluation_set_digest: Digest256
+    evaluator_digest: Digest256
+    metrics: EvaluationMetrics
+    report: HeldBlobRef | None = None
+    safety: SafetyOutcome
+    verdict: EvaluationVerdict
+    version_id: str
+
+
+class PolicyEvolutionOpPutCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["put_capability"]
+    request: OpenWeightPolicyCapability
+
+
+class PolicyEvolutionOpCommitCapture(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["commit_capture"]
+    request: PolicyCapture
+
+
+class PolicyEvolutionOpRegisterModelPolicyVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["register_model_policy_version"]
+    request: ModelPolicyVersion
+
+
+class PolicyEvolutionOpCommitTrainingRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["commit_training_run"]
+    request: TrainingRun
+
+
+class PolicyEvolutionOpCommitPolicyEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["commit_policy_evaluation"]
+    request: PolicyEvaluation
+
+
+class PolicyEvolutionOpGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["get"]
+    request: PolicyRecordGetRequest
+
+
+PolicyEvolutionOp = Annotated[
+    PolicyEvolutionOpPutCapability
+    | PolicyEvolutionOpCommitCapture
+    | PolicyEvolutionOpRegisterModelPolicyVersion
+    | PolicyEvolutionOpCommitTrainingRun
+    | PolicyEvolutionOpCommitPolicyEvaluation
+    | PolicyEvolutionOpGet,
+    Field(discriminator="op"),
+]
+
+
+class PolicyEvolutionRecordCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["capability"]
+    record: OpenWeightPolicyCapability
+
+
+class PolicyEvolutionRecordCapture(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["capture"]
+    record: PolicyCapture
+
+
+class PolicyEvolutionRecordModelPolicyVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["model_policy_version"]
+    record: ModelPolicyVersion
+
+
+class PolicyEvolutionRecordTrainingRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["training_run"]
+    record: TrainingRun
+
+
+class PolicyEvolutionRecordPolicyEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["policy_evaluation"]
+    record: PolicyEvaluation
+
+
+PolicyEvolutionRecord = Annotated[
+    PolicyEvolutionRecordCapability
+    | PolicyEvolutionRecordCapture
+    | PolicyEvolutionRecordModelPolicyVersion
+    | PolicyEvolutionRecordTrainingRun
+    | PolicyEvolutionRecordPolicyEvaluation,
+    Field(discriminator="kind"),
+]
+
+
 class PolicyRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15038,6 +15493,51 @@ class PolicyRecord(BaseModel):
     retention_policy: str | None = None
     subject_set_digest: str
     tenant: str
+
+
+class PolicyRecordGetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record_id: str
+
+
+class PolicyRecordKind(str, Enum):
+    CAPABILITY = "capability"
+    CAPTURE = "capture"
+    MODEL_POLICY_VERSION = "model_policy_version"
+    TRAINING_RUN = "training_run"
+    POLICY_EVALUATION = "policy_evaluation"
+
+
+class PolicyRecordReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    disposition: PolicyWriteDisposition
+    eligibility: CaptureEligibility | None = None
+    kind: PolicyRecordKind
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    record_id: str
+
+
+class PolicyRecordStored(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    created: bool
+
+
+class PolicyRecordView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record: PolicyEvolutionRecord
+    record_id: str
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+    recorded_by: str
+
+
+class PolicyWriteDisposition(str, Enum):
+    WRITTEN = "written"
+    REPLAYED = "replayed"
 
 
 class PooledRate(BaseModel):
@@ -15295,6 +15795,22 @@ class PremiseProvenanceRequest(BaseModel):
     provenance: Literal["request"]
 
 
+class PremiseProvenanceSchemaSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    provenance: Literal["schema_source"]
+    schema_digest: str
+    source_key: str
+
+
+class PremiseProvenanceCapacityCell(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cell_id: str
+    epoch: Annotated[int, Field(ge=0)]
+    provenance: Literal["capacity_cell"]
+
+
 PremiseProvenance = Annotated[
     PremiseProvenanceNativeOntology
     | PremiseProvenancePolicy
@@ -15302,7 +15818,9 @@ PremiseProvenance = Annotated[
     | PremiseProvenanceConnectorPack
     | PremiseProvenanceClaimedMapping
     | PremiseProvenanceObservation
-    | PremiseProvenanceRequest,
+    | PremiseProvenanceRequest
+    | PremiseProvenanceSchemaSource
+    | PremiseProvenanceCapacityCell,
     Field(discriminator="provenance"),
 ]
 
@@ -16212,6 +16730,14 @@ class ResourceKind(str, Enum):
     RESOURCE = "resource"
 
 
+class ResourceObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    gpu_seconds: Annotated[int, Field(ge=0)]
+    peak_memory_bytes: Annotated[int, Field(ge=0)]
+    wall_ms: Annotated[int, Field(ge=0)]
+
+
 class ResourceRequirement(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16617,6 +17143,21 @@ class RetrievalTraceSpec(BaseModel):
     retrieved: list[str]
 
 
+class RewardEvidenceSource(str, Enum):
+    INDEPENDENT_VERIFIER = "independent_verifier"
+    RUBRIC = "rubric"
+    SELF_REPORTED = "self_reported"
+
+
+class RewardRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    evidence: RewardEvidenceSource
+    value_micros: int
+    verifier_digest: Digest256
+    verifier_id: str
+
+
 class RewindTargetStart(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16776,6 +17317,11 @@ class SabrFit(BaseModel):
     rmse: float
 
 
+class SafetyOutcome(str, Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+
+
 class ScenePose(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16799,6 +17345,11 @@ class SceneVec3(BaseModel):
     x: float
     y: float
     z: float
+
+
+class SchemaAuthority(str, Enum):
+    ADMIN = "admin"
+    PACK = "pack"
 
 
 class SchemaSourceOriginViewCore(BaseModel):
@@ -18256,6 +18807,37 @@ class SlotAssignment(BaseModel):
     slot: str
 
 
+class SlotPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    node_id: str
+    rounds: Annotated[int, Field(ge=0, le=255)]
+    tokens: Annotated[int, Field(ge=0)] | None = None
+    width: Annotated[int, Field(ge=0, le=255)]
+
+
+class SlotRole(str, Enum):
+    PARENT = "parent"
+    CHILD = "child"
+    PEER = "peer"
+    AGGREGATOR = "aggregator"
+    VERIFIER = "verifier"
+
+
+class SlotTopology(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    harness: str | None = None
+    lease: BoundedVec_LeaseDemand_6 = Field(default_factory=list)
+    max_rounds: Annotated[int, Field(ge=0, le=255)]
+    max_width: Annotated[int, Field(ge=0, le=255)]
+    min_width: Annotated[int, Field(ge=0, le=255)]
+    node_id: str
+    p95_ms: Annotated[int, Field(ge=0)] | None = None
+    role: SlotRole
+    tokens: Annotated[int, Field(ge=0)] | None = None
+
+
 class SolveModelSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19176,12 +19758,75 @@ class StatisticalQuestion(BaseModel):
     safety: QuestionSafety
 
 
+class StopRuleMaxRounds(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0, le=255)]
+    rule: Literal["max_rounds"]
+
+
+class StopRuleQuorum(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    k: Annotated[int, Field(ge=0, le=255)]
+    n: Annotated[int, Field(ge=0, le=255)]
+    rule: Literal["quorum"]
+
+
+class StopRuleVerifierPass(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    max_rounds: Annotated[int, Field(ge=0, le=255)]
+    rule: Literal["verifier_pass"]
+
+
+class StopRuleBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    rule: Literal["budget"]
+
+
+class StopRuleDeadline(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    rule: Literal["deadline"]
+
+
+StopRule = Annotated[
+    StopRuleMaxRounds
+    | StopRuleQuorum
+    | StopRuleVerifierPass
+    | StopRuleBudget
+    | StopRuleDeadline,
+    Field(discriminator="rule"),
+]
+
+
 class StoredEvaluation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     evaluation: DecisionOutcomeEvaluation
     producer: str
     recorded_at_ms: Annotated[int, Field(ge=0)]
+
+
+class StoredPolicyRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record: PolicyEvolutionRecord
+    record_id: str
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+    recorded_by: str
+    tenant_id: str
+
+
+class StoredResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    class_: EvidenceClass = Field(..., alias="class")
+    producer: str
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+    resolution: AbstentionResolution
 
 
 class StructuralEquationWire(BaseModel):
@@ -19191,6 +19836,36 @@ class StructuralEquationWire(BaseModel):
     id: str
     noise_var: float
     parents: list[StructuralEquationWireParentsItem]
+
+
+class SubagentAllowance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fallback: SubagentFallback
+    harness: str
+    max_children: Annotated[int, Field(ge=0, le=255)]
+    max_depth: Annotated[int, Field(ge=0, le=255)]
+    max_tokens: Annotated[int, Field(ge=0)] | None = None
+    node_id: str
+
+
+class SubagentFallbackDisabled(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fallback: Literal["disabled"]
+
+
+class SubagentFallbackTokenBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fallback: Literal["token_budget"]
+    max_tokens: Annotated[int, Field(ge=0)]
+
+
+SubagentFallback = Annotated[
+    SubagentFallbackDisabled | SubagentFallbackTokenBudget,
+    Field(discriminator="fallback"),
+]
 
 
 class SubgraphAlgorithm(str, Enum):
@@ -19333,6 +20008,7 @@ class TemplateFacts(BaseModel):
     entry_revision: Annotated[int, Field(ge=0)]
     graph_id: str
     shape: AgentGraphShape
+    topology: TopologyFacts | None = None
 
 
 class TemplateInstanceRef(BaseModel):
@@ -19499,6 +20175,73 @@ class TopicTerms(BaseModel):
     topic_id: Annotated[int, Field(ge=0)]
 
 
+class TopologyAdmission(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    admit_class: str
+    authority: SchemaAuthority
+    axioms: BoundedVec_string_16 = Field(default_factory=list)
+    source_key: str
+    task_class: str
+    topology_class: str
+
+
+class TopologyCaps(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    max_depth: Annotated[int, Field(ge=0, le=255)]
+    max_rounds: Annotated[int, Field(ge=0, le=255)]
+    max_tokens: Annotated[int, Field(ge=0)] | None = None
+    max_width: Annotated[int, Field(ge=0, le=255)]
+
+
+class TopologyFacts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    class_iri: str
+    depth: Annotated[int, Field(ge=0, le=255)]
+    slots: BoundedVec_SlotTopology_6
+    stop: StopRule
+
+
+class TopologyInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    admissions: BoundedVec_TopologyAdmission_64 = Field(default_factory=list)
+    headroom: BoundedVec_CapacityHeadroom_8 = Field(default_factory=list)
+    schema_digest: str
+    verify_required_by: BoundedVec_string_8 = Field(default_factory=list)
+
+
+class TopologyPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    allowances: BoundedVec_SubagentAllowance_6 = Field(default_factory=list)
+    class_iri: str
+    lease: LeasePlan
+    makespan_ms: Annotated[int, Field(ge=0)] | None = None
+    slots: BoundedVec_SlotPlan_6
+    stop: StopRule
+
+
+class TopologyPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    caps: TopologyCaps
+    token_budget_harnesses: BoundedVec_string_16 = Field(default_factory=list)
+
+
+class TopologyRequirements(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capacity: CapacityScope
+    caps: TopologyCaps
+    deadline_ms: Annotated[int, Field(ge=0)] | None = None
+    per_agent_subtasks: Annotated[int, Field(ge=0)]
+    subtasks: Annotated[int, Field(ge=0)]
+    task_classes: BoundedVec_string_8
+
+
 class TraceFidelityFullStep(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19531,6 +20274,85 @@ class TrainTestSplitResult(BaseModel):
     x_train: list[list[float]]
     y_test: list[float]
     y_train: list[float]
+
+
+class TrainingMethodSft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["sft"]
+
+
+class TrainingMethodDpo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["dpo"]
+
+
+class TrainingMethodGrpo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["grpo"]
+
+
+class TrainingMethodKlpo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: KlEstimator
+    method: Literal["klpo"]
+
+
+TrainingMethod = Annotated[
+    TrainingMethodSft | TrainingMethodDpo | TrainingMethodGrpo | TrainingMethodKlpo,
+    Field(discriminator="method"),
+]
+
+
+class TrainingOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    artifact_digest: Digest256
+    artifact_ref: str
+
+
+class TrainingRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter: AdapterSpec
+    base_version_id: str
+    capability_id: str
+    hyperparameters_digest: Digest256
+    input_capture_ids: BoundedVec_string_256
+    log: HeldBlobRef | None = None
+    method: TrainingMethod
+    resources: ResourceObservation | None = None
+    status: TrainingRunStatus
+    trainer_image_digest: Digest256
+    work_item_id: str
+
+
+class TrainingRunStatusSucceeded(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    output: TrainingOutput
+    status: Literal["succeeded"]
+
+
+class TrainingRunStatusFailed(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["failed"]
+
+
+class TrainingRunStatusCancelled(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["cancelled"]
+
+
+TrainingRunStatus = Annotated[
+    TrainingRunStatusSucceeded | TrainingRunStatusFailed | TrainingRunStatusCancelled,
+    Field(discriminator="status"),
+]
 
 
 class TransactionSource(BaseModel):
@@ -19664,11 +20486,63 @@ class VersionExpectationNative(BaseModel):
     native: Annotated[int, Field(ge=0)]
 
 
+class VersionOriginBase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    origin: Literal["base"]
+
+
+class VersionOriginTrained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    origin: Literal["trained"]
+    training_run_id: str
+
+
+VersionOrigin = Annotated[
+    VersionOriginBase | VersionOriginTrained,
+    Field(discriminator="origin"),
+]
+
+
 class Vf2MatchResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     matches: list[dict[str, str]]
     truncated: bool
+
+
+class ViewCellNull(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cell: Literal["null"]
+
+
+class ViewCellBool(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cell: Literal["bool"]
+    value: bool
+
+
+class ViewCellInt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cell: Literal["int"]
+    value: int
+
+
+class ViewCellText(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cell: Literal["text"]
+    value: str
+
+
+ViewCell = Annotated[
+    ViewCellNull | ViewCellBool | ViewCellInt | ViewCellText,
+    Field(discriminator="cell"),
+]
 
 
 class ViolationDenied(BaseModel):
@@ -20404,7 +21278,24 @@ BoundedVec_BoundedVec_SqlSourceCell_256_1024 = Annotated[
 ]
 
 
+BoundedVec_ViewCell_64 = Annotated[list[ViewCell], Field(max_length=64)]
+
+
+BoundedVec_BoundedVec_ViewCell_64_10000 = Annotated[
+    list[BoundedVec_ViewCell_64],
+    Field(
+        max_length=10000,
+    ),
+]
+
+
 BoundedVec_CandidateFacts_64 = Annotated[list[CandidateFacts], Field(max_length=64)]
+
+
+BoundedVec_CapacityHeadroom_8 = Annotated[list[CapacityHeadroom], Field(max_length=8)]
+
+
+BoundedVec_CellLease_8 = Annotated[list[CellLease], Field(max_length=8)]
 
 
 BoundedVec_ClaimedTaskMapping_32 = Annotated[
@@ -20445,6 +21336,15 @@ BoundedVec_CoverageDerivation_32 = Annotated[
         max_length=32,
     ),
 ]
+
+
+BoundedVec_DeclaredNumber_32 = Annotated[list[DeclaredNumber], Field(max_length=32)]
+
+
+BoundedVec_DeclaredOption_64 = Annotated[list[DeclaredOption], Field(max_length=64)]
+
+
+BoundedVec_DeclaredText_8 = Annotated[list[DeclaredText], Field(max_length=8)]
 
 
 BoundedVec_DerivationEdge_16 = Annotated[list[DerivationEdge], Field(max_length=16)]
@@ -20516,6 +21416,9 @@ BoundedVec_IndexTombstone_262144 = Annotated[
 
 
 BoundedVec_LabelledItem_4096 = Annotated[list[LabelledItem], Field(max_length=4096)]
+
+
+BoundedVec_LeaseDemand_6 = Annotated[list[LeaseDemand], Field(max_length=6)]
 
 
 BoundedVec_ObjectiveLevelKind_8 = Annotated[
@@ -20602,6 +21505,12 @@ BoundedVec_ScoredOption_64 = Annotated[list[ScoredOption], Field(max_length=64)]
 BoundedVec_SlotAssignment_64 = Annotated[list[SlotAssignment], Field(max_length=64)]
 
 
+BoundedVec_SlotPlan_6 = Annotated[list[SlotPlan], Field(max_length=6)]
+
+
+BoundedVec_SlotTopology_6 = Annotated[list[SlotTopology], Field(max_length=6)]
+
+
 BoundedVec_SourceEntityRef_16384 = Annotated[
     list[SourceEntityRef],
     Field(
@@ -20661,7 +21570,18 @@ BoundedVec_StatisticalDecisionRecord_256 = Annotated[
 ]
 
 
+BoundedVec_SubagentAllowance_6 = Annotated[list[SubagentAllowance], Field(max_length=6)]
+
+
 BoundedVec_TemplateFacts_8 = Annotated[list[TemplateFacts], Field(max_length=8)]
+
+
+BoundedVec_TopologyAdmission_64 = Annotated[
+    list[TopologyAdmission],
+    Field(
+        max_length=64,
+    ),
+]
 
 
 BoundedVec_TypedParam_16 = Annotated[list[TypedParam], Field(max_length=16)]

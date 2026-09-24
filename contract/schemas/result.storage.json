@@ -857,6 +857,17 @@
         "tenant_id": {
           "type": "string"
         },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyFacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The topology facts a graph TEMPLATE declares for swarm-topology\ndecisions. Inside the definition digest; absent from every graph that\ndeclares none, so their digests do not move."
+        },
         "version": {
           "type": "string"
         }
@@ -965,6 +976,16 @@
         },
         "tenant_id": {
           "type": "string"
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyFacts"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "updated_at_ms": {
           "format": "uint64",
@@ -2072,6 +2093,17 @@
           "default": [],
           "description": "Native `eg:task/*` IRIs."
         },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyRequirements"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A swarm-topology question over the request's templates. Absent from a\nplain assembly, so a v1 request keeps its exact digest."
+        },
         "unmapped_task_digests": {
           "$ref": "#/$defs/BoundedVec_string_32",
           "default": [],
@@ -2291,6 +2323,20 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_CapacityHeadroom_8": {
+      "items": {
+        "$ref": "#/$defs/CapacityHeadroom"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_CellLease_8": {
+      "items": {
+        "$ref": "#/$defs/CellLease"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_ClaimedTaskMapping_32": {
       "items": {
         "$ref": "#/$defs/ClaimedTaskMapping"
@@ -2340,6 +2386,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_LeaseDemand_6": {
+      "items": {
+        "$ref": "#/$defs/LeaseDemand"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
     "BoundedVec_ObjectiveLevelKind_8": {
       "items": {
         "$ref": "#/$defs/ObjectiveLevelKind"
@@ -2382,11 +2435,39 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_SlotPlan_6": {
+      "items": {
+        "$ref": "#/$defs/SlotPlan"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "BoundedVec_SlotTopology_6": {
+      "items": {
+        "$ref": "#/$defs/SlotTopology"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "BoundedVec_SubagentAllowance_6": {
+      "items": {
+        "$ref": "#/$defs/SubagentAllowance"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
     "BoundedVec_TemplateFacts_8": {
       "items": {
         "$ref": "#/$defs/TemplateFacts"
       },
       "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_TopologyAdmission_64": {
+      "items": {
+        "$ref": "#/$defs/TopologyAdmission"
+      },
+      "maxItems": 64,
       "type": "array"
     },
     "BoundedVec_WeightedLevel_8": {
@@ -2532,8 +2613,132 @@
             "plan_digest"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Options the caller declared, pinned by the digest of the declaration.",
+          "properties": {
+            "options_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options_digest"
+          ],
+          "type": "object"
         }
       ]
+    },
+    "CapacityHeadroom": {
+      "additionalProperties": false,
+      "description": "One capacity cell's headroom, observed through `CapacityStatus` at the\nrequest's priority when the decision was taken. An OBSERVATION premise:\nit is recorded in the inputs, so replay reads the same number.",
+      "properties": {
+        "available": {
+          "description": "What the request's priority may still lease from the cell: capacity\nminus live leases, minus the reserved floor when that priority may not\nspend it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell_id": {
+          "type": "string"
+        },
+        "class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        },
+        "epoch": {
+          "description": "The cell epoch the observation was read at.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cell_id",
+        "class",
+        "available",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "CapacityResourceClass": {
+      "description": "The resource a `CapacityCell` doles out. Mirrors the lane doc's \"CPU/LLM/GPU\ncapacity\" plus the existing AU gates this composes with\n(`resource_priority.py`'s shared-LLM gate, `worker_scheduler.py`'s host\nworker pool, `gpu_group_budget.py`'s per-GPU/model floors).",
+      "oneOf": [
+        {
+          "const": "llm_generator",
+          "description": "Shared LLM generator admission slots (composes with `resource_priority.py`).",
+          "type": "string"
+        },
+        {
+          "const": "llm_embedding",
+          "description": "A separate embedding endpoint's admission slots — never contends with\n`LlmGenerator` (mirrors `resource_priority.py`'s separate embedding gate key).",
+          "type": "string"
+        },
+        {
+          "const": "gpu",
+          "description": "GPU compute units (composes with `gpu_group_budget.py`).",
+          "type": "string"
+        },
+        {
+          "const": "worker",
+          "description": "Host worker pool slots (composes with `worker_scheduler.py`).",
+          "type": "string"
+        },
+        {
+          "const": "cpu",
+          "description": "CPU-bound compute slots.",
+          "type": "string"
+        },
+        {
+          "const": "broker",
+          "description": "Message-broker/engine dispatch admission slots.",
+          "type": "string"
+        }
+      ]
+    },
+    "CapacityScope": {
+      "additionalProperties": false,
+      "description": "The capacity cells a plan must fit, read at one priority.",
+      "properties": {
+        "cells": {
+          "$ref": "#/$defs/BoundedVec_string_8"
+        },
+        "priority": {
+          "$ref": "#/$defs/LeasePriority"
+        }
+      },
+      "required": [
+        "cells",
+        "priority"
+      ],
+      "type": "object"
+    },
+    "CellLease": {
+      "additionalProperties": false,
+      "description": "The amount one cell must lease for the plan.",
+      "properties": {
+        "amount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell_id": {
+          "type": "string"
+        },
+        "class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        }
+      },
+      "required": [
+        "cell_id",
+        "class",
+        "amount"
+      ],
+      "type": "object"
     },
     "Certificate": {
       "additionalProperties": false,
@@ -3370,6 +3575,17 @@
           "$ref": "#/$defs/BoundedVec_TemplateFacts_8",
           "default": [],
           "description": "The graph templates the request named, read at their pinned revisions.\nEmpty asks for a one-agent graph."
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyInputs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a topology question read beside the library: the composed schema\ndigest, the entailed admissibility facts and the capacity headroom."
         }
       },
       "required": [
@@ -3402,6 +3618,17 @@
             },
             "slots": {
               "$ref": "#/$defs/BoundedVec_SlotAssignment_64"
+            },
+            "topology": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TopologyPlan"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The decided widths, rounds, stop rule, leases and allowances, when\nthe request asked a topology question."
             }
           },
           "required": [
@@ -3495,6 +3722,17 @@
             }
           ],
           "default": null
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Topology caps and the per-harness sub-agent opt-in. Absent means the\nengine default ([`super::topology::TopologyPolicy::engine_default`]),\nand keeps an existing policy's digest."
         },
         "unknown_cost": {
           "$ref": "#/$defs/UnknownCostRule"
@@ -3915,6 +4153,52 @@
           "type": "object"
         }
       ]
+    },
+    "LeaseDemand": {
+      "additionalProperties": false,
+      "description": "How much of one resource class one agent of a slot needs.",
+      "properties": {
+        "amount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        }
+      },
+      "required": [
+        "class",
+        "amount"
+      ],
+      "type": "object"
+    },
+    "LeasePlan": {
+      "additionalProperties": false,
+      "description": "Every lease the plan needs, acquired all-or-nothing after commit.",
+      "properties": {
+        "per_cell": {
+          "$ref": "#/$defs/BoundedVec_CellLease_8"
+        },
+        "priority": {
+          "$ref": "#/$defs/LeasePriority"
+        }
+      },
+      "required": [
+        "per_cell",
+        "priority"
+      ],
+      "type": "object"
+    },
+    "LeasePriority": {
+      "description": "The same four priority tiers `resource_priority.py::PriorityClass` defines,\nvendored here (not imported — this crate has no Python interop and must not\ndepend on AU) so a `CapacityLease` carries the identical vocabulary the AU\nscheduler already enforces at the LLM gate. `#[derive(Ord)]` on a fieldless\nenum compares by DECLARATION ORDER, so listing `Interactive` first and\n`BackgroundIngestion` last gives `Interactive < Orchestration < Hydration <\nBackgroundIngestion`, matching `core/cognitive_scheduler.py::SchedulerPriority`'s\n\"lower value = higher priority\" convention. `Orchestration`/`Hydration` are\nNOT equal-priority under this `Ord` (AU's equal LLM-gate WEIGHT for the two\nis a separate lookup table, `_PRIORITY_WEIGHTS`, not an enum-ordinal fact —\nsee `resource_priority.py`); only `may_spend_reserved_floor` below is a\nhard cell-admission rule.",
+      "enum": [
+        "interactive",
+        "orchestration",
+        "hydration",
+        "background_ingestion"
+      ],
+      "type": "string"
     },
     "LevelValue": {
       "additionalProperties": false,
@@ -4854,6 +5138,52 @@
             "field"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A keyed graph schema source, at the composed schema digest the fact\nwas entailed under (swarm-topology admissibility).",
+          "properties": {
+            "provenance": {
+              "const": "schema_source",
+              "type": "string"
+            },
+            "schema_digest": {
+              "type": "string"
+            },
+            "source_key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "source_key",
+            "schema_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A live capacity cell read at an epoch (swarm-topology headroom).",
+          "properties": {
+            "cell_id": {
+              "type": "string"
+            },
+            "epoch": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "provenance": {
+              "const": "capacity_cell",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "cell_id",
+            "epoch"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -5384,6 +5714,14 @@
       "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
       "type": "string"
     },
+    "SchemaAuthority": {
+      "description": "Who attached the schema source an admissibility fact was entailed under.\nAn admin-attached vocabulary is a DEFINITION premise; a pack-attached one\nis a CLAIM (SWARM-TOPOLOGY-DECIDE-DESIGN §4).",
+      "enum": [
+        "admin",
+        "pack"
+      ],
+      "type": "string"
+    },
     "Sha256Digest": {
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
@@ -5402,6 +5740,123 @@
       "required": [
         "slot",
         "component"
+      ],
+      "type": "object"
+    },
+    "SlotPlan": {
+      "additionalProperties": false,
+      "description": "One slot's decided width and rounds.",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "rounds": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "description": "The slot's declared tokens at this width and rounds, when declared;\nthe runtime admission's token ceiling is their sum.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "width",
+        "rounds"
+      ],
+      "type": "object"
+    },
+    "SlotRole": {
+      "description": "What one slot does in the topology. Closed, because the model rows act on\nit: a `Verifier` satisfies the `verify` row, a `Child` slot is the fan-out\nslot `demand` sizes, and a `Peer` slot repeats for rounds.",
+      "enum": [
+        "parent",
+        "child",
+        "peer",
+        "aggregator",
+        "verifier"
+      ],
+      "type": "string"
+    },
+    "SlotTopology": {
+      "additionalProperties": false,
+      "description": "The topology facts of one template slot (one `Agent` node).",
+      "properties": {
+        "harness": {
+          "description": "The L4 harness the slot's agent runs on, when it runs on one. Recorded\nas a slot fact so the plan can derive its sub-agent allowance.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lease": {
+          "$ref": "#/$defs/BoundedVec_LeaseDemand_6",
+          "default": [],
+          "description": "Per-agent lease, one entry per resource class."
+        },
+        "max_rounds": {
+          "description": "`1` for a slot that runs once.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "description": "The template `Agent` node this slot is.",
+          "type": "string"
+        },
+        "p95_ms": {
+          "description": "Declared p95 of one agent turn of this slot. Unknown is never zero: a\ndeadline over a slot without one abstains with `UnknownFact`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "role": {
+          "$ref": "#/$defs/SlotRole"
+        },
+        "tokens": {
+          "description": "Declared tokens one agent turn spends.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "node_id",
+        "role",
+        "min_width",
+        "max_width",
+        "max_rounds"
       ],
       "type": "object"
     },
@@ -5922,6 +6377,185 @@
       ],
       "type": "object"
     },
+    "StopRule": {
+      "description": "When a running topology stops. Evaluating it is execution, not decision.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "n": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rule": {
+              "const": "max_rounds",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule",
+            "n"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "k": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "n": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rule": {
+              "const": "quorum",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule",
+            "k",
+            "n"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "max_rounds": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rule": {
+              "const": "verifier_pass",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule",
+            "max_rounds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "rule": {
+              "const": "budget",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "rule": {
+              "const": "deadline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "rule"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SubagentAllowance": {
+      "additionalProperties": false,
+      "description": "The sub-agent allowance of one harness node, derived by the plan. The\nharness improvises only inside it.",
+      "properties": {
+        "fallback": {
+          "$ref": "#/$defs/SubagentFallback"
+        },
+        "harness": {
+          "type": "string"
+        },
+        "max_children": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_depth": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "The node's share of the plan's token ceiling, when there is one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "node_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "harness",
+        "max_children",
+        "max_depth",
+        "fallback"
+      ],
+      "type": "object"
+    },
+    "SubagentFallback": {
+      "description": "What a harness that cannot enforce a child count does with its native\nsub-agents (operator ruling 2026-09-24, Q1): disabled by default; a\nper-harness policy opt-in allows them under a token budget instead.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fallback": {
+              "const": "disabled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "fallback"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fallback": {
+              "const": "token_budget",
+              "type": "string"
+            },
+            "max_tokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "fallback",
+            "max_tokens"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "TemplateFacts": {
       "additionalProperties": false,
       "description": "One operator-published graph template an assembly may fill, pinned to the\nexact revision it was read at. Its `Agent` nodes are the slots.",
@@ -5939,6 +6573,17 @@
         },
         "shape": {
           "$ref": "#/$defs/AgentGraphShape"
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TopologyFacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The template's published topology facts, when it declares them."
         }
       },
       "required": [
@@ -6059,6 +6704,237 @@
           "type": "string"
         }
       ]
+    },
+    "TopologyAdmission": {
+      "additionalProperties": false,
+      "description": "One entailed admissibility fact: `task_class` admits `topology_class`\nthrough the named restriction class of the attached schema. `axioms` are\nthe proof's axioms (bounded), so `OwlExplain(task_class, admit_class)`\nre-checks it.",
+      "properties": {
+        "admit_class": {
+          "type": "string"
+        },
+        "authority": {
+          "$ref": "#/$defs/SchemaAuthority"
+        },
+        "axioms": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": []
+        },
+        "source_key": {
+          "description": "The schema source key the restriction class came from.",
+          "type": "string"
+        },
+        "task_class": {
+          "type": "string"
+        },
+        "topology_class": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_class",
+        "topology_class",
+        "admit_class",
+        "source_key",
+        "authority"
+      ],
+      "type": "object"
+    },
+    "TopologyCaps": {
+      "additionalProperties": false,
+      "description": "A request's (or a policy's) caps on the shape. A request may only tighten\nthe policy's caps.",
+      "properties": {
+        "max_depth": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_rounds": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_tokens": {
+          "description": "Ceiling on the declared tokens the whole plan may spend.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_width": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_width",
+        "max_depth",
+        "max_rounds"
+      ],
+      "type": "object"
+    },
+    "TopologyFacts": {
+      "additionalProperties": false,
+      "description": "The topology facts a published graph template carries. Inside its\ndefinition digest, so pinning a template pins its topology too.",
+      "properties": {
+        "class_iri": {
+          "description": "The template's topology class IRI, a class of the attached schema.",
+          "type": "string"
+        },
+        "depth": {
+          "description": "Nesting depth of the template (1 = no nested graph).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slots": {
+          "$ref": "#/$defs/BoundedVec_SlotTopology_6"
+        },
+        "stop": {
+          "$ref": "#/$defs/StopRule"
+        }
+      },
+      "required": [
+        "class_iri",
+        "depth",
+        "slots",
+        "stop"
+      ],
+      "type": "object"
+    },
+    "TopologyInputs": {
+      "additionalProperties": false,
+      "description": "What a topology question read beside the library, recorded in the inputs\nso replay reads the same facts.",
+      "properties": {
+        "admissions": {
+          "$ref": "#/$defs/BoundedVec_TopologyAdmission_64",
+          "default": [],
+          "description": "Every entailed admissibility fact, sorted."
+        },
+        "headroom": {
+          "$ref": "#/$defs/BoundedVec_CapacityHeadroom_8",
+          "default": [],
+          "description": "Headroom of every requested cell, in request order."
+        },
+        "schema_digest": {
+          "description": "Composed digest of the request graph's schema sources the\nadmissibility facts were entailed under.",
+          "type": "string"
+        },
+        "verify_required_by": {
+          "$ref": "#/$defs/BoundedVec_string_8",
+          "default": [],
+          "description": "Task classes entailed to need an independent check (a verifier slot)."
+        }
+      },
+      "required": [
+        "schema_digest"
+      ],
+      "type": "object"
+    },
+    "TopologyPlan": {
+      "additionalProperties": false,
+      "description": "The decided topology, carried in a `Solved` outcome.",
+      "properties": {
+        "allowances": {
+          "$ref": "#/$defs/BoundedVec_SubagentAllowance_6",
+          "default": []
+        },
+        "class_iri": {
+          "type": "string"
+        },
+        "lease": {
+          "$ref": "#/$defs/LeasePlan"
+        },
+        "makespan_ms": {
+          "description": "Declared makespan bound: slots taken as sequential, an upper bound for\nany parallel branch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "slots": {
+          "$ref": "#/$defs/BoundedVec_SlotPlan_6"
+        },
+        "stop": {
+          "$ref": "#/$defs/StopRule"
+        }
+      },
+      "required": [
+        "class_iri",
+        "slots",
+        "stop",
+        "lease"
+      ],
+      "type": "object"
+    },
+    "TopologyPolicy": {
+      "additionalProperties": false,
+      "description": "A decision policy's topology section: the caps a request may only tighten\nand the harnesses whose native sub-agents may run under a token budget\nwhen they cannot enforce a child count (operator ruling 2026-09-24, Q1).\nThere is no exploration budget: width and rounds are never explored until\nthe synthetic benchmark shows width buys quality (Q2).",
+      "properties": {
+        "caps": {
+          "$ref": "#/$defs/TopologyCaps"
+        },
+        "token_budget_harnesses": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": []
+        }
+      },
+      "required": [
+        "caps"
+      ],
+      "type": "object"
+    },
+    "TopologyRequirements": {
+      "additionalProperties": false,
+      "description": "What a topology request asks for, beside the assembly's own requirements.",
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/CapacityScope"
+        },
+        "caps": {
+          "$ref": "#/$defs/TopologyCaps"
+        },
+        "deadline_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "per_agent_subtasks": {
+          "description": "Subtasks one agent handles; `demand` needs `width ≥ ⌈subtasks/this⌉`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subtasks": {
+          "description": "Independent subtasks the fan-out slot has to cover.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "task_classes": {
+          "$ref": "#/$defs/BoundedVec_string_8",
+          "description": "Task-shape class IRIs (`swarm:IndependentSubtasks`, ...). Admissibility\nof a template's class is entailed from these under the attached schema."
+        }
+      },
+      "required": [
+        "task_classes",
+        "subtasks",
+        "per_agent_subtasks",
+        "caps",
+        "capacity"
+      ],
+      "type": "object"
     },
     "TraceFidelity": {
       "description": "How complete the recorded trace is.",
