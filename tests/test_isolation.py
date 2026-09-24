@@ -207,3 +207,46 @@ def test_acl_enforced_once_identities_registered(isolation_server):
         owner.close()
         peer.close()
         manager.close()
+
+
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
+def test_check_access_answers_a_principals_current_authority(isolation_server):
+    """``CheckAccess`` (EH-416): a deputy executor asks whether a principal's
+    own read would be admitted now -- a registered reader yes, an unknown
+    principal no, and no again once the grant is revoked."""
+    sock = isolation_server
+    system = _client(sock)
+    try:
+        system.rbac.add_role("flip-reader")
+        system.rbac.add_grant("flip-reader", {"Graph": "__commons__"}, "Read")
+        system.consensus.register_identity(
+            "service:flip-subscriber",
+            "Agent",
+            ["team:test"],
+            ["flip-reader"],
+            signer_id=TEST_AGENT_ID,
+            signer_key=TEST_SIGNER_KEY,
+        )
+        check = system.consensus.check_access
+        assert check("service:flip-subscriber", "read") is True
+        assert check("service:flip-subscriber", "write") is False
+        assert check("service:never-registered", "read") is False
+        system.rbac.remove_grant("flip-reader", {"Graph": "__commons__"}, "Read")
+        assert check("service:flip-subscriber", "read") is False
+    finally:
+        system.close()
+
+
+@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
+def test_check_access_needs_the_security_check_scope(isolation_server):
+    narrow = SyncEpistemicGraphClient.connect(
+        socket_path=isolation_server,
+        auth_secret=SECRET,
+        graph_name="__commons__",
+        verified_context=request_context(scopes=["kg:read"]),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="lacks required scope .security:check."):
+            narrow.consensus.check_access(TEST_AGENT_ID, "read")
+    finally:
+        narrow.close()
