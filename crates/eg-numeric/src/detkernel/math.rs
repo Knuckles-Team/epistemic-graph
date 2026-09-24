@@ -41,6 +41,12 @@ pub fn tanh(x: f64) -> f64 {
     libm::tanh(x)
 }
 
+/// Complementary error function `erfc(x) = 1 − erf(x)`, accurate in both tails.
+#[inline]
+pub fn erfc(x: f64) -> f64 {
+    libm::erfc(x)
+}
+
 /// `ln |Γ(x)|`.
 #[inline]
 pub fn ln_gamma(x: f64) -> f64 {

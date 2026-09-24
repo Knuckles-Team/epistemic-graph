@@ -45,15 +45,16 @@
 /// 446 -> 447: EH-389's `GraphSchemaClasses` vocabulary read.
 /// 447 -> 448: `FinanceSignalModels`, fusion and the insider model (EH-423).
 /// 448 -> 449: `CheckAccess`, a principal's current access (EH-416).
+/// 449 -> 448: EH-524 added `TsDefineSeries`; EH-530 retired `FinanceRollingZscore` and `FinanceEwma` (served as UQL `DERIVE` / SQL `eg_zscore`/`eg_ewma`).
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;
 /// `scripts/method_policy_inventory.py`'s `EXPECTED_METHOD_POLICY_ROWS` is the
 /// same count seen from the other side and the two must agree
-/// (449 + 7 feature rows = 456). Keep the formula aligned with the cfg rows in
+/// (448 + 7 feature rows = 455). Keep the formula aligned with the cfg rows in
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    449 + usize::from(cfg!(feature = "jobs"))
+    448 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))

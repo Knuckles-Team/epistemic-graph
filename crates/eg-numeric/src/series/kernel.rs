@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
+use super::kalman::Kalman;
 use super::window::{pearson, ranks, Extremum, Moments, Side, Sorted, STD_FLOOR};
 use super::{Arith, Map, PairStat, Rolling, Shift, Smoothing, Spec};
 use crate::detkernel::math;
@@ -18,6 +19,11 @@ pub enum State {
     Map(Map),
     Arith(Arith),
     Pair(PairState),
+    /// A Kalman filter; `regressor` marks the beta form (`H` = the second input).
+    Kalman {
+        filter: Kalman,
+        regressor: bool,
+    },
 }
 
 impl State {
@@ -31,6 +37,14 @@ impl State {
             Spec::Map(map) => State::Map(map),
             Spec::Arith(op) => State::Arith(op),
             Spec::Pair(op, w) => State::Pair(PairState::new(op, w)),
+            Spec::KalmanLevel(noise) => State::Kalman {
+                filter: Kalman::level(noise),
+                regressor: false,
+            },
+            Spec::KalmanBeta(noise) => State::Kalman {
+                filter: Kalman::beta(noise),
+                regressor: true,
+            },
         })
     }
 
@@ -45,6 +59,10 @@ impl State {
             State::Map(map) => Some(map_value(*map, x?)),
             State::Arith(op) => arith(*op, x?, y?),
             State::Pair(s) => s.step(x?, y?),
+            State::Kalman { filter, regressor } => {
+                let h = if *regressor { y? } else { 1.0 };
+                Some(filter.observe(x?, h).0)
+            }
         }
     }
 }

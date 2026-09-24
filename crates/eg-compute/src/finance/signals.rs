@@ -127,45 +127,9 @@ pub fn mean_reversion(values: &[f64], window: usize) -> Vec<f64> {
         .collect()
 }
 
-/// Compute Information Coefficient (IC) — correlation between signal and forward returns.
-pub fn information_coefficient(signal: &[f64], forward_returns: &[f64]) -> f64 {
-    let n = signal.len().min(forward_returns.len());
-    if n < 2 {
-        return 0.0;
-    }
-
-    // Filter out NaN pairs
-    let pairs: Vec<(f64, f64)> = signal
-        .iter()
-        .zip(forward_returns.iter())
-        .filter(|(&s, &r)| s.is_finite() && r.is_finite())
-        .map(|(&s, &r)| (s, r))
-        .collect();
-
-    let n = pairs.len();
-    if n < 2 {
-        return 0.0;
-    }
-
-    let mean_s: f64 = pairs.iter().map(|(s, _)| s).sum::<f64>() / n as f64;
-    let mean_r: f64 = pairs.iter().map(|(_, r)| r).sum::<f64>() / n as f64;
-
-    let mut cov = 0.0;
-    let mut var_s = 0.0;
-    let mut var_r = 0.0;
-    for (s, r) in &pairs {
-        cov += (s - mean_s) * (r - mean_r);
-        var_s += (s - mean_s).powi(2);
-        var_r += (r - mean_r).powi(2);
-    }
-
-    let denom = (var_s * var_r).sqrt();
-    if denom > 1e-12 {
-        cov / denom
-    } else {
-        0.0
-    }
-}
+/// Information Coefficient — the Pearson correlation of a signal with forward returns
+/// over their finite pairs. The evaluation kernel (EH-530).
+pub use eg_numeric::evaluation::skill::information_coefficient;
 
 #[cfg(test)]
 mod tests {

@@ -11,7 +11,9 @@
 /// The kernel crate, re-exported so a caller of a derived series names one path.
 pub use eg_numeric::series as kernels;
 
-use eg_numeric::series::{Arith, Map, PairStat, Rolling, Shift, Smoothing, Spec, State};
+use eg_numeric::series::{
+    Arith, KalmanNoise, Map, PairStat, Rolling, Shift, Smoothing, Spec, State,
+};
 use eg_types::series_expr::{SeriesExpr, SeriesFunc};
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,8 @@ enum Build {
     Clip,
     Arith(Arith),
     Pair(PairStat),
+    /// A Kalman filter over `(q, r)`.
+    Noise(fn(KalmanNoise) -> Spec),
 }
 
 use SeriesFunc as F;
@@ -62,6 +66,8 @@ const BUILDS: &[(SeriesFunc, Build)] = &[
     (F::Rcorr, Build::Pair(PairStat::Corr)),
     (F::Ic, Build::Pair(PairStat::RankCorr)),
     (F::Wsum, Build::Pair(PairStat::WeightedSum)),
+    (F::Kalman, Build::Noise(Spec::KalmanLevel)),
+    (F::Kbeta, Build::Noise(Spec::KalmanBeta)),
 ];
 
 /// The kernel spec `func(…, params)` builds.
@@ -85,6 +91,10 @@ pub fn spec_of(func: SeriesFunc, params: &[f64]) -> Spec {
         }),
         Build::Arith(op) => Spec::Arith(op),
         Build::Pair(op) => Spec::Pair(op, count),
+        Build::Noise(make) => make(KalmanNoise {
+            q: first,
+            r: params.get(1).copied().unwrap_or(first),
+        }),
     }
 }
 
