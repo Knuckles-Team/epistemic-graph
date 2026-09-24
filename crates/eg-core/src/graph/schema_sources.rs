@@ -1129,7 +1129,7 @@ mod tests {
             ),
             (
                 "company_infra",
-                "ff667dc263f525542925b1e0b8bc834d1a91815e99be091a5230d9068b7b3da7",
+                "416c839ba3cc5e53631cc7b601c8542cbe3d12fd78587c31cd62b8d2662ce1d3",
             ),
             (
                 "concepts",
@@ -1233,7 +1233,7 @@ mod tests {
             ),
             (
                 "finance",
-                "0157b7a990fd352b4a7d3557234358fa03efcb83d805106863081e9581a55d48",
+                "a59c9c765d83ba3a7136afe29479ecf03d3e1b5b145cfd0ad717e575b6e484d0",
             ),
             (
                 "finance-shapes",

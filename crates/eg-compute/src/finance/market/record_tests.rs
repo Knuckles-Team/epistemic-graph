@@ -367,6 +367,25 @@ fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
     assert_ne!(seal(&revision).unwrap().digest, run.digest);
 }
 
+/// EH-517: the sealed record of the fixed draft, pinned. The validation outputs
+/// run on the pinned soft-float kernel, so this digest is the same on every build
+/// host; the lane's runs pass this test unchanged on two hosts.
+const PINNED_RUN_DIGEST: &str = "sha256:pending";
+
+#[test]
+fn a_sealed_backtest_run_digest_is_pinned_across_hosts() {
+    let run = seal(&draft()).unwrap();
+    let validation = &run.validation;
+    eprintln!(
+        "pin {} observed_sharpe={:#018x} deflated_sharpe={:#018x} pbo={:#018x}",
+        run.digest,
+        validation.observed_sharpe.to_bits(),
+        validation.deflated_sharpe.to_bits(),
+        validation.probability_backtest_overfit.to_bits(),
+    );
+    assert_eq!(run.digest, PINNED_RUN_DIGEST);
+}
+
 #[test]
 fn look_ahead_fills_and_missing_outputs_are_refused() {
     let mut early = draft();

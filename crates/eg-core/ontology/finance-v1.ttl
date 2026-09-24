@@ -19,7 +19,7 @@
 
 <http://knuckles.team/kg/finance> a owl:Ontology ;
     rdfs:label "Finance — Markets and Trend Signals" ;
-    rdfs:comment "Financial instruments, trading venues and listings; OHLCV bar series held in the time-series store; versioned indicator specifications, the per-series signal state and the trend-flip records it emits; macro-policy events and backtest-run provenance records. Informational only: no class here authorises an order." ;
+    rdfs:comment "Financial instruments, trading venues and listings; OHLCV bar series held in the time-series store; versioned indicator specifications, the per-series signal state and the trend-flip records it emits; macro-policy events and backtest-run provenance records; trading strategies, signals, debates, exchange backends, order audit records, positions and risk snapshots. Informational only: no class here authorises an order." ;
     owl:imports <http://knuckles.team/kg/core> .
 
 # ── Instruments, venues and listings ──────────────────────────────────────────────
@@ -241,4 +241,200 @@
     rdfs:label "backtest digest" ;
     rdfs:comment "sha256 of the canonical backtest-run record." ;
     rdfs:domain :BacktestRun ;
+    rdfs:range xsd:string .
+
+# ── Strategies, signals, orders and positions (folded from company_infra, EH-517) ──
+#
+# These classes kept their IRIs when they moved here, so data and connector packs typed
+# with them are unchanged. The records among them (signal, backtest result, order,
+# risk snapshot) are generically dependent continuants, like every other record in this
+# module; company_infra had typed them as processes, which made the emerald-exchange
+# pack's :BacktestResult ⊑ :OutcomeEvaluation unsatisfiable.
+
+:TradingStrategy a owl:Class ;
+    rdfs:label "Trading Strategy" ;
+    rdfs:comment "A quantitative trading strategy progressing through the lifecycle stages draft, backtest, paper and live (CONCEPT:EE-013). Its backtests are :BacktestResult summaries and, when run by the engine, :BacktestRun records." ;
+    rdfs:subClassOf bfo:0000015 ;
+    skos:closeMatch wd:Q1574928 .
+
+:strategyAlpha a owl:DatatypeProperty ;
+    rdfs:label "strategy alpha" ;
+    rdfs:comment "Annualized alpha (excess return) of the strategy." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range xsd:float .
+
+:strategySharpe a owl:DatatypeProperty ;
+    rdfs:label "strategy sharpe" ;
+    rdfs:comment "Sharpe ratio of the strategy." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range xsd:float .
+
+:strategyStage a owl:DatatypeProperty ;
+    rdfs:label "strategy stage" ;
+    rdfs:comment "draft, backtest, paper, live." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range xsd:string .
+
+:usesExchange a owl:ObjectProperty ;
+    rdfs:label "uses exchange" ;
+    rdfs:comment "Links strategy to its exchange backend." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range :ExchangeBackend .
+
+:TradingSignal a owl:Class ;
+    rdfs:label "Trading Signal" ;
+    rdfs:comment "A scored alpha signal produced by factor analysis or a model (CONCEPT:EE-008): a record, like :SignalState, not the process that produced it. BFO:GenericallyDependentContinuant. Informational only." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q4456825 .
+
+:signalStrength a owl:DatatypeProperty ;
+    rdfs:label "signal strength" ;
+    rdfs:comment "Normalized signal score [-1.0, 1.0]." ;
+    rdfs:domain :TradingSignal ;
+    rdfs:range xsd:float .
+
+:signalType a owl:DatatypeProperty ;
+    rdfs:label "signal type" ;
+    rdfs:comment "momentum, mean_reversion, volatility, fundamental, ml_prediction." ;
+    rdfs:domain :TradingSignal ;
+    rdfs:range xsd:string .
+
+:BacktestResult a owl:Class ;
+    rdfs:label "Backtest Result" ;
+    rdfs:comment "The summary metrics an external backtester reports for a strategy (CONCEPT:EE-016). Unlike :BacktestRun it is neither content-addressed nor carries the mandatory validation outputs. BFO:GenericallyDependentContinuant, like the core :OutcomeEvaluation connector packs specialise it to." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q798528 .
+
+:backtestMaxDrawdown a owl:DatatypeProperty ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range xsd:float .
+
+:backtestSharpe a owl:DatatypeProperty ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range xsd:float .
+
+:backtestWinRate a owl:DatatypeProperty ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range xsd:float .
+
+:validatesStrategy a owl:ObjectProperty ;
+    rdfs:label "validates strategy" ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range :TradingStrategy .
+
+:TradingDebate a owl:Class ;
+    rdfs:label "Trading Debate" ;
+    rdfs:comment "A multi-agent bull/bear debate on a trading hypothesis (CONCEPT:EE-014). Its consensus is advice, never an order." ;
+    rdfs:subClassOf bfo:0000015 ;
+    skos:broadMatch wd:Q179875 .
+
+:debateConsensus a owl:DatatypeProperty ;
+    rdfs:comment "approved, rejected, vetoed, pending." ;
+    rdfs:domain :TradingDebate ;
+    rdfs:range xsd:string .
+
+:debateHypothesis a owl:DatatypeProperty ;
+    rdfs:domain :TradingDebate ;
+    rdfs:range xsd:string .
+
+:ExchangeBackend a owl:Class ;
+    rdfs:label "Exchange Backend" ;
+    rdfs:comment "An abstracted connection to a trading venue or a paper simulator (Alpaca, CCXT, Freqtrade, Paper); every backend implements the ExchangeBackend protocol (CONCEPT:EE-002)." ;
+    rdfs:subClassOf bfo:0000004 ;
+    skos:relatedMatch wd:Q179076 .
+
+:exchangeName a owl:DatatypeProperty ;
+    rdfs:label "exchange name" ;
+    rdfs:comment "paper, alpaca, ccxt:binance, ccxt:coinbase, freqtrade." ;
+    rdfs:domain :ExchangeBackend ;
+    rdfs:range xsd:string .
+
+:supportedAssets a owl:DatatypeProperty ;
+    rdfs:label "supported assets" ;
+    rdfs:comment "equity, crypto, forex — comma-separated." ;
+    rdfs:domain :ExchangeBackend ;
+    rdfs:range xsd:string .
+
+:tradingMode a owl:DatatypeProperty ;
+    rdfs:label "trading mode" ;
+    rdfs:comment "paper or live. Defaults to paper. Live requires human approval." ;
+    rdfs:domain :ExchangeBackend ;
+    rdfs:range xsd:string .
+
+:VersionedOrder a owl:Class ;
+    rdfs:label "Versioned Order" ;
+    rdfs:comment "An immutable audit record of a trading order placed through an :ExchangeBackend (CONCEPT:EE-009). The record documents an order; it never authorises one. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q566889 .
+
+:executedOn a owl:ObjectProperty ;
+    rdfs:label "executed on" ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range :ExchangeBackend .
+
+:filledPrice a owl:DatatypeProperty ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:float .
+
+:filledQty a owl:DatatypeProperty ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:float .
+
+:orderSide a owl:DatatypeProperty ;
+    rdfs:comment "buy or sell." ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:string .
+
+:orderStatus a owl:DatatypeProperty ;
+    rdfs:comment "pending, submitted, filled, cancelled, rejected." ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:string .
+
+:PortfolioPosition a owl:Class ;
+    rdfs:label "Portfolio Position" ;
+    rdfs:comment "An open position in a financial instrument, held on an :ExchangeBackend (CONCEPT:EE-010)." ;
+    rdfs:subClassOf bfo:0000004 ;
+    skos:relatedMatch wd:Q5340806,
+        wd:Q1869502 .
+
+:heldOnExchange a owl:ObjectProperty ;
+    rdfs:label "held on exchange" ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range :ExchangeBackend .
+
+:positionQty a owl:DatatypeProperty ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range xsd:float .
+
+:positionSide a owl:DatatypeProperty ;
+    rdfs:comment "long or short." ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range xsd:string .
+
+:positionSymbol a owl:DatatypeProperty ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range xsd:string .
+
+:RiskSnapshot a owl:Class ;
+    rdfs:label "Risk Snapshot" ;
+    rdfs:comment "A point-in-time portfolio risk measurement (CONCEPT:EE-011 / OS-5.1): a record, not the measuring process. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q2154759 .
+
+:dailyPnL a owl:DatatypeProperty ;
+    rdfs:domain :RiskSnapshot ;
+    rdfs:range xsd:float .
+
+:isHalted a owl:DatatypeProperty ;
+    rdfs:comment "Whether trading is halted by circuit breaker or kill switch." ;
+    rdfs:domain :RiskSnapshot ;
+    rdfs:range xsd:boolean .
+
+:portfolioDrawdown a owl:DatatypeProperty ;
+    rdfs:domain :RiskSnapshot ;
+    rdfs:range xsd:float .
+
+:regimeState a owl:DatatypeProperty ;
+    rdfs:comment "normal, warning, critical, regime_shift." ;
+    rdfs:domain :RiskSnapshot ;
     rdfs:range xsd:string .

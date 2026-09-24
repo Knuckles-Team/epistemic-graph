@@ -695,8 +695,10 @@ ex:parent a owl:AsymmetricProperty .
         // +1: BFO `Continuant owl:disjointWith Occurrent`. +471: the world model — the
         // life, environment and nutrition modules (145 + 71 + 114), their catalog imports
         // (3) and the foundation's world-model vocabulary (138). +183: the finance module
-        // (182, EH-411) and its catalog import (1).
-        assert_eq!(composed.ontology.len(), 13_352);
+        // (182, EH-411) and its catalog import (1). +9: the skos mappings of the eight
+        // trading classes folded from company_infra into finance (EH-517); the fold
+        // itself moves triples without adding any.
+        assert_eq!(composed.ontology.len(), 13_361);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -728,7 +730,7 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 34);
         assert_eq!(imports, 69);
-        assert_eq!(semantic_axioms, 13_175);
+        assert_eq!(semantic_axioms, 13_184);
 
         let count_type = |object: &str| {
             composed
