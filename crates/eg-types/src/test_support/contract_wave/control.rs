@@ -36,6 +36,16 @@ pub fn graph_schema_ops() -> Vec<(&'static str, GraphSchemaOp)> {
                 if_composed_digest: Some(super::digest_text(0xd2)),
             },
         ),
+        (
+            "GraphSchema.attach_approved",
+            GraphSchemaOp::AttachApproved {
+                source_id: "approved:contract-sample".to_string(),
+                shapes_ttl: Some("@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string()),
+                ontology_ttl: None,
+                approval_lease_id: "action_approval:contract-sample".to_string(),
+                if_composed_digest: Some(super::digest_text(0xd3)),
+            },
+        ),
     ]
 }
 
