@@ -427,6 +427,12 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     // EH-404: defense-in-depth marker; the durable record is the elevation
     // ledger's own hash-chained audit trail in the rbac.redb policy image.
     "RbacElevation",
+    // IDM-01/IDM-03: defense-in-depth markers; the durable record is the
+    // identity store's hash-chained audit trail, written in the same
+    // rbac.redb image as the change it records.
+    "Identity",
+    "RbacAdmin",
+    "RegisterIdentity",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",

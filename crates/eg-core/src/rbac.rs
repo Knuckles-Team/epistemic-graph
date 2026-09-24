@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, Role};
+use eg_types::identity::IdentityStore;
 use eg_types::rbac_elevation::ElevationLedger;
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +34,13 @@ pub struct RbacPolicy {
     /// rest of the authorization state. Omitted from the image while empty.
     #[serde(default, skip_serializing_if = "ElevationLedger::is_empty")]
     elevations: ElevationLedger,
+    /// The engine-owned identity store (IDM-01..05). Part of the SAME image,
+    /// so a store change and its RBAC projection are one durable write
+    /// (IDM-03). Omitted while empty, so an engine that never uses it keeps
+    /// its bytes. Not part of the policy digest: its authority reaches RBAC
+    /// only through the projected roles, grants and identities, which are.
+    #[serde(default, skip_serializing_if = "IdentityStore::is_empty")]
+    identity: IdentityStore,
 }
 
 impl RbacPolicy {
@@ -79,6 +87,29 @@ impl RbacPolicy {
 
     pub(crate) fn elevations_mut(&mut self) -> &mut ElevationLedger {
         &mut self.elevations
+    }
+
+    /// The identity store.
+    pub fn identity_store(&self) -> &IdentityStore {
+        &self.identity
+    }
+
+    pub(crate) fn identity_store_mut(&mut self) -> &mut IdentityStore {
+        &mut self.identity
+    }
+
+    /// Replace every role and grant in the store-owned `idm:` namespace with
+    /// `roles` and `grants`, leaving every other role and grant untouched.
+    pub(crate) fn replace_projected(&mut self, roles: Vec<Role>, grants: Vec<Grant>) {
+        let owned = |name: &str| name.starts_with(eg_types::identity::RBAC_ROLE_PREFIX);
+        self.roles.retain(|name, _| !owned(name));
+        self.grants.retain(|grant| !owned(&grant.role));
+        for role in roles {
+            self.roles.insert(role.name.clone(), role);
+        }
+        for grant in grants {
+            self.add_grant(grant);
+        }
     }
 
     /// Expand a set of role names to include every transitively-reachable parent

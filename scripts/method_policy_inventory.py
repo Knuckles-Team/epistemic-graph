@@ -74,7 +74,8 @@ class MethodPolicyRow:
 # `TransitionControlLease` and `GetControlLease`.
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
 # 437 -> 439: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
-EXPECTED_METHOD_POLICY_ROWS = 439
+# 439 -> 440: IDM-01's `Identity`.
+EXPECTED_METHOD_POLICY_ROWS = 440
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

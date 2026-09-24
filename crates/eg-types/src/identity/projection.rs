@@ -41,7 +41,7 @@ pub struct PrincipalResolution {
 }
 
 /// The RBAC state the store owns.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct RbacProjection {
     /// Every `idm:<role_id>` role.
     pub roles: Vec<Role>,

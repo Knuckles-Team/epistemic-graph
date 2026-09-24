@@ -204,6 +204,7 @@ pub(crate) const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("RefreshMatView", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterContinuousQuery", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterForeignSource", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("Identity", "UNASSIGNED", "IDM-01: an identity-store write in the rbac.redb image, not a graph write; like RbacAdmin it is absent from access.rs::requires_write, and its authority is the op's EXACT identity:* scope checked against the boundary-stamped actor"),
     ("RegisterIdentity", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterServer", "UNASSIGNED", "W2.5 fleet server push-registration/heartbeat (self-translates into Method::AddNode against __commons__, like ApplyMultisigMutation above translates into ApplyMutation); mutates per policy/semantics, but absent from access.rs::requires_write entirely -- it is not graph-scoped and never reaches dispatch_graph_op with its own identity"),
     ("RegisterTrigger", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),

@@ -16,14 +16,14 @@ use super::super::views::IdentityReply;
 use super::super::{
     normalize_username, IdentityRefusal, ADMINISTRATORS_GROUP, ADMIN_ROLE, BOOTSTRAP_PRINCIPAL,
     ELEVATION_APPROVERS_GROUP, ELEVATION_APPROVER_ROLE, LIVE_ORDER_APPROVERS_GROUP,
-    LIVE_ORDER_APPROVER_ROLE, USER_ROLE,
+    LIVE_ORDER_APPROVER_ROLE, SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE, USER_ROLE,
 };
 use super::{ApplyContext, IdentityStore};
 use crate::acl::{GrantEffect, RbacAction, ResourceSelector};
 
 /// Built-in roles: `(role_id, scopes)`. Administrators additionally get an
 /// allow-all graph grant for every action.
-const BUILTIN_ROLES: [(&str, &[&str]); 4] = [
+const BUILTIN_ROLES: [(&str, &[&str]); 5] = [
     (
         ADMIN_ROLE,
         &["kg:admin", "webui:admin", "identity:admin", "identity:read", "identity:self"],
@@ -31,13 +31,15 @@ const BUILTIN_ROLES: [(&str, &[&str]); 4] = [
     (USER_ROLE, &["kg:read", "identity:self"]),
     (ELEVATION_APPROVER_ROLE, &["rbac:approve-elevation"]),
     (LIVE_ORDER_APPROVER_ROLE, &["finance:approve-live-order"]),
+    (SCHEMA_APPROVER_ROLE, &["governance:approve-schema-repair"]),
 ];
 
 /// Built-in groups: `(group_id, role_id)`.
-const BUILTIN_GROUPS: [(&str, &str); 3] = [
+const BUILTIN_GROUPS: [(&str, &str); 4] = [
     (ADMINISTRATORS_GROUP, ADMIN_ROLE),
     (ELEVATION_APPROVERS_GROUP, ELEVATION_APPROVER_ROLE),
     (LIVE_ORDER_APPROVERS_GROUP, LIVE_ORDER_APPROVER_ROLE),
+    (SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE),
 ];
 
 fn admin_grants() -> Vec<RoleGraphGrant> {

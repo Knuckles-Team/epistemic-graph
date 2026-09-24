@@ -38,6 +38,7 @@ pub mod catalog;
 #[cfg(feature = "contract-schema")]
 pub mod contract;
 mod descriptor;
+pub mod scopes;
 mod domains;
 
 pub use catalog::{method_schema, CONTRACT_CATALOG_DIGEST, METHOD_CATALOG};
@@ -544,16 +545,21 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
             Some(decision_job_policy(op.is_mutation(), op.authz_action()))
         }
         Method::MutationOutbox { op } => Some(mutation_outbox_policy(op)),
-        Method::RbacElevation { op, .. } => Some(rbac_elevation_policy(op)),
+        Method::RbacElevation { op, .. } => {
+            Some(control_redb_op_policy(op.is_mutation(), op.authz_action()))
+        }
+        Method::Identity { op, .. } => {
+            Some(control_redb_op_policy(op.is_mutation(), op.authz_action()))
+        }
         _ => None,
     }
 }
 
-/// Just-in-time elevation (EH-404). Its writes are RBAC policy writes in the
-/// rbac.redb image, each hash-chain audited in the elevation ledger; a replay
-/// of an approval is refused rather than answered idempotently.
-fn rbac_elevation_policy(op: &eg_types::rbac_elevation::RbacElevationOp) -> MethodPolicy {
-    let mutates = op.is_mutation();
+/// A control-plane op whose writes live in the rbac.redb authorization image
+/// (EH-404 elevations, IDM-01 identity): each write is hash-chain audited in
+/// that image, and a replayed write is refused rather than answered
+/// idempotently. Reads are snapshot reads.
+fn control_redb_op_policy(mutates: bool, authz_action: &'static str) -> MethodPolicy {
     MethodPolicy {
         mutates,
         durability_domain: if mutates {
@@ -561,7 +567,7 @@ fn rbac_elevation_policy(op: &eg_types::rbac_elevation::RbacElevationOp) -> Meth
         } else {
             DurabilityDomain::None
         },
-        authz_action: op.authz_action(),
+        authz_action,
         idempotent: !mutates,
         audited: mutates,
         emits_cdc: false,

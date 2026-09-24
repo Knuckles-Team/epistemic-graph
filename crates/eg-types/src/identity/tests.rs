@@ -13,7 +13,7 @@ mod tokens;
 /// A registry fixture with one scope of every class.
 pub(super) struct TestRegistry;
 
-const REGISTRY: [(&str, ScopeClass, Option<&str>); 12] = [
+const REGISTRY: [(&str, ScopeClass, Option<&str>); 13] = [
     ("kg:read", ScopeClass::User, None),
     ("identity:self", ScopeClass::User, None),
     ("finance:alerts", ScopeClass::Domain, None),
@@ -30,6 +30,11 @@ const REGISTRY: [(&str, ScopeClass, Option<&str>); 12] = [
     ("identity:admin", ScopeClass::Admin, None),
     ("identity:read", ScopeClass::Admin, None),
     ("kg:write", ScopeClass::User, None),
+    (
+        "governance:approve-schema-repair",
+        ScopeClass::Approver,
+        Some(SCHEMA_APPROVERS_GROUP),
+    ),
 ];
 
 impl ScopeClassifier for TestRegistry {

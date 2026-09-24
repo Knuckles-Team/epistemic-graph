@@ -74,7 +74,7 @@ fn fleet_catalog_audit_line(method: &Method) -> Option<String> {
 /// transition. Reads are never audited.
 fn rbac_elevation_audit_line(method: &Method) -> Option<String> {
     let Method::RbacElevation { op, .. } = method else {
-        return None;
+        return identity_audit_line(method);
     };
     op.is_mutation().then(|| {
         format!(
@@ -83,6 +83,36 @@ fn rbac_elevation_audit_line(method: &Method) -> Option<String> {
             op.elevation_id().unwrap_or_default()
         )
     })
+}
+
+/// IDM-01/IDM-03: defense-in-depth markers. The durable record of each is
+/// the identity store's hash-chained trail, written in the same rbac.redb
+/// image as the change. The line names the op and its target, never a
+/// secret (every secret field was cleared at the request boundary).
+fn identity_audit_line(method: &Method) -> Option<String> {
+    match method {
+        Method::Identity { op, .. } => op
+            .is_mutation()
+            .then(|| format!("IDENTITY|{}", op.name())),
+        Method::RegisterIdentity { agent_id, .. } => {
+            Some(format!("REGISTER_IDENTITY|{agent_id}"))
+        }
+        Method::RbacAdmin { op } => rbac_admin_audit_line(op),
+        _ => None,
+    }
+}
+
+fn rbac_admin_audit_line(op: &crate::acl::RbacAdminOp) -> Option<String> {
+    use crate::acl::RbacAdminOp;
+    match op {
+        RbacAdminOp::AddRole(role) => Some(format!("RBAC_ADMIN|add_role|{}", role.name)),
+        RbacAdminOp::RemoveRole(name) => Some(format!("RBAC_ADMIN|remove_role|{name}")),
+        RbacAdminOp::AddGrant(grant) => Some(format!("RBAC_ADMIN|add_grant|{}", grant.role)),
+        RbacAdminOp::RemoveGrant(grant) => {
+            Some(format!("RBAC_ADMIN|remove_grant|{}", grant.role))
+        }
+        RbacAdminOp::List => None,
+    }
 }
 
 pub(super) fn graph_schema_audit_line(method: &Method) -> Option<String> {

@@ -62,42 +62,42 @@ pub struct ApplyContext<'a> {
 #[serde(deny_unknown_fields)]
 pub struct IdentityStore {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    config: Option<IdentityConfig>,
+    pub(super) config: Option<IdentityConfig>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    users: BTreeMap<String, super::model::UserRecord>,
+    pub(super) users: BTreeMap<String, super::model::UserRecord>,
     /// Normalized username → principal id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    usernames: BTreeMap<String, String>,
+    pub(super) usernames: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    passwords: BTreeMap<String, PasswordCredential>,
+    pub(super) passwords: BTreeMap<String, PasswordCredential>,
     /// Session-id hash → session.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    sessions: BTreeMap<String, SessionRecord>,
+    pub(super) sessions: BTreeMap<String, SessionRecord>,
     /// Token hash → one-time token.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    one_time: BTreeMap<String, OneTimeToken>,
+    pub(super) one_time: BTreeMap<String, OneTimeToken>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    api_keys: BTreeMap<String, ApiKeyRecord>,
+    pub(super) api_keys: BTreeMap<String, ApiKeyRecord>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    totp: BTreeMap<String, TotpRecord>,
+    pub(super) totp: BTreeMap<String, TotpRecord>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    recovery: BTreeMap<String, Vec<RecoveryCode>>,
+    pub(super) recovery: BTreeMap<String, Vec<RecoveryCode>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    roles: BTreeMap<String, RoleRecord>,
+    pub(super) roles: BTreeMap<String, RoleRecord>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    groups: BTreeMap<String, GroupRecord>,
+    pub(super) groups: BTreeMap<String, GroupRecord>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    idps: BTreeMap<String, IdpConfig>,
+    pub(super) idps: BTreeMap<String, IdpConfig>,
     /// `<idp_id>\0<subject>` → link.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    links: BTreeMap<String, ExternalIdentity>,
+    pub(super) links: BTreeMap<String, ExternalIdentity>,
     /// IdP-mapped roles per link key, recomputed at every external login.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    link_roles: BTreeMap<String, std::collections::BTreeSet<String>>,
+    pub(super) link_roles: BTreeMap<String, std::collections::BTreeSet<String>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    throttle: BTreeMap<String, ThrottleEntry>,
+    pub(super) throttle: BTreeMap<String, ThrottleEntry>,
     #[serde(default, skip_serializing_if = "AuditTrail::is_empty")]
-    audit: AuditTrail,
+    pub(super) audit: AuditTrail,
 }
 
 /// Whether an op can change who holds which scope, so the class invariants

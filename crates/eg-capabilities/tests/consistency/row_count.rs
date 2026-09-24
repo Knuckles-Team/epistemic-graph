@@ -31,15 +31,16 @@
 /// 429 -> 430: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
 /// 430 -> 432: EH-404's `RbacElevation` (just-in-time elevation) and EH-406's
 /// `ThrottleCapacityCell` (error-budget AIMD step).
+/// 432 -> 433: IDM-01's `Identity` (the engine-owned identity store).
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;
 /// `scripts/method_policy_inventory.py`'s `EXPECTED_METHOD_POLICY_ROWS` is the
 /// same count seen from the other side and the two must agree
-/// (432 + 7 feature rows = 439). Keep the formula aligned with the cfg rows in
+/// (433 + 7 feature rows = 440). Keep the formula aligned with the cfg rows in
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    432 + usize::from(cfg!(feature = "jobs"))
+    433 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))

@@ -180,4 +180,7 @@ method_results! {
     // `null` when no identity is registered for the agent; an identity holding no
     // roles is a present identity with an empty `roles` list.
     GetIdentity(GetIdentity) => Json<Option<AgentIdentity>>;
+    // IDM-01: every identity op answers one tagged reply; no reply variant can
+    // carry a hash, token or sealed secret.
+    Identity(Identity) => Json<crate::identity::IdentityReply>;
 }

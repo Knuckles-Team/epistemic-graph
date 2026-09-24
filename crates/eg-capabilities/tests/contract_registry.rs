@@ -183,9 +183,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // `GetControlLease`.
     // 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
     // 437 -> 439: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
+    // 439 -> 440: IDM-01's `Identity`.
     assert_eq!(
         variants.len(),
-        439,
+        440,
         "the wire method census changed; update this exact count deliberately"
     );
 }
