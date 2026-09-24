@@ -78,7 +78,8 @@ class MethodPolicyRow:
 # 437 -> 438: EH-400's `FreshnessFeed` (messaging) -- per-class invalidation
 # events, the class volatility policy and foreign-source watermark freshness.
 # 438 -> 439: EH-346/EH-347 `PolicyEvolution`.
-EXPECTED_METHOD_POLICY_ROWS = 439
+# 439 -> 440: EH-346 engine-internal `PolicyEvolutionStore`.
+EXPECTED_METHOD_POLICY_ROWS = 440
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
