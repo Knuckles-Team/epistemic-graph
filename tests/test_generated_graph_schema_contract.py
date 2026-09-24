@@ -96,3 +96,38 @@ def test_generated_graph_schema_detach_preserves_the_discriminator() -> None:
         "source_id": "admin:local",
         "if_composed_digest": "00" * 32,
     }
+
+
+def test_generated_graph_schema_classes_page_is_typed() -> None:
+    from epistemic_graph.generated.graph_schema import (
+        GraphSchemaClassesView,
+        GraphSchemaTermKind,
+    )
+
+    digest = "07" * 32
+    client = PayloadTransport(
+        {
+            "GraphSchemaClasses": {
+                "schema_version": 1,
+                "graph": "tenant",
+                "composed_digest": digest,
+                "total_terms": 2,
+                "terms": [
+                    {
+                        "iri": "https://example.org/core#Document",
+                        "local_name": "Document",
+                        "kind": "class",
+                        "source_id": "core:core-foundation@1",
+                    }
+                ],
+                "next_cursor": "https://example.org/core#Document class",
+            }
+        }
+    )
+    params = {"kind": "class", "cursor": None, "limit": 1}
+    page = asyncio.run(reasoning.send_graph_schema_classes(client, params, "tenant"))
+
+    assert isinstance(page, GraphSchemaClassesView)
+    assert page.terms[0].kind == GraphSchemaTermKind("class")
+    assert page.next_cursor == "https://example.org/core#Document class"
+    assert client.sent == [("GraphSchemaClasses", params, "tenant", None)]
