@@ -34,7 +34,7 @@ pub(crate) async fn handle_classes(
     core: &Arc<GraphCore>,
     request: TermPageRequest<'_>,
 ) -> Response {
-    match classes_page(graph_name, &core.schema_sources(), &request) {
+    match classes_page(graph_name, &super::disclosed_sources(core), &request) {
         Ok(view) => Response::ok(
             req_id,
             ResultPayload::of::<eg_types::result_contract::reasoning::GraphSchemaClasses>(view),
