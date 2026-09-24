@@ -24,6 +24,7 @@
 // CONCEPT:EG-KG.temporal.native-columnar-store — the native columnar (struct-of-arrays) segment for analytical
 // scans. Pure-Rust + serde only (no Arrow/DataFusion/redb), so it compiles in the
 // lean / Pi build exactly like `point`/`query` — always on, no feature gate.
+pub mod bars;
 pub mod columnar;
 pub mod point;
 

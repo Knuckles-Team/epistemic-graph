@@ -17,7 +17,8 @@ use super::LegacyIntegrityPolicy;
 /// contains the aggregate document, foundation, 31 domain TBoxes (the world model
 /// as its life, environment and nutrition modules), the core governance-shape
 /// slice, the world-model shapes (35 artifacts, EH-364) and the swarm-topology
-/// vocabulary and shapes (37, ST-1).  It is deliberately independent of the dynamic
+/// vocabulary and shapes (37, ST-1) and the finance module and its shapes (39,
+/// EH-411).  It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
 pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
@@ -775,6 +776,18 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: None,
         },
         CoreSpec {
+            module: "finance",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/finance-v1.ttl")),
+        },
+        CoreSpec {
+            module: "finance-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/finance-v1.shapes.ttl")),
+            ontology: None,
+        },
+        CoreSpec {
             module: "worldview",
             version: 1,
             shapes: None,
@@ -1141,7 +1154,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "cebb6fa50bdd1a42b773d093325f607e8d12f673128121e24acd7ddebc8ea649",
+                "7b3a24987e3d63e3b5b21c78111cae7d5b4397c16f8b4e528ccff40559d1f5fb",
             ),
             (
                 "company",
@@ -1258,6 +1271,14 @@ mod tests {
             (
                 "swarm-topology-shapes",
                 "699371a30c9e2b770bc565df246fbdfeb7525614e3557b25fc22923b82ea9e9c",
+            ),
+            (
+                "finance",
+                "0157b7a990fd352b4a7d3557234358fa03efcb83d805106863081e9581a55d48",
+            ),
+            (
+                "finance-shapes",
+                "16f38425e0e6478c732cc2e2a205ab30c44f13fbf2edbd7bc16d1a08e7ff5a4f",
             ),
             (
                 "worldview",

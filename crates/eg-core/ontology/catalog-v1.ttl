@@ -18,6 +18,7 @@
         <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
         <http://knuckles.team/kg/environment>,
+        <http://knuckles.team/kg/finance>,
         <http://knuckles.team/kg/government>,
         <http://knuckles.team/kg/harness>,
         <http://knuckles.team/kg/hr>,

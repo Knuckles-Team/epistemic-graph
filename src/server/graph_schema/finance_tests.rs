@@ -1,0 +1,265 @@
+//! Finance base ontology (EH-411): a thin core module in the style of the world
+//! model. It stays coherent inside the full core corpus, every class it declares is
+//! mapped (skos, never imported) to FIBO or Wikidata, its wiring entails what the
+//! market connectors and the signal engine rely on, and its shapes refuse the
+//! malformed records they exist to catch.
+
+use std::collections::BTreeSet;
+
+use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
+
+use super::compose::{scope_blank_nodes, validate_and_compose};
+use crate::graph::GraphSchemaSources;
+
+const KG: &str = "http://knuckles.team/kg#";
+const FINANCE: &str = include_str!("../../../crates/eg-core/ontology/finance-v1.ttl");
+const FINANCE_SHAPES: &str = include_str!("../../../crates/eg-core/ontology/finance-v1.shapes.ttl");
+const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
+const OWL_IMPORTS: &str = "http://www.w3.org/2002/07/owl#imports";
+const SKOS_MAPPINGS: &[&str] = &[
+    "http://www.w3.org/2004/02/skos/core#exactMatch",
+    "http://www.w3.org/2004/02/skos/core#closeMatch",
+    "http://www.w3.org/2004/02/skos/core#broadMatch",
+    "http://www.w3.org/2004/02/skos/core#relatedMatch",
+];
+const WIRED_MODULES: &[&str] = &[
+    "core:foundation@1",
+    "core:energy_geopolitics@1",
+    "core:finance@1",
+];
+
+const FIXTURE: &str = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix ex: <http://example.org/markets#> .
+
+ex:btc :venueSymbol "BTC" .
+ex:btcusdt :listedInstrument ex:btc ; :quoteInstrument ex:usdt ; :listedOn ex:binance ;
+    :listingType "spot" .
+ex:btcDaily :barSeriesOf ex:btcusdt ; :barTimeframe "1D" .
+ex:state :signalOf ex:btcDaily ; :signalSpec ex:atrTrail .
+ex:flip2 :flipOf ex:state ; :revisesFlip ex:flip1 .
+ex:fomc :policyAction "hold" .
+ex:wti a :Commodity .
+"#;
+
+fn kg(local: &str) -> String {
+    format!("<{KG}{local}>")
+}
+
+fn ex(local: &str) -> String {
+    format!("<http://example.org/markets#{local}>")
+}
+
+fn parse_scoped(document: &str, scope: &str) -> Vec<Triple> {
+    eg_rdf::mapping::parse_turtle(document)
+        .unwrap()
+        .into_iter()
+        .map(|triple| scope_blank_nodes(triple, scope).unwrap())
+        .collect()
+}
+
+fn wired_with_fixture() -> Vec<Triple> {
+    let sources = GraphSchemaSources::default();
+    let mut triples = Vec::new();
+    for (index, (source_id, document)) in sources.ontologies().enumerate() {
+        if WIRED_MODULES.contains(&source_id) {
+            triples.extend(parse_scoped(document, &format!("m{index}")));
+        }
+    }
+    triples.extend(parse_scoped(FIXTURE, "fixture"));
+    triples
+}
+
+fn subject_iri(triple: &Triple) -> Option<&str> {
+    match &triple.subject {
+        NamedOrBlankNode::NamedNode(node) => Some(node.as_str()),
+        NamedOrBlankNode::BlankNode(_) => None,
+    }
+}
+
+fn object_iri(triple: &Triple) -> Option<&str> {
+    match &triple.object {
+        Term::NamedNode(node) => Some(node.as_str()),
+        _ => None,
+    }
+}
+
+#[test]
+fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_coherent() {
+    let sources = GraphSchemaSources::default();
+    for module in ["finance", "finance-shapes"] {
+        assert!(
+            sources.core.contains_key(&format!("core:{module}@1")),
+            "{module}"
+        );
+    }
+    assert!(sources.core.len() <= crate::graph::MAX_CORE_SCHEMA_SOURCES);
+    let composed = validate_and_compose(&sources).unwrap();
+    let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
+    assert!(classification.consistent);
+    assert!(
+        classification.unsatisfiable.is_empty(),
+        "{:?}",
+        classification.unsatisfiable
+    );
+    let bfo = |id: &str| format!("<http://purl.obolibrary.org/obo/BFO_{id}>");
+    let placed = [
+        ("FinancialInstrument", "0000031"),
+        ("Commodity", "0000031"),
+        ("Listing", "0000031"),
+        ("BarSeries", "0000031"),
+        ("IndicatorSpec", "0000031"),
+        ("SignalState", "0000031"),
+        ("BacktestRun", "0000031"),
+        ("Venue", "0000004"),
+        ("TrendFlip", "0000015"),
+        ("MacroEvent", "0000015"),
+    ];
+    for (class, category) in placed {
+        assert!(
+            classification.subsumers[&kg(class)].contains(&bfo(category)),
+            "{class} ⋢ BFO_{category}"
+        );
+    }
+}
+
+/// Every class is mapped and only the core foundation is imported.
+#[test]
+fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
+    let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
+    let declared: BTreeSet<&str> = triples
+        .iter()
+        .filter(|triple| {
+            triple.predicate.as_str() == RDF_TYPE && object_iri(triple) == Some(OWL_CLASS)
+        })
+        .filter_map(subject_iri)
+        .collect();
+    assert_eq!(declared.len(), 9);
+    let mapped: BTreeSet<&str> = triples
+        .iter()
+        .filter(|triple| SKOS_MAPPINGS.contains(&triple.predicate.as_str()))
+        .filter_map(subject_iri)
+        .collect();
+    let unmapped: Vec<&&str> = declared.iter().filter(|c| !mapped.contains(*c)).collect();
+    assert!(unmapped.is_empty(), "unmapped classes {unmapped:?}");
+    let imports: BTreeSet<&str> = triples
+        .iter()
+        .filter(|triple| triple.predicate.as_str() == OWL_IMPORTS)
+        .filter_map(object_iri)
+        .collect();
+    assert_eq!(imports, BTreeSet::from(["http://knuckles.team/kg/core"]));
+}
+
+/// The wiring connectors rely on: a listing's parts are typed by the properties, a
+/// commodity is an instrument, a revised flip is still a flip and an event.
+#[test]
+fn listing_signal_and_flip_wiring_entails_their_types() {
+    let triples = wired_with_fixture();
+    let ontology = eg_rdf::owl::parse_ontology(&triples);
+    let result = eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default());
+    let holds =
+        |class: &str, individual: &str| result.holds(&kg(class), &[ex(individual).as_str()]);
+    assert!(holds("Listing", "btcusdt"));
+    assert!(holds("FinancialInstrument", "btc"));
+    assert!(holds("FinancialInstrument", "usdt"));
+    assert!(holds("Venue", "binance"));
+    assert!(holds("System", "binance"));
+    assert!(holds("BarSeries", "btcDaily"));
+    assert!(holds("Dataset", "btcDaily"));
+    assert!(holds("SignalState", "state"));
+    assert!(holds("IndicatorSpec", "atrTrail"));
+    assert!(holds("TrendFlip", "flip1"));
+    assert!(holds("TrendFlip", "flip2"));
+    assert!(holds("Event", "flip2"));
+    assert!(holds("MacroEvent", "fomc"));
+    assert!(holds("FinancialInstrument", "wti"));
+}
+
+/// A flip is an occurrent and an instrument a continuant: typing one individual as
+/// both is inconsistent under the core BFO disjointness.
+#[test]
+fn a_trend_flip_is_never_an_instrument() {
+    let mut triples = wired_with_fixture();
+    triples.extend(parse_scoped(
+        "@prefix : <http://knuckles.team/kg#> . <http://example.org/markets#flip2> a :FinancialInstrument .",
+        "clash",
+    ));
+    let dl = eg_rdf::tableau::parse_dl_ontology(&triples);
+    assert!(!eg_rdf::tableau::is_consistent(&dl));
+}
+
+#[test]
+fn finance_shapes_are_their_own_document() {
+    let triples = eg_rdf::mapping::parse_turtle(FINANCE_SHAPES).unwrap();
+    let targets: BTreeSet<&str> = triples
+        .iter()
+        .filter(|triple| triple.predicate.as_str() == "http://www.w3.org/ns/shacl#targetClass")
+        .filter_map(object_iri)
+        .collect();
+    let expected: BTreeSet<String> = [
+        "Listing",
+        "BarSeries",
+        "IndicatorSpec",
+        "SignalState",
+        "TrendFlip",
+        "MacroEvent",
+    ]
+    .iter()
+    .map(|local| format!("{KG}{local}"))
+    .collect();
+    let expected: BTreeSet<&str> = expected.iter().map(String::as_str).collect();
+    assert_eq!(targets, expected);
+}
+
+#[cfg(feature = "shacl")]
+mod shapes {
+    use super::FINANCE_SHAPES;
+
+    const PREFIXES: &str = "@prefix : <http://knuckles.team/kg#> .\n\
+        @prefix ex: <http://example.org/markets#> .\n\
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n";
+
+    fn conforms(data: &str) -> bool {
+        eg_shacl::validate_turtle(FINANCE_SHAPES, &format!("{PREFIXES}{data}"))
+            .unwrap()
+            .conforms
+    }
+
+    const HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+    #[test]
+    fn well_formed_finance_records_conform() {
+        let data = format!(
+            "ex:l a :Listing ; :listedInstrument ex:btc ; :quoteInstrument ex:usd ; \
+               :listedOn ex:v ; :listingType \"spot\" .\n\
+             ex:s a :BarSeries ; :barSeriesOf ex:l ; :barTimeframe \"4h\" ; \
+               :tradingCalendar \"utc-24x7\" ; :priceBasis \"trade\" ; :tsdbSeriesId \"bars/btc\" .\n\
+             ex:i a :IndicatorSpec ; :indicatorVersion \"atr-trail@1\" ; :parameterHash \"{HASH}\" .\n\
+             ex:st a :SignalState ; :signalOf ex:s ; :signalSpec ex:i ; :dataStatus \"warming\" .\n\
+             ex:f a :TrendFlip ; :flipOf ex:st ; :flipFrom \"bearish\" ; :flipTo \"bullish\" ; \
+               :flipEffectiveAt \"2026-09-24T00:00:00Z\"^^xsd:dateTime ; :flipEventId \"{HASH}\" .\n\
+             ex:m a :MacroEvent ; :policyAction \"hold\" ; \
+               :announcedAt \"2026-09-17T18:00:00Z\"^^xsd:dateTime ."
+        );
+        assert!(conforms(&data));
+    }
+
+    #[test]
+    fn malformed_finance_records_are_violations() {
+        let refused = [
+            "ex:l a :Listing ; :listedInstrument ex:btc ; :quoteInstrument ex:usd ; \
+               :listedOn ex:v ; :listingType \"spto\" .",
+            "ex:s a :BarSeries ; :barSeriesOf ex:l ; :barTimeframe \"7D\" ; \
+               :tradingCalendar \"utc-24x7\" ; :priceBasis \"trade\" ; :tsdbSeriesId \"b\" .",
+            "ex:st a :SignalState ; :signalOf ex:s ; :signalSpec ex:i ; :dataStatus \"valid\" ; \
+               :trendDirection \"sideways\" .",
+            "ex:st a :SignalState ; :signalOf ex:s ; :signalSpec ex:i .",
+            "ex:i a :IndicatorSpec ; :indicatorVersion \"v\" ; :parameterHash \"md5:00\" .",
+            "ex:m a :MacroEvent ; :policyAction \"hold\" .",
+        ];
+        for data in refused {
+            assert!(!conforms(data), "{data}");
+        }
+    }
+}
