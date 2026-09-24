@@ -219,6 +219,31 @@
           }
         ]
       },
+      "ReqDef_AdapterSpec": {
+        "description": "What the run trains. Adapter-only: full-weight mutation is not expressible.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "adapter": {
+                "const": "lora",
+                "type": "string"
+              },
+              "rank": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "adapter",
+              "rank"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_AgentComponentContentRequest": {
         "additionalProperties": false,
         "description": "Read one component revision's bytes.",
@@ -2484,6 +2509,31 @@
         ],
         "type": "string"
       },
+      "ReqDef_ArrayEncoding": {
+        "description": "How the elements of a referenced array are encoded.",
+        "oneOf": [
+          {
+            "const": "u32_le",
+            "description": "Little-endian `u32` (token ids, sampler Top-K / auxiliary ids).",
+            "type": "string"
+          },
+          {
+            "const": "f32_le",
+            "description": "Little-endian IEEE-754 `f32` (log-probabilities).",
+            "type": "string"
+          },
+          {
+            "const": "u8_mask",
+            "description": "One byte per token, `1` = policy token (prompt, padding and tool\noutput tokens are `0` and masked from the loss).",
+            "type": "string"
+          },
+          {
+            "const": "bytes",
+            "description": "Opaque bytes (logs, reports). Carries no element width.",
+            "type": "string"
+          }
+        ]
+      },
       "ReqDef_AsrOp": {
         "description": "`Method::Asr { op }`'s request shape. `audio_wav` carries the actual PCM\nbytes over the wire (MessagePack handles binary natively \u2014 no base64\ninflation); `model_path`/`model_sha256` are a caller-resolved,\nalready-verified model reference (GOC-36 owns acquisition; this crate\nnever resolves a bare model name into a path or URL).",
         "oneOf": [
@@ -3881,6 +3931,23 @@
           "max_count"
         ],
         "type": "object"
+      },
+      "ReqDef_CaptureCompletion": {
+        "description": "How the episode ended.",
+        "enum": [
+          "terminal",
+          "truncated",
+          "aborted"
+        ],
+        "type": "string"
+      },
+      "ReqDef_CaptureTraceFidelity": {
+        "description": "How much of the trace the capture kept.",
+        "enum": [
+          "full",
+          "redacted"
+        ],
+        "type": "string"
       },
       "ReqDef_CasWorkItemMetadataLeaseFence": {
         "additionalProperties": false,
@@ -5659,6 +5726,25 @@
           "expired"
         ],
         "type": "string"
+      },
+      "ReqDef_ControlSetting": {
+        "additionalProperties": false,
+        "description": "One of the three independent controls. Disabled unless a record says so.",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "type": "boolean"
+          },
+          "scope": {
+            "default": null,
+            "description": "The authorization scope allowed to request this control. An enabled\ncontrol must name one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
       },
       "ReqDef_CostBudget": {
         "additionalProperties": false,
@@ -8109,6 +8195,71 @@
           }
         ]
       },
+      "ReqDef_EvaluationMetrics": {
+        "additionalProperties": false,
+        "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
+        "properties": {
+          "baseline_task_success_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cost_micros": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "gpu_seconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p50_ms": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p95_ms": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "task_success_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trace_completeness_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unsupported_replay_mass_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_success_ppm",
+          "baseline_task_success_ppm",
+          "cost_micros",
+          "latency_p50_ms",
+          "latency_p95_ms",
+          "gpu_seconds",
+          "trace_completeness_ppm",
+          "unsupported_replay_mass_ppm"
+        ],
+        "type": "object"
+      },
+      "ReqDef_EvaluationVerdict": {
+        "description": "The evaluator's decision. Loss movement is diagnostic, never a verdict.",
+        "enum": [
+          "accepted",
+          "rejected"
+        ],
+        "type": "string"
+      },
       "ReqDef_EvidenceClass": {
         "description": "The weakest class of evidence the conclusion rests on.",
         "enum": [
@@ -8410,6 +8561,28 @@
             "type": "object"
           }
         ]
+      },
+      "ReqDef_FieldContract": {
+        "additionalProperties": false,
+        "description": "One field of a record contract. Fields are declared alphabetically so the\ncanonical JSON is the same as a sorted-key encoder's.",
+        "properties": {
+          "required": {
+            "description": "Present (and non-null unless `types` has `null`) in every record.",
+            "type": "boolean"
+          },
+          "types": {
+            "description": "The types a value may have: non-empty, sorted, unique.",
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_JsonType"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "required",
+          "types"
+        ],
+        "type": "object"
       },
       "ReqDef_FittedClassifier": {
         "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit\u2192blob\u2192predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire \u2014\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
@@ -9605,6 +9778,68 @@
               "source_id"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "EH-403: attach or replace a governed repair candidate under\n`approved:<name>`. The candidate is a TYPED record contract; EG renders\nits SHACL (AUD-27: callers never send RDF). The engine refuses it unless\n`approval_lease_id` names an approved (`consumed`), unexpired\n`action.approval` control lease of the caller's tenant whose grant binds\nthis exact contract (see [`approval`]). A proposed schema change\ntherefore never reaches the ontology without an approval record.",
+            "properties": {
+              "approval_lease_id": {
+                "type": "string"
+              },
+              "contract": {
+                "$ref": "#/components/schemas/ReqDef_RecordContract"
+              },
+              "if_composed_digest": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "op": {
+                "const": "attach_approved",
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "source_id",
+              "contract",
+              "approval_lease_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "EH-403: render a repair candidate and run the full entering-schema\nvalidation (composition + the graph's data) against the request graph\nWITHOUT attaching it -- the shadow-graph check a proposal runs before an\napproval is requested. Answers `changed: false`.",
+            "properties": {
+              "contract": {
+                "$ref": "#/components/schemas/ReqDef_RecordContract"
+              },
+              "if_composed_digest": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "op": {
+                "const": "validate_repair",
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "source_id",
+              "contract"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -9683,6 +9918,37 @@
             "type": "string"
           }
         ]
+      },
+      "ReqDef_HeldBlobRef": {
+        "additionalProperties": false,
+        "description": "A Blob-CAS object this record depends on. The engine checks, at commit,\nthat the caller holds a blob with this digest and exact length.",
+        "properties": {
+          "digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256",
+            "description": "The Blob CAS digest `BlobCommit` returned."
+          },
+          "elements": {
+            "default": 0,
+            "description": "Element count; `0` for [`ArrayEncoding::Bytes`].",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/ReqDef_ArrayEncoding"
+          },
+          "length": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "digest",
+          "length",
+          "encoding"
+        ],
+        "type": "object"
       },
       "ReqDef_HttpFieldMap": {
         "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
@@ -10550,6 +10816,19 @@
           }
         ]
       },
+      "ReqDef_JsonType": {
+        "description": "A JSON value type, in canonical order.",
+        "enum": [
+          "null",
+          "boolean",
+          "integer",
+          "number",
+          "string",
+          "array",
+          "object"
+        ],
+        "type": "string"
+      },
       "ReqDef_KgDelegateRequest": {
         "additionalProperties": false,
         "description": "A delegation admission request.  The `context` value is a wire assertion;\nthe server compares it with the authenticated outer envelope before using\nany field for tenant, policy, or routing decisions.",
@@ -10665,6 +10944,90 @@
             "const": "2",
             "description": "Format identity, not a component name (RF-ADR-006). See\n[`KG_DELEGATE_VERSION`] for what changed.",
             "type": "string"
+          }
+        ]
+      },
+      "ReqDef_KlEstimator": {
+        "description": "The KL estimator a KLPO job uses. Chosen by measured cost; there is no\nplatform default.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "sampled_token",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "top_k",
+                "type": "string"
+              },
+              "k": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "estimator",
+              "k"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "binary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "full_vocabulary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "draws": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "estimator": {
+                "const": "monte_carlo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator",
+              "draws"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -11360,6 +11723,31 @@
       "ReqDef_LogicalName": {
         "description": "Validated graph or native-resource name with no filesystem semantics.",
         "type": "string"
+      },
+      "ReqDef_LogprobSupport": {
+        "additionalProperties": false,
+        "description": "What an endpoint's sampler reports about the tokens it chose.\n\nAttested by the capability probe, never inferred from a provider or host\nname. `top_k == 0` means no alternative-token records are available.",
+        "properties": {
+          "auxiliary_draws": {
+            "default": false,
+            "type": "boolean"
+          },
+          "chosen_token": {
+            "description": "The log-probability of each sampled token. Capture fails closed without it.",
+            "type": "boolean"
+          },
+          "top_k": {
+            "default": 0,
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chosen_token"
+        ],
+        "type": "object"
       },
       "ReqDef_MaintenanceEnvelope": {
         "additionalProperties": false,
@@ -27797,6 +28185,112 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Derive ontology-bound telemetry facts in the request graph. Reads the\ncaller's stored log records (from the named `streams`, each of which\nmust lie in the caller's tenant namespace), metric samples and spans\nover `[from_ms, to_ms)`; binds them to the graph's declared Server /\nService / Host / Workload / Agent individuals; rolls them up, runs the\ndeclared CEP patterns and the declared-health conformance check; and\nwrites every fact in one `BatchUpdate` against the request graph.\n`policy_msgpack` is a MessagePack `eg_stream::telemetry::TelemetryPolicy`.\nSee [`crate::telemetry_derive`].",
+            "properties": {
+              "method": {
+                "const": "TelemetryDerive",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "from_ms": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "policy_msgpack": {
+                    "items": {
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "streams": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "to_ms": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "from_ms",
+                  "to_ms",
+                  "policy_msgpack"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Capture-first open-weight policy evolution: the attested capability,\ntrajectory captures, immutable model-policy versions, external\ntraining-run receipts and held-out evaluation receipts. Every record is\nimmutable and content-addressed in the request graph; each write\nself-translates into exactly one `CreateNodeIfAbsent`. EG records and\nrelates -- it never trains. See [`crate::policy_evolution`].",
+            "properties": {
+              "method": {
+                "const": "PolicyEvolution",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ReqDef_PolicyEvolutionOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+            "properties": {
+              "method": {
+                "const": "PolicyEvolutionStore",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "request": {
+                    "$ref": "#/components/schemas/ReqDef_StoredPolicyRecord"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -27836,6 +28330,49 @@
             "type": "array"
           }
         },
+        "type": "object"
+      },
+      "ReqDef_ModelPolicyVersion": {
+        "additionalProperties": false,
+        "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
+        "properties": {
+          "adapter_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_Digest256"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact_ref": {
+            "type": "string"
+          },
+          "checkpoint_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ReqDef_VersionOrigin"
+          },
+          "parent_version_id": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenizer_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          }
+        },
+        "required": [
+          "checkpoint_digest",
+          "tokenizer_digest",
+          "artifact_ref",
+          "origin"
+        ],
         "type": "object"
       },
       "ReqDef_ModelSpec": {
@@ -29649,6 +30186,83 @@
         ],
         "type": "string"
       },
+      "ReqDef_OpenWeightPolicyCapability": {
+        "additionalProperties": false,
+        "description": "`OpenWeightPolicyCapability/v1`: the attested serving endpoint policy\nevolution may use. Endpoint credentials stay in graph-os's secret provider;\n`endpoint_ref` is only its opaque id.",
+        "properties": {
+          "adapter_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_Digest256"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact_destination_ref": {
+            "description": "Where a trained artifact is written. Always a NEW artifact: the live\none is never overwritten.",
+            "type": "string"
+          },
+          "base_checkpoint_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "controls": {
+            "$ref": "#/components/schemas/ReqDef_PolicyControls",
+            "default": {
+              "capture": {
+                "enabled": false,
+                "scope": null
+              },
+              "promote": {
+                "enabled": false,
+                "scope": null
+              },
+              "train": {
+                "enabled": false,
+                "scope": null
+              }
+            }
+          },
+          "decode_params_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "endpoint_ref": {
+            "type": "string"
+          },
+          "logprobs": {
+            "$ref": "#/components/schemas/ReqDef_LogprobSupport"
+          },
+          "probe_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256",
+            "description": "Digest of the probe evidence that attested this record."
+          },
+          "probed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "tokenizer_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          }
+        },
+        "required": [
+          "provider",
+          "endpoint_ref",
+          "base_checkpoint_digest",
+          "tokenizer_digest",
+          "decode_params_digest",
+          "artifact_destination_ref",
+          "logprobs",
+          "probe_digest",
+          "probed_at_ms"
+        ],
+        "type": "object"
+      },
       "ReqDef_OperationEnvelope": {
         "additionalProperties": false,
         "description": "The verified authority one caller operation was admitted under.",
@@ -30497,6 +31111,395 @@
         ],
         "type": "object"
       },
+      "ReqDef_PolicyCapture": {
+        "additionalProperties": false,
+        "description": "`PolicyCapture/v1`.",
+        "properties": {
+          "action_mask": {
+            "$ref": "#/components/schemas/ReqDef_HeldBlobRef"
+          },
+          "auxiliary_draws": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "capability_id": {
+            "description": "The attested capability the sampler ran under; its `capture` control\nmust be enabled.",
+            "type": "string"
+          },
+          "captured_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completion": {
+            "$ref": "#/components/schemas/ReqDef_CaptureCompletion"
+          },
+          "log_q": {
+            "$ref": "#/components/schemas/ReqDef_HeldBlobRef",
+            "description": "Frozen chosen-token log-probabilities, one per policy token."
+          },
+          "policy_token_count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "reward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_RewardRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sampler_top_k": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sampler_version_id": {
+            "description": "The exact behaviour-policy version that sampled every policy token.",
+            "type": "string"
+          },
+          "token_count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "token_ids": {
+            "$ref": "#/components/schemas/ReqDef_HeldBlobRef"
+          },
+          "trace_fidelity": {
+            "$ref": "#/components/schemas/ReqDef_CaptureTraceFidelity"
+          },
+          "trajectory_id": {
+            "description": "The durable `:Trajectory` in the request graph (`StartTrajectory`).",
+            "type": "string"
+          },
+          "trajectory_steps": {
+            "description": "The trajectory's step count at capture. Later appends never change\nwhat this capture describes.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_id",
+          "sampler_version_id",
+          "trajectory_id",
+          "trajectory_steps",
+          "completion",
+          "token_count",
+          "policy_token_count",
+          "token_ids",
+          "log_q",
+          "action_mask",
+          "purpose",
+          "trace_fidelity",
+          "captured_at_ms"
+        ],
+        "type": "object"
+      },
+      "ReqDef_PolicyControls": {
+        "additionalProperties": false,
+        "description": "`capture`, `train` and `promote` are independent: enabling one never\nimplies another. All three default to off.",
+        "properties": {
+          "capture": {
+            "$ref": "#/components/schemas/ReqDef_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          },
+          "promote": {
+            "$ref": "#/components/schemas/ReqDef_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          },
+          "train": {
+            "$ref": "#/components/schemas/ReqDef_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          }
+        },
+        "type": "object"
+      },
+      "ReqDef_PolicyEvaluation": {
+        "additionalProperties": false,
+        "description": "`PolicyEvaluation/v1`: an independent held-out evaluation of one version.",
+        "properties": {
+          "baseline_version_id": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evaluation_set_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "evaluator_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/ReqDef_EvaluationMetrics"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "safety": {
+            "$ref": "#/components/schemas/ReqDef_SafetyOutcome"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/ReqDef_EvaluationVerdict"
+          },
+          "version_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "evaluation_set_digest",
+          "evaluator_digest",
+          "metrics",
+          "safety",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "ReqDef_PolicyEvolutionOp": {
+        "description": "Every policy-evolution operation. The read/write split and the\nauthorization action live on the op, so the capability ledger and the\nserver's write classifier cannot disagree about an operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "`PolicyCapabilityPut`: record one attested capability.",
+            "properties": {
+              "op": {
+                "const": "put_capability",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_OpenWeightPolicyCapability"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`PolicyCaptureCommit`: record one terminal trajectory capture.",
+            "properties": {
+              "op": {
+                "const": "commit_capture",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_PolicyCapture"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`ModelPolicyVersionRegister`: register one immutable version identity.",
+            "properties": {
+              "op": {
+                "const": "register_model_policy_version",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_ModelPolicyVersion"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`TrainingRunCommit`: record one external training run receipt.",
+            "properties": {
+              "op": {
+                "const": "commit_training_run",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_TrainingRun"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`PolicyEvaluationCommit`: record one held-out evaluation receipt.",
+            "properties": {
+              "op": {
+                "const": "commit_policy_evaluation",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_PolicyEvaluation"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`PolicyRecordGet`: read one record, re-verified against its id.",
+            "properties": {
+              "op": {
+                "const": "get",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_PolicyRecordGetRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_PolicyEvolutionRecord": {
+        "description": "One stored record, tagged by kind.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capability",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_OpenWeightPolicyCapability"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capture",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_PolicyCapture"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "model_policy_version",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_ModelPolicyVersion"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "training_run",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_TrainingRun"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "policy_evaluation",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_PolicyEvaluation"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_PolicyRecord": {
         "description": "Policy rows carry an opaque subject-set digest, never raw principals.",
         "properties": {
@@ -30538,6 +31541,19 @@
           "classification",
           "policy_version",
           "subject_set_digest"
+        ],
+        "type": "object"
+      },
+      "ReqDef_PolicyRecordGetRequest": {
+        "additionalProperties": false,
+        "description": "Read one record by id.",
+        "properties": {
+          "record_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id"
         ],
         "type": "object"
       },
@@ -31856,6 +32872,22 @@
         ],
         "type": "object"
       },
+      "ReqDef_RecordContract": {
+        "additionalProperties": false,
+        "description": "The typed record contract a source's repair candidate declares.",
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReqDef_FieldContract"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "type": "object"
+      },
       "ReqDef_RecordWindow": {
         "additionalProperties": false,
         "description": "The closed record window a job reads.",
@@ -32283,6 +33315,33 @@
           "inventory_alias"
         ],
         "type": "string"
+      },
+      "ReqDef_ResourceObservation": {
+        "additionalProperties": false,
+        "description": "Observed resource use of one run.",
+        "properties": {
+          "gpu_seconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "peak_memory_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "wall_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "wall_ms",
+          "gpu_seconds",
+          "peak_memory_bytes"
+        ],
+        "type": "object"
       },
       "ReqDef_ResourceRequirement": {
         "additionalProperties": false,
@@ -32736,6 +33795,41 @@
         ],
         "type": "object"
       },
+      "ReqDef_RewardEvidenceSource": {
+        "description": "Where a reward's evidence came from. `self_reported` is the acting\nagent's own claim: kept as evidence, never trained on.",
+        "enum": [
+          "independent_verifier",
+          "rubric",
+          "self_reported"
+        ],
+        "type": "string"
+      },
+      "ReqDef_RewardRecord": {
+        "additionalProperties": false,
+        "description": "The terminal reward and the verifier that produced it. Micros, never a\nfloat, so the record digest is exact.",
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/ReqDef_RewardEvidenceSource"
+          },
+          "value_micros": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "verifier_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "verifier_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value_micros",
+          "verifier_id",
+          "verifier_digest",
+          "evidence"
+        ],
+        "type": "object"
+      },
       "ReqDef_RewindTarget": {
         "description": "Where a rewind puts the consumer's cursor.",
         "oneOf": [
@@ -32965,6 +34059,14 @@
           "carrier_digest"
         ],
         "type": "object"
+      },
+      "ReqDef_SafetyOutcome": {
+        "description": "Whether the safety policy passed on the frozen set.",
+        "enum": [
+          "passed",
+          "failed"
+        ],
+        "type": "string"
       },
       "ReqDef_Scalar": {
         "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
@@ -37742,6 +38844,37 @@
         ],
         "type": "object"
       },
+      "ReqDef_StoredPolicyRecord": {
+        "additionalProperties": false,
+        "description": "One admitted record, stamped by the engine from the verified request\ncontext. Carried by the internal `PolicyEvolutionStore` method so the\nkernel write -- and its raft replay -- is fully determined by the method.",
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/ReqDef_PolicyEvolutionRecord"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "recorded_by": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "tenant_id",
+          "recorded_by",
+          "recorded_at_ms",
+          "record"
+        ],
+        "type": "object"
+      },
       "ReqDef_StructuralEquationWire": {
         "description": "Wire mirror of `eg_epistemic::StructuralEquation` (EPI-P3-3), keyed by the\nvariable `id` it defines \u2014 one entry of `Method::CausalEstimate::variables`.\n`parents` MUST name only ids that appear EARLIER in that same list (parents\nbefore children), mirroring `eg_epistemic::CausalGraph::add_variable`'s own\ntopological-order invariant; the handler surfaces a violation as an explicit\nerror, never a panic.",
         "properties": {
@@ -38423,6 +39556,197 @@
         ],
         "type": "string"
       },
+      "ReqDef_TrainingMethod": {
+        "description": "The external optimisation method. KLPO is one option beside the existing\nGRPO/DPO/SFT choices.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "sft",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "dpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "grpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "$ref": "#/components/schemas/ReqDef_KlEstimator"
+              },
+              "method": {
+                "const": "klpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method",
+              "estimator"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_TrainingOutput": {
+        "additionalProperties": false,
+        "description": "The new artifact a succeeded run produced.",
+        "properties": {
+          "artifact_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "artifact_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_digest",
+          "artifact_ref"
+        ],
+        "type": "object"
+      },
+      "ReqDef_TrainingRun": {
+        "additionalProperties": false,
+        "description": "`TrainingRun/v1`: the receipt of one external training job. EG records it;\nit never optimises weights.",
+        "properties": {
+          "adapter": {
+            "$ref": "#/components/schemas/ReqDef_AdapterSpec"
+          },
+          "base_version_id": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "hyperparameters_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "input_capture_ids": {
+            "$ref": "#/components/schemas/ReqDef_BoundedVec_string_256"
+          },
+          "log": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "method": {
+            "$ref": "#/components/schemas/ReqDef_TrainingMethod"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ReqDef_ResourceObservation",
+            "default": {
+              "gpu_seconds": 0,
+              "peak_memory_bytes": 0,
+              "wall_ms": 0
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReqDef_TrainingRunStatus"
+          },
+          "trainer_image_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "work_item_id": {
+            "description": "The native WorkItem that owned the attempt.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "work_item_id",
+          "base_version_id",
+          "input_capture_ids",
+          "method",
+          "adapter",
+          "trainer_image_digest",
+          "hyperparameters_digest",
+          "status"
+        ],
+        "type": "object"
+      },
+      "ReqDef_TrainingRunStatus": {
+        "description": "Terminal status. Only a succeeded run carries an output, so a failed or\ncancelled run has nothing a version could name.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "$ref": "#/components/schemas/ReqDef_TrainingOutput"
+              },
+              "status": {
+                "const": "succeeded",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "output"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "failed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "cancelled",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_TransactionSource": {
         "description": "A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).\n\nEach node carrying `node_label` becomes one \"basket owner\"; the basket is the set\nof `item_field` values gathered from its neighbors (following edges in\n`direction`), optionally filtered to a `relation`. This turns node neighborhoods\ninto transactions so mining runs directly over resident graph data \u2014 the\ncross-modal hook (e.g. \"for each :Capability, the set of concepts it touches\" =\none transaction \u21d2 concept-co-occurrence rules).",
         "properties": {
@@ -38743,6 +40067,43 @@
             "const": "unversioned",
             "description": "Valid only for a capability-bearing reserved-system operation.",
             "type": "string"
+          }
+        ]
+      },
+      "ReqDef_VersionOrigin": {
+        "description": "How a model-policy version came to exist.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A served base checkpoint (optionally with an existing adapter).",
+            "properties": {
+              "origin": {
+                "const": "base",
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The output of one succeeded training run.",
+            "properties": {
+              "origin": {
+                "const": "trained",
+                "type": "string"
+              },
+              "training_run_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin",
+              "training_run_id"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -51556,6 +52917,60 @@
             },
             "required": [
               "name"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_PolicyEvolution": {
+        "additionalProperties": false,
+        "description": "Capture-first open-weight policy evolution: the attested capability,\ntrajectory captures, immutable model-policy versions, external\ntraining-run receipts and held-out evaluation receipts. Every record is\nimmutable and content-addressed in the request graph; each write\nself-translates into exactly one `CreateNodeIfAbsent`. EG records and\nrelates -- it never trains. See [`crate::policy_evolution`].",
+        "properties": {
+          "method": {
+            "const": "PolicyEvolution",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "$ref": "#/components/schemas/ReqDef_PolicyEvolutionOp"
+              }
+            },
+            "required": [
+              "op"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_PolicyEvolutionStore": {
+        "additionalProperties": false,
+        "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+        "properties": {
+          "method": {
+            "const": "PolicyEvolutionStore",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_StoredPolicyRecord"
+              }
+            },
+            "required": [
+              "request"
             ],
             "type": "object"
           }
@@ -70195,6 +71610,90 @@
         ],
         "type": "object"
       },
+      "ResDef_Graph_AdapterSpec": {
+        "description": "What the run trains. Adapter-only: full-weight mutation is not expressible.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "adapter": {
+                "const": "lora",
+                "type": "string"
+              },
+              "rank": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "adapter",
+              "rank"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Graph_ArrayEncoding": {
+        "description": "How the elements of a referenced array are encoded.",
+        "oneOf": [
+          {
+            "const": "u32_le",
+            "description": "Little-endian `u32` (token ids, sampler Top-K / auxiliary ids).",
+            "type": "string"
+          },
+          {
+            "const": "f32_le",
+            "description": "Little-endian IEEE-754 `f32` (log-probabilities).",
+            "type": "string"
+          },
+          {
+            "const": "u8_mask",
+            "description": "One byte per token, `1` = policy token (prompt, padding and tool\noutput tokens are `0` and masked from the loss).",
+            "type": "string"
+          },
+          {
+            "const": "bytes",
+            "description": "Opaque bytes (logs, reports). Carries no element width.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Graph_BoundedVec_string_256": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 256,
+        "type": "array"
+      },
+      "ResDef_Graph_CaptureCompletion": {
+        "description": "How the episode ended.",
+        "enum": [
+          "terminal",
+          "truncated",
+          "aborted"
+        ],
+        "type": "string"
+      },
+      "ResDef_Graph_CaptureEligibility": {
+        "description": "Whether a capture may be a training input, and if not, why.",
+        "enum": [
+          "eligible",
+          "not_terminal",
+          "no_reward",
+          "unverified_reward"
+        ],
+        "type": "string"
+      },
+      "ResDef_Graph_CaptureTraceFidelity": {
+        "description": "How much of the trace the capture kept.",
+        "enum": [
+          "full",
+          "redacted"
+        ],
+        "type": "string"
+      },
       "ResDef_Graph_CompactNodesResult": {
         "description": "Result of `Method::CompactNodesByType`: the ids of the nodes compaction removed.",
         "properties": {
@@ -70208,6 +71707,25 @@
         "required": [
           "removed_nodes"
         ],
+        "type": "object"
+      },
+      "ResDef_Graph_ControlSetting": {
+        "additionalProperties": false,
+        "description": "One of the three independent controls. Disabled unless a record says so.",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "type": "boolean"
+          },
+          "scope": {
+            "default": null,
+            "description": "The authorization scope allowed to request this control. An enabled\ncontrol must name one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ResDef_Graph_DecayStats": {
@@ -70241,6 +71759,78 @@
           "edges_pruned"
         ],
         "type": "object"
+      },
+      "ResDef_Graph_Digest256": {
+        "description": "32 bytes of SHA-256 as lowercase hexadecimal",
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "ResDef_Graph_EvaluationMetrics": {
+        "additionalProperties": false,
+        "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
+        "properties": {
+          "baseline_task_success_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cost_micros": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "gpu_seconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p50_ms": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p95_ms": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "task_success_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trace_completeness_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unsupported_replay_mass_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_success_ppm",
+          "baseline_task_success_ppm",
+          "cost_micros",
+          "latency_p50_ms",
+          "latency_p95_ms",
+          "gpu_seconds",
+          "trace_completeness_ppm",
+          "unsupported_replay_mass_ppm"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_EvaluationVerdict": {
+        "description": "The evaluator's decision. Loss movement is diagnostic, never a verdict.",
+        "enum": [
+          "accepted",
+          "rejected"
+        ],
+        "type": "string"
       },
       "ResDef_Graph_GraphDiff": {
         "description": "What another graph has relative to this one (`Method::DiffAgainst`): nodes and\n`(source, target)` edge keys added or removed, and nodes whose property bytes differ.",
@@ -70355,6 +71945,121 @@
         ],
         "type": "object"
       },
+      "ResDef_Graph_HeldBlobRef": {
+        "additionalProperties": false,
+        "description": "A Blob-CAS object this record depends on. The engine checks, at commit,\nthat the caller holds a blob with this digest and exact length.",
+        "properties": {
+          "digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256",
+            "description": "The Blob CAS digest `BlobCommit` returned."
+          },
+          "elements": {
+            "default": 0,
+            "description": "Element count; `0` for [`ArrayEncoding::Bytes`].",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/ResDef_Graph_ArrayEncoding"
+          },
+          "length": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "digest",
+          "length",
+          "encoding"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_KlEstimator": {
+        "description": "The KL estimator a KLPO job uses. Chosen by measured cost; there is no\nplatform default.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "sampled_token",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "top_k",
+                "type": "string"
+              },
+              "k": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "estimator",
+              "k"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "binary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "full_vocabulary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "draws": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "estimator": {
+                "const": "monte_carlo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator",
+              "draws"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Graph_LoadReport": {
         "description": "Summary of an RDF triple load (`eg_rdf::mapping::load_triples`).",
         "properties": {
@@ -70376,6 +72081,532 @@
           "multivalue"
         ],
         "type": "object"
+      },
+      "ResDef_Graph_LogprobSupport": {
+        "additionalProperties": false,
+        "description": "What an endpoint's sampler reports about the tokens it chose.\n\nAttested by the capability probe, never inferred from a provider or host\nname. `top_k == 0` means no alternative-token records are available.",
+        "properties": {
+          "auxiliary_draws": {
+            "default": false,
+            "type": "boolean"
+          },
+          "chosen_token": {
+            "description": "The log-probability of each sampled token. Capture fails closed without it.",
+            "type": "boolean"
+          },
+          "top_k": {
+            "default": 0,
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chosen_token"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_ModelPolicyVersion": {
+        "additionalProperties": false,
+        "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
+        "properties": {
+          "adapter_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact_ref": {
+            "type": "string"
+          },
+          "checkpoint_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ResDef_Graph_VersionOrigin"
+          },
+          "parent_version_id": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenizer_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          }
+        },
+        "required": [
+          "checkpoint_digest",
+          "tokenizer_digest",
+          "artifact_ref",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_OpenWeightPolicyCapability": {
+        "additionalProperties": false,
+        "description": "`OpenWeightPolicyCapability/v1`: the attested serving endpoint policy\nevolution may use. Endpoint credentials stay in graph-os's secret provider;\n`endpoint_ref` is only its opaque id.",
+        "properties": {
+          "adapter_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact_destination_ref": {
+            "description": "Where a trained artifact is written. Always a NEW artifact: the live\none is never overwritten.",
+            "type": "string"
+          },
+          "base_checkpoint_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "controls": {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyControls",
+            "default": {
+              "capture": {
+                "enabled": false,
+                "scope": null
+              },
+              "promote": {
+                "enabled": false,
+                "scope": null
+              },
+              "train": {
+                "enabled": false,
+                "scope": null
+              }
+            }
+          },
+          "decode_params_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "endpoint_ref": {
+            "type": "string"
+          },
+          "logprobs": {
+            "$ref": "#/components/schemas/ResDef_Graph_LogprobSupport"
+          },
+          "probe_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256",
+            "description": "Digest of the probe evidence that attested this record."
+          },
+          "probed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "tokenizer_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          }
+        },
+        "required": [
+          "provider",
+          "endpoint_ref",
+          "base_checkpoint_digest",
+          "tokenizer_digest",
+          "decode_params_digest",
+          "artifact_destination_ref",
+          "logprobs",
+          "probe_digest",
+          "probed_at_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyCapture": {
+        "additionalProperties": false,
+        "description": "`PolicyCapture/v1`.",
+        "properties": {
+          "action_mask": {
+            "$ref": "#/components/schemas/ResDef_Graph_HeldBlobRef"
+          },
+          "auxiliary_draws": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "capability_id": {
+            "description": "The attested capability the sampler ran under; its `capture` control\nmust be enabled.",
+            "type": "string"
+          },
+          "captured_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completion": {
+            "$ref": "#/components/schemas/ResDef_Graph_CaptureCompletion"
+          },
+          "log_q": {
+            "$ref": "#/components/schemas/ResDef_Graph_HeldBlobRef",
+            "description": "Frozen chosen-token log-probabilities, one per policy token."
+          },
+          "policy_token_count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "reward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_RewardRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sampler_top_k": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sampler_version_id": {
+            "description": "The exact behaviour-policy version that sampled every policy token.",
+            "type": "string"
+          },
+          "token_count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "token_ids": {
+            "$ref": "#/components/schemas/ResDef_Graph_HeldBlobRef"
+          },
+          "trace_fidelity": {
+            "$ref": "#/components/schemas/ResDef_Graph_CaptureTraceFidelity"
+          },
+          "trajectory_id": {
+            "description": "The durable `:Trajectory` in the request graph (`StartTrajectory`).",
+            "type": "string"
+          },
+          "trajectory_steps": {
+            "description": "The trajectory's step count at capture. Later appends never change\nwhat this capture describes.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_id",
+          "sampler_version_id",
+          "trajectory_id",
+          "trajectory_steps",
+          "completion",
+          "token_count",
+          "policy_token_count",
+          "token_ids",
+          "log_q",
+          "action_mask",
+          "purpose",
+          "trace_fidelity",
+          "captured_at_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyControls": {
+        "additionalProperties": false,
+        "description": "`capture`, `train` and `promote` are independent: enabling one never\nimplies another. All three default to off.",
+        "properties": {
+          "capture": {
+            "$ref": "#/components/schemas/ResDef_Graph_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          },
+          "promote": {
+            "$ref": "#/components/schemas/ResDef_Graph_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          },
+          "train": {
+            "$ref": "#/components/schemas/ResDef_Graph_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          }
+        },
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyEvaluation": {
+        "additionalProperties": false,
+        "description": "`PolicyEvaluation/v1`: an independent held-out evaluation of one version.",
+        "properties": {
+          "baseline_version_id": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evaluation_set_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "evaluator_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/ResDef_Graph_EvaluationMetrics"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "safety": {
+            "$ref": "#/components/schemas/ResDef_Graph_SafetyOutcome"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/ResDef_Graph_EvaluationVerdict"
+          },
+          "version_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "evaluation_set_digest",
+          "evaluator_digest",
+          "metrics",
+          "safety",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyEvolutionRecord": {
+        "description": "One stored record, tagged by kind.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capability",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Graph_OpenWeightPolicyCapability"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capture",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Graph_PolicyCapture"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "model_policy_version",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Graph_ModelPolicyVersion"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "training_run",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Graph_TrainingRun"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "policy_evaluation",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Graph_PolicyEvaluation"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Graph_PolicyRecordKind": {
+        "description": "The five record kinds, and the record-id prefix each carries.",
+        "enum": [
+          "capability",
+          "capture",
+          "model_policy_version",
+          "training_run",
+          "policy_evaluation"
+        ],
+        "type": "string"
+      },
+      "ResDef_Graph_PolicyRecordReceipt": {
+        "additionalProperties": false,
+        "description": "The receipt of every policy-evolution write.",
+        "properties": {
+          "disposition": {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyWriteDisposition"
+          },
+          "eligibility": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_CaptureEligibility"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Set for a capture: whether it may be a training input."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordKind"
+          },
+          "observed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "record_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "kind",
+          "disposition",
+          "observed_at_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyRecordStored": {
+        "additionalProperties": false,
+        "description": "The kernel's answer to one `PolicyEvolutionStore`: `created == false` means\nthe content-addressed row already existed. `changed_work_item_ids` names the\nrows the serving projection must republish.",
+        "properties": {
+          "changed_work_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "created",
+          "changed_work_item_ids"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyRecordView": {
+        "additionalProperties": false,
+        "description": "One record as read back, with the server-stamped writer and time.",
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyEvolutionRecord"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "recorded_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "recorded_by",
+          "recorded_at_ms",
+          "record"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyWriteDisposition": {
+        "description": "Whether a write created the record or found it already committed.",
+        "enum": [
+          "written",
+          "replayed"
+        ],
+        "type": "string"
       },
       "ResDef_Graph_PropertyBlob": {
         "description": "A node or edge property object exactly as stored -- MessagePack bytes, carried as a\nMessagePack `bin` on the wire.",
@@ -70412,6 +72643,76 @@
           "nodes_archived"
         ],
         "type": "object"
+      },
+      "ResDef_Graph_ResourceObservation": {
+        "additionalProperties": false,
+        "description": "Observed resource use of one run.",
+        "properties": {
+          "gpu_seconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "peak_memory_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "wall_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "wall_ms",
+          "gpu_seconds",
+          "peak_memory_bytes"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_RewardEvidenceSource": {
+        "description": "Where a reward's evidence came from. `self_reported` is the acting\nagent's own claim: kept as evidence, never trained on.",
+        "enum": [
+          "independent_verifier",
+          "rubric",
+          "self_reported"
+        ],
+        "type": "string"
+      },
+      "ResDef_Graph_RewardRecord": {
+        "additionalProperties": false,
+        "description": "The terminal reward and the verifier that produced it. Micros, never a\nfloat, so the record digest is exact.",
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/ResDef_Graph_RewardEvidenceSource"
+          },
+          "value_micros": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "verifier_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "verifier_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value_micros",
+          "verifier_id",
+          "verifier_digest",
+          "evidence"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_SafetyOutcome": {
+        "description": "Whether the safety policy passed on the frozen set.",
+        "enum": [
+          "passed",
+          "failed"
+        ],
+        "type": "string"
       },
       "ResDef_Graph_ScenePose": {
         "description": "A scene object's composed world transform (`Method::WorldTransform`) -- the wire\nprojection of `eg_core::scene::Pose`, the same `{translation, rotation, scale}` object a\nscene node stores under its `pose` property.",
@@ -70584,6 +72885,234 @@
           "edges"
         ],
         "type": "object"
+      },
+      "ResDef_Graph_TrainingMethod": {
+        "description": "The external optimisation method. KLPO is one option beside the existing\nGRPO/DPO/SFT choices.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "sft",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "dpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "grpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "$ref": "#/components/schemas/ResDef_Graph_KlEstimator"
+              },
+              "method": {
+                "const": "klpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method",
+              "estimator"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Graph_TrainingOutput": {
+        "additionalProperties": false,
+        "description": "The new artifact a succeeded run produced.",
+        "properties": {
+          "artifact_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "artifact_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_digest",
+          "artifact_ref"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_TrainingRun": {
+        "additionalProperties": false,
+        "description": "`TrainingRun/v1`: the receipt of one external training job. EG records it;\nit never optimises weights.",
+        "properties": {
+          "adapter": {
+            "$ref": "#/components/schemas/ResDef_Graph_AdapterSpec"
+          },
+          "base_version_id": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "hyperparameters_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "input_capture_ids": {
+            "$ref": "#/components/schemas/ResDef_Graph_BoundedVec_string_256"
+          },
+          "log": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "method": {
+            "$ref": "#/components/schemas/ResDef_Graph_TrainingMethod"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResDef_Graph_ResourceObservation",
+            "default": {
+              "gpu_seconds": 0,
+              "peak_memory_bytes": 0,
+              "wall_ms": 0
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/ResDef_Graph_TrainingRunStatus"
+          },
+          "trainer_image_digest": {
+            "$ref": "#/components/schemas/ResDef_Graph_Digest256"
+          },
+          "work_item_id": {
+            "description": "The native WorkItem that owned the attempt.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "work_item_id",
+          "base_version_id",
+          "input_capture_ids",
+          "method",
+          "adapter",
+          "trainer_image_digest",
+          "hyperparameters_digest",
+          "status"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_TrainingRunStatus": {
+        "description": "Terminal status. Only a succeeded run carries an output, so a failed or\ncancelled run has nothing a version could name.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "$ref": "#/components/schemas/ResDef_Graph_TrainingOutput"
+              },
+              "status": {
+                "const": "succeeded",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "output"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "failed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "cancelled",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Graph_VersionOrigin": {
+        "description": "How a model-policy version came to exist.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A served base checkpoint (optionally with an existing adapter).",
+            "properties": {
+              "origin": {
+                "const": "base",
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The output of one succeeded training run.",
+            "properties": {
+              "origin": {
+                "const": "trained",
+                "type": "string"
+              },
+              "training_run_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin",
+              "training_run_id"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Ingestion_AgentLibraryCompositeRef": {
         "additionalProperties": false,
@@ -74927,6 +77456,31 @@
           }
         ]
       },
+      "ResDef_Query_AdapterSpec": {
+        "description": "What the run trains. Adapter-only: full-weight mutation is not expressible.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "adapter": {
+                "const": "lora",
+                "type": "string"
+              },
+              "rank": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "adapter",
+              "rank"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_AgentComponentContentRequest": {
         "additionalProperties": false,
         "description": "Read one component revision's bytes.",
@@ -77192,6 +79746,31 @@
         ],
         "type": "string"
       },
+      "ResDef_Query_ArrayEncoding": {
+        "description": "How the elements of a referenced array are encoded.",
+        "oneOf": [
+          {
+            "const": "u32_le",
+            "description": "Little-endian `u32` (token ids, sampler Top-K / auxiliary ids).",
+            "type": "string"
+          },
+          {
+            "const": "f32_le",
+            "description": "Little-endian IEEE-754 `f32` (log-probabilities).",
+            "type": "string"
+          },
+          {
+            "const": "u8_mask",
+            "description": "One byte per token, `1` = policy token (prompt, padding and tool\noutput tokens are `0` and masked from the loss).",
+            "type": "string"
+          },
+          {
+            "const": "bytes",
+            "description": "Opaque bytes (logs, reports). Carries no element width.",
+            "type": "string"
+          }
+        ]
+      },
       "ResDef_Query_AsrOp": {
         "description": "`Method::Asr { op }`'s request shape. `audio_wav` carries the actual PCM\nbytes over the wire (MessagePack handles binary natively \u2014 no base64\ninflation); `model_path`/`model_sha256` are a caller-resolved,\nalready-verified model reference (GOC-36 owns acquisition; this crate\nnever resolves a bare model name into a path or URL).",
         "oneOf": [
@@ -78619,6 +81198,23 @@
           "max_count"
         ],
         "type": "object"
+      },
+      "ResDef_Query_CaptureCompletion": {
+        "description": "How the episode ended.",
+        "enum": [
+          "terminal",
+          "truncated",
+          "aborted"
+        ],
+        "type": "string"
+      },
+      "ResDef_Query_CaptureTraceFidelity": {
+        "description": "How much of the trace the capture kept.",
+        "enum": [
+          "full",
+          "redacted"
+        ],
+        "type": "string"
       },
       "ResDef_Query_CasWorkItemMetadataLeaseFence": {
         "additionalProperties": false,
@@ -80609,6 +83205,25 @@
           "expired"
         ],
         "type": "string"
+      },
+      "ResDef_Query_ControlSetting": {
+        "additionalProperties": false,
+        "description": "One of the three independent controls. Disabled unless a record says so.",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "type": "boolean"
+          },
+          "scope": {
+            "default": null,
+            "description": "The authorization scope allowed to request this control. An enabled\ncontrol must name one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
       },
       "ResDef_Query_CostBudget": {
         "additionalProperties": false,
@@ -83222,6 +85837,71 @@
           }
         ]
       },
+      "ResDef_Query_EvaluationMetrics": {
+        "additionalProperties": false,
+        "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
+        "properties": {
+          "baseline_task_success_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cost_micros": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "gpu_seconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p50_ms": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latency_p95_ms": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "task_success_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trace_completeness_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unsupported_replay_mass_ppm": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "task_success_ppm",
+          "baseline_task_success_ppm",
+          "cost_micros",
+          "latency_p50_ms",
+          "latency_p95_ms",
+          "gpu_seconds",
+          "trace_completeness_ppm",
+          "unsupported_replay_mass_ppm"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_EvaluationVerdict": {
+        "description": "The evaluator's decision. Loss movement is diagnostic, never a verdict.",
+        "enum": [
+          "accepted",
+          "rejected"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_EvidenceAddressWire": {
         "description": "DAG-safe wire mirror of `eg_modality::EvidenceAddress`.",
         "oneOf": [
@@ -84346,6 +87026,28 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Query_FieldContract": {
+        "additionalProperties": false,
+        "description": "One field of a record contract. Fields are declared alphabetically so the\ncanonical JSON is the same as a sorted-key encoder's.",
+        "properties": {
+          "required": {
+            "description": "Present (and non-null unless `types` has `null`) in every record.",
+            "type": "boolean"
+          },
+          "types": {
+            "description": "The types a value may have: non-empty, sorted, unique.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_JsonType"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "required",
+          "types"
+        ],
+        "type": "object"
       },
       "ResDef_Query_FittedClassifier": {
         "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit\u2192blob\u2192predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire \u2014\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
@@ -85541,6 +88243,68 @@
               "source_id"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "EH-403: attach or replace a governed repair candidate under\n`approved:<name>`. The candidate is a TYPED record contract; EG renders\nits SHACL (AUD-27: callers never send RDF). The engine refuses it unless\n`approval_lease_id` names an approved (`consumed`), unexpired\n`action.approval` control lease of the caller's tenant whose grant binds\nthis exact contract (see [`approval`]). A proposed schema change\ntherefore never reaches the ontology without an approval record.",
+            "properties": {
+              "approval_lease_id": {
+                "type": "string"
+              },
+              "contract": {
+                "$ref": "#/components/schemas/ResDef_Query_RecordContract"
+              },
+              "if_composed_digest": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "op": {
+                "const": "attach_approved",
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "source_id",
+              "contract",
+              "approval_lease_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "EH-403: render a repair candidate and run the full entering-schema\nvalidation (composition + the graph's data) against the request graph\nWITHOUT attaching it -- the shadow-graph check a proposal runs before an\napproval is requested. Answers `changed: false`.",
+            "properties": {
+              "contract": {
+                "$ref": "#/components/schemas/ResDef_Query_RecordContract"
+              },
+              "if_composed_digest": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "op": {
+                "const": "validate_repair",
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "source_id",
+              "contract"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -85619,6 +88383,37 @@
             "type": "string"
           }
         ]
+      },
+      "ResDef_Query_HeldBlobRef": {
+        "additionalProperties": false,
+        "description": "A Blob-CAS object this record depends on. The engine checks, at commit,\nthat the caller holds a blob with this digest and exact length.",
+        "properties": {
+          "digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256",
+            "description": "The Blob CAS digest `BlobCommit` returned."
+          },
+          "elements": {
+            "default": 0,
+            "description": "Element count; `0` for [`ArrayEncoding::Bytes`].",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/ResDef_Query_ArrayEncoding"
+          },
+          "length": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "digest",
+          "length",
+          "encoding"
+        ],
+        "type": "object"
       },
       "ResDef_Query_HttpFieldMap": {
         "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
@@ -86486,6 +89281,19 @@
           }
         ]
       },
+      "ResDef_Query_JsonType": {
+        "description": "A JSON value type, in canonical order.",
+        "enum": [
+          "null",
+          "boolean",
+          "integer",
+          "number",
+          "string",
+          "array",
+          "object"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_JustificationNodeWire": {
         "description": "One node of an `EXPLAIN BELIEF` justification tree \u2014 the wire projection of\n`eg_epistemic::ProofNode`. `rule` is the `Debug`-rendered `eg_epistemic::JustRule`\n(`\"Asserted\"`, `\"DerivedSupport\"`, `\"DerivedContradiction\"`, `\"BayesianUpdate\"`).",
         "properties": {
@@ -86629,6 +89437,90 @@
             "const": "2",
             "description": "Format identity, not a component name (RF-ADR-006). See\n[`KG_DELEGATE_VERSION`] for what changed.",
             "type": "string"
+          }
+        ]
+      },
+      "ResDef_Query_KlEstimator": {
+        "description": "The KL estimator a KLPO job uses. Chosen by measured cost; there is no\nplatform default.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "sampled_token",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "top_k",
+                "type": "string"
+              },
+              "k": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "estimator",
+              "k"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "binary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "const": "full_vocabulary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "draws": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "estimator": {
+                "const": "monte_carlo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "estimator",
+              "draws"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -87362,6 +90254,31 @@
       "ResDef_Query_LogicalName": {
         "description": "Validated graph or native-resource name with no filesystem semantics.",
         "type": "string"
+      },
+      "ResDef_Query_LogprobSupport": {
+        "additionalProperties": false,
+        "description": "What an endpoint's sampler reports about the tokens it chose.\n\nAttested by the capability probe, never inferred from a provider or host\nname. `top_k == 0` means no alternative-token records are available.",
+        "properties": {
+          "auxiliary_draws": {
+            "default": false,
+            "type": "boolean"
+          },
+          "chosen_token": {
+            "description": "The log-probability of each sampled token. Capture fails closed without it.",
+            "type": "boolean"
+          },
+          "top_k": {
+            "default": 0,
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chosen_token"
+        ],
+        "type": "object"
       },
       "ResDef_Query_MaintenanceEnvelope": {
         "additionalProperties": false,
@@ -103871,6 +106788,60 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Capture-first open-weight policy evolution: the attested capability,\ntrajectory captures, immutable model-policy versions, external\ntraining-run receipts and held-out evaluation receipts. Every record is\nimmutable and content-addressed in the request graph; each write\nself-translates into exactly one `CreateNodeIfAbsent`. EG records and\nrelates -- it never trains. See [`crate::policy_evolution`].",
+            "properties": {
+              "method": {
+                "const": "PolicyEvolution",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ResDef_Query_PolicyEvolutionOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+            "properties": {
+              "method": {
+                "const": "PolicyEvolutionStore",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "request": {
+                    "$ref": "#/components/schemas/ResDef_Query_StoredPolicyRecord"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -103937,6 +106908,49 @@
             "type": "array"
           }
         },
+        "type": "object"
+      },
+      "ResDef_Query_ModelPolicyVersion": {
+        "additionalProperties": false,
+        "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
+        "properties": {
+          "adapter_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_Digest256"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact_ref": {
+            "type": "string"
+          },
+          "checkpoint_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ResDef_Query_VersionOrigin"
+          },
+          "parent_version_id": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokenizer_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          }
+        },
+        "required": [
+          "checkpoint_digest",
+          "tokenizer_digest",
+          "artifact_ref",
+          "origin"
+        ],
         "type": "object"
       },
       "ResDef_Query_ModelSpec": {
@@ -105750,6 +108764,83 @@
         ],
         "type": "string"
       },
+      "ResDef_Query_OpenWeightPolicyCapability": {
+        "additionalProperties": false,
+        "description": "`OpenWeightPolicyCapability/v1`: the attested serving endpoint policy\nevolution may use. Endpoint credentials stay in graph-os's secret provider;\n`endpoint_ref` is only its opaque id.",
+        "properties": {
+          "adapter_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_Digest256"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact_destination_ref": {
+            "description": "Where a trained artifact is written. Always a NEW artifact: the live\none is never overwritten.",
+            "type": "string"
+          },
+          "base_checkpoint_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "controls": {
+            "$ref": "#/components/schemas/ResDef_Query_PolicyControls",
+            "default": {
+              "capture": {
+                "enabled": false,
+                "scope": null
+              },
+              "promote": {
+                "enabled": false,
+                "scope": null
+              },
+              "train": {
+                "enabled": false,
+                "scope": null
+              }
+            }
+          },
+          "decode_params_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "endpoint_ref": {
+            "type": "string"
+          },
+          "logprobs": {
+            "$ref": "#/components/schemas/ResDef_Query_LogprobSupport"
+          },
+          "probe_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256",
+            "description": "Digest of the probe evidence that attested this record."
+          },
+          "probed_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "tokenizer_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          }
+        },
+        "required": [
+          "provider",
+          "endpoint_ref",
+          "base_checkpoint_digest",
+          "tokenizer_digest",
+          "decode_params_digest",
+          "artifact_destination_ref",
+          "logprobs",
+          "probe_digest",
+          "probed_at_ms"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_OperationEnvelope": {
         "additionalProperties": false,
         "description": "The verified authority one caller operation was admitted under.",
@@ -106598,6 +109689,395 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_PolicyCapture": {
+        "additionalProperties": false,
+        "description": "`PolicyCapture/v1`.",
+        "properties": {
+          "action_mask": {
+            "$ref": "#/components/schemas/ResDef_Query_HeldBlobRef"
+          },
+          "auxiliary_draws": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "capability_id": {
+            "description": "The attested capability the sampler ran under; its `capture` control\nmust be enabled.",
+            "type": "string"
+          },
+          "captured_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "completion": {
+            "$ref": "#/components/schemas/ResDef_Query_CaptureCompletion"
+          },
+          "log_q": {
+            "$ref": "#/components/schemas/ResDef_Query_HeldBlobRef",
+            "description": "Frozen chosen-token log-probabilities, one per policy token."
+          },
+          "policy_token_count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "reward": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_RewardRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sampler_top_k": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "sampler_version_id": {
+            "description": "The exact behaviour-policy version that sampled every policy token.",
+            "type": "string"
+          },
+          "token_count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "token_ids": {
+            "$ref": "#/components/schemas/ResDef_Query_HeldBlobRef"
+          },
+          "trace_fidelity": {
+            "$ref": "#/components/schemas/ResDef_Query_CaptureTraceFidelity"
+          },
+          "trajectory_id": {
+            "description": "The durable `:Trajectory` in the request graph (`StartTrajectory`).",
+            "type": "string"
+          },
+          "trajectory_steps": {
+            "description": "The trajectory's step count at capture. Later appends never change\nwhat this capture describes.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capability_id",
+          "sampler_version_id",
+          "trajectory_id",
+          "trajectory_steps",
+          "completion",
+          "token_count",
+          "policy_token_count",
+          "token_ids",
+          "log_q",
+          "action_mask",
+          "purpose",
+          "trace_fidelity",
+          "captured_at_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_PolicyControls": {
+        "additionalProperties": false,
+        "description": "`capture`, `train` and `promote` are independent: enabling one never\nimplies another. All three default to off.",
+        "properties": {
+          "capture": {
+            "$ref": "#/components/schemas/ResDef_Query_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          },
+          "promote": {
+            "$ref": "#/components/schemas/ResDef_Query_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          },
+          "train": {
+            "$ref": "#/components/schemas/ResDef_Query_ControlSetting",
+            "default": {
+              "enabled": false,
+              "scope": null
+            }
+          }
+        },
+        "type": "object"
+      },
+      "ResDef_Query_PolicyEvaluation": {
+        "additionalProperties": false,
+        "description": "`PolicyEvaluation/v1`: an independent held-out evaluation of one version.",
+        "properties": {
+          "baseline_version_id": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evaluation_set_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "evaluator_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/ResDef_Query_EvaluationMetrics"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "safety": {
+            "$ref": "#/components/schemas/ResDef_Query_SafetyOutcome"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/ResDef_Query_EvaluationVerdict"
+          },
+          "version_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version_id",
+          "evaluation_set_digest",
+          "evaluator_digest",
+          "metrics",
+          "safety",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_PolicyEvolutionOp": {
+        "description": "Every policy-evolution operation. The read/write split and the\nauthorization action live on the op, so the capability ledger and the\nserver's write classifier cannot disagree about an operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "`PolicyCapabilityPut`: record one attested capability.",
+            "properties": {
+              "op": {
+                "const": "put_capability",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_OpenWeightPolicyCapability"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`PolicyCaptureCommit`: record one terminal trajectory capture.",
+            "properties": {
+              "op": {
+                "const": "commit_capture",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_PolicyCapture"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`ModelPolicyVersionRegister`: register one immutable version identity.",
+            "properties": {
+              "op": {
+                "const": "register_model_policy_version",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_ModelPolicyVersion"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`TrainingRunCommit`: record one external training run receipt.",
+            "properties": {
+              "op": {
+                "const": "commit_training_run",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_TrainingRun"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`PolicyEvaluationCommit`: record one held-out evaluation receipt.",
+            "properties": {
+              "op": {
+                "const": "commit_policy_evaluation",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_PolicyEvaluation"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`PolicyRecordGet`: read one record, re-verified against its id.",
+            "properties": {
+              "op": {
+                "const": "get",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_PolicyRecordGetRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_PolicyEvolutionRecord": {
+        "description": "One stored record, tagged by kind.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capability",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_OpenWeightPolicyCapability"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capture",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_PolicyCapture"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "model_policy_version",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_ModelPolicyVersion"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "training_run",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_TrainingRun"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "policy_evaluation",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_PolicyEvaluation"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_PolicyRecord": {
         "description": "Policy rows carry an opaque subject-set digest, never raw principals.",
         "properties": {
@@ -106639,6 +110119,19 @@
           "classification",
           "policy_version",
           "subject_set_digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_PolicyRecordGetRequest": {
+        "additionalProperties": false,
+        "description": "Read one record by id.",
+        "properties": {
+          "record_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id"
         ],
         "type": "object"
       },
@@ -108045,6 +111538,22 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_RecordContract": {
+        "additionalProperties": false,
+        "description": "The typed record contract a source's repair candidate declares.",
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ResDef_Query_FieldContract"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_RecordWindow": {
         "additionalProperties": false,
         "description": "The closed record window a job reads.",
@@ -108598,6 +112107,33 @@
         ],
         "type": "string"
       },
+      "ResDef_Query_ResourceObservation": {
+        "additionalProperties": false,
+        "description": "Observed resource use of one run.",
+        "properties": {
+          "gpu_seconds": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "peak_memory_bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "wall_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "wall_ms",
+          "gpu_seconds",
+          "peak_memory_bytes"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_ResourceRequirement": {
         "additionalProperties": false,
         "properties": {
@@ -109050,6 +112586,41 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_RewardEvidenceSource": {
+        "description": "Where a reward's evidence came from. `self_reported` is the acting\nagent's own claim: kept as evidence, never trained on.",
+        "enum": [
+          "independent_verifier",
+          "rubric",
+          "self_reported"
+        ],
+        "type": "string"
+      },
+      "ResDef_Query_RewardRecord": {
+        "additionalProperties": false,
+        "description": "The terminal reward and the verifier that produced it. Micros, never a\nfloat, so the record digest is exact.",
+        "properties": {
+          "evidence": {
+            "$ref": "#/components/schemas/ResDef_Query_RewardEvidenceSource"
+          },
+          "value_micros": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "verifier_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "verifier_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value_micros",
+          "verifier_id",
+          "verifier_digest",
+          "evidence"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_RewindTarget": {
         "description": "Where a rewind puts the consumer's cursor.",
         "oneOf": [
@@ -109279,6 +112850,14 @@
           "carrier_digest"
         ],
         "type": "object"
+      },
+      "ResDef_Query_SafetyOutcome": {
+        "description": "Whether the safety policy passed on the frozen set.",
+        "enum": [
+          "passed",
+          "failed"
+        ],
+        "type": "string"
       },
       "ResDef_Query_Scalar": {
         "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
@@ -114077,6 +117656,37 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_StoredPolicyRecord": {
+        "additionalProperties": false,
+        "description": "One admitted record, stamped by the engine from the verified request\ncontext. Carried by the internal `PolicyEvolutionStore` method so the\nkernel write -- and its raft replay -- is fully determined by the method.",
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/ResDef_Query_PolicyEvolutionRecord"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "recorded_by": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "tenant_id",
+          "recorded_by",
+          "recorded_at_ms",
+          "record"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_StructuralEquationWire": {
         "description": "Wire mirror of `eg_epistemic::StructuralEquation` (EPI-P3-3), keyed by the\nvariable `id` it defines \u2014 one entry of `Method::CausalEstimate::variables`.\n`parents` MUST name only ids that appear EARLIER in that same list (parents\nbefore children), mirroring `eg_epistemic::CausalGraph::add_variable`'s own\ntopological-order invariant; the handler surfaces a violation as an explicit\nerror, never a panic.",
         "properties": {
@@ -114758,6 +118368,197 @@
         ],
         "type": "string"
       },
+      "ResDef_Query_TrainingMethod": {
+        "description": "The external optimisation method. KLPO is one option beside the existing\nGRPO/DPO/SFT choices.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "sft",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "dpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "const": "grpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "estimator": {
+                "$ref": "#/components/schemas/ResDef_Query_KlEstimator"
+              },
+              "method": {
+                "const": "klpo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "method",
+              "estimator"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_TrainingOutput": {
+        "additionalProperties": false,
+        "description": "The new artifact a succeeded run produced.",
+        "properties": {
+          "artifact_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "artifact_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_digest",
+          "artifact_ref"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_TrainingRun": {
+        "additionalProperties": false,
+        "description": "`TrainingRun/v1`: the receipt of one external training job. EG records it;\nit never optimises weights.",
+        "properties": {
+          "adapter": {
+            "$ref": "#/components/schemas/ResDef_Query_AdapterSpec"
+          },
+          "base_version_id": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "hyperparameters_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "input_capture_ids": {
+            "$ref": "#/components/schemas/ResDef_Query_BoundedVec_string_256"
+          },
+          "log": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_HeldBlobRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "method": {
+            "$ref": "#/components/schemas/ResDef_Query_TrainingMethod"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResDef_Query_ResourceObservation",
+            "default": {
+              "gpu_seconds": 0,
+              "peak_memory_bytes": 0,
+              "wall_ms": 0
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/ResDef_Query_TrainingRunStatus"
+          },
+          "trainer_image_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "work_item_id": {
+            "description": "The native WorkItem that owned the attempt.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "work_item_id",
+          "base_version_id",
+          "input_capture_ids",
+          "method",
+          "adapter",
+          "trainer_image_digest",
+          "hyperparameters_digest",
+          "status"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_TrainingRunStatus": {
+        "description": "Terminal status. Only a succeeded run carries an output, so a failed or\ncancelled run has nothing a version could name.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "$ref": "#/components/schemas/ResDef_Query_TrainingOutput"
+              },
+              "status": {
+                "const": "succeeded",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "output"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "failed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "cancelled",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_TransactionSource": {
         "description": "A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).\n\nEach node carrying `node_label` becomes one \"basket owner\"; the basket is the set\nof `item_field` values gathered from its neighbors (following edges in\n`direction`), optionally filtered to a `relation`. This turns node neighborhoods\ninto transactions so mining runs directly over resident graph data \u2014 the\ncross-modal hook (e.g. \"for each :Capability, the set of concepts it touches\" =\none transaction \u21d2 concept-co-occurrence rules).",
         "properties": {
@@ -115078,6 +118879,43 @@
             "const": "unversioned",
             "description": "Valid only for a capability-bearing reserved-system operation.",
             "type": "string"
+          }
+        ]
+      },
+      "ResDef_Query_VersionOrigin": {
+        "description": "How a model-policy version came to exist.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A served base checkpoint (optionally with an existing adapter).",
+            "properties": {
+              "origin": {
+                "const": "base",
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The output of one succeeded training run.",
+            "properties": {
+              "origin": {
+                "const": "trained",
+                "type": "string"
+              },
+              "training_run_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin",
+              "training_run_id"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -116674,6 +120512,28 @@
               "origin",
               "mapping",
               "revision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "EH-403: attached by `AttachApproved` under the named approval lease.",
+            "properties": {
+              "approval_lease_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "origin": {
+                "const": "approved",
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin",
+              "name",
+              "approval_lease_id"
             ],
             "type": "object"
           }
@@ -126508,6 +130368,52 @@
         "type": "integer",
         "x-encoding": "Count"
       },
+      "Res_graph_PolicyEvolution": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordReceipt",
+            "x-body": "commit_capture",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordReceipt",
+            "x-body": "commit_policy_evaluation",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordReceipt",
+            "x-body": "commit_training_run",
+            "x-encoding": "Raw"
+          },
+          {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "x-body": "get",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordReceipt",
+            "x-body": "put_capability",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordReceipt",
+            "x-body": "register_model_policy_version",
+            "x-encoding": "Raw"
+          }
+        ],
+        "x-selected-by": "op"
+      },
+      "Res_graph_PolicyEvolutionStore": {
+        "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordStored",
+        "x-encoding": "Raw"
+      },
       "Res_graph_PruneByLifecycle": {
         "$ref": "#/components/schemas/ResDef_Graph_PruneStats",
         "x-encoding": "Json"
@@ -128161,7 +132067,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 437 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 440 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -143061,6 +146967,126 @@
         "x-replay-class": "NotReplayable",
         "x-stability": "stable",
         "x-txn-participation": "Snapshot"
+      }
+    },
+    "/rpc/graph/PolicyEvolution": {
+      "post": {
+        "operationId": "PolicyEvolution",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_PolicyEvolution"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_graph_PolicyEvolution"
+                }
+              }
+            },
+            "description": "`PolicyEvolution` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-346/EH-347 capture-first policy evolution, runtime-conditional: get is a snapshot read (policy:read); put_capability / commit_capture / register_model_policy_version / commit_training_run / commit_policy_evaluation each self-translate into ONE CreateNodeIfAbsent of an immutable content-addressed record in the request graph. The row names the capture leg; PolicyEvolutionOp::authz_action is the authority for each operation (the other writes are admin: gated)",
+        "tags": [
+          "graph"
+        ],
+        "x-audited": true,
+        "x-authz-action": "policy:capture-write",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": true,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED",
+          "CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
+          "REDIRECTED",
+          "READ_ONLY"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
+      }
+    },
+    "/rpc/graph/PolicyEvolutionStore": {
+      "post": {
+        "operationId": "PolicyEvolutionStore",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_PolicyEvolutionStore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_graph_PolicyEvolutionStore"
+                }
+              }
+            },
+            "description": "`PolicyEvolutionStore` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer",
+        "tags": [
+          "graph"
+        ],
+        "x-audited": true,
+        "x-authz-action": "admin:policy-evolution-store",
+        "x-consumer-profiles": [],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED",
+          "CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
+          "REDIRECTED",
+          "READ_ONLY"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "internal",
+        "x-txn-participation": "Atomic"
       }
     },
     "/rpc/graph/PruneByLifecycle": {

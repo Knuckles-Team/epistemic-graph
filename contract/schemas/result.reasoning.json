@@ -650,6 +650,28 @@
             "revision"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "EH-403: attached by `AttachApproved` under the named approval lease.",
+          "properties": {
+            "approval_lease_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "approved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "name",
+            "approval_lease_id"
+          ],
+          "type": "object"
         }
       ]
     },

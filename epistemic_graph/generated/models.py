@@ -112,6 +112,19 @@ class AdamResult(BaseModel):
     v: list[float]
 
 
+class AdapterSpecLora(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter: Literal["lora"]
+    rank: Annotated[int, Field(ge=0, le=65535)]
+
+
+AdapterSpec = Annotated[
+    AdapterSpecLora,
+    Field(discriminator="adapter"),
+]
+
+
 class AdfResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1058,6 +1071,13 @@ class AnomalyRow(BaseModel):
     is_anomaly: bool
 
 
+class ArrayEncoding(str, Enum):
+    U32_LE = "u32_le"
+    F32_LE = "f32_le"
+    U8_MASK = "u8_mask"
+    BYTES = "bytes"
+
+
 class AsrOpTranscribeFile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1574,6 +1594,24 @@ class CapacityStatusResult(BaseModel):
     leases: list[CapacityLease]
     next_cursor: str | None = None
     schema_version: NativeControlSchemaVersion
+
+
+class CaptureCompletion(str, Enum):
+    TERMINAL = "terminal"
+    TRUNCATED = "truncated"
+    ABORTED = "aborted"
+
+
+class CaptureEligibility(str, Enum):
+    ELIGIBLE = "eligible"
+    NOT_TERMINAL = "not_terminal"
+    NO_REWARD = "no_reward"
+    UNVERIFIED_REWARD = "unverified_reward"
+
+
+class CaptureTraceFidelity(str, Enum):
+    FULL = "full"
+    REDACTED = "redacted"
 
 
 class CasWorkItemMetadataLeaseFence(BaseModel):
@@ -2807,6 +2845,13 @@ class ControlLeaseView(BaseModel):
     lease_id: str
     revision: Annotated[int, Field(ge=0)]
     status: ControlLeaseStatus
+
+
+class ControlSetting(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    enabled: bool | None = None
+    scope: str | None = None
 
 
 class ConvergenceGate(BaseModel):
@@ -4406,6 +4451,24 @@ EvalCandidate = Annotated[
 ]
 
 
+class EvaluationMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    baseline_task_success_ppm: Annotated[int, Field(ge=0)]
+    cost_micros: Annotated[int, Field(ge=0)]
+    gpu_seconds: Annotated[int, Field(ge=0)]
+    latency_p50_ms: Annotated[int, Field(ge=0)]
+    latency_p95_ms: Annotated[int, Field(ge=0)]
+    task_success_ppm: Annotated[int, Field(ge=0)]
+    trace_completeness_ppm: Annotated[int, Field(ge=0)]
+    unsupported_replay_mass_ppm: Annotated[int, Field(ge=0)]
+
+
+class EvaluationVerdict(str, Enum):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class EvidenceAddressWireCharacterRange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4835,6 +4898,13 @@ class FidelityCounts(BaseModel):
     final_output: Annotated[int, Field(ge=0)]
     full_step: Annotated[int, Field(ge=0)]
     tool_calls: Annotated[int, Field(ge=0)]
+
+
+class FieldContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    required: bool
+    types: list[JsonType]
 
 
 class Fill(BaseModel):
@@ -5608,8 +5678,31 @@ class GraphSchemaOpDetach(BaseModel):
     source_id: str
 
 
+class GraphSchemaOpAttachApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval_lease_id: str
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["attach_approved"]
+    source_id: str
+
+
+class GraphSchemaOpValidateRepair(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["validate_repair"]
+    source_id: str
+
+
 GraphSchemaOp = Annotated[
-    GraphSchemaOpAttach | GraphSchemaOpAttachPack | GraphSchemaOpDetach,
+    GraphSchemaOpAttach
+    | GraphSchemaOpAttachPack
+    | GraphSchemaOpDetach
+    | GraphSchemaOpAttachApproved
+    | GraphSchemaOpValidateRepair,
     Field(discriminator="op"),
 ]
 
@@ -5735,6 +5828,15 @@ class HealthReport(BaseModel):
     status: str
     uptime_s: Annotated[int, Field(ge=0)]
     version: str
+
+
+class HeldBlobRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: Digest256
+    elements: Annotated[int, Field(ge=0)] | None = None
+    encoding: ArrayEncoding
+    length: Annotated[int, Field(ge=0)]
 
 
 class HttpFieldMap(BaseModel):
@@ -6286,6 +6388,16 @@ class JsonPathOpEqBody(BaseModel):
     value: Any
 
 
+class JsonType(str, Enum):
+    NULL = "null"
+    BOOLEAN = "boolean"
+    INTEGER = "integer"
+    NUMBER = "number"
+    STRING = "string"
+    ARRAY = "array"
+    OBJECT = "object"
+
+
 class JustificationNodeWire(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6363,6 +6475,48 @@ class KgDelegateResult(BaseModel):
 
 class KgDelegateSchemaVersion(str, Enum):
     V_2 = "2"
+
+
+class KlEstimatorSampledToken(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["sampled_token"]
+
+
+class KlEstimatorTopK(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["top_k"]
+    k: Annotated[int, Field(ge=0, le=65535)]
+
+
+class KlEstimatorBinary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["binary"]
+
+
+class KlEstimatorFullVocabulary(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: Literal["full_vocabulary"]
+
+
+class KlEstimatorMonteCarlo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    draws: Annotated[int, Field(ge=0, le=65535)]
+    estimator: Literal["monte_carlo"]
+
+
+KlEstimator = Annotated[
+    KlEstimatorSampledToken
+    | KlEstimatorTopK
+    | KlEstimatorBinary
+    | KlEstimatorFullVocabulary
+    | KlEstimatorMonteCarlo,
+    Field(discriminator="estimator"),
+]
 
 
 class KnowledgeResultFamily(str, Enum):
@@ -6685,6 +6839,14 @@ class LoadReport(BaseModel):
 
     multivalue: Annotated[int, Field(ge=0)]
     triples: Annotated[int, Field(ge=0)]
+
+
+class LogprobSupport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    auxiliary_draws: bool | None = None
+    chosen_token: bool
+    top_k: Annotated[int, Field(ge=0, le=65535)] | None = None
 
 
 class MaintenanceEnvelope(BaseModel):
@@ -9799,6 +9961,27 @@ class MethodGetControlLease(BaseModel):
     params: MethodGetControlLeaseParams
 
 
+class MethodTelemetryDerive(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["TelemetryDerive"]
+    params: MethodTelemetryDeriveParams
+
+
+class MethodPolicyEvolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PolicyEvolution"]
+    params: MethodPolicyEvolutionParams
+
+
+class MethodPolicyEvolutionStore(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PolicyEvolutionStore"]
+    params: MethodPolicyEvolutionStoreParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -10236,7 +10419,10 @@ Method = Annotated[
     | MethodGetWorkItemOutcome
     | MethodIssueControlLease
     | MethodTransitionControlLease
-    | MethodGetControlLease,
+    | MethodGetControlLease
+    | MethodTelemetryDerive
+    | MethodPolicyEvolution
+    | MethodPolicyEvolutionStore,
     Field(discriminator="method"),
 ]
 
@@ -12493,6 +12679,18 @@ class MethodPlanMatViewRefreshParams(BaseModel):
     name: str
 
 
+class MethodPolicyEvolutionParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: PolicyEvolutionOp
+
+
+class MethodPolicyEvolutionStoreParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: StoredPolicyRecord
+
+
 class MethodPruneByLifecycleParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13081,6 +13279,15 @@ class MethodSweepExpiredParams(BaseModel):
     now_ms: Annotated[int, Field(ge=0)]
 
 
+class MethodTelemetryDeriveParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    from_ms: Annotated[int, Field(ge=0)]
+    policy_msgpack: bytes
+    streams: list[str] = Field(default_factory=list)
+    to_ms: Annotated[int, Field(ge=0)]
+
+
 class MethodTouchNodesParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13405,6 +13612,17 @@ class ModalityFacts(BaseModel):
 
     input: list[str] = Field(default_factory=list)
     output: list[str] = Field(default_factory=list)
+
+
+class ModelPolicyVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter_digest: Digest256 | None = None
+    artifact_ref: str
+    checkpoint_digest: Digest256
+    origin: VersionOrigin
+    parent_version_id: str | None = None
+    tokenizer_digest: Digest256
 
 
 class ModelSpec(BaseModel):
@@ -14267,6 +14485,22 @@ class OpeEstimatorKind(str, Enum):
     DOUBLY_ROBUST = "doubly_robust"
 
 
+class OpenWeightPolicyCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter_digest: Digest256 | None = None
+    artifact_destination_ref: str
+    base_checkpoint_digest: Digest256
+    controls: PolicyControls | None = None
+    decode_params_digest: Digest256
+    endpoint_ref: str
+    logprobs: LogprobSupport
+    probe_digest: Digest256
+    probed_at_ms: Annotated[int, Field(ge=0)]
+    provider: str
+    tokenizer_digest: Digest256
+
+
 class OperationEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15026,6 +15260,146 @@ class Plan(BaseModel):
     ops: list[Op]
 
 
+class PolicyCapture(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    action_mask: HeldBlobRef
+    auxiliary_draws: HeldBlobRef | None = None
+    capability_id: str
+    captured_at_ms: Annotated[int, Field(ge=0)]
+    completion: CaptureCompletion
+    log_q: HeldBlobRef
+    policy_token_count: Annotated[int, Field(ge=0)]
+    purpose: str
+    reward: RewardRecord | None = None
+    sampler_top_k: HeldBlobRef | None = None
+    sampler_version_id: str
+    token_count: Annotated[int, Field(ge=0)]
+    token_ids: HeldBlobRef
+    trace_fidelity: CaptureTraceFidelity
+    trajectory_id: str
+    trajectory_steps: Annotated[int, Field(ge=0)]
+
+
+class PolicyControls(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capture: ControlSetting | None = None
+    promote: ControlSetting | None = None
+    train: ControlSetting | None = None
+
+
+class PolicyEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    baseline_version_id: str | None = None
+    evaluation_set_digest: Digest256
+    evaluator_digest: Digest256
+    metrics: EvaluationMetrics
+    report: HeldBlobRef | None = None
+    safety: SafetyOutcome
+    verdict: EvaluationVerdict
+    version_id: str
+
+
+class PolicyEvolutionOpPutCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["put_capability"]
+    request: OpenWeightPolicyCapability
+
+
+class PolicyEvolutionOpCommitCapture(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["commit_capture"]
+    request: PolicyCapture
+
+
+class PolicyEvolutionOpRegisterModelPolicyVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["register_model_policy_version"]
+    request: ModelPolicyVersion
+
+
+class PolicyEvolutionOpCommitTrainingRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["commit_training_run"]
+    request: TrainingRun
+
+
+class PolicyEvolutionOpCommitPolicyEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["commit_policy_evaluation"]
+    request: PolicyEvaluation
+
+
+class PolicyEvolutionOpGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["get"]
+    request: PolicyRecordGetRequest
+
+
+PolicyEvolutionOp = Annotated[
+    PolicyEvolutionOpPutCapability
+    | PolicyEvolutionOpCommitCapture
+    | PolicyEvolutionOpRegisterModelPolicyVersion
+    | PolicyEvolutionOpCommitTrainingRun
+    | PolicyEvolutionOpCommitPolicyEvaluation
+    | PolicyEvolutionOpGet,
+    Field(discriminator="op"),
+]
+
+
+class PolicyEvolutionRecordCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["capability"]
+    record: OpenWeightPolicyCapability
+
+
+class PolicyEvolutionRecordCapture(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["capture"]
+    record: PolicyCapture
+
+
+class PolicyEvolutionRecordModelPolicyVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["model_policy_version"]
+    record: ModelPolicyVersion
+
+
+class PolicyEvolutionRecordTrainingRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["training_run"]
+    record: TrainingRun
+
+
+class PolicyEvolutionRecordPolicyEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["policy_evaluation"]
+    record: PolicyEvaluation
+
+
+PolicyEvolutionRecord = Annotated[
+    PolicyEvolutionRecordCapability
+    | PolicyEvolutionRecordCapture
+    | PolicyEvolutionRecordModelPolicyVersion
+    | PolicyEvolutionRecordTrainingRun
+    | PolicyEvolutionRecordPolicyEvaluation,
+    Field(discriminator="kind"),
+]
+
+
 class PolicyRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15038,6 +15412,51 @@ class PolicyRecord(BaseModel):
     retention_policy: str | None = None
     subject_set_digest: str
     tenant: str
+
+
+class PolicyRecordGetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record_id: str
+
+
+class PolicyRecordKind(str, Enum):
+    CAPABILITY = "capability"
+    CAPTURE = "capture"
+    MODEL_POLICY_VERSION = "model_policy_version"
+    TRAINING_RUN = "training_run"
+    POLICY_EVALUATION = "policy_evaluation"
+
+
+class PolicyRecordReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    disposition: PolicyWriteDisposition
+    eligibility: CaptureEligibility | None = None
+    kind: PolicyRecordKind
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    record_id: str
+
+
+class PolicyRecordStored(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    created: bool
+
+
+class PolicyRecordView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record: PolicyEvolutionRecord
+    record_id: str
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+    recorded_by: str
+
+
+class PolicyWriteDisposition(str, Enum):
+    WRITTEN = "written"
+    REPLAYED = "replayed"
 
 
 class PooledRate(BaseModel):
@@ -15860,6 +16279,12 @@ class ReconciliationReceipt(BaseModel):
     tenant_id: str
 
 
+class RecordContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fields_: dict[str, FieldContract] = Field(..., alias="fields")
+
+
 class RecordVisibilityTenant(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16210,6 +16635,14 @@ class ResourceKind(str, Enum):
     SKILL = "skill"
     PROMPT = "prompt"
     RESOURCE = "resource"
+
+
+class ResourceObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    gpu_seconds: Annotated[int, Field(ge=0)]
+    peak_memory_bytes: Annotated[int, Field(ge=0)]
+    wall_ms: Annotated[int, Field(ge=0)]
 
 
 class ResourceRequirement(BaseModel):
@@ -16617,6 +17050,21 @@ class RetrievalTraceSpec(BaseModel):
     retrieved: list[str]
 
 
+class RewardEvidenceSource(str, Enum):
+    INDEPENDENT_VERIFIER = "independent_verifier"
+    RUBRIC = "rubric"
+    SELF_REPORTED = "self_reported"
+
+
+class RewardRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    evidence: RewardEvidenceSource
+    value_micros: int
+    verifier_digest: Digest256
+    verifier_id: str
+
+
 class RewindTargetStart(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16776,6 +17224,11 @@ class SabrFit(BaseModel):
     rmse: float
 
 
+class SafetyOutcome(str, Enum):
+    PASSED = "passed"
+    FAILED = "failed"
+
+
 class ScenePose(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16839,12 +17292,21 @@ class SchemaSourceOriginViewIngestion(BaseModel):
     revision: Annotated[int, Field(ge=0)]
 
 
+class SchemaSourceOriginViewApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval_lease_id: str
+    name: str
+    origin: Literal["approved"]
+
+
 SchemaSourceOriginView = Annotated[
     SchemaSourceOriginViewCore
     | SchemaSourceOriginViewOperator
     | SchemaSourceOriginViewAdmin
     | SchemaSourceOriginViewPack
-    | SchemaSourceOriginViewIngestion,
+    | SchemaSourceOriginViewIngestion
+    | SchemaSourceOriginViewApproved,
     Field(discriminator="origin"),
 ]
 
@@ -19184,6 +19646,16 @@ class StoredEvaluation(BaseModel):
     recorded_at_ms: Annotated[int, Field(ge=0)]
 
 
+class StoredPolicyRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record: PolicyEvolutionRecord
+    record_id: str
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+    recorded_by: str
+    tenant_id: str
+
+
 class StructuralEquationWire(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19324,6 +19796,22 @@ class SurveillanceRisk(BaseModel):
 class SvmKernel(str, Enum):
     RBF = "rbf"
     LINEAR = "linear"
+
+
+class TelemetryDeriveReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    anomalies: Annotated[int, Field(ge=0)]
+    edges_written: Annotated[int, Field(ge=0)]
+    fact_ids: list[str]
+    ignored_metric_samples: Annotated[int, Field(ge=0)]
+    incidents: Annotated[int, Field(ge=0)]
+    invalid_declarations: Annotated[int, Field(ge=0)]
+    nodes_written: Annotated[int, Field(ge=0)]
+    observations: Annotated[int, Field(ge=0)]
+    signals_read: Annotated[int, Field(ge=0)]
+    unresolved: Annotated[int, Field(ge=0)]
+    violations: Annotated[int, Field(ge=0)]
 
 
 class TemplateFacts(BaseModel):
@@ -19533,6 +20021,85 @@ class TrainTestSplitResult(BaseModel):
     y_train: list[float]
 
 
+class TrainingMethodSft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["sft"]
+
+
+class TrainingMethodDpo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["dpo"]
+
+
+class TrainingMethodGrpo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["grpo"]
+
+
+class TrainingMethodKlpo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimator: KlEstimator
+    method: Literal["klpo"]
+
+
+TrainingMethod = Annotated[
+    TrainingMethodSft | TrainingMethodDpo | TrainingMethodGrpo | TrainingMethodKlpo,
+    Field(discriminator="method"),
+]
+
+
+class TrainingOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    artifact_digest: Digest256
+    artifact_ref: str
+
+
+class TrainingRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter: AdapterSpec
+    base_version_id: str
+    capability_id: str
+    hyperparameters_digest: Digest256
+    input_capture_ids: BoundedVec_string_256
+    log: HeldBlobRef | None = None
+    method: TrainingMethod
+    resources: ResourceObservation | None = None
+    status: TrainingRunStatus
+    trainer_image_digest: Digest256
+    work_item_id: str
+
+
+class TrainingRunStatusSucceeded(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    output: TrainingOutput
+    status: Literal["succeeded"]
+
+
+class TrainingRunStatusFailed(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["failed"]
+
+
+class TrainingRunStatusCancelled(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["cancelled"]
+
+
+TrainingRunStatus = Annotated[
+    TrainingRunStatusSucceeded | TrainingRunStatusFailed | TrainingRunStatusCancelled,
+    Field(discriminator="status"),
+]
+
+
 class TransactionSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19662,6 +20229,25 @@ class VersionExpectationNative(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     native: Annotated[int, Field(ge=0)]
+
+
+class VersionOriginBase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    origin: Literal["base"]
+
+
+class VersionOriginTrained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    origin: Literal["trained"]
+    training_run_id: str
+
+
+VersionOrigin = Annotated[
+    VersionOriginBase | VersionOriginTrained,
+    Field(discriminator="origin"),
+]
 
 
 class Vf2MatchResult(BaseModel):

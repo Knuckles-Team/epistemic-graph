@@ -6,9 +6,17 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class FieldContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    required: bool
+    types: list[JsonType]
 
 
 class GraphSchemaCommitted(BaseModel):
@@ -47,8 +55,31 @@ class GraphSchemaOpDetach(BaseModel):
     source_id: str
 
 
+class GraphSchemaOpAttachApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    approval_lease_id: str
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["attach_approved"]
+    source_id: str
+
+
+class GraphSchemaOpValidateRepair(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["validate_repair"]
+    source_id: str
+
+
 GraphSchemaOp = Annotated[
-    GraphSchemaOpAttach | GraphSchemaOpAttachPack | GraphSchemaOpDetach,
+    GraphSchemaOpAttach
+    | GraphSchemaOpAttachPack
+    | GraphSchemaOpDetach
+    | GraphSchemaOpAttachApproved
+    | GraphSchemaOpValidateRepair,
     Field(discriminator="op"),
 ]
 
@@ -74,6 +105,22 @@ class GraphSchemaSourcesView(BaseModel):
     dynamic_sources: BoundedVec_GraphSchemaSourceView_32
     graph: str
     schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class JsonType(str, Enum):
+    NULL = "null"
+    BOOLEAN = "boolean"
+    INTEGER = "integer"
+    NUMBER = "number"
+    STRING = "string"
+    ARRAY = "array"
+    OBJECT = "object"
+
+
+class RecordContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    fields: dict[str, FieldContract]
 
 
 class SchemaSourceOriginViewCore(BaseModel):
@@ -114,12 +161,21 @@ class SchemaSourceOriginViewIngestion(BaseModel):
     revision: Annotated[int, Field(ge=0)]
 
 
+class SchemaSourceOriginViewApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    approval_lease_id: str
+    name: str
+    origin: Literal["approved"]
+
+
 SchemaSourceOriginView = Annotated[
     SchemaSourceOriginViewCore
     | SchemaSourceOriginViewOperator
     | SchemaSourceOriginViewAdmin
     | SchemaSourceOriginViewPack
-    | SchemaSourceOriginViewIngestion,
+    | SchemaSourceOriginViewIngestion
+    | SchemaSourceOriginViewApproved,
     Field(discriminator="origin"),
 ]
 
@@ -139,6 +195,8 @@ BoundedVec_GraphSchemaSourceView_64 = Annotated[
     ),
 ]
 
+FieldContract.model_rebuild()
+
 GraphSchemaCommitted.model_rebuild()
 
 GraphSchemaOpAttach.model_rebuild()
@@ -147,9 +205,15 @@ GraphSchemaOpAttachPack.model_rebuild()
 
 GraphSchemaOpDetach.model_rebuild()
 
+GraphSchemaOpAttachApproved.model_rebuild()
+
+GraphSchemaOpValidateRepair.model_rebuild()
+
 GraphSchemaSourceView.model_rebuild()
 
 GraphSchemaSourcesView.model_rebuild()
+
+RecordContract.model_rebuild()
 
 SchemaSourceOriginViewCore.model_rebuild()
 
@@ -160,3 +224,5 @@ SchemaSourceOriginViewAdmin.model_rebuild()
 SchemaSourceOriginViewPack.model_rebuild()
 
 SchemaSourceOriginViewIngestion.model_rebuild()
+
+SchemaSourceOriginViewApproved.model_rebuild()

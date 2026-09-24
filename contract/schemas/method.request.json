@@ -8538,6 +8538,28 @@
         }
       ]
     },
+    "FieldContract": {
+      "additionalProperties": false,
+      "description": "One field of a record contract. Fields are declared alphabetically so the\ncanonical JSON is the same as a sorted-key encoder's.",
+      "properties": {
+        "required": {
+          "description": "Present (and non-null unless `types` has `null`) in every record.",
+          "type": "boolean"
+        },
+        "types": {
+          "description": "The types a value may have: non-empty, sorted, unique.",
+          "items": {
+            "$ref": "#/$defs/JsonType"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "required",
+        "types"
+      ],
+      "type": "object"
+    },
     "FittedClassifier": {
       "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit→blob→predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire —\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
       "oneOf": [
@@ -9732,6 +9754,68 @@
             "source_id"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "EH-403: attach or replace a governed repair candidate under\n`approved:<name>`. The candidate is a TYPED record contract; EG renders\nits SHACL (AUD-27: callers never send RDF). The engine refuses it unless\n`approval_lease_id` names an approved (`consumed`), unexpired\n`action.approval` control lease of the caller's tenant whose grant binds\nthis exact contract (see [`approval`]). A proposed schema change\ntherefore never reaches the ontology without an approval record.",
+          "properties": {
+            "approval_lease_id": {
+              "type": "string"
+            },
+            "contract": {
+              "$ref": "#/$defs/RecordContract"
+            },
+            "if_composed_digest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "const": "attach_approved",
+              "type": "string"
+            },
+            "source_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "source_id",
+            "contract",
+            "approval_lease_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "EH-403: render a repair candidate and run the full entering-schema\nvalidation (composition + the graph's data) against the request graph\nWITHOUT attaching it -- the shadow-graph check a proposal runs before an\napproval is requested. Answers `changed: false`.",
+          "properties": {
+            "contract": {
+              "$ref": "#/$defs/RecordContract"
+            },
+            "if_composed_digest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "const": "validate_repair",
+              "type": "string"
+            },
+            "source_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "source_id",
+            "contract"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -10707,6 +10791,19 @@
           "type": "object"
         }
       ]
+    },
+    "JsonType": {
+      "description": "A JSON value type, in canonical order.",
+      "enum": [
+        "null",
+        "boolean",
+        "integer",
+        "number",
+        "string",
+        "array",
+        "object"
+      ],
+      "type": "string"
     },
     "KgDelegateRequest": {
       "additionalProperties": false,
@@ -28064,6 +28161,112 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Derive ontology-bound telemetry facts in the request graph. Reads the\ncaller's stored log records (from the named `streams`, each of which\nmust lie in the caller's tenant namespace), metric samples and spans\nover `[from_ms, to_ms)`; binds them to the graph's declared Server /\nService / Host / Workload / Agent individuals; rolls them up, runs the\ndeclared CEP patterns and the declared-health conformance check; and\nwrites every fact in one `BatchUpdate` against the request graph.\n`policy_msgpack` is a MessagePack `eg_stream::telemetry::TelemetryPolicy`.\nSee [`crate::telemetry_derive`].",
+          "properties": {
+            "method": {
+              "const": "TelemetryDerive",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "from_ms": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "policy_msgpack": {
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "streams": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "to_ms": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "from_ms",
+                "to_ms",
+                "policy_msgpack"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Capture-first open-weight policy evolution: the attested capability,\ntrajectory captures, immutable model-policy versions, external\ntraining-run receipts and held-out evaluation receipts. Every record is\nimmutable and content-addressed in the request graph; each write\nself-translates into exactly one `CreateNodeIfAbsent`. EG records and\nrelates -- it never trains. See [`crate::policy_evolution`].",
+          "properties": {
+            "method": {
+              "const": "PolicyEvolution",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/PolicyEvolutionOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+          "properties": {
+            "method": {
+              "const": "PolicyEvolutionStore",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/StoredPolicyRecord"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -32642,6 +32845,22 @@
         "evidence_digest",
         "connector_observation_digest",
         "provenance_digest"
+      ],
+      "type": "object"
+    },
+    "RecordContract": {
+      "additionalProperties": false,
+      "description": "The typed record contract a source's repair candidate declares.",
+      "properties": {
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldContract"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "fields"
       ],
       "type": "object"
     },
