@@ -424,14 +424,24 @@ fn retired_methods_and_parameters_are_rejected() {
         assert!(serde_json::from_value::<Method>(value).is_err());
     }
 
-    let retired_parameter = serde_json::json!({
+    // EH-434: the rows-only text surface is gone; UQL text is `Method::Uql`.
+    let retired_text_surface = serde_json::json!({
         "method": "UnifiedQueryText",
-        "params": {
-            "text": "MATCH (n) |> LIMIT 1",
-            "reorder_filter_selectivity": 0.5
-        }
+        "params": { "text": "MATCH () |> LIMIT 1" }
     });
-    assert!(serde_json::from_value::<Method>(retired_parameter).is_err());
+    assert!(serde_json::from_value::<Method>(retired_text_surface).is_err());
+
+    #[cfg(feature = "query")]
+    {
+        let retired_parameter = serde_json::json!({
+            "method": "Uql",
+            "params": {
+                "text": "MATCH () |> LIMIT 1",
+                "reorder_filter_selectivity": 0.5
+            }
+        });
+        assert!(serde_json::from_value::<Method>(retired_parameter).is_err());
+    }
 }
 
 #[cfg(feature = "mining")]

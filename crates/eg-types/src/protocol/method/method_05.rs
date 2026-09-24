@@ -97,28 +97,16 @@ $($variants)*
     },
 
 
-    // ── Unified query, TEXT surface — UQL (CONCEPT:AU-KG.query.top-nodes-by-degree) ────────────────
-    // The human/agent-writable counterpart of `UnifiedQuery`: a UQL `text` string
-    // (e.g. `MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2} |> RANK BY
-    // ~[…] |> LIMIT 10`) that the handler PARSES (eg_plan::uql::parse) into the SAME
-    // `wire::Plan` AST `UnifiedQuery` carries, then runs through the IDENTICAL
-    // `run_unified` executor — NO new execution path, just a front-end. A parse error
-    // becomes a clear error Response. Same `query`-gating + `ResultPayload::raw`
-    // (`[id, score|nil]` rows) as `UnifiedQuery`.
-    #[cfg(feature = "query")]
-    UnifiedQueryText {
-        text: String,
-    },
-
-
-    // ── UQL statement surface (UQL-07/08/09) ─────────────────────────────────────
-    // The full UQL statement: typed `$name` `params` bound as VALUES (never spliced into
-    // the text), `EXPLAIN` (plan, per-stage estimated rows, incremental-maintainability —
-    // no execution) and `PROFILE` (execute, per-stage rows + time), `LET … FROM/JOIN`
-    // programs (a PlanDag), and `RETURN` score channels. Parsed by
-    // `eg_plan::uql::parse_statement` and run over the same RLS-filtered off-lock snapshot
-    // and served index bindings as `UnifiedQueryText`. Read-only. Result:
-    // [`crate::wire::UqlResult`] via `ResultPayload::raw`.
+    // ── UQL — the one query-TEXT surface (UQL-07/08/09, EH-434) ─────────────────
+    // The human/agent-writable counterpart of `UnifiedQuery`: a UQL statement whose
+    // pipelines parse (`eg_plan::uql::parse_statement`) into the SAME `wire::Plan` ops
+    // `UnifiedQuery` carries. Typed `$name` `params` bind as VALUES (never spliced into
+    // the text); `EXPLAIN` (plan, per-stage estimated rows, incremental-maintainability —
+    // no execution) and `PROFILE` (execute, per-stage rows + time); `LET … FROM/JOIN`
+    // programs (a PlanDag); `RETURN` score channels; `WITH PROOF` / `WITH KNOWLEDGE`
+    // row annotations. Runs over the same RLS-filtered off-lock snapshot and served
+    // index bindings as `UnifiedQuery`. Read-only. Result: [`crate::wire::UqlResult`]
+    // via `ResultPayload::raw`. (Replaced the rows-only `UnifiedQueryText`, EH-434.)
     #[cfg(feature = "query")]
     Uql {
         text: String,
@@ -394,7 +382,7 @@ $($variants)*
     /// graph rides the method; over the wire an empty `graph` falls back to the request
     /// envelope's graph). The handler resolves a configured/injected `NlPlanner`, turns
     /// the NL into a UQL query string, and runs it through the IDENTICAL deterministic
-    /// `UnifiedQueryText` pipeline (`eg_plan::uql::parse` → the fused executor) — NO new
+    /// UQL pipeline (`eg_plan::uql::parse` → the fused executor) — NO new
     /// execution path, and no LLM in the engine core. Result via `ResultPayload::raw` —
     /// the SAME `[id, score|nil]` rows as `UnifiedQuery`.
     ///

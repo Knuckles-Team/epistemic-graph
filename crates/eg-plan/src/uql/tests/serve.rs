@@ -1,4 +1,5 @@
-//! Running statements (UQL-07/08/09): channels coexist, EXPLAIN/PROFILE, DAGs, budgets.
+//! Running statements (UQL-07/08/09): channels coexist, EXPLAIN/PROFILE, DAGs (with
+//! EXPLAIN/PROFILE/RETURN, EH-449), budgets.
 
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::GraphCore;
@@ -143,4 +144,63 @@ fn budgets_refuse_with_a_typed_error() {
     });
     let err = run("MATCH (:Doc)", &Params::new(), &ctx).unwrap_err();
     assert!(err.starts_with(crate::budget::BUDGET_EXCEEDED), "{err}");
+}
+
+/// docs → cited (TRAVERSE) → JOIN docs, cited → RERANK MENTIONS → RETURN mentions: four
+/// nodes, the third joining the first two.
+const PROGRAM: &str = "LET docs = MATCH (:Doc); LET cited = FROM docs |> TRAVERSE CITES; \
+                       JOIN docs, cited |> RERANK MENTIONS |> RETURN mentions";
+
+#[test]
+fn a_program_explains_node_by_node() {
+    let (view, semantic) = fixture();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let out = run(&format!("EXPLAIN {PROGRAM}"), &Params::new(), &ctx).unwrap();
+    let UqlResult::Explain {
+        canonical,
+        optimized,
+        stages,
+        incremental,
+        incremental_note,
+        ..
+    } = out
+    else {
+        panic!("explain expected")
+    };
+    assert_eq!(canonical, optimized, "a program runs as written");
+    let reparsed = parse_statement(&canonical, &Params::new()).unwrap();
+    assert!(matches!(reparsed.body, crate::uql::Body::Dag(_)));
+    let names: Vec<&str> = stages.iter().map(|s| s.stage.as_str()).collect();
+    assert_eq!(names.len(), 4, "{names:?}");
+    assert!(names[0].starts_with("#0 MATCH (:Doc)"), "{names:?}");
+    assert!(names[2].starts_with("#2 <- #0,#1 RERANK MENTIONS"), "{names:?}");
+    assert!(stages.iter().all(|s| s.rows.is_none() && s.micros.is_none()));
+    assert!(!incremental && incremental_note.contains("LET"));
+}
+
+#[test]
+fn a_program_profiles_and_returns_channels() {
+    let (view, semantic) = fixture();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let out = run(&format!("PROFILE {PROGRAM}"), &Params::new(), &ctx).unwrap();
+    let UqlResult::Profile {
+        columns,
+        rows,
+        stages,
+        ..
+    } = out
+    else {
+        panic!("profile expected")
+    };
+    assert_eq!(columns, vec!["mentions"]);
+    let actual: Vec<Option<u64>> = stages.iter().map(|s| s.rows).collect();
+    assert_eq!(actual, vec![Some(4), Some(2), Some(2), Some(2)]);
+    assert!(stages.iter().all(|s| s.micros.is_some()));
+    let run_rows = match run(PROGRAM, &Params::new(), &ctx).unwrap() {
+        UqlResult::Rows { rows, .. } => rows,
+        other => panic!("rows expected, got {other:?}"),
+    };
+    assert_eq!(run_rows, rows, "RETURN channels are the same with and without PROFILE");
+    // d2 and d3 are each cited once — the most any row is — so both score 1.0.
+    assert!(rows.iter().all(|r| r.channels == vec![Some(1.0)]), "{rows:?}");
 }

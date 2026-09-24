@@ -492,7 +492,7 @@ fn decide_governance_kinds_publish_under_admin_actions() {
 /// construction too: `eg_plan`'s op dispatch takes the snapshot by shared reference.)
 #[test]
 fn uql_surfaces_are_read_only() {
-    let surfaces = ["UnifiedQuery", "UnifiedQueryText", "Uql"];
+    let surfaces = ["UnifiedQuery", "Uql"];
     for (name, policy, _note) in method_policy_entries() {
         if !surfaces.contains(&name) {
             continue;

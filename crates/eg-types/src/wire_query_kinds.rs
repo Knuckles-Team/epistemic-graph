@@ -66,7 +66,7 @@ kinds! {
     #[cfg(feature = "epistemic")] SourceReliability,
     #[cfg(feature = "epistemic")] ConfidenceOp,
     #[cfg(feature = "epistemic")] ExplainBelief,
-    Limit, Project,
+    DecisionScan, Limit, Project,
 }
 
 kinds! {
@@ -149,6 +149,7 @@ pub fn op_kind(op: &Op) -> OpKind {
         Op::ConfidenceOp {} => OpKind::ConfidenceOp,
         #[cfg(feature = "epistemic")]
         Op::ExplainBelief { .. } => OpKind::ExplainBelief,
+        Op::DecisionScan { .. } => OpKind::DecisionScan,
         Op::Limit { .. } => OpKind::Limit,
         Op::Project { .. } => OpKind::Project,
     }
@@ -222,6 +223,7 @@ impl OpKind {
             | OpKind::Expand
             | OpKind::AsOf
             | OpKind::Foreign
+            | OpKind::DecisionScan
             | OpKind::Limit
             | OpKind::Project => None,
             #[cfg(feature = "owl-plan")]
@@ -241,6 +243,61 @@ impl OpKind {
         }
     }
 
+    /// How a stage of this kind bears on a `WITH PROOF` row proof (EH-448).
+    pub fn proof_role(self) -> ProofRole {
+        match self {
+            #[cfg(feature = "owl-plan")]
+            OpKind::SparqlBgp | OpKind::Reason => ProofRole::Certifies,
+            OpKind::Rank
+            | OpKind::RankEmbed
+            | OpKind::RankNodeDistance
+            | OpKind::RankMentions
+            | OpKind::RankMmr
+            | OpKind::Limit
+            | OpKind::Project => ProofRole::Neutral,
+            #[cfg(feature = "text")]
+            OpKind::RankText => ProofRole::Neutral,
+            #[cfg(feature = "epistemic")]
+            OpKind::SourceReliability | OpKind::ConfidenceOp => ProofRole::Neutral,
+            OpKind::Scan
+            | OpKind::ScanAll
+            | OpKind::Filter
+            | OpKind::Traverse
+            | OpKind::Expand
+            | OpKind::AsOf
+            | OpKind::Window
+            | OpKind::WindowAgg
+            | OpKind::Foreign
+            | OpKind::DecisionScan => ProofRole::Unproved,
+            // A FUSE's branches decide it; eg-plan inspects them (`FuseRrf` is Neutral
+            // exactly when every branch op is).
+            #[cfg(feature = "text")]
+            OpKind::FuseRrf => ProofRole::Unproved,
+            #[cfg(feature = "owl-plan")]
+            OpKind::ValidateShape => ProofRole::Unproved,
+            #[cfg(feature = "wasm-udf")]
+            OpKind::Udf => ProofRole::Unproved,
+            #[cfg(feature = "federation")]
+            OpKind::ForeignScan => ProofRole::Unproved,
+            #[cfg(feature = "geo")]
+            OpKind::SpatialScan | OpKind::Reproject | OpKind::SpatialOp => ProofRole::Unproved,
+            #[cfg(feature = "tensor")]
+            OpKind::TensorScan | OpKind::TensorOp => ProofRole::Unproved,
+            #[cfg(feature = "stream")]
+            OpKind::Cep => ProofRole::Unproved,
+            #[cfg(feature = "timeseries")]
+            OpKind::SensorFuse | OpKind::SensorAlign | OpKind::TsScan => ProofRole::Unproved,
+            #[cfg(feature = "probabilistic")]
+            OpKind::Probabilistic => ProofRole::Unproved,
+            #[cfg(feature = "epistemic")]
+            OpKind::EvidenceFor
+            | OpKind::Contradicts
+            | OpKind::SupportedBy
+            | OpKind::BeliefAsOf
+            | OpKind::ExplainBelief => ProofRole::Unproved,
+        }
+    }
+
     /// Every score channel name this build can produce, sorted and de-duplicated.
     pub fn score_channels() -> Vec<&'static str> {
         let mut names: Vec<&'static str> = OpKind::all()
@@ -251,4 +308,15 @@ impl OpKind {
         names.dedup();
         names
     }
+}
+
+/// How one stage bears on a `WITH PROOF` row proof (EH-448).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProofRole {
+    /// It admits rows AND can prove each admission (SPARQL witness, OWL membership).
+    Certifies,
+    /// It only orders, scores or cuts rows it was given — nothing to prove.
+    Neutral,
+    /// It admits or produces rows but carries no proof.
+    Unproved,
 }
