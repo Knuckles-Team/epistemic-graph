@@ -16,6 +16,7 @@
 //! caller sorts options by id), and every value that reaches a record is
 //! quantised first.
 
+pub mod adapter;
 pub mod admission;
 pub mod aggregate;
 pub mod bm25;
@@ -31,5 +32,6 @@ pub mod ladder;
 pub mod nl;
 pub mod quant;
 pub mod refusal;
+pub mod retrieval;
 
 pub use refusal::{Refusal, RefusalResult};
