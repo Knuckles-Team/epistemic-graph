@@ -2138,24 +2138,23 @@ async fn multi_node_group_join_then_leader_rebalance() {
         .expect("node 1 must lead the single-member group 7");
     }
 
-    // ── R3: add nodes 2 and 3 as VOTERS from the leader (add_learner → change_membership).
+    // ── R3: add nodes 2 and 3 as VOTERS (add_learner → change_membership). EH-534:
+    // leader-agnostic -- a legal election mid-sequence (node 2 taking the group once
+    // it is a voter) is followed, not surfaced as "forward to leader".
     leader.add_group_member(gid, 2, addr(2)).await.unwrap();
     leader.add_group_member(gid, 3, addr(3)).await.unwrap();
     for (_, multi, _) in &multis {
         multi.router().assign("graph7", gid);
     }
-    assert_eq!(
-        leader.group_membership(gid).await,
-        Some(vec![1, 2, 3]),
-        "the group must now have all three nodes as voters"
-    );
+    wait_until(Duration::from_secs(15), || {
+        let leader = leader.clone();
+        async move { leader.group_membership(gid).await == Some(vec![1, 2, 3]) }
+    })
+    .await
+    .expect("the group must now have all three nodes as voters");
 
-    // ── A write through the leader replicates to the freshly-joined voters.
+    // ── A write routed to whichever node leads replicates to every voter.
     {
-        let g = leader
-            .group_for_graph("graph7")
-            .await
-            .expect("group for graph7");
         let req = RaftRequest {
             graph_fname: crate::persist::sanitize("graph7"),
             graph_name: "graph7".to_string(),
@@ -2178,10 +2177,13 @@ async fn multi_node_group_join_then_leader_rebalance() {
             )
             .unwrap(),
         };
-        g.client_write(req).await.expect("write via leader");
+        leader
+            .client_write_group(gid, req)
+            .await
+            .expect("write via the current leader");
     }
-    // Both followers (nodes 2 and 3) must apply the replicated write.
-    for idx in [1usize, 2] {
+    // Every node (whoever leads) must apply the replicated write.
+    for idx in [0usize, 1, 2] {
         let st = multis[idx].2.clone();
         wait_until(Duration::from_secs(10), || {
             let st = st.clone();
@@ -2213,17 +2215,16 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let node1 = multis[0].1.clone();
     let node2 = multis[1].1.clone();
     let node3 = multis[2].1.clone();
-    let r1 = node1.rebalance_leaders().await;
+    // EH-534: leader-agnostic -- whichever node leads now (node 1, or node 2 after a
+    // legal election) the passes must converge on the target; node 2 itself never
+    // transfers group 7, whether it follows or already leads as the target.
+    let _r1 = node1.rebalance_leaders().await;
     let r2 = node2.rebalance_leaders().await;
     let _r3 = node3.rebalance_leaders().await;
     assert_eq!(r2.targets.get(&gid), Some(&2));
     assert!(
-        r1.transferred.contains(&gid),
-        "node 1 (incumbent leader, target elsewhere) must transfer group 7 to node 2"
-    );
-    assert!(
         r2.transferred.is_empty(),
-        "node 2 (a follower) does not transfer anything — only the leader hands off"
+        "node 2 never hands group 7 away: it is the round-robin target"
     );
 
     // Leadership converges to node 2 via the native transfer. Keep driving periodic
@@ -2286,13 +2287,13 @@ async fn multi_node_group_join_then_leader_rebalance() {
     assert_eq!(page.nodes[0].0, "joined-write");
     assert!(page.raft_barrier_index > 0);
 
-    // Already balanced → an extra pass anywhere transfers nothing (idempotent): node 2
-    // now leads (target==self, no-op) and node 1 no longer leads group 7.
+    // Already balanced → the target's own pass transfers nothing (idempotent). Only
+    // node 2's pass is asserted: whether node 1's pass transfers depends on whether a
+    // legal election handed it the group again in the meantime (EH-534).
     let report2 = node2.rebalance_leaders().await;
-    let report1 = node1.rebalance_leaders().await;
     assert!(
-        report2.transferred.is_empty() && report1.transferred.is_empty(),
-        "an already-balanced cluster must not issue further transfers (idempotent)"
+        report2.transferred.is_empty(),
+        "the round-robin target must not issue further transfers (idempotent)"
     );
 
     // ── Cleanup.
@@ -2445,16 +2446,14 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
 /// test above drives directly. This is the external-caller seam
 /// `epistemic_graph.client`'s `raft_admin` namespace drives. Proves, in order: (a)
 /// a request against the LEADER actually attaches node 2 as a learner (real
-/// execution, not a stub); (b) a `RaftChangeMembership` request against that now
-/// genuinely-attached FOLLOWER is redirected to the leader (`OPERATION_REDIRECTED`
-/// with the real observed `leader_ref`, mirroring `PlacementRoute`'s stale-route
-/// shape) and is NOT silently mis-served or applied locally; (c) the SAME request
-/// against the LEADER actually promotes node 2 to a voter; and (d) an engine with
-/// no live `MultiRaft` answers a clean typed error rather than a silent no-op. (a)
-/// runs before (b) deliberately: openraft's `current_leader()` is honest local
-/// knowledge learned only from real AppendEntries/vote traffic, so the redirect is
-/// proven against a follower that has actually observed the leader through
-/// replication, not one the test simply asserts knows something it was never told.
+/// execution, not a stub); (b) EH-534: a `RaftChangeMembership` request against that
+/// now genuinely-attached FOLLOWER follows the leader -- forwarded over the peer
+/// channel and applied there, promoting node 2 -- instead of answering with a
+/// redirect; (c) re-sending it to the leader is an idempotent success; and (d) an
+/// engine with no live `MultiRaft` answers a clean typed error rather than a silent
+/// no-op. (a) runs before (b) deliberately: openraft's `current_leader()` is honest
+/// local knowledge learned only from real AppendEntries/vote traffic, so the
+/// follower resolves the leader it actually observed through replication.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() {
     // Opens a durable store, so the ambient encryption env must hold still for
@@ -2580,10 +2579,10 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         .expect("node 2 must observe node 1 as leader after being attached as a learner");
     }
 
-    // (b) A membership-admin request against this now-attached FOLLOWER is
-    // redirected to the leader, not silently mis-served, mis-applied locally, or
-    // panicking -- proven with the follower's REAL observed leader, not merely
-    // that the `OPERATION_REDIRECTED` constant exists somewhere in the source.
+    // (b) EH-534: a membership-admin request against this now-attached FOLLOWER
+    // follows the leader -- forwarded over the authenticated peer channel and
+    // applied there -- instead of answering with a redirect. The follower's view
+    // comes from real replication, as above.
     let resp = dispatch_on_heap(
         &follower_state,
         signed_request(
@@ -2595,23 +2594,17 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         ),
     )
     .await;
-    assert_eq!(resp.error.as_deref(), Some("OPERATION_REDIRECTED"));
-    match resp.result {
-        Some(ResultPayload::Raw(bytes)) => {
-            let detail: crate::epistemic_operations::OperationResult =
-                rmp_serde::from_slice(&bytes).expect("typed OperationResult");
-            let redirect = detail.redirect.expect("redirect detail present");
-            assert_eq!(redirect.leader_ref.as_deref(), Some("node:1"));
-        }
-        other => panic!("expected a typed redirect result, got {other:?}"),
-    }
-    // The redirected request must NOT have been applied anywhere: membership is
-    // unchanged (still just the learner from step (a), no promotion happened).
-    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
-    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
+    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
+    let promoted = wait_until(Duration::from_secs(15), || {
+        let leader_multi = leader_multi.clone();
+        async move { leader_multi.group_membership(gid).await == Some(vec![1, 2]) }
+    })
+    .await;
+    assert!(promoted.is_ok(), "the forwarded change must promote node 2");
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![]));
 
-    // (c) The SAME `RaftChangeMembership` issued against the LEADER actually
-    // promotes node 2 -- real execution, not just a redirect-shaped stub.
+    // (c) Re-sending the SAME change to the leader is an idempotent no-op.
     let resp = dispatch_on_heap(
         &leader_state,
         signed_request(
@@ -2625,8 +2618,6 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     .await;
     assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
     assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
-    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1, 2]));
-    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![]));
 
     // (c) An engine with no live MultiRaft answers a clean typed error, never a
     // silent no-op or a panic.
