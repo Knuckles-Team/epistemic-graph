@@ -32,20 +32,25 @@ pub(crate) struct EdgeFilter<'p> {
 }
 
 impl EdgeFilter<'_> {
-    /// Does any stored edge blob between `from → to` pass the filter?
-    fn admits(&self, view: &GraphView, from: &str, to: &str) -> bool {
+    /// The properties of the first stored edge blob between `from → to` that passes
+    /// the filter (empty when an unfiltered edge carries no blob); `None` when none does.
+    pub(crate) fn admitted(
+        &self,
+        view: &GraphView,
+        from: &str,
+        to: &str,
+    ) -> Option<Map<String, Value>> {
         let Some(blobs) = view
             .edge_properties
             .get(&(from.to_string(), to.to_string()))
         else {
-            return self.rel.is_none() && self.preds.is_empty();
+            return (self.rel.is_none() && self.preds.is_empty()).then(Map::new);
         };
-        blobs.iter().any(|blob| {
-            let props = decode(blob);
+        blobs.iter().map(|blob| decode(blob)).find(|props| {
             let rel_ok = self
                 .rel
                 .is_none_or(|rel| props.get("relationship").and_then(Value::as_str) == Some(rel));
-            rel_ok && crate::pred_eval::all_hold(&props, self.preds)
+            rel_ok && crate::pred_eval::all_hold(props, self.preds)
         })
     }
 }
@@ -57,20 +62,24 @@ fn decode(blob: &[u8]) -> Map<String, Value> {
         .unwrap_or_default()
 }
 
-/// The (edge-filtered) neighbours of `node` in `dir`.
-fn neighbours(
+/// The directions a [`EdgeDir`] walks.
+pub(crate) fn directions(dir: EdgeDir) -> &'static [petgraph::Direction] {
+    match dir {
+        EdgeDir::Out => &[petgraph::Direction::Outgoing],
+        EdgeDir::In => &[petgraph::Direction::Incoming],
+        EdgeDir::Both => &[petgraph::Direction::Outgoing, petgraph::Direction::Incoming],
+    }
+}
+
+/// The admitted edges of `node` in `dir`: `(neighbour, admitted edge properties)`.
+pub(crate) fn admitted_edges(
     view: &GraphView,
     node: NodeIndex,
     dir: EdgeDir,
     filter: &EdgeFilter<'_>,
-) -> Vec<NodeIndex> {
+) -> Vec<(NodeIndex, Map<String, Value>)> {
     let mut out = Vec::new();
-    let directions: &[petgraph::Direction] = match dir {
-        EdgeDir::Out => &[petgraph::Direction::Outgoing],
-        EdgeDir::In => &[petgraph::Direction::Incoming],
-        EdgeDir::Both => &[petgraph::Direction::Outgoing, petgraph::Direction::Incoming],
-    };
-    for &d in directions {
+    for &d in directions(dir) {
         for edge in view.graph.edges_directed(node, d) {
             let (from, to) = (&view.graph[edge.source()], &view.graph[edge.target()]);
             let other = if d == petgraph::Direction::Outgoing {
@@ -78,12 +87,25 @@ fn neighbours(
             } else {
                 edge.source()
             };
-            if filter.admits(view, from, to) {
-                out.push(other);
+            if let Some(props) = filter.admitted(view, from, to) {
+                out.push((other, props));
             }
         }
     }
     out
+}
+
+/// The (edge-filtered) neighbours of `node` in `dir`.
+fn neighbours(
+    view: &GraphView,
+    node: NodeIndex,
+    dir: EdgeDir,
+    filter: &EdgeFilter<'_>,
+) -> Vec<NodeIndex> {
+    admitted_edges(view, node, dir, filter)
+        .into_iter()
+        .map(|(other, _)| other)
+        .collect()
 }
 
 /// `Op::Expand`: nodes reached from `input` at depth `min..=max` along admitted edges.

@@ -39,6 +39,7 @@ pub(crate) mod reason;
 pub use decisions::{DecisionSource, LearnedReliability};
 pub(crate) mod dispatch;
 mod expand;
+mod propagate;
 mod pred_sql;
 // EH-522 — the `DERIVE` per-series incremental operators.
 #[cfg(feature = "timeseries")]
