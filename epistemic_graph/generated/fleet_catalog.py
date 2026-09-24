@@ -11,11 +11,16 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._shared import (
+    Digest256,
+    ToolEffect,
+)
+
 FLEET_CATALOG_SCHEMA_VERSION = 1
 
 
 class DiscoveryCounts(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     prompts: Annotated[int, Field(ge=0)]
     resources: Annotated[int, Field(ge=0)]
@@ -24,13 +29,13 @@ class DiscoveryCounts(BaseModel):
 
 
 class DiscoveryOutcomeReachable(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     status: Literal["reachable"]
 
 
 class DiscoveryOutcomeUnreachable(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     error: str
     status: Literal["unreachable"]
@@ -43,13 +48,13 @@ DiscoveryOutcome = Annotated[
 
 
 class DiscoveryScopeTenantLocal(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     authority: Literal["tenant_local"]
 
 
 class DiscoveryScopeOauthGrant(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     authority: Literal["oauth_grant"]
     grant_digest: Digest256
@@ -62,7 +67,7 @@ DiscoveryScope = Annotated[
 
 
 class FleetCatalogCursor(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     after_id: str
     after_name: str
@@ -78,7 +83,7 @@ class FleetCatalogKind(str, Enum):
 
 
 class FleetCatalogListRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     cursor: FleetCatalogCursor | None = None
     grant_digests: BoundedVec_Digest256_64 = Field(default_factory=list)
@@ -88,7 +93,7 @@ class FleetCatalogListRequest(BaseModel):
 
 
 class FleetCatalogLookup(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     commons_revision: Annotated[int, Field(ge=0)]
     observed_at_ms: Annotated[int, Field(ge=0)]
@@ -97,42 +102,42 @@ class FleetCatalogLookup(BaseModel):
 
 
 class FleetCatalogLookupRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     grant_digests: BoundedVec_Digest256_64 = Field(default_factory=list)
     ids: BoundedVec_string_256
 
 
 class FleetCatalogOpRecordDiscovery(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["record_discovery"]
     request: FleetDiscoveryRecordRequest
 
 
 class FleetCatalogOpSetOverride(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["set_override"]
     request: FleetOverrideSetRequest
 
 
 class FleetCatalogOpClearOverride(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["clear_override"]
     request: FleetOverrideClearRequest
 
 
 class FleetCatalogOpList(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["list"]
     request: FleetCatalogListRequest
 
 
 class FleetCatalogOpLookup(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["lookup"]
     request: FleetCatalogLookupRequest
@@ -149,7 +154,7 @@ FleetCatalogOp = Annotated[
 
 
 class FleetCatalogPage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     commons_revision: Annotated[int, Field(ge=0)]
     kind: FleetCatalogKind
@@ -162,35 +167,35 @@ class FleetCatalogPage(BaseModel):
 
 
 class FleetCatalogRowDiscovery(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     kind: Literal["discovery"]
     row: FleetDiscoveryRow
 
 
 class FleetCatalogRowTool(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     kind: Literal["tool"]
     row: FleetToolRow
 
 
 class FleetCatalogRowPrompt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     kind: Literal["prompt"]
     row: FleetPromptRow
 
 
 class FleetCatalogRowResource(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     kind: Literal["resource"]
     row: FleetResourceRow
 
 
 class FleetCatalogRowSkill(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     kind: Literal["skill"]
     row: FleetSkillRow
@@ -207,7 +212,7 @@ FleetCatalogRow = Annotated[
 
 
 class FleetComponentRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     acl: FleetRowAcl
     connector: str
@@ -221,7 +226,7 @@ class FleetComponentRef(BaseModel):
 
 
 class FleetDiscoveryRecordRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     counts: DiscoveryCounts | None = None
@@ -232,7 +237,7 @@ class FleetDiscoveryRecordRequest(BaseModel):
 
 
 class FleetDiscoveryRow(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     acl: FleetRowAcl
     connector: str
@@ -246,7 +251,7 @@ class FleetDiscoveryRow(BaseModel):
 
 
 class FleetOverrideSkillType(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     field: Literal["skill_type"]
     skill_type: SkillType
@@ -259,7 +264,7 @@ FleetOverride = Annotated[
 
 
 class FleetOverrideClearRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component_id: str
     expected_revision: Annotated[int, Field(ge=0)] | None = None
@@ -271,7 +276,7 @@ class FleetOverrideField(str, Enum):
 
 
 class FleetOverrideSetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component_id: str
     expected_revision: Annotated[int, Field(ge=0)] | None = None
@@ -279,14 +284,14 @@ class FleetOverrideSetRequest(BaseModel):
 
 
 class FleetPromptRow(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component: FleetComponentRef
     uri: str
 
 
 class FleetResourceRow(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component: FleetComponentRef
     media_type: str | None = None
@@ -295,7 +300,7 @@ class FleetResourceRow(BaseModel):
 
 
 class FleetRowAcl(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     publisher: str
     tenant_id: str
@@ -303,7 +308,7 @@ class FleetRowAcl(BaseModel):
 
 
 class FleetSkillRow(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     classification: str
     component: FleetComponentRef
@@ -314,22 +319,23 @@ class FleetSkillRow(BaseModel):
 
 
 class FleetToolRow(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component: FleetComponentRef
     effect: ToolEffect
     input_schema_digest: str | None = None
+    output_schema_digest: str | None = None
     tool_mode: ToolMode
 
 
 class FleetVisibilityTenant(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     scope: Literal["tenant"]
 
 
 class FleetVisibilityPrincipal(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     principal: str
     scope: Literal["principal"]
@@ -347,7 +353,7 @@ class FleetWriteDisposition(str, Enum):
 
 
 class FleetWriteReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     disposition: FleetWriteDisposition
     observed_at_ms: Annotated[int, Field(ge=0)]
@@ -374,31 +380,16 @@ class SkillTypeSource(str, Enum):
     DEFAULT = "default"
 
 
-class ToolEffect(str, Enum):
-    READ = "read"
-    WRITE = "write"
+BoundedVec_Digest256_64 = Annotated[list[Digest256], Field(max_length=64)]
+
+
+BoundedVec_FleetCatalogRow_256 = Annotated[list[FleetCatalogRow], Field(max_length=256)]
 
 
 BoundedVec_string_256 = Annotated[list[str], Field(max_length=256)]
 
 
-Digest256 = Annotated[
-    str,
-    Field(
-        pattern="^[0-9a-f]{64}$",
-        min_length=64,
-        max_length=64,
-    ),
-]
-
-
 ToolMode = str | Literal["undeclared"]
-
-
-BoundedVec_Digest256_64 = Annotated[list[Digest256], Field(max_length=64)]
-
-
-BoundedVec_FleetCatalogRow_256 = Annotated[list[FleetCatalogRow], Field(max_length=256)]
 
 DiscoveryCounts.model_rebuild()
 
@@ -467,3 +458,42 @@ FleetVisibilityTenant.model_rebuild()
 FleetVisibilityPrincipal.model_rebuild()
 
 FleetWriteReceipt.model_rebuild()
+
+
+__all__ = [
+    "BoundedVec_Digest256_64",
+    "BoundedVec_FleetCatalogRow_256",
+    "BoundedVec_string_256",
+    "Digest256",
+    "DiscoveryCounts",
+    "DiscoveryOutcome",
+    "DiscoveryScope",
+    "FleetCatalogCursor",
+    "FleetCatalogKind",
+    "FleetCatalogListRequest",
+    "FleetCatalogLookup",
+    "FleetCatalogLookupRequest",
+    "FleetCatalogOp",
+    "FleetCatalogPage",
+    "FleetCatalogRow",
+    "FleetComponentRef",
+    "FleetDiscoveryRecordRequest",
+    "FleetDiscoveryRow",
+    "FleetOverride",
+    "FleetOverrideClearRequest",
+    "FleetOverrideField",
+    "FleetOverrideSetRequest",
+    "FleetPromptRow",
+    "FleetResourceRow",
+    "FleetRowAcl",
+    "FleetSkillRow",
+    "FleetToolRow",
+    "FleetVisibility",
+    "FleetWriteDisposition",
+    "FleetWriteReceipt",
+    "ResourceKind",
+    "SkillType",
+    "SkillTypeSource",
+    "ToolEffect",
+    "ToolMode",
+]

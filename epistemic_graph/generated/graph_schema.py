@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class GraphSchemaCommitted(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     changed: bool
     composed_digest: str
@@ -22,7 +22,7 @@ class GraphSchemaCommitted(BaseModel):
 
 
 class GraphSchemaOpAttach(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     if_composed_digest: str | None = None
     ontology_ttl: str | None = None
@@ -32,7 +32,7 @@ class GraphSchemaOpAttach(BaseModel):
 
 
 class GraphSchemaOpAttachPack(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     if_composed_digest: str | None = None
@@ -40,7 +40,7 @@ class GraphSchemaOpAttachPack(BaseModel):
 
 
 class GraphSchemaOpDetach(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     if_composed_digest: str | None = None
     op: Literal["detach"]
@@ -54,7 +54,7 @@ GraphSchemaOp = Annotated[
 
 
 class GraphSchemaSourceView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     attached_at_ms: Annotated[int, Field(ge=0)]
     ontology_bytes: Annotated[int, Field(ge=0)]
@@ -66,7 +66,7 @@ class GraphSchemaSourceView(BaseModel):
 
 
 class GraphSchemaSourcesView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     composed_digest: str
     core_catalog_digest: str
@@ -77,7 +77,7 @@ class GraphSchemaSourcesView(BaseModel):
 
 
 class SchemaSourceOriginViewCore(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     module: str
     origin: Literal["core"]
@@ -86,20 +86,20 @@ class SchemaSourceOriginViewCore(BaseModel):
 
 
 class SchemaSourceOriginViewOperator(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     origin: Literal["operator"]
 
 
 class SchemaSourceOriginViewAdmin(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     name: str
     origin: Literal["admin"]
 
 
 class SchemaSourceOriginViewPack(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     origin: Literal["pack"]
@@ -107,7 +107,7 @@ class SchemaSourceOriginViewPack(BaseModel):
 
 
 class SchemaSourceOriginViewIngestion(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     mapping: str
     origin: Literal["ingestion"]
@@ -160,3 +160,14 @@ SchemaSourceOriginViewAdmin.model_rebuild()
 SchemaSourceOriginViewPack.model_rebuild()
 
 SchemaSourceOriginViewIngestion.model_rebuild()
+
+
+__all__ = [
+    "BoundedVec_GraphSchemaSourceView_32",
+    "BoundedVec_GraphSchemaSourceView_64",
+    "GraphSchemaCommitted",
+    "GraphSchemaOp",
+    "GraphSchemaSourceView",
+    "GraphSchemaSourcesView",
+    "SchemaSourceOriginView",
+]

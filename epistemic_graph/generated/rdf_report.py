@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class DatalogReasoningResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     inferred_count: Annotated[int, Field(ge=0)]
     inferred_triples: list[dict[str, str]]
@@ -21,7 +21,7 @@ class DatalogReasoningResult(BaseModel):
 
 
 class OwlExplainResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     consistent: bool
     found: bool
@@ -31,33 +31,33 @@ class OwlExplainResult(BaseModel):
 
 
 class OwlPropertyFact(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     asserted: bool
     axiom: str | None = None
     object: str
     predicate: str
-    premises: list[Annotated[list[Any], Field(min_length=3, max_length=3)]]
+    premises: list[OwlPropertyFactPremisesItem]
     rule: str
     subject: str
 
 
 class OwlReasonResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     consistent: bool
-    direct_subclasses: list[Annotated[list[Any], Field(min_length=2, max_length=2)]]
+    direct_subclasses: list[OwlReasonResultDirectSubclassesItem]
     instance_conf: list[float]
-    instances: list[Annotated[list[Any], Field(min_length=2, max_length=2)]]
+    instances: list[OwlReasonResultInstancesItem]
     property_facts: list[OwlPropertyFact]
     schema_digests: list[str]
     subclass_conf: list[float]
-    subclasses: list[Annotated[list[Any], Field(min_length=2, max_length=2)]]
+    subclasses: list[OwlReasonResultSubclassesItem]
     unsatisfiable: list[str]
 
 
 class ProofNodeWire(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     axioms: list[str]
     confidence: float
@@ -74,7 +74,7 @@ class ShaclSeverity(str, Enum):
 
 
 class ShaclValidationReport(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     composed_digest: str | None = None
     conforms: bool
@@ -83,7 +83,7 @@ class ShaclValidationReport(BaseModel):
 
 
 class ShaclValidationResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     constraint_component: str
     focus_node: str
@@ -93,6 +93,41 @@ class ShaclValidationResult(BaseModel):
     source_shape: str
     value: str | None = None
 
+
+OwlPropertyFactPremisesItem = Annotated[
+    tuple[str, str, str],
+    Field(
+        min_length=3,
+        max_length=3,
+    ),
+]
+
+
+OwlReasonResultDirectSubclassesItem = Annotated[
+    tuple[str, str],
+    Field(
+        min_length=2,
+        max_length=2,
+    ),
+]
+
+
+OwlReasonResultInstancesItem = Annotated[
+    tuple[str, str],
+    Field(
+        min_length=2,
+        max_length=2,
+    ),
+]
+
+
+OwlReasonResultSubclassesItem = Annotated[
+    tuple[str, str],
+    Field(
+        min_length=2,
+        max_length=2,
+    ),
+]
 
 DatalogReasoningResult.model_rebuild()
 
@@ -107,3 +142,19 @@ ProofNodeWire.model_rebuild()
 ShaclValidationReport.model_rebuild()
 
 ShaclValidationResult.model_rebuild()
+
+
+__all__ = [
+    "DatalogReasoningResult",
+    "OwlExplainResult",
+    "OwlPropertyFact",
+    "OwlPropertyFactPremisesItem",
+    "OwlReasonResult",
+    "OwlReasonResultDirectSubclassesItem",
+    "OwlReasonResultInstancesItem",
+    "OwlReasonResultSubclassesItem",
+    "ProofNodeWire",
+    "ShaclSeverity",
+    "ShaclValidationReport",
+    "ShaclValidationResult",
+]
