@@ -428,6 +428,8 @@ fn contract_wave_op_policies_follow_their_ops() {
         "Decide",
         "Solve",
         "GraphSchemaList",
+        "EdgeIndex.status",
+        "EdgeSearch",
     ];
     for (label, method) in contract_wave_samples() {
         let resolved = policy(&method);

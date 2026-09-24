@@ -192,9 +192,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 439 -> 440: EH-346 engine-internal `PolicyEvolutionStore`.
     // 440 -> 447: `ListControlLeases` (graph-os EG-5) and the EH-348 work market --
     // `GapUpsert`, `GapTransition`, `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
+    // 447 -> 449: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
     assert_eq!(
         variants.len(),
-        447,
+        449,
         "the wire method census changed; update this exact count deliberately"
     );
 }

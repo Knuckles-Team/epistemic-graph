@@ -81,7 +81,8 @@ class MethodPolicyRow:
 # 439 -> 440: EH-346 engine-internal `PolicyEvolutionStore`.
 # 440 -> 447: `ListControlLeases` (graph-os EG-5) and the EH-348 work market --
 # `GapUpsert`, `GapTransition`, `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
-EXPECTED_METHOD_POLICY_ROWS = 447
+# 447 -> 449: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
+EXPECTED_METHOD_POLICY_ROWS = 449
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
