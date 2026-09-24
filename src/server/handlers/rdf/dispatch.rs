@@ -307,6 +307,24 @@ async fn try_handle_validation(
             crate::server::graph_schema::handle_list(req_id, graph_name, core).await,
         ),
         #[cfg(feature = "shacl")]
+        Method::GraphSchemaClasses {
+            kind,
+            cursor,
+            limit,
+        } => Some(
+            crate::server::graph_schema::terms::handle_classes(
+                req_id,
+                graph_name,
+                core,
+                crate::server::graph_schema::terms::TermPageRequest {
+                    kind: *kind,
+                    cursor: cursor.as_deref(),
+                    limit: *limit,
+                },
+            )
+            .await,
+        ),
+        #[cfg(feature = "shacl")]
         Method::IcvConfigure { .. } => unreachable!(
             "IcvConfigure is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it through try_handle_gateway before it ever reaches this fallback handler"
         ),
