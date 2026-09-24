@@ -538,9 +538,21 @@ pub(crate) fn scoped_test_request(
     method: Method,
     caller: ScopedTestCaller<'_>,
 ) -> Request {
+    scoped_test_request_on(secret, id, "__commons__", method, caller)
+}
+
+/// [`scoped_test_request`] against a named request graph.
+#[cfg(test)]
+pub(crate) fn scoped_test_request_on(
+    secret: &str,
+    id: u64,
+    graph: &str,
+    method: Method,
+    caller: ScopedTestCaller<'_>,
+) -> Request {
     let mut request = Request {
         id,
-        graph: "__commons__".to_string(),
+        graph: graph.to_string(),
         auth_token: String::new(),
         agent_id: Some(caller.principal.to_string()),
         method,
