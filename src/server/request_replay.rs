@@ -389,7 +389,11 @@ mod durable_tests {
             assert!(accept(&ledger, "nonce", 1_000));
         }
         let ledger = RedbReplayLedger::open(&dir).unwrap();
-        let replays = [("nonce", 1_000), ("early", 990), ("unseen-same-second", 1_000)];
+        let replays = [
+            ("nonce", 1_000),
+            ("early", 990),
+            ("unseen-same-second", 1_000),
+        ];
         for (nonce, signed_at) in replays {
             assert!(
                 !ledger
@@ -474,7 +478,10 @@ mod durable_tests {
                 .filter_map(|handle| handle.join().unwrap().then_some(()))
                 .count()
         });
-        assert_eq!(accepted, 1, "a replayed nonce must be accepted exactly once");
+        assert_eq!(
+            accepted, 1,
+            "a replayed nonce must be accepted exactly once"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
