@@ -711,7 +711,9 @@ ex:parent a owl:AsymmetricProperty .
         // +183: the finance module (182, EH-411) and its catalog import (1).
         // +30: the finance asset class, bar-series tick size and volume step, and the
         // analysis-snapshot record (EH-420/EH-421).
-        assert_eq!(composed.ontology.len(), 13_559);
+        // +9: the skos mappings of the eight trading classes folded from company_infra
+        // into finance (EH-517); the fold itself moves triples without adding any.
+        assert_eq!(composed.ontology.len(), 13_568);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -748,7 +750,8 @@ ex:parent a owl:AsymmetricProperty .
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
         // classes, 4 axioms each; +5: `:pipelineEventOf`. +118: the swarm-topology module.
         // +178: the finance module (EH-411); +30: EH-420/EH-421 finance records.
-        assert_eq!(semantic_axioms, 13_377);
+        // +9: EH-517 trading-class skos mappings.
+        assert_eq!(semantic_axioms, 13_386);
 
         let count_type = |object: &str| {
             composed

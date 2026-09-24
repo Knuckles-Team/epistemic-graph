@@ -19,6 +19,13 @@
 //  Special functions (self-contained — no scipy on the wire)
 // ════════════════════════════════════════════════════════════════════════
 mod sf {
+    //! The functions on the backtest-record path (`erf`, `norm_cdf`, `norm_ppf`,
+    //! `skew`, `excess_kurtosis`) use only correctly rounded IEEE operations and
+    //! the pinned soft-float kernel (`eg_numeric::detkernel::math`), never the
+    //! platform libm or `powi`/`powf`, so a sealed `BacktestRun` digest is the
+    //! same on every host (EH-517).
+    use eg_numeric::detkernel::math;
+
     /// Error function — Abramowitz & Stegun 7.1.26 (|err| < 1.5e-7).
     pub fn erf(x: f64) -> f64 {
         let sign = if x < 0.0 { -1.0 } else { 1.0 };
@@ -28,7 +35,7 @@ mod sf {
             - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t
                 + 0.254829592)
                 * t
-                * (-x * x).exp();
+                * math::exp(-x * x);
         sign * y
     }
 
@@ -77,7 +84,7 @@ mod sf {
         let plow = 0.02425;
         let phigh = 1.0 - plow;
         if p < plow {
-            let q = (-2.0 * p.ln()).sqrt();
+            let q = (-2.0 * math::ln(p)).sqrt();
             (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
                 / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
         } else if p <= phigh {
@@ -86,7 +93,7 @@ mod sf {
             (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
                 / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
         } else {
-            let q = (-2.0 * (1.0 - p).ln()).sqrt();
+            let q = (-2.0 * math::ln(1.0 - p)).sqrt();
             -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
                 / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
         }
@@ -250,6 +257,19 @@ mod sf {
         (x, w)
     }
 
+    /// The `power`-th central moment about `mean`, by repeated multiplication
+    /// (never `powi`, whose lowering is not fixed across targets).
+    fn central_moment(d: &[f64], mean: f64, power: u32) -> f64 {
+        let total: f64 = d
+            .iter()
+            .map(|x| {
+                let deviation = x - mean;
+                (1..power).fold(deviation, |acc, _| acc * deviation)
+            })
+            .sum();
+        total / d.len() as f64
+    }
+
     /// Sample skewness (Fisher-Pearson) of a slice.
     pub fn skew(d: &[f64]) -> f64 {
         let n = d.len() as f64;
@@ -257,12 +277,12 @@ mod sf {
             return 0.0;
         }
         let mean = d.iter().sum::<f64>() / n;
-        let m2 = d.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
-        let m3 = d.iter().map(|x| (x - mean).powi(3)).sum::<f64>() / n;
+        let m2 = central_moment(d, mean, 2);
+        let m3 = central_moment(d, mean, 3);
         if m2 <= 1e-18 {
             0.0
         } else {
-            m3 / m2.powf(1.5)
+            m3 / (m2 * m2.sqrt())
         }
     }
 
@@ -273,8 +293,8 @@ mod sf {
             return 0.0;
         }
         let mean = d.iter().sum::<f64>() / n;
-        let m2 = d.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
-        let m4 = d.iter().map(|x| (x - mean).powi(4)).sum::<f64>() / n;
+        let m2 = central_moment(d, mean, 2);
+        let m4 = central_moment(d, mean, 4);
         if m2 <= 1e-18 {
             0.0
         } else {

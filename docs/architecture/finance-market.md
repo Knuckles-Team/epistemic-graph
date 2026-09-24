@@ -15,7 +15,7 @@ to the application layer, which must show the mathematical trigger first.
 
 `crates/eg-core/ontology/finance-v1.ttl` is a thin core module in the style of
 the world-model modules. It sits under the BFO layer and maps (never imports)
-to FIBO and Wikidata. It declares ten classes:
+to FIBO and Wikidata. It declares ten market classes:
 
 | Class | Placement | Notes |
 |---|---|---|
@@ -35,6 +35,15 @@ crypto, stock, etf, fund, commodity, forex, index or bond. A `BarSeries` also
 carries its `tickSize` (required) and `volumeStep`
 (optional, default 1), both `xsd:decimal`. Bar prices are integer ticks, so a
 reader needs the tick size to show a price.
+
+It also holds the eight trading classes that used to live in `company_infra`
+(folded in EH-517, IRIs unchanged): `TradingStrategy` and `TradingDebate`
+(processes), `ExchangeBackend` and `PortfolioPosition` (independent
+continuants), and the records `TradingSignal`, `BacktestResult`,
+`VersionedOrder` and `RiskSnapshot` (generically dependent continuants, like
+every other record here). A `BacktestResult` is an external backtester's metric
+summary; a `BacktestRun` is the engine's sealed, content-addressed record.
+`VersionedOrder` documents an order; nothing here authorises one.
 
 `finance-v1.shapes.ttl` holds the ABox shapes. Closed vocabularies such as the
 listing type, the price basis, the data status and the direction are `sh:in`
@@ -103,6 +112,15 @@ The trailing line follows the public TradingView `ta.supertrend` recurrence:
 The fixture `crates/eg-compute/tests/fixtures/finance_market/reference.py` is an
 independent Python implementation. It writes `golden.json`, and the Rust
 golden tests must reproduce every digest bit for bit on every build host.
+
+`supertrend_companion.pine`, beside it, is the TradingView companion: a Pine v5
+indicator that replays the same integer Wilder ATR and trailing-line recurrence
+(raw or Heikin-Ashi basis) on the chart's own bars, plots TradingView's
+`ta.supertrend` next to it, and counts the bars where the two disagree in
+direction or by more than a tick on the band. Its defaults are the fixture's
+`super_trend_10_3`; `tests/test_finance_pine_companion.py` keeps the defaults,
+the fixed-point scale and the recurrence rules in step with the reference. It
+plots only and never places an order.
 
 ## Signal, flips and the scanner (EH-415)
 
@@ -255,3 +273,8 @@ tool. It returns three parts:
   penalties, the criminal cost that suppresses the insider (`null` when no
   finite cost does), and a typed verdict: `enforcement_gated`,
   `criminal_suppresses` or `criminal_is_the_lever`.
+
+The validation outputs use only correctly rounded IEEE operations and the pinned
+soft-float kernel (`eg_numeric::detkernel::math`), never the platform `libm`,
+`powi` or `powf`. A sealed digest is therefore the same on every host, and the
+test `a_sealed_backtest_run_digest_is_pinned_across_hosts` pins one.

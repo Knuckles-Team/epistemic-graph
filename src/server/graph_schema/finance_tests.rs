@@ -113,9 +113,17 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
         ("IndicatorSpec", "0000031"),
         ("SignalState", "0000031"),
         ("BacktestRun", "0000031"),
+        ("TradingSignal", "0000031"),
+        ("BacktestResult", "0000031"),
+        ("VersionedOrder", "0000031"),
+        ("RiskSnapshot", "0000031"),
         ("Venue", "0000004"),
+        ("ExchangeBackend", "0000004"),
+        ("PortfolioPosition", "0000004"),
         ("TrendFlip", "0000015"),
         ("MacroEvent", "0000015"),
+        ("TradingStrategy", "0000015"),
+        ("TradingDebate", "0000015"),
     ];
     for (class, category) in placed {
         assert!(
@@ -136,7 +144,7 @@ fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
         })
         .filter_map(subject_iri)
         .collect();
-    assert_eq!(declared.len(), 10);
+    assert_eq!(declared.len(), 18);
     let mapped: BTreeSet<&str> = triples
         .iter()
         .filter(|triple| SKOS_MAPPINGS.contains(&triple.predicate.as_str()))
@@ -189,6 +197,59 @@ fn a_trend_flip_is_never_an_instrument() {
     ));
     let dl = eg_rdf::tableau::parse_dl_ontology(&triples);
     assert!(!eg_rdf::tableau::is_consistent(&dl));
+}
+
+/// EH-517: the trading classes live in finance only, under their unchanged IRIs.
+#[test]
+fn the_trading_classes_are_folded_out_of_company_infra() {
+    const COMPANY_INFRA: &str =
+        include_str!("../../../crates/eg-core/ontology/company_infra-v1.ttl");
+    const FOLDED: &[&str] = &[
+        "TradingStrategy",
+        "TradingSignal",
+        "BacktestResult",
+        "TradingDebate",
+        "ExchangeBackend",
+        "VersionedOrder",
+        "PortfolioPosition",
+        "RiskSnapshot",
+    ];
+    let declared_in = |document: &str| -> BTreeSet<String> {
+        eg_rdf::mapping::parse_turtle(document)
+            .unwrap()
+            .iter()
+            .filter(|t| t.predicate.as_str() == RDF_TYPE && object_iri(t) == Some(OWL_CLASS))
+            .filter_map(subject_iri)
+            .map(str::to_string)
+            .collect()
+    };
+    let finance = declared_in(FINANCE);
+    let company_infra = declared_in(COMPANY_INFRA);
+    for class in FOLDED {
+        assert!(finance.contains(&format!("{KG}{class}")), "{class}");
+        assert!(!company_infra.contains(&format!("{KG}{class}")), "{class}");
+    }
+}
+
+/// A connector pack's `:BacktestResult ⊑ :OutcomeEvaluation` (emerald-exchange) is a
+/// record under a record: satisfiable now that the fold made the class a continuant.
+#[test]
+fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
+    let sources = GraphSchemaSources::default();
+    let mut triples: Vec<Triple> = validate_and_compose(&sources).unwrap().ontology;
+    triples.extend(parse_scoped(
+        "@prefix : <http://knuckles.team/kg#> .\n\
+         @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+         :BacktestResult rdfs:subClassOf :OutcomeEvaluation .",
+        "pack",
+    ));
+    let classification = eg_rdf::owl::Reasoner::from_triples(&triples).classify();
+    assert!(classification.consistent);
+    assert!(
+        !classification.unsatisfiable.contains(&kg("BacktestResult")),
+        "{:?}",
+        classification.unsatisfiable
+    );
 }
 
 #[test]

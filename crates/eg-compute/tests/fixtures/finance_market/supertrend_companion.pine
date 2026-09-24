@@ -1,0 +1,134 @@
+//@version=5
+// EG finance-market Pine companion (EH-517).
+//
+// Replays, on any TradingView chart, the integer kernels of
+// `eg_compute::finance::market` that `reference.py` (beside this file) re-implements
+// in Python: Wilder ATR and the ATR trailing-trend line (SuperTrend) on a raw or
+// Heikin-Ashi basis. Prices become integer ticks (`syminfo.mintick`), indicator
+// values integer milli-ticks, and every division rounds half away from zero,
+// exactly as the engine does, so the "EG" line here is the engine's line for the
+// chart's bars. TradingView's own `ta.supertrend` is plotted beside it, and the
+// status table counts the bars where the two disagree by more than the tick
+// tolerance (the engine rounds `hl2` and the ATR offset to a milli-tick; TradingView
+// keeps floats, so one-tick differences on the band are expected, direction
+// differences are not).
+//
+// Defaults are the golden fixture's `super_trend_10_3` (ATR 10, multiplier 3.000);
+// `atr_14` is the ATR-only view with period 14. Informational only: this script
+// plots, it never places or authorises an order.
+indicator("EG SuperTrend companion", shorttitle="EG ST", overlay=true)
+
+atrPeriod = input.int(10, "ATR period", minval=1)
+factor = input.float(3.0, "Multiplier", minval=0.001, step=0.001)
+heikin = input.bool(false, "Heikin-Ashi basis")
+tolerance = input.int(1, "Tick tolerance against ta.supertrend", minval=0)
+
+MILLI = 1000
+// The engine takes the multiplier in thousandths (3.000 -> 3000).
+mult = int(math.round(factor * MILLI))
+
+// Round half away from zero, in exact integer arithmetic (the engine's `div_round`).
+divRound(int numerator, int denominator) =>
+    twice = 2 * denominator
+    scaled = 2 * math.abs(numerator) + denominator
+    magnitude = int((scaled - scaled % twice) / twice)
+    numerator < 0 ? -magnitude : magnitude
+
+ticks(float price) =>
+    int(math.round(price / syminfo.mintick))
+
+// ── Bar basis in milli-ticks (raw, or Heikin-Ashi over the milli-tick candle) ──
+rawOpen = ticks(open) * MILLI
+rawHigh = ticks(high) * MILLI
+rawLow = ticks(low) * MILLI
+rawClose = ticks(close) * MILLI
+
+var int haOpen = na
+var int haClose = na
+haCloseNow = divRound(rawOpen + rawHigh + rawLow + rawClose, 4)
+haOpenNow = na(haOpen) ? divRound(rawOpen + rawClose, 2) : divRound(haOpen + haClose, 2)
+haOpen := haOpenNow
+haClose := haCloseNow
+
+o = heikin ? haOpenNow : rawOpen
+h = heikin ? math.max(rawHigh, haOpenNow, haCloseNow) : rawHigh
+l = heikin ? math.min(rawLow, haOpenNow, haCloseNow) : rawLow
+c = heikin ? haCloseNow : rawClose
+
+// ── Wilder ATR, seeded by the mean of the first `atrPeriod` true ranges ──
+var int prevClose = na
+trueRange = na(prevClose) ? h - l : math.max(h - l, math.abs(h - prevClose), math.abs(l - prevClose))
+closingBefore = prevClose
+prevClose := c
+
+var int seen = 0
+var int seedTotal = 0
+var int atr = na
+seen += 1
+if not na(atr)
+    atr := divRound(atr * (atrPeriod - 1) + trueRange, atrPeriod)
+else
+    seedTotal += trueRange
+    if seen == atrPeriod
+        atr := divRound(seedTotal, atrPeriod)
+
+// ── The trailing line: bands ratchet, a flip needs a close strictly beyond ──
+var int upperPrev = na
+var int lowerPrev = na
+var int direction = 0 // 0 warming, 1 bullish, -1 bearish
+int line = na
+bool flipped = false
+if not na(atr)
+    mid = divRound(h + l, 2)
+    offset = divRound(atr * mult, MILLI)
+    upper = mid + offset
+    lower = mid - offset
+    if not na(upperPrev) and not na(closingBefore)
+        upper := upper < upperPrev or closingBefore > upperPrev ? upper : upperPrev
+        lower := lower > lowerPrev or closingBefore < lowerPrev ? lower : lowerPrev
+    before = direction
+    if direction == 0
+        direction := -1
+    else if direction == -1 and c > upper
+        direction := 1
+    else if direction == 1 and c < lower
+        direction := -1
+    flipped := before != 0 and before != direction
+    upperPrev := upper
+    lowerPrev := lower
+    line := direction == 1 ? lower : upper
+
+toPrice(int milliTicks) =>
+    na(milliTicks) ? na : milliTicks / MILLI * syminfo.mintick
+
+egLine = toPrice(line)
+plot(egLine, "EG trail", color=direction == 1 ? color.teal : color.maroon, linewidth=2, style=plot.style_linebr)
+plotshape(flipped and direction == 1, "EG flip up", shape.triangleup, location.belowbar, color.teal)
+plotshape(flipped and direction == -1, "EG flip down", shape.triangledown, location.abovebar, color.maroon)
+plot(toPrice(atr), "EG ATR (price)", display=display.data_window)
+
+// ── TradingView's own recurrence, for comparison (Heikin-Ashi basis has no TV twin) ──
+[tvLine, tvDirection] = ta.supertrend(factor, atrPeriod)
+plot(heikin ? na : tvLine, "ta.supertrend", color=color.new(color.gray, 40), style=plot.style_linebr)
+
+var int compared = 0
+var int bandMismatch = 0
+var int directionMismatch = 0
+if not heikin and not na(line) and not na(tvLine)
+    compared += 1
+    tvBullish = tvDirection < 0
+    if tvBullish != (direction == 1)
+        directionMismatch += 1
+    else if math.abs(ticks(tvLine) - divRound(line, MILLI)) > tolerance
+        bandMismatch += 1
+
+var table status = table.new(position.top_right, 2, 4, border_width=1)
+if barstate.islast
+    table.cell(status, 0, 0, "bars compared")
+    table.cell(status, 1, 0, str.tostring(compared))
+    table.cell(status, 0, 1, "direction mismatches")
+    table.cell(status, 1, 1, str.tostring(directionMismatch))
+    table.cell(status, 0, 2, "band mismatches > tol")
+    table.cell(status, 1, 2, str.tostring(bandMismatch))
+    table.cell(status, 0, 3, "EG ATR (milli-ticks)")
+    table.cell(status, 1, 3, str.tostring(atr))
