@@ -40,7 +40,7 @@ fn a_window_must_be_non_empty() {
     assert!(Window::new(10, 10).is_err());
     assert!(Window::new(11, 10).is_err());
     let window = Window::new(1, 2).unwrap();
-    assert_eq!((window.from_ns(), window.to_ns()), (1_000_000, 2_000_000));
+    assert_eq!((window.start_ns(), window.end_ns()), (1_000_000, 2_000_000));
 }
 
 #[test]
