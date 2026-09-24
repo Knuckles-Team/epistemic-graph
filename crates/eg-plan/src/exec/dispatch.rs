@@ -43,8 +43,11 @@ pub(crate) fn is_epistemic_op(op: &Op) -> bool {
 pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         Op::Scan { .. }
+        | Op::ScanAll {}
         | Op::Filter { .. }
         | Op::Traverse { .. }
+        | Op::Expand { .. }
+        | Op::Project { .. }
         | Op::Rank { .. }
         | Op::RankEmbed { .. }
         | Op::RankNodeDistance { .. }
@@ -162,8 +165,24 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         Op::Scan { label } => Ok(scan_label(ctx.view, label)),
+        Op::ScanAll {} => Ok(expand::scan_all(ctx.view)),
         Op::Filter { preds } => filter_op(ctx, preds, input),
-        Op::Traverse { rel, min, max } => Ok(traverse_op(ctx, rel, *min, *max, input)),
+        Op::Traverse { rel, min, max } => traverse_op(ctx, rel, *min, *max, input),
+        Op::Expand {
+            rel,
+            dir,
+            min,
+            max,
+            edge_preds,
+        } => {
+            let filter = expand::EdgeFilter {
+                rel: rel.as_deref(),
+                preds: edge_preds,
+            };
+            expand::expand_op(ctx.view, &input, *dir, (*min, *max), &filter, &ctx.budget)
+        }
+        // Channel selection is applied where the result is encoded; rows pass through.
+        Op::Project { .. } => Ok(input),
         Op::Rank { .. }
         | Op::RankEmbed { .. }
         | Op::RankNodeDistance { .. }

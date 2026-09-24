@@ -15,7 +15,7 @@
 //!
 //! * **`Scan { label }`** — `label_matches` tests ONLY `props["type"]` (a string equal to
 //!   `label`), exactly like `exec::scan_label` (NOT `node_type`/`label`).
-//! * **`Filter { preds }`** — `Eq`/`GtNum`/`LtNum` only, mirroring `exec::where_clause`.
+//! * **`Filter { preds }`** — the relational predicate algebra (`crate::pred_eval`), mirroring `exec::where_clause`.
 //! * **`AsOf { ts, axis }`** — `asof_holds` mirrors `exec::live_at` (u64 coercion, `from`
 //!   defaults 0, `until` open when absent, query instant `ts.max(0)`).
 //! * **The `exec` "empty input ⇒ act as source" pipeline rule.** `exec::filter_op` and
@@ -479,57 +479,9 @@ fn finalize_buckets(
 }
 
 /// A short op name for `UnsupportedOp` messages (avoids leaning on `Debug`, which pulls
-/// full nested payloads). Grouped into the theme helpers below purely to keep this
-/// match's own arm count under the complexity cap; the mapping itself is unchanged.
+/// full nested payloads): the wire variant name, from the one exhaustive kind mapping.
 fn op_name(op: &Op) -> &'static str {
-    // The `_` arm is reachable only under feature sets that add more `Op` variants
-    // (owl/text/federation/…); under a bare `query` build the listed arms are total.
-    #[allow(unreachable_patterns)]
-    match op {
-        Op::Scan { .. } | Op::Filter { .. } | Op::Traverse { .. } => scan_filter_traverse_name(op),
-        Op::Rank { .. }
-        | Op::RankEmbed { .. }
-        | Op::RankNodeDistance { .. }
-        | Op::RankMentions { .. }
-        | Op::RankMmr { .. } => rank_op_name(op),
-        Op::AsOf { .. }
-        | Op::Window { .. }
-        | Op::WindowAgg { .. }
-        | Op::Foreign { .. }
-        | Op::Limit { .. } => temporal_and_limit_op_name(op),
-        _ => "unsupported-op",
-    }
-}
-
-fn scan_filter_traverse_name(op: &Op) -> &'static str {
-    match op {
-        Op::Scan { .. } => "Scan",
-        Op::Filter { .. } => "Filter",
-        Op::Traverse { .. } => "Traverse",
-        _ => unreachable!("op_name routed a non scan/filter/traverse Op here"),
-    }
-}
-
-fn rank_op_name(op: &Op) -> &'static str {
-    match op {
-        Op::Rank { .. } => "Rank",
-        Op::RankEmbed { .. } => "RankEmbed",
-        Op::RankNodeDistance { .. } => "RankNodeDistance",
-        Op::RankMentions { .. } => "RankMentions",
-        Op::RankMmr { .. } => "RankMmr",
-        _ => unreachable!("op_name routed a non ranking Op here"),
-    }
-}
-
-fn temporal_and_limit_op_name(op: &Op) -> &'static str {
-    match op {
-        Op::AsOf { .. } => "AsOf",
-        Op::Window { .. } => "Window",
-        Op::WindowAgg { .. } => "WindowAgg",
-        Op::Foreign { .. } => "Foreign",
-        Op::Limit { .. } => "Limit",
-        _ => unreachable!("op_name routed a non temporal/limit Op here"),
-    }
+    eg_types::wire::op_kind(op).name()
 }
 
 // ── shared per-row predicate primitives (faithful to `exec.rs`) ───────────────
@@ -540,30 +492,11 @@ fn label_matches(props: &Map<String, Value>, label: &str) -> bool {
     matches!(props.get("type"), Some(Value::String(s)) if s == label)
 }
 
-/// Evaluate one relational `Filter` predicate against a row's props (mirrors
-/// `exec::where_clause`'s `prop = lit` / `prop > n` / `prop < n`).
+/// Evaluate one relational `Filter` predicate against a row's props: SQL three-valued
+/// logic via the shared [`crate::pred_eval`], so this incremental path and
+/// `exec::where_clause`'s DataFusion leg keep exactly the same rows.
 fn pred_holds(props: &Map<String, Value>, pred: &Pred) -> bool {
-    match pred {
-        Pred::Eq { prop, value } => match props.get(prop) {
-            Some(Value::String(s)) => s == value,
-            Some(Value::Number(n)) => match value.parse::<f64>() {
-                Ok(v) => n.as_f64() == Some(v),
-                Err(_) => n.to_string() == *value,
-            },
-            Some(Value::Bool(b)) => b.to_string() == *value,
-            _ => false,
-        },
-        Pred::GtNum { prop, n } => props
-            .get(prop)
-            .and_then(Value::as_f64)
-            .is_some_and(|v| v > *n),
-        Pred::LtNum { prop, n } => props
-            .get(prop)
-            .and_then(Value::as_f64)
-            .is_some_and(|v| v < *n),
-        // Non-relational preds never reach here (compile rejects them).
-        _ => false,
-    }
+    crate::pred_eval::holds(props, pred) == Some(true)
 }
 
 /// The `AsOf` temporal predicate: is the row live at `ts` on the given axis? Mirrors
