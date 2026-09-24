@@ -709,7 +709,9 @@ ex:parent a owl:AsymmetricProperty .
         // subclasses, sdlc `:PipelineRunEvent` (4 triples each), and `:pipelineEventOf` (5).
         // +123: the swarm-topology module (122) and its catalog import (1).
         // +183: the finance module (182, EH-411) and its catalog import (1).
-        assert_eq!(composed.ontology.len(), 13_529);
+        // +30: the finance asset class, bar-series tick size and volume step, and the
+        // analysis-snapshot record (EH-420/EH-421).
+        assert_eq!(composed.ontology.len(), 13_559);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -745,8 +747,8 @@ ex:parent a owl:AsymmetricProperty .
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
         // classes, 4 axioms each; +5: `:pipelineEventOf`. +118: the swarm-topology module.
-        // +178: the finance module (EH-411).
-        assert_eq!(semantic_axioms, 13_347);
+        // +178: the finance module (EH-411); +30: EH-420/EH-421 finance records.
+        assert_eq!(semantic_axioms, 13_377);
 
         let count_type = |object: &str| {
             composed
@@ -797,8 +799,8 @@ ex:parent a owl:AsymmetricProperty .
                 .count(),
             // +5 (EH-408/409/410): the five infrastructure classes above; +6 (EH-410):
             // the security-audit and pipeline-event feed classes; +25: swarm topology.
-            // +9: finance (EH-411).
-            457
+            // +9: finance (EH-411); +1: EH-420/EH-421.
+            458
         );
     }
 

@@ -31,6 +31,12 @@
     skos:exactMatch fibo-fi:FinancialInstrument,
         wd:Q247506 .
 
+:assetClass a owl:DatatypeProperty ;
+    rdfs:label "asset class" ;
+    rdfs:comment "The market an instrument belongs to: crypto, stock, etf, fund, commodity, forex, index or bond. A closed vocabulary checked by the finance shapes." ;
+    rdfs:domain :FinancialInstrument ;
+    rdfs:range xsd:string .
+
 :Venue a owl:Class ;
     rdfs:label "Trading Venue" ;
     rdfs:comment "A place of trade: a regulated exchange, an alternative trading system, a centralised or decentralised crypto exchange, or an index publisher's calculation venue." ;
@@ -112,6 +118,18 @@
     rdfs:comment "The series id of the bars in the engine's time-series store." ;
     rdfs:domain :BarSeries ;
     rdfs:range xsd:string .
+
+:tickSize a owl:DatatypeProperty ;
+    rdfs:label "tick size" ;
+    rdfs:comment "The price of one tick: a bar's integer prices times the tick size are its prices in the quote instrument." ;
+    rdfs:domain :BarSeries ;
+    rdfs:range xsd:decimal .
+
+:volumeStep a owl:DatatypeProperty ;
+    rdfs:label "volume step" ;
+    rdfs:comment "The quantity of one volume unit: a bar's integer volume times the volume step is its traded quantity (1 when absent)." ;
+    rdfs:domain :BarSeries ;
+    rdfs:range xsd:decimal .
 
 :IndicatorSpec a owl:Class ;
     rdfs:label "Indicator Specification" ;
@@ -241,4 +259,22 @@
     rdfs:label "backtest digest" ;
     rdfs:comment "sha256 of the canonical backtest-run record." ;
     rdfs:domain :BacktestRun ;
+    rdfs:range xsd:string .
+
+:AnalysisSnapshot a owl:Class ;
+    rdfs:label "Analysis Snapshot" ;
+    rdfs:comment "An immutable, content-addressed record of one market analysis as it was shared: the listing, bar window, signal key and data revision, the flips and calibrated confidence it showed, and any explanation as source-linked claims. It carries the informational-only and hallucination notices and never includes positions. Informational only. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q10870555 .
+
+:analysisOf a owl:ObjectProperty ;
+    rdfs:label "analysis of" ;
+    rdfs:comment "The listing an analysis snapshot analyses." ;
+    rdfs:domain :AnalysisSnapshot ;
+    rdfs:range :Listing .
+
+:analysisDigest a owl:DatatypeProperty ;
+    rdfs:label "analysis digest" ;
+    rdfs:comment "sha256 of the canonical analysis-snapshot record; re-deriving it verifies the record." ;
+    rdfs:domain :AnalysisSnapshot ;
     rdfs:range xsd:string .
