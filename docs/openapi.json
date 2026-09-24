@@ -54515,6 +54515,58 @@
         ],
         "type": "object"
       },
+      "Req_TelemetryDerive": {
+        "additionalProperties": false,
+        "description": "Derive ontology-bound telemetry facts in the request graph. Reads the\ncaller's stored log records (from the named `streams`, each of which\nmust lie in the caller's tenant namespace), metric samples and spans\nover `[from_ms, to_ms)`; binds them to the graph's declared Server /\nService / Host / Workload / Agent individuals; rolls them up, runs the\ndeclared CEP patterns and the declared-health conformance check; and\nwrites every fact in one `BatchUpdate` against the request graph.\n`policy_msgpack` is a MessagePack `eg_stream::telemetry::TelemetryPolicy`.\nSee [`crate::telemetry_derive`].",
+        "properties": {
+          "method": {
+            "const": "TelemetryDerive",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "from_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "policy_msgpack": {
+                "items": {
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "streams": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "to_ms": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "from_ms",
+              "to_ms",
+              "policy_msgpack"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
       "Req_ToMsgpack": {
         "additionalProperties": false,
         "properties": {
@@ -73783,6 +73835,87 @@
           "schema_id",
           "table_id",
           "column_id"
+        ],
+        "type": "object"
+      },
+      "ResDef_Ingestion_TelemetryDeriveReceipt": {
+        "additionalProperties": false,
+        "description": "What one derivation read, derived and wrote.",
+        "properties": {
+          "anomalies": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "edges_written": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fact_ids": {
+            "description": "The id of every fact node written, in write order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ignored_metric_samples": {
+            "description": "Metric samples of an undeclared metric, or non-finite.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "incidents": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "invalid_declarations": {
+            "description": "Individuals whose declared resolution keys or declared health did not\nparse; they were skipped, not guessed.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nodes_written": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "observations": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "signals_read": {
+            "description": "Stored log records, metric samples and spans read in the caller's scope.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unresolved": {
+            "description": "Signals that bound to no single declared individual.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "violations": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "signals_read",
+          "observations",
+          "anomalies",
+          "incidents",
+          "violations",
+          "unresolved",
+          "ignored_metric_samples",
+          "invalid_declarations",
+          "nodes_written",
+          "edges_written",
+          "fact_ids"
         ],
         "type": "object"
       },
@@ -103686,6 +103819,58 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Derive ontology-bound telemetry facts in the request graph. Reads the\ncaller's stored log records (from the named `streams`, each of which\nmust lie in the caller's tenant namespace), metric samples and spans\nover `[from_ms, to_ms)`; binds them to the graph's declared Server /\nService / Host / Workload / Agent individuals; rolls them up, runs the\ndeclared CEP patterns and the declared-health conformance check; and\nwrites every fact in one `BatchUpdate` against the request graph.\n`policy_msgpack` is a MessagePack `eg_stream::telemetry::TelemetryPolicy`.\nSee [`crate::telemetry_derive`].",
+            "properties": {
+              "method": {
+                "const": "TelemetryDerive",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "from_ms": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "policy_msgpack": {
+                    "items": {
+                      "format": "uint8",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
+                  "streams": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "to_ms": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "from_ms",
+                  "to_ms",
+                  "policy_msgpack"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -126737,6 +126922,10 @@
         "$ref": "#/components/schemas/ResDef_Ingestion_SourceIngestStatus",
         "x-encoding": "Raw"
       },
+      "Res_ingestion_TelemetryDerive": {
+        "$ref": "#/components/schemas/ResDef_Ingestion_TelemetryDeriveReceipt",
+        "x-encoding": "Raw"
+      },
       "Res_ingestion_Viz": {
         "oneOf": [
           {
@@ -144695,6 +144884,67 @@
         "x-replay-class": "NotReplayable",
         "x-stability": "stable",
         "x-txn-participation": "Snapshot"
+      }
+    },
+    "/rpc/ingestion/TelemetryDerive": {
+      "post": {
+        "operationId": "TelemetryDerive",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_TelemetryDerive"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_ingestion_TelemetryDerive"
+                }
+              }
+            },
+            "description": "`TelemetryDerive` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op; a re-derivation is an idempotent upsert",
+        "tags": [
+          "ingestion"
+        ],
+        "x-audited": true,
+        "x-authz-action": "telemetry:derive",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": true,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED",
+          "CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
+          "REDIRECTED",
+          "READ_ONLY"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
       }
     },
     "/rpc/ingestion/Viz": {

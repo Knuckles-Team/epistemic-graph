@@ -186,7 +186,7 @@ pub struct ObsState {
 
 #[cfg(test)]
 mod tests {
-    use super::http::{es_doc_stream, handle, serve_inner, MAX_HTTP_BODY_BYTES};
+    use super::http::{es_doc_stream, handle, MAX_HTTP_BODY_BYTES};
     use super::manifests::{
         include_manifest_budget, load_segment_manifests, segment_manifest_path,
         MANIFEST_BOUNDS_ERROR, MANIFEST_DIRECTORY_ERROR, MANIFEST_READ_ERROR, MAX_MANIFEST_FILES,
@@ -208,7 +208,6 @@ mod tests {
     use std::sync::atomic::Ordering;
     use tokio::io::AsyncReadExt as _;
     use tokio::io::AsyncWriteExt as _;
-    use tokio::net::TcpListener;
 
     fn snapshot_temporaries(parent: &Path) -> Vec<PathBuf> {
         std::fs::read_dir(parent)

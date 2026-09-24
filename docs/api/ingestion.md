@@ -1,6 +1,6 @@
 # Ingestion API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.ingestion.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 14 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.ingestion.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 15 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AddEmbedding`
 
@@ -458,6 +458,42 @@ read-only authoritative source-partition checkpoint and receipt identity for res
 | `result` | `SourceIngestStatus` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/SourceIngestStatus`, `contract/schemas/result.ingestion.json#/methods/SourceIngestStatus`.
+
+## `TelemetryDerive`
+
+EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op; a re-derivation is an idempotent upsert
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `telemetry:derive` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `true` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `from_ms` | integer (uint64) | yes |  |
+| `policy_msgpack` | array of integer (uint8) | yes |  |
+| `streams` | array of string | no |  |
+| `to_ms` | integer (uint64) | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `TelemetryDeriveReceipt` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/TelemetryDerive`, `contract/schemas/result.ingestion.json#/methods/TelemetryDerive`.
 
 ## `Viz`
 

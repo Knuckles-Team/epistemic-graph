@@ -55690,6 +55690,58 @@
       ],
       "type": "object"
     },
+    "TelemetryDerive": {
+      "additionalProperties": false,
+      "description": "Derive ontology-bound telemetry facts in the request graph. Reads the\ncaller's stored log records (from the named `streams`, each of which\nmust lie in the caller's tenant namespace), metric samples and spans\nover `[from_ms, to_ms)`; binds them to the graph's declared Server /\nService / Host / Workload / Agent individuals; rolls them up, runs the\ndeclared CEP patterns and the declared-health conformance check; and\nwrites every fact in one `BatchUpdate` against the request graph.\n`policy_msgpack` is a MessagePack `eg_stream::telemetry::TelemetryPolicy`.\nSee [`crate::telemetry_derive`].",
+      "properties": {
+        "method": {
+          "const": "TelemetryDerive",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "from_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "policy_msgpack": {
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "streams": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "to_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "from_ms",
+            "to_ms",
+            "policy_msgpack"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "ToMsgpack": {
       "additionalProperties": false,
       "properties": {

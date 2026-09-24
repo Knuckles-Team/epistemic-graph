@@ -55,6 +55,15 @@ fn every_entity_class_resolves_through_its_declared_key() {
             entity(EntityClass::Service, "svc:node-exporter"),
             "prometheus.job",
         ),
+        (
+            log_with(&[
+                ("k8s.namespace.name", "shop"),
+                ("k8s.deployment.name", "cart"),
+                ("k8s.pod.name", "cart-1"),
+            ]),
+            entity(EntityClass::Pod, "pod:shop/cart-1"),
+            "k8s.pod",
+        ),
     ];
     for (signal, expected, rule) in cases {
         assert_eq!(directory.resolve(&signal), bound(expected, rule));

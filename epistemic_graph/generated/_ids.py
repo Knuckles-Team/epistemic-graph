@@ -270,6 +270,7 @@ METHOD_IDS = frozenset(
         "DropNamedGraph",
         "SourceIngest",
         "SourceIngestStatus",
+        "TelemetryDerive",
         "ServedModality",
         "ParseFile",
         "ParseFiles",

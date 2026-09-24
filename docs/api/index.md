@@ -10,7 +10,7 @@
 | [compute](compute.md) | 133 |
 | [coordination](coordination.md) | 45 |
 | [graph](graph.md) | 64 |
-| [ingestion](ingestion.md) | 14 |
+| [ingestion](ingestion.md) | 15 |
 | [messaging](messaging.md) | 42 |
 | [query](query.md) | 29 |
 | [reasoning](reasoning.md) | 13 |

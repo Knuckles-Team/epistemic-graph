@@ -694,11 +694,12 @@ ex:parent a owl:AsymmetricProperty .
         // +8: BFO realizable entity and disposition, declared for `:Skill`.
         // +1: BFO `Continuant owl:disjointWith Occurrent`. +471: the world model — the
         // life, environment and nutrition modules (145 + 71 + 114), their catalog imports
-        // (3) and the foundation's world-model vocabulary (138). Then +8: infrastructure
-        // `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409). Then +24: the
-        // EH-410 feed classes -- identity `:SecurityAuditEvent` and its four subclasses,
-        // sdlc `:PipelineRunEvent` (4 triples each), and `:pipelineEventOf` (5).
-        assert_eq!(composed.ontology.len(), 13_206);
+        // (3) and the foundation's world-model vocabulary (138). Then +25 (EH-408/409/410,
+        // telemetry-sor): infrastructure `:BehaviourObservation`, `:ConformanceViolation`,
+        // `:Deployment` ⊑ `:Workload`, `:K8sService`/`:SwarmService` ⊑ `:Service` and
+        // `:scheduledBy`. Then +29 (EH-410 feeds): identity `:SecurityAuditEvent` and its
+        // four subclasses, sdlc `:PipelineRunEvent` (4 triples each) and `:pipelineEventOf` (5).
+        assert_eq!(composed.ontology.len(), 13_223);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -730,7 +731,9 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 33);
         assert_eq!(imports, 67);
-        assert_eq!(semantic_axioms, 12_997);
+        // +25 (EH-408/409/410 telemetry classes and :scheduledBy) and +29 (EH-410
+        // feed classes and :pipelineEventOf) on train-3's 12,997.
+        assert_eq!(semantic_axioms, 13_051);
 
         let count_type = |object: &str| {
             composed
@@ -779,7 +782,9 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            412
+            // +5 (EH-408/409/410): the five infrastructure classes; +6 (EH-410 feeds):
+            // :SecurityAuditEvent and its four subclasses, :PipelineRunEvent.
+            423
         );
     }
 
