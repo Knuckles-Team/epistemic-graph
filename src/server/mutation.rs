@@ -1953,6 +1953,7 @@ mod tests {
         ("CasWorkItemMetadata", "dedicated engine-native MutationBatch scheduling-metadata CAS transition in mutation_batch.rs/redb_store.rs (BUG-111)"),
         ("IssueControlLease", "dedicated engine-native MutationBatch control-lease issue (absence-guarded) in the WorkItem kernel, redb_store/work_item/control_lease.rs"),
         ("TransitionControlLease", "dedicated engine-native MutationBatch control-lease revision-CAS transition in the WorkItem kernel, redb_store/work_item/control_lease.rs"),
+        ("RetireSealedRecord", "dedicated engine-native MutationBatch digest-checked sealed-record retirement (tombstone in place) in the WorkItem kernel, redb_store/work_item/sealed_record.rs"),
         ("ReserveWorkItemResources", "dedicated engine-native MutationBatch host-reservation transaction in mutation_batch.rs/redb_store.rs"),
         ("ReleaseWorkItemResources", "dedicated engine-native MutationBatch reservation-release transaction in mutation_batch.rs/redb_store.rs"),
         ("ReclaimWorkItemResources", "dedicated engine-native MutationBatch reservation-reclaim transaction in mutation_batch.rs/redb_store.rs"),

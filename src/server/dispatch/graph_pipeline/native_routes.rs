@@ -302,6 +302,7 @@ fn refuse_foreign_control_lease_writes(
     let named = match method {
         Method::IssueControlLease { request } => Some(request.tenant.as_str()),
         Method::TransitionControlLease { request } => Some(request.tenant.as_str()),
+        Method::RetireSealedRecord { request } => Some(request.tenant.as_str()),
         _ => None,
     };
     let denied = named.and_then(|tenant| {

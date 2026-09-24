@@ -198,6 +198,7 @@ fn control_lease_idempotency_key(method: &Method) -> Result<String, String> {
     match method {
         Method::IssueControlLease { request } => Ok(request.idempotency_key.clone()),
         Method::TransitionControlLease { request } => Ok(request.idempotency_key.clone()),
+        Method::RetireSealedRecord { request } => Ok(request.idempotency_key.clone()),
         _ => Err("WorkItem identity requires a WorkItem operation".to_string()),
     }
 }

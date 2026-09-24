@@ -67,6 +67,7 @@ _WORK_ITEM_METHODS = frozenset(
         # family after the base commit; every classifier selects them with it.
         "IssueControlLease",
         "TransitionControlLease",
+        "RetireSealedRecord",
     }
 )
 _RESOURCE_AND_CAPACITY_WRITES = frozenset(
@@ -122,6 +123,7 @@ _DURABLE_AT_BASE = (
         "CasWorkItemMetadata",
         "IssueControlLease",
         "TransitionControlLease",
+        "RetireSealedRecord",
         "ClearGraph",
         "AddEmbedding",
     }
@@ -151,6 +153,7 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "CasWorkItemMetadata",
         "IssueControlLease",
         "TransitionControlLease",
+        "RetireSealedRecord",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",
         "ReclaimWorkItemResources",

@@ -71,7 +71,7 @@ impl SemanticStore {
         self.brute_force_search_filtered(query_embedding, n_results, |_| true)
     }
 
-    pub(crate) fn brute_force_search_filtered(
+    fn brute_force_search_filtered(
         &self,
         query_embedding: &[f32],
         n_results: usize,

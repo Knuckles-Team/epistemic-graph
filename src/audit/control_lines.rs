@@ -378,6 +378,15 @@ fn control_lease_audit_line(method: &Method) -> Option<String> {
             "TRANSITION_CONTROL_LEASE|{}|{}|{}|{:?}",
             request.tenant, request.lease_id, request.expected_revision, request.to
         )),
+        // EH-558: identity, seal and actor only; never the retired content.
+        Method::RetireSealedRecord { request } => Some(format!(
+            "RETIRE_SEALED_RECORD|{}|{}|{}|{}|{}",
+            request.tenant,
+            request.node_id,
+            request.digest,
+            request.retired_by,
+            request.retired_at_ms
+        )),
         _ => None,
     }
 }

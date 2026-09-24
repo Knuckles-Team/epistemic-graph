@@ -644,6 +644,17 @@ pub(super) async fn budget_tick(state: SharedState, config: epistemic_graph::cos
     }
 }
 
+pub(super) async fn sealed_expiry_tick(
+    state: SharedState,
+    policy: Vec<server::sealed_retention::Retention>,
+) {
+    let now_ms = server::txn::now_ms();
+    let n = server::sealed_retention::expire_sealed_records(&state, &policy, now_ms).await;
+    if n > 0 {
+        tracing::info!("Sealed records: retired {} expired record(s) (EH-558)", n);
+    }
+}
+
 pub(super) async fn registry_reap_tick(state: SharedState) {
     let now_ms = server::txn::now_ms();
     let n = server::registry_reaper::reap_expired_servers(&state, now_ms).await;

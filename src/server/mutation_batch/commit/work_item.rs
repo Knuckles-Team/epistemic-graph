@@ -93,6 +93,7 @@ fn control_lease_tenant(method: &Method) -> Result<String, String> {
     match method {
         Method::IssueControlLease { request } => Ok(request.tenant.clone()),
         Method::TransitionControlLease { request } => Ok(request.tenant.clone()),
+        Method::RetireSealedRecord { request } => Ok(request.tenant.clone()),
         _ => Err("commit_work_item received a non-WorkItem operation".to_string()),
     }
 }

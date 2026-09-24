@@ -66,6 +66,7 @@ mod dispatch;
 mod lease;
 mod read;
 mod row_guard;
+mod sealed_record;
 mod submit;
 #[cfg(test)]
 mod test_shard;
@@ -78,4 +79,5 @@ pub(crate) use dispatch::*;
 pub(crate) use lease::*;
 pub(crate) use read::{list_work_items, read_work_item, read_work_item_outcome};
 pub(crate) use row_guard::refuse_generic_native_row_write;
+pub(crate) use sealed_record::apply_retire_sealed_record_row;
 pub(crate) use submit::*;

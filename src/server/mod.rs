@@ -384,6 +384,8 @@ pub mod foreign_catalog;
 #[cfg(feature = "federation")]
 pub(crate) mod foreign_share;
 pub mod registry_reaper;
+// EH-558: policy-driven expiry of sealed records through their owning op.
+pub mod sealed_retention;
 // Owner-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
 // `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified owner (tenant+principal).
 #[cfg(feature = "wasm-udf")]

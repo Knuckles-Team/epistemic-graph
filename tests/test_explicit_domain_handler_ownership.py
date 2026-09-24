@@ -22,6 +22,7 @@ WORK_ITEM_METHODS = {
     # graph-os EG-2: native control-lease writes share the WorkItem kernel.
     "IssueControlLease",
     "TransitionControlLease",
+    "RetireSealedRecord",
 }
 DEVELOPMENT_LANE_WRITES = {
     "ReserveDevelopmentLane",

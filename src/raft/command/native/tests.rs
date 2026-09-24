@@ -285,8 +285,13 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     // 7469acff; it is intentionally absent from the public method catalog.
     // 193892753 added the two replicated ControlLease writes (their commit
     // deferred this count pin to landing), taking the catalog from 100 to 102.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 102);
-    for control_lease_write in ["IssueControlLease", "TransitionControlLease"] {
+    // EH-558's `RetireSealedRecord` takes it to 103.
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 103);
+    for control_lease_write in [
+        "IssueControlLease",
+        "TransitionControlLease",
+        "RetireSealedRecord",
+    ] {
         assert!(
             unique.contains(control_lease_write),
             "{control_lease_write} must commit through native consensus"

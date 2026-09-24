@@ -42,8 +42,13 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::DeferWorkItem { .. }
         | Method::CasWorkItemMetadata { .. }
         | Method::IssueControlLease { .. }
-        | Method::TransitionControlLease { .. }) => method,
+        | Method::TransitionControlLease { .. }
+        | Method::RetireSealedRecord { .. }) => method,
         other => return Err(other),
+    };
+    let method = match stamp_retired_by(method, ctx.caller) {
+        Ok(method) => method,
+        Err(error) => return Ok(Response::err(ctx.req_id, error)),
     };
 
     #[cfg(feature = "raft")]
@@ -100,4 +105,16 @@ pub(crate) async fn commit_verified_work_item(
         .with_placement_fencing_token(placement_fence),
     )
     .await
+}
+
+/// EH-558: the engine, not the client, names who retired a sealed record -- the
+/// verified caller's principal fingerprint replaces any client-supplied value. The
+/// fingerprint is stable per caller, so a retry keeps the same retry identity.
+fn stamp_retired_by(method: Method, caller: Option<&str>) -> Result<Method, String> {
+    let Method::RetireSealedRecord { mut request } = method else {
+        return Ok(method);
+    };
+    let caller = caller.ok_or("retiring a sealed record requires a verified caller")?;
+    request.retired_by = crate::server::mutation_batch::principal_fingerprint(caller)?;
+    Ok(Method::RetireSealedRecord { request })
 }

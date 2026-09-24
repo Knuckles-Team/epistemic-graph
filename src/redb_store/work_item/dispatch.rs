@@ -158,6 +158,10 @@ pub(crate) fn apply_work_item_rows(
             nodes: &mut *nodes,
             crypto,
         }),
+        // EH-558 sealed-record retirement shares this kernel.
+        Method::RetireSealedRecord { request } => {
+            apply_retire_sealed_record_row(graph, request, nodes, crypto)
+        }
         // graph-os EG-2 control-lease writes share this kernel; anything else
         // is not a WorkItem-family row transition and answers `None`.
         other => apply_control_lease_rows(graph, other, nodes, crypto),

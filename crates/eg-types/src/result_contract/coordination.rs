@@ -15,6 +15,7 @@ pub use statechart::*;
 pub use work_items::*;
 
 use crate::control_lease::{ControlLeaseIssued, ControlLeaseTransition, ControlLeaseView};
+use crate::sealed_record::SealedRecordRetirement;
 use crate::decision::statistical::log::{
     DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification,
     OutcomeAggregate, StoredEvaluation,
@@ -67,6 +68,8 @@ method_results! {
     IssueControlLease(IssueControlLease) => Json<ControlLeaseIssued>;
     TransitionControlLease(TransitionControlLease) => Json<ControlLeaseTransition>;
     GetControlLease(GetControlLease) => Raw<Option<ControlLeaseView>>;
+    // EH-558 sealed-record retirement (the owning op).
+    RetireSealedRecord(RetireSealedRecord) => Json<SealedRecordRetirement>;
     ReserveWorkItemResources(ReserveWorkItemResources) => Raw<ResourceReservationResult>;
     ReleaseWorkItemResources(ReleaseWorkItemResources) => Raw<ResourceReservationResult>;
     ReclaimWorkItemResources(ReclaimWorkItemResources) => Raw<ResourceReservationResult>;
