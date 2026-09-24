@@ -58,6 +58,25 @@ pub struct DecisionOutcomeEvaluation {
     pub success: Option<bool>,
 }
 
+/// The one principal a committer names to evaluate its record (EH-395).
+///
+/// A record visible only to its committer (a graph-sourced or declared one)
+/// could otherwise never be judged independently. Naming an evaluator issues
+/// a control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]
+/// that lets exactly that principal join evaluations to exactly this
+/// record until it expires: it cannot read, list or count the record, and
+/// nothing else widens. The evaluator is never the committer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct NamedEvaluator {
+    /// The evaluator's persistence id (`principal:sha256:<hex>` of its
+    /// verified principal).
+    pub principal: String,
+    /// When the grant lapses; at most the control-lease span after commit.
+    pub expires_at_ms: u64,
+}
+
 /// Where a compacted record's feature matrix lives: one engine-owned Blob
 /// CAS body, pinned by its content digest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,9 +287,13 @@ pub struct DecisionLogCommitted {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DecisionLogOp {
-    /// Make one statistical record durable, after verify-replay.
+    /// Make one statistical record durable, after verify-replay. The
+    /// committer may name the one principal allowed to evaluate it
+    /// ([`NamedEvaluator`]).
     Commit {
         record: Box<StatisticalDecisionRecord>,
+        #[serde(default)]
+        evaluator: Option<NamedEvaluator>,
     },
     /// Join one independent evaluation to a committed record.
     Evaluate {
@@ -363,7 +386,7 @@ impl DecisionLogOp {
     /// The tenant this operation names.
     pub fn tenant_id(&self) -> &str {
         match self {
-            Self::Commit { record } => &record.tenant_id,
+            Self::Commit { record, .. } => &record.tenant_id,
             Self::Evaluate { tenant_id, .. }
             | Self::Get { tenant_id, .. }
             | Self::Compact { tenant_id, .. }

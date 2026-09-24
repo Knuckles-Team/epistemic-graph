@@ -37,6 +37,10 @@ pub const CONTROL_LEASE_NODE_TYPE: &str = "ControlLease";
 pub const MAX_CONTROL_LEASE_GRANT_BYTES: usize = 64 * 1024;
 /// Longest `hard_expires_at_ms - issued_at_ms` a lease may span (24 hours).
 pub const MAX_CONTROL_LEASE_SPAN_MS: u64 = 24 * 60 * 60 * 1000;
+/// The control-lease kind of a named decision evaluator's grant (EH-395). It is
+/// issued only by `DecisionLog.commit`, stored beside the record it grants,
+/// and never through `IssueControlLease`.
+pub const DECISION_EVALUATION_LEASE_KIND: &str = "decision.evaluation";
 /// Bound on the tenant, lease id, kind and idempotency key.
 const MAX_CONTROL_LEASE_REF_BYTES: usize = 512;
 
@@ -229,6 +233,16 @@ impl IssueControlLeaseRequest {
         ] {
             bounded(field, value)?;
         }
+        if self.kind == DECISION_EVALUATION_LEASE_KIND {
+            return Err(format!(
+                "control lease kind '{DECISION_EVALUATION_LEASE_KIND}' is issued by DecisionLog.commit only"
+            ));
+        }
+        self.validate_body()
+    }
+
+    /// The bounds every control lease obeys, whoever issues it.
+    pub fn validate_body(&self) -> Result<(), String> {
         let grant_bytes = serde_json::to_vec(&self.grant).map_err(|error| error.to_string())?;
         if grant_bytes.len() > MAX_CONTROL_LEASE_GRANT_BYTES {
             return Err("control lease grant exceeds its native bound".to_string());
