@@ -108,6 +108,10 @@ pub struct AuthenticateRequest {
     /// throttle and the audit entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip_prefix: Option<String>,
+    /// A replacement password, applied only when the account must change its
+    /// password (admin reset or `pending_reset`) and the current one verified.
+    #[serde(default)]
+    pub new_password: Secret,
 }
 
 /// A session-token-bearing op: `resolve_session`, `revoke_session`,

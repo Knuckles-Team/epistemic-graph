@@ -192,7 +192,7 @@ impl IdentityStore {
         if (config.mode, request.to) == (AuthMode::External, AuthMode::Local) {
             self.mark_credentialless_pending_reset();
         }
-        self.revoke_all_sessions(now_ms, "mode_transition");
+        self.revoke_all_sessions();
         let next = IdentityConfig {
             mode: request.to,
             local_fallback: request.local_fallback.unwrap_or(config.local_fallback),

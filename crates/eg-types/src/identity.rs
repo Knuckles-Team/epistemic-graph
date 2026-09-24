@@ -29,44 +29,54 @@ use serde::{Deserialize, Serialize};
 mod access;
 mod audit;
 mod config;
-mod credentials;
 mod denials;
 mod model;
 mod ops;
+mod password_policy;
 mod projection;
 mod requests;
+mod requests_admin;
 mod scope;
-mod sessions;
 mod stamp;
 mod store;
 mod text;
 mod views;
 
 pub use access::{GroupRecord, IdpConfig, IdpKind, JitPolicy, MappingRule, RoleRecord};
-pub use audit::{IdentityAuditEntry, IdentityEvent, MAX_IDENTITY_AUDIT_ENTRIES};
+pub use audit::{
+    AuditRecord, AuditTrail, IdentityAuditEntry, IdentityEvent, MAX_IDENTITY_AUDIT_ENTRIES,
+};
 pub use config::{
     AuthMode, IdentityConfig, LocalFallback, ModeTransition, RegistrationPolicy,
-    NONE_MODE_ACK,
+    MAX_PASSWORD_CHARS, NONE_MODE_ACK,
 };
 pub use denials::{DenialSample, DenialSampler, MAX_DENIAL_SAMPLES};
 pub use model::{
     ApiKeyRecord, ExternalIdentity, OneTimeToken, PasswordCredential, SessionRecord,
     TokenPurpose, TotpRecord, UserKind, UserRecord, UserStatus,
 };
-pub use ops::IdentityOp;
-pub use projection::{PrincipalResolution, RbacProjection};
+pub use ops::{
+    AccessOp, ConfigOp, CredentialOp, IdentityOp, IdpOp, MfaOp, OpAuthority, OpMeta, SessionOp,
+    TokenOp, UserOp, IDENTITY_ADMIN_SCOPE, IDENTITY_AUTHENTICATE_SCOPE, IDENTITY_PROVISION_SCOPE,
+    IDENTITY_READ_SCOPE, IDENTITY_SELF_SCOPE,
+};
+pub use password_policy::check_password;
+pub use projection::{rbac_role_name, PrincipalResolution, RbacProjection};
 pub use requests::{
-    ApiKeyIssue, AuthenticateRequest, CreateUserRequest, GroupMembershipChange, IdpUpsert,
+    ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
     InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordSet,
-    RoleGraphGrant, RoleUpsert, SessionTouch, TotpEnroll, UserStatusChange, UserUpdate,
+    RecoveryCodesSet, SessionTouch, TokenRedeem, TotpCode, TotpEnroll, UserStatusChange,
+    UserUpdate,
+};
+pub use requests_admin::{
+    BindingChange, GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate,
+    RoleGraphGrant, RoleUpsert, UserRoleChange, MAX_PAGE,
 };
 pub use scope::{ScopeClass, ScopeClassifier};
 pub use stamp::{IdentityActor, IdentityStamp, PasswordCheck, Secret};
-pub use store::IdentityStore;
+pub use store::{ApplyContext, IdentityStore, RecoveryCode, ThrottleEntry, TOUCH_GRANULARITY_MS};
 pub use text::{normalize_username, validate_principal_id};
-pub use views::{
-    AuthenticateOutcome, AuthenticateResult, IdentityReply, SessionView, UserView,
-};
+pub use views::{AuthenticateOutcome, AuthenticateResult, IdentityReply, SessionView, UserView};
 
 /// The principal id of the built-in bootstrap user (§2.2.3).
 pub const BOOTSTRAP_PRINCIPAL: &str = "usr:bootstrap";

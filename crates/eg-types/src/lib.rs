@@ -182,6 +182,9 @@ pub mod control_lease;
 // EH-404 -- just-in-time RBAC elevation: an `rbac.elevation` control lease the
 // graph-access chokepoint consults (two-person, exact-scope, hard expiry).
 pub mod rbac_elevation;
+// IDM-01..05 -- the engine-owned identity store: principals, credentials,
+// sessions, roles/groups/IdPs, the auth-mode singleton and scope classes.
+pub mod identity;
 // EH-406 -- error-budget adaptive (AIMD) throttling on a capacity cell:
 // automatic steps only narrow or give back what they narrowed.
 pub mod capacity_throttle;

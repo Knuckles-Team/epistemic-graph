@@ -26,6 +26,7 @@ use super::IdentityRefusal;
 
 mod access_ops;
 mod auth;
+mod external;
 mod invariants;
 mod mfa;
 mod modes;
@@ -35,6 +36,10 @@ mod tokens;
 mod users;
 
 pub use throttle::ThrottleEntry;
+
+/// Session and API-key "last used" stamps move at most once per minute, so a
+/// hot read path does not rewrite the durable image on every call.
+pub const TOUCH_GRANULARITY_MS: u64 = 60_000;
 
 /// One stored recovery code: only its hash, and when it was spent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,11 +149,15 @@ impl IdentityStore {
         self.users.contains_key(principal_id)
     }
 
-    /// The stored password hash of a username (for the boundary's verify).
-    pub fn password_hash_of(&self, username: &str) -> Option<(&str, &str)> {
-        let principal = self.usernames.get(username)?;
-        let credential = self.passwords.get(principal)?;
-        Some((principal.as_str(), credential.hash.as_str()))
+    /// The principal a normalized username names and its stored password
+    /// hash, for the boundary's verify. A known principal with no password
+    /// still answers its id, so the verdict names it (and is `bad`).
+    pub fn sign_in_target(&self, username: &str) -> (Option<&str>, Option<&str>) {
+        let principal = self.usernames.get(username).map(String::as_str);
+        let hash = principal
+            .and_then(|principal| self.passwords.get(principal))
+            .map(|credential| credential.hash.as_str());
+        (principal, hash)
     }
 
     /// The stored password hash and history of one principal.
