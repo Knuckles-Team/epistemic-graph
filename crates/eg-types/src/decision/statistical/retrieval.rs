@@ -27,7 +27,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::super::jobs::RecordWindow;
-use super::retrieval_adapter::{AdapterFitRequest, AdapterFitted, AdapterState};
+use super::retrieval_adapter::{AdapterFitRequest, AdapterFitted};
+use super::retrieval_generation::{GenerationEvalRequest, GenerationEvaluated};
+use super::retrieval_pointer::PointerState;
 use crate::contract::BoundedVec;
 
 /// Format identity of every retrieval-learning body.
@@ -346,35 +348,61 @@ pub enum RetrievalOp {
     },
     /// Return a space to the adapter active before the current one.
     RollbackAdapter { space_digest: String },
-    /// Read a space's adapter state and history.
+    /// Read a space's adapter pointer and history.
     AdapterStatus { space_digest: String },
+    /// Dual-serve judged runs against a shadow generation (EH-397).
+    EvaluateGeneration { request: Box<GenerationEvalRequest> },
+    /// Resolve a logical graph to an evaluated shadow generation.
+    ActivateGeneration {
+        logical: String,
+        shadow_graph: String,
+        receipt_digest: String,
+    },
+    /// Return a logical graph to the generation before the current one.
+    RollbackGeneration { logical: String },
+    /// Read a logical graph's generation pointer and history.
+    GenerationStatus { logical: String },
+}
+
+/// Who an operation is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpClass {
+    /// The committer attesting its own run.
+    Attest,
+    /// Changes what the engine serves: the head administrator's.
+    Govern,
+    Read,
 }
 
 impl RetrievalOp {
-    /// Whether this operation commits durable state.
-    pub fn is_mutation(&self) -> bool {
-        matches!(
-            self,
-            Self::RecordOutcome { .. }
-                | Self::FitAdapter { .. }
-                | Self::ActivateAdapter { .. }
-                | Self::RollbackAdapter { .. }
-        )
-    }
-
-    /// The authorization action this operation needs. Recording an outcome is
-    /// the committer's own write; everything that changes what the engine
-    /// serves is the head administrator's.
-    pub fn authz_action(&self) -> &'static str {
+    fn class(&self) -> OpClass {
         match self {
-            Self::RecordOutcome { .. } => "agent:decision-write",
+            Self::RecordOutcome { .. } => OpClass::Attest,
             Self::FitAdapter { .. }
             | Self::ActivateAdapter { .. }
-            | Self::RollbackAdapter { .. } => "admin:decision-head",
+            | Self::RollbackAdapter { .. }
+            | Self::EvaluateGeneration { .. }
+            | Self::ActivateGeneration { .. }
+            | Self::RollbackGeneration { .. } => OpClass::Govern,
             Self::HardNegatives { .. }
             | Self::Usage { .. }
             | Self::Paths { .. }
-            | Self::AdapterStatus { .. } => "agent:decision-read",
+            | Self::AdapterStatus { .. }
+            | Self::GenerationStatus { .. } => OpClass::Read,
+        }
+    }
+
+    /// Whether this operation commits durable state.
+    pub fn is_mutation(&self) -> bool {
+        self.class() != OpClass::Read
+    }
+
+    /// The authorization action this operation needs.
+    pub fn authz_action(&self) -> &'static str {
+        match self.class() {
+            OpClass::Attest => "agent:decision-write",
+            OpClass::Govern => "admin:decision-head",
+            OpClass::Read => "agent:decision-read",
         }
     }
 }
@@ -389,7 +417,8 @@ pub enum RetrievalResult {
     Usage(RetrievalUsage),
     Paths(ProvenPaths),
     Fitted(Box<AdapterFitted>),
-    Adapter(Box<AdapterState>),
+    Generation(Box<GenerationEvaluated>),
+    Pointer(Box<PointerState>),
 }
 
 #[cfg(test)]

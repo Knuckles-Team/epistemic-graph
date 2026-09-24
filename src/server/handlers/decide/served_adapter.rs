@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use eg_core::graph::GraphCore;
 use eg_numeric::decision::adapter::AdapterKernel;
-use eg_types::decision::statistical::retrieval_adapter::{AdapterFitted, AdapterState};
+use eg_types::decision::statistical::retrieval_adapter::AdapterFitted;
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::decode_artifact;
@@ -30,28 +30,6 @@ const MAX_CACHED_BODIES: usize = 32;
 /// Key of a fitted adapter (body + receipt).
 pub(crate) fn adapter_key(adapter_digest: &str) -> String {
     format!("adapter:{adapter_digest}")
-}
-
-/// Key of a space's adapter state.
-pub(crate) fn state_key(space_digest: &str) -> String {
-    format!("adapter-state:{space_digest}")
-}
-
-/// A space's stored state bytes (for a compare-and-set) and the decoded state.
-pub(crate) fn read_state(
-    store: &AgentLibraryStore,
-    tenant: &str,
-    space_digest: &str,
-) -> Result<(Option<Vec<u8>>, AdapterState), String> {
-    let Some(bytes) = store.decision_artifact(tenant, &state_key(space_digest))? else {
-        let state = AdapterState {
-            space_digest: space_digest.to_string(),
-            ..AdapterState::default()
-        };
-        return Ok((None, state));
-    };
-    let state = decode_artifact(&bytes, "adapter state")?;
-    Ok((Some(bytes), state))
 }
 
 /// A fitted adapter stored under `tenant`.
@@ -126,11 +104,12 @@ fn load(
     tenant: &str,
     space_digest: &str,
 ) -> Result<Option<Arc<ServedAdapter>>, String> {
-    let (_, state) = read_state(store, tenant, space_digest)?;
-    let Some(digest) = state.active.and_then(|event| event.adapter_digest) else {
-        return Ok(None);
-    };
-    cached_or_decode(store, tenant, &digest)
+    let key = super::stat_adapter::adapter_pointer(space_digest);
+    let (_, pointer) = super::stat_pointer::read_pointer(store, tenant, &key)?;
+    match pointer.target() {
+        Some(digest) => cached_or_decode(store, tenant, digest),
+        None => Ok(None),
+    }
 }
 
 /// The adapter serving `core`'s embedding space for the verified carrier

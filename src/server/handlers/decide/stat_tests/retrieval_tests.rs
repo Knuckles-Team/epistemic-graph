@@ -11,9 +11,11 @@ use eg_types::decision::statistical::retrieval::{
     QueryVector, RetrievalOp, RetrievalOutcome, RetrievalPathTemplate, RetrievalResult,
     ReturnedEvidence,
 };
-use eg_types::decision::statistical::retrieval_adapter::{
-    AdapterFitRequest, AdapterFitted, AdapterState,
+use eg_types::decision::statistical::retrieval_adapter::{AdapterFitRequest, AdapterFitted};
+use eg_types::decision::statistical::retrieval_generation::{
+    GenerationEvalItem, GenerationEvalRequest,
 };
+use eg_types::decision::statistical::retrieval_pointer::PointerState;
 
 const GRAPH: &str = "kg-retrieval";
 
@@ -243,28 +245,41 @@ async fn paths_and_usage_follow_the_verdict(h: &Harness) {
 /// base query prefers) the unit axis 0; every judged run returned `n<i>` above
 /// `p<i>`.
 async fn embedded_graph(h: &Harness) -> Arc<eg_core::graph::GraphCore> {
+    let rows = (0..40).flat_map(|i| {
+        [
+            (format!("p{i}"), vec![0.0, 1.0, 0.0]),
+            (format!("n{i}"), vec![1.0, 0.0, 0.0]),
+        ]
+    });
+    graph_with(h, GRAPH, "1", 3, rows.collect()).await
+}
+
+/// A graph whose store declares model revision `revision` and embeds `rows`.
+async fn graph_with(
+    h: &Harness,
+    name: &str,
+    revision: &str,
+    dims: usize,
+    rows: Vec<(String, Vec<f32>)>,
+) -> Arc<eg_core::graph::GraphCore> {
     let mut guard = h.state.write().await;
     guard
         .registry
-        .create_graph(GRAPH, crate::protocol::GraphType::Team, None)
+        .create_graph(name, crate::protocol::GraphType::Team, None)
         .unwrap();
-    let core = guard.registry.get(GRAPH).unwrap().core.clone();
-    let space =
-        eg_types::embedding::EmbeddingSpaceRef::pinned("m", "1", "sha256:w", "sha256:p", 3, false)
-            .unwrap();
+    let core = guard.registry.get(name).unwrap().core.clone();
+    let space = eg_types::embedding::EmbeddingSpaceRef::pinned(
+        "m", revision, "sha256:w", "sha256:p", dims, false,
+    )
+    .unwrap();
     core.semantic_store.write().declare_space(space).unwrap();
-    for i in 0..40 {
-        for (id, vector) in [
-            (format!("p{i}"), vec![0.0, 1.0, 0.0]),
-            (format!("n{i}"), vec![1.0, 0.0, 0.0]),
-        ] {
-            let props = serde_json::json!({"type": "Doc"});
-            core.add_node(id.clone(), rmp_serde::to_vec_named(&props).unwrap());
-            core.semantic_store
-                .write()
-                .add_embedding(id, vector)
-                .unwrap();
-        }
+    for (id, vector) in rows {
+        let props = serde_json::json!({"type": "Doc"});
+        core.add_node(id.clone(), rmp_serde::to_vec_named(&props).unwrap());
+        core.semantic_store
+            .write()
+            .add_embedding(id, vector)
+            .unwrap();
     }
     core
 }
@@ -316,10 +331,10 @@ fn fit_request(space: &str) -> AdapterFitRequest {
     }
 }
 
-async fn adapter_state(h: &Harness, retrieval: RetrievalOp) -> Result<AdapterState, String> {
+async fn pointer_state(h: &Harness, retrieval: RetrievalOp) -> Result<PointerState, String> {
     match learn(h, "decider", retrieval).await? {
-        RetrievalResult::Adapter(state) => Ok(*state),
-        other => panic!("adapter state: {other:?}"),
+        RetrievalResult::Pointer(state) => Ok(*state),
+        other => panic!("pointer state: {other:?}"),
     }
 }
 
@@ -371,15 +386,15 @@ async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
         adapter_digest: fitted.adapter_digest.clone(),
         receipt_digest,
     };
-    let wrong = adapter_state(&h, activate(format!("sha256:{}", "0".repeat(64)))).await;
+    let wrong = pointer_state(&h, activate(format!("sha256:{}", "0".repeat(64)))).await;
     assert!(wrong
         .unwrap_err()
         .starts_with("EVALUATION_RECEIPT_MISMATCH"));
-    let active = adapter_state(&h, activate(fitted.receipt_digest.clone()))
+    let active = pointer_state(&h, activate(fitted.receipt_digest.clone()))
         .await
         .unwrap();
     assert_eq!(
-        active.active.and_then(|e| e.adapter_digest),
+        active.target().map(str::to_string),
         Some(fitted.adapter_digest.clone())
     );
     let adapter = served().await.expect("the activated adapter serves");
@@ -454,4 +469,154 @@ fn a_plan_rewrite_re_aims_every_vector_rank_only() {
     };
     assert_eq!(branches[0][0], expected);
     assert!(matches!(rewritten.ops[0], eg_plan::Op::Scan { .. }));
+}
+
+fn axis(dims: usize, index: usize, scale: f32) -> Vec<f32> {
+    let mut v = vec![0.0; dims];
+    v[index] = scale;
+    v
+}
+
+fn plus(mut left: Vec<f32>, right: &[f32]) -> Vec<f32> {
+    left.iter_mut().zip(right).for_each(|(l, r)| *l += r);
+    left
+}
+
+/// Six judged runs over two generations of the same rows: in the active one
+/// the query prefers the shared `n` direction, in the shadow each query finds
+/// its own cited row first.
+async fn two_generations(h: &Harness) -> Vec<GenerationEvalItem> {
+    let active_rows = (0..6).flat_map(|i| {
+        [
+            (format!("p{i}"), axis(8, i, 1.0)),
+            (format!("n{i}"), plus(axis(8, 6, 1.0), &axis(8, i, 0.1))),
+        ]
+    });
+    let shadow_rows = (0..6).flat_map(|i| {
+        [
+            (format!("p{i}"), axis(8, i, 1.0)),
+            (format!("n{i}"), axis(8, 6, 1.0)),
+        ]
+    });
+    graph_with(h, "kg-gen", "1", 8, active_rows.collect()).await;
+    graph_with(h, "kg-gen-2", "2", 8, shadow_rows.collect()).await;
+    let template_entry = executed_template(h).await;
+    let mut items = Vec::new();
+    for i in 0..6 {
+        let record_id = format!("gen-{i}");
+        clone_executed(h, &template_entry, &record_id);
+        let (n, p) = (format!("n{i}"), format!("p{i}"));
+        let attested = outcome(&record_id, &[&n, &p], &[&p]);
+        let recorded = learn(
+            h,
+            "decider",
+            RetrievalOp::RecordOutcome {
+                outcome: Box::new(attested),
+            },
+        )
+        .await;
+        assert!(recorded.is_ok(), "{recorded:?}");
+        evaluate_by(h, "evaluator", &record_id, true).await;
+        let active = plus(axis(8, 6, 1.0), &axis(8, i, 0.5));
+        let shadow = axis(8, i, 1.0);
+        let to_q16 = |v: Vec<f32>| q16(&v.into_iter().map(f64::from).collect::<Vec<_>>());
+        items.push(GenerationEvalItem {
+            record_id,
+            active_q16: to_q16(active),
+            shadow_q16: to_q16(shadow),
+        });
+    }
+    items
+}
+
+fn generation_request(
+    items: Vec<GenerationEvalItem>,
+    max_score_psi_q16: i64,
+) -> GenerationEvalRequest {
+    GenerationEvalRequest {
+        logical: "kg-gen".to_string(),
+        active_graph: "kg-gen".to_string(),
+        shadow_graph: "kg-gen-2".to_string(),
+        items: BoundedVec::new(items).unwrap(),
+        top_k: 5,
+        min_eval_items: 5,
+        max_score_psi_q16,
+    }
+}
+
+async fn evaluate_generation_op(
+    h: &Harness,
+    request: GenerationEvalRequest,
+) -> eg_types::decision::statistical::retrieval_generation::GenerationEvaluated {
+    let op = RetrievalOp::EvaluateGeneration {
+        request: Box::new(request),
+    };
+    match learn(h, "decider", op).await.unwrap() {
+        RetrievalResult::Generation(evaluated) => *evaluated,
+        other => panic!("generation: {other:?}"),
+    }
+}
+
+#[cfg(feature = "ann")]
+#[tokio::test]
+async fn a_shadow_generation_is_resolved_only_with_its_receipt_and_rolls_back() {
+    let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
+    let items = two_generations(&h).await;
+    // Every top-1 score moved (0.93 -> 1.0): past the default PSI bound the
+    // shadow cannot pass, however much better it ranks.
+    let shifted = evaluate_generation_op(&h, generation_request(items.clone(), 1 << 14)).await;
+    assert!(!shifted.receipt.passed, "{:?}", shifted.receipt);
+    assert!(shifted.receipt.score_psi_q16.unwrap() > 1 << 14);
+    let evaluated = evaluate_generation_op(&h, generation_request(items, 64 << 16)).await;
+    let receipt = &evaluated.receipt;
+    assert!(receipt.passed, "{receipt:?}");
+    assert_eq!((receipt.n_eval, receipt.wins), (6, 6));
+    assert!(receipt.shadow_mrr_q16 > receipt.active_mrr_q16);
+
+    let activate = |shadow: &str, digest: &str| RetrievalOp::ActivateGeneration {
+        logical: "kg-gen".to_string(),
+        shadow_graph: shadow.to_string(),
+        receipt_digest: digest.to_string(),
+    };
+    let failed = pointer_state(&h, activate("kg-gen-2", &shifted.receipt_digest)).await;
+    assert!(failed
+        .unwrap_err()
+        .starts_with("EVALUATION_RECEIPT_MISMATCH"));
+    let foreign = pointer_state(&h, activate("kg-other", &evaluated.receipt_digest)).await;
+    assert!(foreign
+        .unwrap_err()
+        .starts_with("EVALUATION_RECEIPT_MISMATCH"));
+    let moved = pointer_state(&h, activate("kg-gen-2", &evaluated.receipt_digest))
+        .await
+        .unwrap();
+    assert_eq!(moved.target(), Some("kg-gen-2"));
+    let replay = pointer_state(&h, activate("kg-gen-2", &evaluated.receipt_digest))
+        .await
+        .unwrap();
+    assert_eq!(
+        replay, moved,
+        "re-activating the active generation is a replay"
+    );
+
+    let status = RetrievalOp::GenerationStatus {
+        logical: "kg-gen".to_string(),
+    };
+    assert_eq!(
+        pointer_state(&h, status.clone()).await.unwrap().target(),
+        Some("kg-gen-2")
+    );
+    let rolled = pointer_state(
+        &h,
+        RetrievalOp::RollbackGeneration {
+            logical: "kg-gen".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rolled.target(),
+        None,
+        "the logical graph resolves to itself again"
+    );
+    assert_eq!(rolled.history.len(), 2);
 }

@@ -30,11 +30,15 @@ mod stat_jobs;
 #[cfg(feature = "decide")]
 mod stat_adapter;
 #[cfg(feature = "decide")]
+mod stat_generation;
+#[cfg(feature = "decide")]
 mod stat_learning;
 #[cfg(feature = "decide")]
 mod stat_log;
 #[cfg(feature = "decide")]
 mod stat_nl;
+#[cfg(feature = "decide")]
+mod stat_pointer;
 #[cfg(feature = "decide")]
 mod stat_replay;
 #[cfg(feature = "decide")]
@@ -52,6 +56,8 @@ mod stat_retrieval;
 pub(crate) mod served_adapter;
 #[cfg(feature = "decide")]
 mod stat_support;
+#[cfg(feature = "decide")]
+mod stat_vectors;
 #[cfg(all(test, feature = "decide"))]
 mod stat_tests;
 #[cfg(feature = "decide")]

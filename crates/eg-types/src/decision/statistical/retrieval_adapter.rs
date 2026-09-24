@@ -26,8 +26,6 @@ pub const MAX_ADAPTER_RANK: usize = 8;
 pub const MAX_ADAPTER_GAIN_Q16: i32 = 1 << 15;
 /// The `Q30` scale of a unit component.
 pub const UNIT_SCALE_BITS: u32 = 30;
-/// Most activation events a space's history keeps (oldest dropped first).
-pub const MAX_ADAPTER_HISTORY: usize = 64;
 /// Tolerance, on `Q30`, of the orthonormality check (about 1e-3).
 const ORTHONORMAL_TOLERANCE_Q30: i128 = 1 << 20;
 
@@ -163,45 +161,6 @@ pub struct AdapterFitted {
     pub body: QueryAdapterBody,
     pub receipt_digest: String,
     pub receipt: AdapterEvalReceipt,
-}
-
-/// Which way an activation event moved a space's pointer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum AdapterTransition {
-    Activated,
-    RolledBack,
-}
-
-/// One audited pointer move.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct AdapterEvent {
-    pub transition: AdapterTransition,
-    /// The adapter active after the move; `None` = no adapter (identity).
-    #[serde(default)]
-    pub adapter_digest: Option<String>,
-    #[serde(default)]
-    pub receipt_digest: Option<String>,
-    pub principal: String,
-    pub at_ms: u64,
-}
-
-/// A space's adapter pointer and its bounded history. `stack` holds the
-/// adapters a rollback returns to, most recent last.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct AdapterState {
-    pub space_digest: String,
-    #[serde(default)]
-    pub active: Option<AdapterEvent>,
-    #[serde(default)]
-    pub stack: BoundedVec<AdapterEvent, MAX_ADAPTER_HISTORY>,
-    #[serde(default)]
-    pub history: BoundedVec<AdapterEvent, MAX_ADAPTER_HISTORY>,
 }
 
 #[cfg(test)]

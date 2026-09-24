@@ -19,6 +19,8 @@ pub mod nl;
 pub mod outcome;
 pub mod retrieval;
 pub mod retrieval_adapter;
+pub mod retrieval_generation;
+pub mod retrieval_pointer;
 
 use serde::{Deserialize, Serialize};
 
