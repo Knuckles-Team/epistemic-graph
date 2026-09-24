@@ -217,8 +217,8 @@ fn drop_named_registrations_in(
         for entry in indexes.iter().map_err(map_err)? {
             let (key, value) = entry.map_err(map_err)?;
             let plan: AnnIndexPlan = decode_stored(value.value(), "ANN index")?;
-            let named = plan.name.as_deref() == Some(name) || key.value() == name;
-            if named && table.is_none_or(|table| table.eq_ignore_ascii_case(&plan.table)) {
+            let is_named = plan.name.as_deref() == Some(name) || key.value() == name;
+            if is_named && table.is_none_or(|table| table.eq_ignore_ascii_case(&plan.table)) {
                 named.push((key.value().to_string(), plan.table));
             }
         }
