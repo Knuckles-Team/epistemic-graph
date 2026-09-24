@@ -6,6 +6,15 @@
 # write under the finance module. Closed vocabularies are sh:in lists so a typo is a
 # violation, not a new category.
 
+:FinancialInstrumentShape a sh:NodeShape ;
+    sh:description "An instrument has at most one asset class, from the closed vocabulary." ;
+    sh:name "Financial Instrument Shape" ;
+    sh:property [ sh:in ( "crypto" "stock" "etf" "fund" "commodity" "forex" "index" "bond" ) ;
+            sh:maxCount 1 ;
+            sh:message "assetClass is crypto, stock, etf, fund, commodity, forex, index or bond." ;
+            sh:path :assetClass ] ;
+    sh:targetClass :FinancialInstrument .
+
 :ListingShape a sh:NodeShape ;
     sh:description "A listing names exactly one base instrument, one quote instrument, one venue and one listing type." ;
     sh:name "Listing Shape" ;
@@ -58,7 +67,16 @@
             sh:maxCount 1 ;
             sh:message "Bar series must have exactly one tsdbSeriesId." ;
             sh:minCount 1 ;
-            sh:path :tsdbSeriesId ] ;
+            sh:path :tsdbSeriesId ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Bar series must have exactly one decimal tickSize." ;
+            sh:minCount 1 ;
+            sh:path :tickSize ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "A bar series has at most one decimal volumeStep." ;
+            sh:path :volumeStep ] ;
     sh:targetClass :BarSeries .
 
 :IndicatorSpecShape a sh:NodeShape ;
@@ -148,3 +166,18 @@
             sh:minCount 1 ;
             sh:path :announcedAt ] ;
     sh:targetClass :MacroEvent .
+
+:AnalysisSnapshotShape a sh:NodeShape ;
+    sh:description "An analysis snapshot names one listing and carries one content digest." ;
+    sh:name "Analysis Snapshot Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Analysis snapshot must name exactly one listing (analysisOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :analysisOf ],
+        [ sh:maxCount 1 ;
+            sh:message "analysisDigest is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :analysisDigest ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ] ;
+    sh:targetClass :AnalysisSnapshot .

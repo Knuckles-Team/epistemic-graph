@@ -1,10 +1,11 @@
 # Market bars and trend signals
 
 The `FinanceMarket` method serves the market-signal layer of the finance
-program (ledger rows EH-411 and EH-413 to EH-418). It covers typed OHLCV bars
+program (ledger rows EH-411, EH-413 to EH-418, EH-420 and EH-421). It covers typed OHLCV bars
 over the time-series store, deterministic indicators, a per-series trend
 signal with its flip records, calibrated flip confidence, and the backtest-run
-provenance record.
+provenance record, server-side chart decimation, and the analysis-snapshot
+record behind shared analysis links.
 
 Everything here is **informational only**. No op, record or result authorises
 an order. The engine contains no language model: explanations of a flip belong
@@ -14,7 +15,7 @@ to the application layer, which must show the mathematical trigger first.
 
 `crates/eg-core/ontology/finance-v1.ttl` is a thin core module in the style of
 the world-model modules. It sits under the BFO layer and maps (never imports)
-to FIBO and Wikidata. It declares nine classes:
+to FIBO and Wikidata. It declares ten classes:
 
 | Class | Placement | Notes |
 |---|---|---|
@@ -27,6 +28,13 @@ to FIBO and Wikidata. It declares nine classes:
 | `TrendFlip` | `Event` | `revisesFlip` links a revision to the flip it revises. |
 | `MacroEvent` | `Event` | A policy action with its announcement time. |
 | `BacktestRun` | generically dependent continuant | The provenance record of one backtest. |
+| `AnalysisSnapshot` | generically dependent continuant | An immutable, content-addressed record of one shared analysis. |
+
+A `FinancialInstrument` may carry one `assetClass` from a closed vocabulary:
+crypto, stock, etf, fund, commodity, forex, index or bond. A `BarSeries` also
+carries its `tickSize` (required) and `volumeStep`
+(optional, default 1), both `xsd:decimal`. Bar prices are integer ticks, so a
+reader needs the tick size to show a price.
 
 `finance-v1.shapes.ttl` holds the ABox shapes. Closed vocabularies such as the
 listing type, the price basis, the data status and the direction are `sh:in`
@@ -170,3 +178,48 @@ backtest overfitting. The caller never supplies these values.
 
 `backtest_run::verify` re-derives a record from its own draft. A revised run is
 a new record whose `supersedes` names the old digest.
+
+## Chart decimation (EH-420)
+
+`decimate` thins bars, and indicator series aligned to them, to a pixel width
+of 16 to 8,192 columns. Run it after the indicators, which are computed over
+the full history. Bars are assigned to columns by open time:
+
+- Each column's bars fold into one candle: the first open, the highest high,
+  the lowest low, the last close and the summed volume. This is M4 for
+  candles, so the values a column draws are exact. A column is final only when
+  every bar in it is final.
+- Each line keeps its first, last, lowest and highest point in every column.
+  A band keeps both of its lines.
+- A trailing line also keeps every change of direction, with the point before
+  it, so the colour boundaries of the line stay exact.
+- A Heikin-Ashi series folds one candle per column, like the bars.
+
+A request that already fits comes back unchanged with `decimated: false`. The
+arithmetic is integer-only, so the result is the same on every target.
+
+## Analysis snapshots (EH-421)
+
+`analysis_snapshot` seals an analysis as an immutable, content-addressed
+record. Sealing refuses the draft unless it is self-consistent:
+
+- The signal key must be the key of the spec over the series.
+- Every flip must belong to that key, carry its derived event id, lie inside
+  the bar window and follow the previous flip in time.
+- The source revision must be a `sha256:` digest of the bar versions read.
+- Every claim must cite at least one source. A source is titled and located by
+  an http(s) URL or an engine record reference. A claim with no source is
+  refused with `UNSOURCED_CLAIM`.
+
+The engine stamps three notices on every snapshot: informational only, the
+hallucination warning, and the mechanical trigger. A caller can neither omit
+nor reword them, because they are part of the digest. A snapshot never
+includes positions (`excludes_positions` is always true).
+
+To verify a stored record, seal its draft again and compare the digests. An
+application stores the record as an `AnalysisSnapshot` graph node, created only
+if absent, whose id derives from the digest; `analysisOf` names the listing and
+`analysisDigest` holds the digest. It shares the record through a
+control lease of kind `share.read` that names the digest. The lease is bound to
+the tenant, has an expiry and can be revoked.
+
