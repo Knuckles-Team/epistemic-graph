@@ -115,3 +115,5 @@ num-complex = { version = "0.4", default-features = false, optional = true }
 [dev-dependencies]
 # Shared Decide-layer fixtures (`eg_types::test_support::decision`).
 eg-types = { path = "../eg-types", features = ["test-support"] }
+# Series-kernel checkpoint round trips (`series::tests`), bit-exact. Already in the lockfile.
+rmp-serde = "1.3"
