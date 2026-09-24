@@ -17,7 +17,7 @@ use super::LegacyIntegrityPolicy;
 /// contains the aggregate document, foundation, 31 domain TBoxes (the world model
 /// as its life, environment and nutrition modules), the core governance-shape
 /// slice, the world-model shapes (35 artifacts, EH-364) and the swarm-topology
-/// module (36, ST-1).  It is deliberately independent of the dynamic
+/// vocabulary and shapes (37, ST-1).  It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
 pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
@@ -752,8 +752,14 @@ fn core_specs() -> &'static [CoreSpec] {
         CoreSpec {
             module: "swarm-topology",
             version: 1,
-            shapes: Some(include_str!("../../ontology/swarm_topology-v1.shapes.ttl")),
+            shapes: None,
             ontology: Some(include_str!("../../ontology/swarm_topology-v1.ttl")),
+        },
+        CoreSpec {
+            module: "swarm-topology-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/swarm_topology-v1.shapes.ttl")),
+            ontology: None,
         },
         CoreSpec {
             module: "worldview",
@@ -831,7 +837,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 36);
+        assert_eq!(sources.core.len(), 37);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1118,7 +1124,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "4218d431f13e6b14ed8cc987c59ba9c5ff51a046042bc7d0ae8c1ff97a6bcf0a",
+                "cebb6fa50bdd1a42b773d093325f607e8d12f673128121e24acd7ddebc8ea649",
             ),
             (
                 "company",
@@ -1227,6 +1233,14 @@ mod tests {
             (
                 "world-model-shapes",
                 "f2be16c304237069bc97b91afc01ac90c846a3f466b7d7ace89ed3e210acdb8d",
+            ),
+            (
+                "swarm-topology",
+                "4aae8c4b8203a82179bcc1bd02623c4fae0f2b8c187ee429d854e80ae271a8a8",
+            ),
+            (
+                "swarm-topology-shapes",
+                "699371a30c9e2b770bc565df246fbdfeb7525614e3557b25fc22923b82ea9e9c",
             ),
             (
                 "worldview",

@@ -14,10 +14,10 @@
 
 pub(crate) mod attach_pack;
 pub(crate) mod compose;
-#[cfg(test)]
-mod world_model_tests;
 #[cfg(all(test, feature = "shacl"))]
 mod swarm_topology_tests;
+#[cfg(test)]
+mod world_model_tests;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -575,14 +575,14 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // The listing reports exactly the immutable core catalog: all 36 core
-        // artifacts (33 ontologies, the governance shapes, the world-model shapes and
-        // the swarm-topology module).
+        // The listing reports exactly the immutable core catalog: all 37 core
+        // artifacts (34 ontologies, the governance shapes, the world-model shapes and
+        // the swarm-topology shapes).
         let catalog = core.schema_sources();
         let catalog_ids: std::collections::BTreeSet<_> =
             catalog.core.keys().map(String::as_str).collect();
         assert_eq!(core_ids, catalog_ids);
-        assert_eq!(core_ids.len(), 36);
+        assert_eq!(core_ids.len(), 37);
         for anchor in [
             "core:catalog@1",
             "core:foundation@1",
