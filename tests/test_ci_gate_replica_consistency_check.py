@@ -373,6 +373,7 @@ def test_advisory_checks_cannot_delay_the_release_path_and_obsolete_runs_cancel(
     )
     assert set(build["needs"]) == {
         *GATES_JOBS,
+        "python-suite",
         "security",
         "lint-and-architecture",
         "tts-piper-inference",
