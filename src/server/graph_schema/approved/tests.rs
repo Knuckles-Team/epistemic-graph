@@ -13,7 +13,9 @@ use eg_types::control_lease::{
 use eg_types::graph_schema::approval::{
     approved_candidate_digest, SCHEMA_APPROVAL_ACTION, SCHEMA_APPROVAL_LEASE_KIND,
 };
-use eg_types::graph_schema::{GraphSchemaCommitted, GraphSchemaSourcesView, SchemaSourceOriginView};
+use eg_types::graph_schema::{
+    GraphSchemaCommitted, GraphSchemaSourcesView, SchemaSourceOriginView,
+};
 
 use super::*;
 use crate::protocol::ResultPayload;
@@ -126,7 +128,9 @@ impl Served {
             idempotency_key: format!("approve:{lease_id}"),
         };
         let method = Method::TransitionControlLease { request: consume };
-        let approved = self.call(GRAPH, &format!("approve:{lease_id}"), method).await;
+        let approved = self
+            .call(GRAPH, &format!("approve:{lease_id}"), method)
+            .await;
         assert!(approved.error.is_none(), "{:?}", approved.error);
     }
 
@@ -139,7 +143,8 @@ impl Served {
             if_composed_digest: None,
         };
         let method = Method::GraphSchema { op: Box::new(op) };
-        self.call(GRAPH, &format!("attach:{lease_id}"), method).await
+        self.call(GRAPH, &format!("attach:{lease_id}"), method)
+            .await
     }
 }
 
@@ -154,7 +159,10 @@ fn decode<T: DeserializeOwned>(response: Response) -> T {
 
 fn refusal(response: &Response) -> &str {
     assert!(response.result.is_none(), "{:?}", response.result);
-    response.error.as_deref().expect("the attach must be refused")
+    response
+        .error
+        .as_deref()
+        .expect("the attach must be refused")
 }
 
 fn candidate() -> String {
@@ -164,7 +172,9 @@ fn candidate() -> String {
 #[tokio::test]
 async fn an_approved_candidate_attaches_under_its_approval_and_records_it() {
     let served = Served::new().await;
-    served.approval("action_approval:ok", &candidate(), true).await;
+    served
+        .approval("action_approval:ok", &candidate(), true)
+        .await;
     let committed: GraphSchemaCommitted =
         decode(served.attach_approved("action_approval:ok").await);
     assert!(committed.changed);
@@ -191,7 +201,9 @@ async fn no_approval_a_pending_approval_or_another_candidates_approval_is_refuse
     let missing = served.attach_approved("action_approval:absent").await;
     assert!(refusal(&missing).starts_with("SCHEMA_APPROVAL_REQUIRED"));
 
-    served.approval("action_approval:pending", &candidate(), false).await;
+    served
+        .approval("action_approval:pending", &candidate(), false)
+        .await;
     let pending = served.attach_approved("action_approval:pending").await;
     assert!(refusal(&pending).contains("still pending"));
 
@@ -200,8 +212,11 @@ async fn no_approval_a_pending_approval_or_another_candidates_approval_is_refuse
     let mismatched = served.attach_approved("action_approval:other").await;
     assert!(refusal(&mismatched).starts_with("SCHEMA_APPROVAL_MISMATCH"));
 
-    let listed: GraphSchemaSourcesView =
-        decode(served.call(GRAPH, "list-after", Method::GraphSchemaList).await);
+    let listed: GraphSchemaSourcesView = decode(
+        served
+            .call(GRAPH, "list-after", Method::GraphSchemaList)
+            .await,
+    );
     assert!(listed
         .dynamic_sources
         .iter()

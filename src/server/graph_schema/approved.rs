@@ -50,7 +50,8 @@ async fn admit(tenant_id: &str, ctx: &MutationCtx<'_>, op: &GraphSchemaOp) -> Re
     else {
         return Err("attach_approved handler received another operation".to_string());
     };
-    let candidate = approved_candidate_digest(source_id, shapes_ttl.as_deref(), ontology_ttl.as_deref());
+    let candidate =
+        approved_candidate_digest(source_id, shapes_ttl.as_deref(), ontology_ttl.as_deref());
     let lease = read_lease(ctx, tenant_id, approval_lease_id).await?;
     verify_schema_approval(
         lease.as_ref(),
@@ -71,7 +72,11 @@ async fn read_lease(
         .and_then(|backend| backend.as_redb())
         .ok_or_else(approval_store_unavailable)?;
     backend
-        .read_control_lease(&crate::persist::sanitize(ctx.graph_name), tenant_id, lease_id)
+        .read_control_lease(
+            &crate::persist::sanitize(ctx.graph_name),
+            tenant_id,
+            lease_id,
+        )
         .await
 }
 
