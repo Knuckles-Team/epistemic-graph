@@ -29,8 +29,9 @@
 //! `SELECT severity, count(*) FROM logs GROUP BY severity` aggregates over the
 //! columnar log segments.
 
+use super::parse::text_body;
 use super::segment::{self, SegmentManifest};
-use super::{text_body, LogRecord, ObsState};
+use super::{LogRecord, ObsState};
 
 /// Default hit cap when a query does not name a `size`.
 pub const DEFAULT_SEARCH_SIZE: usize = 100;
