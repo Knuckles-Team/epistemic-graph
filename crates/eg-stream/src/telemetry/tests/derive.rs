@@ -137,6 +137,8 @@ fn derived_facts_project_onto_typed_linked_graph_nodes_deterministically() {
     let declarations = Declarations {
         entities: estate(),
         health: Vec::new(),
+
+        ..Declarations::default()
     };
     let facts = derive_facts(&policy(), &declarations, &signals);
     assert_eq!(
