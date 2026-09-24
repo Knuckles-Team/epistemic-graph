@@ -55,6 +55,34 @@ pub(super) fn ts_scan(series: &[String], from: f64, to: f64) -> Printed {
     ))
 }
 
+/// `DERIVE expr AS name {, expr AS name}` (EH-522).
+#[cfg(feature = "timeseries")]
+pub(super) fn derive(columns: &[crate::series_expr::DeriveColumn]) -> Printed {
+    let parts = columns
+        .iter()
+        .map(|c| Ok(format!("{} AS {}", uql_series_expr(&c.expr)?, uql_ident(&c.name))))
+        .collect::<Result<Vec<_>, UqlPrintError>>()?;
+    Ok(format!("DERIVE {}", parts.join(", ")))
+}
+
+/// The canonical spelling of a series expression — `func(args…, params…)`, channels as
+/// identifiers, numbers in shortest round-trip form. The digest input of a derived column.
+#[cfg(feature = "timeseries")]
+pub fn uql_series_expr(expr: &crate::series_expr::SeriesExpr) -> Printed {
+    use crate::series_expr::SeriesExpr;
+    match expr {
+        SeriesExpr::Channel { name } => Ok(uql_ident(name)),
+        SeriesExpr::Const { value } => uql_num(*value),
+        SeriesExpr::Call { func, args, params } => {
+            let mut parts = args.iter().map(uql_series_expr).collect::<Result<Vec<_>, _>>()?;
+            for p in params {
+                parts.push(uql_num(*p)?);
+            }
+            Ok(format!("{}({})", func.signature().name, parts.join(", ")))
+        }
+    }
+}
+
 #[cfg(feature = "owl-plan")]
 pub(super) fn reason(target_class: &str, ontology: &str) -> Printed {
     let class = iri_or_string(target_class);

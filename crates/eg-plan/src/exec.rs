@@ -35,6 +35,11 @@ pub use decisions::DecisionSource;
 pub(crate) mod dispatch;
 mod expand;
 mod pred_sql;
+// EH-522 — the `DERIVE` per-series incremental operators.
+#[cfg(feature = "timeseries")]
+mod derive;
+#[cfg(feature = "timeseries")]
+pub(crate) use derive::derive_op;
 // EH-521 — the `TSSCAN` source and the in-txn staged-series overlay it reads.
 #[cfg(feature = "timeseries")]
 mod tsscan;

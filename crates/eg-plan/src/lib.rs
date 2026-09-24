@@ -434,6 +434,10 @@ mod epistemic_tests;
 #[cfg(all(test, any(feature = "owl", feature = "timeseries")))]
 mod tsdb_scan_tests;
 
+// EH-522 — UQL `DERIVE` end to end (parser → serve → executor) against the kernels.
+#[cfg(all(test, feature = "timeseries"))]
+mod derive_tests;
+
 // The ADVANCED cross-modal seam proofs (CONCEPT:EG-KG.compute.asof-valid-t-sources..EG-389): the richest 3+-modality
 // fused plans over a hand-built `PlanCtx` — bitemporal reason→vector→traverse (owl),
 // federation fusion + fail-closed named source (federation), geo×vector×temporal (geo),

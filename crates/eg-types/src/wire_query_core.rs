@@ -537,6 +537,17 @@ pub enum Op {
         from: f64,
         to: f64,
     },
+    /// TRANSFORM (series, EH-522, UQL `DERIVE expr AS name {, expr AS name}`) — evaluate each
+    /// column's [`crate::series_expr::SeriesExpr`] over every series of the input in timestamp
+    /// order (a row belongs to the series its `series@ts` id names) and write the result
+    /// under the column's name as an exact value channel a later `DERIVE` or `RETURN` reads.
+    /// Rows, their order and their scores pass through unchanged; a row with no value yet
+    /// (warm-up, a skipped input) simply has no channel. The kernels are `eg_numeric::series`,
+    /// the same ones the SQL `eg_*` window functions and a materialised derived series run.
+    #[cfg(feature = "timeseries")]
+    Derive {
+        columns: Vec<crate::series_expr::DeriveColumn>,
+    },
     /// TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — run the probabilistic query `query`
     /// against each row's stored `Distribution` VALUE (the conventional `distribution`
     /// node property, the tagged serde form of `eg_types::Distribution`) and SCORE the
