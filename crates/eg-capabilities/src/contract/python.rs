@@ -26,10 +26,10 @@ mod names;
 mod package;
 mod runtime;
 
+use adapters::{TypedOperationAdapter, TYPED_OPERATION_ADAPTERS};
 use digest::digest_module;
 #[cfg(test)]
 use dto::CANONICAL_DIGEST_SPECS;
-use adapters::{TypedOperationAdapter, TYPED_OPERATION_ADAPTERS};
 use dto::{dto_module, dto_python_type, SHARED_DTO_RESULT_MODELS};
 use dto_surfaces::{DtoSurface, DTO_SURFACES};
 use models::{
