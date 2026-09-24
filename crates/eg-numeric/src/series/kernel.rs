@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
+use super::exact::{ExactPairs, MomentWindow, PairSums};
 use super::kalman::Kalman;
 use super::window::{pearson, ranks, Extremum, Moments, Side, Sorted, STD_FLOOR};
 use super::{Arith, Map, PairStat, Rolling, Shift, Smoothing, Spec};
@@ -130,11 +131,8 @@ impl ShiftState {
 /// A rolling statistic over the last `w` valid observations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RollingState {
-    Moments {
-        op: Rolling,
-        window: usize,
-        values: VecDeque<f64>,
-    },
+    /// Mean / std / sum / z-score over exact O(1) running sums (EH-562).
+    Moments { op: Rolling, window: MomentWindow },
     Extremum(Extremum),
     Rank(Sorted),
 }
@@ -148,8 +146,7 @@ impl RollingState {
             Rolling::Mean | Rolling::Std | Rolling::Sum | Rolling::Zscore => {
                 RollingState::Moments {
                     op,
-                    window,
-                    values: VecDeque::with_capacity(window + 1),
+                    window: MomentWindow::new(window),
                 }
             }
         }
@@ -159,15 +156,8 @@ impl RollingState {
         match self {
             RollingState::Extremum(e) => e.step(x),
             RollingState::Rank(r) => r.step(x),
-            RollingState::Moments { op, window, values } => {
-                values.push_back(x);
-                if values.len() > *window {
-                    values.pop_front();
-                }
-                let full = values.len() == *window;
-                full.then(|| Moments::of(values.iter().copied()))
-                    .flatten()
-                    .and_then(|m| moment_stat(*op, &m, x))
+            RollingState::Moments { op, window } => {
+                window.step(x).and_then(|m| moment_stat(*op, &m, x))
             }
         }
     }
@@ -219,12 +209,22 @@ impl EwmaState {
     }
 }
 
-/// A windowed statistic of a pair of series.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A windowed statistic of a pair of series. Correlation and the weighted sum read exact
+/// O(1) running sums (EH-562), rebuilt from `pairs` after a restore; the rank
+/// correlation re-ranks its window.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PairState {
     op: PairStat,
     window: usize,
     pairs: VecDeque<(f64, f64)>,
+    #[serde(skip)]
+    sums: PairSums,
+}
+
+impl PartialEq for PairState {
+    fn eq(&self, other: &Self) -> bool {
+        (self.op, self.window) == (other.op, other.window) && self.pairs == other.pairs
+    }
 }
 
 impl PairState {
@@ -233,20 +233,44 @@ impl PairState {
             op,
             window,
             pairs: VecDeque::with_capacity(window + 1),
+            sums: PairSums::default(),
         }
     }
 
     fn step(&mut self, x: f64, y: f64) -> Option<f64> {
         self.pairs.push_back((x, y));
-        if self.pairs.len() > self.window {
-            self.pairs.pop_front();
-        }
-        (self.pairs.len() == self.window).then_some(())?;
+        let evicted = (self.pairs.len() > self.window)
+            .then(|| self.pairs.pop_front())
+            .flatten();
+        let (op, full) = (self.op, self.pairs.len() == self.window);
+        let exact = match op {
+            PairStat::RankCorr => None,
+            PairStat::Corr | PairStat::WeightedSum => {
+                let sums = self.sums.advance(&self.pairs, (x, y), evicted);
+                (full && sums.all_finite()).then(|| exact_pair_stat(op, sums))
+            }
+        };
+        full.then_some(())?;
+        exact.unwrap_or_else(|| self.recompute())
+    }
+
+    /// The two-pass statistic over the window (the rank correlation, and any window
+    /// holding a non-finite value).
+    fn recompute(&self) -> Option<f64> {
         let (xs, ys): (Vec<f64>, Vec<f64>) = self.pairs.iter().copied().unzip();
         match self.op {
             PairStat::Corr => pearson(&xs, &ys),
             PairStat::RankCorr => pearson(&ranks(&xs), &ranks(&ys)),
             PairStat::WeightedSum => Some(xs.iter().zip(&ys).fold(0.0, |acc, (x, w)| acc + x * w)),
         }
+    }
+}
+
+/// A pair statistic read off the exact running sums.
+fn exact_pair_stat(op: PairStat, sums: &mut ExactPairs) -> Option<f64> {
+    match op {
+        PairStat::Corr => sums.correlation(),
+        PairStat::WeightedSum => Some(sums.weighted_sum()),
+        PairStat::RankCorr => None,
     }
 }

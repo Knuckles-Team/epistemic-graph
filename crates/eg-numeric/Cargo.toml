@@ -119,3 +119,11 @@ eg-types = { path = "../eg-types", features = ["test-support"] }
 rmp-serde = "1.3"
 # The pandas reference goldens (`tests/series_golden.rs`). Already in the lockfile.
 serde_json = "1.0"
+# EH-562 exact rolling statistics vs an exact recompute. Already in the lockfile.
+proptest = "1"
+# EH-562 O(1) vs O(window) rolling-statistics benchmark. Already in the lockfile.
+criterion = { version = "0.5", default-features = false }
+
+[[bench]]
+name = "rolling_exact"
+harness = false

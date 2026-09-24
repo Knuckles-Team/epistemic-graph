@@ -10,6 +10,9 @@
 //! Conventions (fixed here, documented once):
 //! * a missing input (`None`) is skipped — the output is `None` and the state is untouched,
 //!   so a window counts VALID observations and each derived feature keeps its own warm-up;
+//! * the rolling mean / std / sum / z-score, `rcorr` and `wsum` run on exact wide-integer
+//!   running sums (EH-562): O(1) per step, no add/remove residue, each output rounded once
+//!   from the exact value — a flat window has exactly zero deviation;
 //! * `rstd` and `zscore` use the population deviation (`ddof = 0`, PromQL
 //!   `stddev_over_time`); a deviation below [`window::STD_FLOOR`] makes the z-score `0`;
 //! * `ewma` is the recursive form seeded with the first observation (pandas
@@ -20,9 +23,11 @@
 //! Transcendentals go through [`crate::detkernel::math`], so outputs are bit-identical on
 //! every release target.
 
+mod exact;
 pub mod kalman;
 mod kernel;
 pub mod window;
+mod wide;
 
 use serde::{Deserialize, Serialize};
 
