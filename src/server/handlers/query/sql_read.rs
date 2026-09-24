@@ -204,7 +204,7 @@ fn unified_response<M>(
     req_id: u64,
     result: UnifiedRunOutcome,
     #[cfg(feature = "result-cache")] core: &Arc<GraphCore>,
-    #[cfg(feature = "result-cache")] dep: &Option<eg_core::dep_scope::DepSet>,
+    #[cfg(feature = "result-cache")] cache_plan: &UnifiedCachePlan<'_>,
     #[cfg(feature = "result-cache")] version: u64,
     #[cfg(feature = "result-cache")] hash: u128,
 ) -> Response
@@ -216,22 +216,7 @@ where
         Ok(Ok(rows)) => match ResultPayload::of_ref::<M>(&rows) {
             Ok(payload) => {
                 #[cfg(feature = "result-cache")]
-                match dep {
-                    Some(deps) => eg_core::result_cache::cache_dep_result(
-                        core.result_cache(),
-                        hash,
-                        0,
-                        version,
-                        deps.clone(),
-                        &payload,
-                    ),
-                    None => eg_core::result_cache::cache_result(
-                        core.result_cache(),
-                        hash,
-                        version,
-                        &payload,
-                    ),
-                }
+                cache_plan.store(core, hash, version, &payload);
                 Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
@@ -266,11 +251,12 @@ pub(crate) async fn handle_unified_query(
     // both reflect `version`, so a write retires the entry; the
     // RLS-context salt keeps agent A's fused result out of agent B's lookups.
     // Dependency-scoped invalidation (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
-    // W1.6/P7): a plan reducible to a bounded node read (Scan/Filter/Limit) is cached in
-    // the dependency-scoped namespace, so it survives every write DISJOINT from its
-    // labels; any other plan shape keeps the coarse version-keyed path unchanged.
+    // W1.6/P7 + EH-393): a plan whose reads reduce to a dependency set (labels, edge types,
+    // row visibility, the embedding generation) survives every write DISJOINT from it; a
+    // named-foreign plan is keyed on its sources' watermarks and refused when any is stale
+    // (EH-400). `UnifiedCachePlan` makes that one decision for both unified arms.
     #[cfg(feature = "result-cache")]
-    let dep = plan_dependency_set(&plan);
+    let cache_plan = UnifiedCachePlan::for_plan(&core, &plan);
     #[cfg(feature = "result-cache")]
     let (snap, version, hash) = {
         let mut payload = match msgpack_bytes(&plan) {
@@ -282,6 +268,8 @@ pub(crate) async fn handle_unified_query(
             payload.extend_from_slice(tenant.as_bytes());
             payload.extend_from_slice(graph.as_bytes());
         }
+        // EH-400: a named foreign source's watermark is part of the key.
+        payload.extend_from_slice(&cache_plan.salt);
         let hash = rls_cache_hash(
             "unified",
             &payload,
@@ -311,10 +299,7 @@ pub(crate) async fn handle_unified_query(
         // still stores under the FRESH version/deps this call's own
         // snapshot reflects, so a stale or cross-actor entry can
         // never result).
-        let probe = match &dep {
-            Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-            None => core.result_cache().get(hash, core.version()),
-        };
+        let probe = cache_plan.lookup(&core, hash);
         if let Some(bytes) = probe {
             return Ok(Response::ok(
                 req_id,
@@ -358,7 +343,7 @@ pub(crate) async fn handle_unified_query(
         #[cfg(feature = "result-cache")]
         &core,
         #[cfg(feature = "result-cache")]
-        &dep,
+        &cache_plan,
         #[cfg(feature = "result-cache")]
         version,
         #[cfg(feature = "result-cache")]
@@ -394,11 +379,10 @@ pub(crate) async fn handle_unified_query_text(
     // on the text + the caller's RLS context (the parse is deterministic, so
     // caching pre-parse is sound and skips the parse on a hit too). The
     // RLS-context salt keeps agent A's result out of agent B's lookups.
-    // Dependency-scoped invalidation (W1.6/P7): identical to the `UnifiedQuery` arm — a
-    // Scan/Filter/Limit plan is cached in the dependency-scoped namespace (survives
-    // disjoint writes); any other shape keeps the version-keyed path.
+    // Dependency-scoped invalidation (W1.6/P7 + EH-393/EH-400): identical to the
+    // `UnifiedQuery` arm — the same `UnifiedCachePlan` decision.
     #[cfg(feature = "result-cache")]
-    let dep = plan_dependency_set(&plan);
+    let cache_plan = UnifiedCachePlan::for_plan(&core, &plan);
     #[cfg(feature = "result-cache")]
     let (snap, version, hash) = {
         let mut payload = text.clone().into_bytes();
@@ -407,6 +391,8 @@ pub(crate) async fn handle_unified_query_text(
             payload.extend_from_slice(tenant.as_bytes());
             payload.extend_from_slice(graph.as_bytes());
         }
+        // EH-400: a named foreign source's watermark is part of the key.
+        payload.extend_from_slice(&cache_plan.salt);
         let hash = rls_cache_hash(
             "unified-text",
             &payload,
@@ -420,10 +406,7 @@ pub(crate) async fn handle_unified_query_text(
         // AND for why there is only ONE counted cache lookup here (a
         // second post-snapshot check double-counts misses against
         // `ResultCache`'s hit/miss stats).
-        let probe = match &dep {
-            Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-            None => core.result_cache().get(hash, core.version()),
-        };
+        let probe = cache_plan.lookup(&core, hash);
         if let Some(bytes) = probe {
             return Ok(Response::ok(
                 req_id,
@@ -467,7 +450,7 @@ pub(crate) async fn handle_unified_query_text(
         #[cfg(feature = "result-cache")]
         &core,
         #[cfg(feature = "result-cache")]
-        &dep,
+        &cache_plan,
         #[cfg(feature = "result-cache")]
         version,
         #[cfg(feature = "result-cache")]

@@ -44,6 +44,7 @@ impl SemanticStore {
 
         let is_update = self.embeddings.contains_key(&node_id);
         self.embeddings.insert(node_id.clone(), embedding.clone());
+        self.generation.bump();
         let live_len = self.embeddings.len();
 
         let mut idx = self.index.write();
@@ -79,6 +80,7 @@ impl SemanticStore {
         if self.embeddings.remove(node_id).is_none() {
             return false;
         }
+        self.generation.bump();
         let live_len = self.embeddings.len();
         let mut idx = self.index.write();
         if idx.hnsw.is_some() {

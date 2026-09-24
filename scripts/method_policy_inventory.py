@@ -72,7 +72,9 @@ class MethodPolicyRow:
 # 430 -> 436: graph-os EG-2..EG-5 typed control-plane methods -- `GetWorkItem`,
 # `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 # `TransitionControlLease` and `GetControlLease`.
-EXPECTED_METHOD_POLICY_ROWS = 436
+# 436 -> 437: EH-400's `FreshnessFeed` (messaging) -- per-class invalidation
+# events, the class volatility policy and foreign-source watermark freshness.
+EXPECTED_METHOD_POLICY_ROWS = 437
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

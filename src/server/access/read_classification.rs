@@ -320,9 +320,19 @@ pub(super) const REASON_DECIDE_LIBRARY_SNAPSHOT: &str =
 pub(super) const REASON_NATIVE_WORK_ITEM_TENANT_READ: &str =
     "native_routes::route_work_item_reads routes GetWorkItem/ListWorkItems/GetWorkItemOutcome/GetControlLease (placement leader + read barrier under raft) to handlers::work_item_read, which refuses any request tenant other than the verified carrier tenant, then reads redb node rows via redb_store::work_item::{read_work_item, list_work_items, read_work_item_outcome, read_control_lease} and projects only rows whose `tenant` equals it -- never a GraphView/core.analysis_snapshot() row read; lease owner/epoch/fencing token are never projected";
 
+// EH-400: `FreshnessFeed` returns change METADATA, not rows: invalidation events are (version,
+// class names, edge-type names) straight from the dependency clock; the volatility policy is
+// annotations on schema classes (visible to every reader of the graph, see `RLS_SCHEMA_KEY`);
+// and foreign-source watermark nodes -- the only instance rows it reads -- are filtered through
+// the caller's `IsolationLayer::can_see_row` before they are reported.
+pub(super) const REASON_FRESHNESS_METADATA: &str =
+    "handlers::query::freshness_feed reads the DepClock invalidation log (versions + class/edge-type names, no row ids or content) and schema-class volatility annotations; the only instance rows it reports, ForeignSourceWatermark nodes, pass IsolationLayer::can_see_row for the caller first";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
+    // REASON_FRESHNESS_METADATA
+    ("FreshnessFeed", REASON_FRESHNESS_METADATA),
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
     ("AgentAssemble", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     // REASON_SOLVE_PURE_COMPUTE

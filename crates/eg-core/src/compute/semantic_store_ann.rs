@@ -230,6 +230,9 @@ pub struct SemanticStore {
     /// CONCEPT:EG-KG.storage.semantic-index-directory — `STATE_COLD`/`STATE_READY`. `Ready` ⟺ `index` is `Some` and
     /// reflects the current embeddings. Read on every search to decide ANN-vs-brute.
     state: AtomicU8,
+    /// Content stamp (EH-393): restamped on every vector / space change and on every ANN
+    /// generation adoption (the active generation changes what a probe returns).
+    generation: crate::compute::semantic::GenerationStamp,
 }
 
 mod semantic_ann_index;
@@ -251,6 +254,7 @@ impl Clone for SemanticStore {
             index: RwLock::new(None),
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
+            generation: self.generation.carry(),
         }
     }
 }

@@ -639,6 +639,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ListWorkItems { .. }
         | Method::GetWorkItemOutcome { .. }
         | Method::GetControlLease { .. }
+        // EH-400: reads the dependency clock's invalidation feed and class/watermark nodes.
+        | Method::FreshnessFeed { .. }
         | Method::MutationOutbox { .. } => default_mutation_domain(surface),
         // `DecisionFit`/`DecisionEval` are NOT surface-keyed: both commit a native
         // MutationBatch in jobs.redb -- the same job-plane store `AnalyticsJob`
