@@ -133,12 +133,12 @@ impl Renderer<'_> {
     }
 
     /// One field, in the first form that fits: flat, a parenthesized flat union, or
-    /// an alias minted for the annotation.
+    /// an alias minted for the annotation (flat, or with its `Field(...)` default split).
     fn field(&mut self, owner: &str, wire: &str, schema: &Value, required: bool) -> String {
         let (identifier, aliased) = field_identifier(wire);
         let presence = FieldPresence::of(required, schema);
         let mut annotation = dto_python_type(schema);
-        for _ in 0..2 {
+        for minted in [false, true] {
             let (declared, default) = presence.declaration(&annotation, aliased.then_some(wire));
             let default = default
                 .map(|value| format!(" = {value}"))
@@ -149,6 +149,13 @@ impl Renderer<'_> {
             }
             if is_flat_union(&declared) && width(&declared) + 8 <= WIDTH {
                 return format!("    {identifier}: (\n        {declared}\n    ){default}\n");
+            }
+            // A minted alias is a bare name, so the formatter splits the default's call.
+            if let Some(line) = minted
+                .then(|| split_default_call(&identifier, &declared, &default))
+                .flatten()
+            {
+                return line;
             }
             annotation = self.mint(&format!("{owner}{}", pascal_case(wire)), schema);
         }
@@ -264,6 +271,16 @@ fn map_value(node: &Value) -> Option<&Value> {
         .get("additionalProperties")
         .filter(|value| value.is_object())?;
     (is_map && node.get("properties").is_none()).then_some(value)
+}
+
+/// A `Field(...)` default the formatter moves to its own line inside the call's
+/// parentheses (`name: T = Field(\n        default_factory=list\n    )`), when the
+/// head fits and the arguments fit one indented line.
+fn split_default_call(identifier: &str, declared: &str, default: &str) -> Option<String> {
+    let arguments = default.strip_prefix(" = Field(")?.strip_suffix(')')?;
+    let head = format!("    {identifier}: {declared} = Field(");
+    (width(&head) <= WIDTH && width(arguments) + 8 <= WIDTH)
+        .then(|| format!("{head}\n        {arguments}\n    )\n"))
 }
 
 /// A top-level union of bare names: the formatter parenthesizes it as a whole.
