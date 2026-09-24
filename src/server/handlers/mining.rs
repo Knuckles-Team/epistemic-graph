@@ -25,6 +25,7 @@ use crate::protocol::{
 mod association;
 mod classic;
 mod entity;
+mod impact;
 mod input;
 mod insight;
 mod process;
@@ -653,6 +654,7 @@ fn dispatch_insight_families_for_test(
             damping,
             tolerance,
             max_iterations,
+            model,
             writeback,
             #[cfg(feature = "epistemic")]
             as_claim,
@@ -666,6 +668,7 @@ fn dispatch_insight_families_for_test(
                 damping,
                 tolerance,
                 max_iterations,
+                model,
                 writeback: WritebackOptions {
                     enabled: writeback,
                     #[cfg(feature = "epistemic")]
@@ -2705,6 +2708,7 @@ mod tests {
             damping: 0.85,
             tolerance: 1e-7,
             max_iterations: 2000,
+            model: Default::default(),
             writeback: true,
             #[cfg(feature = "epistemic")]
             as_claim,
