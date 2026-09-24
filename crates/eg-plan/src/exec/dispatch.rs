@@ -47,6 +47,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         | Op::Filter { .. }
         | Op::Traverse { .. }
         | Op::Expand { .. }
+        | Op::Propagate { .. }
         | Op::Project { .. }
         | Op::Rank { .. }
         | Op::RankEmbed { .. }
@@ -182,6 +183,7 @@ pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Ro
             };
             expand::expand_op(ctx.view, &input, *dir, (*min, *max), &filter, &ctx.budget)
         }
+        Op::Propagate { .. } => super::propagate::apply(op, &input, ctx),
         // Channel selection is applied where the result is encoded; rows pass through.
         Op::Project { .. } => Ok(input),
         Op::DecisionScan { preds } => super::decisions::decision_scan(ctx, preds),

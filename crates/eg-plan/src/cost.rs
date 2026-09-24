@@ -1084,6 +1084,10 @@ impl ModalityCardinality {
             Op::Traverse { min, max, .. } | Op::Expand { min, max, .. } => {
                 rowcount::traverse_static_rows_out(self, in_card, *min, *max, n)
             }
+            // PROPAGATE: the seeds plus their downstream cone within the hop bound.
+            Op::Propagate { hops, .. } => {
+                rowcount::traverse_static_rows_out(self, in_card, 0, *hops, n)
+            }
             // RANK: a rerank preserves the candidate set MINUS rows with no embedding
             // (recall coverage); as a SOURCE (empty input) it is a top-k over the index.
             Op::Rank { .. } | Op::RankEmbed { .. } => rowcount::rank_static_rows_out(self, in_card),

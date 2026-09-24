@@ -82,6 +82,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "BETWEEN",
     "BUFFER",
     "BY",
+    "CASCADE",
     "CENTROID",
     "CEP",
     "CLOCK",
@@ -95,6 +96,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "CROSSES",
     "DECIDE",
     "DECISIONS",
+    "DEFAULT",
     "DIFFERENCE",
     "DISJOINT",
     "DIV",
@@ -111,6 +113,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "FROM",
     "FUSE",
     "GAUSSIAN",
+    "HOPS",
     "HTTP",
     "ID",
     "IN",
@@ -137,6 +140,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "MUL",
     "NEAREST",
     "NODE_DISTANCE",
+    "NOISY_OR",
     "NOT",
     "NULL",
     "OF",
@@ -147,6 +151,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "PROB",
     "PROFILE",
     "PROOF",
+    "PROPAGATE",
     "RANK",
     "REASON",
     "REDUCE",
@@ -155,6 +160,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "RERANK",
     "RETURN",
     "SAMPLE",
+    "SAMPLES",
     "SCAN",
     "SCORE",
     "SEED",
@@ -300,6 +306,19 @@ pub fn uql_op(op: &Op) -> Printed {
             max,
             edge_preds,
         } => expand(rel.as_deref(), *dir, (*min, *max), edge_preds),
+        Op::Propagate {
+            model,
+            rel,
+            dir,
+            edge_preds,
+            hops,
+            default_transmission,
+        } => propagate(
+            *model,
+            &edge_pattern(rel.as_deref(), *dir, edge_preds)?,
+            *hops,
+            *default_transmission,
+        ),
         Op::Rank { query } => rank(query),
         Op::RankEmbed { text } => keyword_quoted("RANK BY ~", text),
         Op::RankNodeDistance { center } => keyword_quoted("RERANK NODE_DISTANCE FROM", center),
@@ -440,7 +459,8 @@ fn project(channels: &[String]) -> Printed {
     Ok(format!("RETURN {}", names.join(", ")))
 }
 
-fn expand(rel: Option<&str>, dir: EdgeDir, hops: (usize, usize), edge_preds: &[Pred]) -> Printed {
+/// `-[rel WHERE …]->` / `<-[…]-` / `-[…]-`.
+fn edge_pattern(rel: Option<&str>, dir: EdgeDir, edge_preds: &[Pred]) -> Printed {
     let rel = rel.map_or_else(|| "*".to_string(), |r| format!(":{}", uql_ident(r)));
     let cond = if edge_preds.is_empty() {
         String::new()
@@ -452,9 +472,25 @@ fn expand(rel: Option<&str>, dir: EdgeDir, hops: (usize, usize), edge_preds: &[P
         EdgeDir::In => ("<-[", "]-"),
         EdgeDir::Both => ("-[", "]-"),
     };
+    Ok(format!("{open}{rel}{cond}{close}"))
+}
+
+fn expand(rel: Option<&str>, dir: EdgeDir, hops: (usize, usize), edge_preds: &[Pred]) -> Printed {
+    let edge = edge_pattern(rel, dir, edge_preds)?;
+    Ok(format!("TRAVERSE {edge}{{{},{}}}", hops.0, hops.1))
+}
+
+/// `PROPAGATE NOISY_OR | CASCADE SAMPLES n SEED s <edge> HOPS h DEFAULT p` (EH-526).
+fn propagate(model: PropagateModel, edge: &str, hops: usize, default: f64) -> Printed {
+    let model = match model {
+        PropagateModel::NoisyOr => "NOISY_OR".to_string(),
+        PropagateModel::Cascade { samples, seed } => {
+            format!("CASCADE SAMPLES {samples} SEED {seed}")
+        }
+    };
     Ok(format!(
-        "TRAVERSE {open}{rel}{cond}{close}{{{},{}}}",
-        hops.0, hops.1
+        "PROPAGATE {model} {edge} HOPS {hops} DEFAULT {}",
+        uql_num(default)?
     ))
 }
 

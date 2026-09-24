@@ -107,10 +107,11 @@ impl<'a> Parser<'a> {
     /// Every stage/source keyword → its parser. MATCH (it may lower to two ops) and
     /// `VALIDATE SHAPE` (the two-keyword lead `parser::shape` owns, so that every other
     /// `VALIDATE …` still reaches the DecideText refusal) are handled by [`Self::stage`].
-    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 30] {
+    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 31] {
         [
             ("WHERE", Self::where_stage),
             ("TRAVERSE", Self::traverse),
+            ("PROPAGATE", Self::propagate),
             ("RANK", Self::rank),
             ("RERANK", Self::rerank),
             ("AS", Self::as_of),

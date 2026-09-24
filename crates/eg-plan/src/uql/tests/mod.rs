@@ -10,6 +10,8 @@ mod lexing;
 mod params;
 mod predicates;
 mod program;
+#[cfg(feature = "query")]
+mod propagate;
 mod roundtrip;
 #[cfg(feature = "query")]
 mod serve;

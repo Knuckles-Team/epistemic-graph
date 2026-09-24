@@ -37,7 +37,7 @@ macro_rules! kinds {
 kinds! {
     /// One [`Op`] variant, without its fields.
     OpKind, all;
-    Scan, ScanAll, Filter, Traverse, Expand, Rank, RankEmbed, RankNodeDistance, RankMentions,
+    Scan, ScanAll, Filter, Traverse, Expand, Propagate, Rank, RankEmbed, RankNodeDistance, RankMentions,
     RankMmr,
     #[cfg(feature = "text")] RankText,
     #[cfg(feature = "text")] FuseRrf,
@@ -90,6 +90,7 @@ pub fn op_kind(op: &Op) -> OpKind {
         Op::Filter { .. } => OpKind::Filter,
         Op::Traverse { .. } => OpKind::Traverse,
         Op::Expand { .. } => OpKind::Expand,
+        Op::Propagate { .. } => OpKind::Propagate,
         Op::Rank { .. } => OpKind::Rank,
         Op::RankEmbed { .. } => OpKind::RankEmbed,
         Op::RankNodeDistance { .. } => OpKind::RankNodeDistance,
@@ -198,6 +199,7 @@ impl OpKind {
             OpKind::RankNodeDistance => Some("node_distance"),
             OpKind::RankMentions => Some("mentions"),
             OpKind::RankMmr => Some("mmr"),
+            OpKind::Propagate => Some("impact"),
             #[cfg(feature = "text")]
             OpKind::RankText => Some("text"),
             #[cfg(feature = "text")]
@@ -262,6 +264,7 @@ impl OpKind {
             | OpKind::Filter
             | OpKind::Traverse
             | OpKind::Expand
+            | OpKind::Propagate
             | OpKind::AsOf
             | OpKind::Window
             | OpKind::WindowAgg
