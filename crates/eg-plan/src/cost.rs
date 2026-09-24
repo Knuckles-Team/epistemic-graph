@@ -24,6 +24,7 @@
 //! (ii) the other order's `Rank` IS an index top-k, but must **over-fetch
 //!     ≈ top_k/selectivity** candidates so enough survive the downstream filter.
 
+#[cfg(any(feature = "query", test))]
 use crate::algebra::Op;
 
 #[cfg(feature = "query")]
