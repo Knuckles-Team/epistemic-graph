@@ -20,7 +20,7 @@
 //!   same least-privilege ownership the SQL catalog uses.
 //! * [`ForeignSourceCatalog::registry_for`] is the only way to turn catalog entries into
 //!   the executor's [`ForeignSourceRegistry`], and it copies only the caller's own
-//!   entries. Every served plan path (`UnifiedQuery`, `UnifiedQueryText`, the
+//!   entries. Every served plan path (`UnifiedQuery`, `Uql`, the
 //!   policy-lease text path, in-txn UQL, `NlQuery`, and the wire-protocol UQL path)
 //!   builds its registry through [`ForeignSourceCatalog::resolve_for_plan`].
 //!

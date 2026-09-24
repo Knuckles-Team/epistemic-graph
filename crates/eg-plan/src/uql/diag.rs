@@ -158,31 +158,49 @@ impl UqlError {
     ///   = help: …
     /// ```
     pub fn render(&self, src: &str) -> String {
-        let at = floor_char_boundary(src, self.at);
-        let line_start = src[..at].rfind('\n').map_or(0, |n| n + 1);
-        let line_end = src[at..].find('\n').map_or(src.len(), |n| at + n);
-        let line_no = src[..at].matches('\n').count() + 1;
-        let col = src[line_start..at].chars().count() + 1;
-        let end = floor_char_boundary(src, self.end.clamp(at, line_end));
-        let width = src[at..end].chars().count().max(1);
-        let gutter = line_no.to_string().len();
-        let mut out = format!(
-            "{} at {line_no}:{col}: {}\n  {line_no} | {}\n  {:gutter$} | {}{}",
+        render_caret(
             self.code.as_str(),
-            self.msg,
-            &src[line_start..line_end],
-            "",
-            " ".repeat(col - 1),
-            "^".repeat(width),
-        );
-        if !self.expected.is_empty() {
-            out.push_str(&format!("\n  = expected: {}", self.expected.join(", ")));
-        }
-        if let Some(help) = &self.help {
-            out.push_str(&format!("\n  = help: {help}"));
-        }
-        out
+            &self.msg,
+            (self.at, self.end),
+            &self.expected,
+            self.help.as_deref(),
+            src,
+        )
     }
+}
+
+/// The `line:column` caret diagnostic of an error `code` at byte `span` of `src` — the
+/// one renderer UQL and DecideText errors share.
+pub(crate) fn render_caret(
+    code: &str,
+    msg: &str,
+    span: (usize, usize),
+    expected: &[String],
+    help: Option<&str>,
+    src: &str,
+) -> String {
+    let at = floor_char_boundary(src, span.0);
+    let line_start = src[..at].rfind('\n').map_or(0, |n| n + 1);
+    let line_end = src[at..].find('\n').map_or(src.len(), |n| at + n);
+    let line_no = src[..at].matches('\n').count() + 1;
+    let col = src[line_start..at].chars().count() + 1;
+    let end = floor_char_boundary(src, span.1.clamp(at, line_end));
+    let width = src[at..end].chars().count().max(1);
+    let gutter = line_no.to_string().len();
+    let mut out = format!(
+        "{code} at {line_no}:{col}: {msg}\n  {line_no} | {}\n  {:gutter$} | {}{}",
+        &src[line_start..line_end],
+        "",
+        " ".repeat(col - 1),
+        "^".repeat(width),
+    );
+    if !expected.is_empty() {
+        out.push_str(&format!("\n  = expected: {}", expected.join(", ")));
+    }
+    if let Some(help) = help {
+        out.push_str(&format!("\n  = help: {help}"));
+    }
+    out
 }
 
 fn floor_char_boundary(src: &str, at: usize) -> usize {

@@ -368,7 +368,7 @@ pub struct OwlReasonResult {
 /// cited `axioms`. Recursive — `premises` nests to the tree's actual depth (never
 /// flattened), so a client walks it exactly like the reasoner derived it.
 #[cfg(feature = "owl")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ProofNodeWire {
     pub sub: String,

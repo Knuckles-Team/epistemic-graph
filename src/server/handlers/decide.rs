@@ -37,12 +37,15 @@ mod stat_replay;
 mod stat_resolve;
 #[cfg(feature = "decide")]
 mod stat_slate;
+// EH-066 — the decision record views (SQL catalog relations + the UQL `DECISIONS` source).
 #[cfg(feature = "decide")]
 mod stat_retention;
 #[cfg(feature = "decide")]
 mod stat_support;
 #[cfg(all(test, feature = "decide"))]
 mod stat_tests;
+#[cfg(all(feature = "decide", feature = "query"))]
+mod stat_view;
 #[cfg(feature = "decide")]
 mod telemetry;
 
@@ -51,3 +54,36 @@ pub(crate) use commit::handle_decision_commit;
 pub(crate) use jobs::{handle_decision_eval, handle_decision_fit};
 pub(crate) use log::handle_decision_log;
 pub(crate) use statistical::handle_decide;
+
+/// The caller's read-only SQL relations — the decision record views (EH-066) — when
+/// `query` can see them; `None` otherwise, or in a build without the Decide layer.
+#[cfg(feature = "query")]
+pub(crate) async fn read_only_relations(
+    state: &SharedState,
+    authority: &crate::server::access::CarrierAuthority,
+    query: &str,
+) -> Option<crate::server::sql_catalog_acl::SharedRelations> {
+    #[cfg(feature = "decide")]
+    {
+        if !crate::server::sql_catalog_acl::wants_read_only_relations(query) {
+            return None;
+        }
+        let views = stat_view::DecisionViews::served(state, authority).await?;
+        Some(views as crate::server::sql_catalog_acl::SharedRelations)
+    }
+    #[cfg(not(feature = "decide"))]
+    {
+        let _ = (state, authority, query);
+        None
+    }
+}
+
+/// The caller's visible decision log as a UQL `DECISIONS` source (EH-066).
+#[cfg(all(feature = "decide", feature = "query"))]
+pub(crate) async fn decision_source(
+    state: &SharedState,
+    authority: &crate::server::access::CarrierAuthority,
+) -> Option<std::sync::Arc<dyn eg_plan::exec::DecisionSource>> {
+    let views = stat_view::DecisionViews::served(state, authority).await?;
+    Some(views as std::sync::Arc<dyn eg_plan::exec::DecisionSource>)
+}
