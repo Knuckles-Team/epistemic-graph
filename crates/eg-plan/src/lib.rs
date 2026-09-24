@@ -183,6 +183,9 @@ pub use rowset::RowSet;
 
 pub mod rowset;
 
+/// The `PROPAGATE` cone as plain ids (EH-526): what a standing impact watch recomputes.
+#[cfg(feature = "query")]
+pub use exec::propagate::{impact_cone, ImpactCone, ImpactEdges};
 /// The in-txn tsdb read-your-own-writes staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
 #[cfg(feature = "timeseries")]
 pub use exec::StagedSeries;

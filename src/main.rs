@@ -1607,6 +1607,21 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             epistemic_graph::server::reasoning_cascade::spawn(state.clone(), cascade);
         }
     }
+    // EH-526 standing impact watches (opt-in, `EPISTEMIC_GRAPH_IMPACT_ON_WRITE`): a
+    // committed change to a watched seed recomputes its downstream impact through the
+    // ordinary `MineRiskPropagation` writeback path. Unset ⇒ nothing installed/spawned.
+    #[cfg(all(feature = "streaming", feature = "mining", feature = "query"))]
+    {
+        let hub =
+            std::sync::Arc::new(epistemic_graph::server::impact_watch::ImpactWatchHub::from_env());
+        if hub.is_active() {
+            if let Some(cdc) = state.read().await.cdc.as_ref() {
+                cdc.install_impact_watch(hub.clone());
+            }
+            info!("Impact watches (EPISTEMIC_GRAPH_IMPACT_ON_WRITE) armed");
+            epistemic_graph::server::impact_watch::spawn(state.clone(), hub);
+        }
+    }
     // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl —
     // install the server-layer secondary-index factory so a committed write batch
     // maintains the text / temporal / derived-OWL indexes INCREMENTALLY through the

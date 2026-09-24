@@ -181,3 +181,66 @@ pub(crate) fn apply(op: &Op, input: &RowSet, ctx: &PlanCtx) -> Result<RowSet, St
     };
     propagate_op(ctx.view, input, &spec, &ctx.budget)
 }
+
+/// The edges an impact cone follows, as plain data (a standing impact watch's edge
+/// pattern: no edge predicates).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImpactEdges {
+    pub rel: Option<String>,
+    pub dir: EdgeDir,
+    pub default_transmission: f64,
+}
+
+impl ImpactEdges {
+    /// The same edges walked the other way (the seeds that can reach a region).
+    pub fn reversed(&self) -> Self {
+        let dir = match self.dir {
+            EdgeDir::Out => EdgeDir::In,
+            EdgeDir::In => EdgeDir::Out,
+            EdgeDir::Both => EdgeDir::Both,
+        };
+        Self {
+            dir,
+            ..self.clone()
+        }
+    }
+}
+
+/// A cone as ids: `nodes` (the starting ids that exist first, in the order given),
+/// and every followed edge `(from, to, transmission)` in the direction impact flows.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ImpactCone {
+    pub nodes: Vec<String>,
+    pub edges: Vec<(String, String, f64)>,
+}
+
+/// The cone of `start` along `edges` within `hops`, under the default traversal budget
+/// — the input a `MineRiskPropagation` impact run over the same region takes.
+pub fn impact_cone(
+    view: &GraphView,
+    start: &[String],
+    edges: &ImpactEdges,
+    hops: usize,
+) -> Result<ImpactCone, String> {
+    let spec = PropagateSpec {
+        model: PropagateModel::NoisyOr,
+        filter: EdgeFilter {
+            rel: edges.rel.as_deref(),
+            preds: &[],
+        },
+        dir: edges.dir,
+        hops,
+        default_transmission: edges.default_transmission,
+    };
+    let rows = RowSet::from_ids(start.iter().cloned());
+    let cone = collect_cone(view, &rows, &spec, &Budget::default())?;
+    let id = |i: usize| view.graph[cone.ids[i]].clone();
+    Ok(ImpactCone {
+        nodes: (0..cone.ids.len()).map(id).collect(),
+        edges: cone
+            .edges
+            .iter()
+            .map(|&(u, v, p)| (id(u), id(v), p))
+            .collect(),
+    })
+}

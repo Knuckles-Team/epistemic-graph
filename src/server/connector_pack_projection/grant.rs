@@ -17,55 +17,22 @@
 //! An empty policy awaiting its signer-backed System bootstrap is never
 //! touched: registering an identity there would consume the bootstrap.
 
-use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
+use crate::isolation::IsolationLayer;
+use crate::server::service_grant::ServiceGraphGrant;
 
 /// The fixed service principal the projection worker writes as.
 pub(crate) const PROJECTION_ACTOR: &str = "service:connector-pack-projection";
 
-fn role_for(graph: &str) -> String {
-    format!("pack-projection:{graph}")
-}
-
-fn grants_for(graph: &str) -> [Grant; 2] {
-    [RbacAction::Read, RbacAction::Write].map(|action| Grant {
-        role: role_for(graph),
-        resource: ResourceSelector::Graph(graph.to_string()),
-        action,
-        effect: GrantEffect::Allow,
-    })
-}
+const GRANT: ServiceGraphGrant<'static> = ServiceGraphGrant {
+    actor: PROJECTION_ACTOR,
+    role_prefix: "pack-projection",
+    unbootstrapped: "PACK_PROJECTION_POLICY_UNBOOTSTRAPPED",
+};
 
 /// Let [`PROJECTION_ACTOR`] read and write exactly `graph`. Idempotent: an
 /// already-provisioned grant writes nothing.
 pub(crate) fn ensure(isolation: &mut IsolationLayer, graph: &str) -> Result<(), String> {
-    if isolation.identity_bootstrap_pending() {
-        return Err(
-            "PACK_PROJECTION_POLICY_UNBOOTSTRAPPED: the identity policy awaits its System \
-             bootstrap; pack projection access is provisioned after it"
-                .to_string(),
-        );
-    }
-    let role = role_for(graph);
-    for grant in grants_for(graph) {
-        if !isolation.rbac().grants().contains(&grant) {
-            isolation.try_add_role(Role::new(role.clone()))?;
-            isolation.try_add_grant(grant)?;
-        }
-    }
-    let mut identity = isolation
-        .get_identity(PROJECTION_ACTOR)
-        .unwrap_or_else(|| AgentIdentity {
-            agent_id: PROJECTION_ACTOR.to_string(),
-            role: AgentRole::Agent,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-    if identity.roles.contains(&role) {
-        return Ok(());
-    }
-    identity.roles.push(role);
-    isolation.try_register_agent(identity)
+    GRANT.ensure(isolation, graph)
 }
 
 #[cfg(test)]
