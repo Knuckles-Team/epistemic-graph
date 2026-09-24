@@ -288,7 +288,7 @@ def main() -> None:
     graphql_sse = read("src/server/graphql_sub.rs")
     graphql_crossmodal = read("crates/eg-graphql/src/crossmodal.rs")
     ros2 = read("src/server/ros2_bridge.rs")
-    obs = read("src/server/obs/mod.rs")
+    obs = read_module_tree("src/server/obs/mod.rs", root_dir=ROOT)
     s3_http = read("src/server/s3/mod.rs")
     kvcache_http = read("src/server/kvcache_http/mod.rs")
     federation_http = read("src/server/federation/mod.rs")
