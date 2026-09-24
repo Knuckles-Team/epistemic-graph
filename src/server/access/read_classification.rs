@@ -291,6 +291,12 @@ pub(super) const REASON_SOLVE_PURE_COMPUTE: &str =
 // X9: the schema-source list is graph CONTROL state (which shapes and ontology
 // documents are attached, and their digests), not graph data. It is gated by
 // `security:admin`, which additionally requires the RBAC admin capability.
+// EH-471: `OntologyInspect` parses caller-supplied documents or the request graph's
+// composed GraphSchema source documents -- schema, not data. Its `validation:read`
+// scope is the one `ShaclValidate` already needs to apply those same composed
+// shapes; no GraphView or row is ever constructed.
+pub(super) const REASON_ONTOLOGY_SCHEMA_DOCUMENTS: &str =
+    "OntologyInspect parses caller-supplied Turtle or the request graph's composed GraphSchema source documents behind validation:read (the scope ShaclValidate needs to apply the same composed shapes) -- schema documents, never a GraphView/core.analysis_snapshot() row read";
 pub(super) const REASON_GRAPH_SCHEMA_CONTROL_STATE: &str =
     "GraphSchemaList reads the request graph's attached schema-source keys, origins and digests -- graph control state behind security:admin and the RBAC admin capability, never a GraphView/core.analysis_snapshot() row read";
 // RF-ADR-009: status reads one source-partition marker keyed by the verified
@@ -339,6 +345,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("Solve", REASON_SOLVE_PURE_COMPUTE),
     // REASON_GRAPH_SCHEMA_CONTROL_STATE
     ("GraphSchemaList", REASON_GRAPH_SCHEMA_CONTROL_STATE),
+    // REASON_ONTOLOGY_SCHEMA_DOCUMENTS
+    ("OntologyInspect", REASON_ONTOLOGY_SCHEMA_DOCUMENTS),
     // REASON_SOURCE_INGESTION_MARKER
     ("SourceIngestStatus", REASON_SOURCE_INGESTION_MARKER),
     // REASON_SERVER_LIFECYCLE

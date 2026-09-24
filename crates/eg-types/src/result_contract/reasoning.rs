@@ -1,6 +1,7 @@
 //! Declared results of the `reasoning` contract domain.
 
 use crate::graph_schema::{GraphSchemaCommitted, GraphSchemaSourcesView};
+use crate::ontology_inspection::OntologyInspection;
 #[cfg(feature = "sparql")]
 use crate::protocol::SparqlResult;
 #[cfg(feature = "owl")]
@@ -30,5 +31,6 @@ method_results! {
     OwlExplain(OwlExplain) => Raw<OwlExplainResult>;
     RunRules(RunRules) => Raw<RuleReasonResponse>;
     ShaclValidate(ShaclValidate) => Json<ShaclValidationReport>;
+    OntologyInspect(OntologyInspect) => Json<OntologyInspection>;
     ShexValidate(ShexValidate) => Json<ShexValidationReport>;
 }

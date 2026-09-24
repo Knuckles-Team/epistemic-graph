@@ -1,0 +1,189 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:AgentShape a sh:NodeShape ;
+    sh:description "Agents must have a name." ;
+    sh:name "Agent Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Agent must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ] ;
+    sh:targetClass :Agent .
+
+:ArtifactShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-KG.ingest.evidence-spine-artifact — an Artifact is the root of the evidence spine, so it MUST carry the content hash a citation is verified against and the source identity it was retrieved under. An artifact without a hash cannot prove anything." ;
+    sh:name "Evidence Spine Artifact Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Artifact must carry a sha256:<hex> content_hash — evidence without a digest cannot be verified." ;
+            sh:minCount 1 ;
+            sh:path :content_hash ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ],
+        [ sh:datatype xsd:string ;
+            sh:message "Artifact must name the connector that retrieved it." ;
+            sh:minCount 1 ;
+            sh:path :connector ],
+        [ sh:datatype xsd:string ;
+            sh:message "Artifact must name the upstream object it is a retrieval of." ;
+            sh:minCount 1 ;
+            sh:path :source_object_id ] ;
+    sh:targetClass :Artifact .
+
+:ChunkShape a sh:NodeShape ;
+    sh:description "A document Chunk must reference its parent document and carry an ordinal position (CONCEPT:KG-2.48)." ;
+    sh:name "Document Chunk Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Chunk must reference its parent document_id." ;
+            sh:minCount 1 ;
+            sh:path :document_id ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:message "Chunk must carry exactly one ordinal position." ;
+            sh:path :position ] ;
+    sh:targetClass :Chunk .
+
+:FragmentShape a sh:NodeShape ;
+    sh:description "CONCEPT:AU-KG.ingest.stable-fragment-address — a Fragment is the citation unit, so it MUST link to its parent Artifact, carry the structural address its stable id was derived from, and carry the content hash that detects staleness. A fragment missing any of the three is uncitable." ;
+    sh:name "Evidence Spine Fragment Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Fragment must reference its parent artifact_id — an orphaned fragment has no provenance." ;
+            sh:minCount 1 ;
+            sh:path :artifact_id ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must carry a sha256:<hex> content_hash so a citation can detect that the text changed." ;
+            sh:minCount 1 ;
+            sh:path :content_hash ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must carry the structural address its stable id was derived from." ;
+            sh:minCount 1 ;
+            sh:path :address ],
+        [ sh:datatype xsd:string ;
+            sh:message "Fragment must declare its structural fragment_kind." ;
+            sh:minCount 1 ;
+            sh:path :fragment_kind ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:message "Fragment must carry exactly one document-order sequence." ;
+            sh:minCount 1 ;
+            sh:minInclusive 0 ;
+            sh:path :sequence ] ;
+    sh:targetClass :Fragment .
+
+:HookShape a sh:NodeShape ;
+    sh:description "Hooks must specify their trigger lifecycle event." ;
+    sh:name "Hook Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Hook must specify its trigger lifecycle event via triggersOnEvent." ;
+            sh:minCount 1 ;
+            sh:path :triggersOnEvent ] ;
+    sh:targetClass :Hook .
+
+:ObjectEditShape a sh:NodeShape ;
+    sh:description "Durable object edits must carry a valid edit_type and the id of the object they mutate (CONCEPT:KG-2.43)." ;
+    sh:name "Object Edit Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:in ( "property_set" "link_add" "link_remove" "object_create" "object_delete" ) ;
+            sh:maxCount 1 ;
+            sh:message "ObjectEdit.edit_type must be one of the five EditType values." ;
+            sh:minCount 1 ;
+            sh:path :edit_type ],
+        [ sh:datatype xsd:string ;
+            sh:message "ObjectEdit must name the object_id it edits." ;
+            sh:minCount 1 ;
+            sh:path :object_id ] ;
+    sh:targetClass :ObjectEdit .
+
+:OntologyActionShape a sh:NodeShape ;
+    sh:description "CONCEPT:KG-2.25 — Governed ontology actions must be named, permission-gated, and typed over the objects they act on." ;
+    sh:name "Ontology Action Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "OntologyAction must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ],
+        [ sh:datatype xsd:string ;
+            sh:message "OntologyAction must declare its required_capability (the gating ServiceCapability)." ;
+            sh:minCount 1 ;
+            sh:path :required_capability ],
+        [ sh:datatype xsd:string ;
+            sh:message "OntologyAction must declare at least one acts_on ontology object type." ;
+            sh:minCount 1 ;
+            sh:path :acts_on ] ;
+    sh:targetClass :OntologyAction .
+
+:OptimizationPatternShape a sh:NodeShape ;
+    sh:description "Optimization patterns must specify their directory scope." ;
+    sh:name "Optimization Pattern Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Optimization pattern must define its directory scope via scopesPath." ;
+            sh:minCount 1 ;
+            sh:path :scopesPath ] ;
+    sh:targetClass :OptimizationPattern .
+
+:RequirementShape a sh:NodeShape ;
+    sh:description "Requirements should have a priority level." ;
+    sh:name "Requirement Shape" ;
+    sh:property [ sh:message "Requirement should have a priority (critical/high/medium/low)." ;
+            sh:minCount 0 ;
+            sh:path :priority ;
+            sh:severity sh:Warning ] ;
+    sh:targetClass :Requirement .
+
+:SoftwareFeatureShape a sh:NodeShape ;
+    sh:description "Software features should be traceable to specifications." ;
+    sh:name "Software Feature Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "SoftwareFeature must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ] ;
+    sh:targetClass :SoftwareFeature .
+
+:SpecificationShape a sh:NodeShape ;
+    sh:description "Specifications must have a name and description." ;
+    sh:name "Specification Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Specification must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ] ;
+    sh:targetClass :Specification .
+
+:TestCaseShape a sh:NodeShape ;
+    sh:description "Test cases should track their execution status." ;
+    sh:name "Test Case Shape" ;
+    sh:property [ sh:message "TestCase should have a testStatus (passed/failed/skipped/pending)." ;
+            sh:minCount 0 ;
+            sh:path :testStatus ;
+            sh:severity sh:Info ] ;
+    sh:targetClass :TestCase .
+
+:WorkflowDefinitionShape a sh:NodeShape ;
+    sh:description "CONCEPT:ORCH-1.42 — an executable workflow definition must be named and carry at least one step before it may be dispatched (constraints mirror what WorkflowStore persists: name + step_count)." ;
+    sh:name "Workflow Definition Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "WorkflowDefinition must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:message "WorkflowDefinition must have at least one step (step_count >= 1)." ;
+            sh:minCount 1 ;
+            sh:minInclusive 1 ;
+            sh:path :step_count ] ;
+    sh:targetClass :WorkflowDefinition .
+
+:WorkflowStepShape a sh:NodeShape ;
+    sh:description "CONCEPT:ORCH-1.42 — every workflow step must name a resolvable execution target (the WorkflowStep node_id WorkflowStore persists is the agent/tool the step dispatches to)." ;
+    sh:name "Workflow Step Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "WorkflowStep must carry node_id (the agent/tool execution target)." ;
+            sh:minCount 1 ;
+            sh:path :node_id ] ;
+    sh:targetClass :WorkflowStep .

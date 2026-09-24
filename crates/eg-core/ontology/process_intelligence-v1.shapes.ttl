@@ -1,0 +1,232 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# CONCEPT:AU-KG.ingest.semantic-event-contract — structural guarantees shared
+# by OCEL import, temporal EKG materialization, and neural graph proposals.
+
+:ObjectCentricEventLogShape a sh:NodeShape ;
+    sh:targetClass :ObjectCentricEventLog ;
+    sh:property [
+        sh:path :HAS_EVENT ;
+        sh:class :ProcessEvent ;
+        sh:message "Every HAS_EVENT target must be a ProcessEvent."
+    ] ;
+    sh:property [
+        sh:path :HAS_OBJECT ;
+        sh:class :BusinessObject ;
+        sh:message "Every HAS_OBJECT target must be a BusinessObject."
+    ] ;
+    sh:property [
+        sh:path :HAS_EVENT_TYPE ;
+        sh:class :ProcessEventType
+    ] ;
+    sh:property [
+        sh:path :HAS_OBJECT_TYPE ;
+        sh:class :BusinessObjectType
+    ] ;
+    sh:property [
+        sh:path :mapping_version ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] .
+
+:ProcessEventShape a sh:NodeShape ;
+    sh:targetClass :ProcessEvent ;
+    sh:property [
+        sh:path :occurred_at ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [ sh:datatype xsd:dateTime ]
+            [ sh:datatype xsd:string ;
+              sh:pattern "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" ]
+        )
+    ] ;
+    sh:property [
+        sh:path :INSTANCE_OF_EVENT_TYPE ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class :ProcessEventType
+    ] ;
+    sh:property [
+        sh:path :HAS_PARTICIPATION ;
+        sh:class :EventObjectParticipation
+    ] .
+
+:BusinessObjectShape a sh:NodeShape ;
+    sh:targetClass :BusinessObject ;
+    sh:property [
+        sh:path :INSTANCE_OF_OBJECT_TYPE ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class :BusinessObjectType
+    ] .
+
+:ProcessEventTypeShape a sh:NodeShape ;
+    sh:targetClass :ProcessEventType ;
+    sh:property [
+        sh:path :source_record_id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] .
+
+:BusinessObjectTypeShape a sh:NodeShape ;
+    sh:targetClass :BusinessObjectType ;
+    sh:property [
+        sh:path :source_record_id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] .
+
+:EventObjectParticipationShape a sh:NodeShape ;
+    sh:targetClass :EventObjectParticipation ;
+    sh:property [
+        sh:path :PARTICIPATES_AS ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class :BusinessObject
+    ] .
+
+:ObjectStateShape a sh:NodeShape ;
+    sh:targetClass :ObjectState ;
+    sh:property [
+        sh:path :STATE_OF ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class :BusinessObject
+    ] ;
+    sh:property [
+        sh:path :valid_from ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [ sh:datatype xsd:dateTime ]
+            [ sh:datatype xsd:string ;
+              sh:pattern "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" ]
+        )
+    ] ;
+    sh:property [
+        sh:path :observed_at ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:or (
+            [ sh:datatype xsd:dateTime ]
+            [ sh:datatype xsd:string ;
+              sh:pattern "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" ]
+        )
+    ] .
+
+:NeuralRepresentationShape a sh:NodeShape ;
+    sh:targetClass :NeuralRepresentation ;
+    sh:property [
+        sh:path [ sh:inversePath :HAS_NEURAL_REPRESENTATION ] ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path :artifact_ref ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path :source_graph_epoch ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 0
+    ] .
+
+:NeuralRelationPredictionShape a sh:NodeShape ;
+    sh:targetClass :NeuralRelationPrediction ;
+    sh:property [
+        sh:path :PREDICTS_SUBJECT ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path :PREDICTS_OBJECT ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path :prediction_score ;
+        sh:minInclusive 0 ;
+        sh:maxInclusive 1
+    ] ;
+    sh:property [
+        sh:path :decision_status ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue "proposed" ;
+        sh:message "A neural relation prediction is proposal-only."
+    ] .
+
+:EntityResolutionProposalShape a sh:NodeShape ;
+    sh:targetClass :EntityResolutionProposal ;
+    sh:property [
+        sh:path :PROPOSES_RESOLUTION ;
+        sh:minCount 1 ;
+        sh:maxCount 1
+    ] ;
+    sh:property [
+        sh:path :decision_status ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:hasValue "proposed" ;
+        sh:message "Entity resolution output is proposal-only."
+    ] .
+
+# D-61-1 — the graph-writeback shapes for process_conformance.py's frozen
+# data/model boundary (CONCEPT:AU-KG.mining.process-conformance-checking).
+:ConformanceRunShape a sh:NodeShape ;
+    sh:targetClass :ConformanceRun ;
+    sh:property [
+        sh:path :CHECKED_UNDER_PERSPECTIVE ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:class :ProcessPerspective ;
+        sh:message "Every ConformanceRun must declare the ProcessPerspective it checked."
+    ] ;
+    sh:property [
+        sh:path :HAS_DEVIATION ;
+        sh:class :Deviation
+    ] ;
+    sh:property [
+        sh:path :model_ref ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path :export_digest ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] .
+
+:DeviationShape a sh:NodeShape ;
+    sh:targetClass :Deviation ;
+    sh:property [
+        sh:path :kind ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ("unexpected_transition" "unexpected_start" "unexpected_end")
+    ] ;
+    sh:property [
+        sh:path :object_id ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:property [
+        sh:path :position ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 0
+    ] .

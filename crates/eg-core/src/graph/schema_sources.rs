@@ -13,10 +13,13 @@ use eg_types::contract::Digest256;
 
 use super::LegacyIntegrityPolicy;
 
+mod agent_shapes;
+
 /// Closed upper bound for one binary's immutable catalog.  The current catalog
 /// contains the aggregate document, foundation, 31 domain TBoxes (the world model
 /// as its life, environment and nutrition modules), the core governance-shape
-/// slice and the world-model shapes (35 artifacts, EH-364).  It is deliberately independent of the dynamic
+/// slice, the world-model shapes (35 artifacts, EH-364) and the six agent-orchestration shape
+/// documents EG took over from agent-utilities (41 artifacts, EH-470).  It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
 pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
@@ -490,9 +493,8 @@ fn current_core_catalog() -> &'static BTreeMap<String, GraphSchemaSource> {
 pub fn current_core_set_digest() -> Digest256 {
     static DIGEST: OnceLock<Digest256> = OnceLock::new();
     *DIGEST.get_or_init(|| {
-        let specs = core_specs();
         let mut fields = Vec::<Vec<u8>>::new();
-        for spec in specs {
+        for spec in all_core_specs() {
             fields.push(spec.module.as_bytes().to_vec());
             fields.push(spec.version.to_be_bytes().to_vec());
             fields.push(optional_digest_bytes(
@@ -510,8 +512,7 @@ pub fn current_core_set_digest() -> Digest256 {
 
 fn build_core_catalog() -> BTreeMap<String, GraphSchemaSource> {
     let set_digest = current_core_set_digest();
-    core_specs()
-        .iter()
+    all_core_specs()
         .map(|spec| {
             let source_id = format!("core:{}@{}", spec.module, spec.version);
             let source = GraphSchemaSource::new(
@@ -535,6 +536,12 @@ struct CoreSpec {
     version: u32,
     shapes: Option<&'static str>,
     ontology: Option<&'static str>,
+}
+
+/// Every core spec in catalog order: the ontology/governance catalog, then the
+/// agent-orchestration shapes appended after it (EH-470).
+fn all_core_specs() -> impl Iterator<Item = &'static CoreSpec> {
+    core_specs().iter().chain(agent_shapes::AGENT_SHAPE_SPECS)
 }
 
 fn core_specs() -> &'static [CoreSpec] {
@@ -821,7 +828,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 35);
+        assert_eq!(sources.core.len(), 41);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }

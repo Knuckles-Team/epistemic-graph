@@ -1,0 +1,58 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# SDLC lifecycle REQUIRED-shape constraints (design §1.3).
+#
+# These express, per lifecycle stage, the shape the graph MUST have once the
+# stage is complete — a merged :CodeChange REQUIRES a :PipelineRun, a resolving
+# :Deployment REQUIRES validation evidence, an advancing :Spec REQUIRES a Ticket.
+#
+# Unlike the reject-on-ingest gate (pipeline/phases/shacl_gate.py), the
+# enter-anywhere orchestrator (agent_utilities.observability.lifecycle_orchestrator)
+# consults these in DIFF mode: a violation is not a rejection, it is a MISSING
+# required node/edge → a report-only gap-fill :LifecycleStep proposal. "Find the
+# gaps" is therefore a validation query. The orchestrator's REQUIRED_SHAPE table
+# is the operational projection of these declarations.
+
+:MergeRequestMergeableShape a sh:NodeShape ;
+    sh:name "Merge Request Mergeable Shape" ;
+    sh:description "A :MergeRequest/:PullRequest may not merge to a deploying branch unless CI (a :PipelineRun) exists." ;
+    sh:targetClass :CodeChangeProposal ;
+    sh:property [
+        sh:path :triggersPipeline ;
+        sh:class :PipelineRun ;
+        sh:minCount 1 ;
+        sh:message "A merged code-change on a code-backed service REQUIRES a :PipelineRun (missing → propose CI)." ;
+    ] .
+
+:SpecProposalReadyShape a sh:NodeShape ;
+    sh:name "Spec Proposal Ready Shape" ;
+    sh:description "A :Spec/:SpecProposal may not advance to developing unless a :Ticket specifies it." ;
+    sh:targetClass :Spec ;
+    sh:property [
+        sh:path [ sh:inversePath :specifies ] ;
+        sh:class :Ticket ;
+        sh:minCount 1 ;
+        sh:message "A :Spec advancing to development REQUIRES an owning :Ticket (missing → backfill ticket)." ;
+    ] .
+
+:TicketRoutedShape a sh:NodeShape ;
+    sh:name "Ticket Routed Shape" ;
+    sh:description "A :Ticket must record the system-of-record it was routed to." ;
+    sh:targetClass :Ticket ;
+    sh:property [
+        sh:path :routedTo ;
+        sh:minCount 1 ;
+        sh:message "A :Ticket REQUIRES a :routedTo system-of-record (decision #1, §2.5)." ;
+    ] .
+
+:DeploymentValidatedShape a sh:NodeShape ;
+    sh:name "Deployment Validated Shape" ;
+    sh:description "A :Deployment that deploys an image must carry post-deploy validation evidence." ;
+    sh:targetSubjectsOf :deploys ;
+    sh:property [
+        sh:path :validates ;
+        sh:minCount 1 ;
+        sh:message "A :Deployment REQUIRES post-deploy :validates evidence before it can :resolves an :Incident (missing → propose validation)." ;
+    ] .

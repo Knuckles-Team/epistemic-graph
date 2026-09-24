@@ -90,6 +90,7 @@ async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: 
             Method::ShaclValidate {
                 shapes: Some(SHAPES.into()),
                 data_graph: data_graph.into(),
+                data_triples: Vec::new(),
             },
         ),
     ))

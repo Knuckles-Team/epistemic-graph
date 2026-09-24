@@ -140,6 +140,9 @@ pub mod solve;
 // bottom-of-DAG. Pure serde — no dep on `eg-quantum-core`.
 #[cfg(feature = "quantum")]
 pub mod quantum;
+// EH-471/EH-472: typed RDF input and the ontology inspection view, so orchestration
+// callers never build or parse RDF text themselves.
+pub mod ontology_inspection;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;

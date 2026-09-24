@@ -1,0 +1,52 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# CONCEPT:AU-KG.enrichment.portfolio-intelligence — decision shapes for the
+# portfolio comparative-intelligence engine's adopt/reject/consolidate/migrate
+# verdict (agent_utilities/observability/portfolio_intelligence.py). These are
+# an ADDITIVE audit layer over the Python-computed verdict — SHACL confirms the
+# :Recommendation/:Assessment the engine writes is well-formed; it never itself
+# decides the verdict (mirrors :ObjectEditShape's enum-validation pattern in
+# governance.shapes.ttl).
+
+:RecommendationShape a sh:NodeShape ;
+    sh:description "A portfolio Recommendation must carry a valid adopt/reject/consolidate/migrate verdict and a non-empty rationale." ;
+    sh:name "Portfolio Recommendation Verdict Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:in ( "adopt" "reject" "consolidate" "migrate" ) ;
+            sh:maxCount 1 ;
+            sh:message "Recommendation.verdict must be one of adopt/reject/consolidate/migrate." ;
+            sh:minCount 1 ;
+            sh:path :verdict ],
+        [ sh:datatype xsd:string ;
+            sh:message "Recommendation must carry a non-empty rationale." ;
+            sh:minCount 1 ;
+            sh:path :rationale ] ;
+    sh:targetClass :Recommendation .
+
+:AssessmentShape a sh:NodeShape ;
+    sh:description "An Assessment must record the composed weighted-criteria score it produced." ;
+    sh:name "Portfolio Assessment Shape" ;
+    sh:property [ sh:datatype xsd:float ;
+            sh:message "Assessment must record an assessmentScore." ;
+            sh:minCount 1 ;
+            sh:path :assessmentScore ],
+        [ sh:message "Assessment should record a financialDelta." ;
+            sh:minCount 0 ;
+            sh:path :financialDelta ;
+            sh:severity sh:Warning ] ;
+    sh:targetClass :Assessment .
+
+:ComparisonCriterionShape a sh:NodeShape ;
+    sh:description "A ComparisonCriterion must declare its kind and weight so the weighted sum is auditable." ;
+    sh:name "Comparison Criterion Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "ComparisonCriterion must declare its criterionKind." ;
+            sh:minCount 1 ;
+            sh:path :criterionKind ],
+        [ sh:datatype xsd:float ;
+            sh:message "ComparisonCriterion must declare its criterionWeight." ;
+            sh:minCount 1 ;
+            sh:path :criterionWeight ] ;
+    sh:targetClass :ComparisonCriterion .

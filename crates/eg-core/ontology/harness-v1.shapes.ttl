@@ -1,0 +1,108 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix kg: <http://knuckles.team/kg#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# ── Harness-evolution SHACL gate (CONCEPT:AHE-3.53) ──────────────────────────
+# Surpass HarnessX (arXiv:2606.14249): the paper's per-edit gating misses
+# sub-threshold coupling — its τ³-Bench Telecom run shipped 5 same-dimension edits
+# (R2–R6) whose accumulated coupling caused a tipping-point −14% regression that
+# per-task pass@2 could not see. Reasoning over the harness ontology + these SHACL
+# shapes detects and BLOCKS concentration BEFORE the tipping point — a formal
+# guarantee the paper explicitly lacks.
+
+# CONCENTRATION: reject when ≥3 shipped edits target the same HarnessDimension
+# within a 5-round window (sub-threshold coupling tipping point).
+:HarnessConcentrationShape a sh:NodeShape ;
+    sh:targetClass :HarnessDimension ;
+    sh:sparql [
+        sh:message "Edit concentration: ≥3 shipped edits target this harness dimension within a 5-round window — sub-threshold coupling (the AEGIS τ³-Bench failure mode). Diversify the next edit's dimension (CONCEPT:AHE-3.53)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this (COUNT(DISTINCT ?e) AS ?n) WHERE {
+                ?e kg:targetsDimension $this ;
+                   kg:editStatus "shipped" ;
+                   kg:editRound ?r .
+            }
+            GROUP BY $this
+            HAVING (COUNT(DISTINCT ?e) >= 3 && (MAX(?r) - MIN(?r)) <= 5)
+        """
+    ] .
+
+# NO-REGRESSION SEESAW: reject an accepted variant whose edit causes a regression
+# on any previously-passing task (the formal seesaw over inferred causesRegression).
+:HarnessNoRegressionShape a sh:NodeShape ;
+    sh:targetClass :HarnessVariant ;
+    sh:sparql [
+        sh:message "No-regression seesaw: this accepted variant applies an edit that causes a regression on a previously-passing task (CONCEPT:AHE-3.53)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this ?task WHERE {
+                $this kg:variantStatus "accepted" ;
+                      kg:appliesEdit ?edit .
+                ?edit kg:causesRegression ?task .
+            }
+        """
+    ] .
+
+# REWARD-HACKING PATHOLOGY: flag a shipped edit grounded ONLY in verifier/format
+# evidence (no genuine task evidence) — detected structurally, not from symptoms.
+:HarnessRewardHackingShape a sh:NodeShape ;
+    sh:targetClass :HarnessEdit ;
+    sh:sparql [
+        sh:message "Reward-hacking pathology: this shipped edit is grounded only in verifier/format-pattern evidence, not genuine task evidence (CONCEPT:AHE-3.53)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this kg:editStatus "shipped" ;
+                      kg:exhibitsPathology ?p .
+                ?p kg:pathologyKind "reward_hacking" .
+            }
+        """
+    ] .
+
+# ── Substitution-algebra type safety (CONCEPT:KG-2.109) ──────────────────────
+# HarnessX enforces the hook contract + singleton mutual-exclusion with a runtime
+# type system (Section 3.2). We make the same guarantees a REASONED check: an edit
+# cannot modify a read-only hook, and no two accepted processors can occupy the
+# same singleton group on the same hook.
+
+# HOOK CONTRACT: an edit that modifies a field at a read-only hook (step_end /
+# task_end) violates the hook contract the paper enforces at runtime.
+:HarnessHookContractShape a sh:NodeShape ;
+    sh:targetClass :HarnessEdit ;
+    sh:sparql [
+        sh:message "Hook contract: this edit modifies a field at a read-only hook (step_end/task_end), which the harness hook contract forbids (CONCEPT:KG-2.109)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this kg:atHook ?hook ;
+                      kg:modifiesField ?f .
+                ?hook kg:hookReadOnly true .
+            }
+        """
+    ] .
+
+# SINGLETON EXCLUSION: at most one accepted processor per (hook, singleton group).
+:HarnessSingletonExclusionShape a sh:NodeShape ;
+    sh:targetClass :Processor ;
+    sh:sparql [
+        sh:message "Singleton exclusion: more than one accepted processor occupies the same (hook, singleton_group) — the substitution algebra forbids conflicting duplicates (CONCEPT:KG-2.109)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                $this kg:attachedToHook ?hook ;
+                      kg:singletonGroup ?grp ;
+                      kg:variantStatus "accepted" .
+                ?other kg:attachedToHook ?hook ;
+                       kg:singletonGroup ?grp ;
+                       kg:variantStatus "accepted" .
+                FILTER (?other != $this)
+            }
+        """
+    ] .

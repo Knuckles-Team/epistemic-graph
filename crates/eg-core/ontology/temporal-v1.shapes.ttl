@@ -1,0 +1,49 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+# Bi-temporal fact invariants (CONCEPT:KG-2.252). These make a contradiction /
+# malformed validity window a DETECTABLE SHACL violation — the moat over a plain
+# property graph, which cannot express the constraint at all. Reifies the engine's
+# valid_from/valid_until + tx_from/tx_to (KG-2.249/2.250).
+
+# Prefix declarations referenced by the SPARQL-based constraints below.
+:temporalPrefixes
+    sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] .
+
+# A validity interval must be well-formed: end must not precede start.
+:ValidityIntervalShape a sh:NodeShape ;
+    sh:name "Validity Interval Shape" ;
+    sh:description "A TemporalFact's validUntil must not precede its validFrom (CONCEPT:KG-2.252)." ;
+    sh:targetClass :TemporalFact ;
+    sh:sparql [
+        sh:message "validUntil precedes validFrom — malformed validity window." ;
+        sh:prefixes :temporalPrefixes ;
+        sh:select """
+            SELECT $this ?validFrom ?validUntil
+            WHERE {
+                $this kg:validFrom ?validFrom .
+                $this kg:validUntil ?validUntil .
+                FILTER (?validUntil < ?validFrom)
+            }
+        """ ] .
+
+# Contradiction-resolution invariant: a fact that has been SUPERSEDED (is the
+# object of some :supersedes) must have had its belief window CLOSED (a :txTo) —
+# i.e. invalidation must retract belief. An open belief on a superseded fact is an
+# unresolved contradiction the engine should never leave behind (KG-2.251).
+:SupersededFactClosedShape a sh:NodeShape ;
+    sh:name "Superseded Fact Closed Shape" ;
+    sh:description "A superseded TemporalFact must have its belief window closed via txTo (CONCEPT:KG-2.251)." ;
+    sh:targetClass :TemporalFact ;
+    sh:sparql [
+        sh:message "A superseded fact still has an open belief window (no txTo) — unresolved contradiction." ;
+        sh:prefixes :temporalPrefixes ;
+        sh:select """
+            SELECT $this
+            WHERE {
+                ?newer kg:supersedes $this .
+                FILTER NOT EXISTS { $this kg:txTo ?t }
+            }
+        """ ] .
