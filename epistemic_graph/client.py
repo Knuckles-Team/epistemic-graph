@@ -11930,26 +11930,26 @@ class TxnClient:
             await _gen.transactions.send_txn_materialize_belief(self._client, params)
         ).payload
 
-    async def unified_query(
+    async def uql(
         self,
         txn_id: str,
         text: str,
-    ) -> list[dict[str, Any]]:
-        """Run a UNIFIED cross-modal UQL read INSIDE the txn with read-your-own-writes
-        (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). ``text``
-        is the SAME UQL surface
-        :meth:`QueryClient.uql` parses (a plain pipeline); the read runs over a snapshot
-        OVERLAID with THIS txn's staged (uncommitted) write-set, so a staged
-        node/edge/embedding is visible before commit and invisible off-txn until
-        commit. Returns the same ``{"id", "score"}`` rows as ``unified``. Query
-        support is included in the mandatory main build."""
-        result = (
-            await _gen.query.send_txn_unified_query_text(
-                self._client, {"txn_id": txn_id, "text": text}
-            )
-        ).payload
-        rows = result or []
-        return [{"id": id_, "score": score} for id_, score in rows]
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run a UQL statement INSIDE the txn with read-your-own-writes
+        (CONCEPT:EG-KG.query.txn-cross-modal-ryow; EH-434 — the one query-text
+        surface). ``text`` and ``params`` are exactly :meth:`QueryClient.uql`'s; the
+        statement runs over a snapshot OVERLAID with THIS txn's staged (uncommitted)
+        write-set, so a staged node/edge/embedding is visible before commit and
+        invisible off-txn until commit. Returns the same ``kind``-tagged dict as
+        :meth:`QueryClient.uql`."""
+        body = {
+            "txn_id": txn_id,
+            "text": text,
+            "params": {k: _uql_param(v) for k, v in (params or {}).items()},
+        }
+        result = (await _gen.query.send_txn_uql(self._client, body)).payload
+        return _uql_result(result)
 
     async def unified_query_plan(
         self,

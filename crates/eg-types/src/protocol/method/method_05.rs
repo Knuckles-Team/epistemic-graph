@@ -106,7 +106,8 @@ $($variants)*
     // programs (a PlanDag); `RETURN` score channels; `WITH PROOF` / `WITH KNOWLEDGE`
     // row annotations. Runs over the same RLS-filtered off-lock snapshot and served
     // index bindings as `UnifiedQuery`. Read-only. Result: [`crate::wire::UqlResult`]
-    // via `ResultPayload::raw`. (Replaced the rows-only `UnifiedQueryText`, EH-434.)
+    // via `ResultPayload::raw`. (Replaced the rows-only `UnifiedQueryText`, EH-434; inside a
+    // transaction the same statement is `TxnUql`.)
     #[cfg(feature = "query")]
     Uql {
         text: String,
