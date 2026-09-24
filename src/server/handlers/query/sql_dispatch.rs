@@ -391,7 +391,12 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
             .await
         }
         K::DropAnnIndex { name, if_exists } => {
-            let op = match store.ann_index_table(&name) {
+            let visible = crate::server::sql_catalog_acl::alterable_ann_index_table(
+                scope.authority,
+                scope.persist_dir,
+                &name,
+            );
+            let op = match visible {
                 Ok(Some(table)) => eg_query::IndexCatalogTxnOp::DropAnnIndex { table, name },
                 Ok(None) if if_exists => return sql_write_ack(req_id, "DROP INDEX", Ok(Ok(0))),
                 Ok(None) => {
