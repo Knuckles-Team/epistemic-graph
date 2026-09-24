@@ -14,7 +14,13 @@ impl SemanticStore {
             embeddings: HashMap::new(),
             space: None,
             index: RwLock::new(HnswIndex::empty()),
+            generation: crate::compute::semantic::GenerationStamp::fresh(),
         }
+    }
+
+    /// The content stamp (EH-393): equal stamps mean identical vectors and space.
+    pub fn generation(&self) -> u64 {
+        self.generation.get()
     }
 
     /// Create an empty store pinned to one exact model/preprocessing space.
@@ -49,6 +55,7 @@ impl SemanticStore {
             ));
         }
         self.space = Some(space);
+        self.generation.bump();
         Ok(())
     }
 

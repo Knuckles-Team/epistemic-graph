@@ -43,18 +43,43 @@ impl GraphCore {
     /// The dependency-clock footprint of ONE known-scope CAS. `footprint` is a
     /// pure accumulator consumed once at the end of the sweep, so recording it
     /// after the index re-file (rather than interleaved with it) is equivalent.
+    ///
+    /// EVERY update retires the node's current labels: a `Scan { A }` result filtered on (or
+    /// row-visibility-checked against) a property of an `A` node changes when that property
+    /// does, so a label-scoped entry must not survive it. A CAS that rewrites a label field
+    /// moves the node OUT of a label this change-set does not name (its prior image is not
+    /// captured), and a node with no readable current image cannot be attributed at all —
+    /// both floor the clock (EH-393 soundness fix).
     #[cfg(feature = "result-cache")]
     pub(super) fn note_updated_node(
         footprint: &mut crate::dep_scope::WriteFootprint,
         fields: &[String],
         current: Option<&serde_json::Value>,
     ) {
+        match current {
+            Some(val) => footprint.labels.extend(labels_of(val)),
+            None => footprint.coarse_node = true,
+        }
         if Self::changes_label_fields(fields) {
-            if let Some(val) = current {
-                footprint.labels.extend(labels_of(val));
-            }
+            footprint.coarse_node = true;
+        }
+        #[cfg(feature = "security")]
+        {
+            footprint.visibility_changed |= Self::changes_rls_keys(fields);
         }
         footprint.keys.extend(fields.iter().cloned());
+    }
+
+    /// Did an upsert change any row-security key the replaced image carried (or add one it did
+    /// not)? Only then can the overwrite have changed who may see the node (EH-393).
+    #[cfg(all(feature = "security", feature = "result-cache"))]
+    pub(super) fn replaced_visibility_differs(
+        prior: &serde_json::Value,
+        current: &serde_json::Value,
+    ) -> bool {
+        RLS_ROW_KEYS
+            .iter()
+            .any(|key| prior.get(key) != current.get(key))
     }
 
     /// Does this CAS touch a field the LABEL index is derived from? Any of them
@@ -72,13 +97,7 @@ impl GraphCore {
     /// decision, so its warm entry stays valid.
     #[cfg(feature = "security")]
     pub(super) fn changes_rls_keys(fields: &[String]) -> bool {
-        fields.iter().any(|f| {
-            f == crate::isolation::RLS_OWNER_KEY
-                || f == crate::isolation::RLS_VISIBILITY_KEY
-                || f == crate::isolation::RLS_GRANTS_KEY
-                || f == crate::isolation::RLS_OWNER_ID_KEY
-                || f == crate::isolation::RLS_SHARED_SCOPE_KEY
-        })
+        fields.iter().any(|f| RLS_ROW_KEYS.contains(&f.as_str()))
     }
 
     /// Decode a node's CURRENT property blob (present after an add/update) to JSON, falling back
@@ -195,3 +214,14 @@ impl GraphCore {
             .store(target_version, std::sync::atomic::Ordering::Release);
     }
 }
+
+/// Every RLS key `row_visibility` reads (EITHER naming convention — `crate::isolation::
+/// RowVisibility`'s doc): the fields whose change can change a node's visibility decision.
+#[cfg(feature = "security")]
+const RLS_ROW_KEYS: [&str; 5] = [
+    crate::isolation::RLS_OWNER_KEY,
+    crate::isolation::RLS_VISIBILITY_KEY,
+    crate::isolation::RLS_GRANTS_KEY,
+    crate::isolation::RLS_OWNER_ID_KEY,
+    crate::isolation::RLS_SHARED_SCOPE_KEY,
+];

@@ -439,6 +439,9 @@ fn apply_batch_operation(
                 node_removals.remove(&id);
                 node_upserts.insert(id.clone(), Vec::new());
             }
+            // EH-393: the first overwrite of an existing id in this batch captures the
+            // pre-batch image, so the dependency clock retires a label the node leaves.
+            txn.record_replaced_image(change, &id);
             txn.add_node(id, properties_msgpack);
         }
         BatchOperation::RemoveNode { id } => {
@@ -454,15 +457,17 @@ fn apply_batch_operation(
             upsert,
         } => {
             if upsert {
+                let rels = txn.edge_rels(&source, &target);
                 txn.remove_edge(source.clone(), target.clone());
-                change.record_remove_edge(source.clone(), target.clone());
+                change.record_remove_edge_captured(source.clone(), target.clone(), rels);
             }
             txn.add_edge(source.clone(), target.clone(), properties_msgpack)?;
             change.record_add_edge(source, target);
         }
         BatchOperation::RemoveEdge { source, target } => {
+            let rels = txn.edge_rels(&source, &target);
             txn.remove_edge(source.clone(), target.clone());
-            change.record_remove_edge(source, target);
+            change.record_remove_edge_captured(source, target, rels);
         }
         BatchOperation::AddEmbedding { id, embedding } => {
             semantic_actions.push(SemanticAction::Upsert(id, embedding));

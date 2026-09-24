@@ -51,29 +51,57 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::Mutex;
 
+#[cfg(test)]
+mod edge_embedding_tests;
+mod invalidation_log;
+
+pub use invalidation_log::{
+    InvalidationLog, InvalidationPage, InvalidationRecord, InvalidationScope, INVALIDATION_LOG_CAP,
+    INVALIDATION_PAGE_MAX,
+};
+
 /// Cap on the number of distinct per-label / per-key dimensions the clock tracks
 /// individually. Beyond it a write falls back to the coarse `all_nodes` dimension instead of
 /// growing the map unbounded, so a pathological graph with millions of distinct labels cannot
 /// blow up the clock's memory. Well above any realistic label/indexed-key cardinality.
 const MAX_TRACKED_DIMS: usize = 8192;
 
-/// One dimension a query can DEPEND on / a write can TOUCH. The label / property-key variants
-/// are fine-grained (per value); the `AllNodes` / `AllEdges` variants are the coarse catch-alls
-/// a query that reads the whole node/edge set (an unlabeled scan, a traversal) depends on.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One dimension a query can DEPEND on / a write can TOUCH. The label / property-key / edge-type
+/// variants are fine-grained (per value); the `AllNodes` / `AllEdges` variants are the coarse
+/// catch-alls a query that reads the whole node/edge set (an unlabeled scan, an untyped
+/// traversal) depends on. `EmbeddingGeneration` is the one dimension the clock does not version:
+/// it is valid only while the live embedding store still carries that exact generation stamp
+/// (see [`DepProbe`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Dim {
     /// A specific node label's membership + the properties of nodes carrying it. Bumped by any
-    /// add / remove / property-update of a node with this label. A `Scan { label }` query
+    /// add / remove / property-update of a node with this label (for a relabel, both the old and
+    /// the new label, or the coarse floor when the old one is unknown). A `Scan { label }` query
     /// depends on exactly this.
     Label(String),
     /// A specific property key. Bumped by any write that adds / removes / changes that key on
-    /// any node. A property-equality query (`WHERE k = v`) depends on this.
+    /// any node. A query that reads a key on nodes of ANY label (e.g. the row-visibility keys a
+    /// traversal's reached nodes are filtered by) depends on this.
     Key(String),
+    /// A specific edge relationship type (an edge blob's canonical `relationship` field).
+    /// Bumped by any add / remove of an edge carrying it, including the edges a node removal
+    /// cascades. A typed `Traverse` depends on exactly this (EH-393).
+    EdgeType(String),
     /// The whole node set (existence + every property). Bumped by any node write. An unlabeled
     /// scan depends on it.
     AllNodes,
-    /// The whole edge set. Bumped by any edge write. A traversal depends on it.
+    /// The whole edge set. Bumped by any edge write. An untyped traversal depends on it.
     AllEdges,
+    /// Row visibility of EXISTING nodes: bumped when a write changes a row-security key of a
+    /// node that already existed (a field-scoped update of one, or an upsert whose replaced
+    /// image carried different values). A traversal reaches nodes of any label and the reader's
+    /// view hides the ones it may not see, so it depends on this instead of on every label. A
+    /// brand-new node cannot be reached without a new edge, which its edge type already covers.
+    RowVisibility,
+    /// The embedding-store generation a vector-ranked result was computed against (EH-393). The
+    /// store stamps a fresh, never-reused generation on every content change and on every ANN
+    /// generation adoption, so equality with the live stamp proves the vectors are unchanged.
+    EmbeddingGeneration(u64),
 }
 
 /// The set of dimensions a cached query result actually READ — its dependency set. A write
@@ -99,6 +127,43 @@ impl DepSet {
     }
 }
 
+/// A validity probe: the clock plus the live embedding-store generation, read once per lookup.
+/// Graph dimensions validate against the clock's per-dimension write versions; an
+/// [`Dim::EmbeddingGeneration`] dimension validates only against `embedding_generation`. A probe
+/// built from the clock alone (`From<&DepClock>`) cannot see the embedding store, so every
+/// embedding-dependent entry is invalid through it — the sound default.
+#[derive(Debug, Clone, Copy)]
+pub struct DepProbe<'a> {
+    clock: &'a DepClock,
+    embedding_generation: Option<u64>,
+}
+
+impl<'a> DepProbe<'a> {
+    /// A probe over `clock` that also knows the live embedding generation.
+    pub fn new(clock: &'a DepClock, embedding_generation: Option<u64>) -> Self {
+        Self {
+            clock,
+            embedding_generation,
+        }
+    }
+
+    /// The live embedding generation this probe validates against, if it knows one.
+    pub fn embedding_generation(&self) -> Option<u64> {
+        self.embedding_generation
+    }
+
+    /// Is an entry with `deps`, computed at graph version `computed_at`, still valid?
+    pub fn is_valid(&self, deps: &DepSet, computed_at: u64) -> bool {
+        is_valid_at(self.clock, deps, computed_at, self.embedding_generation)
+    }
+}
+
+impl<'a> From<&'a DepClock> for DepProbe<'a> {
+    fn from(clock: &'a DepClock) -> Self {
+        Self::new(clock, None)
+    }
+}
+
 /// The change-set a committed write reports to the clock: the specific labels / property keys it
 /// touched plus the coarse node/edge flags. Computed once per committed batch from its
 /// `ChangeSet` (+ the live node properties for adds/updates, and captured blobs for removes).
@@ -113,6 +178,16 @@ pub struct WriteFootprint {
     pub node_changed: bool,
     /// Any edge was added / removed — bumps the coarse `AllEdges` dimension.
     pub edge_changed: bool,
+    /// Relationship types of every edge this write added or removed (including edges a node
+    /// removal cascaded, when the write captured them).
+    pub edge_types: Vec<String>,
+    /// An edge change whose relationship type could NOT be attributed (an uncaptured edge
+    /// removal, a node removal whose incident edges were not captured, an undecodable blob).
+    /// Bumps every [`Dim::EdgeType`] at once, so no typed traversal can survive it. Always set
+    /// together with `edge_changed` (an unattributed edge change is still an edge change).
+    pub edge_unattributed: bool,
+    /// A row-security key of an already-existing node changed — bumps [`Dim::RowVisibility`].
+    pub visibility_changed: bool,
     /// A node change could NOT be attributed to specific labels/keys (a remove whose properties
     /// were not captured, or an unknown-scope update). Forces the coarse `floor` up so no
     /// dependency-scoped entry can survive it — the sound fallback for an un-attributable write.
@@ -131,6 +206,15 @@ impl WriteFootprint {
     fn has_fine_dims(&self) -> bool {
         !self.labels.is_empty() || !self.keys.is_empty()
     }
+
+    /// The invalidation event this footprint publishes at `version` (EH-400): coarse when a node
+    /// change could not be attributed, else class-scoped.
+    fn invalidation_record(&self, version: u64) -> InvalidationRecord {
+        if self.coarse_node {
+            return InvalidationRecord::all(version);
+        }
+        InvalidationRecord::classes(version, &self.labels, &self.edge_types)
+    }
 }
 
 /// Per-graph dependency clock (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation).
@@ -144,6 +228,11 @@ pub struct DepClock {
     all_nodes: AtomicU64,
     /// Last version any edge was written (the coarse `AllEdges` dimension).
     all_edges: AtomicU64,
+    /// Last version of an edge change whose relationship type was not attributed. Every
+    /// [`Dim::EdgeType`] folds this in.
+    edges_unattributed: AtomicU64,
+    /// Last version an existing node's row-security keys changed ([`Dim::RowVisibility`]).
+    row_visibility: AtomicU64,
     /// Highest version of a write that could NOT be attributed to specific dimensions. Every
     /// dep-set is implicitly floored by this; an entry computed at `V < floor` is always stale.
     floor: AtomicU64,
@@ -154,6 +243,8 @@ pub struct DepClock {
     /// coarse `AllNodes` dimension. Sticky (once saturated, fine label/key deps can no longer be
     /// proven fresh, so they always consult `all_nodes`). Observability + the read path.
     saturated: std::sync::atomic::AtomicBool,
+    /// The per-class invalidation feed (EH-400): one record per committed, touching write.
+    log: InvalidationLog,
 }
 
 impl DepClock {
@@ -167,11 +258,14 @@ impl DepClock {
     /// dimensions recorded (observability).
     pub fn note_footprint(&self, fp: &WriteFootprint, version: u64) {
         note_coarse_dimensions(self, fp, version);
+        note_attribution_dimensions(self, fp, version);
         note_fine_dimensions(self, fp, version);
+        note_edge_type_dimensions(self, fp, version);
         // ORDER: advance covered_through LAST, after every dimension is recorded, so a
         // concurrent reader that observes covered_through >= V is guaranteed to also observe
         // the dimension writes for V (AcqRel fences the fine-map mutex release).
         self.covered_through.fetch_max(version, Ordering::AcqRel);
+        publish_invalidation(self, fp, version);
         trace_footprint_invalidation(fp, version);
     }
 
@@ -182,43 +276,28 @@ impl DepClock {
     /// already advanced `covered_through` to at least `version`, does NOT floor.
     pub fn note_version_bump(&self, version: u64) {
         if version > self.covered_through.load(Ordering::Acquire) {
-            self.floor.fetch_max(version, Ordering::AcqRel);
+            self.note_unattributed(version);
         }
     }
 
-    /// The effective last-write version of one dimension: the max of its fine entry (if tracked)
-    /// and the matching coarse dimension. When the fine map has saturated, a label/key dim can
-    /// no longer be proven independent of an untracked label, so it conservatively reads
-    /// `all_nodes`.
-    fn dim_version(&self, dim: &Dim, fine: &HashMap<Dim, u64>) -> u64 {
-        match dim {
-            Dim::AllNodes => self.all_nodes.load(Ordering::Acquire),
-            Dim::AllEdges => self.all_edges.load(Ordering::Acquire),
-            Dim::Label(_) | Dim::Key(_) => {
-                let tracked = fine.get(dim).copied().unwrap_or(0);
-                if self.saturated.load(Ordering::Acquire) {
-                    tracked.max(self.all_nodes.load(Ordering::Acquire))
-                } else {
-                    tracked
-                }
-            }
-        }
+    /// Floor the clock at `version` for a change no footprint describes (a bypass write, or a
+    /// visibility-relevant change outside the node/edge change-set such as a schema-reference
+    /// transition), and publish it as a coarse invalidation event.
+    pub fn note_unattributed(&self, version: u64) {
+        self.floor.fetch_max(version, Ordering::AcqRel);
+        self.log.record(InvalidationRecord::all(version));
+    }
+
+    /// The per-class invalidation feed (EH-400).
+    pub fn invalidation_log(&self) -> &InvalidationLog {
+        &self.log
     }
 
     /// Is a cached entry with dependency set `deps`, computed at graph version `computed_at`,
     /// still valid? True iff the coarse floor has not passed it AND no dimension it depends on
     /// has been written since. A `false` here means the query must be recomputed.
     pub fn is_valid(&self, deps: &DepSet, computed_at: u64) -> bool {
-        if self.floor.load(Ordering::Acquire) > computed_at {
-            return false;
-        }
-        let fine = self.fine.lock();
-        for dim in deps.dims() {
-            if self.dim_version(dim, &fine) > computed_at {
-                return false;
-            }
-        }
-        true
+        is_valid_at(self, deps, computed_at, None)
     }
 
     /// The effective NODE epoch: the version of the most recent write that could have changed any
@@ -260,7 +339,10 @@ impl DepClock {
         self.floor.fetch_max(version, Ordering::AcqRel);
         self.all_nodes.fetch_max(version, Ordering::AcqRel);
         self.all_edges.fetch_max(version, Ordering::AcqRel);
+        self.edges_unattributed.fetch_max(version, Ordering::AcqRel);
+        self.row_visibility.fetch_max(version, Ordering::AcqRel);
         self.covered_through.fetch_max(version, Ordering::AcqRel);
+        self.log.record(InvalidationRecord::all(version));
     }
 
     /// Reset the clock to its brand-new state (every dimension 0, fine map empty). Used when the
@@ -273,9 +355,12 @@ impl DepClock {
         self.floor.store(0, Ordering::Release);
         self.all_nodes.store(0, Ordering::Release);
         self.all_edges.store(0, Ordering::Release);
+        self.edges_unattributed.store(0, Ordering::Release);
+        self.row_visibility.store(0, Ordering::Release);
         self.covered_through.store(0, Ordering::Release);
         self.saturated.store(false, Ordering::Release);
         self.fine.lock().clear();
+        self.log.start_epoch();
     }
 
     fn bump_fine(
@@ -326,6 +411,39 @@ fn note_fine_dimensions(clock: &DepClock, fp: &WriteFootprint, version: u64) {
     }
 }
 
+/// Bump the attribution watermarks a footprint carries (EH-393): an edge change of unknown type
+/// retires every [`Dim::EdgeType`]; a row-security change of an existing node retires
+/// [`Dim::RowVisibility`].
+fn note_attribution_dimensions(clock: &DepClock, fp: &WriteFootprint, version: u64) {
+    if fp.edge_unattributed {
+        clock
+            .edges_unattributed
+            .fetch_max(version, Ordering::AcqRel);
+    }
+    if fp.visibility_changed {
+        clock.row_visibility.fetch_max(version, Ordering::AcqRel);
+    }
+}
+
+/// Record every edge relationship type a footprint names at `version` (EH-393).
+fn note_edge_type_dimensions(clock: &DepClock, fp: &WriteFootprint, version: u64) {
+    if fp.edge_types.is_empty() {
+        return;
+    }
+    let mut fine = clock.fine.lock();
+    for edge_type in &fp.edge_types {
+        let dim = Dim::EdgeType(edge_type.clone());
+        DepClock::bump_fine(&mut fine, &clock.saturated, dim, version);
+    }
+}
+
+/// Publish a touching footprint's invalidation event on the per-class feed (EH-400).
+fn publish_invalidation(clock: &DepClock, fp: &WriteFootprint, version: u64) {
+    if fp.is_touching() || fp.has_fine_dims() || !fp.edge_types.is_empty() {
+        clock.log.record(fp.invalidation_record(version));
+    }
+}
+
 /// GOOD LOGS: the invalidation DECISION — which dependency dimensions this write touched
 /// (so a dependency-scoped result-cache entry overlapping them is now invalid) and whether
 /// it floored (an un-attributable change invalidating everything). Off the hot path (once
@@ -337,6 +455,8 @@ fn trace_footprint_invalidation(fp: &WriteFootprint, version: u64) {
             version,
             labels = ?fp.labels,
             keys = ?fp.keys,
+            edge_types = ?fp.edge_types,
+            edge_unattributed = fp.edge_unattributed,
             node = fp.node_changed,
             edge = fp.edge_changed,
             coarse_floor = fp.coarse_node,
@@ -345,21 +465,72 @@ fn trace_footprint_invalidation(fp: &WriteFootprint, version: u64) {
     }
 }
 
-// Hash for Dim so it can key the fine map.
-impl std::hash::Hash for Dim {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Dim::Label(l) => {
-                0u8.hash(state);
-                l.hash(state);
-            }
-            Dim::Key(k) => {
-                1u8.hash(state);
-                k.hash(state);
-            }
-            Dim::AllNodes => 2u8.hash(state),
-            Dim::AllEdges => 3u8.hash(state),
-        }
+/// [`DepClock::is_valid`] with the live embedding generation known (see [`DepProbe`]); `None`
+/// makes every [`Dim::EmbeddingGeneration`] dependency invalid.
+pub fn is_valid_at(
+    clock: &DepClock,
+    deps: &DepSet,
+    computed_at: u64,
+    embedding_generation: Option<u64>,
+) -> bool {
+    if clock.floor.load(Ordering::Acquire) > computed_at {
+        return false;
+    }
+    let fine = clock.fine.lock();
+    deps.dims()
+        .iter()
+        .all(|dim| effective_version(clock, dim, &fine, embedding_generation) <= computed_at)
+}
+
+/// The latest version at which any of `dims` — or anything un-attributable (the floor) — was
+/// written: a cheap change detector for state DERIVED from those dimensions (EH-400's class
+/// volatility policy is derived from the nodes carrying the volatility keys).
+pub fn last_write_version(clock: &DepClock, dims: &[Dim]) -> u64 {
+    let fine = clock.fine.lock();
+    dims.iter()
+        .map(|dim| effective_version(clock, dim, &fine, None))
+        .fold(clock.floor.load(Ordering::Acquire), u64::max)
+}
+
+/// The effective last-write version of one dimension: the max of its fine entry (if tracked)
+/// and, once the fine map has saturated, the matching coarse dimension (a fine dim can no
+/// longer be proven independent of an untracked one). An edge type also folds in the last
+/// unattributed edge change. An embedding generation is "never written" while it matches
+/// the live stamp and "written at infinity" otherwise.
+fn effective_version(
+    clock: &DepClock,
+    dim: &Dim,
+    fine: &HashMap<Dim, u64>,
+    embedding_generation: Option<u64>,
+) -> u64 {
+    match dim {
+        Dim::AllNodes => clock.all_nodes.load(Ordering::Acquire),
+        Dim::AllEdges => clock.all_edges.load(Ordering::Acquire),
+        Dim::RowVisibility => clock.row_visibility.load(Ordering::Acquire),
+        Dim::Label(_) | Dim::Key(_) => fine_version(clock, dim, fine, &clock.all_nodes),
+        Dim::EdgeType(_) => fine_version(clock, dim, fine, &clock.all_edges)
+            .max(clock.edges_unattributed.load(Ordering::Acquire)),
+        Dim::EmbeddingGeneration(stamp) => embedding_stamp_version(*stamp, embedding_generation),
+    }
+}
+
+fn fine_version(clock: &DepClock, dim: &Dim, fine: &HashMap<Dim, u64>, coarse: &AtomicU64) -> u64 {
+    let tracked = fine.get(dim).copied().unwrap_or(0);
+    if clock.saturated.load(Ordering::Acquire) {
+        tracked.max(coarse.load(Ordering::Acquire))
+    } else {
+        tracked
+    }
+}
+
+/// The effective write version of an embedding-generation dependency: 0 ("never written")
+/// while the live store still carries `stamp`, `u64::MAX` otherwise (including when the caller
+/// could not read the live stamp at all).
+fn embedding_stamp_version(stamp: u64, live: Option<u64>) -> u64 {
+    if live == Some(stamp) {
+        0
+    } else {
+        u64::MAX
     }
 }
 

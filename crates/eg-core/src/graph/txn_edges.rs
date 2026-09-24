@@ -225,3 +225,56 @@ impl<'a> GraphTxn<'a> {
         self.add_edge(new_source, new_target, new_properties_msgpack)
     }
 }
+
+impl<'a> GraphTxn<'a> {
+    // ── Edge-type capture for the dependency clock (EH-393) ──────────────
+    // Read under the held write guard BEFORE a delete, so the removal can be attributed to the
+    // relationship types it actually removes instead of retiring every typed traversal.
+
+    /// The relationship types of every parallel edge `source_id → target_id`.
+    pub fn edge_rels(&self, source_id: &str, target_id: &str) -> crate::index::EdgeRels {
+        pair_edge_rels(self.edge_properties, source_id, target_id)
+    }
+
+    /// The relationship types of every edge incident to `node_id` — exactly the edges a
+    /// [`GraphTxn::remove_node`] of it cascades.
+    pub fn incident_edge_rels(&self, node_id: &str) -> crate::index::EdgeRels {
+        let mut rels = crate::index::EdgeRels::default();
+        let Some(&idx) = self.topo.node_map.get(node_id) else {
+            return rels;
+        };
+        let pairs: std::collections::BTreeSet<(String, String)> = self
+            .topo
+            .graph
+            .edges_directed(idx, petgraph::Direction::Incoming)
+            .chain(
+                self.topo
+                    .graph
+                    .edges_directed(idx, petgraph::Direction::Outgoing),
+            )
+            .map(|edge| {
+                (
+                    self.topo.graph[edge.source()].clone(),
+                    self.topo.graph[edge.target()].clone(),
+                )
+            })
+            .collect();
+        for (source, target) in &pairs {
+            rels.merge(self.edge_rels(source, target));
+        }
+        rels
+    }
+}
+
+/// The relationship types stored on the pair `source → target` of an edge-property map — shared
+/// by the pre-delete capture above and index maintenance's post-commit read of added edges.
+pub(super) fn pair_edge_rels(
+    edges: &DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+    source: &str,
+    target: &str,
+) -> crate::index::EdgeRels {
+    edges
+        .get(&(source.to_string(), target.to_string()))
+        .map(|blobs| crate::index::EdgeRels::from_blobs(blobs.iter().map(|b| b.as_slice())))
+        .unwrap_or_default()
+}

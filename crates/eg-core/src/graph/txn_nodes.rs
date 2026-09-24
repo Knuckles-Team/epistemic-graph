@@ -26,6 +26,14 @@ impl<'a> GraphTxn<'a> {
             .map(|properties| (**properties).clone())
     }
 
+    /// Capture the image an add of `node_id` is about to overwrite into `change` (EH-393) — a
+    /// no-op for a brand-new id. Call BEFORE the add, under this same guard.
+    pub fn record_replaced_image(&self, change: &mut crate::index::ChangeSet, node_id: &str) {
+        if let Some(prior) = self.get_node_properties(node_id) {
+            change.record_replaced_node(node_id.to_string(), prior);
+        }
+    }
+
     /// Node count from the already-held topology guard. Index maintenance uses
     /// this instead of recursively acquiring `GraphCore`'s topology lock.
     pub fn node_count(&self) -> usize {

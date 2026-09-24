@@ -60,6 +60,22 @@ $($variants)*
         tenant: String,
         lease_id: String,
     },
+
+    // ── Declared freshness (EH-400) ────────────────────────────────────────
+    /// The request graph's per-class invalidation events with `version >
+    /// after_version` (at most `limit`; 0 = the default page), its
+    /// `eg:volatilityClass` policy when that changed since `policy_after`
+    /// (`None` = always include it), and the watermark freshness of every foreign
+    /// source the graph holds a watermark for. A caller that sees `gap`, or an
+    /// `epoch` different from the one it last saw, must drop everything it cached
+    /// for the graph. See [`crate::freshness`].
+    FreshnessFeed {
+        after_version: u64,
+        #[serde(default)]
+        limit: u32,
+        #[serde(default)]
+        policy_after: Option<u64>,
+    },
         ]);
     };
 }

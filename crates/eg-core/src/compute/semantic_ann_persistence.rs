@@ -61,6 +61,7 @@ impl<'de> Deserialize<'de> for SemanticStore {
             index: RwLock::new(None),
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
+            generation: crate::compute::semantic::GenerationStamp::fresh(),
         })
     }
 }
@@ -142,6 +143,7 @@ impl SemanticStore {
         *self.index.write() = Some(ann);
         *self.built_len.write() = n;
         self.state.store(STATE_READY, Ordering::Release);
+        self.generation.bump();
         Ok(())
     }
 }
