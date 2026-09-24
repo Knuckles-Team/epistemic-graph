@@ -20,6 +20,26 @@ mod backend;
 
 pub use backend::SemanticStore;
 
+impl SemanticStore {
+    /// EXACT cosine top-`n_results` over the stored rows `allow` admits (EH-564/EH-565,
+    /// CONCEPT:EG-KG.query.filtered-vector-rank): every admitted row is scored, never an
+    /// ANN walk, so a candidate-restricted ranking returns every admitted row with an
+    /// embedding in exact cosine order (ties by id) whatever the index state. Empty for
+    /// a zero-length, non-finite, zero-norm or wrong-width query.
+    pub fn exact_search_filtered(
+        &self,
+        query: &[f32],
+        n_results: usize,
+        allow: impl Fn(&str) -> bool + Sync,
+    ) -> Vec<(String, f32)> {
+        let width_ok = self.dim() == 0 || self.dim() == query.len();
+        if query.is_empty() || !width_ok || query.iter().any(|value| !value.is_finite()) {
+            return Vec::new();
+        }
+        self.brute_force_search_filtered(query, n_results, allow)
+    }
+}
+
 /// The durable image of one IVF-PQ index generation. Only the `ann` backend
 /// maintains a persisted artifact; the default HNSW backend rebuilds from raw
 /// vectors and has none.

@@ -334,6 +334,10 @@ mod tests;
 #[cfg(all(test, feature = "query"))]
 mod embedder_tests;
 
+// EH-564/EH-565: a candidate-restricted vector `Rank` is exact and complete.
+#[cfg(all(test, feature = "query"))]
+mod vector_rank_tests;
+
 // The lexical BM25 `RankText` + RRF `FuseRrf` hybrid proofs (CONCEPT:AU-KG.query.text-spatial-time).
 #[cfg(all(test, feature = "text"))]
 mod text_tests;

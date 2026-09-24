@@ -27,6 +27,7 @@ use crate::rowset::RowSet;
 use eg_types::wire::TimeAxis;
 
 pub(crate) mod dispatch;
+mod string_eq;
 pub(crate) use dispatch::apply;
 
 /// Everything an operator might touch, gathered from ONE consistent snapshot. In a
@@ -701,13 +702,14 @@ fn traverse_op(ctx: &PlanCtx, rel: &str, min: usize, max: usize, input: RowSet) 
     RowSet::from_ids(reached)
 }
 
-/// RANK (vector, CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) — hybrid metadata pre-filter.
-/// Push the current candidate set INTO the ANN scan as an allowlist so the returned top-k
-/// already satisfies the predicate — filtering happens DURING the probe instead of
-/// over-fetching `k*4` and post-filtering. Semantics are unchanged: with an empty candidate
-/// set the allowlist rejects everything (a source `Rank` yields no rows, exactly as the
-/// prior over-fetch-then-intersect did). The behavior-identical extraction of the `Op::Rank`
-/// arm (Lane 0 de-conflict) so [`apply`] is a thin dispatch table.
+/// RANK (vector, CONCEPT:EG-KG.query.filtered-vector-rank) — rank EVERY candidate by exact
+/// cosine similarity (EH-564/EH-565). The op ranks the whole candidate set (a trailing
+/// `Limit` truncates afterwards), so it scores the candidates' own embeddings instead of
+/// walking the ANN graph with the candidates as an allowlist: a filtered HNSW walk asked
+/// for `|candidates|` hits both cost more than the exact scan (the walk's beam grows to
+/// the candidate count) and could strand candidates the walk never reached, so a
+/// traversal-then-rank query returned fewer than `k` hits. With an empty candidate set a
+/// `Rank` yields no rows.
 ///
 /// F4 (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard): an inline query vector whose dimension
 /// doesn't match the store's embedding dimension is rejected with a typed error
@@ -734,10 +736,9 @@ fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> Result<RowSet, String
             query.len()
         ));
     }
-    let k = candidates.len().max(1);
     let scored = ctx
         .semantic
-        .semantic_search_filtered(query, k, |id| candidates.contains(id));
+        .exact_search_filtered(query, candidates.len(), |id| candidates.contains(id));
     Ok(RowSet::from_scored(scored))
 }
 
@@ -1710,12 +1711,7 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     // DataFusion entirely for this exact shape; every other predicate shape (including
     // an equality on a SAME-NAMED ordinary JSON property, which this must never
     // misfire on) still goes through the real SQL leg unchanged.
-    let passed: Vec<String> = match relational.as_slice() {
-        [Pred::Eq { prop, value }] if prop == "id" => {
-            point_lookup_ids(ctx.view, value, restrict.as_deref())
-        }
-        _ => sql_filter_ids(ctx.view, &relational, restrict.as_deref())?,
-    };
+    let passed = relational_ids(ctx.view, &relational, restrict.as_deref())?;
     // Preserve the input's order (so a vector-first plan stays ranked); if there was no
     // input (Filter is the source), the SQL order is the order.
     let mut out = if input.is_empty() {
@@ -2695,6 +2691,38 @@ pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(clauses.join(" AND "))
+}
+
+/// The largest candidate set the SQL leg receives as an `id IN (…)` list. Planning a
+/// literal list costs time linear in its length on every query, and the list never
+/// changes the answer: `filter_op` intersects the SQL ids with its non-empty input
+/// anyway. Above this size the list is dropped and the intersection does the work.
+const SQL_IN_LIST_MAX: usize = 1_024;
+
+/// The relational leg's matching ids (EH-565): the `id =` point lookup, then the
+/// candidate-restricted string-equality scan, else DataFusion. Predicates are
+/// validated exactly as the SQL leg validates them, so a malformed predicate errs the
+/// same way whichever path answers.
+fn relational_ids(
+    view: &GraphView,
+    relational: &[Pred],
+    restrict: Option<&[String]>,
+) -> Result<Vec<String>, String> {
+    if let [Pred::Eq { prop, value }] = relational {
+        if prop == "id" {
+            return Ok(point_lookup_ids(view, value, restrict));
+        }
+    }
+    where_clause(relational)?;
+    let scanned = restrict.and_then(|ids| string_eq::string_eq_ids(view, relational, ids));
+    match scanned {
+        Some(ids) => Ok(ids),
+        None => sql_filter_ids(
+            view,
+            relational,
+            restrict.filter(|ids| ids.len() <= SQL_IN_LIST_MAX),
+        ),
+    }
 }
 
 /// The O(1) fast-path RESULT for a lone `id = <id>` equality predicate
