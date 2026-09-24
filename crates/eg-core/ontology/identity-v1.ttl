@@ -40,3 +40,28 @@
     rdfs:label "Identity User" ;
     rdfs:comment "A user account in an identity provider." ;
     rdfs:subClassOf :Person .
+
+:SecurityAuditEvent a owl:Class ;
+    rdfs:label "Security Audit Event" ;
+    rdfs:comment "One pseudonymized security-audit record from an identity, secret or edge-security system (EH-410). Identities and secret paths are keyed HMAC references, source IPs are truncated to /24 (IPv4) or /48 (IPv6), and no secret value or request/response body is ever carried (operator ruling 2026-09-24)." ;
+    rdfs:subClassOf :Event .
+
+:AuthenticationEvent a owl:Class ;
+    rdfs:label "Authentication Event" ;
+    rdfs:comment "An identity-provider user event: a login, logout, token refresh or failed attempt (Keycloak user events; producer: keycloak-agent)." ;
+    rdfs:subClassOf :SecurityAuditEvent .
+
+:AdminAuditEvent a owl:Class ;
+    rdfs:label "Admin Audit Event" ;
+    rdfs:comment "An administrative change recorded by an identity provider: a create/update/delete on a realm resource (Keycloak admin events; producer: keycloak-agent)." ;
+    rdfs:subClassOf :SecurityAuditEvent .
+
+:SecretAccessEvent a owl:Class ;
+    rdfs:label "Secret Access Event" ;
+    rdfs:comment "One secret-store audit entry: an operation on a (pseudonymized) secret path by a (pseudonymized) entity (OpenBao audit device; producer: openbao-mcp)." ;
+    rdfs:subClassOf :SecurityAuditEvent .
+
+:IntrusionDecision a owl:Class ;
+    rdfs:label "Intrusion Decision" ;
+    rdfs:comment "An edge-security remediation decision (CrowdSec ban/captcha) against a scope value; the ban target is kept whole because the decision is about exactly that address (producer: caddy-mcp)." ;
+    rdfs:subClassOf :SecurityAuditEvent .
