@@ -294,6 +294,17 @@ async fn dispatch_preamble_checks(
     )
     .await?;
 
+    // Engine-internal methods (e.g. EH-346's `PolicyEvolutionStore`) are
+    // dispatched by the engine to itself; a caller may never name one. The
+    // carrier half of the rule lives in `ChangeEnvelope::validate`.
+    if let Some(refusal) = req
+        .method
+        .engine_internal_message()
+        .filter(|_| !state_machine_authorized)
+    {
+        return Err(Response::err(req.id, refusal));
+    }
+
     if let Err(error) = preflight_request_msgpack(&req.method) {
         return Err(Response::err(req.id, error));
     }
