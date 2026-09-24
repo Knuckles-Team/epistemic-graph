@@ -49,6 +49,7 @@ pub mod remote_write;
 mod http;
 mod manifests;
 mod parse;
+pub mod retention;
 mod snapshot;
 mod state;
 pub(crate) mod writer;
