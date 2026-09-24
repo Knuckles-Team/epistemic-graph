@@ -688,8 +688,9 @@ ex:parent a owl:AsymmetricProperty .
         // AllDisjointClasses list of its own superclass `:Event` — 2. Then +99: the
         // module-local domain/range of 12 other shared properties (and the double domain
         // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
-        // +8: BFO realizable entity and disposition, declared for `:Skill`.
-        assert_eq!(composed.ontology.len(), 12_697);
+        // +8: BFO realizable entity and disposition, declared for `:Skill`. Then +8:
+        // infrastructure `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409).
+        assert_eq!(composed.ontology.len(), 12_705);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
