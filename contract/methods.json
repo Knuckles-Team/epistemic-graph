@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 437,
+  "method_count": 438,
   "methods": [
     {
       "consumer_profiles": [
@@ -9787,6 +9787,51 @@
         "selected_by": "op"
       },
       "stability": "stable"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "graph",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "PolicyEvolutionStore",
+      "note": "EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer",
+      "policy": {
+        "audited": true,
+        "authz_action": "admin:policy-evolution-store",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/PolicyEvolutionStore"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/PolicyEvolutionStore",
+        "selected_by": null
+      },
+      "stability": "internal"
     },
     {
       "consumer_profiles": [

@@ -375,6 +375,11 @@ fn control_lease_audit_line(method: &Method) -> Option<String> {
             "TRANSITION_CONTROL_LEASE|{}|{}|{}|{:?}",
             request.tenant, request.lease_id, request.expected_revision, request.to
         )),
+        // EH-346: identity only; the record body is graph content.
+        Method::PolicyEvolutionStore { request } => Some(format!(
+            "POLICY_EVOLUTION_STORE|{}|{}",
+            request.tenant_id, request.record_id
+        )),
         _ => None,
     }
 }

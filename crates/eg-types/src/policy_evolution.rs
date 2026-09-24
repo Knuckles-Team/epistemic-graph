@@ -11,11 +11,13 @@
 //!
 //! * [`records`] -- capability, model-policy version, training run, evaluation.
 //! * [`capture`] -- the trajectory capture and its held Blob-CAS arrays.
+//! * [`stored`] -- the one stored row shape and the internal kernel write.
 
 use serde::{Deserialize, Serialize};
 
 pub mod capture;
 pub mod records;
+pub mod stored;
 
 pub use capture::{
     ArrayEncoding, CaptureCompletion, CaptureEligibility, CaptureTraceFidelity, HeldBlobRef,
@@ -26,6 +28,9 @@ pub use records::{
     ModelPolicyVersion, OpenWeightPolicyCapability, PolicyControls, PolicyEvaluation,
     ResourceObservation, SafetyOutcome, TrainingMethod, TrainingOutput, TrainingRun,
     TrainingRunStatus, VersionOrigin,
+};
+pub use stored::{
+    is_policy_evolution_row, PolicyRecordStored, StoredPolicyRecord, POLICY_RECORD_NODE_TYPE,
 };
 
 use crate::contract::{Digest256, OpaqueId};
@@ -286,6 +291,9 @@ pub enum PolicyRefusal {
     RunNotSucceeded,
     CaptureIneligible(String),
     RecordTampered(String),
+    /// A generic graph write touched a policy-evolution row: only
+    /// `PolicyEvolution` (through the kernel's `PolicyEvolutionStore`) may.
+    NativeAuthorityRequired,
 }
 
 impl PolicyRefusal {
@@ -309,6 +317,7 @@ impl PolicyRefusal {
             Self::RunNotSucceeded => "POLICY_RUN_NOT_SUCCEEDED",
             Self::CaptureIneligible(_) => "POLICY_CAPTURE_INELIGIBLE",
             Self::RecordTampered(_) => "POLICY_RECORD_TAMPERED",
+            Self::NativeAuthorityRequired => "POLICY_NATIVE_AUTHORITY_REQUIRED",
         }
     }
 
@@ -326,7 +335,8 @@ impl PolicyRefusal {
             | Self::SamplerMismatch
             | Self::TrajectoryMissing
             | Self::TrajectoryLengthMismatch
-            | Self::RunNotSucceeded => "",
+            | Self::RunNotSucceeded
+            | Self::NativeAuthorityRequired => "",
         }
     }
 }

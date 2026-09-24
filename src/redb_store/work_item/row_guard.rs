@@ -10,11 +10,15 @@
 //!   binds (`outcome_ref`, `outcome_digest`, `trace_ref`, `tool_call_refs`,
 //!   graph-os EG-3). A lease's own fields are covered by the first rule.
 //!
+//! * a policy-evolution record row (EH-346) -- written only by the kernel's
+//!   `PolicyEvolutionStore` once `PolicyEvolution` admitted it.
+//!
 //! This guard runs beside `work_item_capability::validate_generic_method` in
 //! the generic row applier, so every generic node write -- single, batched or
 //! create-if-absent -- is checked in the same durable transaction it commits in.
 
 use eg_types::control_lease::is_control_lease_row;
+use eg_types::policy_evolution::{is_policy_evolution_row, PolicyRefusal};
 use eg_types::work_item_read::NATIVE_WORK_ITEM_ROW_KEYS;
 
 use super::*;
@@ -77,6 +81,7 @@ impl RowGuard<'_, '_> {
         if is_control_lease_row(&incoming) {
             return Err(LEASE_AUTHORITY.to_string());
         }
+        refuse_policy_row(Some(&incoming))?;
         let native_row = stored.as_ref().is_some_and(is_work_item_row);
         let owned = NATIVE_WORK_ITEM_ROW_KEYS
             .iter()
@@ -118,6 +123,15 @@ impl RowGuard<'_, '_> {
 fn refuse_stored_lease(stored: Option<&NodeMap>) -> Result<(), String> {
     if stored.is_some_and(is_control_lease_row) {
         return Err(LEASE_AUTHORITY.to_string());
+    }
+    refuse_policy_row(stored)
+}
+
+/// EH-346: a policy-evolution record row is written only by the kernel's
+/// `PolicyEvolutionStore`, after `PolicyEvolution` admitted it.
+fn refuse_policy_row(row: Option<&NodeMap>) -> Result<(), String> {
+    if row.is_some_and(is_policy_evolution_row) {
+        return Err(PolicyRefusal::NativeAuthorityRequired.to_string());
     }
     Ok(())
 }

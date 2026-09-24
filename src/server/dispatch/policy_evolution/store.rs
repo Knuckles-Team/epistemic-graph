@@ -1,61 +1,26 @@
-//! Policy-evolution records as request-graph nodes.
+//! Reading policy-evolution records from the request graph.
 //!
-//! One node per record, keyed by the record's content-addressed id. The node
-//! carries the tenant, the server-stamped writer and time, and the typed
-//! record. Decoding re-derives the id from the stored body: a node whose body
-//! no longer hashes to its id -- a generic graph write edited it -- is refused
-//! as tampered, so an immutable record can be proven unchanged on every read.
+//! One row per record, keyed by the record's content-addressed id and written
+//! only by the WorkItem kernel's `PolicyEvolutionStore` (the row guard refuses
+//! generic writes). Decoding still re-derives the id from the stored body as
+//! defence in depth: a row whose body no longer hashes to its id is refused as
+//! tampered.
 
-use eg_types::policy_evolution::{PolicyEvolutionRecord, PolicyRecordView, PolicyRefusal};
-use serde::Deserialize;
+use eg_types::policy_evolution::{
+    is_policy_evolution_row, PolicyEvolutionRecord, PolicyRecordView, PolicyRefusal,
+    StoredPolicyRecord,
+};
 
 use super::gate::RecordLookup;
 use crate::graph::GraphCore;
 
-/// `node_type` of every policy-evolution record node.
-const RECORD_NODE_TYPE: &str = "PolicyEvolutionRecord";
 /// The `type` marker `StartTrajectory` stamps on a trajectory node.
 const TRAJECTORY_NODE_TYPE: &str = "Trajectory";
 
-/// Who wrote a record, and when, as the verified context and the
-/// authoritative clock say.
-pub(super) struct RecordStamp<'a> {
-    pub(super) tenant_id: &'a str,
-    pub(super) recorded_by: String,
-    pub(super) recorded_at_ms: u64,
-}
-
-/// The complete property blob of one record node.
-pub(super) fn record_properties(
-    record_id: &str,
-    record: &PolicyEvolutionRecord,
-    stamp: &RecordStamp<'_>,
-) -> Result<Vec<u8>, String> {
-    let properties = serde_json::json!({
-        "node_type": RECORD_NODE_TYPE,
-        "tenant_id": stamp.tenant_id,
-        "record_id": record_id,
-        "recorded_by": stamp.recorded_by,
-        "recorded_at_ms": stamp.recorded_at_ms,
-        "record": record,
-    });
-    rmp_serde::to_vec_named(&properties)
-        .map_err(|error| format!("policy record encoding failed: {error}"))
-}
-
-#[derive(Deserialize)]
-struct StoredNode {
-    node_type: String,
-    tenant_id: String,
-    recorded_by: String,
-    recorded_at_ms: u64,
-    record: serde_json::Value,
-}
-
-/// Decode one node as `tenant_id`'s record `record_id`.
+/// Decode one row as `tenant_id`'s record `record_id`.
 ///
 /// `Ok(None)` for anything that is not this tenant's policy record; a
-/// policy-record node whose body is undecodable or no longer hashes to its id
+/// policy-record row whose body is undecodable or no longer hashes to its id
 /// is [`PolicyRefusal::RecordTampered`].
 pub(super) fn decode_view(
     record_id: &str,
@@ -63,25 +28,26 @@ pub(super) fn decode_view(
     tenant_id: &str,
 ) -> Result<Option<PolicyRecordView>, PolicyRefusal> {
     let tampered = || PolicyRefusal::RecordTampered(record_id.to_string());
-    let Ok(value) = eg_types::msgpack::decode_property_value(properties_msgpack) else {
+    let Ok(serde_json::Value::Object(row)) =
+        eg_types::msgpack::decode_property_value(properties_msgpack)
+    else {
         return Ok(None);
     };
-    let Ok(node) = serde_json::from_value::<StoredNode>(value) else {
-        return Ok(None);
-    };
-    if node.node_type != RECORD_NODE_TYPE || node.tenant_id != tenant_id {
+    if !is_policy_evolution_row(&row) {
         return Ok(None);
     }
-    let record: PolicyEvolutionRecord =
-        serde_json::from_value(node.record).map_err(|_| tampered())?;
-    if record.record_id(tenant_id).ok().as_deref() != Some(record_id) {
+    let stored = StoredPolicyRecord::from_row(&row).ok_or_else(tampered)?;
+    if stored.tenant_id != tenant_id {
+        return Ok(None);
+    }
+    if stored.record_id != record_id || stored.verify_identity().is_err() {
         return Err(tampered());
     }
     Ok(Some(PolicyRecordView {
-        record_id: record_id.to_string(),
-        recorded_by: node.recorded_by,
-        recorded_at_ms: node.recorded_at_ms,
-        record,
+        record_id: stored.record_id,
+        recorded_by: stored.recorded_by,
+        recorded_at_ms: stored.recorded_at_ms,
+        record: stored.record,
     }))
 }
 
@@ -132,19 +98,23 @@ mod tests {
         PolicyEvolutionRecord::ModelPolicyVersion { record }
     }
 
-    fn stamp() -> RecordStamp<'static> {
-        RecordStamp {
-            tenant_id: "tenant-a",
+    /// The row the kernel would store for `record` under tenant-a.
+    fn row_blob(record: &PolicyEvolutionRecord) -> (String, Vec<u8>) {
+        let stored = StoredPolicyRecord {
+            record_id: record.record_id("tenant-a").unwrap(),
+            tenant_id: "tenant-a".to_string(),
             recorded_by: "principal:sha256:ab".to_string(),
             recorded_at_ms: 42,
-        }
+            record: record.clone(),
+        };
+        let row = serde_json::Value::Object(stored.row().unwrap());
+        (stored.record_id, rmp_serde::to_vec_named(&row).unwrap())
     }
 
     #[test]
     fn a_record_round_trips_through_its_node_and_stays_tenant_scoped() {
         let record = version();
-        let id = record.record_id("tenant-a").unwrap();
-        let blob = record_properties(&id, &record, &stamp()).unwrap();
+        let (id, blob) = row_blob(&record);
         let view = decode_view(&id, &blob, "tenant-a").unwrap().unwrap();
         assert_eq!(view.record, record);
         assert_eq!(view.recorded_at_ms, 42);
@@ -153,9 +123,7 @@ mod tests {
 
     #[test]
     fn an_edited_record_is_refused_as_tampered() {
-        let record = version();
-        let id = record.record_id("tenant-a").unwrap();
-        let blob = record_properties(&id, &record, &stamp()).unwrap();
+        let (id, blob) = row_blob(&version());
         let mut node = eg_types::msgpack::decode_property_value(&blob).unwrap();
         node["record"]["record"]["artifact_ref"] = serde_json::json!("artifacts:swapped");
         let edited = rmp_serde::to_vec_named(&node).unwrap();

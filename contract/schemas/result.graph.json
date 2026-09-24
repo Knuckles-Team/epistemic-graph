@@ -944,6 +944,26 @@
       ],
       "type": "object"
     },
+    "PolicyRecordStored": {
+      "additionalProperties": false,
+      "description": "The kernel's answer to one `PolicyEvolutionStore`: `created == false` means\nthe content-addressed row already existed. `changed_work_item_ids` names the\nrows the serving projection must republish.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "created",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
     "PolicyRecordView": {
       "additionalProperties": false,
       "description": "One record as read back, with the server-stamped writer and time.",
@@ -2263,6 +2283,18 @@
         }
       },
       "selected_by": "op"
+    },
+    "PolicyEvolutionStore": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/PolicyRecordStored"
+          }
+        }
+      },
+      "selected_by": null
     },
     "PruneByLifecycle": {
       "bodies": {

@@ -14014,6 +14014,96 @@
           }
         ]
       },
+      "ReqDef_PolicyEvolutionRecord": {
+        "description": "One stored record, tagged by kind.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capability",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_OpenWeightPolicyCapability"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capture",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_PolicyCapture"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "model_policy_version",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_ModelPolicyVersion"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "training_run",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_TrainingRun"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "policy_evaluation",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ReqDef_PolicyEvaluation"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_PolicyRecord": {
         "description": "Policy rows carry an opaque subject-set digest, never raw principals.",
         "properties": {
@@ -20905,6 +20995,37 @@
           "question_id",
           "kind",
           "safety"
+        ],
+        "type": "object"
+      },
+      "ReqDef_StoredPolicyRecord": {
+        "additionalProperties": false,
+        "description": "One admitted record, stamped by the engine from the verified request\ncontext. Carried by the internal `PolicyEvolutionStore` method so the\nkernel write -- and its raft replay -- is fully determined by the method.",
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/ReqDef_PolicyEvolutionRecord"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "recorded_by": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "tenant_id",
+          "recorded_by",
+          "recorded_at_ms",
+          "record"
         ],
         "type": "object"
       },
@@ -34939,6 +35060,33 @@
             },
             "required": [
               "op"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_PolicyEvolutionStore": {
+        "additionalProperties": false,
+        "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+        "properties": {
+          "method": {
+            "const": "PolicyEvolutionStore",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_StoredPolicyRecord"
+              }
+            },
+            "required": [
+              "request"
             ],
             "type": "object"
           }
@@ -52457,6 +52605,26 @@
           "kind",
           "disposition",
           "observed_at_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Graph_PolicyRecordStored": {
+        "additionalProperties": false,
+        "description": "The kernel's answer to one `PolicyEvolutionStore`: `created == false` means\nthe content-addressed row already existed. `changed_work_item_ids` names the\nrows the serving projection must republish.",
+        "properties": {
+          "changed_work_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "created",
+          "changed_work_item_ids"
         ],
         "type": "object"
       },
@@ -86076,6 +86244,33 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+            "properties": {
+              "method": {
+                "const": "PolicyEvolutionStore",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "request": {
+                    "$ref": "#/components/schemas/ResDef_Query_StoredPolicyRecord"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -89077,6 +89272,96 @@
             "required": [
               "op",
               "request"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_PolicyEvolutionRecord": {
+        "description": "One stored record, tagged by kind.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capability",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_OpenWeightPolicyCapability"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "capture",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_PolicyCapture"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "model_policy_version",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_ModelPolicyVersion"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "training_run",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_TrainingRun"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "policy_evaluation",
+                "type": "string"
+              },
+              "record": {
+                "$ref": "#/components/schemas/ResDef_Query_PolicyEvaluation"
+              }
+            },
+            "required": [
+              "kind",
+              "record"
             ],
             "type": "object"
           }
@@ -96574,6 +96859,37 @@
           "question_id",
           "kind",
           "safety"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_StoredPolicyRecord": {
+        "additionalProperties": false,
+        "description": "One admitted record, stamped by the engine from the verified request\ncontext. Carried by the internal `PolicyEvolutionStore` method so the\nkernel write -- and its raft replay -- is fully determined by the method.",
+        "properties": {
+          "record": {
+            "$ref": "#/components/schemas/ResDef_Query_PolicyEvolutionRecord"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "recorded_by": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "tenant_id",
+          "recorded_by",
+          "recorded_at_ms",
+          "record"
         ],
         "type": "object"
       },
@@ -109065,6 +109381,10 @@
         ],
         "x-selected-by": "op"
       },
+      "Res_graph_PolicyEvolutionStore": {
+        "$ref": "#/components/schemas/ResDef_Graph_PolicyRecordStored",
+        "x-encoding": "Raw"
+      },
       "Res_graph_PruneByLifecycle": {
         "$ref": "#/components/schemas/ResDef_Graph_PruneStats",
         "x-encoding": "Json"
@@ -110714,7 +111034,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 437 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 438 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -125613,6 +125933,65 @@
         "x-mutates": true,
         "x-replay-class": "OperationIdentity",
         "x-stability": "stable",
+        "x-txn-participation": "Atomic"
+      }
+    },
+    "/rpc/graph/PolicyEvolutionStore": {
+      "post": {
+        "operationId": "PolicyEvolutionStore",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_PolicyEvolutionStore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_graph_PolicyEvolutionStore"
+                }
+              }
+            },
+            "description": "`PolicyEvolutionStore` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer",
+        "tags": [
+          "graph"
+        ],
+        "x-audited": true,
+        "x-authz-action": "admin:policy-evolution-store",
+        "x-consumer-profiles": [],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED",
+          "CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
+          "REDIRECTED",
+          "READ_ONLY"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "internal",
         "x-txn-participation": "Atomic"
       }
     },

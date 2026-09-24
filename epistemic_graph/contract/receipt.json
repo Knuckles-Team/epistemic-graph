@@ -2,22 +2,22 @@
   "artifact_digests": {
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
-    "contract/methods.json": "920a2bdef8990b619a3b2c5d6d7774724ad844b2dc3934e7d425475f1e9f43a9",
-    "contract/schemas/method.request.json": "665196d6232f0875ff31bd4f675e6e94fd91a9e78b501005a1cc573596734d21",
+    "contract/methods.json": "5bdde34ae900e4f3e71fc14a077c3d6be48ba29066be3efcdb21e34ec36677e5",
+    "contract/schemas/method.request.json": "796d14d41be5b708bb41eafbe8f4550007a64f73c339b480c16b317844ffff28",
     "contract/schemas/result.cluster.json": "0aac12793ab69a65c1326ba4471c48bfa4a87596be9eb7972eaa09fe65608c42",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
     "contract/schemas/result.coordination.json": "7f454c7de9a9bdd9db0f0e208e20afc6cf9b9d27e4b8885cb226c1bff92ac76b",
-    "contract/schemas/result.graph.json": "229129a7ee89b187bb6291a58bf1db59e1c4ee28492878e4f3e54defac839a06",
+    "contract/schemas/result.graph.json": "74462242f194cb0294b3ffc92a1b2c55f8c8bc9863a77d3c1d1af9d26a87bf3c",
     "contract/schemas/result.ingestion.json": "33b88b5728252a24f66d0c201eac9bd548810a428631a4ab9705e01ccce3e415",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "3e5942e3e04ffd96a273b4859cc06da4d53c026abdc7a59fdf3d4d5454d1314a",
+    "contract/schemas/result.query.json": "3f5eaaeeba8f56e27cfef9db127de7daf8211df4478682c0111d6675309c18b7",
     "contract/schemas/result.reasoning.json": "208ed85f87ad7515d0c9cbd5d99c96e3ada406ab2e8d81e32c93ac29b4331a18",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
     "contract/schemas/result.storage.json": "4a25d907a27708013f379cacc259eeb9f1a4e1f0f212240559f1ca0e964442b9",
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
-    "crates/eg-capabilities/generated/method_catalog.rs": "d3a538a6dd92c853d113c0bf8daae74d1a5f48414def39bf9d80d2ac4431219c",
-    "docs/capabilities.generated.md": "957990687f0e4a22d67ec7a52d50707457f05a816c55a13ce901ab7593f7b595",
+    "crates/eg-capabilities/generated/method_catalog.rs": "2ce68442c01390fa77c1cb8280d4107a0f4f9fad008cb670002fc2890c2c0692",
+    "docs/capabilities.generated.md": "b2e55b0f8bfa58cc7e8d52859e9e067acd869ced637cb2d729fa5b0d64509764",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
     "epistemic_graph/generated/__init__.py": "846c762038583cbbcf9c6ca233e1279041b4f287f3cda21f4459cb31a1ac0523",
     "epistemic_graph/generated/_ids.py": "73ec17fc38014275ac8d5676cc0802543f6dd608d0a0aa60f6d7b61a5f3afc76",
@@ -49,7 +49,7 @@
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "a1b994c624888a0f24fce8e7dab119de26be496c6c025743903f02a7f7084107",
-  "contract_digest": "c1f0374d7c69e55c2dffd15060d3aa38c621398096b324028f9005cc77c7fc00",
+  "contract_digest": "69236640e59abcc9228a988edbc8a7d20f03b66aceb3fb95f53c5cd732ca8d1f",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -584,14 +584,14 @@
     ]
   },
   "generator": "eg-capabilities/gen_contract",
-  "internal_only_methods": 20,
-  "method_count": 437,
+  "internal_only_methods": 21,
+  "method_count": 438,
   "python_client_methods": 417,
   "result_classification": {
     "declared_dynamic": 12,
     "mixed": 1,
-    "schematized": 424,
+    "schematized": 425,
     "unclassified": 0
   },
-  "source_tree_oid": "43d9b85bfbf62939a2b097ad8c4a075485901ca9b1f49cf72a4aa9d98c273474"
+  "source_tree_oid": "4cb977082a992bf05d3e8d97dcddc9b4350fc32b85addebb382ff8d388863115"
 }

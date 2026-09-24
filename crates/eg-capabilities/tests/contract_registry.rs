@@ -183,7 +183,7 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // `GetControlLease`.
     assert_eq!(
         variants.len(),
-        437,
+        438,
         "the wire method census changed; update this exact count deliberately"
     );
 }

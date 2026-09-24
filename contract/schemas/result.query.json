@@ -29002,6 +29002,33 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one\nrecord `PolicyEvolution` already admitted. Refused from the wire; the\nonly way a policy-evolution row can be created (generic graph writes to\nsuch rows are refused by the row guard).",
+          "properties": {
+            "method": {
+              "const": "PolicyEvolutionStore",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/StoredPolicyRecord"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -32003,6 +32030,96 @@
           "required": [
             "op",
             "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PolicyEvolutionRecord": {
+      "description": "One stored record, tagged by kind.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "capability",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/OpenWeightPolicyCapability"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "capture",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/PolicyCapture"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "model_policy_version",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/ModelPolicyVersion"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "training_run",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/TrainingRun"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "policy_evaluation",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/PolicyEvaluation"
+            }
+          },
+          "required": [
+            "kind",
+            "record"
           ],
           "type": "object"
         }
@@ -39500,6 +39617,37 @@
         "question_id",
         "kind",
         "safety"
+      ],
+      "type": "object"
+    },
+    "StoredPolicyRecord": {
+      "additionalProperties": false,
+      "description": "One admitted record, stamped by the engine from the verified request\ncontext. Carried by the internal `PolicyEvolutionStore` method so the\nkernel write -- and its raft replay -- is fully determined by the method.",
+      "properties": {
+        "record": {
+          "$ref": "#/$defs/PolicyEvolutionRecord"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recorded_by": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id",
+        "tenant_id",
+        "recorded_by",
+        "recorded_at_ms",
+        "record"
       ],
       "type": "object"
     },
