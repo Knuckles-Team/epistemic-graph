@@ -11,6 +11,7 @@
 mod market;
 mod route_families;
 mod routes;
+mod signal_models;
 
 use crate::protocol::{Method, Response};
 

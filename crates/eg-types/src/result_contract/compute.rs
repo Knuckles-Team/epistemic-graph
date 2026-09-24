@@ -8,14 +8,16 @@ use crate::compute_result::datascience;
 use crate::compute_result::distributed;
 #[cfg(feature = "finance")]
 use crate::compute_result::finance;
-#[cfg(feature = "finance")]
-use crate::compute_result::market;
 #[cfg(feature = "graphlearn")]
 use crate::compute_result::graphlearn;
+#[cfg(feature = "finance")]
+use crate::compute_result::market;
 #[cfg(feature = "mining")]
 use crate::compute_result::mining;
 #[cfg(feature = "ml-pipeline")]
 use crate::compute_result::pipeline;
+#[cfg(feature = "finance")]
+use crate::compute_result::signal_models;
 use crate::solve::SolveResult;
 #[cfg(feature = "datascience")]
 use crate::wire::FittedModel;
@@ -255,4 +257,9 @@ method_results! {
     FinanceMarketFlipConfidence(FinanceMarket / "flip_confidence") => Raw<market::FlipConfidence>;
     #[cfg(feature = "finance")]
     FinanceMarketBacktestRun(FinanceMarket / "backtest_run") => Raw<market::BacktestRun>;
+    // ── signal fusion and the strategic-insider model (EH-423 / AUD-30) ──
+    #[cfg(feature = "finance")]
+    FinanceSignalModelsBayesFuse(FinanceSignalModels / "bayes_fuse") => Raw<signal_models::BayesFusion>;
+    #[cfg(feature = "finance")]
+    FinanceSignalModelsInsiderEquilibrium(FinanceSignalModels / "insider_equilibrium") => Raw<signal_models::InsiderAnalysis>;
 }

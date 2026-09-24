@@ -74,7 +74,8 @@ class MethodPolicyRow:
 # `TransitionControlLease` and `GetControlLease`.
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
 # 437 -> 438: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
-EXPECTED_METHOD_POLICY_ROWS = 438
+# 438 -> 439: `FinanceSignalModels`, fusion and the insider model (EH-423).
+EXPECTED_METHOD_POLICY_ROWS = 439
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

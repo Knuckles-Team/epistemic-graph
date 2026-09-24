@@ -71,6 +71,17 @@ $($variants)*
     FinanceMarket {
         op: Box<crate::compute_result::market::FinanceMarketOp>,
     },
+
+    // ── Signal fusion and the strategic-insider model (EH-423 / AUD-30) ─────
+    /// Sequential Bayesian fusion of directional calls weighted by measured
+    /// priors, and the Kyle insider's equilibrium under dynamic legal risk
+    /// with its schedule and penalty-design verdict. Pure compute over what
+    /// the request carries; informational only. See
+    /// [`crate::compute_result::signal_models`].
+    #[cfg(feature = "finance")]
+    FinanceSignalModels {
+        op: Box<crate::compute_result::signal_models::FinanceSignalModelsOp>,
+    },
         ]);
     };
 }

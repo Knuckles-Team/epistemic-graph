@@ -427,6 +427,7 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("FinanceMarket", REASON_PURE_COMPUTE),
     ("FinanceMarketImpact", REASON_PURE_COMPUTE),
     ("FinanceMarkovTransitionMatrix", REASON_PURE_COMPUTE),
+    ("FinanceSignalModels", REASON_PURE_COMPUTE),
     ("FinanceMatchOrders", REASON_PURE_COMPUTE),
     ("FinanceMaxDrawdown", REASON_PURE_COMPUTE),
     ("FinanceMeanReversion", REASON_PURE_COMPUTE),

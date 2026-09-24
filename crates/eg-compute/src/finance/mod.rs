@@ -18,5 +18,6 @@ pub mod optimizer;
 pub mod quant;
 pub mod regime;
 pub mod risk;
+pub mod signal_models;
 pub mod signals;
 pub mod statespace;

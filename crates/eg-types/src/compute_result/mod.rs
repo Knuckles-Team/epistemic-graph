@@ -23,3 +23,5 @@ pub mod market;
 pub mod mining;
 #[cfg(feature = "ml-pipeline")]
 pub mod pipeline;
+#[cfg(feature = "finance")]
+pub mod signal_models;
