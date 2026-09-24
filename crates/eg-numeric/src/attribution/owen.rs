@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use super::shapley::{members_of, shapley_weights};
+use super::shapley::{budget_refusal, members_of, shapley_weights};
 use super::EXACT_MAX_PLAYERS;
 use super::{invalid, Attribution, AttributionCode, AttributionError, AttributionResult, Game};
 
@@ -63,10 +63,7 @@ fn check_sizes(unions: &[Vec<usize>], max_evaluations: u64) -> AttributionResult
         .map(|u| outer * (1u64 << (u.len() - 1)) * 2 * u.len() as u64)
         .sum();
     if needed > max_evaluations {
-        return Err(AttributionError::new(
-            AttributionCode::BudgetExceeded,
-            format!("{needed} coalition evaluations exceed the budget of {max_evaluations}"),
-        ));
+        return Err(budget_refusal(needed, max_evaluations));
     }
     Ok(())
 }

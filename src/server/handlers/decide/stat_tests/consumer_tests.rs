@@ -251,6 +251,35 @@ async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
     );
 }
 
+/// Independent evaluations of the committed assembly `record_id` by "evaluator",
+/// one per `outcomes` entry (EH-012; reused by the EH-523 slate split tests).
+pub(super) async fn evaluate_assembly(
+    h: &Harness,
+    record_id: &str,
+    outcomes: &[bool],
+) -> Vec<StoredEvaluation> {
+    use crate::server::persistence::decision_record::tests as v1;
+    let evaluator = VerifiedRequestContext::verified_for_test_in_tenant("evaluator", v1::TENANT);
+    let mut stored = Vec::new();
+    for (n, success) in outcomes.iter().enumerate() {
+        let op = DecisionLogOp::Evaluate {
+            tenant_id: v1::TENANT.to_string(),
+            evaluation: DecisionOutcomeEvaluation {
+                record_id: record_id.to_string(),
+                evaluation_id: format!("e-{n}"),
+                class: EvidenceClass::Observation,
+                selected_agent: "agent".to_string(),
+                lease_holder: "worker".to_string(),
+                fidelity: OutcomeFidelity::FullStep,
+                success: Some(*success),
+            },
+        };
+        let response = super::super::log::handle_decision_log(&h.state, 30, &evaluator, op).await;
+        stored.push(decode(response).expect("a committed assembly is evaluable"));
+    }
+    stored
+}
+
 /// EH-012: an independent evaluation of a committed ASSEMBLY joins its v1
 /// record, and the aggregate credits the whole slate (`slate:<graph digest>`
 /// under the `assembly` question) -- never its components.
@@ -273,22 +302,8 @@ async fn an_assembly_outcome_is_credited_to_its_slate() {
         panic!("solved")
     };
     let evaluator = VerifiedRequestContext::verified_for_test_in_tenant("evaluator", v1::TENANT);
-    for n in 0..10 {
-        let op = DecisionLogOp::Evaluate {
-            tenant_id: v1::TENANT.to_string(),
-            evaluation: DecisionOutcomeEvaluation {
-                record_id: record.record_id.clone(),
-                evaluation_id: format!("e-{n}"),
-                class: EvidenceClass::Observation,
-                selected_agent: "agent".to_string(),
-                lease_holder: "worker".to_string(),
-                fidelity: OutcomeFidelity::FullStep,
-                success: Some(n % 2 == 0),
-            },
-        };
-        let stored: StoredEvaluation =
-            decode(super::super::log::handle_decision_log(&h.state, 30, &evaluator, op).await)
-                .expect("a committed assembly is evaluable");
+    let outcomes: Vec<bool> = (0..10).map(|n| n % 2 == 0).collect();
+    for stored in evaluate_assembly(&h, &record.record_id, &outcomes).await {
         assert_eq!(stored.producer, evaluator.principal_persistence_id());
     }
     let aggregate = DecisionLogOp::Aggregate {
