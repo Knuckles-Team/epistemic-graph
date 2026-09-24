@@ -168,7 +168,7 @@ fn record_channel(op: &Op, rows: &RowSet, extra: &StageChannels, table: &mut Cha
         record(table, channel, scored);
     }
     for (channel, values) in extra {
-        record(table, channel, values.iter().cloned());
+        record(table, *channel, values.iter().cloned());
     }
 }
 

@@ -8,7 +8,9 @@
 //! contribution (channel `attribution`; a sampled estimate's CI half-width is channel
 //! `attribution_ci`) and orders the rows by it, descending.
 
-use super::*;
+use serde::{Deserialize, Serialize};
+
+use super::{refuse, uql_ident, UqlPrintCode, UqlPrintError};
 
 /// Where each player's value comes from.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

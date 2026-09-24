@@ -218,7 +218,9 @@ fn reliability_with_channels(
         return Ok((rows, Vec::new()));
     };
     let [lo, hi] = [lower as f32, upper as f32];
-    let per_row = |value: f32| rows.ids().into_iter().map(|id| (id, value)).collect();
+    let per_row = |value: f32| -> Vec<(String, f32)> {
+        rows.ids().into_iter().map(|id| (id, value)).collect()
+    };
     let names = eg_types::wire::RELIABILITY_EXTRA_CHANNELS;
     let channels = vec![(names[0], per_row(lo)), (names[1], per_row(hi))];
     Ok((rows, channels))
