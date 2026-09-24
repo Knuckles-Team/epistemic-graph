@@ -363,6 +363,8 @@
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUnifiedQueryText` | false | None | `txn:read` | true | false | false | Saga |  |
+| `EdgeIndex` | ~true | GraphRedb | `semantic:binding-write` | true | false | false | Atomic | EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it |
+| `EdgeSearch` | false | None | `semantic:binding-read` | true | false | false | Snapshot | EH-351: edge-native vector or BM25 search of the request graph; the caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal) |
 | `Decide` | false | None | `query:decide` | true | false | false | Snapshot | RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them |
 | `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | true | true | true | Atomic | state-backed MutationBatch commits inferred facts; operation-identity replay prevents duplicate materialization/audit/CDC |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |

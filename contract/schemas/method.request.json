@@ -2972,6 +2972,13 @@
       "maxItems": 16,
       "type": "array"
     },
+    "BoundedVec_EdgePropertyEquals_16": {
+      "items": {
+        "$ref": "#/$defs/EdgePropertyEquals"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "BoundedVec_Elimination_64": {
       "items": {
         "$ref": "#/$defs/Elimination"
@@ -3090,6 +3097,14 @@
         "type": "number"
       },
       "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_float_8192": {
+      "items": {
+        "format": "float",
+        "type": "number"
+      },
+      "maxItems": 8192,
       "type": "array"
     },
     "BoundedVec_string_1024": {
@@ -7342,6 +7357,234 @@
       ],
       "type": "string"
     },
+    "EdgeIndexDefinition": {
+      "additionalProperties": false,
+      "description": "One edge index a caller creates. The tenant is the verified caller's; the\ngraph is the request graph.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/EdgeIndexKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "property": {
+          "description": "The edge property indexed.",
+          "type": "string"
+        },
+        "purpose": {
+          "description": "The purpose the index serves; a search must present the same.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "property",
+        "kind",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "EdgeIndexKind": {
+      "description": "What an edge index searches.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "family": {
+              "const": "vector",
+              "type": "string"
+            },
+            "metric": {
+              "$ref": "#/$defs/EdgeVectorMetric"
+            }
+          },
+          "required": [
+            "family",
+            "metric"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "family": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "family"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EdgeIndexOp": {
+      "description": "Create, refresh, drop or list the edge indexes of the request graph.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Register the index durably and build its first generation.",
+          "properties": {
+            "definition": {
+              "$ref": "#/$defs/EdgeIndexDefinition"
+            },
+            "op": {
+              "const": "create",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "definition"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Build and activate the next generation.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "const": "refresh",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Drop the index, its registration and every generation (fenced).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "const": "drop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Every edge index of the request graph.",
+          "properties": {
+            "op": {
+              "const": "status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EdgePropertyEquals": {
+      "additionalProperties": false,
+      "description": "One property an admitted edge must carry with exactly this value.",
+      "properties": {
+        "property": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "property",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EdgeSearchQuery": {
+      "description": "What an edge search looks for.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "vector",
+              "type": "string"
+            },
+            "vector": {
+              "$ref": "#/$defs/BoundedVec_float_8192"
+            }
+          },
+          "required": [
+            "kind",
+            "vector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EdgeSearchRequest": {
+      "additionalProperties": false,
+      "description": "Search one edge index of the request graph. Row-level security, the edge\ntype and the property filters are applied inside the index walk.",
+      "properties": {
+        "edge_type": {
+          "default": null,
+          "description": "Only edges whose `type` property equals this.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "type": "string"
+        },
+        "k": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "property_equals": {
+          "$ref": "#/$defs/BoundedVec_EdgePropertyEquals_16",
+          "default": []
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "query": {
+          "$ref": "#/$defs/EdgeSearchQuery"
+        }
+      },
+      "required": [
+        "index",
+        "purpose",
+        "query",
+        "k"
+      ],
+      "type": "object"
+    },
     "EdgeSource": {
       "description": "Which side of a subsumption edge the engine got it from.",
       "oneOf": [
@@ -7378,6 +7621,15 @@
           "type": "object"
         }
       ]
+    },
+    "EdgeVectorMetric": {
+      "description": "The distance an edge vector index ranks by.",
+      "enum": [
+        "l2",
+        "cosine",
+        "inner_product"
+      ],
+      "type": "string"
     },
     "Elimination": {
       "additionalProperties": false,
@@ -25287,6 +25539,60 @@
       },
       "required": [
         "method"
+      ],
+      "type": "object"
+    },
+    "EdgeIndex": {
+      "additionalProperties": false,
+      "description": "Create, refresh, drop or list the edge indexes of the request graph.",
+      "properties": {
+        "method": {
+          "const": "EdgeIndex",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/EdgeIndexOp"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "EdgeSearch": {
+      "additionalProperties": false,
+      "description": "Search one edge index of the request graph; edges come back as edges.",
+      "properties": {
+        "method": {
+          "const": "EdgeSearch",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/EdgeSearchRequest"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
       ],
       "type": "object"
     },

@@ -15,7 +15,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `kv` | `48b6464ad5960bd14fc0976119b689c0016be63e8cc8be72df4e7030ed593f9e` | none |
 | `blob` | `982e463fd13db3ec48fbdda77249ecaefed3b9174276c61ac7cd2eb206c47d6b` | `BLOB_FORMAT_UPGRADE_REQUIRED` |
 | `semantic_index` | `3008d8726d15a864daf6c723004152fc61bb40bc8de0fea486dfdaace0c985d8` | none |
-| `sql` | `abae4905ed8ea379c808cc9be3aec978300049a9ae0d405df487ea31d714f555` | `SQL_FORMAT_UPGRADE_REQUIRED` |
+| `sql` | `7435c69e2de7052a351a89f17ccb4a988f92189f09d523ee7f8e088607924398` | `SQL_FORMAT_UPGRADE_REQUIRED` |
 | `path_index` | `c79d89a41ad97d55cf35238ca8706db8c958923624de068a430c3bca72656df9` | none |
 | `request_replay` | `ccb7051fef1a624274939944f7af9ee0f3ee03eee062794eeaf105d1c6117809` | none |
 | `viz_provenance` | `57e566cd7fae6e67c83778cb50423130b8c250c2ce58dd3e93f5b203151661d3` | none |
@@ -42,10 +42,10 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`
 * Removal step: stop the engine, move `sql.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
-## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable ANN index generations
+## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable ANN and edge index generations
 
 * Store file: `sql.redb`
-* Refused generation: SQL catalog store before durable ANN index generations
+* Refused generation: SQL catalog store before durable ANN and edge index generations
 * Data lost: its SQL catalog and rows are not migrated; re-ingest the sources
 * Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`, `__sql_source_checkpoints__`
 * Removal step: stop the engine, move `sql.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.

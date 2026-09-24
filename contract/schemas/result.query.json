@@ -2995,11 +2995,32 @@
       "maxItems": 16,
       "type": "array"
     },
+    "BoundedVec_EdgePropertyEquals_16": {
+      "items": {
+        "$ref": "#/$defs/EdgePropertyEquals"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "BoundedVec_EdgeSearchHit_1000": {
+      "items": {
+        "$ref": "#/$defs/EdgeSearchHit"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
     "BoundedVec_Elimination_64": {
       "items": {
         "$ref": "#/$defs/Elimination"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_ManagedIndexStatus_1024": {
+      "items": {
+        "$ref": "#/$defs/ManagedIndexStatus"
+      },
+      "maxItems": 1024,
       "type": "array"
     },
     "BoundedVec_ObjectiveLevelKind_8": {
@@ -3127,6 +3148,14 @@
         "type": "number"
       },
       "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_float_8192": {
+      "items": {
+        "format": "float",
+        "type": "number"
+      },
+      "maxItems": 8192,
       "type": "array"
     },
     "BoundedVec_int64_2048": {
@@ -7691,6 +7720,305 @@
       ],
       "type": "string"
     },
+    "EdgeIndexDefinition": {
+      "additionalProperties": false,
+      "description": "One edge index a caller creates. The tenant is the verified caller's; the\ngraph is the request graph.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/EdgeIndexKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "property": {
+          "description": "The edge property indexed.",
+          "type": "string"
+        },
+        "purpose": {
+          "description": "The purpose the index serves; a search must present the same.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "property",
+        "kind",
+        "purpose"
+      ],
+      "type": "object"
+    },
+    "EdgeIndexKind": {
+      "description": "What an edge index searches.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "family": {
+              "const": "vector",
+              "type": "string"
+            },
+            "metric": {
+              "$ref": "#/$defs/EdgeVectorMetric"
+            }
+          },
+          "required": [
+            "family",
+            "metric"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "family": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "family"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EdgeIndexOp": {
+      "description": "Create, refresh, drop or list the edge indexes of the request graph.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Register the index durably and build its first generation.",
+          "properties": {
+            "definition": {
+              "$ref": "#/$defs/EdgeIndexDefinition"
+            },
+            "op": {
+              "const": "create",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "definition"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Build and activate the next generation.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "const": "refresh",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Drop the index, its registration and every generation (fenced).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "op": {
+              "const": "drop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Every edge index of the request graph.",
+          "properties": {
+            "op": {
+              "const": "status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EdgeIndexStatusView": {
+      "description": "The edge indexes of one graph.",
+      "properties": {
+        "indexes": {
+          "$ref": "#/$defs/BoundedVec_ManagedIndexStatus_1024"
+        }
+      },
+      "required": [
+        "indexes"
+      ],
+      "type": "object"
+    },
+    "EdgePropertyEquals": {
+      "additionalProperties": false,
+      "description": "One property an admitted edge must carry with exactly this value.",
+      "properties": {
+        "property": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "property",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EdgeSearchHit": {
+      "description": "One result edge, identified as an edge.",
+      "properties": {
+        "ordinal": {
+          "description": "The edge's position among the parallel edges of `(source, target)`.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "score": {
+          "description": "The distance (vector: smaller is nearer) or BM25 score (text).",
+          "format": "double",
+          "type": "number"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "ordinal",
+        "score"
+      ],
+      "type": "object"
+    },
+    "EdgeSearchQuery": {
+      "description": "What an edge search looks for.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "vector",
+              "type": "string"
+            },
+            "vector": {
+              "$ref": "#/$defs/BoundedVec_float_8192"
+            }
+          },
+          "required": [
+            "kind",
+            "vector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EdgeSearchRequest": {
+      "additionalProperties": false,
+      "description": "Search one edge index of the request graph. Row-level security, the edge\ntype and the property filters are applied inside the index walk.",
+      "properties": {
+        "edge_type": {
+          "default": null,
+          "description": "Only edges whose `type` property equals this.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "type": "string"
+        },
+        "k": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "property_equals": {
+          "$ref": "#/$defs/BoundedVec_EdgePropertyEquals_16",
+          "default": []
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "query": {
+          "$ref": "#/$defs/EdgeSearchQuery"
+        }
+      },
+      "required": [
+        "index",
+        "purpose",
+        "query",
+        "k"
+      ],
+      "type": "object"
+    },
+    "EdgeSearchView": {
+      "description": "The answer to one edge search.",
+      "properties": {
+        "fallback": {
+          "default": null,
+          "description": "Why the bounded exact path answered instead, when it did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generation": {
+          "default": null,
+          "description": "The generation that served, when the maintained index did.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hits": {
+          "$ref": "#/$defs/BoundedVec_EdgeSearchHit_1000"
+        }
+      },
+      "required": [
+        "hits"
+      ],
+      "type": "object"
+    },
     "EdgeSource": {
       "description": "Which side of a subsumption edge the engine got it from.",
       "oneOf": [
@@ -7727,6 +8055,15 @@
           "type": "object"
         }
       ]
+    },
+    "EdgeVectorMetric": {
+      "description": "The distance an edge vector index ranks by.",
+      "enum": [
+        "l2",
+        "cosine",
+        "inner_product"
+      ],
+      "type": "string"
     },
     "Elimination": {
       "additionalProperties": false,
@@ -10175,6 +10512,53 @@
       ],
       "type": "object"
     },
+    "IndexBlock": {
+      "description": "A typed, bounded diagnostic.",
+      "properties": {
+        "detail": {
+          "description": "At most [`MAX_BLOCK_DETAIL_BYTES`], cut on a character boundary.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/IndexBlockReason"
+        }
+      },
+      "required": [
+        "reason",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "IndexBlockReason": {
+      "description": "Why a managed index is blocked.",
+      "oneOf": [
+        {
+          "const": "not_indexable",
+          "description": "The target cannot be indexed (missing, or not of the family's type).",
+          "type": "string"
+        },
+        {
+          "const": "build_bound",
+          "description": "The source exceeds the build's resource bound.",
+          "type": "string"
+        },
+        {
+          "const": "build_failed",
+          "description": "A build failed for another reason.",
+          "type": "string"
+        },
+        {
+          "const": "restore_failed",
+          "description": "The persisted generation could not be restored.",
+          "type": "string"
+        },
+        {
+          "const": "persist_failed",
+          "description": "A live generation could not be persisted.",
+          "type": "string"
+        }
+      ]
+    },
     "JobKind": {
       "description": "Which analytics computation a job runs (CONCEPT:INT-P2-1).",
       "oneOf": [
@@ -11550,6 +11934,149 @@
         "maintenance_key"
       ],
       "type": "object"
+    },
+    "ManagedIndexFamily": {
+      "description": "What a managed index answers.",
+      "oneOf": [
+        {
+          "const": "vector",
+          "description": "Nearest-neighbour search over a vector property.",
+          "type": "string"
+        },
+        {
+          "const": "text",
+          "description": "BM25 search over a text property.",
+          "type": "string"
+        }
+      ]
+    },
+    "ManagedIndexState": {
+      "description": "Where a managed index is in its lifecycle.",
+      "enum": [
+        "requested",
+        "backfilling",
+        "active",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "ManagedIndexStatus": {
+      "description": "One managed index's status: one row of the SQL status relation.",
+      "properties": {
+        "block": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndexBlock"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "built_version": {
+          "description": "The source version (SQL epoch / graph version) the live generation was\nbuilt from.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "change_version": {
+          "description": "The source version of the target's last change.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "family": {
+          "$ref": "#/$defs/ManagedIndexFamily"
+        },
+        "generation": {
+          "description": "The live generation.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "indexed": {
+          "description": "Entries the live generation indexes; `None` when nothing serves or the\nreader may not learn the count (row-level security hides rows from it).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lag": {
+          "description": "`change_version - built_version`; the whole change version when nothing\nserves.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/ManagedIndexState"
+        },
+        "target": {
+          "$ref": "#/$defs/ManagedIndexTarget"
+        }
+      },
+      "required": [
+        "name",
+        "family",
+        "target",
+        "state",
+        "change_version",
+        "lag"
+      ],
+      "type": "object"
+    },
+    "ManagedIndexTarget": {
+      "description": "The typed target of a managed index. Graph edges are a native target: an\nedge is indexed and returned as an edge, never reified as a node (EH-351).",
+      "oneOf": [
+        {
+          "description": "One column of one SQL table.",
+          "properties": {
+            "column": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "table_column",
+              "type": "string"
+            },
+            "table": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "table",
+            "column"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One property of every edge of the graph.",
+          "properties": {
+            "kind": {
+              "const": "graph_edges",
+              "type": "string"
+            },
+            "property": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "property"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "MaterialOperation": {
       "enum": [
@@ -27670,6 +28197,60 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Create, refresh, drop or list the edge indexes of the request graph.",
+          "properties": {
+            "method": {
+              "const": "EdgeIndex",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/EdgeIndexOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Search one edge index of the request graph; edges come back as edges.",
+          "properties": {
+            "method": {
+              "const": "EdgeSearch",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/EdgeSearchRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -39344,6 +39925,30 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/DecisionBatch"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EdgeIndex": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/EdgeIndexStatusView"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EdgeSearch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/EdgeSearchView"
           }
         }
       },

@@ -13,6 +13,12 @@ from pydantic import BaseModel, ConfigDict
 from ._runtime import (
     OpaqueResult,
 )
+from .managed_index import (
+    EdgeIndexOp,
+    EdgeIndexStatusView,
+    EdgeSearchRequest,
+    EdgeSearchView,
+)
 
 
 class GetContextViewRequest(BaseModel):
@@ -1480,3 +1486,109 @@ async def send_txn_unified_query_text(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("TxnUnifiedQueryText", payload)
+
+
+class EdgeIndexRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        EdgeIndex
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/EdgeIndex
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: EdgeIndexOp
+
+
+async def send_edge_index(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> EdgeIndexStatusView:
+    """Send one engine-contract request.
+
+    Method:
+        EdgeIndex
+    Authorization:
+        semantic:binding-write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/EdgeIndex
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    EdgeIndexRequest.model_validate(params or {})
+    payload = await client._send(
+        "EdgeIndex",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return EdgeIndexStatusView.model_validate(payload)
+
+
+class EdgeSearchRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        EdgeSearch
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/EdgeSearch
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_edge_search(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> EdgeSearchView:
+    """Send one engine-contract request.
+
+    Method:
+        EdgeSearch
+    Authorization:
+        semantic:binding-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/EdgeSearch
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    EdgeSearchRequest.model_validate(params or {})
+    payload = await client._send(
+        "EdgeSearch",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return EdgeSearchView.model_validate(payload)

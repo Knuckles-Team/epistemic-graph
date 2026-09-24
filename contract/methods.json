@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 429,
+  "method_count": 431,
   "methods": [
     {
       "consumer_profiles": [
@@ -14843,6 +14843,92 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.query.json#/methods/TxnUnifiedQueryText",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "EdgeIndex",
+      "note": "EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it",
+      "policy": {
+        "audited": false,
+        "authz_action": "semantic:binding-write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/EdgeIndex"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/EdgeIndex",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "EdgeSearch",
+      "note": "EH-351: edge-native vector or BM25 search of the request graph; the caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal)",
+      "policy": {
+        "audited": false,
+        "authz_action": "semantic:binding-read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/EdgeSearch"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/EdgeSearch",
         "selected_by": null
       },
       "stability": "stable"

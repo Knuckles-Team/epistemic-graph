@@ -340,6 +340,8 @@ METHOD_IDS = frozenset(
         "NlQuery",
         "TxnUnifiedQuery",
         "TxnUnifiedQueryText",
+        "EdgeIndex",
+        "EdgeSearch",
         "RunDatalogReasoning",
         "GetRdf",
         "Sparql",
