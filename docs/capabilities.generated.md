@@ -187,6 +187,7 @@
 | `ReconcileCapacity` | false | None | `capacity:read` | true | false | false | Snapshot | bounded native cells/leases reconciliation page |
 | `CapacityStatus` | false | None | `capacity:read` | true | false | false | Snapshot | exact tenant-scoped native capacity status |
 | `UpdateCapacityCell` | true | GraphRedb | `capacity:admin` | true | true | false | Atomic | controller epoch CAS for resource dimension/capacity policy |
+| `ThrottleCapacityCell` | true | GraphRedb | `capacity:throttle` | false | true | false | Atomic | EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell) |
 | `KgDelegate` | true | GraphRedb | `work:delegate` | true | true | false | Atomic | authenticated Agent Library pinned delegation lowered to native WorkItem admission |
 | `SubmitWorkItem` | true | GraphRedb | `work:submit` | true | true | false | Atomic | native tenant-scoped WorkItem command-log admission and outbox commit |
 | `SubmitWorkItems` | true | GraphRedb | `work:submit` | true | true | false | Atomic | bounded all-or-nothing WorkItem admission batch |
@@ -389,6 +390,7 @@
 | `AuditProveInclusion` | false | None | `security:audit` | true | false | false | Snapshot | provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry |
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
+| `RbacElevation` | ~true | ControlRedb | `rbac:elevation` | false | true | false | Atomic | EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX |
 | `GetIdentity` | false | None | `security:admin` | true | false | false | Snapshot | identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege |
 | `ToMsgpack` | false | None | `graph:read` | true | false | false | Snapshot |  |
 | `FromMsgpack` | true | GraphRedb | `graph:admin` | false | true | true | Atomic | state-backed MutationBatch commits the imported authoritative image |

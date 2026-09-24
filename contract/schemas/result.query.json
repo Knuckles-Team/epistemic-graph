@@ -3612,6 +3612,17 @@
         "resource_class": {
           "$ref": "#/$defs/CapacityResourceClass"
         },
+        "throttle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapacityThrottle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "EH-406: the optional error-budget throttle. Its `ceiling` gates new\nadmissions and never exceeds `capacity`; automatic steps\n(`ThrottleCapacityCell`) move only the ceiling, and only the operator\n(`UpdateCapacityCell`) declares the policy or the capacity itself."
+        },
         "updated_at_ms": {
           "format": "uint64",
           "minimum": 0,
@@ -3864,6 +3875,132 @@
         "schema_version",
         "tenant_ref",
         "max_count"
+      ],
+      "type": "object"
+    },
+    "CapacityThrottle": {
+      "additionalProperties": false,
+      "description": "A cell's throttle: the declared policy plus the state automatic steps own.",
+      "properties": {
+        "ceiling": {
+          "description": "The effective ceiling: never above the cell's declared `capacity`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "history": {
+          "items": {
+            "$ref": "#/$defs/ThrottleActionRecord"
+          },
+          "type": "array"
+        },
+        "last_change_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_window_end_ms": {
+          "description": "End of the newest window already counted; an older or equal window is\nrefused, so one sample can never be counted twice.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy": {
+          "$ref": "#/$defs/CapacityThrottlePolicy"
+        }
+      },
+      "required": [
+        "policy",
+        "ceiling",
+        "last_change_at_ms",
+        "last_window_end_ms",
+        "history"
+      ],
+      "type": "object"
+    },
+    "CapacityThrottlePolicy": {
+      "additionalProperties": false,
+      "description": "The operator-declared AIMD bounds of one cell.",
+      "properties": {
+        "cooldown_ms": {
+          "description": "Minimum time between two automatic ceiling changes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "decrease_per_mille": {
+          "description": "Multiplicative decrease factor, per mille (500 halves the ceiling).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error_budget_ppm": {
+          "description": "A window whose error rate is ABOVE this narrows the cell.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "floor": {
+          "description": "The lowest ceiling a narrowing may reach. At least 1, so a narrowed\ncell still admits the traffic that produces recovery evidence.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "increase_step": {
+          "description": "Additive increase per healthy window.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_samples": {
+          "description": "A window with fewer requests is no evidence either way.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recovery_ppm": {
+          "description": "A window whose error rate is AT OR BELOW this is recovery evidence.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "error_budget_ppm",
+        "recovery_ppm",
+        "min_samples",
+        "decrease_per_mille",
+        "increase_step",
+        "floor",
+        "cooldown_ms"
+      ],
+      "type": "object"
+    },
+    "CapacityThrottleRequest": {
+      "additionalProperties": false,
+      "description": "`ThrottleCapacityCell` (EH-406): report one error-budget window for one\ncell of the request graph.",
+      "properties": {
+        "cell_id": {
+          "type": "string"
+        },
+        "now_ms": {
+          "description": "Authority-owned: stamped by the engine, never trusted from a caller.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sample": {
+          "$ref": "#/$defs/ErrorBudgetSample"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "cell_id",
+        "sample",
+        "now_ms"
       ],
       "type": "object"
     },
@@ -7930,6 +8067,139 @@
         }
       ]
     },
+    "ElevationAction": {
+      "description": "The graph action an elevation may grant. Deliberately NOT\n`crate::acl::RbacAction`: `Admin` is unrepresentable here.",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "type": "string"
+    },
+    "ElevationActor": {
+      "additionalProperties": false,
+      "description": "Who performed an elevation op. SERVER-STAMPED from the verified request\ncontext at the request boundary; a caller-supplied value is overwritten\nbefore the op reaches consensus or the ledger.",
+      "properties": {
+        "agent_id": {
+          "description": "The effective identity `check_access` authorizes.",
+          "type": "string"
+        },
+        "delegation": {
+          "$ref": "#/$defs/ElevationDelegation"
+        },
+        "parties": {
+          "description": "One-way [`party_id`]s of the principal, the effective agent and every\ndelegation hop; sorted and unique.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "standing": {
+          "$ref": "#/$defs/ElevationStanding"
+        }
+      },
+      "required": [
+        "agent_id",
+        "parties",
+        "delegation",
+        "standing"
+      ],
+      "type": "object"
+    },
+    "ElevationApproval": {
+      "additionalProperties": false,
+      "description": "`approve`: approve the request whose digest is `request_digest`.",
+      "properties": {
+        "elevation_id": {
+          "type": "string"
+        },
+        "request_digest": {
+          "description": "`request_digest` of the lease view the approver decided on.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "elevation_id",
+        "request_digest"
+      ],
+      "type": "object"
+    },
+    "ElevationDelegation": {
+      "description": "Whether the actor acted directly or through a delegation chain.",
+      "enum": [
+        "direct",
+        "delegated"
+      ],
+      "type": "string"
+    },
+    "ElevationRequest": {
+      "additionalProperties": false,
+      "description": "`request`: ask for `scopes` for `span_ms` once approved.",
+      "properties": {
+        "elevation_id": {
+          "type": "string"
+        },
+        "justification": {
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "#/$defs/ElevationScope"
+          },
+          "type": "array"
+        },
+        "span_ms": {
+          "description": "Window length. The clock starts at approval, never at request.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "elevation_id",
+        "scopes",
+        "span_ms",
+        "justification"
+      ],
+      "type": "object"
+    },
+    "ElevationRevoke": {
+      "additionalProperties": false,
+      "description": "`revoke`: end a requested or active elevation now.",
+      "properties": {
+        "elevation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "elevation_id"
+      ],
+      "type": "object"
+    },
+    "ElevationScope": {
+      "additionalProperties": false,
+      "description": "One granted (graph, action) pair. The graph is a literal graph name.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ElevationAction"
+        },
+        "graph": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph",
+        "action"
+      ],
+      "type": "object"
+    },
+    "ElevationStanding": {
+      "description": "Whether the actor holds the exact approval scope.",
+      "enum": [
+        "requester",
+        "approver"
+      ],
+      "type": "string"
+    },
     "Elimination": {
       "additionalProperties": false,
       "description": "One eliminated candidate and the rule that removed it.",
@@ -8083,6 +8353,34 @@
         "contradicting",
         "attacking",
         "authority"
+      ],
+      "type": "object"
+    },
+    "ErrorBudgetSample": {
+      "additionalProperties": false,
+      "description": "One observation window's error-budget facts.",
+      "properties": {
+        "errors": {
+          "description": "5XX / error responses among `requests`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window_end_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requests",
+        "errors",
+        "window_end_ms"
       ],
       "type": "object"
     },
@@ -13323,6 +13621,33 @@
               "properties": {
                 "request": {
                   "$ref": "#/$defs/CapacityCellUpdateRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Error-budget adaptive throttling (EH-406): report one observation\nwindow for one cell. Narrows the cell's throttle ceiling on an error\nburst and gives it back only on recovery evidence, never above the\ndeclared capacity; the policy and the capacity stay operator-owned.",
+          "properties": {
+            "method": {
+              "const": "ThrottleCapacityCell",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/CapacityThrottleRequest"
                 }
               },
               "required": [
@@ -22642,6 +22967,43 @@
               "properties": {
                 "op": {
                   "$ref": "#/$defs/RbacAdminOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Just-in-time RBAC elevation (EH-404): request, approve (two-person),\nrevoke, or list the `rbac.elevation` leases the graph-access chokepoint\nconsults. `actor` is SERVER-STAMPED from the verified request context\nat the request boundary -- any caller-supplied value is overwritten --\nso the replicated command carries who acted without trusting the body.",
+          "properties": {
+            "method": {
+              "const": "RbacElevation",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "actor": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ElevationActor"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "op": {
+                  "$ref": "#/$defs/RbacElevationOp"
                 }
               },
               "required": [
@@ -32550,6 +32912,76 @@
         }
       ]
     },
+    "RbacElevationOp": {
+      "description": "Every elevation operation. The read/write split and the authorization\naction live on the op.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "request",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ElevationRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "approve",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ElevationApproval"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "revoke",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ElevationRevoke"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The elevations visible to the caller: an approver sees every one,\nanyone else only those they are a party to.",
+          "properties": {
+            "op": {
+              "const": "list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ReceiptNode": {
       "additionalProperties": false,
       "description": "A graph node that is co-committed with one terminal result.\n\nThe `properties_msgpack` bytes are the same bounded `AddNode` payload the\nexisting native B9 applier accepts.  The digest is checked against those\nbytes, while every identity/fence/outbox field is checked against the\nenclosing [`CommitOutcomeBundle`].  Consequently a schema-valid node from\nanother WorkItem or lease cannot be smuggled into the batch.",
@@ -39250,6 +39682,87 @@
         "field"
       ],
       "type": "object"
+    },
+    "ThrottleAction": {
+      "description": "What one throttle step did.",
+      "enum": [
+        "narrowed",
+        "recovered",
+        "held"
+      ],
+      "type": "string"
+    },
+    "ThrottleActionRecord": {
+      "additionalProperties": false,
+      "description": "One recorded throttle step.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ThrottleAction"
+        },
+        "at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error_ppm": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "errors": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "$ref": "#/$defs/ThrottleReason"
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window_end_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at_ms",
+        "action",
+        "reason",
+        "from",
+        "to",
+        "requests",
+        "errors",
+        "error_ppm",
+        "window_end_ms"
+      ],
+      "type": "object"
+    },
+    "ThrottleReason": {
+      "description": "Why a throttle step did what it did.",
+      "enum": [
+        "error_budget_exceeded",
+        "healthy_window",
+        "insufficient_samples",
+        "within_budget",
+        "cooling_down",
+        "at_floor",
+        "at_declared_ceiling"
+      ],
+      "type": "string"
     },
     "TimeAxis": {
       "description": "Which timeline an [`Op::AsOf`] instant pins (bi-temporal, KG-2.250).",

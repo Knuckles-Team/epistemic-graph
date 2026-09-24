@@ -503,6 +503,61 @@ async def send_update_capacity_cell(
     return OpaqueResult("UpdateCapacityCell", payload)
 
 
+class ThrottleCapacityCellRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ThrottleCapacityCell
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ThrottleCapacityCell
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_throttle_capacity_cell(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ThrottleCapacityCell
+    Authorization:
+        capacity:throttle
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/ThrottleCapacityCell
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    ThrottleCapacityCellRequest.model_validate(params or {})
+    payload = await client._send(
+        "ThrottleCapacityCell",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ThrottleCapacityCell", payload)
+
+
 class KgDelegateRequest(BaseModel):
     """Validate one engine-contract request body.
 

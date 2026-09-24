@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 436,
+  "method_count": 438,
   "methods": [
     {
       "consumer_profiles": [
@@ -7128,6 +7128,53 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/UpdateCapacityCell",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "ThrottleCapacityCell",
+      "note": "EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell)",
+      "policy": {
+        "audited": true,
+        "authz_action": "capacity:throttle",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ThrottleCapacityCell"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ThrottleCapacityCell",
         "selected_by": null
       },
       "stability": "stable"
@@ -15953,6 +16000,64 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.security.json#/methods/RbacAdmin",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "RbacElevation",
+      "note": "EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX",
+      "policy": {
+        "audited": true,
+        "authz_action": "rbac:elevation",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/RbacElevation"
+      },
+      "result_schema": {
+        "bodies": {
+          "approve": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "list": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "request": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "revoke": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/RbacElevation",
         "selected_by": "op"
       },
       "stability": "stable"
