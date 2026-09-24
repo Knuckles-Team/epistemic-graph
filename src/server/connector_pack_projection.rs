@@ -24,9 +24,6 @@ use tokio::sync::RwLock;
 
 use crate::server::state::ServerState;
 
-/// The label a failed blocking store task names.
-const BLOCKING_TASK: &str = "connector pack projection";
-
 /// Start the singleton projection worker. A build without the Agent Library,
 /// the Blob CAS or the SHACL projection has nothing to project.
 pub fn spawn(state: Arc<RwLock<ServerState>>) {
@@ -60,6 +57,9 @@ pub(crate) mod worker {
     use crate::server::outbox_operator::OutboxWrite;
     use crate::server::persistence::agent_library::AgentLibraryStore;
     use crate::server::state::ServerState;
+
+    /// The label a failed blocking store task names.
+    const BLOCKING_TASK: &str = "connector pack projection";
 
     /// The worker's one durable consumer name on every tenant's outbox.
     pub(crate) const CONSUMER: &str = "connector-pack-projection";

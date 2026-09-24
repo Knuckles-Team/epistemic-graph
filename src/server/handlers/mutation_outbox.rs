@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use eg_types::mutation_outbox::{
-    MutationOutboxOp, NativeOutboxScope, NativeOutboxStore, OutboxTarget,
-};
+use eg_types::mutation_outbox::MutationOutboxOp;
+#[cfg(feature = "redb")]
+use eg_types::mutation_outbox::{NativeOutboxScope, NativeOutboxStore, OutboxTarget};
 
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;

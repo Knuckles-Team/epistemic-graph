@@ -32,7 +32,7 @@ async fn index_scoped(
     req_id: u64,
     files_msgpack: Vec<u8>,
     scope: IndexScope,
-) -> Result<crate::parser::resolve::IndexResult, Response> {
+) -> Result<eg_types::ingestion_wire::IndexResult, Response> {
     use super::super::request_boundary::{ast_input_limits, decode_ast_files};
     let files = decode_ast_files(&files_msgpack, ast_input_limits())
         .and_then(|files| validate_scope_paths(&scope).map(|()| files))
@@ -49,7 +49,7 @@ async fn index_scoped(
     req_id: u64,
     files_msgpack: Vec<u8>,
     scope: IndexScope,
-) -> Result<crate::parser::resolve::IndexResult, Response> {
+) -> Result<eg_types::ingestion_wire::IndexResult, Response> {
     let _ = (files_msgpack, scope);
     Err(Response::err(req_id, "AST feature not enabled".to_string()))
 }
