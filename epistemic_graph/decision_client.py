@@ -149,6 +149,36 @@ def aggregate_op(
     }
 
 
+def learn_op(tenant_id: str, write: str, **fields: Any) -> dict[str, Any]:
+    """The one retrieval-learning write (EH-394..EH-397): ``record_outcome``,
+    ``fit_adapter``, ``evaluate_generation`` or ``move_pointer``. What was
+    learned is read through the decision views' SQL relations, not an op."""
+    return {
+        "op": "learn",
+        "tenant_id": tenant_id,
+        "write": {"write": write, **fields},
+    }
+
+
+def record_outcome_op(
+    tenant_id: str,
+    record_id: str,
+    returned: Iterable[tuple[str, str | None]],
+    cited: Iterable[str],
+) -> dict[str, Any]:
+    """Attest what a committed retrieval-plan run returned (``(id, content
+    class)`` in rank order) and which returned units the answer cited."""
+    outcome = {
+        "record_id": record_id,
+        "returned": [
+            {"evidence_id": evidence_id, "content_class": content_class}
+            for evidence_id, content_class in returned
+        ],
+        "cited": list(cited),
+    }
+    return learn_op(tenant_id, "record_outcome", outcome=outcome)
+
+
 def _payload(result: Any) -> Any:
     return getattr(result, "payload", result)
 
@@ -188,8 +218,10 @@ __all__ = [
     "declared",
     "evaluate_op",
     "get_op",
+    "learn_op",
     "library",
     "param",
     "q32_of",
+    "record_outcome_op",
     "resolve_op",
 ]

@@ -1462,8 +1462,17 @@ fn classify_delete(delete: &Delete) -> Result<DeleteNodes, String> {
 /// The read-only relations every served SQL projection carries beside the caller's own
 /// tables — the decision record views (EH-066). Reserved like `nodes`/`edges`: no user
 /// table, view, rename or `COPY` may take these names.
-pub const READ_ONLY_RELATION_NAMES: &[&str] =
-    &["decisions", "decision_evaluations", "decision_resolutions"];
+pub const READ_ONLY_RELATION_NAMES: &[&str] = &[
+    "decisions",
+    "decision_evaluations",
+    "decision_resolutions",
+    // EH-394..EH-397: retrieval learning over the same visible log.
+    "decision_retrieval_outcomes",
+    "decision_hard_negatives",
+    "decision_class_usage",
+    "decision_proven_paths",
+    "decision_pointers",
+];
 
 /// `nodes`/`edges` are the graph projection's reserved table names — a user
 /// `CREATE TABLE`/DML cannot use them, and DML routing sends them to the graph path —

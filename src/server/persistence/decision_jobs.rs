@@ -104,6 +104,35 @@ impl AgentLibraryStore {
         })
     }
 
+    /// Compare-and-set one decision artifact: write `bytes` only when the row
+    /// still holds `expected` (`None` = absent). A pointer that moved since it
+    /// was read is refused, never overwritten (the query adapter state,
+    /// EH-396).
+    pub fn swap_decision_artifact(
+        &self,
+        tenant_id: &str,
+        key: &str,
+        expected: Option<Vec<u8>>,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        self.maintain_control_rows(tenant_id, "decision_artifacts", |owner| {
+            let mut table = owner.open_table(DECISION_ARTIFACTS)?;
+            let current = table
+                .get((tenant_id, key))
+                .map_err(|error| error.to_string())?
+                .map(|row| row.value().to_vec());
+            if current != expected {
+                return Err(format!(
+                    "IDEMPOTENCY_CONFLICT: decision artifact {key} changed concurrently; read it again"
+                ));
+            }
+            table
+                .insert((tenant_id, key), bytes.as_slice())
+                .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+    }
+
     /// Every decision artifact of `tenant_id` whose key starts with `prefix`,
     /// in key order. Refuses rather than truncates past `limit`.
     pub fn decision_artifacts_with_prefix(

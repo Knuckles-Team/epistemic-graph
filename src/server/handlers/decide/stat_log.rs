@@ -85,7 +85,7 @@ impl LogReader {
     }
 }
 
-fn executed_option(outcome: &StatisticalOutcome) -> Option<&str> {
+pub(super) fn executed_option(outcome: &StatisticalOutcome) -> Option<&str> {
     match outcome {
         StatisticalOutcome::Acted { option_id, .. }
         | StatisticalOutcome::Explored { option_id, .. } => Some(option_id),
@@ -423,6 +423,7 @@ fn dispatch(
     ctx: &ExecutionContext,
     reader: &LogReader,
     op: DecisionLogOp,
+    inputs: Option<&super::stat_learning::LearningInputs>,
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
         DecisionLogAggregate, DecisionLogCommit, DecisionLogCompact, DecisionLogEvaluate,
@@ -446,6 +447,11 @@ fn dispatch(
         ),
         DecisionLogOp::Resolve { resolution, .. } => {
             ResultPayload::of::<DecisionLogResolve>(resolve(ctx, reader, resolution)?)
+        }
+        DecisionLogOp::Learn { write, .. } => {
+            ResultPayload::of::<eg_types::result_contract::coordination::DecisionLogLearn>(
+                super::stat_learning::dispatch(ctx, reader, write, inputs)?,
+            )
         }
         DecisionLogOp::Verify { record_id, .. } => ResultPayload::of::<DecisionLogVerify>(verify(
             ctx,
@@ -471,6 +477,7 @@ async fn serve(
         (guard.ensure_agent_library()?, guard.auth_secret.clone())
     };
     let reader = LogReader::served(state, verified).await;
+    let inputs = super::stat_learning::prepare(state, verified, &op).await?;
     let now_ms = crate::server::dispatch::authoritative_now_ms();
     let started = Instant::now();
     let result = tokio::task::spawn_blocking(move || {
@@ -480,7 +487,7 @@ async fn serve(
             now_ms,
             server_secret: secret.as_bytes(),
         };
-        dispatch(&ctx, &reader, op)
+        dispatch(&ctx, &reader, op, inputs.as_ref())
     })
     .await
     .map_err(|error| format!("DecisionLog task failed: {error}"))?;
