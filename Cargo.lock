@@ -3148,6 +3148,7 @@ dependencies = [
  "eg-storage",
  "eg-text",
  "eg-transaction",
+ "eg-tsdb",
  "eg-types",
  "futures-util",
  "hex",

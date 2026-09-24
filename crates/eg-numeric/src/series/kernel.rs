@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use super::window::{pearson, ranks, CoMoments, Extremum, Moments, Side, Sorted, STD_FLOOR};
+use super::window::{pearson, ranks, Extremum, Moments, Side, Sorted, STD_FLOOR};
 use super::{Arith, Map, PairStat, Rolling, Shift, Smoothing, Spec};
 use crate::detkernel::math;
 use crate::error::Result;
@@ -116,7 +116,6 @@ pub enum RollingState {
         op: Rolling,
         window: usize,
         values: VecDeque<f64>,
-        moments: Moments,
     },
     Extremum(Extremum),
     Rank(Sorted),
@@ -133,7 +132,6 @@ impl RollingState {
                     op,
                     window,
                     values: VecDeque::with_capacity(window + 1),
-                    moments: Moments::default(),
                 }
             }
         }
@@ -143,21 +141,15 @@ impl RollingState {
         match self {
             RollingState::Extremum(e) => e.step(x),
             RollingState::Rank(r) => r.step(x),
-            RollingState::Moments {
-                op,
-                window,
-                values,
-                moments,
-            } => {
+            RollingState::Moments { op, window, values } => {
                 values.push_back(x);
-                moments.add(x);
                 if values.len() > *window {
-                    values
-                        .pop_front()
-                        .into_iter()
-                        .for_each(|old| moments.remove(old));
+                    values.pop_front();
                 }
-                (values.len() == *window).then(|| moment_stat(*op, moments, x))?
+                let full = values.len() == *window;
+                full.then(|| Moments::of(values.iter().copied()))
+                    .flatten()
+                    .and_then(|m| moment_stat(*op, &m, x))
             }
         }
     }
@@ -166,9 +158,9 @@ impl RollingState {
 /// The moment-based statistic `op` of a full window whose newest value is `x`.
 fn moment_stat(op: Rolling, m: &Moments, x: f64) -> Option<f64> {
     match op {
-        Rolling::Mean => m.mean(),
-        Rolling::Std => m.population_std(),
-        Rolling::Sum => Some(m.sum()),
+        Rolling::Mean => Some(m.mean),
+        Rolling::Std => Some(m.population_std()),
+        Rolling::Sum => Some(m.sum),
         Rolling::Zscore => zscore(m, x),
         Rolling::Min | Rolling::Max | Rolling::Rank => None,
     }
@@ -215,7 +207,6 @@ pub struct PairState {
     op: PairStat,
     window: usize,
     pairs: VecDeque<(f64, f64)>,
-    moments: CoMoments,
 }
 
 impl PairState {
@@ -224,28 +215,20 @@ impl PairState {
             op,
             window,
             pairs: VecDeque::with_capacity(window + 1),
-            moments: CoMoments::default(),
         }
     }
 
     fn step(&mut self, x: f64, y: f64) -> Option<f64> {
         self.pairs.push_back((x, y));
-        self.moments.add(x, y);
         if self.pairs.len() > self.window {
-            if let Some((ox, oy)) = self.pairs.pop_front() {
-                self.moments.remove(ox, oy);
-            }
+            self.pairs.pop_front();
         }
         (self.pairs.len() == self.window).then_some(())?;
-        match self.op {
-            PairStat::Corr => self.moments.corr(),
-            PairStat::WeightedSum => Some(self.moments.weighted_sum()),
-            PairStat::RankCorr => self.rank_corr(),
-        }
-    }
-
-    fn rank_corr(&self) -> Option<f64> {
         let (xs, ys): (Vec<f64>, Vec<f64>) = self.pairs.iter().copied().unzip();
-        pearson(&ranks(&xs), &ranks(&ys))
+        match self.op {
+            PairStat::Corr => pearson(&xs, &ys),
+            PairStat::RankCorr => pearson(&ranks(&xs), &ranks(&ys)),
+            PairStat::WeightedSum => Some(xs.iter().zip(&ys).fold(0.0, |acc, (x, w)| acc + x * w)),
+        }
     }
 }
