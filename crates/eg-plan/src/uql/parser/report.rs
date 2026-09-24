@@ -49,7 +49,20 @@ impl<'a> Parser<'a> {
         UqlError::new(UqlCode::UnexpectedToken, msg, (at, at + 1))
     }
 
-    /// The refusal of a clause whose executor this build lacks.
+    /// The refusal of a clause whose executor this build lacks (only a build missing
+    /// one of the gated features has such a clause).
+    #[cfg(not(all(
+        feature = "text",
+        feature = "owl",
+        feature = "wasm-udf",
+        feature = "federation",
+        feature = "geo",
+        feature = "tensor",
+        feature = "stream",
+        feature = "timeseries",
+        feature = "probabilistic",
+        feature = "epistemic"
+    )))]
     pub(super) fn not_built(&self, feature: &str) -> UqlError {
         let clause = self
             .text_of(self.pos.saturating_sub(1))
