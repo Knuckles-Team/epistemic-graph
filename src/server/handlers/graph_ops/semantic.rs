@@ -225,6 +225,40 @@ async fn handle_semantic_search(
     }
 }
 
+/// EH-396: re-aim a `SemanticSearch`/`Discover` query vector by the caller's
+/// active adapter. `core` here is the caller's row-projected core, so the
+/// adapted probe still searches only rows the caller may see.
+#[cfg(feature = "decide")]
+async fn adapt_query_vector(ctx: &GraphOpsContext<'_>, method: Method) -> Method {
+    use crate::server::handlers::decide::served_adapter::{adapted_query, carrier_tenant};
+    let tenant = carrier_tenant(Some(ctx.read_authority));
+    let served = (ctx.graph_name, &**ctx.core);
+    match method {
+        Method::SemanticSearch {
+            query_embedding,
+            n_results,
+        } => Method::SemanticSearch {
+            query_embedding: adapted_query(ctx.state, tenant, served, query_embedding).await,
+            n_results,
+        },
+        Method::Discover {
+            keywords,
+            query_embedding,
+            k,
+        } => Method::Discover {
+            keywords,
+            query_embedding: adapted_query(ctx.state, tenant, served, query_embedding).await,
+            k,
+        },
+        other => other,
+    }
+}
+
+#[cfg(not(feature = "decide"))]
+async fn adapt_query_vector(_ctx: &GraphOpsContext<'_>, method: Method) -> Method {
+    method
+}
+
 /// Handle semantic and embedding operations.
 ///
 /// Every arm here is a READ, and every read is served from `core.semantic_store`
@@ -246,6 +280,7 @@ pub(super) async fn try_handle_semantic_compute(
     method: Method,
 ) -> ControlFlow<Response, Method> {
     let GraphOpsContext { req_id, core, .. } = ctx;
+    let method = adapt_query_vector(&ctx, method).await;
     ControlFlow::Break(match method {
         Method::AddEmbedding { .. } => unreachable!(
             "AddEmbedding is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \

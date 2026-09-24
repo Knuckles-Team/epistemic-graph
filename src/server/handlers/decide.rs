@@ -28,9 +28,17 @@ mod stat_executor;
 #[cfg(feature = "decide")]
 mod stat_jobs;
 #[cfg(feature = "decide")]
+mod stat_adapter;
+#[cfg(feature = "decide")]
+mod stat_generation;
+#[cfg(feature = "decide")]
+mod stat_learning;
+#[cfg(feature = "decide")]
 mod stat_log;
 #[cfg(feature = "decide")]
 mod stat_nl;
+#[cfg(feature = "decide")]
+mod stat_pointer;
 #[cfg(feature = "decide")]
 mod stat_replay;
 #[cfg(feature = "decide")]
@@ -42,6 +50,17 @@ mod stat_slate;
 mod stat_retention;
 #[cfg(feature = "decide")]
 mod stat_support;
+#[cfg(feature = "decide")]
+mod stat_vectors;
+// EH-394/395: retrieval outcomes on the decision log.
+#[cfg(feature = "decide")]
+mod stat_retrieval;
+// EH-394..398: the retrieval-learning relations of the decision views.
+#[cfg(all(feature = "decide", feature = "query"))]
+mod stat_retrieval_views;
+// EH-396: the query adapter on the served read paths.
+#[cfg(feature = "decide")]
+pub(crate) mod served_adapter;
 #[cfg(all(test, feature = "decide"))]
 mod stat_tests;
 #[cfg(all(feature = "decide", feature = "query"))]

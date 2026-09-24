@@ -76,7 +76,7 @@ async fn resolve(h: &Harness, op: DecisionLogOp) -> Result<StoredResolution, Str
     decode(log_op(h, "decider", op).await)
 }
 
-async fn declared_abstention(h: &Harness) -> StatisticalDecisionRecord {
+pub(super) async fn declared_abstention(h: &Harness) -> StatisticalDecisionRecord {
     let schema_pin = h
         .publish(
             "schema-declared",
