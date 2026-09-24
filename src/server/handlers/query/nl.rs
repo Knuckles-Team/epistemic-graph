@@ -1,34 +1,42 @@
 use super::*;
 
+/// `Method::TxnUql`: a UQL statement over the txn-overlaid snapshot (read your own
+/// writes) — the same statement runner `Method::Uql` uses (EH-434). Never cached.
 #[cfg(feature = "query")]
-pub(crate) async fn handle_txn_unified_query_text(
+pub(crate) async fn handle_txn_uql(
     ctx: &QueryHandlerCtx<'_>,
     txn_id: String,
     text: String,
+    params: std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
 ) -> Result<Response, Method> {
-    let state = ctx.state;
     let req_id = ctx.req_id;
-    let read_authority = ctx.read_authority;
-    let caller = ctx.caller;
-    #[cfg(feature = "security")]
-    let rls = ctx.rls;
-    // UQL front-end: parse to the SAME `wire::Plan`, then run the IDENTICAL
-    // overlaid in-txn executor. A parse error is a caret-annotated Response.
-    let plan = match parse_uql(req_id, &text) {
-        Ok(plan) => plan,
-        Err(refusal) => return Ok(refusal),
+    let stmt = match eg_plan::uql::parse_statement(&text, &params) {
+        Ok(stmt) => stmt,
+        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
-    Ok(run_unified_overlaid::<query_results::TxnUnifiedQueryText>(
-        state,
+    let binding = eg_plan::uql::serve::binding_plan(&stmt);
+    let txn = OverlaidTxn {
+        state: ctx.state,
         req_id,
-        &txn_id,
-        plan,
-        read_authority,
-        caller,
+        txn_id: &txn_id,
+        read_authority: ctx.read_authority,
+        caller: ctx.caller,
         #[cfg(feature = "security")]
-        rls,
-    )
-    .await)
+        rls: ctx.rls,
+    };
+    let result = run_unified_overlaid_with(txn, binding, move |_plan, plan_ctx| {
+        eg_plan::uql::serve::run_statement(&stmt, plan_ctx)
+    })
+    .await;
+    Ok(served_response::<query_results::TxnUql>(
+        req_id,
+        result,
+        "UQL",
+        #[cfg(feature = "result-cache")]
+        ctx.core,
+        #[cfg(feature = "result-cache")]
+        None,
+    ))
 }
 
 #[cfg(feature = "nl-query")]
