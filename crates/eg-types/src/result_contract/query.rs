@@ -66,6 +66,8 @@ method_results! {
     RankByProvenance(RankByProvenance) => Raw<RankByProvenanceResult>;
     NlQuery(NlQuery) => Raw<Vec<(String, Option<f32>)>>;
     TxnUnifiedQuery(TxnUnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;
-    TxnUnifiedQueryText(TxnUnifiedQueryText) => Raw<Vec<(String, Option<f32>)>>;
+    // A UQL statement's result inside a transaction (EH-434).
+    #[cfg(feature = "query")]
+    TxnUql(TxnUql) => Raw<crate::wire::UqlResult>;
     Decide(Decide) => Raw<DecisionBatch>;
 }

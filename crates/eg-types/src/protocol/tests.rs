@@ -425,11 +425,13 @@ fn retired_methods_and_parameters_are_rejected() {
     }
 
     // EH-434: the rows-only text surface is gone; UQL text is `Method::Uql`.
-    let retired_text_surface = serde_json::json!({
-        "method": "UnifiedQueryText",
-        "params": { "text": "MATCH () |> LIMIT 1" }
-    });
-    assert!(serde_json::from_value::<Method>(retired_text_surface).is_err());
+    for retired in ["UnifiedQueryText", "TxnUnifiedQueryText"] {
+        let retired_text_surface = serde_json::json!({
+            "method": retired,
+            "params": { "txn_id": "t", "text": "MATCH () |> LIMIT 1" }
+        });
+        assert!(serde_json::from_value::<Method>(retired_text_surface).is_err());
+    }
 
     #[cfg(feature = "query")]
     {

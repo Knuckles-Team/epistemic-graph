@@ -165,7 +165,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "ToMsgpack",
     "TopologicalSort",
     "TxnUnifiedQuery",
-    "TxnUnifiedQueryText",
+    "TxnUql",
     "UnifiedQuery",
     "UnionGetNeighbors",
     "UnionGetNodeProperties",
