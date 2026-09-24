@@ -814,6 +814,7 @@ async fn spawn_obs_listener(
 
                 #[cfg(feature = "traces")]
                 spawn_obs_trace_persist_sweep(&obs_state);
+                spawn_obs_rum_retention_sweep(&obs_state);
 
                 let obs_security_state = state.clone();
                 tokio::spawn(async move {
@@ -840,6 +841,28 @@ async fn spawn_obs_listener(
 }
 async fn wait_for_periodic_tick(ticker: &mut tokio::time::Interval) {
     ticker.tick().await;
+}
+
+/// EH-410: browser RUM series are kept 30 days; the sweep runs hourly whenever
+/// the observability listener is on (RUM is on by default, so its retention is too).
+#[cfg(feature = "obs")]
+fn spawn_obs_rum_retention_sweep(
+    obs_state: &std::sync::Arc<epistemic_graph::server::obs::ObsState>,
+) {
+    let rum_obs_state = obs_state.clone();
+    spawn_periodic_sweep(3600, "obs_rum_retention", move || {
+        let obs = rum_obs_state.clone();
+        async move {
+            let now_ns = i64::try_from(epistemic_graph::server::txn::now_ms())
+                .unwrap_or(i64::MAX)
+                .saturating_mul(1_000_000);
+            let swept =
+                tokio::task::spawn_blocking(move || obs.enforce_rum_retention(now_ns)).await;
+            if let Ok(Err(error)) = swept {
+                tracing::warn!(%error, "RUM retention sweep failed");
+            }
+        }
+    });
 }
 
 #[cfg(feature = "traces")]
