@@ -48,6 +48,8 @@ use std::collections::BTreeMap;
 
 use crate::point::Ts;
 
+mod barrier;
+
 /// A metric's label set — the reserved [`METRIC_NAME`] plus user labels.
 pub type Labels = BTreeMap<String, String>;
 
@@ -1349,6 +1351,9 @@ impl<'a> Evaluator<'a> {
             // CONCEPT:EG-KG.query.bottomk-selection — range-vector deltas / derivatives.
             "delta" | "idelta" | "deriv" => self.eval_delta_call(func, args, t),
             "predict_linear" => self.eval_predict_linear_call(args, t),
+            "barrier_hit_probability" | "time_to_exhaustion" => {
+                self.eval_barrier_call(func, args, t)
+            }
             _ => self.eval_shaping_call(func, args, t),
         }
     }
@@ -1443,6 +1448,21 @@ impl<'a> Evaluator<'a> {
         let series = as_range(rv, "predict_linear")?;
         let secs = self.scalar_arg(&args[1], t, "predict_linear t")?;
         Ok(Value::Instant(predict_linear(series, secs, t)))
+    }
+
+    /// EH-527: `barrier_hit_probability` / `time_to_exhaustion` (see `promql::barrier`).
+    fn eval_barrier_call(&self, func: &str, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
+        let function = barrier::BarrierFn::named(func)
+            .ok_or_else(|| PromqlError(format!("{func} is not a barrier function")))?;
+        if args.len() != 3 {
+            return err(format!("{func} expects (range-vector, level, scalar)"));
+        }
+        let series = as_range(self.eval_instant(&args[0], t)?, func)?;
+        let level = self.scalar_arg(&args[1], t, "barrier level")?;
+        let argument = self.scalar_arg(&args[2], t, "barrier horizon/quantile")?;
+        Ok(Value::Instant(barrier::evaluate(
+            function, series, level, argument,
+        )))
     }
 
     fn eval_clamp_call(&self, args: &[Expr], t: Ts) -> Result<Value, PromqlError> {
