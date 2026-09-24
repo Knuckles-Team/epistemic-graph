@@ -58,12 +58,20 @@ fn fixture() -> Fixture {
             "type": "Evidence", "note": note, "valid_from": from, "valid_until": until,
         });
         core.add_node(id.into(), blob(props));
-        core.add_edge(id.into(), "c1".into(), blob(json!({ "relationship": "SUPPORTS" })))
-            .unwrap();
+        core.add_edge(
+            id.into(),
+            "c1".into(),
+            blob(json!({ "relationship": "SUPPORTS" })),
+        )
+        .unwrap();
         text.upsert(id, note);
     }
-    core.add_edge("x".into(), "e1".into(), blob(json!({ "relationship": "CONTRADICTS" })))
-        .unwrap();
+    core.add_edge(
+        "x".into(),
+        "e1".into(),
+        blob(json!({ "relationship": "CONTRADICTS" })),
+    )
+    .unwrap();
     text.commit().unwrap();
     let mut semantic = SemanticStore::new();
     for (id, v) in [
@@ -132,7 +140,10 @@ fn separate_surfaces(ctx: &PlanCtx) -> RowSet {
 }
 
 fn scored(rows: &RowSet) -> Vec<(String, Option<f32>)> {
-    rows.rows().iter().map(|r| (r.id.clone(), r.score)).collect()
+    rows.rows()
+        .iter()
+        .map(|r| (r.id.clone(), r.score))
+        .collect()
 }
 
 fn uql_rows(ctx: &PlanCtx) -> Vec<UqlRow> {
@@ -183,7 +194,10 @@ fn uql_structured_and_separate_surfaces_agree_with_knowledge() {
         assert!(knowledge.epistemic_resolved);
         assert!(row.proof.is_none(), "no WITH PROOF was asked");
     }
-    let e1 = rows.iter().find(|r| r.id == "e1").expect("e1 is live at t=500");
+    let e1 = rows
+        .iter()
+        .find(|r| r.id == "e1")
+        .expect("e1 is live at t=500");
     let e1 = e1.knowledge.as_ref().unwrap();
     assert_eq!(e1.contradiction_ids, vec!["x".to_string()]);
     assert_eq!(

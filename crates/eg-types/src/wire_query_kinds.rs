@@ -21,9 +21,7 @@ macro_rules! kinds {
         impl $kind {
             /// Every kind compiled into this build, in declaration order.
             pub fn $all() -> Vec<$kind> {
-                let mut all = Vec::new();
-                $($(#[$cfg])* all.push($kind::$name);)+
-                all
+                vec![$($(#[$cfg])* $kind::$name,)+]
             }
 
             /// The variant's name (identical to the wire variant name).
