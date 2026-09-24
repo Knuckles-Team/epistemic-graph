@@ -198,9 +198,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 452 -> 453: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
     // 453 -> 454: EH-389's `GraphSchemaClasses` vocabulary read.
     // 454 -> 455: `FinanceSignalModels`, fusion and the insider model (EH-423).
+    // 455 -> 456: `CheckAccess`, a principal's current access (EH-416).
     assert_eq!(
         variants.len(),
-        455,
+        456,
         "the wire method census changed; update this exact count deliberately"
     );
 }

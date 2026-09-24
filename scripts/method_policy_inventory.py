@@ -87,7 +87,8 @@ class MethodPolicyRow:
 # 452 -> 453: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
 # 453 -> 454: EH-389's `GraphSchemaClasses` vocabulary read.
 # 454 -> 455: `FinanceSignalModels`, fusion and the insider model (EH-423).
-EXPECTED_METHOD_POLICY_ROWS = 455
+# 455 -> 456: `CheckAccess`, a principal's current access (EH-416).
+EXPECTED_METHOD_POLICY_ROWS = 456
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

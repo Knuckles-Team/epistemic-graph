@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::acl::{AgentIdentity, Grant, Role};
+use crate::acl::{AccessDecision, AgentIdentity, Grant, Role};
 
 /// Outcome of walking a graph's tamper-evident hash-chained audit log
 /// (CONCEPT:EG-KG.sharding.row-level-security, `Method::AuditVerify`). `ok` is true when every entry's stored
@@ -180,4 +180,5 @@ method_results! {
     // `null` when no identity is registered for the agent; an identity holding no
     // roles is a present identity with an empty `roles` list.
     GetIdentity(GetIdentity) => Json<Option<AgentIdentity>>;
+    CheckAccess(CheckAccess) => Json<AccessDecision>;
 }
