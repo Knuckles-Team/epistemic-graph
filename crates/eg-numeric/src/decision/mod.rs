@@ -38,6 +38,7 @@ pub mod refusal;
 pub mod retrieval;
 pub mod scorer;
 mod targets;
+pub mod track_record;
 pub mod trajectory;
 
 pub use refusal::{Refusal, RefusalResult};

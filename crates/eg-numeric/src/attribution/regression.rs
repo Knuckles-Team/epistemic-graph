@@ -85,12 +85,29 @@ fn design(y: &[f64], factors: &[Vec<f64>]) -> AttributionResult<Array2<f64>> {
     }))
 }
 
+/// Reciprocal condition number below which a Gram matrix counts as singular.
+const RCOND_FLOOR: f64 = 1e-10;
+
+/// `gram⁻¹` for a symmetric positive semi-definite Gram matrix, or a typed refusal when
+/// it is rank-deficient (judged by its singular values, not by an LU pivot happening to
+/// be exactly zero). `what` names the design in the refusal.
+pub(super) fn checked_inverse(gram: &Array2<f64>, what: &str) -> AttributionResult<Array2<f64>> {
+    let singular = |detail: String| {
+        AttributionError::new(AttributionCode::Singular, format!("{what}: {detail}"))
+    };
+    let values = linalg::svdvals(gram.view());
+    let largest = values.iter().copied().fold(0.0f64, f64::max);
+    let smallest = values.iter().copied().fold(f64::INFINITY, f64::min);
+    if !(largest > 0.0 && smallest / largest > RCOND_FLOOR) {
+        return Err(singular("rank-deficient".into()));
+    }
+    linalg::inverse(gram.view()).map_err(|e| singular(e.to_string()))
+}
+
 /// `(XᵀX)⁻¹`, or a typed refusal for a rank-deficient design.
 fn bread(x: &Array2<f64>) -> AttributionResult<Array2<f64>> {
     let gram = linalg::matmul(x.t(), x.view()).map_err(|e| invalid(e.to_string()))?;
-    linalg::inverse(gram.view()).map_err(|e| {
-        AttributionError::new(AttributionCode::Singular, format!("XᵀX is singular: {e}"))
-    })
+    checked_inverse(&gram, "XᵀX is singular")
 }
 
 /// The Newey–West "meat" `Σ_l w_l Σ_t e_t e_{t-l} (x_t x_{t-l}ᵀ + x_{t-l} x_tᵀ)` (`l = 0`

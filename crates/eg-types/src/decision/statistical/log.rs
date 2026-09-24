@@ -220,6 +220,30 @@ pub struct StoredResolution {
     pub recorded_at_ms: u64,
 }
 
+/// How a slate's outcome is split across its components (EH-523).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum SlateAttributionMethod {
+    /// Exact Shapley values over the LOGGED sub-slates: every non-empty sub-slate of
+    /// the target must itself have been assembled and evaluated at `min_support`, or the
+    /// report is refused with `UNSUPPORTED_COALITION` (it is never interpolated).
+    Shapley,
+    /// The least-squares additive split over the logged sub-slates: this request IS the
+    /// declared additive-reward assumption (DECIDE-LAYER §6.4), so the report is advisory.
+    Additive,
+}
+
+/// Ask for the per-component split of one assembled slate's outcome (EH-523).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SlateAttributionRequest {
+    /// The solved assembly's graph digest (`slate:<digest>` in the aggregate rows).
+    pub graph_digest: String,
+    pub method: SlateAttributionMethod,
+}
+
 /// Ask for the outcome aggregate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -231,6 +255,39 @@ pub struct OutcomeAggregateRequest {
     #[serde(default)]
     pub question_id: Option<String>,
     pub window: RecordWindow,
+    /// Also split one slate's outcome across its components (EH-523).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<SlateAttributionRequest>,
+}
+
+/// One component's share of a slate's success rate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ComponentContribution {
+    pub slot: String,
+    pub component_id: String,
+    pub contribution: QuantisedValue,
+}
+
+/// The per-component split of one slate's success rate (EH-523). Evidence class is
+/// always `claim`: an outcome is OBSERVED for the whole slate (EH-012); its split across
+/// components is computed under an assumption and is advisory, never a label.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SlateAttribution {
+    pub graph_digest: String,
+    pub method: SlateAttributionMethod,
+    pub evidence_class: EvidenceClass,
+    /// One per slot of the slate, in slot order; they sum to `grand`.
+    pub components: BoundedVec<ComponentContribution, 64>,
+    /// The whole slate's observed success rate.
+    pub grand: QuantisedValue,
+    /// Distinct sub-slates (at `min_support`) the split was computed from.
+    pub observed_coalitions: u64,
+    /// `sha256:` over the request, the observed coalition values and the kernel.
+    pub digest: String,
 }
 
 /// Outcome counts per trace fidelity.
@@ -276,6 +333,9 @@ pub struct OutcomeAggregate {
     pub schema_version: u16,
     pub min_support: u64,
     pub rows: BoundedVec<OptionAggregate, 1024>,
+    /// The requested slate split (EH-523); absent when none was asked for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribution: Option<SlateAttribution>,
 }
 
 /// The durable identity of a committed record.

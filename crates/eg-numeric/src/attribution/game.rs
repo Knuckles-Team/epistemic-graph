@@ -159,3 +159,60 @@ impl Running {
         }
     }
 }
+
+/// A game known only where it was OBSERVED: `v(S)` for the coalitions a log holds (for
+/// example assembled slates whose outcomes were independently evaluated), `v(∅) = 0`.
+/// Asking for any other coalition is refused with `UNSUPPORTED_COALITION` — a logged
+/// game is never interpolated.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoggedGame {
+    players: usize,
+    values: std::collections::BTreeMap<u64, f64>,
+}
+
+impl LoggedGame {
+    /// `values` maps member masks (bit `i` = player `i`) to observed values; at most 63
+    /// players.
+    pub fn new(
+        players: usize,
+        values: std::collections::BTreeMap<u64, f64>,
+    ) -> AttributionResult<Self> {
+        if players == 0 || players > 63 {
+            return Err(invalid("a logged game has 1..=63 players"));
+        }
+        let limit = 1u64 << players;
+        if values.keys().any(|&mask| mask == 0 || mask >= limit) {
+            return Err(invalid(
+                "an observed coalition names a player outside the game",
+            ));
+        }
+        if values.values().any(|v| !v.is_finite()) {
+            return Err(invalid("an observed coalition value is not finite"));
+        }
+        Ok(Self { players, values })
+    }
+
+    /// The observed coalitions and their values, in mask order.
+    pub fn observed(&self) -> &std::collections::BTreeMap<u64, f64> {
+        &self.values
+    }
+}
+
+impl Game for LoggedGame {
+    fn players(&self) -> usize {
+        self.players
+    }
+
+    fn value(&self, members: &[usize]) -> AttributionResult<f64> {
+        let mask = members.iter().fold(0u64, |m, &p| m | (1 << p));
+        if mask == 0 {
+            return Ok(0.0);
+        }
+        self.values.get(&mask).copied().ok_or_else(|| {
+            super::AttributionError::new(
+                super::AttributionCode::UnsupportedCoalition,
+                format!("no observed value for the coalition {members:?}"),
+            )
+        })
+    }
+}
