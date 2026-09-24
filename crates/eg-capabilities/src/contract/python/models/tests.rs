@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use super::super::surfaces::Surfaces;
 use super::*;
 use crate::contract::results::Catalog;
 use crate::contract::schema::method_request_document;
@@ -46,7 +47,7 @@ fn the_request_document_names_its_method_root() {
 #[test]
 fn every_published_method_with_fields_binds_a_rendered_params_model() {
     let (document, _, space) = space();
-    let rendered = models_module(&space.definitions);
+    let rendered = Surfaces::new(&space.definitions).package_text();
     for descriptor in crate::method_descriptors() {
         let id = descriptor.id.as_str();
         let has_params = document["methods"][id]["properties"]
@@ -71,7 +72,7 @@ fn every_published_method_with_fields_binds_a_rendered_params_model() {
 #[test]
 fn schematized_results_name_rendered_models() {
     let (_, catalog, space) = space();
-    let rendered = models_module(&space.definitions);
+    let rendered = Surfaces::new(&space.definitions).package_text();
     for (id, declared) in &catalog.methods {
         let Some((name, _)) = space.result_model(id) else {
             assert!(
@@ -107,11 +108,12 @@ fn domain_modules_load_models_lazily() {
     }
 }
 
-/// Every rendered class name is unique, and the `Method` root is a real union.
+/// Every rendered class name is unique across the package, and the `Method` root is
+/// a real union.
 #[test]
 fn hoisting_names_every_object_once() {
     let (_, _, space) = space();
-    let rendered = models_module(&space.definitions);
+    let rendered = Surfaces::new(&space.definitions).package_text();
     let mut names = BTreeSet::new();
     for line in rendered.lines().filter(|line| line.starts_with("class ")) {
         let name = line["class ".len()..]
