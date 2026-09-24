@@ -254,6 +254,15 @@ async fn embedded_graph(h: &Harness) -> Arc<eg_core::graph::GraphCore> {
     graph_with(h, GRAPH, "1", 3, rows.collect()).await
 }
 
+/// The digest of the test model's space at `revision`.
+fn space_of(revision: &str, dims: usize) -> String {
+    eg_types::embedding::EmbeddingSpaceRef::pinned(
+        "m", revision, "sha256:w", "sha256:p", dims, false,
+    )
+    .unwrap()
+    .digest
+}
+
 /// A graph whose store declares model revision `revision` and embeds `rows`.
 async fn graph_with(
     h: &Harness,
@@ -272,6 +281,7 @@ async fn graph_with(
         "m", revision, "sha256:w", "sha256:p", dims, false,
     )
     .unwrap();
+    assert_eq!(space.digest, space_of(revision, dims));
     core.semantic_store.write().declare_space(space).unwrap();
     for (id, vector) in rows {
         let props = serde_json::json!({"type": "Doc"});
@@ -373,7 +383,7 @@ async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
         .unwrap()
         .tenant_scope()
         .to_string();
-    let served = || super::super::served_adapter::served_for(&h.state, Some(&tenant), &core);
+    let served = || super::super::served_adapter::served_for(&h.state, Some(&tenant), GRAPH, &core);
     let query = [1.0_f32, 0.9, 0.0];
     assert!(served().await.is_none(), "fitted is not active");
     assert!(
@@ -382,7 +392,7 @@ async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
     );
 
     let activate = |receipt_digest: String| RetrievalOp::ActivateAdapter {
-        space_digest: space.clone(),
+        graph: GRAPH.to_string(),
         adapter_digest: fitted.adapter_digest.clone(),
         receipt_digest,
     };
@@ -404,10 +414,10 @@ async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
         "the adapter re-aims toward what was cited"
     );
 
-    let rolled = adapter_state(
+    let rolled = pointer_state(
         &h,
         RetrievalOp::RollbackAdapter {
-            space_digest: space.clone(),
+            graph: GRAPH.to_string(),
         },
     )
     .await
@@ -418,10 +428,10 @@ async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
         served().await.is_none(),
         "rollback serves the base query again"
     );
-    let again = adapter_state(
+    let again = pointer_state(
         &h,
         RetrievalOp::RollbackAdapter {
-            space_digest: space,
+            graph: GRAPH.to_string(),
         },
     )
     .await;
@@ -536,7 +546,9 @@ fn generation_request(
     GenerationEvalRequest {
         logical: "kg-gen".to_string(),
         active_graph: "kg-gen".to_string(),
+        active_space: space_of("1", 8),
         shadow_graph: "kg-gen-2".to_string(),
+        shadow_space: space_of("2", 8),
         items: BoundedVec::new(items).unwrap(),
         top_k: 5,
         min_eval_items: 5,

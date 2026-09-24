@@ -152,15 +152,16 @@ fn judged_citations(
         .collect())
 }
 
-fn spaces(gens: &Generations) -> Result<(String, String), String> {
-    let active = gens.active.space_digest();
-    let shadow = gens.shadow.space_digest();
-    match (active, shadow) {
-        (Some(a), Some(s)) if a != s => Ok((a, s)),
-        _ => Err(invalid(
-            "both generations declare an embedding space, and the shadow's is a new one",
-        )),
+fn spaces(request: &GenerationEvalRequest, gens: &Generations) -> Result<(String, String), String> {
+    let (active, shadow) = (&request.active_space, &request.shadow_space);
+    let named = !active.is_empty() && !shadow.is_empty() && active != shadow;
+    if !(named && gens.active.admits_space(active) && gens.shadow.admits_space(shadow)) {
+        return Err(invalid(
+            "the shadow generation is a NEW embedding space, and each store declares \
+             (if anything) exactly the space named for it",
+        ));
     }
+    Ok((active.clone(), shadow.clone()))
 }
 
 fn receipt_of(
@@ -207,7 +208,7 @@ pub(super) fn evaluate_generation(
     tenant: &str,
 ) -> Result<GenerationEvaluated, String> {
     check_request(request)?;
-    let spaces = spaces(gens)?;
+    let spaces = spaces(request, gens)?;
     let citations = judged_citations(ctx.store, reader)?;
     let mut tally = Tally::default();
     for item in &request.items {

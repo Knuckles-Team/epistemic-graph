@@ -44,9 +44,10 @@ pub(crate) fn read_fitted(
         .transpose()
 }
 
-/// The active adapter of one space, decoded for serving.
+/// The active adapter of one graph, decoded for serving.
 pub(crate) struct ServedAdapter {
     digest: String,
+    space_digest: String,
     kernel: AdapterKernel,
 }
 
@@ -58,6 +59,7 @@ impl ServedAdapter {
     ) -> Result<Self, String> {
         Ok(Self {
             digest: digest.to_string(),
+            space_digest: body.space_digest.clone(),
             kernel: AdapterKernel::of(body)?,
         })
     }
@@ -102,9 +104,9 @@ fn cached_or_decode(
 fn load(
     store: &AgentLibraryStore,
     tenant: &str,
-    space_digest: &str,
+    graph: &str,
 ) -> Result<Option<Arc<ServedAdapter>>, String> {
-    let key = super::stat_adapter::adapter_pointer(space_digest);
+    let key = super::stat_adapter::adapter_pointer(graph);
     let (_, pointer) = super::stat_pointer::read_pointer(store, tenant, &key)?;
     match pointer.target() {
         Some(digest) => cached_or_decode(store, tenant, digest),
@@ -112,21 +114,23 @@ fn load(
     }
 }
 
-/// The adapter serving `core`'s embedding space for the verified carrier
-/// tenant `tenant`, if one is active. `None` when there is no carrier, the
-/// store declares no space, the Agent Library was never opened, or the state
-/// cannot be read (logged; the base query is served).
+/// The adapter active for `graph` under the verified carrier tenant
+/// `tenant`. `None` when there is no carrier, the Agent Library was never
+/// opened, the store declares a space other than the adapter's, or the
+/// state cannot be read (logged; the base query is served).
 pub(crate) async fn served_for(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
     tenant: Option<&str>,
+    graph: &str,
     core: &GraphCore,
 ) -> Option<Arc<ServedAdapter>> {
-    let tenant = tenant?.to_string();
-    let space = core.semantic_store.read().space()?.digest.clone();
+    let (tenant, graph) = (tenant?.to_string(), graph.to_string());
     let store = state.read().await.agent_library.clone()?;
-    let loaded = tokio::task::spawn_blocking(move || load(&store, &tenant, &space)).await;
+    let loaded = tokio::task::spawn_blocking(move || load(&store, &tenant, &graph)).await;
+    let declared = core.semantic_store.read().space().map(|s| s.digest.clone());
+    let in_space = |a: &Arc<ServedAdapter>| declared.as_ref().is_none_or(|d| *d == a.space_digest);
     match loaded {
-        Ok(Ok(adapter)) => adapter,
+        Ok(Ok(adapter)) => adapter.filter(in_space),
         Ok(Err(error)) => {
             tracing::warn!(%error, "query adapter state unreadable; serving the base query");
             None
@@ -138,14 +142,14 @@ pub(crate) async fn served_for(
     }
 }
 
-/// `query`, adapted when an adapter serves `core`'s space for `tenant`.
+/// `query`, adapted when an adapter is active for `graph` under `tenant`.
 pub(crate) async fn adapted_query(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
     tenant: Option<&str>,
-    core: &GraphCore,
+    (graph, core): (&str, &GraphCore),
     query: Vec<f32>,
 ) -> Vec<f32> {
-    match served_for(state, tenant, core).await {
+    match served_for(state, tenant, graph, core).await {
         Some(adapter) => adapter.adapt(&query).unwrap_or(query),
         None => query,
     }
@@ -174,7 +178,7 @@ pub(crate) async fn served_plan_adapter(
         return None;
     }
     let core = Arc::clone(&state.read().await.registry.get(graph)?.core);
-    served_for(state, carrier_tenant(authority), &core).await
+    served_for(state, carrier_tenant(authority), graph, &core).await
 }
 
 /// `plan` with every vector rank re-aimed by `adapter` (unchanged without one).

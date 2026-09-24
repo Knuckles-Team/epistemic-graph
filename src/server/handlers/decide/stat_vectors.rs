@@ -23,13 +23,14 @@ pub(super) struct GraphVectors {
 }
 
 impl GraphVectors {
-    /// The declared embedding space's digest, if the store declares one.
-    pub(super) fn space_digest(&self) -> Option<String> {
+    /// Whether the store may hold vectors of `space_digest`: a store that
+    /// declares a space must declare exactly that one.
+    pub(super) fn admits_space(&self, space_digest: &str) -> bool {
         self.core
             .semantic_store
             .read()
             .space()
-            .map(|space| space.digest.clone())
+            .is_none_or(|space| space.digest == space_digest)
     }
 
     /// The store's vector width.

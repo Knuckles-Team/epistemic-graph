@@ -114,6 +114,9 @@ pub struct AdapterFitRequest {
     /// The graph whose stored vectors score the judged units. The caller's
     /// graph ACL and row-level security apply: an invisible unit is never read.
     pub graph: String,
+    /// The embedding model identity the graph's vectors and the judged
+    /// queries were produced in. When the graph's store declares a space it
+    /// must be this one.
     pub space_digest: String,
     /// `None`: every retrieval question.
     #[serde(default)]
@@ -137,6 +140,9 @@ pub struct AdapterFitRequest {
 pub struct AdapterEvalReceipt {
     pub schema_version: u16,
     pub adapter_digest: String,
+    /// The graph whose stored vectors it was fitted and evaluated on; the only
+    /// graph it may be activated for.
+    pub graph: String,
     pub space_digest: String,
     pub n_training: u64,
     pub n_eval: u64,

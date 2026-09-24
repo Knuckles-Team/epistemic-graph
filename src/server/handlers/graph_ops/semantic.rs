@@ -232,12 +232,13 @@ async fn handle_semantic_search(
 async fn adapt_query_vector(ctx: &GraphOpsContext<'_>, method: Method) -> Method {
     use crate::server::handlers::decide::served_adapter::{adapted_query, carrier_tenant};
     let tenant = carrier_tenant(Some(ctx.read_authority));
+    let served = (ctx.graph_name, &**ctx.core);
     match method {
         Method::SemanticSearch {
             query_embedding,
             n_results,
         } => Method::SemanticSearch {
-            query_embedding: adapted_query(ctx.state, tenant, ctx.core, query_embedding).await,
+            query_embedding: adapted_query(ctx.state, tenant, served, query_embedding).await,
             n_results,
         },
         Method::Discover {
@@ -246,7 +247,7 @@ async fn adapt_query_vector(ctx: &GraphOpsContext<'_>, method: Method) -> Method
             k,
         } => Method::Discover {
             keywords,
-            query_embedding: adapted_query(ctx.state, tenant, ctx.core, query_embedding).await,
+            query_embedding: adapted_query(ctx.state, tenant, served, query_embedding).await,
             k,
         },
         other => other,

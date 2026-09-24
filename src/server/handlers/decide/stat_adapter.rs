@@ -122,6 +122,7 @@ fn receipt_of(
     AdapterEvalReceipt {
         schema_version: QUERY_ADAPTER_SCHEMA_VERSION,
         adapter_digest: adapter_digest.to_string(),
+        graph: request.graph.clone(),
         space_digest: request.space_digest.clone(),
         n_training,
         n_eval: eval.n,
@@ -144,9 +145,9 @@ pub(super) fn fit_adapter(
     tenant: &str,
 ) -> Result<AdapterFitted, String> {
     check_fit_request(request)?;
-    if vectors.space_digest().as_deref() != Some(request.space_digest.as_str()) {
+    if !vectors.admits_space(&request.space_digest) {
         return Err(invalid(
-            "the graph's embedding space is not the requested one",
+            "the graph's store declares another embedding space",
         ));
     }
     let dim = vectors.dimensions();
@@ -175,16 +176,16 @@ pub(super) fn fit_adapter(
     Ok(fitted)
 }
 
-/// The pointer key of an embedding space's adapter.
-pub(super) fn adapter_pointer(space_digest: &str) -> String {
-    format!("adapter:{space_digest}")
+/// The pointer key of a graph's adapter.
+pub(super) fn adapter_pointer(graph: &str) -> String {
+    format!("adapter:{graph}")
 }
 
-/// A fitted adapter whose passing receipt is the named one, in `space_digest`.
+/// A fitted adapter whose passing receipt is the named one, fitted on `graph`.
 pub(super) fn qualified(
     store: &AgentLibraryStore,
     tenant: &str,
-    space_digest: &str,
+    graph: &str,
     adapter_digest: &str,
     receipt_digest: &str,
 ) -> Result<Qualified, String> {
@@ -196,8 +197,8 @@ pub(super) fn qualified(
             "the adapter's receipt is not the named one, or did not pass",
         ));
     }
-    if fitted.body.space_digest != space_digest {
-        return Err(invalid("the adapter was fitted in another embedding space"));
+    if fitted.receipt.graph != graph {
+        return Err(invalid("the adapter was fitted on another graph"));
     }
     Ok(Qualified {
         target: fitted.adapter_digest,

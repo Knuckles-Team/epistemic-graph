@@ -52,7 +52,11 @@ pub struct GenerationEvalRequest {
     pub logical: String,
     /// The generation the logical graph resolves to now.
     pub active_graph: String,
+    /// The embedding model identity of the active generation.
+    pub active_space: String,
     pub shadow_graph: String,
+    /// The (new) embedding model identity of the shadow generation.
+    pub shadow_space: String,
     pub items: BoundedVec<GenerationEvalItem, MAX_GENERATION_EVAL_ITEMS>,
     pub top_k: u16,
     pub min_eval_items: u32,

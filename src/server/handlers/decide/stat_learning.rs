@@ -83,13 +83,13 @@ impl Serving<'_> {
 
     fn activate_adapter(
         &self,
-        space: &str,
+        graph: &str,
         adapter_digest: &str,
         receipt_digest: &str,
     ) -> Result<RetrievalResult, String> {
         let store = self.ctx.store;
-        let to = qualified(store, self.tenant(), space, adapter_digest, receipt_digest)?;
-        pointer(activate(store, &self.at(adapter_pointer(space)), &to))
+        let to = qualified(store, self.tenant(), graph, adapter_digest, receipt_digest)?;
+        pointer(activate(store, &self.at(adapter_pointer(graph)), &to))
     }
 
     fn activate_generation(
@@ -183,15 +183,15 @@ pub(super) fn dispatch(
         }
         RetrievalOp::FitAdapter { request } => s.fit(&request),
         RetrievalOp::ActivateAdapter {
-            space_digest,
+            graph,
             adapter_digest,
             receipt_digest,
-        } => s.activate_adapter(&space_digest, &adapter_digest, &receipt_digest),
-        RetrievalOp::RollbackAdapter { space_digest } => {
-            pointer(rollback(store, &s.at(adapter_pointer(&space_digest))))
+        } => s.activate_adapter(&graph, &adapter_digest, &receipt_digest),
+        RetrievalOp::RollbackAdapter { graph } => {
+            pointer(rollback(store, &s.at(adapter_pointer(&graph))))
         }
-        RetrievalOp::AdapterStatus { space_digest } => {
-            pointer(status(store, &s.at(adapter_pointer(&space_digest))))
+        RetrievalOp::AdapterStatus { graph } => {
+            pointer(status(store, &s.at(adapter_pointer(&graph))))
         }
         RetrievalOp::EvaluateGeneration { request } => s.evaluate(&request),
         RetrievalOp::ActivateGeneration {

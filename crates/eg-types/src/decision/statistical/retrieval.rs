@@ -340,16 +340,16 @@ pub enum RetrievalOp {
     Paths { request: PathRequest },
     /// Fit a query-side adapter and evaluate it on a held-out split (EH-396).
     FitAdapter { request: Box<AdapterFitRequest> },
-    /// Make an evaluated adapter the active one of its space.
+    /// Make an evaluated adapter the active one of the graph it was fitted on.
     ActivateAdapter {
-        space_digest: String,
+        graph: String,
         adapter_digest: String,
         receipt_digest: String,
     },
-    /// Return a space to the adapter active before the current one.
-    RollbackAdapter { space_digest: String },
-    /// Read a space's adapter pointer and history.
-    AdapterStatus { space_digest: String },
+    /// Return a graph to the adapter active before the current one.
+    RollbackAdapter { graph: String },
+    /// Read a graph's adapter pointer and history.
+    AdapterStatus { graph: String },
     /// Dual-serve judged runs against a shadow generation (EH-397).
     EvaluateGeneration { request: Box<GenerationEvalRequest> },
     /// Resolve a logical graph to an evaluated shadow generation.
