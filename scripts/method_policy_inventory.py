@@ -69,7 +69,8 @@ class MethodPolicyRow:
 # `MutationOutbox`.
 # 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
 # 426 -> 427: governed connector `WriteBack` authority.
-EXPECTED_METHOD_POLICY_ROWS = 429
+# 429 -> 431: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
+EXPECTED_METHOD_POLICY_ROWS = 431
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

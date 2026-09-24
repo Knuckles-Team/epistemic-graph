@@ -4,9 +4,9 @@ use super::Dynamic;
 use crate::change_envelope::{ChangeCursor, ChangeEnvelopeRecord, ContentVersion};
 use crate::decision::DecisionBatch;
 use crate::epistemic_operations::EvidenceBundle;
-use crate::managed_index::{EdgeIndexStatusView, EdgeSearchView};
 #[cfg(feature = "knowledge-batch")]
 use crate::knowledge_stream::KnowledgeStreamBatch;
+use crate::managed_index::{EdgeIndexStatusView, EdgeSearchView};
 #[cfg(feature = "epistemic")]
 use crate::protocol::{
     CausalCounterfactualResult, CausalEstimateResult, EpistemicStatusResult, ExplainBeliefResponse,

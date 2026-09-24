@@ -55,20 +55,20 @@ use serde_json::Value;
 
 mod ann_durable;
 mod ann_source;
-mod edge_durable;
 mod authority;
 #[cfg(any(test, feature = "dev-scope-grant"))]
 pub mod dev_scope_grant;
+mod edge_durable;
 mod outbox;
 mod row_insert;
 mod source_batch;
 
 use ann_durable::{drop_ann_index_in, drop_ann_indexes_for_column_in, put_ann_index_in};
 pub(crate) use ann_durable::{GenerationWrite, StoredGeneration};
-pub(crate) use edge_durable::EdgeIndexRecord;
 pub(crate) use ann_source::{AnnChangedRows, AnnRowReader, AnnSourceRows, ScanExtent};
 use authority::{sql_scope_identity, SqlAuthority, SqlMutation};
 pub(crate) use authority::{SqlRead, SqlWrite};
+pub(crate) use edge_durable::EdgeIndexRecord;
 
 use super::index::{
     catalog_key as secondary_catalog_key, entry_key as secondary_entry_key,
