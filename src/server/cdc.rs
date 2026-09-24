@@ -163,6 +163,10 @@ pub struct CdcHub {
     /// requires.
     #[cfg(feature = "cdc-kafka")]
     sink: OnceLock<Arc<dyn ExternalCdcSink>>,
+    /// The opt-in standing impact watches (EH-526, `EPISTEMIC_GRAPH_IMPACT_ON_WRITE`),
+    /// installed once at startup only when armed. Unset ⇒ one `OnceLock::get()`.
+    #[cfg(all(feature = "mining", feature = "query"))]
+    impact_watch: std::sync::OnceLock<Arc<crate::server::impact_watch::ImpactWatchHub>>,
 }
 
 impl Default for CdcHub {
@@ -190,6 +194,8 @@ impl CdcHub {
             reasoning_cascade: OnceLock::new(),
             #[cfg(feature = "cdc-kafka")]
             sink: OnceLock::new(),
+            #[cfg(all(feature = "mining", feature = "query"))]
+            impact_watch: std::sync::OnceLock::new(),
         }
     }
 
@@ -235,6 +241,13 @@ impl CdcHub {
         let _ = self.reasoning_cascade.set(cascade);
     }
 
+    /// Install the standing impact watches (EH-526). At most once, at startup,
+    /// only when armed; a second call is a silent no-op.
+    #[cfg(all(feature = "mining", feature = "query"))]
+    pub fn install_impact_watch(&self, hub: Arc<crate::server::impact_watch::ImpactWatchHub>) {
+        let _ = self.impact_watch.set(hub);
+    }
+
     /// Clone the per-graph `Notify` so a `Watch` can await the next change. Creates the
     /// feed if it does not yet exist (a watcher may subscribe before the first write).
     pub fn notifier(&self, graph: &str) -> Arc<Notify> {
@@ -259,6 +272,14 @@ impl CdcHub {
         after: Option<Vec<u8>>,
     ) -> u64 {
         let label = extract_label(after.as_deref().or(before.as_deref()));
+        // EH-526: the impact watch sees the change only for a watched graph (the
+        // strings are cloned only then).
+        #[cfg(all(feature = "mining", feature = "query"))]
+        let impact_note = self
+            .impact_watch
+            .get()
+            .filter(|hub| hub.watches(graph))
+            .map(|hub| (Arc::clone(hub), label.clone(), node_id.clone()));
         // Bound outside the feeds-lock block so the post-lock matview hooks can read the
         // event without re-borrowing the feed (matview-only; a no-op field otherwise).
         #[cfg(feature = "matview")]
@@ -342,6 +363,10 @@ impl CdcHub {
         #[cfg(feature = "owl")]
         if let Some(cascade) = self.reasoning_cascade.get() {
             cascade.note_write(graph);
+        }
+        #[cfg(all(feature = "mining", feature = "query"))]
+        if let Some((hub, label, node_id)) = impact_note {
+            hub.note(graph, &label, &node_id);
         }
         notify.notify_waiters();
         seq
