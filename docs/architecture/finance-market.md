@@ -223,3 +223,35 @@ if absent, whose id derives from the digest; `analysisOf` names the listing and
 control lease of kind `share.read` that names the digest. The lease is bound to
 the tenant, has an expiry and can be revoked.
 
+## Signal models (EH-423)
+
+`FinanceSignalModels` is a separate method that holds two closed-form models.
+They moved here from agent-utilities so that each model has one owner. Both are
+pure compute and informational only.
+
+`bayes_fuse` fuses directional calls (`1` up, `-1` down, `0` no call) into
+`P(up)`:
+
+- A measured prior (`directional_accuracy`, `standalone_sharpe`, `pbo`) seeds a
+  source with weight `accuracy × sharpe`, clamped to `[0, 1]`.
+- A prior is dropped when it is overfit (`pbo > max_pbo`) or has no edge
+  (`sharpe <= min_sharpe`).
+- A source that calls without a seeded prior takes the default weight and
+  accuracy.
+- Each call moves the probability toward `P(up | call)` by the source's
+  weight. Calls are applied in source-name order, so the answer does not depend
+  on how the caller built its map.
+
+`insider_equilibrium` models the Kyle insider under a dynamic legal-risk hazard
+(Qiao & Xia, arXiv:2605.27684). It is a surveillance-design aid, not a trading
+tool. It returns three parts:
+
+- **The equilibrium.** The optimal intensity is
+  `β* = (Σ − eκC) / (2Σ(λ + eκr))`, floored at zero. The answer includes the
+  detection hazard, the expected profit, the penalty and the binding lever.
+- **The schedule.** Enforcement decays with the remaining window, so the
+  insider accelerates toward its end.
+- **The penalty policy.** The comparative statics in the criminal and civil
+  penalties, the criminal cost that suppresses the insider (`null` when no
+  finite cost does), and a typed verdict: `enforcement_gated`,
+  `criminal_suppresses` or `criminal_is_the_lever`.

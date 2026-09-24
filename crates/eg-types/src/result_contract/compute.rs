@@ -16,6 +16,8 @@ use crate::compute_result::market;
 use crate::compute_result::mining;
 #[cfg(feature = "ml-pipeline")]
 use crate::compute_result::pipeline;
+#[cfg(feature = "finance")]
+use crate::compute_result::signal_models;
 use crate::solve::SolveResult;
 #[cfg(feature = "datascience")]
 use crate::wire::FittedModel;
@@ -259,4 +261,9 @@ method_results! {
     FinanceMarketDecimate(FinanceMarket / "decimate") => Raw<market::DecimatedChart>;
     #[cfg(feature = "finance")]
     FinanceMarketAnalysisSnapshot(FinanceMarket / "analysis_snapshot") => Raw<market::AnalysisSnapshot>;
+    // ── signal fusion and the strategic-insider model (EH-423 / AUD-30) ──
+    #[cfg(feature = "finance")]
+    FinanceSignalModelsBayesFuse(FinanceSignalModels / "bayes_fuse") => Raw<signal_models::BayesFusion>;
+    #[cfg(feature = "finance")]
+    FinanceSignalModelsInsiderEquilibrium(FinanceSignalModels / "insider_equilibrium") => Raw<signal_models::InsiderAnalysis>;
 }

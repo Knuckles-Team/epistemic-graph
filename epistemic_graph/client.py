@@ -9202,6 +9202,21 @@ class FinanceClient:
             )
         ).payload
 
+    # ── Signal fusion and the strategic insider (EH-423 / AUD-30) ────────
+    async def signal_models(self, op: str, **params: Any) -> Any:
+        """Run one ``FinanceSignalModels`` op and return its declared result.
+
+        ``op`` is ``bayes_fuse`` (``request``: prior, priors, directions,
+        min_sharpe, max_pbo, default_weight, default_accuracy) or
+        ``insider_equilibrium`` (``request``: inputs, steps). Pure compute and
+        informational only: no result authorises an order.
+        """
+        return (
+            await _gen.compute.send_finance_signal_models(
+                self._client, {"op": {"op": op, **params}}
+            )
+        ).payload
+
 
 class DataScienceClient:
     """CONCEPT:EG-KG.compute.rust-native-training-loss — Data Science Primitives

@@ -86,7 +86,8 @@ class MethodPolicyRow:
 # 451 -> 452: EH-408/EH-409's served `TelemetryDerive`.
 # 452 -> 453: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
 # 453 -> 454: EH-389's `GraphSchemaClasses` vocabulary read.
-EXPECTED_METHOD_POLICY_ROWS = 454
+# 454 -> 455: `FinanceSignalModels`, fusion and the insider model (EH-423).
+EXPECTED_METHOD_POLICY_ROWS = 455
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
