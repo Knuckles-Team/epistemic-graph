@@ -83,6 +83,7 @@ window             = "WINDOW" num [ unit ] [ agg ] ;
 unit               = "ns" | "us" | "ms" | "s" | "m" | "min" | "h" | "d" (plural forms accepted) ;
 agg                = "MEAN" | "AVG" | "SUM" | "MIN" | "MAX" | "COUNT" | "FIRST" | "LAST" ;
 derive             = "DERIVE" sexpr "AS" name { "," sexpr "AS" name } ;   (* feature `timeseries` *)
+skill              = "SKILL" name "AGAINST" name "HORIZONS" "[" int { "," int } "]" "WINDOW" int [ "BOOTSTRAP" int "SEED" int ] ;   (* feature `timeseries` *)
 sexpr              = signed_num | name | name "(" [ sexpr { "," sexpr } ] ")" ;
 limit              = "LIMIT" ( int | param ) ;
 return             = "RETURN" name { "," name } ;
@@ -246,6 +247,34 @@ read before the aggregate, so `WINDOW 30 min` is thirty minutes.
 
 ```uql
 TSSCAN ['cpu', 'mem'] FROM 0 TO 3600 |> WINDOW 60 s MEAN |> LIMIT 60
+```
+
+`TSSCAN` emits one row per point per series, id `series@ts` (ns), with every field of the
+point as an exact `f64` value channel `v0..vk` that `RETURN` can name (the `f32` score is
+`v0`, for ranking). A later committed version of a point (a correction) supersedes an
+earlier one; a transaction's staged point shadows both.
+
+### Series operators (`DERIVE`, `SKILL`)
+
+| Clause | Op |
+|--------|-----|
+| `DERIVE zscore(ewma(v0, 12), 60) AS lat_z` | `Derive{columns}` — per-series incremental operators in timestamp order |
+| `SKILL v0 AGAINST r HORIZONS [1, 5] WINDOW 30` | `Skill{spec}` — rolling rank-IC predictive skill per horizon |
+
+A `DERIVE` expression calls `lag diff ret logret` (count `k`), `rmean rstd rsum rmin rmax
+rrank zscore` (window `w`), `ewma` (span), `ewma_halflife`, `abs sign neg clip(x, lo, hi)`,
+`add sub mul div` (`ratio` is `div`), `rcorr ic wsum` (two series and a window) and
+`kalman(x, q, r)` / `kbeta(x, y, q, r)`; series arguments come first, then numbers. It reads
+`v0..vk`, `score` and earlier aliases, and writes its alias as a value channel; each column
+keeps its own warm-up (no value until its window fills). `rstd`/`zscore` use the population
+deviation, `ewma` is the recursive form seeded with the first value. The kernels are
+`eg_numeric::series` — the same ones the SQL `eg_<func>(…) OVER (PARTITION BY … ORDER BY …)`
+window functions and a materialised derived series (`TsDefineSeries`) run.
+
+```uql
+TSSCAN ['px'] FROM 0 TO 86400 |> DERIVE ret(v0, 1) AS r, zscore(ewma(v0, 12), 60) AS z
+  |> SKILL z AGAINST r HORIZONS [1, 5, 20] WINDOW 60 BOOTSTRAP 500 SEED 7
+  |> RETURN mean_ic, icir, ic_lo, ic_hi
 ```
 
 ### Reasoning and epistemic stages

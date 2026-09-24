@@ -68,6 +68,7 @@ pub(super) fn refuse(code: UqlPrintCode, detail: impl Into<String>) -> UqlPrintE
 pub const UQL_RESERVED_WORDS: &[&str] = &[
     "ABSENCE",
     "ADD",
+    "AGAINST",
     "AGENT",
     "ALIGN",
     "AND",
@@ -80,6 +81,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "BELIEF",
     "BERNOULLI",
     "BETWEEN",
+    "BOOTSTRAP",
     "BUFFER",
     "BY",
     "CENTROID",
@@ -112,6 +114,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "FROM",
     "FUSE",
     "GAUSSIAN",
+    "HORIZONS",
     "HTTP",
     "ID",
     "IN",
@@ -163,6 +166,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "SEQ",
     "SHAPE",
     "SIMPLIFY",
+    "SKILL",
     "SLICE",
     "SLIDING",
     "SOURCE",
@@ -362,6 +366,8 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::TsScan { series, from, to } => super::wire_query_uql_modal::ts_scan(series, *from, *to),
         #[cfg(feature = "timeseries")]
         Op::Derive { columns } => super::wire_query_uql_modal::derive(columns),
+        #[cfg(feature = "timeseries")]
+        Op::Skill { spec } => super::wire_query_uql_modal::skill(spec),
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => super::wire_query_uql_modal::probabilistic(query),
         #[cfg(feature = "epistemic")]

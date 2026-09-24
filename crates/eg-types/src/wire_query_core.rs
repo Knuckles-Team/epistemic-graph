@@ -548,6 +548,16 @@ pub enum Op {
     Derive {
         columns: Vec<crate::series_expr::DeriveColumn>,
     },
+    /// REPORT (series, EH-522 FeatureSkill, UQL `SKILL f AGAINST y HORIZONS [..] WINDOW w
+    /// [BOOTSTRAP n SEED s]`) — the predictive skill of value channel `feature` for the
+    /// later value channel `outcome`, per series: the rolling Spearman IC of `feature[t]`
+    /// against `outcome[t + h]` for each horizon, summarised (mean, deviation, ICIR, a
+    /// seeded moving-block bootstrap interval), with the breadth across horizons.
+    /// Replaces the rows with one row per series and horizon, id `<series>:skill@<h>`,
+    /// score the mean IC and channels `mean_ic ic_std icir ic_lo ic_hi n n_eff ir`
+    /// (`eg_numeric::evaluation::skill::feature_skill`).
+    #[cfg(feature = "timeseries")]
+    Skill { spec: crate::series_expr::SkillOp },
     /// TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — run the probabilistic query `query`
     /// against each row's stored `Distribution` VALUE (the conventional `distribution`
     /// node property, the tagged serde form of `eg_types::Distribution`) and SCORE the

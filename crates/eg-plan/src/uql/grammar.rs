@@ -217,6 +217,13 @@ pub const PRODUCTIONS: &[Production] = &[
       "\"DERIVE\" sexpr \"AS\" name { \",\" sexpr \"AS\" name }",
       "Derive{columns} (per-series incremental kernels in ts order, EH-522)",
       "TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE zscore(ewma(v0, 12), 60) AS lat_z |> RETURN lat_z"),
+    p("skill", Stage, &["SKILL"], Some(Timeseries),
+      "\"SKILL\" name \"AGAINST\" name \"HORIZONS\" \"[\" int { \",\" int } \"]\" \"WINDOW\" int \
+       [ \"BOOTSTRAP\" int \"SEED\" int ]",
+      "Skill{spec}: per-series rolling rank-IC skill of a channel for a later one, per horizon \
+       (rows <series>:skill@<h>; channels mean_ic ic_std icir ic_lo ic_hi n n_eff ir, EH-522)",
+      "TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE ret(v0, 1) AS r \
+       |> SKILL v0 AGAINST r HORIZONS [1, 5] WINDOW 30 BOOTSTRAP 200 SEED 7 |> RETURN mean_ic, icir"),
     p("sexpr", Aux, &[], None,
       "signed_num | name | name \"(\" [ sexpr { \",\" sexpr } ] \")\"",
       "SeriesExpr: a constant, a value channel (v0..vk, score, an alias) or a call to lag diff \

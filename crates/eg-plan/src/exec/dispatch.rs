@@ -121,9 +121,11 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // native eg-tsdb series scan. Gated behind `timeseries` (the eg-plan→eg-tsdb edge
         // `Op::Window` already opens).
         #[cfg(feature = "timeseries")]
-        Op::SensorFuse { .. } | Op::SensorAlign { .. } | Op::TsScan { .. } | Op::Derive { .. } => {
-            apply_timeseries(op, input, ctx)
-        }
+        Op::SensorFuse { .. }
+        | Op::SensorAlign { .. }
+        | Op::TsScan { .. }
+        | Op::Derive { .. }
+        | Op::Skill { .. } => apply_timeseries(op, input, ctx),
 
         // `eg-types/query` (which gates this whole module) surfaces the FULL `Op` wire
         // contract, so modality ops whose executor lives behind an eg-plan feature the
@@ -352,6 +354,7 @@ pub(super) fn apply_epistemic(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<R
 pub(super) fn apply_timeseries(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         Op::Derive { columns } => derive_op(input, columns),
+        Op::Skill { spec } => skill_op(input, spec),
         Op::SensorFuse {
             streams,
             tolerance_ns,
