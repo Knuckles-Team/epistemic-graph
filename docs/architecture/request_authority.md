@@ -67,6 +67,40 @@ After that first identity rule is durable, the bootstrap predicate is false.
 Every graph read/write and every later identity, RBAC, cluster, or backup action
 must satisfy the normal capability-ledger scope plus durable graph/admin policy.
 
+## Control-lease kind allowlist
+
+`lease:write` lets a principal issue and transition native control leases of
+any kind. A deputy executor that needs the scope for one feature must not gain
+every other lease kind with it. That includes kinds an approver or the
+two-person elevation flow owns, such as `rbac.elevation`.
+
+`EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON` narrows this per verified
+`agent_id`:
+
+```json
+{"service:graph-os": ["finance.order-proposal"]}
+```
+
+The policy works as follows:
+
+- A principal the policy names may issue, and transition, only leases of the
+  kinds listed for it. Any other kind is refused with `ACCESS_DENIED`, and an
+  empty list refuses every kind.
+- A transition is checked against the stored lease's kind, which is immutable
+  after issue.
+- A principal the policy does not name is unaffected.
+- No principal name is built into the server; the policy is deploy
+  configuration.
+- The policy is read once, when the process first handles a control-lease
+  write.
+- A malformed value refuses every control-lease write, so the restriction
+  fails closed instead of being dropped.
+
+The check runs in the control-lease write handler, before the WorkItem
+kernel. It sits after the capability-scope check, the carrier-tenant binding
+and, under raft, the placement-leader check. It therefore narrows
+`lease:write` and never widens it.
+
 ## Row-level authority
 
 Served row-level security is always default-deny. Unowned, undecodable, or

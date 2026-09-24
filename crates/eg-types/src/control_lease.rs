@@ -33,6 +33,9 @@ use crate::keyset_page::{matches_pairs, validate_pair_filter, KeysetListing};
 use crate::tenant_cursor::CursorFamily;
 use crate::work_item_read::WORK_ITEM_ROW_REVISION;
 
+mod kind_policy;
+pub use kind_policy::ControlLeaseKindPolicy;
+
 /// `node_type` of a control-lease row.
 pub const CONTROL_LEASE_NODE_TYPE: &str = "ControlLease";
 /// Largest encoded grant body.
