@@ -201,9 +201,10 @@ mod tests {
         let dsr = deflated_sharpe_ratio(1.5, 10, &rets);
         assert!((0.0..=1.0).contains(&dsr));
         assert!(deflated_sharpe_ratio(1.5, 100, &rets) < deflated_sharpe_ratio(1.5, 2, &rets));
-        let is = vec![vec![1.0, 2.0, 3.0]; 4];
+        let rows = |r: [f64; 3]| (0..4).map(|_| r.to_vec()).collect::<Vec<_>>();
+        let is = rows([1.0, 2.0, 3.0]);
         assert_eq!(
-            probability_of_backtest_overfit(&is, &vec![vec![3.0, 2.0, 1.0]; 4]),
+            probability_of_backtest_overfit(&is, &rows([3.0, 2.0, 1.0])),
             1.0
         );
         assert_eq!(probability_of_backtest_overfit(&is, &is), 0.0);
