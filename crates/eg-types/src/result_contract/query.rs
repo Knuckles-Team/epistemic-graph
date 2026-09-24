@@ -34,6 +34,9 @@ method_results! {
     // `[node id, score | nil]` rows of the cross-modal plan.
     UnifiedQuery(UnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;
     UnifiedQueryText(UnifiedQueryText) => Raw<Vec<(String, Option<f32>)>>;
+    // A UQL statement's rows (with named score channels), EXPLAIN report or PROFILE.
+    #[cfg(feature = "query")]
+    Uql(Uql) => Raw<crate::wire::UqlResult>;
     #[cfg(feature = "query")]
     ExplainPlan(ExplainPlan) => Raw<ExplainPlanResult>;
     ExplainProvenance(ExplainProvenance) => Raw<EvidenceBundle>;
