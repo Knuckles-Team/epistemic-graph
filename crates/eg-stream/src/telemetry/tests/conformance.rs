@@ -100,6 +100,8 @@ fn violations_are_graph_facts_linked_to_the_observation() {
     let declarations = Declarations {
         entities: estate(),
         health: vec![declare("svc:checkout", healthy(0.05, None))],
+
+        ..Declarations::default()
     };
     let facts = derive_facts(&policy, &declarations, &traffic("checkout", &[9], 10));
     let graph = fact_graph(&facts).unwrap();
