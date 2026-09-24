@@ -1937,6 +1937,7 @@ mod tests {
         ("DecisionEval", "native MutationBatch in agent_library.redb: the terminal evaluation job row and its receipt in one control-owner WTX; local-only authority"),
         ("DecisionLog", "native MutationBatch in agent_library.redb: one verify-replayed statistical record or one outcome evaluation per control-owner WTX; local-only authority"),
         ("MutationOutbox", "owner-local outbox ledger rewind: bounded eg-transaction transactions with a durable control cursor; local-only authority"),
+        ("EdgeIndex", "tenant SQL owner maintenance writes: edge-index registration, generation parts and fenced drop, one WTX each; local-only authority"),
         ("ClaimWorkItem", "dedicated engine-native MutationBatch lease transition in mutation_batch.rs/redb_store.rs"),
         ("KgDelegate", "authenticated Agent Library admission lowers to the native WorkItem command-log transaction"),
         ("SubmitWorkItem", "dedicated engine-native atomic WorkItem command-log admission in mutation_batch.rs/redb_store.rs"),

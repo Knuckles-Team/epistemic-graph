@@ -3,6 +3,9 @@ use super::uql_statement::handle_uql;
 use super::*;
 use crate::server::handlers::TryHandleContext;
 
+#[cfg(feature = "query")]
+mod edge_index;
+
 pub(in crate::server) fn try_handle<'a>(
     state: &'a Arc<RwLock<ServerState>>,
     ctx: TryHandleContext<'a>,
@@ -78,6 +81,11 @@ async fn dispatch_query_family(
         };
         return Ok(handle_freshness_feed(hctx, request).await);
     }
+    #[cfg(feature = "query")]
+    let method = match edge_index::dispatch_edge_method(&hctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
     #[cfg(feature = "query")]
     if is_sql_query_method(&method) {
         return dispatch_sql_query(hctx, method).await;
