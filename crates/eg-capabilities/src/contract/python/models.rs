@@ -22,11 +22,12 @@ use serde_json::{Map, Value};
 use super::super::results::{Catalog, Declared};
 use super::dto::ref_name;
 use super::dto_surfaces::DTO_SURFACES;
+use super::{definition_origin, error_code_definitions};
 
 mod hoist;
 mod render;
 
-pub(super) use render::models_module;
+pub(super) use render::render_owned;
 
 /// The module attribute a domain module binds the models module to.
 pub(super) const MODELS_ALIAS: &str = "_models";
@@ -88,16 +89,22 @@ fn merged_definitions(document: &Value, catalog: &Catalog) -> Map<String, Value>
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    for domain_definitions in catalog.definitions.values() {
+    for (domain, domain_definitions) in &catalog.definitions {
         for (name, definition) in domain_definitions {
             if let Some(previous) = definitions.insert(name.clone(), definition.clone()) {
                 assert_eq!(
-                    &previous, definition,
-                    "request and result schemas disagree on definition {name}"
+                    &previous,
+                    definition,
+                    "two distinct Rust types share the schema definition name {name} \
+                     (first: {}; result domain {domain}: {}); give one a \
+                     domain-specific name",
+                    definition_origin(&previous),
+                    definition_origin(definition),
                 );
             }
         }
     }
+    definitions.extend(error_code_definitions());
     definitions
 }
 

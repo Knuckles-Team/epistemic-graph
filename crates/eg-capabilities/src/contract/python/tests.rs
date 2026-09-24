@@ -22,25 +22,16 @@ fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
     let generated_package = package.join("generated");
     fs::create_dir_all(&generated_package).expect("create generated Python test package");
     fs::write(package.join("__init__.py"), "").expect("write package init");
-    fs::write(generated_package.join("__init__.py"), "").expect("write generated package init");
-    for module in [
-        "_ids",
-        "_runtime",
-        "digest",
-        "index_repository",
-        "models",
-        "source_ingestion",
-        "ingestion",
-    ] {
-        let path = format!("epistemic_graph/generated/{module}.py");
-        fs::write(
-            generated_package.join(format!("{module}.py")),
-            generated
-                .get(&path)
-                .expect("generated Python module")
-                .as_bytes(),
-        )
-        .expect("write generated Python module");
+    // The whole generated package: surface modules share `_shared`, and `models`
+    // re-exports every surface module's definitions (EH-377).
+    for (path, text) in generated
+        .iter()
+        .filter(|(path, _)| path.starts_with("epistemic_graph/generated/"))
+    {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().expect("generated module directory"))
+            .expect("create generated Python test package");
+        fs::write(file, text.as_bytes()).expect("write generated Python module");
     }
 
     let script = r#"
@@ -337,7 +328,13 @@ fn agent_component_search_emits_typed_kind_only_adapter() {
         .expect("agent-component DTO module");
     assert!(dto.contains("class AgentComponentSearchRequest(BaseModel):"));
     assert!(dto.contains("class AgentComponentSearchPage(BaseModel):"));
-    assert!(dto.contains("class AgentComponentKind(str, Enum):"));
+    // Several surfaces reach `AgentComponentKind`: `_shared` renders it once and
+    // the agent-component module re-exports it (EH-377).
+    assert!(exports(dto, "AgentComponentKind"));
+    let shared = generated
+        .get("epistemic_graph/generated/_shared.py")
+        .expect("shared DTO module");
+    assert!(shared.contains("class AgentComponentKind(str, Enum):"));
 
     let storage = generated
         .get("epistemic_graph/generated/storage.py")
@@ -371,7 +368,7 @@ fn connector_pack_status_emits_typed_catalog_reconciliation_adapter() {
     let dto = generated
         .get("epistemic_graph/generated/connector_pack.py")
         .expect("connector-pack DTO module");
-    assert!(dto.contains("class McpCatalogSnapshotBinding(BaseModel):"));
+    assert!(exports(dto, "McpCatalogSnapshotBinding"));
     assert!(dto.contains("CONNECTOR_PACK_SCHEMA_VERSION = 2"));
     assert!(dto.contains("class ConnectorPackStatus(BaseModel):"));
     assert!(dto.contains("class PackImportResultImported(BaseModel):"));
@@ -576,13 +573,13 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
 }
 
 /// A definition shared by the request document (rooted at `Method`) and a
-/// result document merges: `MutationOperation.method` is `#/$defs/Method` in
-/// both, never the request document's root `#`.
+/// result document merges into the one model space: `MutationOperation.method`
+/// is `#/$defs/Method` in both, never the request document's root `#`.
 #[test]
 fn request_root_references_merge_with_result_definitions() {
     let catalog = Catalog::collect();
     let document = schema::method_request_document();
-    let definitions = merged_definitions(&document, &catalog, "query");
+    let definitions = ModelSpace::build(&document, &catalog).definitions;
     let method = definitions
         .get("MutationOperation")
         .and_then(|node| node.pointer("/properties/method/$ref"))
@@ -594,7 +591,7 @@ fn request_root_references_merge_with_result_definitions() {
 fn digest_projection_names_exact_source_change_set_fields() {
     let catalog = Catalog::collect();
     let document = schema::method_request_document();
-    let definitions = merged_definitions(&document, &catalog, "storage");
+    let definitions = ModelSpace::build(&document, &catalog).definitions;
     let source = definitions
         .get("SourceChangeSet")
         .and_then(|node| node.get("properties"))
@@ -642,6 +639,11 @@ fn source_ingestion_digest_marker_matches_rust_contract_constants() {
         SOURCE_INGESTION_CANONICAL_JSON_PATHS
     );
     assert_eq!(spec.omit_none_paths, SOURCE_INGESTION_OMIT_NONE_PATHS);
+}
+
+/// Whether a generated module lists `name` in its `__all__`.
+fn exports(module: &str, name: &str) -> bool {
+    module.contains(&format!("\n    \"{name}\",\n"))
 }
 
 /// Generated imports must already be in ruff-isort form, or the repository's
@@ -803,4 +805,28 @@ fn sql_source_batch_validates_only_the_structured_batch() {
         "    if not isinstance((params or {}).get(\"batch\"), bytes):\n        \
          models().MethodSqlSourceBatchParams.model_validate(params or {})\n"
     ));
+}
+
+/// ruff-isort's natural order: `_8` sorts before `_16` (it compares digit runs by
+/// value), and case never decides the order.
+#[test]
+fn isort_key_is_natural_and_case_insensitive() {
+    let mut names = vec![
+        "BoundedVec_string_16",
+        "BoundedVec_TemplateFacts_8",
+        "BoundedVec_string_8",
+        "BoundedVec_PremiseRef_1024",
+        "BoundedVec_PremiseRef_32",
+    ];
+    names.sort_by_cached_key(|name| isort_key(name));
+    assert_eq!(
+        names,
+        [
+            "BoundedVec_PremiseRef_32",
+            "BoundedVec_PremiseRef_1024",
+            "BoundedVec_string_8",
+            "BoundedVec_string_16",
+            "BoundedVec_TemplateFacts_8",
+        ]
+    );
 }
