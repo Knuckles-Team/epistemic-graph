@@ -35,8 +35,8 @@ pub mod signal;
 mod tests;
 
 pub use binding::{
-    DeclaredEntity, EntityClass, EntityDirectory, EntityRef, Resolution, ResolutionPolicy,
-    ResolutionRule, Unresolved,
+    Aggregation, DeclaredEntity, EntityClass, EntityDirectory, EntityRef, Resolution,
+    ResolutionPolicy, ResolutionRule, Unresolved,
 };
 pub use conformance::{
     check_conformance, ConformanceViolation, DeclaredHealth, DeclaredState, ViolationKind,

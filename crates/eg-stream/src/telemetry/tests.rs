@@ -62,6 +62,11 @@ pub(super) fn estate() -> Vec<DeclaredEntity> {
         ),
         declared(EntityClass::Host, "host:r820", &[("host.name", "r820")]),
         declared(
+            EntityClass::Pod,
+            "pod:shop/cart-1",
+            &[("k8s.namespace.name", "shop"), ("k8s.pod.name", "cart-1")],
+        ),
+        declared(
             EntityClass::Agent,
             "agent:planner",
             &[("gen_ai.agent.id", "planner")],

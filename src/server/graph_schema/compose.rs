@@ -704,8 +704,8 @@ ex:parent a owl:AsymmetricProperty .
         // (3) and the foundation's world-model vocabulary (138).
         // +8: infrastructure `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409).
         // +12: `:Deployment` ⊑ `:Workload`, `:K8sService`/`:SwarmService` ⊑ `:Service`
-        // (EH-408/410 subsumption binding).
-        assert_eq!(composed.ontology.len(), 13_189);
+        // (EH-408/410 subsumption binding). +5: `:scheduledBy` (Pod → Workload).
+        assert_eq!(composed.ontology.len(), 13_194);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -739,8 +739,8 @@ ex:parent a owl:AsymmetricProperty .
         assert_eq!(imports, 67);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
-        // 4 axioms each.
-        assert_eq!(semantic_axioms, 13_017);
+        // 4 axioms each; +5: the :scheduledBy property.
+        assert_eq!(semantic_axioms, 13_022);
 
         let count_type = |object: &str| {
             composed
