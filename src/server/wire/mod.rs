@@ -1830,11 +1830,16 @@ impl WireSession {
         // row-level security applied inside the probe.
         let (authority, persist_dir) = self.catalog_authority().await?;
         let statement = sql.clone();
+        let request_graph = crate::server::sql_catalog_acl::RequestGraph {
+            name: graph.to_string(),
+            core: Arc::clone(&core),
+        };
         let projection = tokio::task::spawn_blocking(move || {
             crate::server::sql_catalog_acl::authorized_read_store_for_query(
                 &authority,
                 &persist_dir,
                 &statement,
+                &request_graph,
             )
         })
         .await
@@ -3090,8 +3095,13 @@ impl WireSession {
         name: String,
         if_exists: bool,
     ) -> WireResult<WireOutcome> {
-        let store = self.user_table_store().await?;
-        let Some(table) = store.ann_index_table(&name).map_err(user_err)? else {
+        let (authority, persist_dir) = self.catalog_authority().await?;
+        let visible = crate::server::sql_catalog_acl::alterable_ann_index_table(
+            &authority,
+            &persist_dir,
+            &name,
+        );
+        let Some(table) = visible.map_err(user_err)? else {
             if if_exists {
                 return Ok(WireOutcome::command("DROP INDEX"));
             }
@@ -7310,6 +7320,10 @@ mod wired_catalog_tests {
         .rows
         .is_empty());
     }
+
+    // EH-352: DROP INDEX never discloses across authorization; edge-index
+    // statuses on every served read path.
+    mod edge_index;
 }
 
 #[cfg(all(test, feature = "query"))]

@@ -15,13 +15,23 @@
 //! ACL as the tables: only indexes of tables the caller may `SELECT`.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use eg_query::{Cell, TableStore, UserAnnDecision, UserAnnPushdown};
 
 use super::{
     open_authorized_table, project_read_store, selectable_tables, AuthorizedReadStore,
-    AuthorizedTable, SqlPrivilege,
+    AuthorizedTable, SqlPrivilege, ACCESS_DENIED,
 };
+use crate::graph::GraphCore;
+
+/// The request graph of a served read: its edge indexes' statuses join the
+/// status relation beside the tenant's table indexes (EH-352).
+#[derive(Clone)]
+pub(crate) struct RequestGraph {
+    pub(crate) name: String,
+    pub(crate) core: Arc<GraphCore>,
+}
 use crate::server::access::CarrierAuthority;
 use crate::server::sql_tables;
 
@@ -32,6 +42,7 @@ pub(crate) fn authorized_read_store_for_query(
     authority: &CarrierAuthority,
     persist_dir: &Path,
     query: &str,
+    graph: &RequestGraph,
 ) -> Result<AuthorizedReadStore, String> {
     let tenant = sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
     let narrowing = match eg_query::user_ann_decision(query, &tenant)? {
@@ -47,7 +58,44 @@ pub(crate) fn authorized_read_store_for_query(
     };
     let projection = project_read_store(authority, persist_dir, narrowing.as_ref())?;
     adopt_index_status(authority, persist_dir, &tenant, projection.store())?;
+    adopt_edge_index_status(&tenant, graph, projection.store())?;
     Ok(projection)
+}
+
+/// The request graph's edge-index statuses, after installing every edge index
+/// the tenant registered for it, so an index is listed even before its first
+/// edge operation after a restart. The ONE builder every served read path
+/// (Method::Sql, KnowledgeStream, pgwire) goes through.
+fn adopt_edge_index_status(
+    tenant: &TableStore,
+    graph: &RequestGraph,
+    projection: &TableStore,
+) -> Result<(), String> {
+    eg_query::edge_index::install_edge_indexes(tenant, &graph.name, &graph.core)?;
+    projection
+        .ann_authority()
+        .adopt_statuses(graph.core.indexes().managed_statuses());
+    Ok(())
+}
+
+/// The table of ANN index `name` when THIS caller may ALTER it. An index on a
+/// table the caller may not alter is reported exactly like a missing one, so
+/// `DROP INDEX [IF EXISTS]` never discloses an index across an authorization
+/// boundary (EH-352).
+pub(crate) fn alterable_ann_index_table(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    name: &str,
+) -> Result<Option<String>, String> {
+    let tenant = sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
+    let Some(table) = tenant.ann_index_table(name)? else {
+        return Ok(None);
+    };
+    match open_authorized_table(authority, persist_dir, &table, SqlPrivilege::Alter) {
+        Ok(_) => Ok(Some(table)),
+        Err(error) if error == ACCESS_DENIED => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// Hand `projection` the tenant's managed-index status rows the caller may see:
@@ -189,8 +237,15 @@ mod tests {
         index
     }
 
+    fn no_graph() -> RequestGraph {
+        RequestGraph {
+            name: "ann-projection-graph".to_string(),
+            core: Arc::new(GraphCore::new()),
+        }
+    }
+
     fn projected_ids(dir: &Path, who: &str, sql: &str) -> Vec<String> {
-        let projection = authorized_read_store_for_query(&authority(who), dir, sql).unwrap();
+        let projection = authorized_read_store_for_query(&authority(who), dir, sql, &no_graph()).unwrap();
         let view = crate::graph::GraphView::default();
         eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
             .unwrap()
@@ -276,7 +331,7 @@ mod tests {
     fn status_rows(dir: &Path, who: &str) -> Vec<Vec<Value>> {
         let sql = "SELECT index_name, state, indexed FROM information_schema.eg_index_status \
                    ORDER BY index_name";
-        let projection = authorized_read_store_for_query(&authority(who), dir, sql).unwrap();
+        let projection = authorized_read_store_for_query(&authority(who), dir, sql, &no_graph()).unwrap();
         let view = crate::graph::GraphView::default();
         eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
             .unwrap()

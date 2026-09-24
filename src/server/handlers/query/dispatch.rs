@@ -495,11 +495,16 @@ async fn handle_sql_with_lease(
     let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
     let cancel_for_task = cancel.clone();
     let authority = authority.clone();
+    let graph = crate::server::sql_catalog_acl::RequestGraph {
+        name: ctx.graph_name.to_string(),
+        core: Arc::clone(core),
+    };
     let resp = match compute_off_lock(req_id, move || {
         let authorized = crate::server::sql_catalog_acl::authorized_read_store_for_query(
             &authority,
             std::path::Path::new(&persist_dir),
             &query,
+            &graph,
         )?;
         eg_query::exec_sql_typed_with_tables_cancellable(
             &snap,

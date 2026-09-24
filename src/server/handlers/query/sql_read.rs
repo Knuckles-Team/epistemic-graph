@@ -94,27 +94,6 @@ fn sql_read_snapshot(
     }
 }
 
-/// The request graph's edge-index statuses join the served status relation
-/// (EH-352): the tenant's registered edge indexes are installed first, so an
-/// index is listed even before its first edge operation after a restart.
-#[cfg(feature = "query")]
-fn adopt_edge_index_status(
-    authority: &crate::server::access::CarrierAuthority,
-    persist_dir: &std::path::Path,
-    graph: &str,
-    core: &GraphCore,
-    authorized: &crate::server::sql_catalog_acl::AuthorizedReadStore,
-) -> Result<(), String> {
-    let tenant =
-        crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
-    eg_query::edge_index::install_edge_indexes(&tenant, graph, core)?;
-    authorized
-        .store()
-        .ann_authority()
-        .adopt_statuses(core.indexes().managed_statuses());
-    Ok(())
-}
-
 #[cfg(feature = "query")]
 async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     let SqlReadScope {
@@ -141,14 +120,17 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     let cancel_for_task = cancel.clone();
     let authority = authority.clone();
     let persist_dir = persist_dir.to_path_buf();
-    let (graph, raw_core) = (graph_name.to_string(), Arc::clone(core));
+    let graph = crate::server::sql_catalog_acl::RequestGraph {
+        name: graph_name.to_string(),
+        core: Arc::clone(core),
+    };
     let resp = match compute_off_lock(req_id, move || {
         let authorized = crate::server::sql_catalog_acl::authorized_read_store_for_query(
             &authority,
             &persist_dir,
             &query,
+            &graph,
         )?;
-        adopt_edge_index_status(&authority, &persist_dir, &graph, &raw_core, &authorized)?;
         eg_query::exec_sql_typed_with_tables_cancellable(
             &snap,
             authorized.store(),

@@ -149,6 +149,72 @@ pub(crate) mod current_auth_test_support {
 
     const TEST_AGENT: &str = "unit-test-agent";
 
+    /// The status query the three served read-path tests (Method::Sql,
+    /// KnowledgeStream, pgwire) all run against `eg_index_status` (EH-352).
+    pub(crate) const EDGE_STATUS_SQL: &str = "SELECT index_name, target_kind, state \
+        FROM information_schema.eg_index_status WHERE target_kind = 'graph_edges'";
+
+    /// The edge index those tests register for `tenant`.
+    pub(crate) fn edge_status_spec(tenant: &str) -> eg_query::edge_index::EdgeIndexSpec {
+        eg_query::edge_index::EdgeIndexSpec {
+            name: "rel_emb".to_string(),
+            property: "emb".to_string(),
+            kind: eg_query::edge_index::EdgeIndexKind::Vector {
+                metric: eg_query::VectorMetric::L2,
+            },
+            scope: eg_query::edge_index::EdgeScope {
+                tenant: tenant.to_string(),
+                purpose: "retrieval".to_string(),
+            },
+        }
+    }
+
+    /// The row every path must answer for that index: registered durably, then
+    /// installed into the served graph by the read itself — `requested`, since
+    /// nothing built it in the served process yet.
+    pub(crate) fn edge_status_row() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!("rel_emb"),
+            serde_json::json!("graph_edges"),
+            serde_json::json!("requested"),
+        ]
+    }
+
+    /// Register the edge index durably for `tenant` WITHOUT installing it into
+    /// the served graph (it is built on a detached core), so a read proves it
+    /// installs the tenant's edge indexes itself.
+    pub(crate) fn register_detached_edge_index(
+        store: &eg_query::TableStore,
+        graph: &str,
+        tenant: &str,
+    ) {
+        let detached = crate::graph::GraphCore::new();
+        eg_query::edge_index::create_durable_edge_index(
+            store,
+            graph,
+            &detached,
+            edge_status_spec(tenant),
+        )
+        .expect("register the edge index durably");
+    }
+
+    /// The decoded rows of a served `QueryResult` response.
+    pub(crate) fn sql_rows(resp: &crate::protocol::Response) -> Vec<Vec<serde_json::Value>> {
+        let Some(crate::protocol::ResultPayload::Raw(bytes)) = &resp.result else {
+            panic!(
+                "expected a Raw result, got {:?} / {:?}",
+                resp.result, resp.error
+            );
+        };
+        let result: crate::protocol::QueryResult =
+            rmp_serde::from_slice(bytes).expect("QueryResult");
+        result
+            .rows
+            .iter()
+            .map(|row| rmp_serde::from_slice(row).expect("row cells"))
+            .collect()
+    }
+
     /// Add the Commons RBAC grant shared by authenticated protocol fixtures.
     /// Keeping this in the query test-support seam lets wire tests reuse the
     /// exact policy shape without copying an agent-registration block.

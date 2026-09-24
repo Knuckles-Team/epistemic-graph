@@ -61,7 +61,9 @@ use crate::server::sql_tables;
 // RF-019: the served projection's maintained-ANN narrowing, with this caller's
 // row-level security applied inside the probe.
 mod ann_projection;
-pub(crate) use ann_projection::authorized_read_store_for_query;
+pub(crate) use ann_projection::{
+    alterable_ann_index_table, authorized_read_store_for_query, RequestGraph,
+};
 
 /// The one denial string for EVERY authorization failure in this module —
 /// nonexistent table, unowned/ungranted table, unauthorized grant/revoke/RLS
