@@ -37,11 +37,11 @@ use eg_numeric::risk::{
 use eg_plan::exec::LearnedReliability;
 use eg_query::ColumnType;
 use eg_types::agent_component::AgentComponentKind;
-use eg_types::decision::policy::TraceFidelityLevel;
 use eg_types::decision::statistical::head::DecisionHeadBody;
 use eg_types::decision::statistical::log::{DecisionLogEntry, StoredEvaluation};
 use eg_types::decision::statistical::{FeatureMatrixRef, StatisticalErrorCode};
 use eg_types::decision::QuantScaleTag;
+use eg_types::decision::TraceFidelityLevel;
 use serde_json::Value;
 
 use super::stat_log::{executed_option, joined, LogReader, MAX_LOG_ROWS};
