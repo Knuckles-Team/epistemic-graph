@@ -314,7 +314,8 @@ impl ForeignSourceFreshness {
         let age_ms = watermark.map(|(_, observed_at_ms)| now_ms.saturating_sub(observed_at_ms));
         let stale = match (age_ms, max_staleness_ms) {
             (None, _) => true,
-            (Some(age), Some(bound)) => age > bound,
+            // A zero bound means "never fresh" (a malformed bound is read as zero).
+            (Some(age), Some(bound)) => bound == 0 || age > bound,
             (Some(_), None) => false,
         };
         Self {
