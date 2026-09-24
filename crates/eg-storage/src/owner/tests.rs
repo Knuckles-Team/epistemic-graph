@@ -810,8 +810,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // 148 -> 157: the ConnectorPack catalog's five and governed write-back's
     // four Agent Library mutation tables (not moved when they landed).
     // 157 -> 158: the Decide layer's `decision_artifacts`. 158 -> 159: its
-    // `decision_records`.
-    assert_eq!(names.len(), 159);
+    // `decision_records`. 159 -> 160: the graph shard's file-wide
+    // `storage_scrub_cursor` (EH-384).
+    assert_eq!(names.len(), 160);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
