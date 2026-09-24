@@ -117,6 +117,7 @@ pub(super) async fn decision_log_round_trip(h: &Harness, record: StatisticalDeci
         tenant_id: TENANT.to_string(),
         question_id: None,
         window: window(),
+        attribution: None,
     };
     let aggregate: OutcomeAggregate =
         decode(log_op(h, "evaluator", DecisionLogOp::Aggregate { request }).await).unwrap();

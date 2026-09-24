@@ -230,6 +230,23 @@ pub(crate) fn plan_needs_decisions(ops: &[eg_plan::Op]) -> bool {
     })
 }
 
+/// Does `ops` hold a `SOURCE RELIABILITY` stage (EH-525), which learns from the caller's
+/// decision log when one can be bound — and keeps its belief-graph prior when not?
+#[cfg(all(feature = "query", feature = "decide"))]
+pub(crate) fn plan_reads_reputation(ops: &[eg_plan::Op]) -> bool {
+    ops.iter().any(is_reliability_stage)
+}
+
+#[cfg(all(feature = "query", feature = "decide", feature = "epistemic"))]
+fn is_reliability_stage(op: &eg_plan::Op) -> bool {
+    matches!(op, eg_plan::Op::SourceReliability { .. })
+}
+
+#[cfg(all(feature = "query", feature = "decide", not(feature = "epistemic")))]
+fn is_reliability_stage(_op: &eg_plan::Op) -> bool {
+    false
+}
+
 /// Build a BM25 [`eg_text::TextIndex`] from a graph snapshot's node blobs
 /// (CONCEPT:EG-KG.query.served-text-index-binding) — the served lexical index for `Op::RankText` /
 /// `Op::FuseRrf`. Each node's indexable text is the concatenation of every STRING leaf in its
@@ -752,25 +769,33 @@ impl ServedPlanLegs {
     }
 }
 
-/// The caller's visible decision log for a plan with a `DECISIONS` source (EH-066),
-/// derived from the verified carrier only; `None` for a plan that does not read it.
+/// The caller's visible decision log for a plan with a `DECISIONS` source (EH-066) or
+/// a `SOURCE RELIABILITY` stage (EH-525), derived from the verified carrier only; `None`
+/// for a plan that does not read it, and for a reputation-only plan without a carrier
+/// or a log (the stage then keeps its belief-graph prior).
 #[cfg(all(feature = "query", feature = "decide"))]
 async fn served_decision_leg(
     state: &Arc<RwLock<ServerState>>,
     plan: &eg_plan::Plan,
     read_authority: Option<&GraphReadAuthority>,
 ) -> Result<Option<Arc<dyn eg_plan::exec::DecisionSource>>, String> {
-    if !plan_needs_decisions(&plan.ops) {
+    let required = plan_needs_decisions(&plan.ops);
+    if !required && !plan_reads_reputation(&plan.ops) {
         return Ok(None);
     }
-    let Some(carrier) = read_authority.and_then(GraphReadAuthority::carrier) else {
+    let carrier = read_authority.and_then(GraphReadAuthority::carrier);
+    let Some(carrier) = carrier else {
+        if !required {
+            return Ok(None);
+        }
         crate::metrics::access_denied();
         return Err("ACCESS_DENIED: DECISIONS requires a verified tenant carrier".to_string());
     };
-    crate::server::handlers::decide::decision_source(state, carrier)
-        .await
-        .map(Some)
-        .ok_or_else(|| "DECISIONS: the decision log is unavailable on this server".to_string())
+    let source = crate::server::handlers::decide::decision_source(state, carrier).await;
+    if source.is_none() && required {
+        return Err("DECISIONS: the decision log is unavailable on this server".to_string());
+    }
+    Ok(source)
 }
 
 /// Parse UQL `text` into the `wire::Plan` every UQL front-end runs; a parse error is

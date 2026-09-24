@@ -343,3 +343,46 @@ fn the_normal_quantile_matches_its_reference_values() {
     assert!(normal_quantile(0.5).unwrap().abs() < 1e-15);
     assert!(normal_quantile(0.0).is_err() && normal_quantile(1.0).is_err());
 }
+
+fn logged(players: usize, values: &[(u64, f64)]) -> LoggedGame {
+    LoggedGame::new(players, values.iter().copied().collect()).unwrap()
+}
+
+#[test]
+fn a_fully_logged_game_has_the_tables_shapley_value() {
+    let table = TableGame::random(4, 17);
+    let observed: Vec<(u64, f64)> = (1..16u64).map(|m| (m, table.values[m as usize])).collect();
+    let game = logged(4, &observed);
+    let expected = shapley_exact(&table, BUDGET).unwrap().phi;
+    assert_close(&shapley_exact(&game, BUDGET).unwrap().phi, &expected, 1e-12);
+}
+
+#[test]
+fn an_unobserved_coalition_is_refused_not_interpolated() {
+    let game = logged(2, &[(0b01, 0.4), (0b11, 0.9)]);
+    let error = shapley_exact(&game, BUDGET).unwrap_err();
+    assert_eq!(error.code, AttributionCode::UnsupportedCoalition);
+}
+
+#[test]
+fn the_additive_fit_recovers_additive_weights_from_partial_logs() {
+    // v(S) = Σ w_i with w = (0.1, 0.25, 0.4); only four of seven coalitions logged.
+    let w = [0.1, 0.25, 0.4];
+    let value = |mask: u64| {
+        (0..3)
+            .filter(|p| mask & (1 << p) != 0)
+            .map(|p| w[p])
+            .sum::<f64>()
+    };
+    let observed: Vec<(u64, f64)> = [0b011, 0b101, 0b110, 0b111]
+        .iter()
+        .map(|&m| (m, value(m)))
+        .collect();
+    let fit = additive_fit(&logged(3, &observed)).unwrap();
+    assert_close(&fit.phi, &w, 1e-12);
+    let only_pair = logged(2, &[(0b11, 0.5)]);
+    assert_eq!(
+        additive_fit(&only_pair).unwrap_err().code,
+        AttributionCode::Singular
+    );
+}

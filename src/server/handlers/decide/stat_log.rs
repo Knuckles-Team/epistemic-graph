@@ -257,7 +257,7 @@ pub(super) fn store_once<T: serde::Serialize + serde::de::DeserializeOwned>(
 
 /// Visible, executed records of `question_id` (or of every question) inside
 /// the window, each with its evaluations.
-fn joined(
+pub(super) fn joined(
     store: &AgentLibraryStore,
     reader: &LogReader,
     question_id: Option<&str>,
@@ -325,10 +325,18 @@ pub(super) fn aggregate_log(
         fidelity_floor: policy.min_outcome_fidelity,
         cross_question: request.question_id.is_none(),
     };
+    let attribution = request
+        .attribution
+        .as_ref()
+        .map(|split| {
+            super::stat_slate_attribution::attribute_slate(store, reader, split, request.window)
+        })
+        .transpose()?;
     Ok(OutcomeAggregate {
         schema_version: DECISION_LOG_SCHEMA_VERSION,
         min_support: policy.min_support,
         rows: aggregate(&records, &rules).map_err(|r| r.render())?,
+        attribution,
     })
 }
 
@@ -550,6 +558,7 @@ pub(super) fn fill_outcome_rates(
                 from_ms: 0,
                 to_ms: u64::MAX,
             },
+            attribution: None,
         };
         let key = outcome_rate_key(question_id);
         let mut best: BTreeMap<String, (u64, i64)> = BTreeMap::new();

@@ -40,3 +40,33 @@ pub fn linear_split<G: Game + ?Sized>(game: &G) -> AttributionResult<Attribution
         evaluations: players as u64 + 2,
     })
 }
+
+/// The additive fit of a logged game: the weights `w` minimising
+/// `Σ_{observed S} (v(S) - Σ_{i∈S} w_i)²` (no intercept: `v(∅) = 0`). This is the
+/// per-component utility under a DECLARED additive-reward assumption — evidence of class
+/// claim, never an observation. Refused (`ATTRIBUTION_SINGULAR_DESIGN`) when the observed
+/// coalitions do not identify every player's weight.
+pub fn additive_fit(game: &super::game::LoggedGame) -> AttributionResult<Attribution> {
+    use ndarray::{Array1, Array2};
+    let players = game.players();
+    let observed = game.observed();
+    let masks: Vec<u64> = observed.keys().copied().collect();
+    let design = Array2::from_shape_fn((masks.len(), players), |(row, p)| {
+        f64::from(u8::from(masks[row] & (1 << p) != 0))
+    });
+    let target = Array1::from(observed.values().copied().collect::<Vec<f64>>());
+    let gram = design.t().dot(&design);
+    let inverse = super::regression::checked_inverse(
+        &gram,
+        "the observed coalitions do not identify every player",
+    )?;
+    let phi = inverse.dot(&design.t().dot(&target)).to_vec();
+    let all: Vec<usize> = (0..players).collect();
+    Ok(Attribution {
+        grand: game.value(&all).unwrap_or_else(|_| serial_sum(&phi)),
+        phi,
+        half_width: None,
+        empty: 0.0,
+        evaluations: observed.len() as u64,
+    })
+}

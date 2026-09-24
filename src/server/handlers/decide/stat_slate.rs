@@ -29,6 +29,8 @@ pub(super) struct Slate {
     pub(super) policy_digest: String,
     pub(super) decider: String,
     pub(super) created_at_ms: u64,
+    /// `(slot, component id)` per slot, in slot order (EH-523 slate attribution).
+    pub(super) slots: Vec<(String, String)>,
 }
 
 /// The slate of committed v1 record `record_id`, if it is a solved assembly.
@@ -42,7 +44,12 @@ pub(super) fn slate_of(
     };
     let record: DecisionRecord = serde_json::from_slice(&body)
         .map_err(|error| format!("COMPONENT_BODY_UNAVAILABLE: {error}"))?;
-    let DecisionOutcome::Solved { graph_digest, .. } = &record.outcome else {
+    let DecisionOutcome::Solved {
+        graph_digest,
+        slots,
+        ..
+    } = &record.outcome
+    else {
         return Ok(None);
     };
     Ok(Some(Slate {
@@ -50,6 +57,10 @@ pub(super) fn slate_of(
         policy_digest: record.inputs.policy_digest.clone(),
         decider: record.caller_principal.clone(),
         created_at_ms: record.created_at_ms,
+        slots: slots
+            .iter()
+            .map(|s| (s.slot.clone(), s.component.component_id.clone()))
+            .collect(),
     }))
 }
 
