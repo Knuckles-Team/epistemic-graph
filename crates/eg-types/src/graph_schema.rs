@@ -18,6 +18,11 @@ use crate::contract::{closed_error_codes, BoundedVec, ResourceId};
 
 pub mod approval;
 pub mod repair;
+mod terms;
+pub use terms::{
+    term_local_name, validate_term_page_limit, GraphSchemaClassesView, GraphSchemaTermKind,
+    GraphSchemaTermPosition, GraphSchemaTermView, MAX_GRAPH_SCHEMA_TERMS_PAGE,
+};
 
 /// Format identity (RF-ADR-006) of the schema-source views.
 pub const GRAPH_SCHEMA_RESULT_SCHEMA_VERSION: u16 = 1;
@@ -345,6 +350,10 @@ closed_error_codes! {
         ApprovalRequired => "SCHEMA_APPROVAL_REQUIRED",
         /// The approval lease approves a different candidate or action.
         ApprovalMismatch => "SCHEMA_APPROVAL_MISMATCH",
+        /// A `GraphSchemaClasses` cursor this surface did not mint.
+        TermCursorInvalid => "SCHEMA_TERM_CURSOR_INVALID",
+        /// A `GraphSchemaClasses` page size outside its bounds.
+        TermPageInvalid => "SCHEMA_TERM_PAGE_INVALID",
     }
 }
 

@@ -42,15 +42,16 @@
 /// 442 -> 444: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
 /// 444 -> 445: EH-408/EH-409's served `TelemetryDerive`.
 /// 445 -> 446: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
+/// 446 -> 447: EH-389's `GraphSchemaClasses` vocabulary read.
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;
 /// `scripts/method_policy_inventory.py`'s `EXPECTED_METHOD_POLICY_ROWS` is the
 /// same count seen from the other side and the two must agree
-/// (446 + 7 feature rows = 453). Keep the formula aligned with the cfg rows in
+/// (447 + 7 feature rows = 454). Keep the formula aligned with the cfg rows in
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    446 + usize::from(cfg!(feature = "jobs"))
+    447 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))
