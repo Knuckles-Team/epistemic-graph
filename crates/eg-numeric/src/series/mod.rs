@@ -20,6 +20,7 @@
 //! Transcendentals go through [`crate::detkernel::math`], so outputs are bit-identical on
 //! every release target.
 
+pub mod kalman;
 mod kernel;
 pub mod window;
 
@@ -94,6 +95,13 @@ pub enum PairStat {
     WeightedSum,
 }
 
+/// A scalar Kalman filter's noise: process variance `q`, measurement variance `r`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KalmanNoise {
+    pub q: f64,
+    pub r: f64,
+}
+
 /// One kernel to build.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Spec {
@@ -103,14 +111,24 @@ pub enum Spec {
     Map(Map),
     Arith(Arith),
     Pair(PairStat, usize),
+    /// Local-level Kalman filter (random-walk state, `H = 1`), seeded with the first
+    /// observation at variance `r`: the filtered level.
+    KalmanLevel(KalmanNoise),
+    /// Dynamic regression coefficient: the random-walk `β` in `x = β·y + v`, seeded at
+    /// `β = 0`, variance 1 — the Kalman beta of `x` on `y`.
+    KalmanBeta(KalmanNoise),
 }
 
 impl Spec {
     /// How many input series the kernel reads (1 or 2).
     pub fn arity(&self) -> usize {
         match self {
-            Spec::Shift(..) | Spec::Rolling(..) | Spec::Ewma(_) | Spec::Map(_) => 1,
-            Spec::Arith(_) | Spec::Pair(..) => 2,
+            Spec::Shift(..)
+            | Spec::Rolling(..)
+            | Spec::Ewma(_)
+            | Spec::Map(_)
+            | Spec::KalmanLevel(_) => 1,
+            Spec::Arith(_) | Spec::Pair(..) | Spec::KalmanBeta(_) => 2,
         }
     }
 
@@ -123,6 +141,7 @@ impl Spec {
             Spec::Ewma(Smoothing::HalfLife(h)) => positive("ewma halflife", h, f64::MIN_POSITIVE),
             Spec::Map(Map::Clip { lo, hi }) => clip_bounds(lo, hi),
             Spec::Map(_) | Spec::Arith(_) => Ok(()),
+            Spec::KalmanLevel(noise) | Spec::KalmanBeta(noise) => kalman_noise(noise),
         }
     }
 }
@@ -146,6 +165,11 @@ fn clip_bounds(lo: f64, hi: f64) -> Result<()> {
         return Ok(());
     }
     Err(NumericError::bounds("clip needs lo <= hi"))
+}
+
+fn kalman_noise(noise: KalmanNoise) -> Result<()> {
+    positive("kalman q", noise.q, 0.0)?;
+    positive("kalman r", noise.r, 0.0)
 }
 
 fn positive(what: &str, v: f64, least: f64) -> Result<()> {

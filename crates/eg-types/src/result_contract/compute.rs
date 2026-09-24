@@ -112,8 +112,6 @@ method_results! {
     FinanceStressTest(FinanceStressTest) => Raw<Vec<f64>>;
     #[cfg(feature = "finance")]
     FinanceDetectRegimes(FinanceDetectRegimes) => Json<finance::RegimeResult>;
-    FinanceRollingZscore(FinanceRollingZscore) => Raw<Vec<f64>>;
-    FinanceEwma(FinanceEwma) => Raw<Vec<f64>>;
     FinanceSignalDecay(FinanceSignalDecay) => Raw<Vec<f64>>;
     FinanceCombineAlphas(FinanceCombineAlphas) => Raw<Vec<f64>>;
     FinanceCrossSectionalRank(FinanceCrossSectionalRank) => Raw<Vec<Vec<f64>>>;

@@ -46,6 +46,10 @@ fn ols_with_se(x: &[Vec<f64>], y: &[f64]) -> Option<(Vec<f64>, Vec<f64>, f64)> {
 // ════════════════════════════════════════════════════════════════════════
 
 pub use eg_types::compute_result::finance::KalmanState;
+// The scalar filter is the series kernel's (EH-530): one recurrence for the finance
+// Methods and UQL `DERIVE kalman(…)` / `kbeta(…)`.
+use eg_numeric::series::kalman::Kalman;
+use eg_numeric::series::KalmanNoise;
 
 /// Scalar Kalman filter with constant matrices: x_t = F x_{t-1} + w (Q);
 /// z_t = H x_t + v (R). Returns the filtered state + variance at each step.
@@ -58,23 +62,8 @@ pub fn kalman_filter_1d(
     x0: f64,
     p0: f64,
 ) -> KalmanState {
-    let n = observations.len();
-    let mut states = vec![0.0; n];
-    let mut variances = vec![0.0; n];
-    let (mut x, mut p) = (x0, p0);
-    for t in 0..n {
-        // predict
-        x *= f;
-        p = f * p * f + q;
-        // update
-        let y = observations[t] - h * x;
-        let s = h * p * h + r;
-        let k = if s.abs() > 1e-18 { p * h / s } else { 0.0 };
-        x += k * y;
-        p *= 1.0 - k * h;
-        states[t] = x;
-        variances[t] = p;
-    }
+    let mut filter = Kalman::new(f, KalmanNoise { q, r }, x0, p0);
+    let (states, variances) = observations.iter().map(|&z| filter.observe(z, h)).unzip();
     KalmanState { states, variances }
 }
 
@@ -89,27 +78,14 @@ pub fn kalman_beta(
     beta0: f64,
     p0: f64,
 ) -> KalmanState {
-    let n = market_returns.len().min(asset_returns.len());
-    let mut betas = vec![0.0; n];
-    let mut variances = vec![0.0; n];
-    let (mut beta, mut p) = (beta0, p0);
-    for t in 0..n {
-        // predict (random walk: F = 1)
-        p += q;
-        // update with time-varying H = market return
-        let h = market_returns[t];
-        let y = asset_returns[t] - h * beta;
-        let s = h * p * h + r;
-        let k = if s.abs() > 1e-18 { p * h / s } else { 0.0 };
-        beta += k * y;
-        p *= 1.0 - k * h;
-        betas[t] = beta;
-        variances[t] = p;
-    }
-    KalmanState {
-        states: betas,
-        variances,
-    }
+    // Random-walk β (F = 1) observed through the time-varying H = the market return.
+    let mut filter = Kalman::new(1.0, KalmanNoise { q, r }, beta0, p0);
+    let (states, variances) = market_returns
+        .iter()
+        .zip(asset_returns)
+        .map(|(&h, &z)| filter.observe(z, h))
+        .unzip();
+    KalmanState { states, variances }
 }
 
 /// Kalman volatility tracker. Hidden state is log-variance (random walk, noise q);

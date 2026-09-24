@@ -221,7 +221,7 @@ pub const PRODUCTIONS: &[Production] = &[
       "signed_num | name | name \"(\" [ sexpr { \",\" sexpr } ] \")\"",
       "SeriesExpr: a constant, a value channel (v0..vk, score, an alias) or a call to lag diff \
        ret logret rmean rstd rsum rmin rmax rrank zscore ewma ewma_halflife abs sign neg clip \
-       add sub mul div (ratio) rcorr ic wsum — series arguments first, then numbers", ""),
+       add sub mul div (ratio) rcorr ic wsum kalman kbeta — series arguments first, then numbers", ""),
     p("limit", Stage, &["LIMIT"], None, "\"LIMIT\" ( int | param )", "Limit{k}",
       "MATCH (:Doc) |> LIMIT 10"),
     p("return", Stage, &["RETURN"], None, "\"RETURN\" name { \",\" name }",

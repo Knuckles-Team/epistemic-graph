@@ -175,17 +175,6 @@ pub(super) fn handle_regime(req_id: u64, method: Method) -> Result<Response, Met
 pub(super) fn handle_signals(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
         // ── Extended Finance: Signals / alpha ─────────────────────────────────────────────────
-        Method::FinanceRollingZscore { values, window } => {
-            let v = crate::finance::signals::rolling_zscore(&values, window);
-            Response::ok(
-                req_id,
-                ResultPayload::of::<results::FinanceRollingZscore>(v),
-            )
-        }
-        Method::FinanceEwma { values, span } => {
-            let v = crate::finance::signals::ewma_signal(&values, span);
-            Response::ok(req_id, ResultPayload::of::<results::FinanceEwma>(v))
-        }
         Method::FinanceSignalDecay { signal, half_life } => {
             let v = crate::finance::signals::signal_decay(&signal, half_life);
             Response::ok(req_id, ResultPayload::of::<results::FinanceSignalDecay>(v))

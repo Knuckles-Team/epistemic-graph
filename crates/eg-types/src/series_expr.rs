@@ -55,6 +55,8 @@ pub enum SeriesFunc {
     Rcorr,
     Ic,
     Wsum,
+    Kalman,
+    Kbeta,
 }
 
 /// A function's spelling and signature: how many series arguments, then how many
@@ -122,6 +124,8 @@ pub const SIGNATURES: &[Signature] = &[
     sig(F::Rcorr, "rcorr", 2, 1, Integer),
     sig(F::Ic, "ic", 2, 1, Integer),
     sig(F::Wsum, "wsum", 2, 1, Integer),
+    sig(F::Kalman, "kalman", 1, 2, Real),
+    sig(F::Kbeta, "kbeta", 2, 2, Real),
 ];
 
 impl SeriesFunc {
