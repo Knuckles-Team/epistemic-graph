@@ -37,6 +37,7 @@ impl Question<'_> {
                 node_id: self.facts.slots.as_slice()[choice.slot].node_id.clone(),
                 width: choice.width,
                 rounds: choice.rounds,
+                tokens: choice.tokens,
             })
             .collect();
         let makespan_ms = taken

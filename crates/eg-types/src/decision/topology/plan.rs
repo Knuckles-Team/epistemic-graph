@@ -61,6 +61,10 @@ pub struct SlotPlan {
     pub node_id: String,
     pub width: u8,
     pub rounds: u8,
+    /// The slot's declared tokens at this width and rounds, when declared;
+    /// the runtime admission's token ceiling is their sum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u64>,
 }
 
 /// The amount one cell must lease for the plan.
