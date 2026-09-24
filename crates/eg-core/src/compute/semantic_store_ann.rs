@@ -1081,6 +1081,7 @@ mod tests {
             index: RwLock::new(None),
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
+            generation: store.generation.carry(),
         };
         reloaded.adopt_generation(&image).unwrap();
         assert!(
