@@ -30,6 +30,8 @@ WAVE_METHODS = (
     "GraphSchema",
     "GraphSchemaList",
     "MutationOutbox",
+    "EdgeIndex",
+    "EdgeSearch",
 )
 
 PUBLIC_WAVE_METHODS = {
@@ -43,6 +45,8 @@ PUBLIC_WAVE_METHODS = {
     "DecisionFit",
     "DecisionEval",
     "MutationOutbox",
+    "EdgeIndex",
+    "EdgeSearch",
 }
 INTERNAL_WAVE_METHODS = tuple(
     name for name in WAVE_METHODS if name not in PUBLIC_WAVE_METHODS
@@ -66,6 +70,9 @@ WAVE_DEFS = (
     "MutationOutboxOp",
     "AgentComponentContentRequest",
     "AgentComponentContentResult",
+    "EdgeIndexOp",
+    "EdgeSearchRequest",
+    "ManagedIndexTarget",
 )
 
 
