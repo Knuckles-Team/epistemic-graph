@@ -625,7 +625,11 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ListControlLeases { .. }
         | Method::GapGet { .. }
         | Method::GapList { .. }
-        | Method::MutationOutbox { .. } => default_mutation_domain(surface),
+        | Method::MutationOutbox { .. }
+        // EH-351/EH-352: edge-index maintenance writes the tenant SQL owner
+        // file through its own maintenance writes; a search commits nothing.
+        | Method::EdgeIndex { .. }
+        | Method::EdgeSearch { .. } => default_mutation_domain(surface),
         Method::FinanceSabrImpliedVol { .. }
         | Method::CatalogAssign { .. }
         | Method::EvictBelow { .. }
