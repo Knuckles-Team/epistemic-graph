@@ -47,6 +47,8 @@ pub enum IdentityEvent {
     RbacPolicyChanged,
     /// A sampled authorization denial (IDM-03 durable denial sample).
     AccessDenied,
+    /// An administrator's SQL dump was merged.
+    Imported,
 }
 
 /// One tamper-evident entry.

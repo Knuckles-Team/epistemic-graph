@@ -34,9 +34,11 @@ mod model;
 mod ops;
 mod password_policy;
 mod projection;
+mod relations;
 mod requests;
 mod requests_admin;
 mod scope;
+mod sql_dump;
 mod stamp;
 mod store;
 mod text;
@@ -52,8 +54,8 @@ pub use config::{
 };
 pub use denials::{DenialSample, DenialSampler, MAX_DENIAL_SAMPLES};
 pub use model::{
-    ApiKeyRecord, ExternalIdentity, OneTimeToken, PasswordCredential, SessionRecord,
-    TokenPurpose, TotpRecord, UserKind, UserRecord, UserStatus,
+    ApiKeyRecord, ExternalIdentity, OneTimeToken, PasswordCredential, SessionRecord, TokenPurpose,
+    TotpRecord, UserKind, UserRecord, UserStatus,
 };
 pub use ops::{
     AccessOp, ConfigOp, CredentialOp, IdentityOp, IdpOp, MfaOp, OpAuthority, OpMeta, SessionOp,
@@ -65,19 +67,20 @@ pub use projection::{rbac_role_name, PrincipalResolution, RbacProjection};
 pub use requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
     InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordSet,
-    RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange,
-    UserUpdate,
+    RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange, UserUpdate,
 };
 pub use requests_admin::{
     BindingChange, GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate,
-    RoleGraphGrant, RoleUpsert, UserRoleChange, MAX_PAGE,
+    RoleGraphGrant, RoleUpsert, SqlDump, UserRoleChange, MAX_PAGE,
 };
+pub use relations::{SqlRelation, SqlType};
 pub use scope::{ScopeClass, ScopeClassifier};
+pub use sql_dump::{parse_dump, render_dump, DumpRow, MAX_DUMP_BYTES};
 pub use stamp::{IdentityActor, IdentityStamp, PasswordCheck, Secret};
 pub use store::{ApplyContext, IdentityStore, RecoveryCode, ThrottleEntry, TOUCH_GRANULARITY_MS};
 pub use text::{
-    check_recovery_code, check_token, check_totp_secret, normalize_username,
-    validate_principal_id, MIN_RECOVERY_CODE_CHARS, MIN_TOTP_SECRET_CHARS,
+    check_recovery_code, check_token, check_totp_secret, normalize_username, validate_principal_id,
+    MIN_RECOVERY_CODE_CHARS, MIN_TOTP_SECRET_CHARS,
 };
 pub use views::{AuthenticateOutcome, AuthenticateResult, IdentityReply, SessionView, UserView};
 

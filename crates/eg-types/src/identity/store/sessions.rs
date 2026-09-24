@@ -120,7 +120,11 @@ impl IdentityStore {
         if let Some(session) = self.sessions.get_mut(hash) {
             // Touch at a coarse granularity: a resolve inside the same minute
             // changes nothing, so the engine persists nothing for it.
-            if now_ms >= session.last_seen_at_ms.saturating_add(super::TOUCH_GRANULARITY_MS) {
+            if now_ms
+                >= session
+                    .last_seen_at_ms
+                    .saturating_add(super::TOUCH_GRANULARITY_MS)
+            {
                 session.last_seen_at_ms = now_ms;
                 session.idle_expires_at_ms = now_ms.saturating_add(idle);
             }
@@ -138,7 +142,12 @@ impl IdentityStore {
             return Err(IdentityRefusal::NotFound);
         }
         let changed = self.revoke_principal_sessions(&request.id, now_ms, "admin_revoke");
-        self.audit_event(stamp, now_ms, IdentityEvent::SessionRevoked, Some(&request.id));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::SessionRevoked,
+            Some(&request.id),
+        );
         Ok(IdentityReply::Done { changed })
     }
 
@@ -153,7 +162,11 @@ impl IdentityStore {
         })
     }
 
-    fn idle_ms_for(&self, scopes: &std::collections::BTreeSet<String>, ctx: &ApplyContext<'_>) -> u64 {
+    fn idle_ms_for(
+        &self,
+        scopes: &std::collections::BTreeSet<String>,
+        ctx: &ApplyContext<'_>,
+    ) -> u64 {
         let config = self.config.as_ref();
         match (config, Self::is_privileged(scopes, ctx)) {
             (Some(config), true) => config.privileged_idle_ms,

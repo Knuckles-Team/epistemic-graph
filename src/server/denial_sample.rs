@@ -48,11 +48,14 @@ pub(crate) async fn flush(state: &Arc<RwLock<ServerState>>) {
     if let Err(error) = guard.isolation.try_record_denials(samples, dropped) {
         tracing::warn!(%error, "denial sample could not be written; dropped");
     }
+    guard.publish_identity_view();
 }
 
-/// The periodic writer, one per engine.
+/// The periodic writer, one per engine. It also publishes the loaded
+/// identity store to the SQL projection once at startup (IDM-01).
 pub fn spawn_flusher(state: Arc<RwLock<ServerState>>) {
     tokio::spawn(async move {
+        state.read().await.publish_identity_view();
         let mut ticker = tokio::time::interval(FLUSH_EVERY);
         loop {
             ticker.tick().await;

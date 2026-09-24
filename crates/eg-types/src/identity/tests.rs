@@ -19,7 +19,11 @@ const REGISTRY: [(&str, ScopeClass, Option<&str>); 13] = [
     ("finance:alerts", ScopeClass::Domain, None),
     ("capacity:throttle", ScopeClass::ServiceOnly, None),
     ("identity:authenticate", ScopeClass::ServiceOnly, None),
-    ("rbac:approve-elevation", ScopeClass::Approver, Some(ELEVATION_APPROVERS_GROUP)),
+    (
+        "rbac:approve-elevation",
+        ScopeClass::Approver,
+        Some(ELEVATION_APPROVERS_GROUP),
+    ),
     (
         "finance:approve-live-order",
         ScopeClass::Approver,
@@ -43,7 +47,10 @@ impl ScopeClassifier for TestRegistry {
     }
 
     fn approver_group_of(&self, scope: &str) -> Option<&'static str> {
-        REGISTRY.iter().find(|row| row.0 == scope).and_then(|row| row.2)
+        REGISTRY
+            .iter()
+            .find(|row| row.0 == scope)
+            .and_then(|row| row.2)
     }
 }
 
@@ -88,7 +95,11 @@ pub(super) fn store_in(mode: AuthMode) -> IdentityStore {
     store
 }
 
-pub(super) fn create(store: &mut IdentityStore, username: &str, kind: UserKind) -> Result<String, IdentityRefusal> {
+pub(super) fn create(
+    store: &mut IdentityStore,
+    username: &str,
+    kind: UserKind,
+) -> Result<String, IdentityRefusal> {
     let mut stamp = admin();
     stamp.minted_principal_id = Some(format!("usr:{username}"));
     let op = IdentityOp::User(UserOp::Create {
@@ -112,7 +123,12 @@ pub(super) fn create(store: &mut IdentityStore, username: &str, kind: UserKind) 
 
 /// Open a live session `session` for the principal of `username` (its
 /// password verdict is stamped as matched).
-pub(super) fn open_session(store: &mut IdentityStore, username: &str, principal: &str, session: &str) {
+pub(super) fn open_session(
+    store: &mut IdentityStore,
+    username: &str,
+    principal: &str,
+    session: &str,
+) {
     let mut stamp = broker();
     stamp.password_check = Some(PasswordCheck {
         principal_id: Some(principal.to_string()),
@@ -170,7 +186,9 @@ fn an_empty_store_serializes_to_nothing_and_round_trips() {
 #[test]
 fn the_wire_op_carries_both_tags_and_refuses_unknown_fields() {
     let op = IdentityOp::User(UserOp::Get {
-        request: ObjectRef { id: "usr:a".to_string() },
+        request: ObjectRef {
+            id: "usr:a".to_string(),
+        },
     });
     let json = serde_json::to_value(&op).unwrap();
     assert_eq!(json["family"], "user");
@@ -195,12 +213,18 @@ fn a_secret_never_prints() {
 fn views_never_carry_hashes_or_sealed_secrets() {
     let mut store = store_in(AuthMode::Local);
     let op = IdentityOp::User(UserOp::List {
-        request: ListQuery { after: None, limit: 10 },
+        request: ListQuery {
+            after: None,
+            limit: 10,
+        },
     });
     let reply = store.apply(&op, &admin(), &ctx_at(NOW)).unwrap();
     let text = serde_json::to_string(&reply).unwrap();
     assert!(text.contains("usr:bootstrap"));
-    assert!(!text.contains("argon2"), "a view leaked a password hash: {text}");
+    assert!(
+        !text.contains("argon2"),
+        "a view leaked a password hash: {text}"
+    );
     assert!(text.contains("\"has_password\":true"));
 }
 
@@ -224,9 +248,18 @@ fn the_denial_sampler_keeps_one_per_principal_and_action_per_window() {
         reason: "ACCESS_DENIED".to_string(),
     };
     assert!(sampler.offer(sample(NOW, "a")));
-    assert!(!sampler.offer(sample(NOW + 1, "a")), "same key inside the window");
-    assert!(sampler.offer(sample(NOW + 1, "b")), "another principal is kept");
-    assert!(sampler.offer(sample(NOW + 61_000, "a")), "a new window keeps it again");
+    assert!(
+        !sampler.offer(sample(NOW + 1, "a")),
+        "same key inside the window"
+    );
+    assert!(
+        sampler.offer(sample(NOW + 1, "b")),
+        "another principal is kept"
+    );
+    assert!(
+        sampler.offer(sample(NOW + 61_000, "a")),
+        "a new window keeps it again"
+    );
     let (drained, dropped) = sampler.drain();
     assert_eq!(drained.len(), 3);
     assert_eq!(dropped, 0);
@@ -236,7 +269,10 @@ fn the_denial_sampler_keeps_one_per_principal_and_action_per_window() {
 #[test]
 fn the_password_policy_refuses_short_self_naming_and_common_passwords() {
     assert!(check_password("correct horse battery", "alice", None, 12).is_ok());
-    assert_eq!(check_password("short", "alice", None, 12), Err(IdentityRefusal::WeakPassword));
+    assert_eq!(
+        check_password("short", "alice", None, 12),
+        Err(IdentityRefusal::WeakPassword)
+    );
     assert_eq!(
         check_password("alice-is-my-password", "alice", None, 12),
         Err(IdentityRefusal::WeakPassword)

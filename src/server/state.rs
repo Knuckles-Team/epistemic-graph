@@ -454,6 +454,16 @@ impl ServerState {
     /// A field built empty uses its type's `Default` (every such type's `Default`
     /// is its `new()`); only the fields with a non-default starting value are spelled
     /// out.
+    /// Publish this engine's identity store to the SQL projection (IDM-01).
+    /// Called after every write that can change the store.
+    #[cfg(feature = "security")]
+    pub(crate) fn publish_identity_view(&self) {
+        crate::server::sql_catalog_acl::publish_identity_view(
+            self.persist_dir.as_deref(),
+            self.isolation.rbac().identity_store(),
+        );
+    }
+
     pub fn new(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
         Self {
             registry: GraphRegistry::default(),

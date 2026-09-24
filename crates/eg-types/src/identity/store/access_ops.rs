@@ -40,7 +40,9 @@ impl IdentityStore {
                 return Ok(IdentityReply::Roles(self.roles.values().cloned().collect()))
             }
             AccessOp::ListGroups => {
-                return Ok(IdentityReply::Groups(self.groups.values().cloned().collect()))
+                return Ok(IdentityReply::Groups(
+                    self.groups.values().cloned().collect(),
+                ))
             }
         };
         self.audit_event(stamp, now_ms, access_event(op), None);
@@ -51,7 +53,10 @@ impl IdentityStore {
         identifier(&request.role_id)?;
         bounded(&request.name, MAX_NAME_BYTES)?;
         bounded_opt(request.description.as_deref(), MAX_TEXT_BYTES)?;
-        let builtin = self.roles.get(&request.role_id).is_some_and(|role| role.builtin);
+        let builtin = self
+            .roles
+            .get(&request.role_id)
+            .is_some_and(|role| role.builtin);
         if !self.roles.contains_key(&request.role_id) && self.roles.len() >= MAX_ROLES {
             return Err(IdentityRefusal::Full);
         }
@@ -71,7 +76,10 @@ impl IdentityStore {
 
     /// Remove a role and every binding of it. Built-ins stay.
     fn remove_role(&mut self, request: &ObjectRef) -> Result<IdentityReply, IdentityRefusal> {
-        let role = self.roles.get(&request.id).ok_or(IdentityRefusal::NotFound)?;
+        let role = self
+            .roles
+            .get(&request.id)
+            .ok_or(IdentityRefusal::NotFound)?;
         if role.builtin {
             return Err(IdentityRefusal::BuiltIn);
         }
@@ -91,7 +99,11 @@ impl IdentityStore {
     fn upsert_group(&mut self, request: &GroupUpsert) -> Result<IdentityReply, IdentityRefusal> {
         identifier(&request.group_id)?;
         bounded(&request.name, MAX_NAME_BYTES)?;
-        if request.roles.iter().any(|role| !self.roles.contains_key(role)) {
+        if request
+            .roles
+            .iter()
+            .any(|role| !self.roles.contains_key(role))
+        {
             return Err(IdentityRefusal::NotFound);
         }
         let existing = self.groups.get(&request.group_id);
@@ -99,7 +111,8 @@ impl IdentityStore {
             return Err(IdentityRefusal::Full);
         }
         let builtin = existing.is_some_and(|group| group.builtin);
-        let changes_builtin_roles = builtin && existing.is_some_and(|group| group.roles != request.roles);
+        let changes_builtin_roles =
+            builtin && existing.is_some_and(|group| group.roles != request.roles);
         if changes_builtin_roles {
             return Err(IdentityRefusal::BuiltIn);
         }
@@ -108,7 +121,9 @@ impl IdentityStore {
             name: request.name.clone(),
             source: existing.map_or_else(|| "local".to_string(), |group| group.source.clone()),
             builtin,
-            members: existing.map(|group| group.members.clone()).unwrap_or_default(),
+            members: existing
+                .map(|group| group.members.clone())
+                .unwrap_or_default(),
             roles: request.roles.clone(),
             mfa_required: request.mfa_required,
         };
@@ -117,7 +132,10 @@ impl IdentityStore {
     }
 
     fn remove_group(&mut self, request: &ObjectRef) -> Result<IdentityReply, IdentityRefusal> {
-        let group = self.groups.get(&request.id).ok_or(IdentityRefusal::NotFound)?;
+        let group = self
+            .groups
+            .get(&request.id)
+            .ok_or(IdentityRefusal::NotFound)?;
         if group.builtin {
             return Err(IdentityRefusal::BuiltIn);
         }
@@ -138,7 +156,10 @@ impl IdentityStore {
         if removing_last_admin {
             return Err(IdentityRefusal::PreconditionFailed);
         }
-        let group = self.groups.get_mut(&request.group_id).ok_or(IdentityRefusal::NotFound)?;
+        let group = self
+            .groups
+            .get_mut(&request.group_id)
+            .ok_or(IdentityRefusal::NotFound)?;
         let changed = match request.change {
             BindingChange::Add => group
                 .members
@@ -149,7 +170,10 @@ impl IdentityStore {
         Ok(IdentityReply::Done { changed })
     }
 
-    fn change_user_role(&mut self, request: &UserRoleChange) -> Result<IdentityReply, IdentityRefusal> {
+    fn change_user_role(
+        &mut self,
+        request: &UserRoleChange,
+    ) -> Result<IdentityReply, IdentityRefusal> {
         if !self.roles.contains_key(&request.role_id) {
             return Err(IdentityRefusal::NotFound);
         }
@@ -174,16 +198,29 @@ impl IdentityStore {
         match op {
             IdpOp::Upsert { request } => {
                 self.upsert_idp(request, ctx)?;
-                self.audit_event(stamp, now_ms, IdentityEvent::IdpChanged, Some(&request.idp_id));
+                self.audit_event(
+                    stamp,
+                    now_ms,
+                    IdentityEvent::IdpChanged,
+                    Some(&request.idp_id),
+                );
                 Ok(IdentityReply::Done { changed: true })
             }
             IdpOp::Remove { request } => {
-                self.idps.remove(&request.id).ok_or(IdentityRefusal::NotFound)?;
+                self.idps
+                    .remove(&request.id)
+                    .ok_or(IdentityRefusal::NotFound)?;
                 self.audit_event(stamp, now_ms, IdentityEvent::IdpChanged, Some(&request.id));
                 Ok(IdentityReply::Done { changed: true })
             }
             IdpOp::Link { request } => {
-                self.link(&request.idp_id, &request.subject, &request.principal_id, stamp, now_ms)?;
+                self.link(
+                    &request.idp_id,
+                    &request.subject,
+                    &request.principal_id,
+                    stamp,
+                    now_ms,
+                )?;
                 Ok(IdentityReply::Done { changed: true })
             }
             IdpOp::Unlink { request } => self.unlink(request, stamp, now_ms),
@@ -191,7 +228,11 @@ impl IdentityStore {
         }
     }
 
-    fn upsert_idp(&mut self, idp: &IdpConfig, ctx: &ApplyContext<'_>) -> Result<(), IdentityRefusal> {
+    fn upsert_idp(
+        &mut self,
+        idp: &IdpConfig,
+        ctx: &ApplyContext<'_>,
+    ) -> Result<(), IdentityRefusal> {
         identifier(&idp.idp_id)?;
         bounded(&idp.display_name, MAX_NAME_BYTES)?;
         bounded(&idp.config_json, MAX_TEXT_BYTES)?;
@@ -213,7 +254,11 @@ impl IdentityStore {
     /// A rule names an existing role or group, uses a supported match, and
     /// is marked `privileged` whenever its target reaches an approver- or
     /// administrator-class scope.
-    fn validate_rule(&self, rule: &MappingRule, ctx: &ApplyContext<'_>) -> Result<(), IdentityRefusal> {
+    fn validate_rule(
+        &self,
+        rule: &MappingRule,
+        ctx: &ApplyContext<'_>,
+    ) -> Result<(), IdentityRefusal> {
         identifier(&rule.rule_id)?;
         bounded(&rule.claim_path, MAX_NAME_BYTES)?;
         bounded(&rule.value, MAX_NAME_BYTES)?;
@@ -276,7 +321,12 @@ impl IdentityStore {
                 linked_by: stamp.actor.principal_id.clone(),
             },
         );
-        self.audit_event(stamp, now_ms, IdentityEvent::IdentityLinked, Some(principal_id));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::IdentityLinked,
+            Some(principal_id),
+        );
         Ok(())
     }
 
@@ -289,7 +339,12 @@ impl IdentityStore {
         let key = link_key(&request.idp_id, &request.subject);
         let link = self.links.remove(&key).ok_or(IdentityRefusal::NotFound)?;
         self.link_roles.remove(&key);
-        self.audit_event(stamp, now_ms, IdentityEvent::IdentityUnlinked, Some(&link.principal_id));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::IdentityUnlinked,
+            Some(&link.principal_id),
+        );
         Ok(IdentityReply::Done { changed: true })
     }
 }

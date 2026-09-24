@@ -61,7 +61,10 @@ pub fn rbac_role_name(role_id: &str) -> String {
 
 impl IdentityStore {
     /// Roles and groups reaching `principal_id`, without scopes.
-    pub(crate) fn effective_roles(&self, principal_id: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    pub(crate) fn effective_roles(
+        &self,
+        principal_id: &str,
+    ) -> (BTreeSet<String>, BTreeSet<String>) {
         let mut roles: BTreeSet<String> = self
             .users
             .get(principal_id)
@@ -107,7 +110,10 @@ impl IdentityStore {
         principal_id: &str,
         classifier: &dyn ScopeClassifier,
     ) -> Result<PrincipalResolution, IdentityRefusal> {
-        let user = self.users.get(principal_id).ok_or(IdentityRefusal::NotFound)?;
+        let user = self
+            .users
+            .get(principal_id)
+            .ok_or(IdentityRefusal::NotFound)?;
         let (roles, groups) = self.effective_roles(principal_id);
         let scopes = self.scopes_of(&roles, classifier);
         let mfa_required = groups
@@ -142,12 +148,14 @@ impl IdentityStore {
         for role in self.roles.values() {
             let name = rbac_role_name(&role.role_id);
             projection.roles.push(Role::new(name.clone()));
-            projection.grants.extend(role.graph_grants.iter().map(|grant| Grant {
-                role: name.clone(),
-                resource: grant.resource.clone(),
-                action: grant.action,
-                effect: grant.effect,
-            }));
+            projection
+                .grants
+                .extend(role.graph_grants.iter().map(|grant| Grant {
+                    role: name.clone(),
+                    resource: grant.resource.clone(),
+                    action: grant.action,
+                    effect: grant.effect,
+                }));
         }
         for user in self.users.values() {
             projection.managed.insert(user.principal_id.clone());

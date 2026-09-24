@@ -98,12 +98,23 @@ fn every_op_but_initialize_needs_an_initialized_store() {
 fn none_to_local_needs_an_administrator_with_a_credential() {
     let mut store = store_in(AuthMode::None);
     assert_eq!(
-        apply_kept(&mut store, &transition(AuthMode::Local, 1, None), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &transition(AuthMode::Local, 1, None),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::PreconditionFailed)
     );
     let (op, stamp) = set_password(BOOTSTRAP_PRINCIPAL);
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
-    let reply = apply_kept(&mut store, &transition(AuthMode::Local, 1, None), &admin(), NOW).unwrap();
+    let reply = apply_kept(
+        &mut store,
+        &transition(AuthMode::Local, 1, None),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
     let IdentityReply::Config(config) = reply else {
         panic!("transition answers the config");
     };
@@ -116,15 +127,30 @@ fn none_to_local_needs_an_administrator_with_a_credential() {
 fn a_stale_epoch_and_an_illegal_edge_are_refused() {
     let mut store = store_in(AuthMode::Local);
     assert_eq!(
-        apply_kept(&mut store, &transition(AuthMode::External, 7, None), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &transition(AuthMode::External, 7, None),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::EpochConflict)
     );
     assert_eq!(
-        apply_kept(&mut store, &transition(AuthMode::Local, 1, None), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &transition(AuthMode::Local, 1, None),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::IllegalTransition)
     );
     assert_eq!(
-        apply_kept(&mut store, &transition(AuthMode::External, 1, None), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &transition(AuthMode::External, 1, None),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::PreconditionFailed),
         "no enabled IdP links an administrator yet"
     );
@@ -138,7 +164,10 @@ fn entering_none_needs_loopback_and_the_exact_ack() {
     let refused = [
         (transition(AuthMode::None, 1, Some(NONE_MODE_ACK)), admin()),
         (transition(AuthMode::None, 1, None), loopback.clone()),
-        (transition(AuthMode::None, 1, Some("I-UNDERSTAND")), loopback.clone()),
+        (
+            transition(AuthMode::None, 1, Some("I-UNDERSTAND")),
+            loopback.clone(),
+        ),
     ];
     for (op, stamp) in refused {
         assert_eq!(
@@ -206,7 +235,10 @@ fn bootstrap_sessions_exist_only_in_none_mode() {
         },
     });
     apply_kept(&mut none, &op, &stamp, NOW).unwrap();
-    assert_eq!(none.session_principal("demo-session", NOW), Some(BOOTSTRAP_PRINCIPAL));
+    assert_eq!(
+        none.session_principal("demo-session", NOW),
+        Some(BOOTSTRAP_PRINCIPAL)
+    );
     let mut local = store_in(AuthMode::Local);
     assert_eq!(
         apply_kept(&mut local, &op, &stamp, NOW),

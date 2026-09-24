@@ -179,7 +179,9 @@ fn register_identity(
             principal: mode.actor,
             now_ms: authoritative_now_ms(),
         };
-        state.isolation.try_register_agent_audited(identity, actor)
+        let outcome = state.isolation.try_register_agent_audited(identity, actor);
+        state.publish_identity_view();
+        outcome
     }
     #[cfg(not(feature = "security"))]
     {

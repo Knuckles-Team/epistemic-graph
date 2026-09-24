@@ -29,14 +29,16 @@ impl IdentityStore {
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
         match op {
-            CredentialOp::SetPassword { request } => self.admin_set_password(request, stamp, ctx.now_ms),
+            CredentialOp::SetPassword { request } => {
+                self.admin_set_password(request, stamp, ctx.now_ms)
+            }
             CredentialOp::ChangePassword { .. } => self.change_own_password(stamp, ctx.now_ms),
-            CredentialOp::Authenticate { request } => {
-                Ok(IdentityReply::Authenticate(self.authenticate(request, stamp, ctx)?))
-            }
-            CredentialOp::ExternalLogin { request } => {
-                Ok(IdentityReply::Authenticate(self.external_login(request, stamp, ctx)?))
-            }
+            CredentialOp::Authenticate { request } => Ok(IdentityReply::Authenticate(
+                self.authenticate(request, stamp, ctx)?,
+            )),
+            CredentialOp::ExternalLogin { request } => Ok(IdentityReply::Authenticate(
+                self.external_login(request, stamp, ctx)?,
+            )),
             CredentialOp::BootstrapSession { .. } => self.bootstrap_session(stamp, ctx),
         }
     }
@@ -82,14 +84,22 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        let user = self.users.get(&request.principal_id).ok_or(IdentityRefusal::NotFound)?;
+        let user = self
+            .users
+            .get(&request.principal_id)
+            .ok_or(IdentityRefusal::NotFound)?;
         if user.kind != UserKind::Human {
             return Err(IdentityRefusal::KindMismatch);
         }
         let hash = stamp.new_password_hash()?.to_string();
         self.store_password(&request.principal_id, &hash, request.must_change, now_ms);
         self.revoke_principal_sessions(&request.principal_id, now_ms, "password_reset");
-        self.audit_event(stamp, now_ms, IdentityEvent::PasswordSet, Some(&request.principal_id));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::PasswordSet,
+            Some(&request.principal_id),
+        );
         Ok(IdentityReply::Done { changed: true })
     }
 
@@ -105,7 +115,12 @@ impl IdentityStore {
         }
         let hash = stamp.new_password_hash()?.to_string();
         self.store_password(&principal, &hash, false, now_ms);
-        self.audit_event(stamp, now_ms, IdentityEvent::PasswordChanged, Some(&principal));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::PasswordChanged,
+            Some(&principal),
+        );
         Ok(IdentityReply::Done { changed: true })
     }
 
@@ -148,7 +163,12 @@ impl IdentityStore {
     }
 
     /// The throttle verdict for a sign-in attempt, before the password.
-    fn throttle_verdict(&self, principal: Option<&str>, ip: Option<&str>, now_ms: u64) -> Option<u64> {
+    fn throttle_verdict(
+        &self,
+        principal: Option<&str>,
+        ip: Option<&str>,
+        now_ms: u64,
+    ) -> Option<u64> {
         let account = principal.and_then(|p| self.throttled_until(&account_key(p), now_ms));
         let network_exempt = principal.is_some_and(|p| self.is_administrator(p));
         let network = ip
@@ -183,7 +203,13 @@ impl IdentityStore {
         }
         let ip = request.ip_prefix.as_deref();
         if let Some(until) = self.throttle_verdict(principal.as_deref(), ip, ctx.now_ms) {
-            self.login_audit(stamp, ctx, IdentityEvent::LoginThrottled, principal.as_deref(), ip);
+            self.login_audit(
+                stamp,
+                ctx,
+                IdentityEvent::LoginThrottled,
+                principal.as_deref(),
+                ip,
+            );
             return Ok(AuthenticateResult {
                 outcome: AuthenticateOutcome::Throttled,
                 principal_id: None,
@@ -221,7 +247,10 @@ impl IdentityStore {
             }
         }
         let must_change = self.passwords.get(principal).is_some_and(|c| c.must_change)
-            || self.users.get(principal).is_some_and(|u| u.status == UserStatus::PendingReset);
+            || self
+                .users
+                .get(principal)
+                .is_some_and(|u| u.status == UserStatus::PendingReset);
         if must_change {
             let Some(hash) = stamp.password_hash.clone() else {
                 return Ok(self.outcome(principal, AuthenticateOutcome::PasswordChangeRequired));
@@ -232,7 +261,13 @@ impl IdentityStore {
             user.last_login_at_ms = Some(ctx.now_ms);
         }
         let ip = request.ip_prefix.clone();
-        self.login_audit(stamp, ctx, IdentityEvent::LoginSucceeded, Some(principal), ip.as_deref());
+        self.login_audit(
+            stamp,
+            ctx,
+            IdentityEvent::LoginSucceeded,
+            Some(principal),
+            ip.as_deref(),
+        );
         self.open_with_mfa_policy(principal, "pwd", ip, stamp, ctx)
     }
 

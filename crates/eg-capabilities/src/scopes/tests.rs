@@ -37,7 +37,12 @@ const OP_LEVEL_ACTIONS: &[&str] = &[
 #[test]
 fn the_registry_is_strictly_sorted_so_lookup_is_exact() {
     for pair in SCOPES.windows(2) {
-        assert!(pair[0].scope < pair[1].scope, "{} !< {}", pair[0].scope, pair[1].scope);
+        assert!(
+            pair[0].scope < pair[1].scope,
+            "{} !< {}",
+            pair[0].scope,
+            pair[1].scope
+        );
     }
 }
 
@@ -81,19 +86,46 @@ fn every_approver_scope_has_exactly_its_built_in_group() {
         eg_types::identity::SCHEMA_APPROVERS_GROUP,
     ];
     for (_, group) in APPROVER_GROUPS {
-        assert!(built_in.contains(group), "{group} is not an identity-store built-in");
+        assert!(
+            built_in.contains(group),
+            "{group} is not an identity-store built-in"
+        );
     }
 }
 
 #[test]
 fn the_rulings_hold_in_the_registry() {
-    for infrastructure in ["broker:publish", "timeseries:write", "compute:finance", "capacity:throttle", "security:check", "telemetry:write"] {
-        assert_eq!(ScopeRegistry.class_of(infrastructure), Some(ScopeClass::ServiceOnly), "{infrastructure}");
+    for infrastructure in [
+        "broker:publish",
+        "timeseries:write",
+        "compute:finance",
+        "capacity:throttle",
+        "security:check",
+        "telemetry:write",
+    ] {
+        assert_eq!(
+            ScopeRegistry.class_of(infrastructure),
+            Some(ScopeClass::ServiceOnly),
+            "{infrastructure}"
+        );
     }
-    for domain in ["finance:alerts", "finance:track", "finance:backfill", "finance:propose-order"] {
-        assert_eq!(ScopeRegistry.class_of(domain), Some(ScopeClass::Domain), "{domain}");
+    for domain in [
+        "finance:alerts",
+        "finance:track",
+        "finance:backfill",
+        "finance:propose-order",
+    ] {
+        assert_eq!(
+            ScopeRegistry.class_of(domain),
+            Some(ScopeClass::Domain),
+            "{domain}"
+        );
     }
     for admin in ["kg:admin", "webui:admin", "identity:admin"] {
-        assert_eq!(ScopeRegistry.class_of(admin), Some(ScopeClass::Admin), "{admin}");
+        assert_eq!(
+            ScopeRegistry.class_of(admin),
+            Some(ScopeClass::Admin),
+            "{admin}"
+        );
     }
 }

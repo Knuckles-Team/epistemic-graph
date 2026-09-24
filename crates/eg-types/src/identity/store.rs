@@ -27,6 +27,7 @@ use super::IdentityRefusal;
 mod access_ops;
 mod auth;
 mod external;
+mod import;
 mod invariants;
 mod mfa;
 mod modes;
@@ -104,9 +105,10 @@ pub struct IdentityStore {
 /// must be re-checked over the whole store before it is kept.
 fn reshapes_authority(op: &IdentityOp) -> bool {
     match op {
-        IdentityOp::Config(_) | IdentityOp::User(_) | IdentityOp::Access(_) | IdentityOp::Idp(_) => {
-            op.is_mutation()
-        }
+        IdentityOp::Config(_)
+        | IdentityOp::User(_)
+        | IdentityOp::Access(_)
+        | IdentityOp::Idp(_) => op.is_mutation(),
         IdentityOp::Credential(op) => {
             matches!(op, super::ops::CredentialOp::ExternalLogin { .. })
         }
@@ -256,7 +258,10 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        if !matches!(op, IdentityOp::Config(super::ops::ConfigOp::Initialize { .. })) {
+        if !matches!(
+            op,
+            IdentityOp::Config(super::ops::ConfigOp::Initialize { .. })
+        ) {
             self.require_initialized()?;
         }
         match op {

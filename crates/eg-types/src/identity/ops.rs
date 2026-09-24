@@ -17,7 +17,7 @@ use super::requests::{
     RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange, UserUpdate,
 };
 use super::requests_admin::{
-    GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, RoleUpsert,
+    GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, RoleUpsert, SqlDump,
     UserRoleChange,
 };
 
@@ -93,6 +93,10 @@ pub enum ConfigOp {
     UpdatePolicy { request: PolicyUpdate },
     Get,
     Audit { request: ListQuery },
+    /// The redacted Postgres dump of the store (backup / migration).
+    ExportSql,
+    /// Merge a dump produced by `export_sql` (restore / migration).
+    ImportSql { request: SqlDump },
 }
 
 /// Principals.
@@ -100,15 +104,29 @@ pub enum ConfigOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum UserOp {
-    Create { request: CreateUserRequest },
-    Update { request: UserUpdate },
-    SetStatus { request: UserStatusChange },
-    Unlock { request: ObjectRef },
-    Get { request: ObjectRef },
-    List { request: ListQuery },
+    Create {
+        request: CreateUserRequest,
+    },
+    Update {
+        request: UserUpdate,
+    },
+    SetStatus {
+        request: UserStatusChange,
+    },
+    Unlock {
+        request: ObjectRef,
+    },
+    Get {
+        request: ObjectRef,
+    },
+    List {
+        request: ListQuery,
+    },
     /// Effective roles, groups and scopes of one principal: what the local
     /// issuer puts in a token.
-    Resolve { request: ObjectRef },
+    Resolve {
+        request: ObjectRef,
+    },
 }
 
 /// Passwords and sign-in.
@@ -116,12 +134,22 @@ pub enum UserOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CredentialOp {
-    SetPassword { request: PasswordSet },
-    ChangePassword { request: PasswordChange },
-    Authenticate { request: AuthenticateRequest },
-    ExternalLogin { request: ExternalLogin },
+    SetPassword {
+        request: PasswordSet,
+    },
+    ChangePassword {
+        request: PasswordChange,
+    },
+    Authenticate {
+        request: AuthenticateRequest,
+    },
+    ExternalLogin {
+        request: ExternalLogin,
+    },
     /// `none` mode only: a session for the bootstrap principal.
-    BootstrapSession { request: SessionTouch },
+    BootstrapSession {
+        request: SessionTouch,
+    },
 }
 
 /// Server-side sessions.
@@ -130,10 +158,18 @@ pub enum CredentialOp {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SessionOp {
     /// Touch a live session and answer its principal's resolution.
-    Resolve { request: SessionTouch },
-    Revoke { request: SessionTouch },
-    RevokeAll { request: ObjectRef },
-    List { request: ObjectRef },
+    Resolve {
+        request: SessionTouch,
+    },
+    Revoke {
+        request: SessionTouch,
+    },
+    RevokeAll {
+        request: ObjectRef,
+    },
+    List {
+        request: ObjectRef,
+    },
 }
 
 /// One-time tokens and API keys.
@@ -239,6 +275,8 @@ impl ConfigOp {
             Self::UpdatePolicy { .. } => meta("update_policy", true, OpAuthority::Admin),
             Self::Get => meta("get_config", false, OpAuthority::Broker),
             Self::Audit { .. } => meta("audit", false, OpAuthority::Read),
+            Self::ExportSql => meta("export_sql", false, OpAuthority::Read),
+            Self::ImportSql { .. } => meta("import_sql", true, OpAuthority::Admin),
         }
     }
 }
@@ -261,14 +299,10 @@ impl CredentialOp {
     fn meta(&self) -> OpMeta {
         match self {
             Self::SetPassword { .. } => meta("set_password", true, OpAuthority::Admin),
-            Self::ChangePassword { .. } => {
-                meta("change_password", true, OpAuthority::SelfService)
-            }
+            Self::ChangePassword { .. } => meta("change_password", true, OpAuthority::SelfService),
             Self::Authenticate { .. } => meta("authenticate", true, OpAuthority::Broker),
             Self::ExternalLogin { .. } => meta("external_login", true, OpAuthority::Broker),
-            Self::BootstrapSession { .. } => {
-                meta("bootstrap_session", true, OpAuthority::Broker)
-            }
+            Self::BootstrapSession { .. } => meta("bootstrap_session", true, OpAuthority::Broker),
         }
     }
 }
@@ -287,12 +321,8 @@ impl SessionOp {
 impl TokenOp {
     fn meta(&self) -> OpMeta {
         match self {
-            Self::IssueOneTime { .. } => {
-                meta("issue_one_time_token", true, OpAuthority::Broker)
-            }
-            Self::RedeemOneTime { .. } => {
-                meta("redeem_one_time_token", true, OpAuthority::Broker)
-            }
+            Self::IssueOneTime { .. } => meta("issue_one_time_token", true, OpAuthority::Broker),
+            Self::RedeemOneTime { .. } => meta("redeem_one_time_token", true, OpAuthority::Broker),
             Self::IssueApiKey { .. } => meta("issue_api_key", true, OpAuthority::Broker),
             Self::VerifyApiKey { .. } => meta("verify_api_key", true, OpAuthority::Broker),
             Self::RevokeApiKey { .. } => meta("revoke_api_key", true, OpAuthority::Admin),
@@ -306,9 +336,7 @@ impl MfaOp {
             Self::EnrollTotp { .. } => meta("enroll_totp", true, OpAuthority::Broker),
             Self::ConfirmTotp { .. } => meta("confirm_totp", true, OpAuthority::Broker),
             Self::VerifyTotp { .. } => meta("verify_totp", true, OpAuthority::Broker),
-            Self::SetRecoveryCodes { .. } => {
-                meta("set_recovery_codes", true, OpAuthority::Broker)
-            }
+            Self::SetRecoveryCodes { .. } => meta("set_recovery_codes", true, OpAuthority::Broker),
             Self::ConsumeRecoveryCode { .. } => {
                 meta("consume_recovery_code", true, OpAuthority::Broker)
             }

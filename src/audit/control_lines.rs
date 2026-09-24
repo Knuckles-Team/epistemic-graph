@@ -91,12 +91,8 @@ fn rbac_elevation_audit_line(method: &Method) -> Option<String> {
 /// secret (every secret field was cleared at the request boundary).
 fn identity_audit_line(method: &Method) -> Option<String> {
     match method {
-        Method::Identity { op, .. } => op
-            .is_mutation()
-            .then(|| format!("IDENTITY|{}", op.name())),
-        Method::RegisterIdentity { agent_id, .. } => {
-            Some(format!("REGISTER_IDENTITY|{agent_id}"))
-        }
+        Method::Identity { op, .. } => op.is_mutation().then(|| format!("IDENTITY|{}", op.name())),
+        Method::RegisterIdentity { agent_id, .. } => Some(format!("REGISTER_IDENTITY|{agent_id}")),
         Method::RbacAdmin { op } => rbac_admin_audit_line(op),
         _ => None,
     }
@@ -108,9 +104,7 @@ fn rbac_admin_audit_line(op: &crate::acl::RbacAdminOp) -> Option<String> {
         RbacAdminOp::AddRole(role) => Some(format!("RBAC_ADMIN|add_role|{}", role.name)),
         RbacAdminOp::RemoveRole(name) => Some(format!("RBAC_ADMIN|remove_role|{name}")),
         RbacAdminOp::AddGrant(grant) => Some(format!("RBAC_ADMIN|add_grant|{}", grant.role)),
-        RbacAdminOp::RemoveGrant(grant) => {
-            Some(format!("RBAC_ADMIN|remove_grant|{}", grant.role))
-        }
+        RbacAdminOp::RemoveGrant(grant) => Some(format!("RBAC_ADMIN|remove_grant|{}", grant.role)),
         RbacAdminOp::List => None,
     }
 }

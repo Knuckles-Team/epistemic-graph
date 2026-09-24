@@ -22,13 +22,13 @@ impl IdentityStore {
         match op {
             MfaOp::EnrollTotp { .. } => self.enroll_totp(stamp, ctx.now_ms),
             MfaOp::ConfirmTotp { .. } => self.confirm_totp(stamp, ctx.now_ms),
-            MfaOp::VerifyTotp { .. } => {
-                Ok(IdentityReply::Authenticate(self.verify_totp(stamp, ctx.now_ms)?))
-            }
+            MfaOp::VerifyTotp { .. } => Ok(IdentityReply::Authenticate(
+                self.verify_totp(stamp, ctx.now_ms)?,
+            )),
             MfaOp::SetRecoveryCodes { .. } => self.set_recovery_codes(stamp, ctx.now_ms),
-            MfaOp::ConsumeRecoveryCode { .. } => {
-                Ok(IdentityReply::Authenticate(self.consume_recovery(stamp, ctx.now_ms)?))
-            }
+            MfaOp::ConsumeRecoveryCode { .. } => Ok(IdentityReply::Authenticate(
+                self.consume_recovery(stamp, ctx.now_ms)?,
+            )),
         }
     }
 
@@ -40,7 +40,10 @@ impl IdentityStore {
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
         let principal = self.session_subject(stamp, now_ms, PendingSession::AllowEnrollment)?;
-        let sealed = stamp.sealed_secret.clone().ok_or(IdentityRefusal::Unstamped)?;
+        let sealed = stamp
+            .sealed_secret
+            .clone()
+            .ok_or(IdentityRefusal::Unstamped)?;
         if self.mfa_enrolled(&principal) {
             return Err(IdentityRefusal::Collision);
         }
@@ -58,7 +61,10 @@ impl IdentityStore {
 
     /// Accept `step` for `principal` once: later than every accepted step.
     fn accept_step(&mut self, principal: &str, step: u64) -> Result<(), IdentityRefusal> {
-        let record = self.totp.get_mut(principal).ok_or(IdentityRefusal::NotFound)?;
+        let record = self
+            .totp
+            .get_mut(principal)
+            .ok_or(IdentityRefusal::NotFound)?;
         if step <= record.last_step {
             return Err(IdentityRefusal::Replay);
         }
@@ -169,7 +175,12 @@ impl IdentityStore {
             })
             .collect();
         self.recovery.insert(principal.clone(), codes);
-        self.audit_event(stamp, now_ms, IdentityEvent::RecoveryCodesSet, Some(&principal));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::RecoveryCodesSet,
+            Some(&principal),
+        );
         Ok(IdentityReply::Done { changed: true })
     }
 
@@ -180,14 +191,11 @@ impl IdentityStore {
     ) -> Result<AuthenticateResult, IdentityRefusal> {
         let (hash, principal) = self.pending_session_principal(stamp, now_ms)?;
         let code_hash = stamp.token_hash(1)?;
-        let code = self
-            .recovery
-            .get_mut(&principal)
-            .and_then(|codes| {
-                codes
-                    .iter_mut()
-                    .find(|code| code.code_hash == code_hash && code.used_at_ms.is_none())
-            });
+        let code = self.recovery.get_mut(&principal).and_then(|codes| {
+            codes
+                .iter_mut()
+                .find(|code| code.code_hash == code_hash && code.used_at_ms.is_none())
+        });
         let Some(code) = code else {
             return Ok(self.second_factor_failed(stamp, &principal, now_ms));
         };

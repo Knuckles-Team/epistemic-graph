@@ -21,8 +21,7 @@ const COST: (u32, u32, u32) = (1024, 1, 1);
 
 fn hasher() -> Result<Argon2<'static>, String> {
     let (memory_kib, passes, lanes) = COST;
-    let params =
-        Params::new(memory_kib, passes, lanes, None).map_err(|error| error.to_string())?;
+    let params = Params::new(memory_kib, passes, lanes, None).map_err(|error| error.to_string())?;
     Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
 }
 
@@ -52,7 +51,11 @@ pub(super) fn verify_password(candidate: &str, stored: Option<&str>) -> bool {
     };
     let target = stored.unwrap_or_else(|| dummy_hash());
     let verified = PasswordHash::new(target)
-        .map(|parsed| hasher.verify_password(candidate.as_bytes(), &parsed).is_ok())
+        .map(|parsed| {
+            hasher
+                .verify_password(candidate.as_bytes(), &parsed)
+                .is_ok()
+        })
         .unwrap_or(false);
     verified && stored.is_some()
 }

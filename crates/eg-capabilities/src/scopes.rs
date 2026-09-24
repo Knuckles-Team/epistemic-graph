@@ -30,7 +30,11 @@ pub struct ScopeEntry {
 }
 
 const fn entry(scope: &'static str, class: ScopeClass, owner: &'static str) -> ScopeEntry {
-    ScopeEntry { scope, class, owner }
+    ScopeEntry {
+        scope,
+        class,
+        owner,
+    }
 }
 
 /// Approver-class scopes and the one built-in group that confers each.
@@ -197,6 +201,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("txn:write", User, "engine"),
     entry("udf:admin", Admin, "engine"),
     entry("udf:exec", User, "engine"),
+    entry("validation:read", User, "engine"),
     entry("viz:render", User, "engine"),
     entry("webui:admin", Admin, "graph-os"),
     entry("webui:maintainer", User, "graph-os"),

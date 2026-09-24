@@ -67,7 +67,9 @@ pub(crate) async fn stamp_identity(
             guard.auth_secret.clone(),
         )
     };
-    store.authorize(op, &derived).map_err(|refusal| refusal.to_string())?;
+    store
+        .authorize(op, &derived)
+        .map_err(|refusal| refusal.to_string())?;
     let mut owned = op.clone();
     let now_ms = super::authoritative_now_ms();
     let derived = tokio::task::spawn_blocking(move || {
@@ -108,6 +110,7 @@ pub(crate) async fn dispatch_identity(
         now_ms,
         &eg_capabilities::scopes::ScopeRegistry,
     );
+    guard.publish_identity_view();
     drop(guard);
     respond(req_id, &op, &stamp, outcome)
 }

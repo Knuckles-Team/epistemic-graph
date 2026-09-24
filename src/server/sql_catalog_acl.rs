@@ -62,6 +62,10 @@ use crate::server::sql_tables;
 // row-level security applied inside the probe.
 mod ann_projection;
 pub(crate) use ann_projection::authorized_read_store_for_query;
+#[cfg(feature = "security")]
+mod identity_view;
+#[cfg(feature = "security")]
+pub(crate) use identity_view::publish as publish_identity_view;
 
 /// The one denial string for EVERY authorization failure in this module —
 /// nonexistent table, unowned/ungranted table, unauthorized grant/revoke/RLS
@@ -1031,6 +1035,8 @@ pub(crate) fn create_owned_table(
     schema: &TableSchema,
     if_not_exists: bool,
 ) -> Result<bool, String> {
+    #[cfg(feature = "security")]
+    identity_view::refuse_reserved_name(&schema.name)?;
     with_source_authority_write(persist_dir, authority, |source| {
         let tenant_store = sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
         let created = tenant_store.create_table(schema, if_not_exists)?;
@@ -2116,6 +2122,9 @@ fn project_read_store(
             projection.store().insert_rows(&name, &col_order, &values)?;
         }
     }
+    // IDM-01: the identity store's redacted relations, for identity readers.
+    #[cfg(feature = "security")]
+    identity_view::add_identity_relations(&projection, authority, persist_dir)?;
     let projection_scope = projection.store().index_scope().to_string();
     for record in property_graphs {
         let definition = eg_query::tables::PropertyGraphDefinition::new(

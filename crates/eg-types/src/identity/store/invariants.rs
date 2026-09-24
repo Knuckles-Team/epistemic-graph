@@ -24,7 +24,10 @@ impl IdentityStore {
     }
 
     /// Every role scope is registered.
-    fn validate_role_scopes(&self, classifier: &dyn ScopeClassifier) -> Result<(), IdentityRefusal> {
+    fn validate_role_scopes(
+        &self,
+        classifier: &dyn ScopeClassifier,
+    ) -> Result<(), IdentityRefusal> {
         let unknown = self
             .roles
             .values()
@@ -51,7 +54,11 @@ impl IdentityStore {
             .scopes
             .iter()
             .filter(|scope| classifier.class_of(scope) == Some(ScopeClass::Approver))
-            .map(|scope| classifier.approver_group_of(scope).ok_or(IdentityRefusal::ClassViolation))
+            .map(|scope| {
+                classifier
+                    .approver_group_of(scope)
+                    .ok_or(IdentityRefusal::ClassViolation)
+            })
             .collect::<Result<_, _>>()?;
         match groups.len() {
             0 => Ok(None),

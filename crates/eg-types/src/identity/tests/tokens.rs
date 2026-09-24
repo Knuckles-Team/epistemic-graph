@@ -2,7 +2,11 @@
 
 use super::*;
 
-fn issue(purpose: TokenPurpose, principal: Option<&str>, hash: &str) -> (IdentityOp, IdentityStamp) {
+fn issue(
+    purpose: TokenPurpose,
+    principal: Option<&str>,
+    hash: &str,
+) -> (IdentityOp, IdentityStamp) {
     let mut stamp = broker();
     stamp.token_hashes = vec![ADMIN_SESSION.to_string(), hash.to_string()];
     let op = IdentityOp::Token(TokenOp::IssueOneTime {
@@ -146,12 +150,16 @@ fn an_api_key_carries_only_scopes_its_owner_holds_and_narrows_with_the_owner() {
     let (op, stamp) = api_key(&alice, "k3", &["kg:read"]);
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
     let (verify, good) = verify_key("k3", "k3-secret");
-    let IdentityReply::Resolution(resolved) = apply_kept(&mut store, &verify, &good, NOW).unwrap() else {
+    let IdentityReply::Resolution(resolved) = apply_kept(&mut store, &verify, &good, NOW).unwrap()
+    else {
         panic!("a key answers a resolution");
     };
     assert_eq!(resolved.scopes, ["kg:read".to_string()].into());
     let (_, wrong) = verify_key("k3", "not-the-secret");
-    assert_eq!(apply_kept(&mut store, &verify, &wrong, NOW), Err(IdentityRefusal::NotFound));
+    assert_eq!(
+        apply_kept(&mut store, &verify, &wrong, NOW),
+        Err(IdentityRefusal::NotFound)
+    );
     let unbind = IdentityOp::Access(AccessOp::ChangeUserRole {
         request: UserRoleChange {
             principal_id: alice.clone(),
@@ -160,10 +168,14 @@ fn an_api_key_carries_only_scopes_its_owner_holds_and_narrows_with_the_owner() {
         },
     });
     apply_kept(&mut store, &unbind, &admin(), NOW).unwrap();
-    let IdentityReply::Resolution(narrowed) = apply_kept(&mut store, &verify, &good, NOW).unwrap() else {
+    let IdentityReply::Resolution(narrowed) = apply_kept(&mut store, &verify, &good, NOW).unwrap()
+    else {
         panic!("a key answers a resolution");
     };
-    assert!(narrowed.scopes.is_empty(), "the owner lost kg:read, so the key did");
+    assert!(
+        narrowed.scopes.is_empty(),
+        "the owner lost kg:read, so the key did"
+    );
 }
 
 #[test]
@@ -174,11 +186,16 @@ fn a_revoked_key_is_refused() {
     let (op, stamp) = api_key(&alice, "k4", &["kg:read"]);
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
     let revoke = IdentityOp::Token(TokenOp::RevokeApiKey {
-        request: ObjectRef { id: "k4".to_string() },
+        request: ObjectRef {
+            id: "k4".to_string(),
+        },
     });
     apply_kept(&mut store, &revoke, &admin(), NOW).unwrap();
     let (verify, good) = verify_key("k4", "k4-secret");
-    assert_eq!(apply_kept(&mut store, &verify, &good, NOW), Err(IdentityRefusal::NotFound));
+    assert_eq!(
+        apply_kept(&mut store, &verify, &good, NOW),
+        Err(IdentityRefusal::NotFound)
+    );
 }
 
 fn keycloak_store(jit: JitPolicy) -> IdentityStore {
@@ -237,17 +254,26 @@ fn an_idp_group_removal_removes_the_membership_at_the_next_sign_in() {
     let (op, stamp) = external("carol", &["elevation-approvers"], "c1");
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
     let carol = "usr:jit-carol";
-    assert!(store.resolve(carol, &TestRegistry).unwrap().scopes.contains("rbac:approve-elevation"));
+    assert!(store
+        .resolve(carol, &TestRegistry)
+        .unwrap()
+        .scopes
+        .contains("rbac:approve-elevation"));
     let (op, stamp) = external("carol", &[], "c2");
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
-    assert!(!store.resolve(carol, &TestRegistry).unwrap().scopes.contains("rbac:approve-elevation"));
+    assert!(!store
+        .resolve(carol, &TestRegistry)
+        .unwrap()
+        .scopes
+        .contains("rbac:approve-elevation"));
 }
 
 #[test]
 fn a_deny_jit_idp_refuses_an_unlinked_subject_and_admits_a_linked_one() {
     let mut store = keycloak_store(JitPolicy::Deny);
     let (op, stamp) = external("dave", &[], "d1");
-    let IdentityReply::Authenticate(refused) = apply_kept(&mut store, &op, &stamp, NOW).unwrap() else {
+    let IdentityReply::Authenticate(refused) = apply_kept(&mut store, &op, &stamp, NOW).unwrap()
+    else {
         panic!("external sign-in answers an authenticate result");
     };
     assert_eq!(refused.outcome, AuthenticateOutcome::Bad);
@@ -284,5 +310,8 @@ fn leaving_external_puts_credentialless_humans_into_pending_reset() {
     apply_kept(&mut store, &back, &admin(), NOW).unwrap();
     let erin = store.resolve("usr:jit-erin", &TestRegistry).unwrap();
     assert_eq!(erin.status, UserStatus::PendingReset);
-    assert!(store.manages("usr:jit-erin"), "the account and its link are kept");
+    assert!(
+        store.manages("usr:jit-erin"),
+        "the account and its link are kept"
+    );
 }

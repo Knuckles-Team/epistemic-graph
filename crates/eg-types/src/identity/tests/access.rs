@@ -52,12 +52,29 @@ fn an_unregistered_scope_cannot_be_put_on_a_role() {
 #[test]
 fn a_service_only_scope_reaches_a_service_and_never_a_human() {
     let mut store = store_in(AuthMode::Local);
-    apply_kept(&mut store, &role("throttler", &["capacity:throttle"]), &admin(), NOW).unwrap();
+    apply_kept(
+        &mut store,
+        &role("throttler", &["capacity:throttle"]),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
     let service = create(&mut store, "graph-os", UserKind::Service).unwrap();
     let human = create(&mut store, "alice", UserKind::Human).unwrap();
-    assert!(apply_kept(&mut store, &bind(&service, "throttler", BindingChange::Add), &admin(), NOW).is_ok());
+    assert!(apply_kept(
+        &mut store,
+        &bind(&service, "throttler", BindingChange::Add),
+        &admin(),
+        NOW
+    )
+    .is_ok());
     assert_eq!(
-        apply_kept(&mut store, &bind(&human, "throttler", BindingChange::Add), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &bind(&human, "throttler", BindingChange::Add),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::ClassViolation)
     );
 }
@@ -68,12 +85,22 @@ fn an_approver_scope_is_held_only_through_its_built_in_group_by_a_human() {
     let human = create(&mut store, "alice", UserKind::Human).unwrap();
     let service = create(&mut store, "svc", UserKind::Service).unwrap();
     assert_eq!(
-        apply_kept(&mut store, &bind(&human, ELEVATION_APPROVER_ROLE, BindingChange::Add), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &bind(&human, ELEVATION_APPROVER_ROLE, BindingChange::Add),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::ClassViolation),
         "never granted directly"
     );
     assert_eq!(
-        apply_kept(&mut store, &join(&service, ELEVATION_APPROVERS_GROUP), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &join(&service, ELEVATION_APPROVERS_GROUP),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::ClassViolation),
         "never held by a service"
     );
@@ -90,7 +117,13 @@ fn an_approver_scope_is_held_only_through_its_built_in_group_by_a_human() {
         Err(IdentityRefusal::ClassViolation),
         "never through another group"
     );
-    apply_kept(&mut store, &join(&human, ELEVATION_APPROVERS_GROUP), &admin(), NOW).unwrap();
+    apply_kept(
+        &mut store,
+        &join(&human, ELEVATION_APPROVERS_GROUP),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
     let resolved = store.resolve(&human, &TestRegistry).unwrap();
     assert!(resolved.scopes.contains("rbac:approve-elevation"));
     assert!(!resolved.scopes.contains("finance:approve-live-order"));
@@ -107,11 +140,19 @@ fn a_built_in_group_keeps_its_roles_and_a_built_in_role_cannot_be_removed() {
             mfa_required: true,
         },
     });
-    assert_eq!(apply_kept(&mut store, &rewire, &admin(), NOW), Err(IdentityRefusal::BuiltIn));
+    assert_eq!(
+        apply_kept(&mut store, &rewire, &admin(), NOW),
+        Err(IdentityRefusal::BuiltIn)
+    );
     let remove = IdentityOp::Access(AccessOp::RemoveRole {
-        request: ObjectRef { id: ADMIN_ROLE.to_string() },
+        request: ObjectRef {
+            id: ADMIN_ROLE.to_string(),
+        },
     });
-    assert_eq!(apply_kept(&mut store, &remove, &admin(), NOW), Err(IdentityRefusal::BuiltIn));
+    assert_eq!(
+        apply_kept(&mut store, &remove, &admin(), NOW),
+        Err(IdentityRefusal::BuiltIn)
+    );
     let require_mfa = IdentityOp::Access(AccessOp::UpsertGroup {
         request: GroupUpsert {
             group_id: ELEVATION_APPROVERS_GROUP.to_string(),
@@ -128,14 +169,31 @@ fn the_projection_is_the_full_rbac_identity_and_follows_every_removal() {
     let mut store = store_in(AuthMode::Local);
     apply_kept(&mut store, &role("reader", &["kg:read"]), &admin(), NOW).unwrap();
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
-    apply_kept(&mut store, &bind(&alice, "reader", BindingChange::Add), &admin(), NOW).unwrap();
+    apply_kept(
+        &mut store,
+        &bind(&alice, "reader", BindingChange::Add),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
     let projection = store.rbac_projection();
     let identity = &projection.identities[&alice];
     assert!(identity.roles.contains(&rbac_role_name("reader")));
-    assert!(projection.grants.iter().any(|grant| grant.role == "idm:reader"));
-    apply_kept(&mut store, &bind(&alice, "reader", BindingChange::Remove), &admin(), NOW).unwrap();
+    assert!(projection
+        .grants
+        .iter()
+        .any(|grant| grant.role == "idm:reader"));
+    apply_kept(
+        &mut store,
+        &bind(&alice, "reader", BindingChange::Remove),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
     let projection = store.rbac_projection();
-    assert!(!projection.identities[&alice].roles.contains(&rbac_role_name("reader")));
+    assert!(!projection.identities[&alice]
+        .roles
+        .contains(&rbac_role_name("reader")));
     let disable = IdentityOp::User(UserOp::SetStatus {
         request: UserStatusChange {
             principal_id: alice.clone(),
@@ -144,8 +202,14 @@ fn the_projection_is_the_full_rbac_identity_and_follows_every_removal() {
     });
     apply_kept(&mut store, &disable, &admin(), NOW).unwrap();
     let projection = store.rbac_projection();
-    assert!(!projection.identities.contains_key(&alice), "an inactive principal holds nothing");
-    assert!(projection.managed.contains(&alice), "but stays owned by the store");
+    assert!(
+        !projection.identities.contains_key(&alice),
+        "an inactive principal holds nothing"
+    );
+    assert!(
+        projection.managed.contains(&alice),
+        "but stays owned by the store"
+    );
 }
 
 #[test]
@@ -164,7 +228,13 @@ fn the_last_active_administrator_cannot_be_taken_out_of_service() {
         Err(IdentityRefusal::PreconditionFailed)
     );
     let second = create(&mut store, "second-admin", UserKind::Human).unwrap();
-    apply_kept(&mut store, &join(&second, ADMINISTRATORS_GROUP), &admin(), NOW).unwrap();
+    apply_kept(
+        &mut store,
+        &join(&second, ADMINISTRATORS_GROUP),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
     assert!(apply_kept(&mut store, &disable(BOOTSTRAP_PRINCIPAL), &admin(), NOW).is_ok());
 }
 
@@ -217,4 +287,65 @@ fn a_privileged_mapping_rule_must_say_so() {
         Err(IdentityRefusal::ClassViolation)
     );
     assert!(apply_kept(&mut store, &idp(true), &admin(), NOW).is_ok());
+}
+
+#[test]
+fn the_sql_relations_carry_no_secret_and_a_dump_restores_the_structure() {
+    let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
+    apply_kept(&mut store, &role("reader", &["kg:read"]), &admin(), NOW).unwrap();
+    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
+    apply_kept(&mut store, &bind(&alice, "reader", BindingChange::Add), &admin(), NOW).unwrap();
+    let text = serde_json::to_string(
+        &store
+            .sql_relations()
+            .iter()
+            .map(|relation| &relation.rows)
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert!(!text.contains("argon2"), "a relation leaked a password hash");
+    assert!(!text.contains(ADMIN_SESSION), "a relation leaked a session id");
+    let export = IdentityOp::Config(ConfigOp::ExportSql);
+    let IdentityReply::Sql(dump) = apply_kept(&mut store, &export, &admin(), NOW).unwrap() else {
+        panic!("export answers SQL");
+    };
+    assert!(dump.contains("CREATE TABLE identity.users"));
+    assert!(!dump.contains("argon2") && !dump.contains("identity.sessions"));
+    let mut restored = store_in(AuthMode::Local);
+    let import = IdentityOp::Config(ConfigOp::ImportSql {
+        request: SqlDump { sql: dump.clone() },
+    });
+    let reader_stamp = IdentityStamp::for_actor(actor("usr:x", &[IDENTITY_READ_SCOPE]));
+    assert_eq!(
+        apply_kept(&mut restored, &import, &reader_stamp, NOW),
+        Err(IdentityRefusal::NotAuthorized),
+        "import is administrator-only"
+    );
+    apply_kept(&mut restored, &import, &admin(), NOW).unwrap();
+    let alice_back = restored.resolve(&alice, &TestRegistry).unwrap();
+    assert!(alice_back.roles.contains("reader"));
+    assert_eq!(alice_back.status, UserStatus::PendingReset, "no credential was carried");
+    assert!(restored.credential_of(&alice).is_none());
+}
+
+#[test]
+fn a_dump_cannot_smuggle_a_forbidden_binding_or_foreign_sql() {
+    let mut store = store_in(AuthMode::Local);
+    let smuggle = "INSERT INTO identity.users (principal_id, username, kind, status, source) VALUES ('usr:svc', 'svc', 'service', 'active', 'local');\n\
+                   INSERT INTO identity.group_members (group_id, principal_id, source) VALUES ('elevation-approvers', 'usr:svc', 'local');\n";
+    let import = |sql: &str| {
+        IdentityOp::Config(ConfigOp::ImportSql {
+            request: SqlDump { sql: sql.to_string() },
+        })
+    };
+    assert_eq!(
+        apply_kept(&mut store, &import(smuggle), &admin(), NOW),
+        Err(IdentityRefusal::ClassViolation)
+    );
+    assert!(!store.manages("usr:svc"), "the whole import was refused");
+    assert_eq!(
+        apply_kept(&mut store, &import("DROP TABLE identity.users;"), &admin(), NOW),
+        Err(IdentityRefusal::InvalidRequest)
+    );
 }

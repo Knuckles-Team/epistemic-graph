@@ -25,9 +25,11 @@ pub(super) struct StampEnv<'a> {
 
 impl StampEnv<'_> {
     fn min_chars(&self) -> u32 {
-        self.store.config().map_or(DEFAULT_PASSWORD_MIN_CHARS, |config| {
-            config.password_min_chars
-        })
+        self.store
+            .config()
+            .map_or(DEFAULT_PASSWORD_MIN_CHARS, |config| {
+                config.password_min_chars
+            })
     }
 }
 
@@ -76,7 +78,9 @@ fn new_password(
     if reused {
         return Err(IdentityRefusal::PasswordReused);
     }
-    secrets::hash_password(&candidate).map(Some).map_err(internal)
+    secrets::hash_password(&candidate)
+        .map(Some)
+        .map_err(internal)
 }
 
 /// The account `(username, email)` and credential of a stored principal.
@@ -84,7 +88,10 @@ fn account_of<'a>(
     env: &StampEnv<'a>,
     principal_id: &str,
 ) -> Result<((&'a str, Option<&'a str>), Option<&'a PasswordCredential>), IdentityRefusal> {
-    let user = env.store.user(principal_id).ok_or(IdentityRefusal::NotFound)?;
+    let user = env
+        .store
+        .user(principal_id)
+        .ok_or(IdentityRefusal::NotFound)?;
     Ok((
         (user.username.as_str(), user.email.as_deref()),
         env.store.credential_of(principal_id),
@@ -108,7 +115,11 @@ fn check_candidate(env: &StampEnv<'_>, principal: Option<&str>, candidate: &str)
 }
 
 /// Derive `stamp` for `op`, clearing every secret in `op`.
-pub(super) fn derive(op: &mut IdentityOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>) -> Derived {
+pub(super) fn derive(
+    op: &mut IdentityOp,
+    stamp: &mut IdentityStamp,
+    env: &StampEnv<'_>,
+) -> Derived {
     match op {
         IdentityOp::Config(op) => derive_config(op, stamp, env),
         IdentityOp::User(op) => derive_user(op, stamp, env),
@@ -125,8 +136,12 @@ fn derive_config(op: &mut ConfigOp, stamp: &mut IdentityStamp, env: &StampEnv<'_
         ConfigOp::Initialize { request } => {
             let username = request.admin_username.clone().unwrap_or_default();
             let name = normalize_username(&username).unwrap_or(username);
-            stamp.password_hash =
-                new_password(&mut request.admin_password, (&name, None), None, env.min_chars())?;
+            stamp.password_hash = new_password(
+                &mut request.admin_password,
+                (&name, None),
+                None,
+                env.min_chars(),
+            )?;
             Ok(())
         }
         ConfigOp::Transition { .. } => {
@@ -200,9 +215,16 @@ fn derive_sign_in(
     let candidate = request.password.take();
     stamp.password_check = Some(check_candidate(env, principal, &candidate));
     stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Issue)?];
-    let account = principal.map(|principal| account_of(env, principal)).transpose()?;
+    let account = principal
+        .map(|principal| account_of(env, principal))
+        .transpose()?;
     let (names, credential) = account.unwrap_or(((&name, None), None));
-    stamp.password_hash = new_password(&mut request.new_password, names, credential, env.min_chars())?;
+    stamp.password_hash = new_password(
+        &mut request.new_password,
+        names,
+        credential,
+        env.min_chars(),
+    )?;
     Ok(())
 }
 
@@ -226,10 +248,17 @@ fn derive_token(op: &mut TokenOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>)
         TokenOp::RedeemOneTime { request } => {
             let token = take_token(&mut request.token, Floor::Lookup)?;
             let principal = env.store.one_time_principal(&token).map(str::to_string);
-            let account = principal.as_deref().map(|p| account_of(env, p)).transpose()?;
+            let account = principal
+                .as_deref()
+                .map(|p| account_of(env, p))
+                .transpose()?;
             if let Some((names, credential)) = account {
-                stamp.password_hash =
-                    new_password(&mut request.new_password, names, credential, env.min_chars())?;
+                stamp.password_hash = new_password(
+                    &mut request.new_password,
+                    names,
+                    credential,
+                    env.min_chars(),
+                )?;
             }
             request.new_password.take();
             stamp.token_hashes = vec![token];
@@ -262,7 +291,8 @@ fn derive_mfa(op: &mut MfaOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>) -> 
             stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Lookup)?];
             let secret = request.secret_base32.take();
             check_totp_secret(&secret)?;
-            stamp.sealed_secret = Some(secrets::seal(secret.as_bytes(), env.service_secret).map_err(internal)?);
+            stamp.sealed_secret =
+                Some(secrets::seal(secret.as_bytes(), env.service_secret).map_err(internal)?);
         }
         MfaOp::ConfirmTotp { request } | MfaOp::VerifyTotp { request } => {
             let session = take_token(&mut request.session_token, Floor::Lookup)?;

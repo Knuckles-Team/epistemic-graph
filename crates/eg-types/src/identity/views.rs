@@ -89,7 +89,8 @@ const HANDLE_CHARS: usize = 12;
 
 impl SessionView {
     pub(crate) fn of(session: &SessionRecord) -> Self {
-        let handle = super::store::digest_hex(b"eg/identity-session-handle/v1\0", &session.session_hash);
+        let handle =
+            super::store::digest_hex(b"eg/identity-session-handle/v1\0", &session.session_hash);
         Self {
             handle: handle[..HANDLE_CHARS].to_string(),
             principal_id: session.principal_id.clone(),
@@ -152,9 +153,13 @@ impl AuthenticateResult {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum IdentityReply {
     /// A write that answers nothing but whether it changed state.
-    Done { changed: bool },
+    Done {
+        changed: bool,
+    },
     Config(IdentityConfig),
-    Principal { principal_id: String },
+    Principal {
+        principal_id: String,
+    },
     User(UserView),
     Users(Vec<UserView>),
     Resolution(PrincipalResolution),
@@ -164,4 +169,6 @@ pub enum IdentityReply {
     Groups(Vec<GroupRecord>),
     Idps(Vec<IdpConfig>),
     Audit(Vec<IdentityAuditEntry>),
+    /// `export_sql`: the dump text.
+    Sql(String),
 }

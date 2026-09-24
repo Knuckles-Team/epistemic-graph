@@ -103,13 +103,20 @@ impl IsolationLayer {
         if self.rbac.identity_store().manages(&identity.agent_id) {
             return Err(STORE_MANAGED.to_string());
         }
-        if identity.roles.iter().any(|role| role.starts_with(RBAC_ROLE_PREFIX)) {
+        if identity
+            .roles
+            .iter()
+            .any(|role| role.starts_with(RBAC_ROLE_PREFIX))
+        {
             return Err(STORE_NAMESPACE.to_string());
         }
         let target = identity.agent_id.clone();
-        self.audited(actor, IdentityEvent::RbacIdentityRegistered, &target, |layer| {
-            layer.try_register_agent_from_request(identity)
-        })
+        self.audited(
+            actor,
+            IdentityEvent::RbacIdentityRegistered,
+            &target,
+            |layer| layer.try_register_agent_from_request(identity),
+        )
     }
 
     /// `RbacAdmin` role/grant writes with their audit entry. The store's
@@ -131,8 +138,11 @@ impl IsolationLayer {
             return Err(STORE_NAMESPACE.to_string());
         }
         let mut changed = true;
-        self.audited(actor, IdentityEvent::RbacPolicyChanged, &target, |layer| {
-            match op {
+        self.audited(
+            actor,
+            IdentityEvent::RbacPolicyChanged,
+            &target,
+            |layer| match op {
                 RbacAdminOp::AddRole(role) => layer.try_add_role(role),
                 RbacAdminOp::RemoveRole(name) => layer.try_remove_role(&name),
                 RbacAdminOp::AddGrant(grant) => layer.try_add_grant(grant),
@@ -141,8 +151,8 @@ impl IsolationLayer {
                     Ok(())
                 }
                 RbacAdminOp::List => Ok(()),
-            }
-        })?;
+            },
+        )?;
         Ok(changed)
     }
 

@@ -109,5 +109,13 @@ pub struct ListQuery {
     pub limit: u32,
 }
 
+/// `import_sql`: an administrator's dump (see `sql_dump`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SqlDump {
+    pub sql: String,
+}
+
 /// Largest page any listing returns.
 pub const MAX_PAGE: u32 = 500;

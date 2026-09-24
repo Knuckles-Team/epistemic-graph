@@ -63,7 +63,11 @@ async fn send_stamped(
     .await
 }
 
-async fn send(state: &Arc<RwLock<ServerState>>, context: VerifiedRequestContext, op: IdentityOp) -> Response {
+async fn send(
+    state: &Arc<RwLock<ServerState>>,
+    context: VerifiedRequestContext,
+    op: IdentityOp,
+) -> Response {
     send_stamped(state, context, op, None).await
 }
 
@@ -117,9 +121,17 @@ async fn a_password_is_hashed_at_the_boundary_and_signs_in() {
     assert!(stored.starts_with("$argon2id$"));
     assert!(!stored.contains(PASSWORD));
     let image = serde_json::to_string(state.read().await.isolation.rbac()).unwrap();
-    assert!(!image.contains(PASSWORD), "no plaintext in the durable image");
+    assert!(
+        !image.contains(PASSWORD),
+        "no plaintext in the durable image"
+    );
     assert!(!image.contains(SESSION));
-    let bad = send(&state, broker(), sign_in("wrong horse battery staple", SESSION)).await;
+    let bad = send(
+        &state,
+        broker(),
+        sign_in("wrong horse battery staple", SESSION),
+    )
+    .await;
     assert_eq!(authenticate_outcome(&bad), AuthenticateOutcome::Bad);
     let good = send(&state, broker(), sign_in(PASSWORD, SESSION)).await;
     assert_eq!(authenticate_outcome(&good), AuthenticateOutcome::Ok);
@@ -129,24 +141,50 @@ async fn a_password_is_hashed_at_the_boundary_and_signs_in() {
 async fn weak_passwords_and_short_tokens_are_refused_at_the_boundary() {
     let state = state();
     let weak = send(&state, broker(), initialize("short")).await;
-    assert!(weak.error.as_deref().unwrap_or("").contains("IDENTITY_WEAK_PASSWORD"));
+    assert!(weak
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .contains("IDENTITY_WEAK_PASSWORD"));
     let ok = send(&state, broker(), initialize(PASSWORD)).await;
     assert!(ok.error.is_none(), "{:?}", ok.error);
     let short = send(&state, broker(), sign_in(PASSWORD, "tiny")).await;
-    assert!(short.error.as_deref().unwrap_or("").contains("IDENTITY_INVALID"));
+    assert!(short
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .contains("IDENTITY_INVALID"));
 }
 
 #[tokio::test]
 async fn identity_authority_is_exact_and_never_implied_by_kg_admin() {
     let state = state();
-    let as_kg_admin = send(&state, context("usr:ops", &["kg:admin"]), initialize(PASSWORD)).await;
+    let as_kg_admin = send(
+        &state,
+        context("usr:ops", &["kg:admin"]),
+        initialize(PASSWORD),
+    )
+    .await;
     assert!(
-        as_kg_admin.error.as_deref().unwrap_or("").contains("IDENTITY_NOT_AUTHORIZED"),
+        as_kg_admin
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("IDENTITY_NOT_AUTHORIZED"),
         "{:?}",
         as_kg_admin.error
     );
-    let wildcard = send(&state, context("usr:ops", &["identity:*"]), initialize(PASSWORD)).await;
-    assert!(wildcard.error.as_deref().unwrap_or("").contains("IDENTITY_NOT_AUTHORIZED"));
+    let wildcard = send(
+        &state,
+        context("usr:ops", &["identity:*"]),
+        initialize(PASSWORD),
+    )
+    .await;
+    assert!(wildcard
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .contains("IDENTITY_NOT_AUTHORIZED"));
     let broker_ok = send(&state, broker(), initialize(PASSWORD)).await;
     assert!(broker_ok.error.is_none());
 }
@@ -168,8 +206,19 @@ async fn a_forged_stamp_in_the_body_is_overwritten() {
         Some(forged_with_hash),
     )
     .await;
-    assert!(response.error.as_deref().unwrap_or("").contains("IDENTITY_NOT_AUTHORIZED"));
-    assert!(state.read().await.isolation.rbac().identity_store().config().is_none());
+    assert!(response
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .contains("IDENTITY_NOT_AUTHORIZED"));
+    assert!(state
+        .read()
+        .await
+        .isolation
+        .rbac()
+        .identity_store()
+        .config()
+        .is_none());
 }
 
 #[tokio::test]
@@ -179,9 +228,14 @@ async fn stamping_clears_every_secret_from_the_op() {
         op: initialize(PASSWORD),
         stamp: None,
     };
-    stamp_identity(&state, &mut method, &broker(), ElevationStampAuthority::External)
-        .await
-        .unwrap();
+    stamp_identity(
+        &state,
+        &mut method,
+        &broker(),
+        ElevationStampAuthority::External,
+    )
+    .await
+    .unwrap();
     let Method::Identity { op, stamp } = method else {
         unreachable!("the method stays an identity op")
     };

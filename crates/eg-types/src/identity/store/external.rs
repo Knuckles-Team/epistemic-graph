@@ -21,7 +21,10 @@ use super::{digest_hex, link_key, ApplyContext, IdentityStore};
 
 /// Whether one rule matches the forwarded claims.
 fn rule_matches(rule: &MappingRule, claims: &BTreeMap<String, Vec<String>>) -> bool {
-    let values = claims.get(&rule.claim_path).map(Vec::as_slice).unwrap_or(&[]);
+    let values = claims
+        .get(&rule.claim_path)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     values.iter().any(|value| match rule.match_kind.as_str() {
         "equals" => value == &rule.value,
         "prefix" => value.starts_with(&rule.value),
@@ -77,7 +80,12 @@ impl IdentityStore {
         if let Some(user) = self.users.get_mut(&principal) {
             user.last_login_at_ms = Some(ctx.now_ms);
         }
-        self.audit_event(stamp, ctx.now_ms, IdentityEvent::LoginSucceeded, Some(&principal));
+        self.audit_event(
+            stamp,
+            ctx.now_ms,
+            IdentityEvent::LoginSucceeded,
+            Some(&principal),
+        );
         let method = format!("idp:{}", idp.idp_id);
         self.open_with_mfa_policy(&principal, &method, request.ip_prefix.clone(), stamp, ctx)
     }
@@ -107,7 +115,10 @@ impl IdentityStore {
 
     /// Link by e-mail only when the IdP asserts it verified that e-mail and
     /// exactly one principal holds it.
-    fn principal_by_verified_email(&self, claims: &BTreeMap<String, Vec<String>>) -> Option<String> {
+    fn principal_by_verified_email(
+        &self,
+        claims: &BTreeMap<String, Vec<String>>,
+    ) -> Option<String> {
         let verified = claims.get("email_verified").is_some_and(|v| v == &["true"]);
         let email = claims.get("email").filter(|v| v.len() == 1)?.first()?;
         let mut owners = self
@@ -137,7 +148,10 @@ impl IdentityStore {
             .and_then(|hint| normalize_username(hint).ok())
             .filter(|name| !self.usernames.contains_key(name));
         let derived = || {
-            let digest = digest_hex(b"eg/identity-jit-username/v1\0", &link_key(&idp.idp_id, &request.subject));
+            let digest = digest_hex(
+                b"eg/identity-jit-username/v1\0",
+                &link_key(&idp.idp_id, &request.subject),
+            );
             format!("{}-{}", idp.idp_id, &digest[..12])
         };
         let username = hinted.unwrap_or_else(derived);
@@ -162,7 +176,12 @@ impl IdentityStore {
             &BTreeSet::new(),
             "local",
         );
-        self.audit_event(stamp, now_ms, IdentityEvent::UserCreated, Some(&principal_id));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::UserCreated,
+            Some(&principal_id),
+        );
         Ok(principal_id)
     }
 
@@ -175,7 +194,8 @@ impl IdentityStore {
         claims: &BTreeMap<String, Vec<String>>,
     ) {
         let (roles, groups) = mapped_targets(idp, claims);
-        self.link_roles.insert(link_key(&idp.idp_id, subject), roles);
+        self.link_roles
+            .insert(link_key(&idp.idp_id, subject), roles);
         for group in self.groups.values_mut() {
             let sourced_here = group.members.get(principal) == Some(&idp.idp_id);
             if sourced_here && !groups.contains(&group.group_id) {
@@ -183,7 +203,9 @@ impl IdentityStore {
             }
             let absent = !group.members.contains_key(principal);
             if absent && groups.contains(&group.group_id) {
-                group.members.insert(principal.to_string(), idp.idp_id.clone());
+                group
+                    .members
+                    .insert(principal.to_string(), idp.idp_id.clone());
             }
         }
     }

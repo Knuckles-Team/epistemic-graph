@@ -547,13 +547,24 @@ pub(super) async fn apply_rbac_admin(
     op: crate::acl::RbacAdminOp,
     actor: &str,
 ) -> Response {
-    use crate::acl::RbacAdminOp;
-    use eg_types::result_contract::security as results;
     let mut s = timed_write(state).await;
     let audit = crate::isolation::AuditActor {
         principal: actor,
         now_ms: authoritative_now_ms(),
     };
+    let response = rbac_admin_response(&mut s, req_id, op, audit);
+    s.publish_identity_view();
+    response
+}
+
+fn rbac_admin_response(
+    s: &mut ServerState,
+    req_id: u64,
+    op: crate::acl::RbacAdminOp,
+    audit: crate::isolation::AuditActor<'_>,
+) -> Response {
+    use crate::acl::RbacAdminOp;
+    use eg_types::result_contract::security as results;
     match op {
         RbacAdminOp::List => {
             let policy = s.isolation.rbac();

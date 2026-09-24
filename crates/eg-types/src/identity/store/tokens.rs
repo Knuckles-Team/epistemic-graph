@@ -12,8 +12,8 @@ use super::super::stamp::IdentityStamp;
 use super::super::text::identifier;
 use super::super::views::IdentityReply;
 use super::super::{
-    IdentityRefusal, MAX_API_KEYS_PER_USER, MAX_API_KEY_LIFETIME_MS,
-    MAX_ONE_TIME_TOKEN_LIFETIME_MS, MAX_ONE_TIME_TOKENS,
+    IdentityRefusal, MAX_API_KEYS_PER_USER, MAX_API_KEY_LIFETIME_MS, MAX_ONE_TIME_TOKENS,
+    MAX_ONE_TIME_TOKEN_LIFETIME_MS,
 };
 use super::{ApplyContext, IdentityStore};
 
@@ -44,10 +44,18 @@ impl IdentityStore {
                 Ok(IdentityReply::Resolution(resolution))
             }
             TokenOp::RevokeApiKey { request } => {
-                let key = self.api_keys.get_mut(&request.id).ok_or(IdentityRefusal::NotFound)?;
+                let key = self
+                    .api_keys
+                    .get_mut(&request.id)
+                    .ok_or(IdentityRefusal::NotFound)?;
                 let changed = key.revoked_at_ms.is_none();
                 key.revoked_at_ms.get_or_insert(ctx.now_ms);
-                self.audit_event(stamp, ctx.now_ms, IdentityEvent::ApiKeyRevoked, Some(&request.id));
+                self.audit_event(
+                    stamp,
+                    ctx.now_ms,
+                    IdentityEvent::ApiKeyRevoked,
+                    Some(&request.id),
+                );
                 Ok(IdentityReply::Done { changed })
             }
         }
@@ -64,7 +72,9 @@ impl IdentityStore {
         let issuer = self.admin_subject(stamp, ctx)?;
         let now_ms = ctx.now_ms;
         let lifetime_ok = (1..=MAX_ONE_TIME_TOKEN_LIFETIME_MS).contains(&request.ttl_ms);
-        if !lifetime_ok || purpose_names_principal(request.purpose) != request.principal_id.is_some() {
+        if !lifetime_ok
+            || purpose_names_principal(request.purpose) != request.principal_id.is_some()
+        {
             return Err(IdentityRefusal::InvalidRequest);
         }
         if let Some(principal) = &request.principal_id {
@@ -90,7 +100,12 @@ impl IdentityStore {
                 created_by: issuer,
             },
         );
-        self.audit_event(stamp, now_ms, IdentityEvent::TokenIssued, request.principal_id.as_deref());
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::TokenIssued,
+            request.principal_id.as_deref(),
+        );
         Ok(IdentityReply::Done { changed: true })
     }
 
@@ -101,10 +116,12 @@ impl IdentityStore {
         purpose: TokenPurpose,
         now_ms: u64,
     ) -> Result<Option<String>, IdentityRefusal> {
-        let token = self.one_time.get_mut(hash).ok_or(IdentityRefusal::TokenSpent)?;
-        let usable = token.purpose == purpose
-            && token.used_at_ms.is_none()
-            && now_ms < token.expires_at_ms;
+        let token = self
+            .one_time
+            .get_mut(hash)
+            .ok_or(IdentityRefusal::TokenSpent)?;
+        let usable =
+            token.purpose == purpose && token.used_at_ms.is_none() && now_ms < token.expires_at_ms;
         if !usable {
             return Err(IdentityRefusal::TokenSpent);
         }
@@ -125,21 +142,39 @@ impl IdentityStore {
                 let new_hash = stamp.new_password_hash()?.to_string();
                 self.store_password(&principal, &new_hash, false, now_ms);
                 self.revoke_principal_sessions(&principal, now_ms, "password_reset");
-                self.audit_event(stamp, now_ms, IdentityEvent::TokenRedeemed, Some(&principal));
-                Ok(IdentityReply::Principal { principal_id: principal })
+                self.audit_event(
+                    stamp,
+                    now_ms,
+                    IdentityEvent::TokenRedeemed,
+                    Some(&principal),
+                );
+                Ok(IdentityReply::Principal {
+                    principal_id: principal,
+                })
             }
             (TokenPurpose::LinkClaim, Some(principal)) => {
-                let link = request.link.as_ref().ok_or(IdentityRefusal::InvalidRequest)?;
+                let link = request
+                    .link
+                    .as_ref()
+                    .ok_or(IdentityRefusal::InvalidRequest)?;
                 self.link(&link.idp_id, &link.subject, &principal, stamp, now_ms)?;
-                Ok(IdentityReply::Principal { principal_id: principal })
+                Ok(IdentityReply::Principal {
+                    principal_id: principal,
+                })
             }
             (TokenPurpose::EmailVerify | TokenPurpose::Invite, principal) => {
-                self.audit_event(stamp, now_ms, IdentityEvent::TokenRedeemed, principal.as_deref());
+                self.audit_event(
+                    stamp,
+                    now_ms,
+                    IdentityEvent::TokenRedeemed,
+                    principal.as_deref(),
+                );
                 Ok(IdentityReply::Done { changed: true })
             }
-            (TokenPurpose::PasswordReset | TokenPurpose::AdminReset | TokenPurpose::LinkClaim, None) => {
-                Err(IdentityRefusal::InvalidRequest)
-            }
+            (
+                TokenPurpose::PasswordReset | TokenPurpose::AdminReset | TokenPurpose::LinkClaim,
+                None,
+            ) => Err(IdentityRefusal::InvalidRequest),
         }
     }
 
@@ -158,7 +193,8 @@ impl IdentityStore {
         if self.api_keys.contains_key(&request.key_id) {
             return Err(IdentityRefusal::Collision);
         }
-        let owned = self.api_key_scopes_allowed(&request.principal_id, &request.scopes, ctx.classifier)?;
+        let owned =
+            self.api_key_scopes_allowed(&request.principal_id, &request.scopes, ctx.classifier)?;
         if !owned {
             return Err(IdentityRefusal::ClassViolation);
         }
@@ -183,7 +219,12 @@ impl IdentityStore {
                 revoked_at_ms: None,
             },
         );
-        self.audit_event(stamp, ctx.now_ms, IdentityEvent::ApiKeyIssued, Some(&request.key_id));
+        self.audit_event(
+            stamp,
+            ctx.now_ms,
+            IdentityEvent::ApiKeyIssued,
+            Some(&request.key_id),
+        );
         Ok(IdentityReply::Done { changed: true })
     }
 
@@ -197,7 +238,9 @@ impl IdentityStore {
         let owner = self.resolve(principal_id, classifier)?;
         Ok(scopes.iter().all(|scope| {
             owner.scopes.contains(scope)
-                && classifier.class_of(scope).is_some_and(|class| class.allows_api_key())
+                && classifier
+                    .class_of(scope)
+                    .is_some_and(|class| class.allows_api_key())
         }))
     }
 
@@ -221,7 +264,11 @@ impl IdentityStore {
         let key_scopes = key.scopes.clone();
         let key = key.clone();
         let mut resolution = self.resolve(&key.principal_id, ctx.classifier)?;
-        resolution.scopes = resolution.scopes.intersection(&key_scopes).cloned().collect();
+        resolution.scopes = resolution
+            .scopes
+            .intersection(&key_scopes)
+            .cloned()
+            .collect();
         resolution.scopes.retain(|scope| {
             ctx.classifier
                 .class_of(scope)

@@ -3,11 +3,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use super::{AccessLevel, AgentIdentity, AgentRole, AuditActor, IdentityStoreError, IsolationLayer};
+use super::{
+    AccessLevel, AgentIdentity, AgentRole, AuditActor, IdentityStoreError, IsolationLayer,
+};
 use crate::acl::{GrantEffect, RbacAction, RbacAdminOp, ResourceSelector, Role};
 use crate::protocol::GraphType;
 use crate::rbac::RbacPolicy;
-use crate::rbac_persist::{IdentityBootstrapState, RbacAuthoritySnapshot, RbacPersistError, RbacPolicyStore};
+use crate::rbac_persist::{
+    IdentityBootstrapState, RbacAuthoritySnapshot, RbacPersistError, RbacPolicyStore,
+};
 use eg_types::identity::*;
 
 const NOW: u64 = 1_800_000_000_000;
@@ -19,10 +23,12 @@ impl ScopeClassifier for Registry {
     fn class_of(&self, scope: &str) -> Option<ScopeClass> {
         match scope {
             "kg:read" | "identity:self" => Some(ScopeClass::User),
-            "kg:admin" | "webui:admin" | "identity:admin" | "identity:read" => Some(ScopeClass::Admin),
-            "rbac:approve-elevation" | "finance:approve-live-order" | "governance:approve-schema-repair" => {
-                Some(ScopeClass::Approver)
+            "kg:admin" | "webui:admin" | "identity:admin" | "identity:read" => {
+                Some(ScopeClass::Admin)
             }
+            "rbac:approve-elevation"
+            | "finance:approve-live-order"
+            | "governance:approve-schema-repair" => Some(ScopeClass::Approver),
             _ => None,
         }
     }
@@ -45,7 +51,11 @@ fn stamp(scope: &str) -> IdentityStamp {
     })
 }
 
-fn apply(layer: &mut IsolationLayer, op: IdentityOp, stamp: &IdentityStamp) -> Result<IdentityReply, IdentityStoreError> {
+fn apply(
+    layer: &mut IsolationLayer,
+    op: IdentityOp,
+    stamp: &IdentityStamp,
+) -> Result<IdentityReply, IdentityStoreError> {
     layer.try_apply_identity(&op, stamp, NOW, &Registry)
 }
 
@@ -95,7 +105,13 @@ fn seeded() -> IsolationLayer {
 }
 
 fn can_read(layer: &IsolationLayer) -> bool {
-    layer.check_access("usr:alice", GRAPH, GraphType::Agent, None, AccessLevel::Read)
+    layer.check_access(
+        "usr:alice",
+        GRAPH,
+        GraphType::Agent,
+        None,
+        AccessLevel::Read,
+    )
 }
 
 fn unbind(change: BindingChange) -> IdentityOp {
@@ -111,12 +127,28 @@ fn unbind(change: BindingChange) -> IdentityOp {
 #[test]
 fn a_store_role_reaches_the_access_chokepoint_and_its_removal_is_atomic() {
     let mut layer = seeded();
-    assert!(can_read(&layer), "the projected idm:reports grant allows the read");
+    assert!(
+        can_read(&layer),
+        "the projected idm:reports grant allows the read"
+    );
     let identity = layer.get_identity("usr:alice").unwrap();
     assert!(identity.roles.contains(&"idm:reports".to_string()));
-    apply(&mut layer, unbind(BindingChange::Remove), &stamp(IDENTITY_ADMIN_SCOPE)).unwrap();
-    assert!(!can_read(&layer), "the RBAC role went with the store binding");
-    apply(&mut layer, unbind(BindingChange::Add), &stamp(IDENTITY_ADMIN_SCOPE)).unwrap();
+    apply(
+        &mut layer,
+        unbind(BindingChange::Remove),
+        &stamp(IDENTITY_ADMIN_SCOPE),
+    )
+    .unwrap();
+    assert!(
+        !can_read(&layer),
+        "the RBAC role went with the store binding"
+    );
+    apply(
+        &mut layer,
+        unbind(BindingChange::Add),
+        &stamp(IDENTITY_ADMIN_SCOPE),
+    )
+    .unwrap();
     assert!(can_read(&layer));
 }
 
@@ -124,8 +156,15 @@ fn a_store_role_reaches_the_access_chokepoint_and_its_removal_is_atomic() {
 fn a_refused_identity_op_changes_neither_the_store_nor_rbac() {
     let mut layer = seeded();
     let before = serde_json::to_string(layer.rbac()).unwrap();
-    let refused = apply(&mut layer, unbind(BindingChange::Remove), &stamp(IDENTITY_READ_SCOPE));
-    assert_eq!(refused, Err(IdentityStoreError::Refused(IdentityRefusal::NotAuthorized)));
+    let refused = apply(
+        &mut layer,
+        unbind(BindingChange::Remove),
+        &stamp(IDENTITY_READ_SCOPE),
+    );
+    assert_eq!(
+        refused,
+        Err(IdentityStoreError::Refused(IdentityRefusal::NotAuthorized))
+    );
     assert_eq!(serde_json::to_string(layer.rbac()).unwrap(), before);
     assert!(can_read(&layer));
 }
@@ -174,8 +213,15 @@ fn register_identity_cannot_overwrite_a_store_principal_and_is_audited_otherwise
         layer.try_register_agent_audited(forged, actor()),
         Err(super::STORE_NAMESPACE.to_string())
     );
-    let audited_before = layer.rbac().identity_store().audit_trail().entries().count();
-    layer.try_register_agent_audited(agent("agent:planner"), actor()).unwrap();
+    let audited_before = layer
+        .rbac()
+        .identity_store()
+        .audit_trail()
+        .entries()
+        .count();
+    layer
+        .try_register_agent_audited(agent("agent:planner"), actor())
+        .unwrap();
     let trail = layer.rbac().identity_store().audit_trail();
     assert_eq!(trail.entries().count(), audited_before + 1);
     let last = trail.entries().last().unwrap();
@@ -187,13 +233,21 @@ fn register_identity_cannot_overwrite_a_store_principal_and_is_audited_otherwise
 #[test]
 fn rbac_admin_cannot_touch_the_store_namespace_and_is_audited_otherwise() {
     let mut layer = seeded();
-    let refused = layer.try_rbac_admin_audited(RbacAdminOp::RemoveRole("idm:reports".to_string()), actor());
+    let refused =
+        layer.try_rbac_admin_audited(RbacAdminOp::RemoveRole("idm:reports".to_string()), actor());
     assert_eq!(refused, Err(super::STORE_NAMESPACE.to_string()));
     assert!(can_read(&layer));
     layer
         .try_rbac_admin_audited(RbacAdminOp::AddRole(Role::new("ops")), actor())
         .unwrap();
-    let last = layer.rbac().identity_store().audit_trail().entries().last().cloned().unwrap();
+    let last = layer
+        .rbac()
+        .identity_store()
+        .audit_trail()
+        .entries()
+        .last()
+        .cloned()
+        .unwrap();
     assert_eq!(last.event, IdentityEvent::RbacPolicyChanged);
     assert_eq!(last.target.as_deref(), Some("ops"));
 }
@@ -203,7 +257,14 @@ struct FailingStore;
 impl RbacPolicyStore for FailingStore {
     fn load(
         &self,
-    ) -> Result<(RbacPolicy, BTreeMap<String, AgentIdentity>, IdentityBootstrapState), RbacPersistError> {
+    ) -> Result<
+        (
+            RbacPolicy,
+            BTreeMap<String, AgentIdentity>,
+            IdentityBootstrapState,
+        ),
+        RbacPersistError,
+    > {
         Err(RbacPersistError::IncompleteState("test store"))
     }
 
@@ -226,13 +287,21 @@ fn a_failed_write_rolls_back_the_store_and_the_projection_together() {
     let mut layer = seeded();
     let before = serde_json::to_string(layer.rbac()).unwrap();
     layer.persist = Some(Arc::new(FailingStore));
-    let outcome = apply(&mut layer, unbind(BindingChange::Remove), &stamp(IDENTITY_ADMIN_SCOPE));
+    let outcome = apply(
+        &mut layer,
+        unbind(BindingChange::Remove),
+        &stamp(IDENTITY_ADMIN_SCOPE),
+    );
     assert!(matches!(outcome, Err(IdentityStoreError::Persist(_))));
     assert_eq!(serde_json::to_string(layer.rbac()).unwrap(), before);
     assert!(can_read(&layer), "neither half of the change was kept");
     let audited = layer.try_rbac_admin_audited(RbacAdminOp::AddRole(Role::new("ops")), actor());
     assert!(audited.is_err());
-    assert_eq!(serde_json::to_string(layer.rbac()).unwrap(), before, "nor its audit entry");
+    assert_eq!(
+        serde_json::to_string(layer.rbac()).unwrap(),
+        before,
+        "nor its audit entry"
+    );
 }
 
 #[test]
@@ -245,7 +314,13 @@ fn a_denial_sample_lands_in_the_trail() {
         reason: "ACCESS_DENIED".to_string(),
     };
     layer.try_record_denials(vec![sample], 2).unwrap();
-    let entries: Vec<_> = layer.rbac().identity_store().audit_trail().entries().cloned().collect();
+    let entries: Vec<_> = layer
+        .rbac()
+        .identity_store()
+        .audit_trail()
+        .entries()
+        .cloned()
+        .collect();
     let denied: Vec<_> = entries
         .iter()
         .filter(|entry| entry.event == IdentityEvent::AccessDenied)

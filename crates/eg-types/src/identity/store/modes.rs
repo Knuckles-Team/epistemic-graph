@@ -26,7 +26,13 @@ use crate::acl::{GrantEffect, RbacAction, ResourceSelector};
 const BUILTIN_ROLES: [(&str, &[&str]); 5] = [
     (
         ADMIN_ROLE,
-        &["kg:admin", "webui:admin", "identity:admin", "identity:read", "identity:self"],
+        &[
+            "kg:admin",
+            "webui:admin",
+            "identity:admin",
+            "identity:read",
+            "identity:self",
+        ],
     ),
     (USER_ROLE, &["kg:read", "identity:self"]),
     (ELEVATION_APPROVER_ROLE, &["rbac:approve-elevation"]),
@@ -67,9 +73,21 @@ impl IdentityStore {
             ConfigOp::Get => Ok(IdentityReply::Config(self.require_initialized()?.clone())),
             ConfigOp::Audit { request } => {
                 let after = request.after.as_deref().map(str::parse::<u64>);
-                let after = after.transpose().map_err(|_| IdentityRefusal::InvalidRequest)?;
+                let after = after
+                    .transpose()
+                    .map_err(|_| IdentityRefusal::InvalidRequest)?;
                 let limit = request.limit.min(MAX_PAGE) as usize;
                 Ok(IdentityReply::Audit(self.audit.page(after, limit)))
+            }
+            ConfigOp::ExportSql => Ok(IdentityReply::Sql(super::super::sql_dump::render_dump(
+                &self.sql_relations(),
+            ))),
+            ConfigOp::ImportSql { request } => {
+                let imported = self.import_dump(&request.sql, ctx.now_ms)?;
+                self.audit_event(stamp, ctx.now_ms, IdentityEvent::Imported, None);
+                Ok(IdentityReply::Done {
+                    changed: imported > 0,
+                })
             }
         }
     }
@@ -89,7 +107,10 @@ impl IdentityStore {
         let username = match request.mode {
             AuthMode::None => "bootstrap".to_string(),
             AuthMode::Local => normalize_username(
-                request.admin_username.as_deref().ok_or(IdentityRefusal::InvalidRequest)?,
+                request
+                    .admin_username
+                    .as_deref()
+                    .ok_or(IdentityRefusal::InvalidRequest)?,
             )?,
             AuthMode::External => return Err(IdentityRefusal::IllegalTransition),
         };
@@ -107,7 +128,12 @@ impl IdentityStore {
             );
         }
         self.config = Some(IdentityConfig::seeded(request.mode, now_ms));
-        self.audit_event(stamp, now_ms, IdentityEvent::Initialized, Some(BOOTSTRAP_PRINCIPAL));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::Initialized,
+            Some(BOOTSTRAP_PRINCIPAL),
+        );
         Ok(IdentityReply::Principal {
             principal_id: BOOTSTRAP_PRINCIPAL.to_string(),
         })

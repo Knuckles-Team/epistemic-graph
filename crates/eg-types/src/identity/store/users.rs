@@ -29,9 +29,16 @@ impl IdentityStore {
             UserOp::Update { request } => self.update_user(request, stamp, ctx.now_ms),
             UserOp::SetStatus { request } => self.set_status(request, stamp, ctx.now_ms),
             UserOp::Unlock { request } => {
-                self.users.get(&request.id).ok_or(IdentityRefusal::NotFound)?;
+                self.users
+                    .get(&request.id)
+                    .ok_or(IdentityRefusal::NotFound)?;
                 self.clear_throttle(&account_key(&request.id));
-                self.audit_event(stamp, ctx.now_ms, IdentityEvent::UserUnlocked, Some(&request.id));
+                self.audit_event(
+                    stamp,
+                    ctx.now_ms,
+                    IdentityEvent::UserUnlocked,
+                    Some(&request.id),
+                );
                 Ok(IdentityReply::Done { changed: true })
             }
             UserOp::Get { request } => Ok(IdentityReply::User(self.view_of(&request.id)?)),
@@ -43,7 +50,10 @@ impl IdentityStore {
     }
 
     pub(crate) fn view_of(&self, principal_id: &str) -> Result<UserView, IdentityRefusal> {
-        let user = self.users.get(principal_id).ok_or(IdentityRefusal::NotFound)?;
+        let user = self
+            .users
+            .get(principal_id)
+            .ok_or(IdentityRefusal::NotFound)?;
         Ok(UserView::of(user, self.facts_of(principal_id)))
     }
 
@@ -52,7 +62,10 @@ impl IdentityStore {
             has_password: self.passwords.contains_key(principal_id),
             totp_enrolled: self.mfa_enrolled(principal_id),
             recovery_codes_left: self.recovery.get(principal_id).map_or(0, |codes| {
-                codes.iter().filter(|code| code.used_at_ms.is_none()).count()
+                codes
+                    .iter()
+                    .filter(|code| code.used_at_ms.is_none())
+                    .count()
             }),
         }
     }
@@ -105,8 +118,14 @@ impl IdentityStore {
         let (principal_id, username) = self.new_principal(request, stamp)?;
         bounded_opt(request.display_name.as_deref(), MAX_NAME_BYTES)?;
         request.email.as_deref().map(email).transpose()?;
-        let unknown_binding = request.roles.iter().any(|role| !self.roles.contains_key(role))
-            || request.groups.iter().any(|group| !self.groups.contains_key(group));
+        let unknown_binding = request
+            .roles
+            .iter()
+            .any(|role| !self.roles.contains_key(role))
+            || request
+                .groups
+                .iter()
+                .any(|group| !self.groups.contains_key(group));
         if unknown_binding {
             return Err(IdentityRefusal::NotFound);
         }
@@ -146,18 +165,31 @@ impl IdentityStore {
                 },
             );
         }
-        self.audit_event(stamp, now_ms, IdentityEvent::UserCreated, Some(&principal_id));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::UserCreated,
+            Some(&principal_id),
+        );
         Ok(IdentityReply::Principal { principal_id })
     }
 
     /// Insert a user, its username index entry and its group memberships.
-    pub(crate) fn insert_user(&mut self, user: UserRecord, groups: &BTreeSet<String>, source: &str) {
+    pub(crate) fn insert_user(
+        &mut self,
+        user: UserRecord,
+        groups: &BTreeSet<String>,
+        source: &str,
+    ) {
         let principal_id = user.principal_id.clone();
-        self.usernames.insert(user.username.clone(), principal_id.clone());
+        self.usernames
+            .insert(user.username.clone(), principal_id.clone());
         self.users.insert(principal_id.clone(), user);
         for group in groups {
             if let Some(group) = self.groups.get_mut(group) {
-                group.members.insert(principal_id.clone(), source.to_string());
+                group
+                    .members
+                    .insert(principal_id.clone(), source.to_string());
             }
         }
     }
@@ -170,8 +202,15 @@ impl IdentityStore {
     ) -> Result<IdentityReply, IdentityRefusal> {
         bounded_opt(request.display_name.as_deref(), MAX_NAME_BYTES)?;
         request.email.as_deref().map(email).transpose()?;
-        let username = request.username.as_deref().map(normalize_username).transpose()?;
-        let current = self.users.get(&request.principal_id).ok_or(IdentityRefusal::NotFound)?;
+        let username = request
+            .username
+            .as_deref()
+            .map(normalize_username)
+            .transpose()?;
+        let current = self
+            .users
+            .get(&request.principal_id)
+            .ok_or(IdentityRefusal::NotFound)?;
         let old_username = current.username.clone();
         if let Some(new) = &username {
             let taken = self
@@ -182,7 +221,8 @@ impl IdentityStore {
                 return Err(IdentityRefusal::Collision);
             }
             self.usernames.remove(&old_username);
-            self.usernames.insert(new.clone(), request.principal_id.clone());
+            self.usernames
+                .insert(new.clone(), request.principal_id.clone());
         }
         let user = self
             .users
@@ -195,7 +235,12 @@ impl IdentityStore {
         if request.email.is_some() {
             user.email = request.email.clone();
         }
-        self.audit_event(stamp, now_ms, IdentityEvent::UserUpdated, Some(&request.principal_id));
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::UserUpdated,
+            Some(&request.principal_id),
+        );
         Ok(IdentityReply::Done { changed: true })
     }
 
@@ -207,7 +252,10 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        let user = self.users.get(&request.principal_id).ok_or(IdentityRefusal::NotFound)?;
+        let user = self
+            .users
+            .get(&request.principal_id)
+            .ok_or(IdentityRefusal::NotFound)?;
         let leaving = user.status.is_active() && !request.status.is_active();
         if leaving && self.is_last_active_admin(&request.principal_id) {
             return Err(IdentityRefusal::PreconditionFailed);

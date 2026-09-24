@@ -392,9 +392,9 @@ const MAX_REGISTER_SERVER_TTL_SECS: u64 = 24 * 60 * 60;
 mod change_envelope;
 mod consensus;
 mod elevation;
+mod graph_pipeline;
 #[cfg(feature = "security")]
 mod identity_store;
-mod graph_pipeline;
 mod request_boundary;
 mod router;
 
