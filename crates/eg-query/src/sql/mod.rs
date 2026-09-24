@@ -118,7 +118,7 @@ pub use classify::{
     DropFunctionPlan, DropTablePlan, DropViewPlan, InsertNode, InsertNodes, InsertNodesSelect,
     InsertSelect, InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite,
     PropertyGraphCatalogAdmission, PropertyGraphDdlOperation, StatementKind, TableWhereEq,
-    UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
+    UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq, READ_ONLY_RELATION_NAMES,
 };
 // Design §9 phase 2 — the `eg_embed(text)` scalar function plus the seam a facade binds
 // the engine's existing `eg_plan::TextEmbedder` through (`eg-query` cannot name that

@@ -73,6 +73,8 @@ class MethodPolicyRow:
 # `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 # `TransitionControlLease` and `GetControlLease`.
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
+# 437 -> 438: UQL-07's `Uql` statement surface.
+# 438 -> 437: EH-434 retired `UnifiedQueryText` (one query-text surface: `Uql`).
 # 437 -> 438: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
 EXPECTED_METHOD_POLICY_ROWS = 438
 EXPECTED_DOMAIN_MODULES = (

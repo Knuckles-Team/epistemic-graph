@@ -189,7 +189,7 @@ pub(super) fn gather_plan_rows(
     // persistent `GraphTextIndex` via `ServedTextIndex`, instead of falling back to a
     // snapshot-derived index rebuilt from `snap` on every mining request; the spatial
     // (L37) and SHACL-shape legs push down the same way.
-    let indexes = crate::server::handlers::query::CoreIndexes::open(&core);
+    let indexes = crate::server::handlers::query::CoreIndexes::open(core);
     // CONCEPT:EG-KG.mining.tsdb-typed-absent — resolve the SAME verified tenant/namespace scope
     // the served `UnifiedQuery` path resolves (`query::served_tsdb_scope`, single source of
     // truth), THEN require the live store to actually be bound before falling through to the

@@ -808,7 +808,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Stal
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnUnifiedQuery`, `contract/schemas/result.query.json#/methods/TxnUnifiedQuery`.
 
-## `TxnUnifiedQueryText`
+## `TxnUql`
 
 | Property | Value |
 |---|---|
@@ -828,6 +828,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnU
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
+| `params` | object | no |  |
 | `text` | string | yes |  |
 | `txn_id` | string | yes |  |
 
@@ -835,9 +836,9 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnU
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | array of array of any | Raw |  |
+| `result` | `UqlResult` | Raw |  |
 
-Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnUnifiedQueryText`, `contract/schemas/result.query.json#/methods/TxnUnifiedQueryText`.
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnUql`, `contract/schemas/result.query.json#/methods/TxnUql`.
 
 ## `UnifiedQuery`
 
@@ -869,7 +870,9 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnU
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/UnifiedQuery`, `contract/schemas/result.query.json#/methods/UnifiedQuery`.
 
-## `UnifiedQueryText`
+## `Uql`
+
+UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only
 
 | Property | Value |
 |---|---|
@@ -889,15 +892,16 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Unif
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
+| `params` | object | no |  |
 | `text` | string | yes |  |
 
 **Result**
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | array of array of any | Raw |  |
+| `result` | `UqlResult` | Raw |  |
 
-Full machine-checked schema: `contract/schemas/method.request.json#/methods/UnifiedQueryText`, `contract/schemas/result.query.json#/methods/UnifiedQueryText`.
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/Uql`, `contract/schemas/result.query.json#/methods/Uql`.
 
 ## `WhatChanged`
 

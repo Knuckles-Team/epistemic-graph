@@ -20,11 +20,13 @@ use crate::server::sql_tables;
 
 /// The authorized read projection for `query`. When `query` is a maintained-ANN
 /// read of a user table, that table holds only its nearest visible rows; every
-/// other table is the full visible copy [`super::authorized_read_store`] makes.
+/// other table is the full visible copy [`super::authorized_read_store`] makes. The
+/// caller's read-only relations (EH-066) join the projection when `query` can see them.
 pub(crate) fn authorized_read_store_for_query(
     authority: &CarrierAuthority,
     persist_dir: &Path,
     query: &str,
+    read_only: Option<&dyn super::ReadOnlyRelations>,
 ) -> Result<AuthorizedReadStore, String> {
     let tenant = sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
     let narrowing = match eg_query::user_ann_decision(query, &tenant)? {
@@ -38,7 +40,8 @@ pub(crate) fn authorized_read_store_for_query(
         }
         UserAnnDecision::NotApplicable => None,
     };
-    project_read_store(authority, persist_dir, narrowing.as_ref())
+    let read_only = read_only.filter(|_| super::wants_read_only_relations(query));
+    project_read_store(authority, persist_dir, narrowing.as_ref(), read_only)
 }
 
 /// The rows of `table` the projection holds: the maintained nearest rows when
@@ -151,7 +154,7 @@ mod tests {
     }
 
     fn projected_ids(dir: &Path, who: &str, sql: &str) -> Vec<String> {
-        let projection = authorized_read_store_for_query(&authority(who), dir, sql).unwrap();
+        let projection = authorized_read_store_for_query(&authority(who), dir, sql, None).unwrap();
         let view = crate::graph::GraphView::default();
         eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
             .unwrap()

@@ -292,8 +292,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         Method::Quantum { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `Sql`/`SqlSourceBatch` above:
         // `eg-capabilities` forces `eg-types/query` on unconditionally (EH-319).
-        Method::UnifiedQueryText { .. }
-        | Method::TxnUnifiedQueryText { .. }
+        Method::Uql { .. }
+        | Method::TxnUql { .. }
         | Method::TxnPlanWriteback { .. }
         | Method::TxnUnifiedQuery { .. }
         | Method::UnifiedQuery { .. }

@@ -431,7 +431,7 @@ async fn execute_cross_modal(
             caller,
         },
         core.clone(),
-        super::super::query::PolicyAwareQuery::UnifiedQueryText {
+        super::super::query::PolicyAwareQuery::CrossModal {
             text: text.to_string(),
         },
         #[cfg(feature = "security")]

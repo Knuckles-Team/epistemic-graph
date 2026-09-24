@@ -124,6 +124,57 @@ where
     M: MethodResult<Body = Vec<(String, Option<f32>)>, Encoding = encoding::Raw>,
     M::Encoding: EncodeRef<M::Body>,
 {
+    let txn = OverlaidTxn {
+        state,
+        req_id,
+        txn_id,
+        read_authority,
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    };
+    match run_unified_overlaid_with(txn, plan, execute_rows).await {
+        Ok(Ok(rows)) => result_response::<M>(req_id, &rows),
+        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+        Err(resp) => resp,
+    }
+}
+
+/// The transaction a read overlays, and who reads it.
+#[cfg(feature = "query")]
+#[derive(Clone, Copy)]
+pub(crate) struct OverlaidTxn<'a> {
+    pub(crate) state: &'a Arc<RwLock<ServerState>>,
+    pub(crate) req_id: u64,
+    pub(crate) txn_id: &'a str,
+    pub(crate) read_authority: Option<&'a GraphReadAuthority>,
+    pub(crate) caller: &'a str,
+    #[cfg(feature = "security")]
+    pub(crate) rls: &'a Arc<crate::isolation::IsolationLayer>,
+}
+
+/// [`run_unified_overlaid`] with a caller-chosen finisher over the fully bound, txn-
+/// overlaid `PlanCtx` — `TxnUnifiedQuery` executes rows; `TxnUql` runs a whole UQL
+/// statement (EH-434: one query-text surface, inside the transaction).
+#[cfg(feature = "query")]
+pub(crate) async fn run_unified_overlaid_with<T, F>(
+    txn: OverlaidTxn<'_>,
+    plan: eg_plan::Plan,
+    finish: F,
+) -> Result<Result<T, String>, Response>
+where
+    T: Send + 'static,
+    F: FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> + Send + 'static,
+{
+    let OverlaidTxn {
+        state,
+        req_id,
+        txn_id,
+        read_authority,
+        caller,
+        #[cfg(feature = "security")]
+        rls,
+    } = txn;
     // Resolve the txn's target core + snapshot its staged write-set/embeddings while
     // holding only the cheap state read + per-txn lock; everything moved into the
     // off-lock closure is OWNED, so no lock is held across the compute.
@@ -131,7 +182,7 @@ where
     // / served-text-index-binding: the committed `SemanticStore`/text index are pushed
     // down via a guard taken INSIDE the off-lock closure below (not cloned here), so
     // `committed_semantic` is no longer materialized eagerly — see the closure.
-    let (mut view, write_set, vectors, core, _tsdb_graph) = match run_unified_overlaid_resolve_txn(
+    let (mut view, write_set, vectors, core, _tsdb_graph) = run_unified_overlaid_resolve_txn(
         state,
         req_id,
         txn_id,
@@ -140,16 +191,10 @@ where
         #[cfg(feature = "security")]
         rls,
     )
-    .await
-    {
-        Ok(resolved) => resolved,
-        Err(resp) => return resp,
-    };
+    .await?;
     #[cfg(feature = "tsdb")]
-    let tsdb_scope = match served_tsdb_scope(&plan, &_tsdb_graph, read_authority) {
-        Ok(scope) => scope,
-        Err(denied) => return Response::err(req_id, denied),
-    };
+    let tsdb_scope = served_tsdb_scope(&plan, &_tsdb_graph, read_authority)
+        .map_err(|denied| Response::err(req_id, denied))?;
     // RECONCILE (CONCEPT:EG-KG.query.native-time-series): the committed tsdb `SeriesStore` for `Op::TsScan`
     // fusion inside the txn, so an in-txn UQL reads COMMITTED series.
     #[cfg(feature = "tsdb")]
@@ -167,10 +212,9 @@ where
     // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
     // resolves only sources the caller (tenant+principal) registered.
     #[cfg(feature = "federation")]
-    let foreign = match served_foreign_leg(state, &plan, read_authority).await {
-        Ok(foreign) => foreign,
-        Err(denied) => return Response::err(req_id, denied),
-    };
+    let foreign = served_foreign_leg(state, &plan, read_authority)
+        .await
+        .map_err(|denied| Response::err(req_id, denied))?;
     // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
@@ -190,8 +234,8 @@ where
     // unchanged.
     #[cfg(feature = "security")]
     rls.filter_view(caller, &mut view);
-    match compute_off_lock(req_id, move || {
-        run_unified_with_staged(
+    compute_off_lock(req_id, move || {
+        run_unified_with_staged_finish(
             plan,
             &view,
             &core,
@@ -205,14 +249,10 @@ where
                 tsdb_graph: tsdb_graph_scope.as_deref(),
                 staged_series: Some(&staged_series),
             },
+            finish,
         )
     })
     .await
-    {
-        Ok(Ok(rows)) => result_response::<M>(req_id, &rows),
-        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
-        Err(resp) => resp,
-    }
 }
 
 /// Replay a txn's staged durable-mutation `write_set` onto a cloned `GraphView` as an
@@ -279,6 +319,30 @@ pub(crate) fn run_unified_with_staged(
     #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    run_unified_with_staged_finish(
+        plan,
+        view,
+        core,
+        staged,
+        #[cfg(feature = "federation")]
+        foreign,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+        execute_rows,
+    )
+}
+
+/// [`run_unified_with_staged`] with a caller-chosen finisher (see [`run_unified_with`]).
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with_staged_finish<T>(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    core: &Arc<GraphCore>,
+    staged: &[(String, Vec<f32>)],
+    #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+) -> Result<T, String> {
     let indexes = CoreIndexes::open(core);
     let served = indexes.served(
         #[cfg(feature = "federation")]
@@ -286,23 +350,25 @@ pub(crate) fn run_unified_with_staged(
     );
     if staged.is_empty() {
         let committed = core.semantic_store.read();
-        return run_unified(
+        return run_unified_with(
             plan,
             view,
             &committed,
             served,
             #[cfg(feature = "tsdb")]
             tsdb_ctx,
+            finish,
         );
     }
     let committed = core.semantic_store.read().clone();
     let semantic = eg_core::compute::semantic::semantic_overlay(committed, staged);
-    run_unified(
+    run_unified_with(
         plan,
         view,
         &semantic,
         served,
         #[cfg(feature = "tsdb")]
         tsdb_ctx,
+        finish,
     )
 }

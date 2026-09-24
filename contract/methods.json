@@ -8825,6 +8825,10 @@
             "dynamic": null,
             "encoding": "Raw"
           },
+          "resolve": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "verify": {
             "dynamic": null,
             "encoding": "Raw"
@@ -14574,8 +14578,8 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
-      "id": "UnifiedQueryText",
-      "note": "",
+      "id": "Uql",
+      "note": "UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only",
       "policy": {
         "audited": false,
         "authz_action": "query:unified",
@@ -14588,7 +14592,7 @@
       "replay_class": "NotReplayable",
       "request_schema": {
         "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/UnifiedQueryText"
+        "schema": "contract/schemas/method.request.json#/methods/Uql"
       },
       "result_schema": {
         "bodies": {
@@ -14598,7 +14602,7 @@
           }
         },
         "kind": "declared",
-        "schema": "contract/schemas/result.query.json#/methods/UnifiedQueryText",
+        "schema": "contract/schemas/result.query.json#/methods/Uql",
         "selected_by": null
       },
       "stability": "stable"
@@ -15282,7 +15286,7 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
-      "id": "TxnUnifiedQueryText",
+      "id": "TxnUql",
       "note": "",
       "policy": {
         "audited": false,
@@ -15296,7 +15300,7 @@
       "replay_class": "NotReplayable",
       "request_schema": {
         "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/TxnUnifiedQueryText"
+        "schema": "contract/schemas/method.request.json#/methods/TxnUql"
       },
       "result_schema": {
         "bodies": {
@@ -15306,7 +15310,7 @@
           }
         },
         "kind": "declared",
-        "schema": "contract/schemas/result.query.json#/methods/TxnUnifiedQueryText",
+        "schema": "contract/schemas/result.query.json#/methods/TxnUql",
         "selected_by": null
       },
       "stability": "stable"

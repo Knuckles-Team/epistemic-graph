@@ -474,7 +474,9 @@ fn owl_explain(
     let sub = canon(sub);
     let sup = canon(sup);
 
-    let tree = cls.explain(&sub, &sup).map(proof_node_to_wire);
+    let tree = cls
+        .explain(&sub, &sup)
+        .map(eg_rdf::owl_wire::proof_node_to_wire);
     Ok(crate::protocol::OwlExplainResult {
         schema_digests: vec![view.schema_sources.composed_digest().to_hex()],
         found: tree.is_some(),
@@ -482,21 +484,6 @@ fn owl_explain(
         consistent: cls.consistent,
         unsatisfiable: cls.unsatisfiable.into_iter().collect(),
     })
-}
-
-/// Recursively project an `eg_rdf::owl::ProofNode` into its wire twin
-/// (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). A plain field-for-field walk — the tree shape is
-/// identical on both sides, this only crosses the eg-rdf → eg-types boundary.
-#[cfg(feature = "owl")]
-fn proof_node_to_wire(node: eg_rdf::owl::ProofNode) -> crate::protocol::ProofNodeWire {
-    crate::protocol::ProofNodeWire {
-        sub: node.sub,
-        sup: node.sup,
-        rule: node.rule,
-        axioms: node.axioms,
-        confidence: node.confidence,
-        premises: node.premises.into_iter().map(proof_node_to_wire).collect(),
-    }
 }
 
 #[cfg(all(test, feature = "owl", feature = "shacl"))]

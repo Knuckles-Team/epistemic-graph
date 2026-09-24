@@ -13,7 +13,7 @@
 //!    a `None` planner is a **no-op** (`Ok(None)`), so a build/deployment that never
 //!    configures a planner still compiles and runs, it just has no NL surface.
 //!  * a `Some(planner)` produces a UQL string that is parsed + executed EXACTLY like a
-//!    hand-written `UnifiedQueryText` — the query language target is UQL (the engine's
+//!    hand-written `Uql` statement — the query language target is UQL (the engine's
 //!    text front-end), so the whole downstream is the audited, deterministic path.
 //!
 //! ## The standalone planner (CONCEPT:EG-KG.query.fence-stripper)
@@ -151,16 +151,15 @@ pub struct UreqNlPlanner {
 #[cfg(feature = "nl-query")]
 impl UreqNlPlanner {
     /// The default system prompt: pin the model to emit exactly one bare UQL query
-    /// (no prose, no fences), targeting the engine's text front-end grammar.
-    pub const DEFAULT_SYSTEM_PROMPT: &'static str = "You translate a natural-language \
-question into ONE Unified Query Language (UQL) query for the epistemic-graph engine. \
-UQL grammar (stages piped with `|>`):\n  MATCH (:Label) [WHERE field OP value]\n  |> \
-TRAVERSE -[:REL]->{min,max}\n  |> RANK BY ~[f0, f1, ...]\n  |> LIMIT n\nOP is one of = \
-!= > >= < <=. Use ONLY labels/fields named in the provided schema hint. Reply with the \
-UQL query ONLY — no explanation, no markdown code fences.";
+    /// (no prose, no fences). GENERATED from the UQL grammar
+    /// (`crate::uql::grammar::nl_system_prompt`) so it can only advertise syntax the
+    /// parser accepts (UQL-10 — it used to promise `!=`/`>=`/`<=` the parser rejected).
+    pub fn default_system_prompt() -> String {
+        crate::uql::grammar::nl_system_prompt()
+    }
 
     /// Build a planner with the default timeouts (5s connect / 30s read), a 1 MiB
-    /// response cap and the [`Self::DEFAULT_SYSTEM_PROMPT`]. `api_key` may be empty for a
+    /// response cap and the [`Self::default_system_prompt`]. `api_key` may be empty for a
     /// local keyless endpoint.
     pub fn new(endpoint: String, model: String, api_key: String) -> Self {
         Self {
@@ -170,7 +169,7 @@ UQL query ONLY — no explanation, no markdown code fences.";
             connect_timeout: std::time::Duration::from_secs(5),
             read_timeout: std::time::Duration::from_secs(30),
             max_response_bytes: 1024 * 1024,
-            system_prompt: Self::DEFAULT_SYSTEM_PROMPT.to_string(),
+            system_prompt: Self::default_system_prompt(),
             headers: Vec::new(),
             tls_ca_path: None,
             oauth2: None,

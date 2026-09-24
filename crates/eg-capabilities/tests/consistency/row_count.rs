@@ -29,6 +29,9 @@
 /// `GetWorkItem`, `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 /// `TransitionControlLease` and `GetControlLease`.
 /// 429 -> 430: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
+/// 430 -> 431: UQL-07's `Uql` statement surface (typed params, EXPLAIN/PROFILE,
+/// LET programs, RETURN channels).
+/// 431 -> 430: EH-434 retired `UnifiedQueryText` (one query-text surface: `Uql`).
 /// 430 -> 431: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;

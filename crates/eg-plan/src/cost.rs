@@ -24,6 +24,7 @@
 //! (ii) the other order's `Rank` IS an index top-k, but must **over-fetch
 //!     ≈ top_k/selectivity** candidates so enough survive the downstream filter.
 
+#[cfg(any(feature = "query", test))]
 use crate::algebra::Op;
 
 #[cfg(feature = "query")]
@@ -147,6 +148,7 @@ impl CostModel {
     /// it is adjacent to, place the narrower first iff `narrower_first`. Pure list surgery —
     /// no cost logic — so both callers agree byte-for-byte on the mechanical rewrite while
     /// each supplies its own cost-derived decision.
+    #[cfg(any(feature = "query", test))]
     pub(crate) fn place_narrower(
         mut plan: Vec<Op>,
         narrower_idx: usize,
@@ -1075,10 +1077,12 @@ impl ModalityCardinality {
         match op {
             // SOURCE: a label selects a fraction of the graph (no per-label catalog).
             Op::Scan { .. } => (n * Self::LABEL_SEL).max(0.0),
+            // SOURCE: every node.
+            Op::ScanAll {} => n,
             // FILTER: input × per-predicate selectivity product.
             Op::Filter { preds } => in_card * self.filter_selectivity(preds),
             // TRAVERSE: degree histogram × path length, deduped, capped at the graph size.
-            Op::Traverse { min, max, .. } => {
+            Op::Traverse { min, max, .. } | Op::Expand { min, max, .. } => {
                 rowcount::traverse_static_rows_out(self, in_card, *min, *max, n)
             }
             // RANK: a rerank preserves the candidate set MINUS rows with no embedding

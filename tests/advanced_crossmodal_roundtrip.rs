@@ -306,27 +306,18 @@ async fn in_txn_text(
     txn: &str,
     text: &str,
 ) -> Vec<String> {
-    let r = Box::pin(dispatch(
-        state,
-        req(
-            id,
-            Method::TxnUnifiedQueryText {
-                txn_id: txn.into(),
-                text: text.into(),
-            },
-        ),
-    ))
-    .await;
-    unified_ids(&r)
+    let method = Method::TxnUql {
+        txn_id: txn.into(),
+        text: text.into(),
+        params: Default::default(),
+    };
+    let r = Box::pin(dispatch(state, req(id, method))).await;
+    test_support::uql_ids(&r)
 }
 
 async fn off_txn_text(state: &Arc<RwLock<ServerState>>, id: u64, text: &str) -> Vec<String> {
-    let r = Box::pin(dispatch(
-        state,
-        req(id, Method::UnifiedQueryText { text: text.into() }),
-    ))
-    .await;
-    unified_ids(&r)
+    let r = Box::pin(dispatch(state, req(id, test_support::uql(text)))).await;
+    test_support::uql_ids(&r)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

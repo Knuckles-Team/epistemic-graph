@@ -44,16 +44,19 @@ pub(super) struct Parser<'a> {
     terminal: Option<Terminal>,
 }
 
+/// A clause parser: its leading keyword has been consumed.
+type ClauseFn<'a> = fn(&mut Parser<'a>) -> Result<(), DecideTextError>;
+
 fn from_word<T: serde::de::DeserializeOwned>(
     word: &str,
     what: &str,
-    at: usize,
+    span: (usize, usize),
 ) -> Result<T, DecideTextError> {
     serde_json::from_value(serde_json::Value::String(word.to_ascii_lowercase())).map_err(|_| {
         DecideTextError::new(
             DecideTextErrorKind::Syntax,
             format!("`{word}` is not a {what}"),
-            at,
+            span,
         )
     })
 }
@@ -77,12 +80,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn at(&self) -> usize {
-        self.toks.get(self.pos).map_or(self.end, |(_, at)| *at)
+    /// The current token's span (end of input past the last token).
+    fn span(&self) -> (usize, usize) {
+        self.toks
+            .get(self.pos)
+            .map_or((self.end, self.end), |(_, span)| *span)
     }
 
     fn err(&self, kind: DecideTextErrorKind, msg: impl Into<String>) -> DecideTextError {
-        DecideTextError::new(kind, msg, self.at())
+        DecideTextError::new(kind, msg, self.span())
     }
 
     fn peek(&self) -> Option<&'a Tok> {
@@ -109,7 +115,9 @@ impl<'a> Parser<'a> {
         if self.eat_kw(kw) {
             return Ok(());
         }
-        Err(self.err(DecideTextErrorKind::Syntax, format!("expected `{kw}`")))
+        Err(self
+            .err(DecideTextErrorKind::Syntax, format!("expected `{kw}`"))
+            .expecting(vec![format!("`{kw}`")]))
     }
 
     fn take(
@@ -140,10 +148,10 @@ impl<'a> Parser<'a> {
     }
 
     fn integer<T: std::str::FromStr>(&mut self) -> Result<T, DecideTextError> {
-        let at = self.at();
+        let span = self.span();
         let word = self.word("an integer")?;
         word.parse().map_err(|_| {
-            DecideTextError::new(DecideTextErrorKind::Syntax, "expected an integer", at)
+            DecideTextError::new(DecideTextErrorKind::Syntax, "expected an integer", span)
         })
     }
 
@@ -164,11 +172,11 @@ impl<'a> Parser<'a> {
         }
         let mut kinds = Vec::new();
         loop {
-            let at = self.at();
+            let span = self.span();
             kinds.push(from_word(
                 &self.word("a component kind")?,
                 "component kind",
-                at,
+                span,
             )?);
             if self.eat(&Tok::RBracket) {
                 return Ok(kinds);
@@ -184,7 +192,10 @@ impl<'a> Parser<'a> {
         self.expect_kw("KINDS")?;
         let kinds = self.kinds()?;
         let classification_under = if self.eat_kw("UNDER") {
-            Some(self.word("an IRI")?)
+            Some(self.take("an `<iri>` or a quoted IRI", |t| match t {
+                Tok::Word(w) | Tok::Str(w) => Some(w.clone()),
+                _ => None,
+            })?)
         } else {
             None
         };
@@ -198,14 +209,14 @@ impl<'a> Parser<'a> {
     fn graph(&mut self) -> Result<Source, DecideTextError> {
         let graph = self.string("a quoted graph name")?;
         self.expect_kw("QUERY")?;
-        let at = self.at();
-        let text = self.take("a `{ uql }` candidate query", |t| match t {
-            Tok::Block(b) => Some(b.clone()),
-            _ => None,
-        })?;
-        let plan = crate::uql::parse(&text).map_err(|e| {
-            DecideTextError::new(DecideTextErrorKind::CandidateQuery, e.to_string(), at)
-        })?;
+        let Some(Tok::Block(text, offset)) = self.peek() else {
+            return Err(self.err(
+                DecideTextErrorKind::Syntax,
+                "expected a `{ uql }` candidate query",
+            ));
+        };
+        self.pos += 1;
+        let plan = crate::uql::parse(text).map_err(|e| candidate_error(e, *offset))?;
         Ok(Source::Graph { graph, plan })
     }
 
@@ -224,27 +235,28 @@ impl<'a> Parser<'a> {
     }
 
     fn bound(&mut self) -> Result<&'a TypedValue, DecideTextError> {
-        let at = self.at();
-        let name = self.take("an `@parameter`", |t| match t {
+        let span = self.span();
+        let name = self.take("a `$parameter`", |t| match t {
             Tok::Param(p) => Some(p.clone()),
             _ => None,
         })?;
         self.params.get(&name).ok_or_else(|| {
             DecideTextError::new(
                 DecideTextErrorKind::UnboundParameter,
-                format!("@{name} is not bound"),
-                at,
+                format!("${name} is not bound"),
+                span,
             )
+            .with_help(format!("bind `{name}` in the request's params"))
         })
     }
 
     fn covers(&mut self) -> Result<(), DecideTextError> {
-        let at = self.at();
+        let span = self.span();
         let TypedValue::IriList(iris) = self.bound()? else {
             return Err(DecideTextError::new(
                 DecideTextErrorKind::ParameterType,
                 "COVERS needs an iri_list",
-                at,
+                span,
             ));
         };
         self.covers = Some(iris.iter().cloned().collect());
@@ -261,13 +273,13 @@ impl<'a> Parser<'a> {
     }
 
     fn decide(&mut self) -> Result<Terminal, DecideTextError> {
-        let at = self.at();
-        let kind: QuestionKind = from_word(&self.word("a question kind")?, "question kind", at)?;
+        let span = self.span();
+        let kind: QuestionKind = from_word(&self.word("a question kind")?, "question kind", span)?;
         self.expect_kw("QUESTION")?;
         let question_id = self.string("a quoted question id")?;
         let safety = if self.eat_kw("SAFETY") {
-            let at = self.at();
-            from_word(&self.word("a safety class")?, "safety class", at)?
+            let span = self.span();
+            from_word(&self.word("a safety class")?, "safety class", span)?
         } else {
             QuestionSafety::Ordinary
         };
@@ -305,6 +317,26 @@ impl<'a> Parser<'a> {
         Ok(Terminal::Assemble { max_components })
     }
 
+    /// Every clause keyword → its parser; checked against [`super::grammar`].
+    pub(super) fn clause_table() -> [(&'static str, ClauseFn<'a>); 4] {
+        [
+            ("COVERS", Self::covers),
+            ("VALIDATE", Self::validate),
+            ("DECIDE", Self::decide_clause),
+            ("ASSEMBLE", Self::assemble_clause),
+        ]
+    }
+
+    fn decide_clause(&mut self) -> Result<(), DecideTextError> {
+        self.terminal = Some(self.decide()?);
+        Ok(())
+    }
+
+    fn assemble_clause(&mut self) -> Result<(), DecideTextError> {
+        self.terminal = Some(self.assemble()?);
+        Ok(())
+    }
+
     fn clause(&mut self) -> Result<(), DecideTextError> {
         if self.terminal.is_some() {
             return Err(self.err(
@@ -312,24 +344,18 @@ impl<'a> Parser<'a> {
                 "DECIDE / ASSEMBLE must be the last clause",
             ));
         }
-        if self.eat_kw("COVERS") {
-            return self.covers();
+        let table = Self::clause_table();
+        if let Some((_, parse)) = table.iter().find(|(kw, _)| self.peek_kw(kw)) {
+            self.pos += 1;
+            return parse(self);
         }
-        if self.eat_kw("VALIDATE") {
-            return self.validate();
-        }
-        if self.eat_kw("DECIDE") {
-            self.terminal = Some(self.decide()?);
-            return Ok(());
-        }
-        if self.eat_kw("ASSEMBLE") {
-            self.terminal = Some(self.assemble()?);
-            return Ok(());
-        }
-        Err(self.err(
-            DecideTextErrorKind::Syntax,
-            "expected COVERS, VALIDATE, DECIDE or ASSEMBLE",
-        ))
+        let expected = super::grammar::clause_keywords()
+            .into_iter()
+            .map(|kw| format!("`{kw}`"))
+            .collect();
+        Err(self
+            .err(DecideTextErrorKind::Syntax, "expected a DecideText clause")
+            .expecting(expected))
     }
 
     fn typed_params(&self) -> Result<BoundedVec<TypedParam, 64>, DecideTextError> {
@@ -417,4 +443,18 @@ impl<'a> Parser<'a> {
             solver: None,
         })))
     }
+}
+
+/// A candidate query that is not valid UQL: its UQL diagnostic, rebased from the block
+/// onto the DecideText source so its caret points at the offending candidate text.
+fn candidate_error(mut e: crate::uql::UqlError, offset: usize) -> DecideTextError {
+    e.at += offset;
+    e.end += offset;
+    DecideTextError::new(
+        DecideTextErrorKind::CandidateQuery,
+        e.msg.clone(),
+        (e.at, e.end),
+    )
+    .expecting(e.expected.clone())
+    .caused_by(e)
 }

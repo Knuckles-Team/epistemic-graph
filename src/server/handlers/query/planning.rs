@@ -83,7 +83,13 @@ pub(crate) fn plan_dependency_set(plan: &eg_plan::Plan) -> Option<eg_core::dep_s
                     dims.push(Dim::Label(label.clone()));
                 }
             }
-            eg_plan::Op::Filter { .. } | eg_plan::Op::Limit { .. } => {}
+            eg_plan::Op::ScanAll {} => {
+                has_source = true;
+                dims.push(Dim::AllNodes);
+            }
+            eg_plan::Op::Filter { .. }
+            | eg_plan::Op::Limit { .. }
+            | eg_plan::Op::Project { .. } => {}
             // Any op reading state outside the dependency clock's model ⇒ coarse fallback.
             _ => return None,
         }
@@ -138,6 +144,18 @@ pub(crate) fn plan_needs_foreign(ops: &[eg_plan::Op]) -> bool {
             matches!(**source, eg_types::wire::ForeignSourceSpec::Named { .. })
         }
         eg_plan::Op::FuseRrf { branches, .. } => branches.iter().any(|b| plan_needs_foreign(b)),
+        _ => false,
+    })
+}
+
+/// Does `ops` read the decision log — a `DECISIONS` source (EH-066), at the top level
+/// or inside an `Op::FuseRrf` branch? Only then is the caller's log bound to the plan.
+#[cfg(all(feature = "query", feature = "decide"))]
+pub(crate) fn plan_needs_decisions(ops: &[eg_plan::Op]) -> bool {
+    ops.iter().any(|op| match op {
+        eg_plan::Op::DecisionScan { .. } => true,
+        #[cfg(feature = "text")]
+        eg_plan::Op::FuseRrf { branches, .. } => branches.iter().any(|b| plan_needs_decisions(b)),
         _ => false,
     })
 }
@@ -311,6 +329,44 @@ pub(crate) fn run_unified(
     served: ServedIndexes<'_>,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    run_unified_with(
+        plan,
+        view,
+        semantic,
+        served,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+        execute_rows,
+    )
+}
+
+/// The plain row finisher: execute and project `[id, score|nil]`.
+#[cfg(feature = "query")]
+pub(crate) fn execute_rows(
+    plan: &eg_plan::Plan,
+    ctx: &eg_plan::PlanCtx,
+) -> Result<Vec<(String, Option<f32>)>, String> {
+    let result = eg_plan::execute(plan, ctx)?;
+    Ok(result
+        .rows()
+        .iter()
+        .map(|r| (r.id.clone(), r.score))
+        .collect())
+}
+
+/// [`run_unified`]'s leg binding with a caller-chosen `finish` over the fully bound
+/// `PlanCtx` — `UnifiedQuery` executes and projects rows; `Method::Uql` runs a whole
+/// statement (EXPLAIN/PROFILE/channels/DAG) over the SAME bindings (UQL-07/08/09).
+/// `plan` decides which legs are bound (every op of the statement).
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with<T>(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+    served: ServedIndexes<'_>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+) -> Result<T, String> {
     #[cfg(feature = "tsdb")]
     let TsdbLegBind {
         tsdb,
@@ -335,7 +391,7 @@ pub(crate) fn run_unified(
     let ops = plan.ops;
 
     // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 lexical search surface into the
-    // served `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries
+    // served `PlanCtx` so a served `UnifiedQuery`/`Uql` whose plan carries
     // `Op::RankText` or an `Op::FuseRrf` text branch gets REAL lexical scores (it
     // previously always rebuilt a throwaway index from the queried snapshot on EVERY
     // request — the EG-P1-4 gap). Preference order:
@@ -408,12 +464,7 @@ pub(crate) fn run_unified(
         Some(shapes) => ctx.with_shape_source(shapes),
         None => ctx,
     };
-    let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
-    Ok(result
-        .rows()
-        .iter()
-        .map(|r| (r.id.clone(), r.score))
-        .collect())
+    finish(&eg_plan::Plan::new(ops), &ctx)
 }
 
 /// The `Op::SpatialScan` leg-binding of [`run_unified`] (CONCEPT:EG-KG.storage.incremental-spatial, L37): bind a
@@ -522,6 +573,9 @@ pub(crate) struct ServedPlanLegs {
     pub(crate) tsdb_scope: Option<(String, String)>,
     #[cfg(feature = "federation")]
     pub(crate) foreign: Option<crate::server::foreign_catalog::OwnedForeignRegistry>,
+    /// EH-066 — the caller's visible decision log, bound when the plan reads it.
+    #[cfg(feature = "decide")]
+    pub(crate) decisions: Option<Arc<dyn eg_plan::exec::DecisionSource>>,
 }
 
 #[cfg(feature = "query")]
@@ -535,16 +589,28 @@ impl ServedPlanLegs {
     ) -> Result<Self, String> {
         #[cfg(not(feature = "tsdb"))]
         let _ = graph_name;
-        #[cfg(not(feature = "federation"))]
+        #[cfg(not(any(feature = "federation", feature = "decide")))]
         let _ = state;
-        #[cfg(not(any(feature = "tsdb", feature = "federation")))]
+        #[cfg(not(any(feature = "tsdb", feature = "federation", feature = "decide")))]
         let _ = (read_authority, plan);
         Ok(Self {
             #[cfg(feature = "tsdb")]
             tsdb_scope: served_tsdb_scope(plan, graph_name, read_authority)?,
             #[cfg(feature = "federation")]
             foreign: served_foreign_leg(state, plan, read_authority).await?,
+            #[cfg(feature = "decide")]
+            decisions: served_decision_leg(state, plan, read_authority).await?,
         })
+    }
+
+    /// Whether the plan's answer may be cached: not when a leg reads state outside the
+    /// graph version (the decision log changes without a graph write).
+    #[cfg(feature = "result-cache")]
+    pub(crate) fn cacheable(&self) -> bool {
+        #[cfg(feature = "decide")]
+        return self.decisions.is_none();
+        #[cfg(not(feature = "decide"))]
+        true
     }
 
     /// Append the tenant-specific parts of these legs to a result-cache key payload
@@ -565,6 +631,27 @@ impl ServedPlanLegs {
         #[cfg(not(any(feature = "tsdb", feature = "federation")))]
         let _ = payload;
     }
+}
+
+/// The caller's visible decision log for a plan with a `DECISIONS` source (EH-066),
+/// derived from the verified carrier only; `None` for a plan that does not read it.
+#[cfg(all(feature = "query", feature = "decide"))]
+async fn served_decision_leg(
+    state: &Arc<RwLock<ServerState>>,
+    plan: &eg_plan::Plan,
+    read_authority: Option<&GraphReadAuthority>,
+) -> Result<Option<Arc<dyn eg_plan::exec::DecisionSource>>, String> {
+    if !plan_needs_decisions(&plan.ops) {
+        return Ok(None);
+    }
+    let Some(carrier) = read_authority.and_then(GraphReadAuthority::carrier) else {
+        crate::metrics::access_denied();
+        return Err("ACCESS_DENIED: DECISIONS requires a verified tenant carrier".to_string());
+    };
+    crate::server::handlers::decide::decision_source(state, carrier)
+        .await
+        .map(Some)
+        .ok_or_else(|| "DECISIONS: the decision log is unavailable on this server".to_string())
 }
 
 /// Parse UQL `text` into the `wire::Plan` every UQL front-end runs; a parse error is
@@ -589,7 +676,7 @@ impl QueryHandlerCtx<'_> {
 }
 
 /// Resolve the tsdb/text/geo/federation legs and run `plan` off-lock via
-/// `run_unified`, exactly as `UnifiedQuery`/`UnifiedQueryText`/`NlQuery` already
+/// `run_unified`, exactly as `UnifiedQuery`/`Uql`/`NlQuery` already
 /// did inline — pure extract-method out of those three arms' bodies (identical
 /// duplicated code in each), no behaviour change. Returns `compute_off_lock`'s
 /// raw nested result unchanged; callers keep doing their own
@@ -604,13 +691,33 @@ pub(crate) async fn run_unified_off_lock(
     plan: eg_plan::Plan,
     legs: ServedPlanLegs,
 ) -> UnifiedRunOutcome {
+    run_unified_off_lock_with(state, req_id, core, snap, plan, legs, execute_rows).await
+}
+
+/// [`run_unified_off_lock`] with a caller-chosen finisher (see [`run_unified_with`]).
+#[cfg(feature = "query")]
+pub(crate) async fn run_unified_off_lock_with<T, F>(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    snap: Arc<crate::graph::GraphView>,
+    plan: eg_plan::Plan,
+    legs: ServedPlanLegs,
+    finish: F,
+) -> Result<Result<T, String>, Response>
+where
+    T: Send + 'static,
+    F: FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> + Send + 'static,
+{
     let core_for_ctx = core.clone();
-    #[cfg(feature = "tsdb")]
-    let tsdb_scope = legs.tsdb_scope;
-    #[cfg(feature = "federation")]
-    let foreign = legs.foreign;
-    #[cfg(not(any(feature = "tsdb", feature = "federation")))]
-    let ServedPlanLegs {} = legs;
+    let ServedPlanLegs {
+        #[cfg(feature = "tsdb")]
+        tsdb_scope,
+        #[cfg(feature = "federation")]
+        foreign,
+        #[cfg(feature = "decide")]
+        decisions,
+    } = legs;
     #[cfg(feature = "tsdb")]
     let tsdb = if tsdb_scope.is_some() {
         state.read().await.tsdb_store.clone()
@@ -625,7 +732,9 @@ pub(crate) async fn run_unified_off_lock(
     #[cfg(not(feature = "tsdb"))]
     let _ = state;
     compute_off_lock(req_id, move || {
-        run_unified_with_staged(
+        #[cfg(feature = "decide")]
+        let finish = with_decision_log(decisions, finish);
+        run_unified_with_staged_finish(
             plan,
             &snap,
             &core_for_ctx,
@@ -640,16 +749,29 @@ pub(crate) async fn run_unified_off_lock(
                 // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                 staged_series: None,
             },
+            finish,
         )
     })
     .await
+}
+
+/// Wrap `finish` so it runs over a ctx with the caller's decision log bound (EH-066).
+#[cfg(all(feature = "query", feature = "decide"))]
+fn with_decision_log<T>(
+    log: Option<Arc<dyn eg_plan::exec::DecisionSource>>,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+) -> impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> {
+    move |plan, ctx| match log.as_deref() {
+        Some(log) => finish(plan, &ctx.clone().with_decisions(log)),
+        None => finish(plan, ctx),
+    }
 }
 
 /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — served-path proof that
 /// `run_unified` (not just `eg-plan`'s own internal executor, already proven by
 /// `crates/eg-plan/src/tensor_tests.rs`) now binds a tensor store: an
 /// `Op::TensorScan` + `Op::TensorOp` plan run through the SAME entry point every
-/// `UnifiedQuery`/`UnifiedQueryText` request uses now executes and returns rows
+/// `UnifiedQuery`/`Uql` request uses now executes and returns rows
 /// instead of the "TensorOp requires a bound tensor store" error `run_unified`
 /// deterministically returned before the `.with_tensor_store(...)` binding was
 /// added.

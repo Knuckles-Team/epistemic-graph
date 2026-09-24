@@ -1,3 +1,5 @@
+#[cfg(feature = "query")]
+use super::uql_statement::handle_uql;
 use super::*;
 use crate::server::handlers::TryHandleContext;
 
@@ -87,7 +89,7 @@ async fn try_handle_inner(
 fn is_sql_query_method(method: &Method) -> bool {
     matches!(
         method,
-        Method::Sql { .. } | Method::UnifiedQuery { .. } | Method::UnifiedQueryText { .. }
+        Method::Sql { .. } | Method::UnifiedQuery { .. } | Method::Uql { .. }
     )
 }
 
@@ -99,7 +101,7 @@ async fn dispatch_sql_query(ctx: &QueryHandlerCtx<'_>, method: Method) -> Result
             params_msgpack,
         } => handle_sql(ctx, query, params_msgpack).await,
         Method::UnifiedQuery { plan } => handle_unified_query(ctx, plan).await,
-        Method::UnifiedQueryText { text } => handle_unified_query_text(ctx, text).await,
+        Method::Uql { text, params } => handle_uql(ctx, text, params).await,
         other => Err(other),
     }
 }
@@ -243,7 +245,7 @@ async fn dispatch_evidence_causal_method(
 fn is_txn_query_method(method: &Method) -> bool {
     matches!(
         method,
-        Method::TxnUnifiedQuery { .. } | Method::TxnUnifiedQueryText { .. }
+        Method::TxnUnifiedQuery { .. } | Method::TxnUql { .. }
     )
 }
 
@@ -266,9 +268,11 @@ async fn dispatch_txn_query_method(
             )
             .await)
         }
-        Method::TxnUnifiedQueryText { txn_id, text } => {
-            handle_txn_unified_query_text(ctx, txn_id, text).await
-        }
+        Method::TxnUql {
+            txn_id,
+            text,
+            params,
+        } => handle_txn_uql(ctx, txn_id, text, params).await,
         other => Err(other),
     }
 }
@@ -307,9 +311,8 @@ pub(in crate::server) enum PolicyAwareQuery {
         query: String,
         params_msgpack: Vec<u8>,
     },
-    UnifiedQueryText {
-        text: String,
-    },
+    /// One UQL pipeline answered as `[id, score|nil]` rows (the `cross_modal` family).
+    CrossModal { text: String },
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
@@ -389,13 +392,13 @@ async fn try_handle_with_policy_inner(
             query,
             params_msgpack,
         } => handle_sql_with_lease(&lease_ctx, query, params_msgpack).await,
-        PolicyAwareQuery::UnifiedQueryText { text } => {
-            handle_unified_query_text_with_lease(&lease_ctx, text).await
+        PolicyAwareQuery::CrossModal { text } => {
+            handle_cross_modal_with_lease(&lease_ctx, text).await
         }
     }
 }
 
-/// The fields `handle_sql_with_lease`/`handle_unified_query_text_with_lease`
+/// The fields `handle_sql_with_lease`/`handle_cross_modal_with_lease`
 /// need beyond their own per-query payload, bundled so each stays under the
 /// clippy argument-count ceiling — the same `QueryHandlerCtx`/
 /// `FamilyExecutionCtx` bundling idiom this file and `families.rs` already
@@ -483,6 +486,7 @@ async fn handle_sql_with_lease(
     })?;
     let (snap, _graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
     Ok(super::sql_read::catalog_sql_response(
+        state,
         req_id,
         snap,
         authority.clone(),
@@ -493,7 +497,7 @@ async fn handle_sql_with_lease(
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
-async fn handle_unified_query_text_with_lease(
+async fn handle_cross_modal_with_lease(
     ctx: &LeaseQueryCtx<'_>,
     text: String,
 ) -> Result<Response, String> {
@@ -510,7 +514,7 @@ async fn handle_unified_query_text_with_lease(
     let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await?;
     let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
     let resp = match run_unified_off_lock(state, req_id, core, snap, plan, legs).await {
-        Ok(Ok(rows)) => result_response::<query_results::UnifiedQueryText>(req_id, &rows),
+        Ok(Ok(rows)) => result_response::<query_results::UnifiedQuery>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };

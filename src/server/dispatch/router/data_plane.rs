@@ -735,7 +735,7 @@ pub(super) async fn dispatch_method_scoped_graph_methods(
         // (the `/nl` HTTP facade path has no request envelope), so route to the method's
         // `graph`, falling back to the request envelope's graph when it is empty. The
         // handler (behind `nl-query`) turns NL→UQL and runs the deterministic
-        // `UnifiedQueryText` pipeline; a build without `nl-query` reaches the graph_ops
+        // UQL pipeline; a build without `nl-query` reaches the graph_ops
         // "not available" catch-all like any other feature-off method.
         Method::NlQuery { text, graph } => {
             dispatch_boxed(async {

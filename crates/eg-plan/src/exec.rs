@@ -26,17 +26,31 @@ use crate::algebra::{Op, Plan, Pred};
 use crate::rowset::RowSet;
 use eg_types::wire::TimeAxis;
 
+// EH-066 — the `DECISIONS` source over the caller's visible decision log.
+mod decisions;
+// The OWL membership closure behind `REASON` (and its `WITH PROOF` explanation, EH-448).
+#[cfg(feature = "owl")]
+pub(crate) mod reason;
+pub use decisions::DecisionSource;
 pub(crate) mod dispatch;
+mod expand;
+mod pred_sql;
 pub(crate) use dispatch::apply;
+pub(crate) use pred_sql::{sql_literal, where_clause};
 
 /// Everything an operator might touch, gathered from ONE consistent snapshot. In a
 /// handler this is exactly what is already available off-lock: the `GraphView`
 /// (topology + property blobs) and a `SemanticStore` clone, both taken at one
 /// `GraphCore::version()` — so the cross-modal read is snapshot-isolated for free
-/// (CONCEPT:EG-KG.txn.multi-op-occ-acid).
+/// (CONCEPT:EG-KG.txn.multi-op-occ-acid). `Clone` so a served path can bind one more
+/// per-request source (the decision log, EH-066) onto an already-bound context.
+#[derive(Clone)]
 pub struct PlanCtx<'a> {
     pub view: &'a GraphView,
     pub semantic: &'a SemanticStore,
+    /// Resource bounds (UQL-09): result rows and per-traversal visits. Defaults to
+    /// [`crate::budget::Budget::default`]; a server binds its own via [`Self::with_budget`].
+    pub budget: crate::budget::Budget,
     /// The lexical BM25 search surface for the `RankText` / `FuseRrf` ops
     /// (CONCEPT:AU-KG.query.text-spatial-time / CONCEPT:EG-KG.query.served-text-index-binding). `None` when no text
     /// index is configured — a `RankText` then yields no hits (the plan degrades,
@@ -116,6 +130,9 @@ pub struct PlanCtx<'a> {
     /// with the operator itself.
     #[cfg(feature = "owl")]
     pub shape_source: Option<&'a dyn ShapeSource>,
+    /// The caller's visible decision log for a `DECISIONS` source (EH-066); `None` makes
+    /// that source a typed error. Bound per request by the served path.
+    pub decisions: Option<&'a dyn DecisionSource>,
     /// CONCEPT:EG-KG.query.reason-decay-in-plan — the wall-clock `(now, default_half_life)`
     /// that makes an `Op::Reason` compute TIME-DECAYED OWL confidence IN-PLAN, so a single
     /// fused plan can BOTH bi-temporal `AsOf`-reselect liveness AND Ebbinghaus-decay-reweight
@@ -347,6 +364,7 @@ impl<'a> PlanCtx<'a> {
         Self {
             view,
             semantic,
+            budget: crate::budget::Budget::default(),
             #[cfg(feature = "text")]
             text: None,
             #[cfg(feature = "wasm-udf")]
@@ -368,11 +386,18 @@ impl<'a> PlanCtx<'a> {
             decay: None,
             #[cfg(feature = "owl")]
             shape_source: None,
+            decisions: None,
             #[cfg(feature = "epistemic")]
             belief_policy: None,
             #[cfg(feature = "geo")]
             spatial: None,
         }
+    }
+
+    /// Bind the execution budget (UQL-09) — result-row and traversal bounds.
+    pub fn with_budget(mut self, budget: crate::budget::Budget) -> Self {
+        self.budget = budget;
+        self
     }
 
     /// Attach a server-side text→vector [`TextEmbedder`] so an `Op::RankEmbed` (the UQL
@@ -409,6 +434,12 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "owl")]
     pub fn with_shape_source(mut self, shapes: &'a dyn ShapeSource) -> Self {
         self.shape_source = Some(shapes);
+        self
+    }
+
+    /// Attach the caller's visible decision log for a `DECISIONS` source (EH-066).
+    pub fn with_decisions(mut self, decisions: &'a dyn DecisionSource) -> Self {
+        self.decisions = Some(decisions);
         self
     }
 
@@ -516,7 +547,9 @@ impl<'a> PlanCtx<'a> {
 ///     feature is built and the environment asks for it.
 pub fn execute(plan: &Plan, ctx: &PlanCtx) -> Result<RowSet, String> {
     let optimized = plan_optimize(plan.clone(), ctx);
-    crate::runtime::execute_ops(&optimized.ops, ctx)
+    let rows = crate::runtime::execute_ops(&optimized.ops, ctx)?;
+    ctx.budget.check_result(rows.len())?;
+    Ok(rows)
 }
 
 /// The logical-plan OPTIMIZATION seam (CONCEPT:EG-KG.query.plan-optimize-seam) — the single
@@ -709,9 +742,16 @@ impl PlanExt for Plan {
 /// topology for `min..=max` hops of relationship `rel`, seeded by the current candidate ids.
 /// The behavior-identical extraction of the `Op::Traverse` arm so [`apply`] is a thin
 /// dispatch table (Lane 0 de-conflict); the BFS itself lives in [`bfs_reached`].
-fn traverse_op(ctx: &PlanCtx, rel: &str, min: usize, max: usize, input: RowSet) -> RowSet {
+fn traverse_op(
+    ctx: &PlanCtx,
+    rel: &str,
+    min: usize,
+    max: usize,
+    input: RowSet,
+) -> Result<RowSet, String> {
     let reached = bfs_reached(ctx.view, &input.ids(), rel, min, max);
-    RowSet::from_ids(reached)
+    ctx.budget.check_traversal(reached.len())?;
+    Ok(RowSet::from_ids(reached))
 }
 
 /// RANK (vector, CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) — hybrid metadata pre-filter.
@@ -975,12 +1015,8 @@ fn reason_op(
 }
 
 /// SOURCE (OWL): the individuals the native OWL 2 reasoner INFERS to be members of
-/// `target_class` (CONCEPT:EG-KG.ontology.concept-12). Parses the `ontology` Turtle (or, when empty,
-/// the axioms already present in the graph view's blobs — they round-trip as RDF),
-/// runs EL⁺ classification, reads the graph's asserted instance types, and projects
-/// every (possibly only-inferred) member of `target_class` into a `RowSet`. These are
-/// ids the property-graph stored NO explicit `target_class` type edge for, yet they
-/// then flow — like any RowSet — into a downstream `Traverse`/`Rank`/`Filter`/`Limit`.
+/// `target_class` (CONCEPT:EG-KG.ontology.concept-12), confidence-scored — see
+/// [`reason::ReasonMembership`], which `WITH PROOF` reuses to explain each membership.
 #[cfg(feature = "owl")]
 fn reason_source(
     view: &GraphView,
@@ -988,44 +1024,7 @@ fn reason_source(
     target_class: &str,
     ontology: &str,
 ) -> Result<RowSet, String> {
-    use eg_rdf::owl::{asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner};
-
-    // Axioms: an explicit ontology document, else the triples already in the graph.
-    let triples = if ontology.trim().is_empty() {
-        eg_rdf::owl::tbox_triples_from_view(view)
-    } else {
-        eg_rdf::mapping::parse_turtle(ontology)?
-    };
-    let mut reasoner = Reasoner::from_triples(&triples);
-    // Confidence-weighted (CONCEPT:EG-KG.ontology.concept-13): each inferred member carries its
-    // membership confidence as the RowSet SCORE, so a bare `Reason` plan is already
-    // ranked by confidence and composes with a downstream vector `Rank`/`Limit`. The
-    // closure is identical to the unweighted one for a HARD ontology (every score 1.0).
-    let cls = reasoner.classify_weighted();
-
-    let target = normalize_class(target_class);
-    // String-type↔IRI-class bridge (CONCEPT:EG-KG.ontology.string-type-iri-class): derive the bridge base from the
-    // REASON target IRI's namespace, so a node with a BARE string `type` (e.g.
-    // `{"type":"Sensor"}`) is resolved as `<base/Sensor>` and — through the TBox subclass
-    // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
-    // <base/Device>`. The target must carry the current absolute class namespace.
-    let class_base = eg_rdf::owl::class_namespace(&target).ok_or_else(|| {
-        "Reason requires an absolute target class with a current class namespace".to_string()
-    })?;
-    // Asserted instance→class assignments + their per-fact confidence. CONCEPT:EG-KG.query.reason-decay-in-plan:
-    // when a `(now, half_life)` decay context is bound on the `PlanCtx` (via `with_decay`), the
-    // fact confidences are Ebbinghaus-decayed by each node's age relative to `now` RIGHT HERE,
-    // so time-decayed OWL confidence composes IN-PLAN alongside `Op::AsOf` in ONE fused plan.
-    // ABSENT a decay context, `now = 0` / `half_life = 0` keeps the op decay-NEUTRAL — a bare
-    // `Reason` stays a stable, deterministic source/leaf (byte-for-byte the prior behavior). The
-    // AXIOM confidence still flows through into the score either way.
-    let (now, half_life) = decay.unwrap_or((0, 0.0));
-    let asserted = asserted_types_with_confidence_from_view(view, now, half_life, &class_base)?;
-    let scored: Vec<(String, f32)> = instances_of_weighted(&cls, &asserted, &target, 0.0)
-        .into_iter()
-        .map(|(id, conf)| (id, conf as f32))
-        .collect();
-    Ok(RowSet::from_scored(scored))
+    Ok(reason::ReasonMembership::of(view, decay, target_class, ontology)?.members())
 }
 
 /// SOURCE (SPARQL): the node bindings of `var` in the SPARQL `query` over the view
@@ -1047,18 +1046,6 @@ fn sparql_source(view: &GraphView, query: &str, var: &str) -> Result<RowSet, Str
         })
     });
     Ok(RowSet::from_ids(ids))
-}
-
-/// Canonicalize a class id to the ontology's `<iri>` form (accept a bare IRI too).
-#[cfg(feature = "owl")]
-fn normalize_class(c: &str) -> String {
-    if c.starts_with('<') {
-        c.to_string()
-    } else if c.starts_with("http") {
-        format!("<{c}>")
-    } else {
-        c.to_string()
-    }
 }
 
 /// SOURCE: all node ids whose `type` property equals `label`.
@@ -2662,91 +2649,6 @@ fn cep_pattern_from_spec(p: &eg_types::wire::CepNodeSpec) -> eg_stream::CepPatte
 
 // ── the relational FILTER leg — real DataFusion via eg-query ────────────────────
 
-/// Compile `preds` to a SQL `WHERE` fragment. Numeric literals are emitted bare;
-/// string equality is single-quote-escaped. (The planner could equally hand
-/// DataFusion a pre-built `LogicalPlan`; a string keeps the leg legible and reuses
-/// `eg_query::exec_sql` verbatim — DataFusion as the relational sub-engine.)
-const MAX_FILTER_PREDICATES: usize = 256;
-const MAX_FILTER_IDENTIFIER_BYTES: usize = 256;
-const MAX_FILTER_LITERAL_BYTES: usize = 1024 * 1024;
-
-fn sql_identifier(value: &str) -> Result<String, String> {
-    if value.is_empty()
-        || value.len() > MAX_FILTER_IDENTIFIER_BYTES
-        || value.chars().any(char::is_control)
-    {
-        return Err("filter property name is invalid or exceeds its safety bound".into());
-    }
-    Ok(format!("\"{}\"", value.replace('"', "\"\"")))
-}
-
-fn sql_literal(value: &str) -> Result<String, String> {
-    if value.len() > MAX_FILTER_LITERAL_BYTES || value.contains('\0') {
-        return Err("filter literal is invalid or exceeds its safety bound".into());
-    }
-    Ok(format!("'{}'", value.replace('\'', "''")))
-}
-
-pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
-    if preds.len() > MAX_FILTER_PREDICATES {
-        return Err("filter predicate count exceeds its safety bound".into());
-    }
-    if preds.is_empty() {
-        return Ok("1=1".into());
-    }
-    let clauses = preds
-        .iter()
-        .map(|p| -> Result<String, String> {
-            Ok(match p {
-                Pred::Eq { prop, value } => {
-                    format!("{} = {}", sql_identifier(prop)?, sql_literal(value)?)
-                }
-                Pred::GtNum { prop, n } => {
-                    if !n.is_finite() {
-                        return Err("filter numeric literal must be finite".into());
-                    }
-                    format!("{} > {n}", sql_identifier(prop)?)
-                }
-                Pred::LtNum { prop, n } => {
-                    if !n.is_finite() {
-                        return Err("filter numeric literal must be finite".into());
-                    }
-                    format!("{} < {n}", sql_identifier(prop)?)
-                }
-                // JSONPath predicates are evaluated per row and never reach SQL.
-                Pred::JsonPath { .. } => "1=1".into(),
-                // Spatial predicates are likewise evaluated outside this SQL leg — `filter_op`
-                // always splits every `Pred::Spatial*` out into its `spatial` bucket before
-                // `relational` (and hence this function) ever sees one, so this "1=1" is a pure
-                // NO-OP placeholder, never the real filtering decision (that happens in
-                // `spatial_filter`, or the explicit "not enabled in this build" error `filter_op`
-                // returns when eg-plan's own `geo` feature is off — see its comment).
-                //
-                // NE-216: this arm is UNCONDITIONAL (no `#[cfg(feature = "geo")]`), unlike the
-                // eg-geo-calling code below, because `Pred::Spatial*` are no longer conditioned
-                // on eg-plan's own `geo` feature at all — eg-plan's `[dependencies] eg-types`
-                // line now ALWAYS requests `eg-types/geo` (it is pure serde: eg-types' `geo =
-                // ["query"]`), precisely because `eg-types/geo` can already be on in the build
-                // graph without eg-plan's `geo` feature (eg-capabilities force-enables it
-                // independently for its own exhaustive `Method` policy match — see that Cargo.toml
-                // dependency comment). So the variants ALWAYS exist here, and gating this arm on
-                // eg-plan's `geo` feature would silently reintroduce the E0004 this fixes the
-                // moment `eg-types/geo` is on without it — do not restore that gate.
-                Pred::SpatialWithin { .. }
-                | Pred::SpatialDWithin { .. }
-                | Pred::SpatialContains { .. }
-                | Pred::SpatialCovers { .. }
-                | Pred::SpatialTouches { .. }
-                | Pred::SpatialCrosses { .. }
-                | Pred::SpatialOverlaps { .. }
-                | Pred::SpatialEquals { .. }
-                | Pred::SpatialDisjoint { .. } => "1=1".into(),
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(clauses.join(" AND "))
-}
-
 /// The O(1) fast-path RESULT for a lone `id = <id>` equality predicate
 /// (CONCEPT:EG-KG.query.point-lookup-fast-path) — BYTE-IDENTICAL to what
 /// `sql_filter_ids(view, &[Pred::Eq{prop:"id", value:id.into()}], restrict_to)` would
@@ -2931,41 +2833,5 @@ mod scan_order_tests {
         ]);
 
         assert_eq!(plan.execute(&ctx).unwrap().ids(), vec!["a", "b"]);
-    }
-}
-
-#[cfg(test)]
-mod filter_security_tests {
-    use super::*;
-
-    #[test]
-    fn wire_supplied_identifiers_and_literals_cannot_escape_sql() {
-        let clause = where_clause(&[Pred::Eq {
-            prop: "name\" OR 1=1 --".into(),
-            value: "x' OR '1'='1".into(),
-        }])
-        .unwrap();
-        assert_eq!(clause, "\"name\"\" OR 1=1 --\" = 'x'' OR ''1''=''1'");
-    }
-
-    #[test]
-    fn invalid_or_unbounded_wire_predicates_fail_closed() {
-        assert!(where_clause(&[Pred::GtNum {
-            prop: "score".into(),
-            n: f64::NAN,
-        }])
-        .is_err());
-        assert!(where_clause(&[Pred::Eq {
-            prop: "bad\nname".into(),
-            value: String::new(),
-        }])
-        .is_err());
-        let too_many = (0..=MAX_FILTER_PREDICATES)
-            .map(|_| Pred::Eq {
-                prop: "type".into(),
-                value: "Document".into(),
-            })
-            .collect::<Vec<_>>();
-        assert!(where_clause(&too_many).is_err());
     }
 }

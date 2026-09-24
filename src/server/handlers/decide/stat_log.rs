@@ -32,7 +32,9 @@ use eg_types::decision::{CandidateSourceRecord, QuantScaleTag, RecordWindow};
 
 use super::stat_executor::ExecutionContext;
 use super::stat_replay::replay;
+use super::stat_resolve::resolve;
 use super::stat_retention::{compact, full_record, verify, Retention};
+use super::stat_slate::{evaluated_slates, slate_of, SLATE_QUESTION};
 use super::stat_support::{default_statistical_policy, pinned_entry, refusal};
 use super::telemetry;
 use super::SharedState;
@@ -91,7 +93,7 @@ fn executed_option(outcome: &StatisticalOutcome) -> Option<&str> {
     }
 }
 
-fn visible_entries(
+pub(super) fn visible_entries(
     store: &AgentLibraryStore,
     reader: &LogReader,
 ) -> Result<Vec<DecisionLogEntry>, String> {
@@ -115,7 +117,7 @@ pub(super) fn visible_entry(
     Ok(reader.sees(&entry).then_some(entry))
 }
 
-fn evaluations_of(
+pub(super) fn evaluations_of(
     store: &AgentLibraryStore,
     tenant_id: &str,
     record_id: &str,
@@ -134,9 +136,11 @@ fn evaluations_of(
 fn visibility_of(record: &StatisticalDecisionRecord, principal: &str) -> RecordVisibility {
     match record.candidate_source {
         CandidateSourceRecord::AgentLibrary { .. } => RecordVisibility::Tenant,
-        CandidateSourceRecord::Graph { .. } => RecordVisibility::Principal {
-            principal: principal.to_string(),
-        },
+        CandidateSourceRecord::Graph { .. } | CandidateSourceRecord::Declared { .. } => {
+            RecordVisibility::Principal {
+                principal: principal.to_string(),
+            }
+        }
     }
 }
 
@@ -181,42 +185,66 @@ fn commit(
     Ok(committed(false))
 }
 
+/// An evaluation joins an executed statistical record, or a committed solved
+/// assembly (its slate, EH-012); anything else has nothing to evaluate.
+fn check_evaluable(
+    ctx: &ExecutionContext,
+    reader: &LogReader,
+    record_id: &str,
+) -> Result<(), String> {
+    let invalid = |detail: &str| refusal(StatisticalErrorCode::ParameterInvalid, detail);
+    match visible_entry(ctx.store, reader, record_id)? {
+        Some(entry) if executed_option(&entry.record.outcome).is_none() => {
+            Err(invalid("the record executed no option"))
+        }
+        Some(_) => Ok(()),
+        None => match slate_of(ctx.store, ctx.tenant_id, record_id)? {
+            Some(_) => Ok(()),
+            None => Err(invalid("no committed record with that id is visible")),
+        },
+    }
+}
+
 fn evaluate(
     ctx: &ExecutionContext,
     reader: &LogReader,
     evaluation: DecisionOutcomeEvaluation,
 ) -> Result<StoredEvaluation, String> {
-    let entry = visible_entry(ctx.store, reader, &evaluation.record_id)?.ok_or_else(|| {
-        refusal(
-            StatisticalErrorCode::ParameterInvalid,
-            "no committed record with that id is visible",
-        )
-    })?;
-    if executed_option(&entry.record.outcome).is_none() {
-        return Err(refusal(
-            StatisticalErrorCode::ParameterInvalid,
-            "the record executed no option",
-        ));
-    }
+    check_evaluable(ctx, reader, &evaluation.record_id)?;
     let key = evaluation_key(&evaluation.record_id, &evaluation.evaluation_id);
-    if let Some(bytes) = ctx.store.decision_artifact(ctx.tenant_id, &key)? {
-        let existing: StoredEvaluation = decode_artifact(&bytes, "decision outcome evaluation")?;
-        if existing.evaluation == evaluation && existing.producer == reader.principal {
-            return Ok(existing);
-        }
-        return Err(refusal(
-            StatisticalErrorCode::IdempotencyConflict,
-            "the evaluation id is recorded with other content",
-        ));
-    }
     let stored = StoredEvaluation {
         evaluation,
         producer: reader.principal.clone(),
         recorded_at_ms: ctx.now_ms,
     };
+    store_once(ctx, key, "evaluation", stored, |existing, fresh| {
+        existing.evaluation == fresh.evaluation && existing.producer == fresh.producer
+    })
+}
+
+/// Store `fresh` under `key` exactly once. A re-send with the same content
+/// from the same producer answers the stored row (idempotent replay);
+/// anything else under that key is a conflict, never an overwrite.
+pub(super) fn store_once<T: serde::Serialize + serde::de::DeserializeOwned>(
+    ctx: &ExecutionContext,
+    key: String,
+    noun: &str,
+    fresh: T,
+    same: impl Fn(&T, &T) -> bool,
+) -> Result<T, String> {
+    if let Some(bytes) = ctx.store.decision_artifact(ctx.tenant_id, &key)? {
+        let existing: T = decode_artifact(&bytes, noun)?;
+        if same(&existing, &fresh) {
+            return Ok(existing);
+        }
+        return Err(refusal(
+            StatisticalErrorCode::IdempotencyConflict,
+            format!("the {noun} id is recorded with other content"),
+        ));
+    }
     ctx.store
-        .put_decision_artifacts(ctx.tenant_id, &[(key, encode_artifact(&stored)?)])?;
-    Ok(stored)
+        .put_decision_artifacts(ctx.tenant_id, &[(key, encode_artifact(&fresh)?)])?;
+    Ok(fresh)
 }
 
 /// Visible, executed records of `question_id` (or of every question) inside
@@ -265,6 +293,23 @@ pub(super) fn aggregate_log(
                 evaluations,
             })
         })
+        .collect();
+    let slates = evaluated_slates(
+        store,
+        &reader.tenant_id,
+        request.question_id.as_deref(),
+        (request.window.from_ms, request.window.to_ms),
+        MAX_LOG_ROWS,
+    )?;
+    let records: Vec<JoinedRecord> = records
+        .into_iter()
+        .chain(slates.iter().map(|(slate, evaluations)| JoinedRecord {
+            option_id: &slate.option_id,
+            question_id: SLATE_QUESTION,
+            policy_digest: &slate.policy_digest,
+            decider: &slate.decider,
+            evaluations,
+        }))
         .collect();
     let policy = default_statistical_policy();
     let rules = AggregateRules {
@@ -381,7 +426,7 @@ fn dispatch(
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
         DecisionLogAggregate, DecisionLogCommit, DecisionLogCompact, DecisionLogEvaluate,
-        DecisionLogGet, DecisionLogVerify,
+        DecisionLogGet, DecisionLogResolve, DecisionLogVerify,
     };
     match op {
         DecisionLogOp::Commit { record } => {
@@ -399,6 +444,9 @@ fn dispatch(
         DecisionLogOp::Compact { policy, limit, .. } => ResultPayload::of::<DecisionLogCompact>(
             compact(ctx, &reader.retention, &policy, limit)?,
         ),
+        DecisionLogOp::Resolve { resolution, .. } => {
+            ResultPayload::of::<DecisionLogResolve>(resolve(ctx, reader, resolution)?)
+        }
         DecisionLogOp::Verify { record_id, .. } => ResultPayload::of::<DecisionLogVerify>(verify(
             ctx,
             reader,

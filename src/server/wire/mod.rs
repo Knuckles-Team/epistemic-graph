@@ -1828,12 +1828,17 @@ impl WireSession {
         // RF-019: a maintained-ANN read narrows its table inside this projection,
         // row-level security applied inside the probe.
         let (authority, persist_dir) = self.catalog_authority().await?;
+        // EH-066: the caller's decision record views, when the statement can see them.
+        let read_only =
+            crate::server::handlers::decide::read_only_relations(&self.state, &authority, &sql)
+                .await;
         let statement = sql.clone();
         let projection = tokio::task::spawn_blocking(move || {
             crate::server::sql_catalog_acl::authorized_read_store_for_query(
                 &authority,
                 &persist_dir,
                 &statement,
+                read_only.as_deref(),
             )
         })
         .await

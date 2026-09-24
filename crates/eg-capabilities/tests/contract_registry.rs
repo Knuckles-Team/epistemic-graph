@@ -17,6 +17,9 @@ const RETIRED_METHODS: &[&str] = &[
     "SpectralCluster",
     "HypergraphEncodeInteraction",
     "FindSimilarPairs",
+    // EH-434: one query-text surface — UQL text is `Uql` (`TxnUql` inside a txn).
+    "UnifiedQueryText",
+    "TxnUnifiedQueryText",
 ];
 
 fn repo_root() -> PathBuf {
@@ -182,6 +185,8 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // `GetWorkItemOutcome`, `IssueControlLease`, `TransitionControlLease`,
     // `GetControlLease`.
     // 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
+    // 437 -> 438: UQL-07's `Uql` statement surface.
+    // 438 -> 437: EH-434 retired `UnifiedQueryText` (one query-text surface: `Uql`).
     // 437 -> 438: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
     assert_eq!(
         variants.len(),

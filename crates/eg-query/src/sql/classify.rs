@@ -740,9 +740,7 @@ fn resolve_copy_source(source: &CopySource) -> Result<(String, Vec<String>), Str
         } => {
             let leaf = last_ident(table_name);
             if is_reserved_table(&leaf) {
-                return Err(format!(
-                    "COPY cannot target the reserved graph table `{leaf}`"
-                ));
+                return Err(format!("COPY cannot target the reserved table `{leaf}`"));
             }
             Ok((leaf, columns.iter().map(|c| c.value.clone()).collect()))
         }
@@ -1461,10 +1459,20 @@ fn classify_delete(delete: &Delete) -> Result<DeleteNodes, String> {
 
 // ── user-table dispatch + DDL/DML parsing (CONCEPT:EG-KG.query.register-user-tables-alongside) ───────────────────
 
+/// The read-only relations every served SQL projection carries beside the caller's own
+/// tables — the decision record views (EH-066). Reserved like `nodes`/`edges`: no user
+/// table, view, rename or `COPY` may take these names.
+pub const READ_ONLY_RELATION_NAMES: &[&str] =
+    &["decisions", "decision_evaluations", "decision_resolutions"];
+
 /// `nodes`/`edges` are the graph projection's reserved table names — a user
-/// `CREATE TABLE`/DML cannot use them, and DML routing sends them to the graph path.
+/// `CREATE TABLE`/DML cannot use them, and DML routing sends them to the graph path —
+/// and [`READ_ONLY_RELATION_NAMES`] are reserved for the served read-only relations.
 fn is_reserved_table(leaf: &str) -> bool {
-    leaf.eq_ignore_ascii_case("nodes") || leaf.eq_ignore_ascii_case("edges")
+    ["nodes", "edges"]
+        .iter()
+        .chain(READ_ONLY_RELATION_NAMES)
+        .any(|name| leaf.eq_ignore_ascii_case(name))
 }
 
 /// The named table target of an INSERT. Function/query targets are deliberately
@@ -1716,7 +1724,7 @@ fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
     let name = last_ident(&ct.name);
     if is_reserved_table(&name) {
         return Err(format!(
-            "CREATE TABLE cannot use the reserved graph table name `{name}`"
+            "CREATE TABLE cannot use the reserved table name `{name}`"
         ));
     }
     if ct.columns.is_empty() {
@@ -2160,7 +2168,7 @@ fn classify_drop(
     match object_type {
         ObjectType::Table => {
             if is_reserved_table(&name) {
-                return Err(format!("cannot DROP the reserved graph table `{name}`"));
+                return Err(format!("cannot DROP the reserved table `{name}`"));
             }
             Ok(StatementKind::DropTable(DropTablePlan { name, if_exists }))
         }
@@ -2187,7 +2195,7 @@ fn classify_create_view(
     let name = last_ident(name);
     if is_reserved_table(&name) {
         return Err(format!(
-            "CREATE VIEW cannot use the reserved graph table name `{name}`"
+            "CREATE VIEW cannot use the reserved table name `{name}`"
         ));
     }
     Ok(StatementKind::CreateView(CreateViewPlan {
@@ -2763,7 +2771,7 @@ fn classify_alter_table(
 ) -> Result<AlterTablePlan, String> {
     let table = last_ident(name);
     if is_reserved_table(&table) {
-        return Err(format!("cannot ALTER the reserved graph table `{table}`"));
+        return Err(format!("cannot ALTER the reserved table `{table}`"));
     }
     let op = match operations {
         [one] => one,
@@ -2857,7 +2865,7 @@ fn alter_table_rename_table(
     };
     if is_reserved_table(&new_name) {
         return Err(format!(
-            "cannot rename table `{table}` onto the reserved graph table `{new_name}`"
+            "cannot rename table `{table}` onto the reserved table `{new_name}`"
         ));
     }
     Ok(AlterTableAction::RenameTable { new_name })
@@ -3948,6 +3956,23 @@ mod tests {
     fn eg310_alter_table_rejects_reserved() {
         assert!(classify("ALTER TABLE nodes DROP COLUMN x").is_err());
         assert!(classify("ALTER TABLE prices RENAME TO nodes").is_err());
+    }
+
+    /// EH-066: the decision record views' names are reserved like `nodes`/`edges`.
+    #[test]
+    fn read_only_relation_names_are_reserved() {
+        for name in READ_ONLY_RELATION_NAMES {
+            let upper = name.to_ascii_uppercase();
+            for sql in [
+                format!("CREATE TABLE {upper} (id TEXT)"),
+                format!("CREATE VIEW {name} AS SELECT 1"),
+                format!("DROP TABLE {name}"),
+                format!("ALTER TABLE prices RENAME TO {name}"),
+            ] {
+                let error = classify(&sql).unwrap_err();
+                assert!(error.contains("reserved table"), "{sql}: {error}");
+            }
+        }
     }
 
     #[test]

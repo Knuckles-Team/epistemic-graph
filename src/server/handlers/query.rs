@@ -137,6 +137,8 @@ mod sql_dispatch;
 pub(crate) use sql_dispatch::*;
 mod sql_catalog;
 pub(crate) use sql_catalog::*;
+#[cfg(feature = "query")]
+mod uql_statement;
 
 #[cfg(test)]
 pub(crate) mod current_auth_test_support {
@@ -1726,8 +1728,21 @@ mod txn_ryow_dispatch_tests {
     }
 
     /// Decode a unified-query response into its result node ids.
-    fn unified_ids(resp: &Response) -> Vec<String> {
-        crate::server::decode_unified_ids(resp)
+    /// A parameterless `Method::Uql` statement (the one query-text surface, EH-434).
+    fn uql(text: &str) -> Method {
+        Method::Uql {
+            text: text.into(),
+            params: Default::default(),
+        }
+    }
+
+    /// The same statement inside transaction `txn` (`Method::TxnUql`).
+    fn txn_uql(txn: &str, text: &str) -> Method {
+        Method::TxnUql {
+            txn_id: txn.into(),
+            text: text.into(),
+            params: Default::default(),
+        }
     }
 
     async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
@@ -1812,49 +1827,25 @@ mod txn_ryow_dispatch_tests {
 
         // IN-TXN cross-modal (graph label Scan fused with staged-vector Rank): sees sn.
         let vec_q = "MATCH (:Widget) |> RANK BY ~[1.0,0.0] |> LIMIT 5";
-        let in_txn = dispatch_on_heap(
-            &state,
-            req(
-                6,
-                Method::TxnUnifiedQueryText {
-                    txn_id: txn.clone(),
-                    text: vec_q.into(),
-                },
-            ),
-        )
-        .await;
+        let in_txn = dispatch_on_heap(&state, req(6, txn_uql(&txn, vec_q))).await;
         assert_eq!(
-            unified_ids(&in_txn),
+            crate::server::decode_uql_ids(&in_txn),
             vec!["sn".to_string()],
             "staged node + embedding must be visible to the in-txn cross-modal query"
         );
 
         // IN-TXN traverse over the STAGED edge: reaches tn.
         let trav_q = "MATCH (:Widget) |> TRAVERSE -[:LINKS]->{1,1} |> LIMIT 5";
-        let trav = dispatch_on_heap(
-            &state,
-            req(
-                7,
-                Method::TxnUnifiedQueryText {
-                    txn_id: txn.clone(),
-                    text: trav_q.into(),
-                },
-            ),
-        )
-        .await;
+        let trav = dispatch_on_heap(&state, req(7, txn_uql(&txn, trav_q))).await;
         assert!(
-            unified_ids(&trav).contains(&"tn".to_string()),
+            crate::server::decode_uql_ids(&trav).contains(&"tn".to_string()),
             "staged edge must make tn BFS-reachable in-txn"
         );
 
         // OFF-TXN identical query: empty — staged writes are invisible before commit.
-        let off = dispatch_on_heap(
-            &state,
-            req(8, Method::UnifiedQueryText { text: vec_q.into() }),
-        )
-        .await;
+        let off = dispatch_on_heap(&state, req(8, uql(vec_q))).await;
         assert!(
-            unified_ids(&off).is_empty(),
+            crate::server::decode_uql_ids(&off).is_empty(),
             "off-txn query must see none of the txn's uncommitted writes"
         );
     }
@@ -1881,24 +1872,17 @@ mod txn_ryow_dispatch_tests {
         let q = "MATCH (:Committed) |> LIMIT 5";
 
         // Before commit: off-txn empty, in-txn sees it (RYOW).
-        let before =
-            dispatch_on_heap(&state, req(3, Method::UnifiedQueryText { text: q.into() })).await;
+        let before = dispatch_on_heap(&state, req(3, uql(q))).await;
         assert!(
-            unified_ids(&before).is_empty(),
+            crate::server::decode_uql_ids(&before).is_empty(),
             "off-txn empty before commit"
         );
-        let in_txn = dispatch_on_heap(
-            &state,
-            req(
-                4,
-                Method::TxnUnifiedQueryText {
-                    txn_id: txn.clone(),
-                    text: q.into(),
-                },
-            ),
-        )
-        .await;
-        assert_eq!(unified_ids(&in_txn), vec!["cn".to_string()], "RYOW in-txn");
+        let in_txn = dispatch_on_heap(&state, req(4, txn_uql(&txn, q))).await;
+        assert_eq!(
+            crate::server::decode_uql_ids(&in_txn),
+            vec!["cn".to_string()],
+            "RYOW in-txn"
+        );
 
         // Commit, then the same OFF-txn query now sees the committed node.
         let c = dispatch_on_heap(
@@ -1920,10 +1904,9 @@ mod txn_ryow_dispatch_tests {
             "commit must succeed: {:?}",
             c.error
         );
-        let after =
-            dispatch_on_heap(&state, req(6, Method::UnifiedQueryText { text: q.into() })).await;
+        let after = dispatch_on_heap(&state, req(6, uql(q))).await;
         assert_eq!(
-            unified_ids(&after),
+            crate::server::decode_uql_ids(&after),
             vec!["cn".to_string()],
             "committed node must be visible off-txn after commit"
         );

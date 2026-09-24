@@ -478,16 +478,16 @@ SEND_BY_METHOD = {
     "TxnRemoveEdge": transactions.send_txn_remove_edge,
     "TxnRemoveNode": transactions.send_txn_remove_node,
     "TxnUnifiedQuery": query.send_txn_unified_query,
-    "TxnUnifiedQueryText": query.send_txn_unified_query_text,
+    "TxnUql": query.send_txn_uql,
     "UnbindQueue": messaging.send_unbind_queue,
     "UnifiedQuery": query.send_unified_query,
-    "UnifiedQueryText": query.send_unified_query_text,
     "UnionGetNeighbors": graph.send_union_get_neighbors,
     "UnionGetNodeProperties": graph.send_union_get_node_properties,
     "UnionGetNodesByLabel": graph.send_union_get_nodes_by_label,
     "UpdateCapacityCell": coordination.send_update_capacity_cell,
     "UpdateDevelopmentLaneQuota": coordination.send_update_development_lane_quota,
     "UpdateResourceHost": coordination.send_update_resource_host,
+    "Uql": query.send_uql,
     "VerifyWorkItemClaimCapability": (
         coordination.send_verify_work_item_claim_capability
     ),

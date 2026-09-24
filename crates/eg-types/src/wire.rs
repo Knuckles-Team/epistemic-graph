@@ -18,6 +18,9 @@ mod wire_pipeline;
 #[cfg(feature = "query")]
 #[path = "wire_query_core.rs"]
 mod wire_query_core;
+#[cfg(feature = "query")]
+#[path = "wire_query_kinds.rs"]
+mod wire_query_kinds;
 #[cfg(any(
     feature = "geo",
     feature = "tensor",
@@ -28,6 +31,29 @@ mod wire_query_core;
 ))]
 #[path = "wire_query_modalities.rs"]
 mod wire_query_modalities;
+#[cfg(all(feature = "query", any(test, feature = "test-support")))]
+#[path = "wire_query_samples.rs"]
+mod wire_query_samples;
+#[cfg(feature = "query")]
+#[path = "wire_query_uql.rs"]
+mod wire_query_uql;
+#[cfg(all(
+    feature = "query",
+    any(
+        feature = "owl-plan",
+        feature = "federation",
+        feature = "geo",
+        feature = "tensor",
+        feature = "stream",
+        feature = "timeseries",
+        feature = "probabilistic"
+    )
+))]
+#[path = "wire_query_uql_modal.rs"]
+mod wire_query_uql_modal;
+#[cfg(feature = "query")]
+#[path = "wire_query_uql_pred.rs"]
+mod wire_query_uql_pred;
 #[cfg(feature = "streaming")]
 #[path = "wire_streaming.rs"]
 mod wire_streaming;
@@ -42,6 +68,8 @@ pub use wire_mining::*;
 pub use wire_pipeline::*;
 #[cfg(feature = "query")]
 pub use wire_query_core::*;
+#[cfg(feature = "query")]
+pub use wire_query_kinds::*;
 #[cfg(any(
     feature = "geo",
     feature = "tensor",
@@ -51,6 +79,12 @@ pub use wire_query_core::*;
     feature = "federation"
 ))]
 pub use wire_query_modalities::*;
+#[cfg(all(feature = "query", any(test, feature = "test-support")))]
+pub use wire_query_samples::{uql_sample_op, uql_sample_pred};
+#[cfg(feature = "query")]
+pub use wire_query_uql::*;
+#[cfg(feature = "query")]
+pub use wire_query_uql_pred::*;
 #[cfg(feature = "streaming")]
 pub use wire_streaming::*;
 

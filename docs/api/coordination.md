@@ -430,6 +430,7 @@ RF-ADR-010 DL-5/DL-5b, runtime-conditional: commit re-derives an acted-on statis
 | `compact` | `DecisionLogCompacted` | Raw |  |
 | `evaluate` | `StoredEvaluation` | Raw |  |
 | `get` | one of: `DecisionLogEntry` \| null | Raw |  |
+| `resolve` | `StoredResolution` | Raw |  |
 | `verify` | `DecisionLogVerification` | Raw |  |
 
 > Multi-body result: the `op` request field selects which body above is returned.
