@@ -207,7 +207,7 @@ impl<'a> Session<'a> {
     fn span(&self, first: i64, next: i64) -> Option<Bucket> {
         let mut days = (first..next).filter(|&day| self.is_trading_day(day));
         let opening = days.next()?;
-        let closing = days.last().unwrap_or(opening);
+        let closing = days.next_back().unwrap_or(opening);
         Some(Bucket {
             start: self.session(opening).start,
             end: self.session(closing).end,
