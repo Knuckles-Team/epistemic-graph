@@ -1173,7 +1173,7 @@ mod tests {
             ),
             (
                 "identity",
-                "e69af699ed61f9f30abb5249985838c4770fa42d48e2191a5953bdbb1bc71038",
+                "b32a277c15f100d26175c2a1a24af63151a50b8f6fb54f953cbc66626c1c8828",
             ),
             (
                 "infrastructure",
@@ -1205,7 +1205,7 @@ mod tests {
             ),
             (
                 "sdlc_lifecycle",
-                "7c4853f87756dae7b9dfceb49a6e8cef4c12e234e3ebcf5776dd0c7dfa8ec568",
+                "46ef976ec39b73306db74c5678a68089a94aee702ebcb948793c2833e9e40907",
             ),
             (
                 "software",
