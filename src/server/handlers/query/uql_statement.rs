@@ -19,10 +19,9 @@ pub(crate) async fn handle_uql(
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
     let binding = eg_plan::uql::serve::binding_plan(&stmt);
-    #[cfg(feature = "tsdb")]
-    let tsdb_scope = match served_tsdb_scope(&binding, ctx.graph_name, ctx.read_authority) {
-        Ok(scope) => scope,
-        Err(denied) => return Ok(Response::err(req_id, denied)),
+    let legs = match ctx.served_legs(&binding).await {
+        Ok(legs) => legs,
+        Err(resp) => return Ok(resp),
     };
     let snap = uql_snapshot(ctx);
     let result = run_unified_off_lock_with(
@@ -31,8 +30,7 @@ pub(crate) async fn handle_uql(
         ctx.core,
         snap,
         binding,
-        #[cfg(feature = "tsdb")]
-        tsdb_scope,
+        legs,
         move |_plan, plan_ctx| eg_plan::uql::serve::run_statement(&stmt, plan_ctx),
     )
     .await;
