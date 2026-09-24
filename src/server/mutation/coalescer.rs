@@ -200,6 +200,9 @@ fn apply_coalescable_add_node(
     } else {
         change.record_add_node(node_id.to_string());
     }
+    // EH-393: an add over an existing id is an upsert; capture the image it replaces so the
+    // dependency clock retires the label the node may be leaving.
+    txn.record_replaced_image(change, node_id);
     txn.add_node(node_id.to_string(), properties_msgpack.to_vec());
     Ok(ResultPayload::scalar::<
         eg_types::result_contract::graph::AddNode,
@@ -213,7 +216,11 @@ fn apply_coalescable_remove_node(
     node_id: &str,
 ) -> Result<ResultPayload, String> {
     match txn.get_node_properties(node_id) {
-        Some(props) => change.record_remove_node_with_properties(node_id.to_string(), props),
+        Some(props) => change.record_remove_node_captured(
+            node_id.to_string(),
+            props,
+            txn.incident_edge_rels(node_id),
+        ),
         None => change.record_remove_node(node_id.to_string()),
     }
     txn.remove_node(node_id.to_string());
@@ -249,7 +256,11 @@ fn apply_coalescable_remove_edge(
     source_id: &str,
     target_id: &str,
 ) -> Result<ResultPayload, String> {
-    change.record_remove_edge(source_id.to_string(), target_id.to_string());
+    change.record_remove_edge_captured(
+        source_id.to_string(),
+        target_id.to_string(),
+        txn.edge_rels(source_id, target_id),
+    );
     txn.remove_edge(source_id.to_string(), target_id.to_string());
     Ok(ResultPayload::scalar::<
         eg_types::result_contract::graph::RemoveEdge,

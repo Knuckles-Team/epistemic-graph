@@ -115,6 +115,14 @@ mod cypher;
 pub(crate) use cypher::*;
 mod planning;
 pub(crate) use planning::*;
+#[cfg(all(feature = "query", feature = "result-cache"))]
+mod foreign_watermarks;
+#[cfg(all(feature = "query", feature = "result-cache"))]
+pub(crate) use foreign_watermarks::*;
+#[cfg(all(feature = "query", feature = "result-cache"))]
+mod freshness_feed;
+#[cfg(all(feature = "query", feature = "result-cache"))]
+pub(crate) use freshness_feed::*;
 mod explain_wire_a;
 pub(crate) use explain_wire_a::*;
 #[cfg(any(

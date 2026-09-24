@@ -91,6 +91,8 @@ pub struct SemanticStore {
     /// also closes the pre-existing post-restore gap where the index metadata came
     /// back empty and HNSW search silently returned nothing.
     index: RwLock<HnswIndex>,
+    /// Content stamp (EH-393): restamped on every vector / space change.
+    generation: crate::compute::semantic::GenerationStamp,
 }
 
 mod semantic_hnsw_index;
@@ -107,6 +109,7 @@ impl Clone for SemanticStore {
             embeddings: self.embeddings.clone(),
             space: self.space.clone(),
             index: RwLock::new(HnswIndex::empty()),
+            generation: self.generation.carry(),
         }
     }
 }

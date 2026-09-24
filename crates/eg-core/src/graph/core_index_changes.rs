@@ -50,25 +50,26 @@ impl GraphCore {
         change: &crate::index::ChangeSet,
         target_version: u64,
     ) {
+        // Edge dimensions (EH-393): the relationship types every added / removed / cascaded edge
+        // carried, so a typed traversal survives edge writes of other types.
         #[cfg(feature = "result-cache")]
-        let mut footprint = crate::dep_scope::WriteFootprint::default();
-        #[cfg(feature = "result-cache")]
-        if Self::change_touches_edges(change) {
-            // The node-derived caches are untouched by a pure edge change, but a traversal query
-            // depends on the edge set, so the clock must learn the edge dimension moved.
-            footprint.edge_changed = true;
-        }
+        let mut footprint = self.edge_footprint(change);
 
         if change.has_node_changes() {
             self.maintain_node_id_index(change, target_version);
         }
 
-        // ── ADDS: file the new id into the warm postings it belongs to. ──
+        // ── ADDS: file the new id into the warm postings it belongs to. An add that OVERWROTE an
+        // existing node (an upsert) first unfiles the id from its prior image's postings, so a
+        // relabel `A → B` leaves no stale `A` posting behind. ──
         for nc in &change.added_nodes {
-            let val = self.node_props_value(&nc.id, nc.properties_msgpack.as_deref());
-            self.file_added_node(nc, val.as_ref(), target_version);
+            let (val, prior) = self.file_added_upsert(change, nc, target_version);
+            #[cfg(not(feature = "result-cache"))]
+            let _ = (val, prior);
             #[cfg(feature = "result-cache")]
             Self::note_added_node(&mut footprint, val.as_ref());
+            #[cfg(feature = "result-cache")]
+            Self::note_replaced_node(&mut footprint, val.as_ref(), prior.as_ref());
         }
 
         // ── REMOVES: unfile the id from the warm postings. ──
@@ -105,6 +106,33 @@ impl GraphCore {
 
         #[cfg(feature = "result-cache")]
         self.dep_clock.note_footprint(&footprint, target_version);
+    }
+
+    /// The edge half of a batch's dependency footprint (EH-393). An added edge's types are read
+    /// from its LIVE pair (a later removal in the same batch captured them or marked the batch
+    /// unattributed); a removed or cascaded edge's types were captured before the delete.
+    #[cfg(feature = "result-cache")]
+    fn edge_footprint(&self, change: &crate::index::ChangeSet) -> crate::dep_scope::WriteFootprint {
+        let mut rels = change.removed_edge_rels.clone();
+        for edge in &change.added_edges {
+            rels.merge(super::txn_edges::pair_edge_rels(
+                &self.edge_properties,
+                &edge.source,
+                &edge.target,
+            ));
+        }
+        crate::dep_scope::WriteFootprint {
+            edge_changed: Self::change_touches_edges(change) || !rels.is_empty(),
+            edge_types: rels.types.into_iter().collect(),
+            edge_unattributed: rels.unattributed,
+            ..Default::default()
+        }
+    }
+
+    /// Unfile `id` from the warm label / property postings of the image an upsert replaced.
+    fn unfile_replaced_node(&self, id: &str, prior: &serde_json::Value, target_version: u64) {
+        self.label_index_remove(id, Some(prior), target_version);
+        self.property_index_remove(id, Some(prior), target_version);
     }
 
     /// Did this change touch the edge set at all?
@@ -157,6 +185,50 @@ impl GraphCore {
         }
     }
 
+    /// The footprint of the image an add OVERWROTE (an upsert, EH-393): its labels / keys are
+    /// touched too, so a relabel retires the label the node left; a changed row-security key
+    /// retires [`crate::dep_scope::Dim::RowVisibility`]; a captured image that does not decode
+    /// floors the clock.
+    #[cfg(feature = "result-cache")]
+    pub(super) fn note_replaced_node(
+        footprint: &mut crate::dep_scope::WriteFootprint,
+        val: Option<&serde_json::Value>,
+        prior: Option<&ReplacedImage>,
+    ) {
+        match prior {
+            None => {}
+            Some(Ok(prior)) => {
+                collect_dep_footprint(footprint, prior);
+                #[cfg(feature = "security")]
+                {
+                    footprint.visibility_changed |=
+                        val.is_none_or(|val| Self::replaced_visibility_differs(prior, val));
+                }
+            }
+            Some(Err(_)) => footprint.coarse_node = true,
+        }
+        #[cfg(not(feature = "security"))]
+        let _ = val;
+    }
+
+    /// Maintain the warm postings for ONE add; an add that overwrote an existing node first
+    /// unfiles the id from its replaced image's postings. Returns the added node's decoded
+    /// value and the replaced image (for the footprint).
+    fn file_added_upsert(
+        &self,
+        change: &crate::index::ChangeSet,
+        nc: &crate::index::NodeChange,
+        target_version: u64,
+    ) -> (Option<serde_json::Value>, Option<ReplacedImage>) {
+        let val = self.node_props_value(&nc.id, nc.properties_msgpack.as_deref());
+        let prior = replaced_image(change, &nc.id);
+        if let Some(Ok(prior)) = prior.as_ref() {
+            self.unfile_replaced_node(&nc.id, prior, target_version);
+        }
+        self.file_added_node(nc, val.as_ref(), target_version);
+        (val, prior)
+    }
+
     /// Unfile ONE removed node from the warm node-derived postings. `captured` is
     /// the blob the change carried, or `None` for an uncaptured removal — the
     /// maintainers then scan the warm postings for the id (sound; no blob decode).
@@ -190,4 +262,16 @@ impl GraphCore {
             None => footprint.coarse_node = true,
         }
     }
+}
+
+/// A decoded replaced (pre-upsert) node image, or the reason it would not decode.
+pub(super) type ReplacedImage =
+    Result<serde_json::Value, eg_types::msgpack::MsgpackValidationError>;
+
+/// The image an add of `id` overwrote in this batch, if the write path captured one.
+fn replaced_image(change: &crate::index::ChangeSet, id: &str) -> Option<ReplacedImage> {
+    change
+        .replaced_node_props
+        .get(id)
+        .map(|blob| decode_property_value(blob))
 }
