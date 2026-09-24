@@ -1,4 +1,4 @@
-//! CONCEPT:EH-280 — the graph-scoped route of a branch-aware `IndexRepository`.
+//! EH-280 — the graph-scoped route of a branch-aware `IndexRepository`.
 //!
 //! An unscoped `IndexRepository` is a stateless parse answered by the control
 //! plane. A scoped one reaches this route only after graph ACL (Write), tenant

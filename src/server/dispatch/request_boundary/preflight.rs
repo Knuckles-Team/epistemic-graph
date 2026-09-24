@@ -190,7 +190,7 @@ fn preflight_feature_surface_msgpack(method: &Method) -> Option<Result<(), &'sta
     }
 }
 
-/// CONCEPT:EH-280 — repository-snapshot material is lowered only by the
+/// EH-280 — repository-snapshot material is lowered only by the
 /// engine's own repository indexer, which commits it through the envelope
 /// authority directly. A caller of the public envelope methods cannot claim
 /// that class to reach the repository-content screening rule.

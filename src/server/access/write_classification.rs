@@ -117,7 +117,7 @@ fn requires_write_fleet_catalog_surface(method: &Method) -> Option<bool> {
     None
 }
 
-/// CONCEPT:EH-280 — `IndexRepository` commits its branch-aware projection only
+/// EH-280 — `IndexRepository` commits its branch-aware projection only
 /// when the batch carries a scope; an unscoped batch is a stateless parse.
 fn requires_write_ingestion_surface(method: &Method) -> Option<bool> {
     match method {

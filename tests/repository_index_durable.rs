@@ -1,4 +1,4 @@
-//! CONCEPT:EH-280 — a branch-aware `IndexRepository` batch is DURABLE.
+//! EH-280 — a branch-aware `IndexRepository` batch is DURABLE.
 //!
 //! Driven through the real `dispatch` shell over a redb-backed `ServerState`:
 //! a two-branch batch (`main` and `feature` share `pkg/util.py`) commits its

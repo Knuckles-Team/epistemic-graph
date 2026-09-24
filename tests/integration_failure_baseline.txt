@@ -68,7 +68,6 @@ tests/test_query_sql.py::test_sql_empty_result  # owner=@genius review-by=2026-0
 # CONCEPT:NE-046 is cited in src/server/handlers/rdf.rs, sqlite_file.rs and
 # sql_catalog_acl.rs but absent from docs/concepts.md. Both conditions already
 # hold at origin/main. A one-line doc fix, owned by whoever reserved NE-046.
-tests/test_concept_parity.py::test_concept_parity  # owner=@genius review-by=2026-09-19 note=NE-046-unregistered
 
 # --- Gate self-tests drifted from their own scripts (4) ----------------------
 # Each asserts a literal that its subject script no longer contains

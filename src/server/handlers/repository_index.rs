@@ -1,4 +1,4 @@
-//! CONCEPT:EH-280 — durable projection of a branch-aware `IndexRepository` batch.
+//! EH-280 — durable projection of a branch-aware `IndexRepository` batch.
 //!
 //! A scoped result (symbols anchored on `:Blob`, `:FileVersion`, and
 //! `:Branch -hasFileVersion-> :FileVersion` membership) is lowered to graph-row

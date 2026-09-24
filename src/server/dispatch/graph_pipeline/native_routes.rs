@@ -426,7 +426,7 @@ async fn route_source_ingestion_request(
 enum SourceIngestionRoute {
     Ingest(Box<eg_types::source_ingestion::SourceIngestionRequest>),
     Status(eg_types::source_ingestion::SourceIngestStatusRequest),
-    /// CONCEPT:EH-280 — a branch-aware batch commits its projection through the
+    /// EH-280 — a branch-aware batch commits its projection through the
     /// same placement fence and ChangeEnvelope authority as source ingestion.
     IndexRepository {
         files_msgpack: Vec<u8>,

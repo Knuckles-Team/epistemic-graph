@@ -25,7 +25,7 @@ mod graph_dispatch;
 mod modality;
 mod native_routes;
 mod pipeline;
-// CONCEPT:EH-280 — the durable, graph-scoped route of a branch-aware IndexRepository.
+// EH-280 — the durable, graph-scoped route of a branch-aware IndexRepository.
 mod repository_index;
 mod work_governance;
 use dispatch_helpers::*;

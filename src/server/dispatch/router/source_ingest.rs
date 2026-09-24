@@ -20,7 +20,7 @@ pub(super) async fn dispatch_source_ingest_methods(
         }
 
         // A scoped (branch-aware, durable) batch is a graph write: it continues to
-        // the graph-scoped route, after graph ACL and placement (CONCEPT:EH-280).
+        // the graph-scoped route, after graph ACL and placement (EH-280).
         Method::IndexRepository {
             files_msgpack,
             scope: None,

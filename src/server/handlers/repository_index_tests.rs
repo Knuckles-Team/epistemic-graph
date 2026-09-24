@@ -1,4 +1,4 @@
-// CONCEPT:EH-280 — the lowered write-set is deterministic and tombstones remove.
+// EH-280 — the lowered write-set is deterministic and tombstones remove.
 
 use std::collections::HashMap;
 

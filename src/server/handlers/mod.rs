@@ -127,7 +127,7 @@ pub(crate) mod source_batch;
 // RF-ADR-009 native raw-source authority. Present in every server build so a
 // build lacking redb/blob can return a named refusal for the wire method.
 pub(crate) mod source_ingestion;
-// CONCEPT:EH-280 — durable projection of a branch-aware IndexRepository batch,
+// EH-280 — durable projection of a branch-aware IndexRepository batch,
 // committed through the same ChangeEnvelope authority as source ingestion.
 pub(crate) mod repository_index;
 
