@@ -12,6 +12,9 @@ use crate::protocol::{Method, Response};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::persistence::PersistenceBackend;
 
+#[cfg(feature = "redb")]
+mod lease_kind_policy;
+
 /// Already-authorized graph and placement context for one WorkItem transition.
 pub(crate) struct HandleContext<'a> {
     pub(crate) req_id: u64,
@@ -65,6 +68,11 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
     };
     #[cfg(not(feature = "raft"))]
     let (placement_epoch, placement_fence) = (0, None);
+
+    #[cfg(feature = "redb")]
+    if let Some(refused) = lease_kind_policy::refuse_unpermitted_lease_kind(&ctx, &method).await {
+        return Ok(refused);
+    }
 
     let response =
         match commit_verified_work_item(&ctx, placement_epoch, placement_fence, method).await {
