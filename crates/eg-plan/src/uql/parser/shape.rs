@@ -1,11 +1,14 @@
 //! The `VALIDATE SHAPE` stage (EH-196):
 //!
 //! ```text
-//! validate_shape = "VALIDATE" "SHAPE" ( iri | string | ident ) "USING" string
+//! validate_shape = "VALIDATE" "SHAPE" ( iri | string | ident ) [ "USING" string ]
 //!                  [ "KEEP" ( "CONFORMING" | "VIOLATING" ) ] ;
 //! ```
 //!
 //! → `Op::ValidateShape { shape, shapes, keep }`, `keep` defaulting to `CONFORMING`.
+//! Without `USING` the shapes document is empty, which the executor resolves to the
+//! queried graph's composed GraphSchema shapes (bound server-side; eg-uql made `USING`
+//! optional once that binding existed).
 //! Only `VALIDATE SHAPE` is a UQL stage; every other `VALIDATE …` clause belongs to the
 //! DecideText front end, so this parser claims the stage only when BOTH keywords are
 //! present and otherwise leaves the tokens untouched. Gated to `owl` (the feature that
@@ -52,16 +55,11 @@ impl Parser<'_> {
             _ => return Err(self.err_here("expected a shape IRI after `VALIDATE SHAPE`")),
         };
         self.bump();
-        self.expect_kw("USING")?;
-        let shapes = match self.peek_kind() {
-            Some(Tok::Str(s)) => s.clone(),
-            _ => {
-                return Err(
-                    self.err_here("expected the shapes graph as a Turtle string after `USING`")
-                )
-            }
+        let shapes = if self.eat_kw("USING") {
+            self.string("the shapes graph (a Turtle string) after `USING`")?
+        } else {
+            String::new()
         };
-        self.bump();
         let keep = self.parse_shape_keep()?;
         Ok(Op::ValidateShape {
             shape,
@@ -89,11 +87,7 @@ impl Parser<'_> {
     /// clause is recognized but refused with a clear message.
     #[cfg(not(feature = "owl"))]
     fn parse_validate_shape(&mut self) -> Result<Op, UqlError> {
-        Err(self.err_at(
-            self.prev_start(),
-            "`VALIDATE SHAPE` requires the SHACL engine (build feature `owl`/`owl-plan`); \
-             not available in this build",
-        ))
+        Err(self.not_built("owl"))
     }
 }
 
@@ -135,9 +129,16 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_using_clause_or_bad_keep_is_a_positioned_error() {
-        let no_using = parse("MATCH (:P) |> VALIDATE SHAPE <http://ex/S>").unwrap_err();
-        assert!(no_using.msg.contains("USING"), "{}", no_using.msg);
+    fn using_is_optional_and_a_bad_keep_is_a_positioned_error() {
+        // No USING ⇒ empty shapes ⇒ the graph's GraphSchema shapes (bound server-side).
+        assert_eq!(
+            stage("MATCH (:P) |> VALIDATE SHAPE <http://ex/S>"),
+            Op::ValidateShape {
+                shape: "<http://ex/S>".into(),
+                shapes: String::new(),
+                keep: ShapeKeep::Conforming,
+            }
+        );
         let bad_keep =
             parse("MATCH (:P) |> VALIDATE SHAPE <http://ex/S> USING 't' KEEP ALL").unwrap_err();
         assert!(bad_keep.msg.contains("CONFORMING"), "{}", bad_keep.msg);
