@@ -102,6 +102,15 @@ fn rolling_zscore_matches_the_two_pass_population_formula() {
 }
 
 #[test]
+fn a_flat_window_after_removals_scores_exactly_zero() {
+    let xs = [1.0, 7.3, 2.9, 3.1, 3.1, 3.1];
+    let z = apply(Spec::Rolling(Rolling::Zscore, 3), &xs).unwrap();
+    assert_eq!(z[5], Some(0.0), "no add/remove residue on a flat window");
+    let sd = apply(Spec::Rolling(Rolling::Std, 3), &xs).unwrap();
+    assert_eq!(sd[5], Some(0.0));
+}
+
+#[test]
 fn ewma_by_span_is_the_seeded_recursion() {
     let got = apply(Spec::Ewma(Smoothing::Span(3.0)), &[1.0, 2.0, 4.0]).unwrap();
     assert_eq!(got, vec![Some(1.0), Some(1.5), Some(2.75)]);

@@ -2975,6 +2975,7 @@ dependencies = [
  "rand_distr",
  "rmp-serde",
  "serde",
+ "serde_json",
  "statrs",
 ]
 
@@ -3147,6 +3148,7 @@ dependencies = [
  "eg-storage",
  "eg-text",
  "eg-transaction",
+ "eg-tsdb",
  "eg-types",
  "futures-util",
  "hex",

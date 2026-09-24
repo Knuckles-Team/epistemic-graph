@@ -129,10 +129,14 @@ impl Spec {
 
 fn window_bound(w: usize, least: usize) -> Result<()> {
     if w < least {
-        return Err(NumericError::bounds(format!("a window of {w} is below {least}")));
+        return Err(NumericError::bounds(format!(
+            "a window of {w} is below {least}"
+        )));
     }
     if w > MAX_WINDOW {
-        return Err(NumericError::resource(format!("a window of {w} exceeds {MAX_WINDOW}")));
+        return Err(NumericError::resource(format!(
+            "a window of {w} exceeds {MAX_WINDOW}"
+        )));
     }
     Ok(())
 }
@@ -148,7 +152,9 @@ fn positive(what: &str, v: f64, least: f64) -> Result<()> {
     if v.is_finite() && v >= least {
         return Ok(());
     }
-    Err(NumericError::bounds(format!("{what} must be finite and >= {least}")))
+    Err(NumericError::bounds(format!(
+        "{what} must be finite and >= {least}"
+    )))
 }
 
 /// Run a one-input kernel over a whole series.

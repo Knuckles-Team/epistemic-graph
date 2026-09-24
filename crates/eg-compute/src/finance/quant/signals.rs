@@ -349,19 +349,13 @@ pub fn alpha_combination_engine(returns_matrix: &[Vec<f64>], lookback: usize) ->
 }
 
 /// Brier score — mean squared error of probabilistic forecasts vs binary
-/// outcomes. Lower is better; < 0.25 is production-grade calibration.
+/// outcomes. Lower is better; < 0.25 is production-grade calibration. The finance
+/// entry of `eg_numeric::calibration::metrics::binary_brier_score` (EH-530): pairs
+/// beyond the shorter input are ignored and no pairs score `0`.
 pub fn brier_score(forecasts: &[f64], outcomes: &[f64]) -> f64 {
     let n = forecasts.len().min(outcomes.len());
-    if n == 0 {
-        return 0.0;
-    }
-    forecasts
-        .iter()
-        .zip(outcomes.iter())
-        .take(n)
-        .map(|(p, o)| (p - o).powi(2))
-        .sum::<f64>()
-        / n as f64
+    eg_numeric::calibration::metrics::binary_brier_score(&forecasts[..n], &outcomes[..n])
+        .unwrap_or(0.0)
 }
 
 pub use eg_types::compute_result::finance::ConvergenceGate;

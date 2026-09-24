@@ -11,40 +11,21 @@ pub struct SignalOutput {
     pub signal_name: String,
 }
 
-/// Compute rolling Z-score: (x - rolling_mean) / rolling_std
+/// Rolling Z-score `(x - rolling_mean) / rolling_std` (population deviation, `0` on a
+/// flat window, `NaN` during warm-up; empty for a zero window). The finance entry of the
+/// one series kernel `eg_numeric::series` (EH-522/EH-530) — the same values UQL
+/// `DERIVE zscore(v0, w)` and SQL `eg_zscore(v, w)` produce.
 pub fn rolling_zscore(values: &[f64], window: usize) -> Vec<f64> {
-    let n = values.len();
-    if n == 0 || window == 0 {
-        return vec![];
-    }
-    let mut result = vec![f64::NAN; n];
-
-    for i in (window - 1)..n {
-        let slice = &values[(i + 1 - window)..=i];
-        let mean: f64 = slice.iter().sum::<f64>() / window as f64;
-        let var: f64 = slice.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / window as f64;
-        let std = var.sqrt();
-        if std > 1e-12 {
-            result[i] = (values[i] - mean) / std;
-        } else {
-            result[i] = 0.0;
-        }
-    }
-    result
+    use eg_numeric::series::{apply_nan, Rolling, Spec};
+    apply_nan(Spec::Rolling(Rolling::Zscore, window), values).unwrap_or_default()
 }
 
-/// Exponential weighted moving average (EWMA) signal.
+/// Exponential weighted moving average (EWMA) signal, `α = 2/(span+1)`, seeded with the
+/// first value (empty for a zero span). The finance entry of `eg_numeric::series`
+/// (UQL `DERIVE ewma(v0, span)`, SQL `eg_ewma(v, span)`).
 pub fn ewma_signal(values: &[f64], span: usize) -> Vec<f64> {
-    if values.is_empty() || span == 0 {
-        return vec![];
-    }
-    let alpha = 2.0 / (span as f64 + 1.0);
-    let mut result = vec![0.0; values.len()];
-    result[0] = values[0];
-    for i in 1..values.len() {
-        result[i] = alpha * values[i] + (1.0 - alpha) * result[i - 1];
-    }
-    result
+    use eg_numeric::series::{apply_nan, Smoothing, Spec};
+    apply_nan(Spec::Ewma(Smoothing::Span(span as f64)), values).unwrap_or_default()
 }
 
 /// Signal decay — exponential decay applied to a signal.

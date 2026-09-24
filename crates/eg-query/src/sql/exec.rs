@@ -111,6 +111,11 @@ fn register_numeric(ctx: &SessionContext) {
     ctx.register_udaf(pca_udaf());
     // CONCEPT:EG-KG.query.kmeans-clustering-half-one kmeans — the clustering half; one cluster label per aggregated row.
     ctx.register_udaf(kmeans_udaf());
+    // EH-522 — `eg_zscore(v, 60) OVER (PARTITION BY series ORDER BY ts)` and the rest of
+    // the `DERIVE` table, on the same kernels as UQL `DERIVE`.
+    for udwf in super::series_udwf::series_window_udfs() {
+        ctx.register_udwf(udwf);
+    }
 }
 
 /// Run `sql` over `view` (read-only, single graph), with no cache: re-scan the

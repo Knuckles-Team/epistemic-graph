@@ -1,66 +1,10 @@
-//! Lightweight rolling statistics and order-book simulation.
+//! Order-book simulation. (The rolling mean/std/z-score/EMA helpers that lived here were
+//! uncalled duplicates of the series kernels and were removed — EH-530; use
+//! `eg_numeric::series`.)
 
 use std::collections::HashMap;
 
 // ── Quant epistemic-graph Algorithms ─────────────────────────────────────────────────
-
-/// Compute rolling mean over a sliding window.
-pub fn compute_rolling_mean(values: &[f64], window: usize) -> Vec<f64> {
-    if window == 0 || values.is_empty() {
-        return vec![0.0; values.len()];
-    }
-    let mut result = vec![0.0; values.len()];
-    for i in 0..values.len() {
-        let start = if i >= window - 1 { i + 1 - window } else { 0 };
-        let slice = &values[start..=i];
-        result[i] = slice.iter().sum::<f64>() / slice.len() as f64;
-    }
-    result
-}
-
-/// Compute rolling standard deviation over a sliding window.
-pub fn compute_rolling_std(values: &[f64], window: usize) -> Vec<f64> {
-    if window == 0 || values.is_empty() {
-        return vec![0.0; values.len()];
-    }
-    let mut result = vec![0.0; values.len()];
-    for (i, res_val) in result.iter_mut().enumerate() {
-        let (_, variance) = window_stats(values, i, window);
-        *res_val = variance.sqrt();
-    }
-    result
-}
-
-/// Compute rolling z-score over a sliding window.
-pub fn compute_rolling_zscore(values: &[f64], window: usize) -> Vec<f64> {
-    if window == 0 || values.is_empty() {
-        return vec![0.0; values.len()];
-    }
-    let mut result = vec![0.0; values.len()];
-    for i in 0..values.len() {
-        let (mean, variance) = window_stats(values, i, window);
-        let std = variance.sqrt();
-        result[i] = if std > 0.0 {
-            (values[i] - mean) / std
-        } else {
-            0.0
-        };
-    }
-    result
-}
-
-/// Exponential decay (EMA) over a series.
-pub fn compute_exponential_decay(values: &[f64], alpha: f64) -> Vec<f64> {
-    if values.is_empty() {
-        return vec![];
-    }
-    let mut result = vec![0.0; values.len()];
-    result[0] = values[0];
-    for i in 1..values.len() {
-        result[i] = alpha * values[i] + (1.0 - alpha) * result[i - 1];
-    }
-    result
-}
 
 /// Order book matching simulation.
 /// Match a buy order against the resting ask book. Split out of
@@ -149,18 +93,4 @@ pub fn simulate_order_matching(
     }
 
     matches
-}
-
-/// Window statistics helper: returns (mean, variance) for the window ending at index `i`.
-fn window_stats(values: &[f64], i: usize, window: usize) -> (f64, f64) {
-    let start = if i >= window - 1 { i + 1 - window } else { 0 };
-    let slice = &values[start..=i];
-    let n = slice.len() as f64;
-    let mean = slice.iter().sum::<f64>() / n;
-    let variance = if n > 1.0 {
-        slice.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0)
-    } else {
-        0.0
-    };
-    (mean, variance)
 }

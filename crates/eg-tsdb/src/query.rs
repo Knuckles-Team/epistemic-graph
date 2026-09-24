@@ -281,16 +281,16 @@ pub fn decay_weighted_mean(points: &[Point], now: Ts, half_life_secs: f64) -> f6
     }
 }
 
-// ───────────────────── finance-kernel reuse (no re-implementation) ─────────────
+// ───────────────────── series-kernel reuse (no re-implementation) ─────────────
 
-/// EWMA over field 0 of a stored series — delegates to the engine's `eg_compute`
-/// signal kernel, proving the finance compute composes with stored series.
+/// EWMA over field 0 of a stored series — the one series kernel (`eg_numeric::series`,
+/// EH-522), through its finance entry so the `NaN`/empty conventions match.
 pub fn series_ewma(points: &[Point], span: usize) -> Vec<f64> {
     let vals: Vec<f64> = points.iter().map(|p| p.values[0]).collect();
     eg_compute::finance::signals::ewma_signal(&vals, span)
 }
 
-/// Rolling z-score over field 0 of a stored series — delegates to `eg_compute`.
+/// Rolling z-score over field 0 of a stored series — the one series kernel, as above.
 pub fn series_rolling_zscore(points: &[Point], window: usize) -> Vec<f64> {
     let vals: Vec<f64> = points.iter().map(|p| p.values[0]).collect();
     eg_compute::finance::signals::rolling_zscore(&vals, window)

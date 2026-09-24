@@ -1782,14 +1782,15 @@ fn reduce(op: AggOp, vals: &[f64]) -> f64 {
     }
 }
 
-/// Population variance of `vals` (÷N, Prometheus convention). Empty ⇒ NaN.
+/// Population variance of `vals` (÷N, Prometheus convention). Empty ⇒ NaN. The same
+/// two-pass moments the series kernels use (`rstd` / `zscore`, EH-522), so
+/// `stddev_over_time` and a UQL `DERIVE rstd(v0, w)` over the same window agree exactly.
 fn variance(vals: &[f64]) -> f64 {
-    let n = vals.len() as f64;
-    if n == 0.0 {
-        return f64::NAN;
-    }
-    let mean = vals.iter().sum::<f64>() / n;
-    vals.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n
+    moments(vals).map_or(f64::NAN, |m| m.variance)
+}
+
+fn moments(vals: &[f64]) -> Option<eg_numeric::series::window::Moments> {
+    eg_numeric::series::window::Moments::of(vals.iter().copied())
 }
 
 /// Linear-interpolated φ-quantile over a set of values (Prometheus `quantile`/
@@ -1899,7 +1900,7 @@ fn count_values(
 fn over_time_value(func: &str, vals: &[f64]) -> f64 {
     match func {
         "sum_over_time" => vals.iter().sum(),
-        "avg_over_time" => vals.iter().sum::<f64>() / vals.len() as f64,
+        "avg_over_time" => moments(vals).map_or(f64::NAN, |m| m.mean),
         "min_over_time" => vals.iter().copied().fold(f64::INFINITY, f64::min),
         "max_over_time" => vals.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         "count_over_time" => vals.len() as f64,
