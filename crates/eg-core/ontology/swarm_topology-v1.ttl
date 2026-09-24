@@ -1,0 +1,105 @@
+# Swarm topology vocabulary (SWARM-TOPOLOGY-DECIDE-DESIGN §4, ST-1).
+#
+# An EG core schema source (`core:swarm-topology@1`, authored by agent-utilities,
+# owned by EG like every agent-orchestration schema) reasoned IN EG (OWL 2 EL/RL
+# with proofs); the solver holds no topology term list.
+# EG knows exactly two anchors in its own namespace:
+#   eg:admitsTopology        -- `swarm:admits` is a sub-property of it;
+#   eg:NeedsIndependentCheck -- a task class under it needs a verifier slot.
+# A tenant extends this vocabulary under its own GraphSchema key.
+
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix eg:    <http://epistemic-graph/owl#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/swarm> a owl:Ontology ;
+    rdfs:label "Swarm topology" ;
+    rdfs:comment "Topology classes, slot roles, stop rules and task-shape admissibility for swarm decisions." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+# --- Properties -------------------------------------------------------------
+
+swarm:admits a owl:ObjectProperty ;
+    rdfs:subPropertyOf eg:admitsTopology ;
+    rdfs:comment "A task shape admits a topology class (and, through subsumption, its subclasses)." .
+swarm:class a owl:ObjectProperty ;
+    rdfs:comment "The one topology class a template is." .
+swarm:hasSlot a owl:ObjectProperty .
+swarm:role a owl:ObjectProperty .
+swarm:hasStopRule a owl:ObjectProperty .
+swarm:lease a owl:ObjectProperty .
+swarm:nodeId a owl:DatatypeProperty ; rdfs:range xsd:string .
+swarm:nodeKind a owl:DatatypeProperty ; rdfs:range xsd:string .
+swarm:minWidth a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
+swarm:maxWidth a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
+swarm:maxRounds a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
+swarm:k a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
+swarm:n a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
+swarm:resourceClass a owl:DatatypeProperty ; rdfs:range xsd:string .
+swarm:amount a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
+
+# --- Topology classes -------------------------------------------------------
+
+swarm:TopologyTemplate a owl:Class ;
+    rdfs:comment "A published agent-graph template carrying topology facts." .
+swarm:Topology a owl:Class .
+swarm:Single a owl:Class ; rdfs:subClassOf swarm:Topology .
+swarm:Pipeline a owl:Class ; rdfs:subClassOf swarm:Topology .
+swarm:FanOutJoin a owl:Class ; rdfs:subClassOf swarm:Topology .
+swarm:SupervisorWorkers a owl:Class ; rdfs:subClassOf swarm:Topology .
+swarm:PeerTeam a owl:Class ; rdfs:subClassOf swarm:Topology .
+swarm:Debate a owl:Class ; rdfs:subClassOf swarm:PeerTeam .
+swarm:Council a owl:Class ; rdfs:subClassOf swarm:PeerTeam .
+swarm:CritiqueLoop a owl:Class ; rdfs:subClassOf swarm:PeerTeam .
+swarm:Hierarchy a owl:Class ; rdfs:subClassOf swarm:Topology .
+
+# --- Slots and roles --------------------------------------------------------
+
+swarm:Slot a owl:Class .
+swarm:SlotRole a owl:Class .
+swarm:Parent a owl:Class ; rdfs:subClassOf swarm:SlotRole .
+swarm:Child a owl:Class ; rdfs:subClassOf swarm:SlotRole .
+swarm:Peer a owl:Class ; rdfs:subClassOf swarm:SlotRole .
+swarm:Aggregator a owl:Class ; rdfs:subClassOf swarm:SlotRole .
+swarm:Verifier a owl:Class ; rdfs:subClassOf swarm:SlotRole .
+swarm:LeaseDemand a owl:Class .
+
+# --- Stop rules -------------------------------------------------------------
+
+swarm:StopRule a owl:Class .
+swarm:MaxRoundsStop a owl:Class ; rdfs:subClassOf swarm:StopRule .
+swarm:QuorumStop a owl:Class ; rdfs:subClassOf swarm:StopRule .
+swarm:VerifierPassStop a owl:Class ; rdfs:subClassOf swarm:StopRule .
+swarm:BudgetStop a owl:Class ; rdfs:subClassOf swarm:StopRule .
+swarm:DeadlineStop a owl:Class ; rdfs:subClassOf swarm:StopRule .
+
+# --- Task shapes and admissibility (EL, so every entailment carries a proof) --
+
+swarm:TaskShape a owl:Class ;
+    rdfs:subClassOf [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:Single ] .
+
+swarm:DecomposableTask a owl:Class ;
+    rdfs:subClassOf swarm:TaskShape ,
+        [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:Pipeline ] ,
+        [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:SupervisorWorkers ] ,
+        [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:Hierarchy ] .
+
+swarm:IndependentSubtasks a owl:Class ;
+    rdfs:subClassOf swarm:DecomposableTask ,
+        [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:FanOutJoin ] .
+
+swarm:SequentialDependency a owl:Class ;
+    rdfs:comment "A dependent span: admits a pipeline, never a fan-out." ;
+    rdfs:subClassOf swarm:TaskShape ,
+        [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:Pipeline ] .
+
+swarm:NeedsNegotiation a owl:Class ;
+    rdfs:subClassOf swarm:TaskShape ,
+        [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:PeerTeam ] .
+
+swarm:NeedsIndependentCheck a owl:Class ;
+    rdfs:comment "Every admitted topology must carry a verifier slot (enforced as the `verify` row)." ;
+    rdfs:subClassOf swarm:TaskShape , eg:NeedsIndependentCheck ,
+        [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:CritiqueLoop ] .

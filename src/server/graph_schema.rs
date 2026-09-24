@@ -18,6 +18,8 @@ pub(crate) mod compiled;
 pub(crate) mod compose;
 #[cfg(test)]
 mod world_model_tests;
+#[cfg(all(test, feature = "shacl"))]
+mod swarm_topology_tests;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
