@@ -566,6 +566,7 @@ async fn route_graph_placement_surfaces(
             | Method::TsEvict { .. }
             | Method::TsDeleteSeries { .. }
             | Method::TsListSeries
+            | Method::TsDefineSeries { .. }
     ) {
         return Ok(dispatch_op_tsdb_ops(
             ctx.state,

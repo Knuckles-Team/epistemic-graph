@@ -24,7 +24,10 @@ pub(super) async fn dispatch_op_tsdb_write_fence(
 ) -> Option<Response> {
     if !matches!(
         method,
-        Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
+        Method::TsAppend { .. }
+        | Method::TsEvict { .. }
+        | Method::TsDeleteSeries { .. }
+        | Method::TsDefineSeries { .. }
     ) {
         return None;
     }

@@ -3326,6 +3326,7 @@ dependencies = [
  "redb",
  "rmp-serde",
  "serde",
+ "serde_bytes",
  "tempfile",
  "tokio",
 ]

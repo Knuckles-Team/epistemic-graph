@@ -382,6 +382,22 @@ $($variants)*
     /// caller has no way to discover which series exist to retain/evict at all.
     TsListSeries,
 
+    /// Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from
+    /// `source` — a series in the caller's own scope — by `expr`, a series expression in
+    /// the UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example
+    /// `zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points
+    /// are `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it
+    /// from its checkpoint (bounded work per append; a lagging series catches up on the
+    /// next append or re-definition); a source point at or before the last one derived is
+    /// a revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read
+    /// it like any series. Idempotent for the same definition (the call then catches the
+    /// series up); a different definition, a missing source or a cycle is refused.
+    TsDefineSeries {
+        series_id: String,
+        source: String,
+        expr: String,
+    },
+
 
     // ── Blob (CONCEPT:EG-KG.storage.blob-namespace — streamed content-addressed media substrate) ──
     // Streamed transfer of a large media blob as MANY ordinary one-Response-per-

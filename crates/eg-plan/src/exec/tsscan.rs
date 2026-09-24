@@ -97,10 +97,11 @@ impl CommittedSeries<'_> {
 /// nanoseconds. No store, an unknown series or an empty point contribute nothing: degrade,
 /// never err. Rows are ordered by series (in request order), then by timestamp.
 ///
-/// CONCEPT:EG-KG.query.txn-tsdb-read-your — when a [`StagedSeries`] overlay is attached the
-/// transaction's OWN staged points are read FIRST, so for one series at one timestamp the
-/// staged point shadows the committed one (RYOW precedence), and staged-only points are
-/// visible before commit. With no overlay the committed store is read alone.
+/// Several committed versions of one point (a correction, a derived series' revision,
+/// EH-524) read as the LATEST one. CONCEPT:EG-KG.query.txn-tsdb-read-your — when a
+/// [`StagedSeries`] overlay is attached, the transaction's OWN staged point shadows the
+/// committed one at that timestamp (RYOW precedence), and staged-only points are visible
+/// before commit. With no overlay the committed store is read alone.
 pub(crate) fn tsdb_scan_op(
     committed: &CommittedSeries<'_>,
     staged: Option<&StagedSeries>,
@@ -114,16 +115,11 @@ pub(crate) fn tsdb_scan_op(
     let mut scored: Vec<(String, f32)> = Vec::new();
     let mut values = ValueChannels::new();
     for sid in series {
-        let staged_pts = staged
-            .map(|s| s.range(sid, from_ns, to_ns))
-            .unwrap_or_default();
-        let mut merged: BTreeMap<i64, Vec<f64>> = BTreeMap::new();
-        for (ts, vals) in staged_pts
-            .into_iter()
-            .chain(committed.range(sid, from_ns, to_ns))
-        {
-            merged.entry(ts).or_insert(vals);
-        }
+        // The store keeps every version of a point (equal timestamps in arrival order):
+        // the last one is the latest correction. Staged points then shadow committed.
+        let mut merged: BTreeMap<i64, Vec<f64>> =
+            committed.range(sid, from_ns, to_ns).into_iter().collect();
+        merged.extend(staged.map(|s| s.range(sid, from_ns, to_ns)).unwrap_or_default());
         for (ts, vals) in merged {
             let id = series_row_id(sid, ts);
             scored.push((id.clone(), vals[0] as f32));

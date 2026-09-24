@@ -88,6 +88,8 @@ async-trait = { version = "0.1", optional = true }
 
 serde = { version = "1.0", features = ["derive"] }
 rmp-serde = "1.3"
+# A derived series' state rides in its metadata as one MessagePack `bin` (EH-524).
+serde_bytes = "0.11"
 # ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
 # OFF) — a default/node/full build links none of it and `SeriesMeta` carries no new
 # required trait. See `src/contract.rs`.
