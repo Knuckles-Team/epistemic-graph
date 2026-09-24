@@ -1188,6 +1188,10 @@ jobs:
           - { name: 'query-only',              flags: '--no-default-features --features query' }
           - { name: 'server-redb-query-security', flags: '--no-default-features --features "server,redb,query,security"' }
           - { name: 'server-redb-query-security-geo', flags: '--no-default-features --features "server,redb,query,security,geo"' }
+          # EH-346: the policy-evolution held-blob check has a fail-closed
+          # `not(feature = "blob")` twin; build the server without the blob store so
+          # that twin cannot rot unnoticed.
+          - { name: 'server-redb-no-blob', flags: '--no-default-features --features "graph,algorithms,metrics,server,redb"' }
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
