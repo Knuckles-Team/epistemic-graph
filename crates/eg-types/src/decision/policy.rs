@@ -160,6 +160,11 @@ pub struct DecisionPolicy {
     pub cold_start: ColdStart,
     #[serde(default)]
     pub statistical: Option<StatisticalPolicy>,
+    /// Topology caps and the per-harness sub-agent opt-in. Absent means the
+    /// engine default ([`super::topology::TopologyPolicy::engine_default`]),
+    /// and keeps an existing policy's digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<super::topology::TopologyPolicy>,
 }
 
 /// The component attribute a published `DecisionPolicy` carries its body in:
@@ -214,6 +219,7 @@ impl DecisionPolicy {
             a2a_requires_observation: true,
             cold_start: ColdStart::DeterministicOnly,
             statistical: None,
+            topology: None,
         }
     }
 

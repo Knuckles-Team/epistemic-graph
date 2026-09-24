@@ -22,10 +22,10 @@ pub(crate) const DECIDE_AUDIT_TARGET: &str = "eg::decide::audit";
 pub(crate) async fn handle_agent_assemble(
     state: &SharedState,
     req_id: u64,
-    verified: &VerifiedRequestContext,
+    (graph, verified): (&str, &VerifiedRequestContext),
     request: AssemblyRequest,
 ) -> Response {
-    match assemble_for(state, verified, request).await {
+    match assemble_for(state, graph, verified, request).await {
         Ok(result) => {
             audit_line("agent-assemble", &result.record, verified);
             Response::ok(
@@ -42,6 +42,7 @@ pub(crate) async fn handle_agent_assemble(
 #[cfg(feature = "decide")]
 async fn assemble_for(
     state: &SharedState,
+    graph: &str,
     verified: &VerifiedRequestContext,
     request: AssemblyRequest,
 ) -> Result<eg_types::decision::AssemblyResult, String> {
@@ -59,8 +60,10 @@ async fn assemble_for(
         .iter()
         .map(|reference| store.assembly_template(&request.tenant_id, reference))
         .collect::<Result<Vec<_>, String>>()?;
-    let inputs =
+    let topology = super::topology_read::read(state, graph, verified, &request, &templates).await?;
+    let mut inputs =
         inputs(request, candidates, templates, policy).map_err(|error| error.to_string())?;
+    inputs.topology = topology;
     let identity = RecordIdentity {
         tenant_id: verified.tenant().to_string(),
         caller_principal: verified.principal_persistence_id(),
@@ -130,7 +133,7 @@ pub(crate) fn audit_line(
 pub(crate) async fn handle_agent_assemble(
     _state: &SharedState,
     req_id: u64,
-    _verified: &VerifiedRequestContext,
+    _caller: (&str, &VerifiedRequestContext),
     _request: AssemblyRequest,
 ) -> Response {
     Response::err(req_id, "AgentAssemble requires the `decide` feature")

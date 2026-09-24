@@ -81,6 +81,10 @@ pub enum DecisionOutcome {
         graph_digest: String,
         slots: BoundedVec<SlotAssignment, 64>,
         certificate: Box<Certificate>,
+        /// The decided widths, rounds, stop rule, leases and allowances, when
+        /// the request asked a topology question.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        topology: Option<Box<crate::decision::topology::TopologyPlan>>,
     },
     /// No assembly, and exactly why.
     Abstained {

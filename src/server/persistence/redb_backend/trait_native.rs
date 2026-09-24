@@ -178,6 +178,26 @@ macro_rules! persistence_native {
         crate::redb_store::capacity_lease::read(&shard, graph_fname, request, crypto)
     }
 
+    /// Per-cell headroom at one priority (ST-8), same MVCC posture as
+    /// `read_capacity_status` above.
+    async fn read_capacity_headroom(
+        &self,
+        graph_fname: &str,
+        cells: &[String],
+        priority: eg_types::capacity_lease::LeasePriority,
+    ) -> Result<Vec<eg_types::decision::CapacityHeadroom>, String> {
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::capacity_lease::headroom(&shard, graph_fname, cells, priority, crypto)
+    }
+
     /// Exact authenticated native development-lane hold/tombstone read (RMDD-28).
     /// An MVCC snapshot read off the writer shard's shared `Shard`, same
     /// posture as `read_resource_reservation` above -- never routed through the

@@ -594,6 +594,10 @@ fn graph_publish(
     request.graph.purpose_id = context.purpose_id.clone();
     request.graph.policy_digest = context.policy_digest.clone();
     request.context = context;
+    if let Some(refusal) = crate::server::handlers::decide::topology_shape::refusal(&request.graph)
+    {
+        return Response::err(req_id, refusal);
+    }
     match store.publish_graph(*request) {
         Ok(result) => Response::ok(
             req_id,

@@ -48,6 +48,9 @@ pub(crate) const USAGE: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const IDEMPOTENCY: TableDefinition<(&str, &str, &str), &[u8]> =
     TableDefinition::new("capacity_idempotency");
 
+mod headroom;
+pub(crate) use headroom::headroom;
+
 const MAX_SCAN: usize = 4096;
 const DEFAULT_TTL_MS: u64 = 60_000;
 
