@@ -111,6 +111,22 @@ $($variants)*
     },
 
 
+    // ── UQL statement surface (UQL-07/08/09) ─────────────────────────────────────
+    // The full UQL statement: typed `$name` `params` bound as VALUES (never spliced into
+    // the text), `EXPLAIN` (plan, per-stage estimated rows, incremental-maintainability —
+    // no execution) and `PROFILE` (execute, per-stage rows + time), `LET … FROM/JOIN`
+    // programs (a PlanDag), and `RETURN` score channels. Parsed by
+    // `eg_plan::uql::parse_statement` and run over the same RLS-filtered off-lock snapshot
+    // and served index bindings as `UnifiedQueryText`. Read-only. Result:
+    // [`crate::wire::UqlResult`] via `ResultPayload::raw`.
+    #[cfg(feature = "query")]
+    Uql {
+        text: String,
+        #[serde(default)]
+        params: std::collections::BTreeMap<String, crate::wire::UqlParam>,
+    },
+
+
     // ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────────
     // Diagnostics over the SAME `wire::Plan` `UnifiedQuery` carries — no new execution
     // path, just introspection into what the planner did / would do. Read-only.
