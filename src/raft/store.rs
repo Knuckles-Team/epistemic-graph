@@ -471,12 +471,16 @@ pub struct EgStore {
     apply_snapshot_gate: Mutex<()>,
     /// Engine context: registry + persistence the state machine applies into.
     ctx: AppCtx,
+    /// Delivers log-append durability callbacks off the Raft core (EH-288).
+    flushes: flush::FlushNotifier,
 }
 
 #[path = "store/apply.rs"]
 mod apply;
 #[path = "store/commit.rs"]
 mod commit;
+#[path = "store/flush.rs"]
+mod flush;
 #[path = "store/log.rs"]
 mod log;
 #[path = "store/native.rs"]
