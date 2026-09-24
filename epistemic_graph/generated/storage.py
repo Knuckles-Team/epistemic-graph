@@ -508,7 +508,9 @@ async def send_agent_component_search(
     params = {
         "op": {
             "op": "search",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -532,7 +534,9 @@ async def send_agent_component_content(
     params = {
         "op": {
             "op": "content",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -553,7 +557,9 @@ async def send_agent_component_current(
 ) -> AgentComponentEntry | None:
     """Send typed AgentComponent.current through the existing AgentComponent method."""
     request = AgentComponentOpCurrent.model_validate(request)
-    params = {"op": request.model_dump(mode="json", exclude_none=True)}
+    params = {
+        "op": request.model_dump(mode="json", exclude_unset=True, exclude_none=True)
+    }
     payload = await client._send(
         "AgentComponent",
         params,
@@ -776,7 +782,9 @@ async def send_connector_pack_status(
     params = {
         "op": {
             "op": "status",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -800,7 +808,9 @@ async def send_connector_pack_import(
     params = {
         "op": {
             "op": "import",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -1611,7 +1621,8 @@ async def send_sql_source_batch(
         - REDIRECTED
         - READ_ONLY
     """
-    models().MethodSqlSourceBatchParams.model_validate(params or {})
+    if not isinstance((params or {}).get("batch"), bytes):
+        models().MethodSqlSourceBatchParams.model_validate(params or {})
     payload = await client._send(
         "SqlSourceBatch",
         params,

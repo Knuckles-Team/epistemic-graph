@@ -849,7 +849,9 @@ async def send_fleet_catalog_record_discovery(
     params = {
         "op": {
             "op": "record_discovery",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -873,7 +875,9 @@ async def send_fleet_catalog_set_override(
     params = {
         "op": {
             "op": "set_override",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -900,7 +904,9 @@ async def send_fleet_catalog_clear_override(
     params = {
         "op": {
             "op": "clear_override",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -924,7 +930,9 @@ async def send_fleet_catalog_list(
     params = {
         "op": {
             "op": "list",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -948,7 +956,9 @@ async def send_fleet_catalog_lookup(
     params = {
         "op": {
             "op": "lookup",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(

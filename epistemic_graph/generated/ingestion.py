@@ -140,7 +140,9 @@ async def send_source_ingest_status(
         - ACCESS_DENIED
     """
     request = SourceIngestStatusRequest.model_validate(request)
-    params = request.model_dump(mode="json", by_alias=True, exclude_none=True)
+    params = request.model_dump(
+        mode="json", by_alias=True, exclude_unset=True, exclude_none=True
+    )
     payload = await client._send(
         "SourceIngestStatus",
         params,

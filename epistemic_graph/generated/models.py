@@ -161,19 +161,19 @@ class AgentComponentDraft(BaseModel):
 
     actor_scope: str
     attributes: dict[str, str] | None = None
-    classification: list[str] | None = None
+    classification: list[str] = Field(default_factory=list)
     component_id: str
     content_digest: str
     content_ref: str | None = None
-    declared_capabilities: list[str] | None = None
-    declared_required_capabilities: list[str] | None = None
+    declared_capabilities: list[str] = Field(default_factory=list)
+    declared_required_capabilities: list[str] = Field(default_factory=list)
     facts: AgentComponentFacts
     kind: AgentComponentKind
     policy_digest: str
     provenance: ComponentProvenance
     purpose_id: str
-    required_capabilities: list[str] | None = None
-    requires: list[ComponentDependency] | None = None
+    required_capabilities: list[str] = Field(default_factory=list)
+    requires: list[ComponentDependency] = Field(default_factory=list)
     source_revision: str
     source_revision_digest: str
     summary: str
@@ -186,13 +186,13 @@ class AgentComponentEntry(BaseModel):
 
     actor_scope: str
     attributes: dict[str, str] | None = None
-    classification: list[str] | None = None
+    classification: list[str] = Field(default_factory=list)
     component_id: str
     content_digest: str
     content_ref: str | None = None
     created_at_ms: Annotated[int, Field(ge=0)]
-    declared_capabilities: list[str] | None = None
-    declared_required_capabilities: list[str] | None = None
+    declared_capabilities: list[str] = Field(default_factory=list)
+    declared_required_capabilities: list[str] = Field(default_factory=list)
     definition_digest: str
     entry_revision: Annotated[int, Field(ge=0)]
     facts: AgentComponentFacts
@@ -201,8 +201,8 @@ class AgentComponentEntry(BaseModel):
     policy_digest: str
     provenance: ComponentProvenance
     purpose_id: str
-    required_capabilities: list[str] | None = None
-    requires: list[ComponentDependency] | None = None
+    required_capabilities: list[str] = Field(default_factory=list)
+    requires: list[ComponentDependency] = Field(default_factory=list)
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     source_revision: str
     source_revision_digest: str
@@ -389,9 +389,9 @@ class AgentComponentSearchPage(BaseModel):
 class AgentComponentSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    capabilities: list[str] | None = None
+    capabilities: list[str] = Field(default_factory=list)
     cursor: str | None = None
-    kinds: list[AgentComponentKind] | None = None
+    kinds: list[AgentComponentKind] = Field(default_factory=list)
     limit: Annotated[int, Field(ge=0)] | None = None
     read_only: bool | None = None
     task: str | None = None
@@ -1102,8 +1102,8 @@ class AssemblyConstraints(BaseModel):
     cost_budget: CostBudget | None = None
     max_components: Annotated[int, Field(ge=0)] | None = None
     max_p95_latency_ms: Annotated[int, Field(ge=0)] | None = None
-    modalities_in: BoundedVec_string_16 | None = None
-    modalities_out: BoundedVec_string_16 | None = None
+    modalities_in: BoundedVec_string_16 = Field(default_factory=list)
+    modalities_out: BoundedVec_string_16 = Field(default_factory=list)
     require_structured_output: bool | None = None
     require_tools: bool | None = None
 
@@ -1115,26 +1115,26 @@ class AssemblyRequest(BaseModel):
     policy: DecisionPolicyRef
     requirements: AssemblyRequirements
     solver: SolverBudget | None = None
-    templates: BoundedVec_AgentGraphEntryRef_8 | None = None
+    templates: BoundedVec_AgentGraphEntryRef_8 = Field(default_factory=list)
     tenant_id: str
 
 
 class AssemblyRequirements(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    capabilities: BoundedVec_string_32 | None = None
+    capabilities: BoundedVec_string_32 = Field(default_factory=list)
     constraints: AssemblyConstraints | None = None
-    denies: BoundedVec_string_64 | None = None
-    pins: BoundedVec_ComponentDependency_64 | None = None
-    task_mappings: BoundedVec_ClaimedTaskMapping_32 | None = None
-    tasks: BoundedVec_string_32 | None = None
-    unmapped_task_digests: BoundedVec_string_32 | None = None
+    denies: BoundedVec_string_64 = Field(default_factory=list)
+    pins: BoundedVec_ComponentDependency_64 = Field(default_factory=list)
+    task_mappings: BoundedVec_ClaimedTaskMapping_32 = Field(default_factory=list)
+    tasks: BoundedVec_string_32 = Field(default_factory=list)
+    unmapped_task_digests: BoundedVec_string_32 = Field(default_factory=list)
 
 
 class AssemblyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    agents: BoundedVec_AgentLibraryEntryDraft_8 | None = None
+    agents: BoundedVec_AgentLibraryEntryDraft_8 = Field(default_factory=list)
     graph: AgentGraphDraft | None = None
     model: SolveModelSpec | None = None
     record: DecisionRecord
@@ -1687,8 +1687,8 @@ class CausalRelationRow(BaseModel):
 class CdcEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    after: bytes | None = None
-    before: bytes | None = None
+    after: bytes = Field(default_factory=bytes)
+    before: bytes = Field(default_factory=bytes)
     graph: str
     had_after: bool | None = None
     had_before: bool | None = None
@@ -1788,7 +1788,7 @@ class CepMatcherSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     key: str | None = None
-    preds: list[CepAttrPredSpec] | None = None
+    preds: list[CepAttrPredSpec] = Field(default_factory=list)
 
 
 class CepNodeSpecAbsence(BaseModel):
@@ -1880,18 +1880,18 @@ class ChangeCursor(BaseModel):
 class ChangeEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    blobs: list[BlobReference] | None = None
+    blobs: list[BlobReference] = Field(default_factory=list)
     commit_descriptor_ref: str | None = None
     commit_seq: Annotated[int, Field(ge=0)] | None = None
     content_version: ContentVersion
     cursor: ChangeCursor | None = None
     envelope_id: str
-    evidence: list[EvidenceRecord] | None = None
-    features: list[FeatureRecord] | None = None
-    lineage: list[LineageRecord] | None = None
+    evidence: list[EvidenceRecord] = Field(default_factory=list)
+    features: list[FeatureRecord] = Field(default_factory=list)
+    lineage: list[LineageRecord] = Field(default_factory=list)
     material_class: MaterialClass | None = None
     mutation: MutationBatch
-    policies: list[PolicyRecord] | None = None
+    policies: list[PolicyRecord] = Field(default_factory=list)
     privacy: PrivacyAttestation
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
@@ -2308,7 +2308,7 @@ ColdStart = Annotated[
 class CommitOutcomeBundle(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    artifacts: list[OutcomeArtifactRef] | None = None
+    artifacts: list[OutcomeArtifactRef] = Field(default_factory=list)
     capability_digest: str
     catalog_digest: str
     completeness: OutcomeCompleteness
@@ -2317,8 +2317,10 @@ class CommitOutcomeBundle(BaseModel):
     event_sequence: Annotated[int, Field(ge=0)]
     executor_lease_actor: str
     fence_token: Annotated[int, Field(ge=0)]
-    langfuse_observation_refs: list[LangfuseObservationRef] | None = None
-    missing_refs: list[str] | None = None
+    langfuse_observation_refs: CommitOutcomeBundleLangfuseObservationRefs = Field(
+        default_factory=list
+    )
+    missing_refs: list[str] = Field(default_factory=list)
     model_digest: str
     outbox_id: str
     outcome: str
@@ -2329,7 +2331,7 @@ class CommitOutcomeBundle(BaseModel):
     run_id: str
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     selected_agent_id: str
-    tool_call_refs: list[str] | None = None
+    tool_call_refs: list[str] = Field(default_factory=list)
     trace_ref: str
     work_item_id: str
 
@@ -2953,7 +2955,7 @@ class DecideRequest(BaseModel):
     feature_schema: ComponentDependency
     head: ComponentDependency | None = None
     max_records: Annotated[int, Field(ge=0, le=65535)] | None = None
-    params: BoundedVec_TypedParam_64 | None = None
+    params: BoundedVec_TypedParam_64 = Field(default_factory=list)
     policy: DecisionPolicyRef
     question: StatisticalQuestion
     tenant_id: str
@@ -3010,13 +3012,13 @@ class DecisionEvalReceipt(BaseModel):
     calibration: CalibrationStatement | None = None
     estimates: BoundedVec_OpeEstimateView_8
     exclusions: LabelExclusions
-    failed_gates: BoundedVec_string_16 | None = None
+    failed_gates: BoundedVec_string_16 = Field(default_factory=list)
     head_digest: str
     metrics: FullLabelMetrics | None = None
     n_records: Annotated[int, Field(ge=0)]
     passed: bool
     policy_digest: str
-    pooled: BoundedVec_PooledRate_64 | None = None
+    pooled: BoundedVec_PooledRate_64 = Field(default_factory=list)
     receipt_digest: str
     synthetic: bool
 
@@ -3093,7 +3095,7 @@ class DecisionInputs(BaseModel):
     policy_digest: str
     request: AssemblyRequest
     solver: SolverIdentity
-    templates: BoundedVec_TemplateFacts_8 | None = None
+    templates: BoundedVec_TemplateFacts_8 = Field(default_factory=list)
 
 
 class DecisionJobKind(str, Enum):
@@ -4847,7 +4849,7 @@ class Fill(BaseModel):
 class FiredAction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    action: bytes | None = None
+    action: bytes = Field(default_factory=bytes)
     change_seq: Annotated[int, Field(ge=0)]
     fire_seq: Annotated[int, Field(ge=0)]
     graph: str
@@ -5053,7 +5055,7 @@ class FleetCatalogListRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     cursor: FleetCatalogCursor | None = None
-    grant_digests: BoundedVec_Digest256_64 | None = None
+    grant_digests: BoundedVec_Digest256_64 = Field(default_factory=list)
     kind: FleetCatalogKind
     limit: Annotated[int, Field(ge=0, le=65535)] | None = None
     query: str | None = None
@@ -5071,7 +5073,7 @@ class FleetCatalogLookup(BaseModel):
 class FleetCatalogLookupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    grant_digests: BoundedVec_Digest256_64 | None = None
+    grant_digests: BoundedVec_Digest256_64 = Field(default_factory=list)
     ids: BoundedVec_string_256
 
 
@@ -5822,10 +5824,10 @@ class IndexRefStatus(str, Enum):
 class IndexRepositoryScope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    file_versions: BoundedVec_IndexFileVersion_262144 | None = None
+    file_versions: BoundedVec_IndexFileVersion_262144 = Field(default_factory=list)
     refs: BoundedVec_IndexRef_4096
     repository_id: str
-    tombstones: BoundedVec_IndexTombstone_262144 | None = None
+    tombstones: BoundedVec_IndexTombstone_262144 = Field(default_factory=list)
 
 
 class IndexResult(BaseModel):
@@ -6049,7 +6051,7 @@ class JobOpWorkerClaim(BaseModel):
 class JobOpWorkerClaimBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    capabilities: list[str] | None = None
+    capabilities: list[str] = Field(default_factory=list)
     lease_ms: Annotated[int, Field(ge=0)] | None = None
     worker_instance: str | None = None
 
@@ -6162,9 +6164,9 @@ class JobResult(BaseModel):
 
     calibration: JobResultCalibration | None = None
     content_digest: str
-    counterexample_refs: list[str] | None = None
+    counterexample_refs: list[str] = Field(default_factory=list)
     dataset_ref: str
-    evidence_refs: list[str] | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
     reproducibility: JobReproducibilityManifest
     rows: list[dict[str, Any]]
     schema_: list[JobResultColumn] = Field(..., alias="schema")
@@ -6418,7 +6420,7 @@ class KnowledgeStreamQuerySql(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["sql"]
-    params_msgpack: bytes | None = None
+    params_msgpack: bytes = Field(default_factory=bytes)
     query: str
 
 
@@ -6436,8 +6438,8 @@ class KnowledgeStreamQueryVector(BaseModel):
 
     family: Literal["vector"]
     k: Annotated[int, Field(ge=0)]
-    keywords: list[str] | None = None
-    query_embedding: list[float] | None = None
+    keywords: list[str] = Field(default_factory=list)
+    query_embedding: list[float] = Field(default_factory=list)
 
 
 class KnowledgeStreamQueryTimeSeries(BaseModel):
@@ -11112,7 +11114,7 @@ class MethodExportSqliteFileParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     path: str
-    tables: list[str] | None = None
+    tables: list[str] = Field(default_factory=list)
 
 
 class MethodFinanceAdfTestParams(BaseModel):
@@ -11873,7 +11875,9 @@ class MethodGraphLearnFitParams(BaseModel):
 class MethodGraphLearnPredictParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    candidate_pairs: list[MethodGraphLearnPredictParamsCandidatePairsItem] | None = None
+    candidate_pairs: MethodGraphLearnPredictParamsCandidatePairs = Field(
+        default_factory=list
+    )
     model: Any
     source: GraphSource
     top_k: Annotated[int, Field(ge=0)] | None = None
@@ -12069,7 +12073,7 @@ class MethodMineAnomalyParams(BaseModel):
 
     algorithm: AnomalyAlgorithm | None = None
     as_claim: bool | None = None
-    features: list[list[float]] | None = None
+    features: list[list[float]] = Field(default_factory=list)
     gamma: float | None = None
     k: Annotated[int, Field(ge=0)] | None = None
     kernel: SvmKernel | None = None
@@ -12080,7 +12084,7 @@ class MethodMineAnomalyParams(BaseModel):
     seed: Annotated[int, Field(ge=0)] | None = None
     source: VectorSource | None = None
     threshold: float | None = None
-    values: list[float] | None = None
+    values: list[float] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -12100,9 +12104,9 @@ class MethodMineCausalImpactParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     as_claim: bool | None = None
-    control: list[float] | None = None
+    control: list[float] = Field(default_factory=list)
     intervention_index: Annotated[int, Field(ge=0)] | None = None
-    series: list[float] | None = None
+    series: list[float] = Field(default_factory=list)
     series_id: str | None = None
     writeback: bool | None = None
 
@@ -12119,8 +12123,8 @@ class MethodMineClassifyFitParams(BaseModel):
     lr: float | None = None
     plan: Plan | None = None
     source: VectorSource | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+    x: list[list[float]] = Field(default_factory=list)
+    y: list[int] = Field(default_factory=list)
 
 
 class MethodMineClassifyPredictParams(BaseModel):
@@ -12131,7 +12135,7 @@ class MethodMineClassifyPredictParams(BaseModel):
     plan: Plan | None = None
     source: VectorSource | None = None
     writeback: bool | None = None
-    x: list[list[float]] | None = None
+    x: list[list[float]] = Field(default_factory=list)
 
 
 class MethodMineClusterParams(BaseModel):
@@ -12140,7 +12144,7 @@ class MethodMineClusterParams(BaseModel):
     algorithm: ClusterAlgorithm | None = None
     as_claim: bool | None = None
     eps: float | None = None
-    features: list[list[float]] | None = None
+    features: list[list[float]] = Field(default_factory=list)
     k: Annotated[int, Field(ge=0)] | None = None
     linkage: Linkage | None = None
     max_iter: Annotated[int, Field(ge=0)] | None = None
@@ -12168,13 +12172,13 @@ class MethodMineEntityResolveParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     as_claim: bool | None = None
-    block_keys: list[str] | None = None
+    block_keys: list[str] = Field(default_factory=list)
     bucket_precision: int | None = None
-    ids: list[str] | None = None
-    records: list[list[str]] | None = None
+    ids: list[str] = Field(default_factory=list)
+    records: list[list[str]] = Field(default_factory=list)
     source: VectorSource | None = None
     threshold: float | None = None
-    vectors: list[list[float]] | None = None
+    vectors: list[list[float]] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -12193,7 +12197,7 @@ class MethodMineForecastParams(BaseModel):
     period: Annotated[int, Field(ge=0)] | None = None
     q: Annotated[int, Field(ge=0)] | None = None
     series_id: str | None = None
-    values: list[float] | None = None
+    values: list[float] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -12210,7 +12214,7 @@ class MethodMineProcessParams(BaseModel):
 
     as_claim: bool | None = None
     process_id: str | None = None
-    traces: list[list[str]] | None = None
+    traces: list[list[str]] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -12220,7 +12224,7 @@ class MethodMineReduceParams(BaseModel):
     algorithm: ReduceAlgorithm | None = None
     as_claim: bool | None = None
     epochs: Annotated[int, Field(ge=0)] | None = None
-    labels: list[int] | None = None
+    labels: list[int] = Field(default_factory=list)
     lr: float | None = None
     min_dist: float | None = None
     n_components: Annotated[int, Field(ge=0)] | None = None
@@ -12230,7 +12234,7 @@ class MethodMineReduceParams(BaseModel):
     seed: Annotated[int, Field(ge=0)] | None = None
     source: VectorSource | None = None
     writeback: bool | None = None
-    x: list[list[float]] | None = None
+    x: list[list[float]] = Field(default_factory=list)
 
 
 class MethodMineRetrievalQualityParams(BaseModel):
@@ -12239,7 +12243,7 @@ class MethodMineRetrievalQualityParams(BaseModel):
     as_claim: bool | None = None
     k: Annotated[int, Field(ge=0)] | None = None
     query_id: str | None = None
-    traces: list[RetrievalTraceSpec] | None = None
+    traces: list[RetrievalTraceSpec] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -12248,10 +12252,10 @@ class MethodMineRiskPropagationParams(BaseModel):
 
     as_claim: bool | None = None
     damping: float | None = None
-    edges: list[MethodMineRiskPropagationParamsEdgesItem] | None = None
+    edges: list[MethodMineRiskPropagationParamsEdgesItem] = Field(default_factory=list)
     max_iterations: Annotated[int, Field(ge=0)] | None = None
-    nodes: list[str] | None = None
-    seed: list[float] | None = None
+    nodes: list[str] = Field(default_factory=list)
+    seed: list[float] = Field(default_factory=list)
     tolerance: float | None = None
     writeback: bool | None = None
 
@@ -12261,10 +12265,10 @@ class MethodMineRootCauseParams(BaseModel):
 
     as_claim: bool | None = None
     decay: float | None = None
-    edges: list[MethodMineRootCauseParamsEdgesItem] | None = None
+    edges: list[MethodMineRootCauseParamsEdgesItem] = Field(default_factory=list)
     max_hops: Annotated[int, Field(ge=0)] | None = None
-    nodes: list[str] | None = None
-    scores: list[float] | None = None
+    nodes: list[str] = Field(default_factory=list)
+    scores: list[float] = Field(default_factory=list)
     symptom: str | None = None
     writeback: bool | None = None
 
@@ -12275,7 +12279,7 @@ class MethodMineSequenceParams(BaseModel):
     algorithm: MineSeqAlgorithm | None = None
     as_claim: bool | None = None
     min_support: float | None = None
-    sequences: list[list[str]] | None = None
+    sequences: list[list[str]] = Field(default_factory=list)
     source: SequenceSource | None = None
     writeback: bool | None = None
 
@@ -12298,7 +12302,7 @@ class MethodMineTextParams(BaseModel):
     alpha: float | None = None
     as_claim: bool | None = None
     beta: float | None = None
-    docs: list[list[str]] | None = None
+    docs: list[list[str]] = Field(default_factory=list)
     iterations: Annotated[int, Field(ge=0)] | None = None
     k: Annotated[int, Field(ge=0)] | None = None
     seed: Annotated[int, Field(ge=0)] | None = None
@@ -12321,8 +12325,8 @@ class MethodMiningPipelineEvaluateParams(BaseModel):
     name: str
     source: GraphSource | None = None
     version: Annotated[int, Field(ge=0)] | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+    x: list[list[float]] = Field(default_factory=list)
+    y: list[int] = Field(default_factory=list)
 
 
 class MethodMiningPipelinePredictParams(BaseModel):
@@ -12332,7 +12336,7 @@ class MethodMiningPipelinePredictParams(BaseModel):
     source: GraphSource | None = None
     version: Annotated[int, Field(ge=0)] | None = None
     writeback: bool | None = None
-    x: list[list[float]] | None = None
+    x: list[list[float]] = Field(default_factory=list)
 
 
 class MethodMiningPipelineServeParams(BaseModel):
@@ -12349,8 +12353,8 @@ class MethodMiningPipelineTrainParams(BaseModel):
     source: GraphSource | None = None
     spec: PipelineSpec
     writeback: bool | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+    x: list[list[float]] = Field(default_factory=list)
+    y: list[int] = Field(default_factory=list)
 
 
 class MethodMintWorkItemClaimCapabilityParams(BaseModel):
@@ -12684,7 +12688,7 @@ class MethodRegisterServerParams(BaseModel):
 class MethodRegisterTriggerParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    action_msgpack: bytes | None = None
+    action_msgpack: bytes = Field(default_factory=bytes)
     graph: str
     label: str | None = None
     name: str
@@ -12833,16 +12837,24 @@ class MethodRollbackParams(BaseModel):
 class MethodRunDatalogReasoningParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    domain_rules: list[MethodRunDatalogReasoningParamsDomainRulesItem] | None = None
-    inverse_properties: MethodRunDatalogReasoningParamsInverseProperties | None = None
-    property_chains: MethodRunDatalogReasoningParamsPropertyChains | None = None
-    range_rules: list[MethodRunDatalogReasoningParamsRangeRulesItem] | None = None
-    subclass_relations: MethodRunDatalogReasoningParamsSubclassRelations | None = None
-    subproperty_relations: (
-        MethodRunDatalogReasoningParamsSubpropertyRelations | None
-    ) = None
-    symmetric_properties: list[str] | None = None
-    transitive_properties: list[str] | None = None
+    domain_rules: MethodRunDatalogReasoningParamsDomainRules = Field(
+        default_factory=list
+    )
+    inverse_properties: MethodRunDatalogReasoningParamsInverseProperties = Field(
+        default_factory=list
+    )
+    property_chains: MethodRunDatalogReasoningParamsPropertyChains = Field(
+        default_factory=list
+    )
+    range_rules: MethodRunDatalogReasoningParamsRangeRules = Field(default_factory=list)
+    subclass_relations: MethodRunDatalogReasoningParamsSubclassRelations = Field(
+        default_factory=list
+    )
+    subproperty_relations: MethodRunDatalogReasoningParamsSubpropertyRelations = Field(
+        default_factory=list
+    )
+    symmetric_properties: list[str] = Field(default_factory=list)
+    transitive_properties: list[str] = Field(default_factory=list)
 
 
 class MethodRunRulesParams(BaseModel):
@@ -12853,7 +12865,7 @@ class MethodRunRulesParams(BaseModel):
     min_confidence: float | None = None
     ontology_ttl: str | None = None
     query_predicate: str | None = None
-    rules: list[str] | None = None
+    rules: list[str] = Field(default_factory=list)
 
 
 class MethodRunUdfParams(BaseModel):
@@ -12915,7 +12927,7 @@ class MethodShexValidateParams(BaseModel):
 
     data_graph: str | None = None
     schema_: str = Field(..., alias="schema")
-    shape_map: MethodShexValidateParamsShapeMap | None = None
+    shape_map: MethodShexValidateParamsShapeMap = Field(default_factory=list)
 
 
 class MethodSolveParams(BaseModel):
@@ -12949,7 +12961,7 @@ class MethodSparqlParams(BaseModel):
 class MethodSparqlVirtualParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    external_sources: list[ObdaExternalSource] | None = None
+    external_sources: list[ObdaExternalSource] = Field(default_factory=list)
     mapping: str
     query: str
     tables: list[str]
@@ -12958,7 +12970,7 @@ class MethodSparqlVirtualParams(BaseModel):
 class MethodSqlParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    params_msgpack: bytes | None = None
+    params_msgpack: bytes = Field(default_factory=bytes)
     query: str
 
 
@@ -13085,7 +13097,7 @@ class MethodTsAppendParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     bucket_ns: Annotated[int, Field(ge=0)]
-    field_names: list[str] | None = None
+    field_names: list[str] = Field(default_factory=list)
     n_fields: Annotated[int, Field(ge=0)]
     points_msgpack: bytes
     series_id: str
@@ -13391,8 +13403,8 @@ class MinimalFlipSetWire(BaseModel):
 class ModalityFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    input: list[str] | None = None
-    output: list[str] | None = None
+    input: list[str] = Field(default_factory=list)
+    output: list[str] = Field(default_factory=list)
 
 
 class ModelSpec(BaseModel):
@@ -13647,7 +13659,7 @@ class NlBinding(BaseModel):
     source: NlChoiceSource
     target: NlTarget
     template: ComponentDependency
-    unfilled: BoundedVec_string_16 | None = None
+    unfilled: BoundedVec_string_16 = Field(default_factory=list)
 
 
 class NlChoiceSourceEngine(BaseModel):
@@ -14523,14 +14535,14 @@ class PackAnnotations(BaseModel):
     destructive_hint: bool | None = None
     idempotent_hint: bool | None = None
     latency_declared: DeclaredLatency | None = None
-    modalities_in: BoundedVec_string_64 | None = None
-    modalities_out: BoundedVec_string_64 | None = None
+    modalities_in: BoundedVec_string_64 = Field(default_factory=list)
+    modalities_out: BoundedVec_string_64 = Field(default_factory=list)
     model: PackModelFacts | None = None
     open_world_hint: bool | None = None
-    provides: BoundedVec_string_64 | None = None
+    provides: BoundedVec_string_64 = Field(default_factory=list)
     read_only_hint: bool | None = None
-    required_scopes: BoundedVec_string_64 | None = None
-    requires_capabilities: BoundedVec_string_64 | None = None
+    required_scopes: BoundedVec_string_64 = Field(default_factory=list)
+    requires_capabilities: BoundedVec_string_64 = Field(default_factory=list)
     sdk_contract_pin: str | None = None
     tool_mode: PackToolMode | None = None
 
@@ -14574,7 +14586,7 @@ class PackEntry(BaseModel):
     media_type: str
     name: str
     output_schema: PackSection | None = None
-    references: BoundedVec_PackRef_64 | None = None
+    references: BoundedVec_PackRef_64 = Field(default_factory=list)
     uri: str
 
 
@@ -14898,7 +14910,7 @@ class PipelineServeResult(BaseModel):
 class PipelineSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    features: list[FeatureStep] | None = None
+    features: list[FeatureStep] = Field(default_factory=list)
     label_property: str | None = None
     model: ModelSpec
     split: SplitSpec | None = None
@@ -16672,7 +16684,7 @@ class Role(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     name: str
-    parents: list[str] | None = None
+    parents: list[str] = Field(default_factory=list)
 
 
 class RootCauseCandidateRow(BaseModel):
@@ -16737,7 +16749,7 @@ class RunEvent(BaseModel):
     executor_lease_actor: str
     fence_token: Annotated[int, Field(ge=0)]
     kind: str
-    missing_refs: list[str] | None = None
+    missing_refs: list[str] = Field(default_factory=list)
     model_digest: str
     outbox_id: str
     outcome: str
@@ -18462,9 +18474,9 @@ class SourceIngestionBatch(BaseModel):
     mode: SourceIngestionMode
     provider_checkpoint: SourceCheckpoint
     records: BoundedVec_SourceRecord_1024
-    relationships: BoundedVec_SourceRelationship_4096 | None = None
+    relationships: BoundedVec_SourceRelationship_4096 = Field(default_factory=list)
     strict_schema: bool
-    withdrawals: BoundedVec_SourceWithdrawal_1024 | None = None
+    withdrawals: BoundedVec_SourceWithdrawal_1024 = Field(default_factory=list)
 
 
 class SourceIngestionDisposition(str, Enum):
@@ -19069,7 +19081,7 @@ class StatisticalDecisionRecord(BaseModel):
     explanation: LinearExplanation | None = None
     inputs: StatisticalInputs
     inputs_digest: str
-    logging_propensities: BoundedVec_UnitRationalWire_64 | None = None
+    logging_propensities: BoundedVec_UnitRationalWire_64 = Field(default_factory=list)
     nl_binding: NlBinding | None = None
     outcome: StatisticalOutcome
     premises: BoundedVec_PremiseRef_1024
@@ -19091,7 +19103,7 @@ class StatisticalInputs(BaseModel):
     feature_matrix: FeatureMatrixRef
     feature_schema: ComponentDependency
     head: ComponentDependency | None = None
-    params: BoundedVec_TypedParam_64 | None = None
+    params: BoundedVec_TypedParam_64 = Field(default_factory=list)
     policy: DecisionPolicyRef
     policy_digest: str
     shortlist: ShortlistProvenance
@@ -19143,7 +19155,7 @@ class StatisticalPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     alpha: UnitRationalWire
-    approved_commit_principals: BoundedVec_string_64 | None = None
+    approved_commit_principals: BoundedVec_string_64 = Field(default_factory=list)
     audit_sample: UnitRationalWire
     compact_after_ms: Annotated[int, Field(ge=0)] | None = None
     delta: UnitRationalWire
@@ -19232,7 +19244,7 @@ class SubmitJobSpec(BaseModel):
     priority: int | None = None
     purpose: str | None = None
     quota_cpu_ms: Annotated[int, Field(ge=0)] | None = None
-    required_capabilities: list[str] | None = None
+    required_capabilities: list[str] = Field(default_factory=list)
     tenant: str | None = None
     worker_pool: str | None = None
     worker_region: str | None = None
@@ -19426,7 +19438,7 @@ class TerminalOutcomeExtension(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     outcome_bundle: CommitOutcomeBundle
-    receipt_nodes: list[ReceiptNode] | None = None
+    receipt_nodes: list[ReceiptNode] = Field(default_factory=list)
     run_event: RunEvent
 
 
@@ -20062,23 +20074,23 @@ class WorkItemPage(BaseModel):
     next_cursor: str | None = None
 
 
-class WorkItemTransition(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    changed_work_item_ids: list[str]
-    fencing_token: Annotated[int, Field(ge=0)] | None = None
-    lease_epoch: Annotated[int, Field(ge=0)] | None = None
-    status: WorkItemCommitStatus
-    work_item_id: str | None = None
-
-
-class WorkItemTransition2(BaseModel):
+class WorkItemTransition_WorkItemCancelStatus(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     changed_work_item_ids: list[str]
     fencing_token: Annotated[int, Field(ge=0)] | None = None
     lease_epoch: Annotated[int, Field(ge=0)] | None = None
     status: WorkItemCancelStatus
+    work_item_id: str | None = None
+
+
+class WorkItemTransition_WorkItemCommitStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    fencing_token: Annotated[int, Field(ge=0)] | None = None
+    lease_epoch: Annotated[int, Field(ge=0)] | None = None
+    status: WorkItemCommitStatus
     work_item_id: str | None = None
 
 
@@ -20774,6 +20786,9 @@ Coefficient = str | CoefficientKnown
 CommitOutcome = bool | CommitOutcomeValue1
 
 
+CommitOutcomeBundleLangfuseObservationRefs = list[LangfuseObservationRef]
+
+
 CommittedVersion = str | CommittedVersionGraph | CommittedVersionNative
 
 
@@ -21229,6 +21244,16 @@ MethodGraphLearnPredictParamsCandidatePairsItem = Annotated[
 ]
 
 
+MethodGraphLearnPredictParamsCandidatePairsItemInline = (
+    MethodGraphLearnPredictParamsCandidatePairsItem
+)
+
+
+MethodGraphLearnPredictParamsCandidatePairs = list[
+    MethodGraphLearnPredictParamsCandidatePairsItemInline
+]
+
+
 MethodMineRiskPropagationParamsEdgesItem = Annotated[
     tuple[str, str, float],
     Field(
@@ -21262,6 +21287,16 @@ MethodRunDatalogReasoningParamsDomainRulesItem = Annotated[
         min_length=2,
         max_length=2,
     ),
+]
+
+
+MethodRunDatalogReasoningParamsDomainRulesItemInline = (
+    MethodRunDatalogReasoningParamsDomainRulesItem
+)
+
+
+MethodRunDatalogReasoningParamsDomainRules = list[
+    MethodRunDatalogReasoningParamsDomainRulesItemInline
 ]
 
 
@@ -21309,6 +21344,16 @@ MethodRunDatalogReasoningParamsRangeRulesItem = Annotated[
         min_length=2,
         max_length=2,
     ),
+]
+
+
+MethodRunDatalogReasoningParamsRangeRulesItemInline = (
+    MethodRunDatalogReasoningParamsRangeRulesItem
+)
+
+
+MethodRunDatalogReasoningParamsRangeRules = list[
+    MethodRunDatalogReasoningParamsRangeRulesItemInline
 ]
 
 

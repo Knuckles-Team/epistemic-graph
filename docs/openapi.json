@@ -70000,49 +70000,8 @@
           }
         ]
       },
-      "ResDef_Coordination_WorkItemTransition": {
-        "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.",
-        "properties": {
-          "changed_work_item_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "fencing_token": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "lease_epoch": {
-            "format": "uint64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/ResDef_Coordination_WorkItemCommitStatus"
-          },
-          "work_item_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "required": [
-          "status",
-          "changed_work_item_ids"
-        ],
-        "type": "object"
-      },
-      "ResDef_Coordination_WorkItemTransition2": {
-        "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.",
+      "ResDef_Coordination_WorkItemTransition_WorkItemCancelStatus": {
+        "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.\n\nEach instantiation gets its own schema name: without the rename schemars\nnamed the second one `WorkItemTransition2`, a name no author chose (caught\nby `no_schema_definition_name_is_shared_by_distinct_types`).",
         "properties": {
           "changed_work_item_ids": {
             "items": {
@@ -70068,6 +70027,47 @@
           },
           "status": {
             "$ref": "#/components/schemas/ResDef_Coordination_WorkItemCancelStatus"
+          },
+          "work_item_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "changed_work_item_ids"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_WorkItemTransition_WorkItemCommitStatus": {
+        "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.\n\nEach instantiation gets its own schema name: without the rename schemars\nnamed the second one `WorkItemTransition2`, a name no author chose (caught\nby `no_schema_definition_name_is_shared_by_distinct_types`).",
+        "properties": {
+          "changed_work_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "fencing_token": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lease_epoch": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ResDef_Coordination_WorkItemCommitStatus"
           },
           "work_item_id": {
             "type": [
@@ -125660,7 +125660,7 @@
         "x-selected-by": "op"
       },
       "Res_coordination_CancelWorkItem": {
-        "$ref": "#/components/schemas/ResDef_Coordination_WorkItemTransition2",
+        "$ref": "#/components/schemas/ResDef_Coordination_WorkItemTransition_WorkItemCancelStatus",
         "x-encoding": "Json"
       },
       "Res_coordination_CapacityStatus": {
@@ -125695,7 +125695,7 @@
         "x-encoding": "Raw"
       },
       "Res_coordination_CommitWorkItemResult": {
-        "$ref": "#/components/schemas/ResDef_Coordination_WorkItemTransition",
+        "$ref": "#/components/schemas/ResDef_Coordination_WorkItemTransition_WorkItemCommitStatus",
         "x-encoding": "Json"
       },
       "Res_coordination_DecisionEval": {
