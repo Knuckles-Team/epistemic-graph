@@ -17,6 +17,12 @@ EXPECTED_PATHS = {
     "src/server/dispatch/change_envelope.rs",
     "src/server/dispatch/change_envelope/multi_graph.rs",
     "src/server/dispatch/consensus.rs",
+    "src/server/dispatch/consensus/fleet_catalog.rs",
+    "src/server/dispatch/consensus/fleet_catalog/project.rs",
+    "src/server/dispatch/consensus/fleet_catalog/project_tests.rs",
+    "src/server/dispatch/consensus/fleet_catalog/read.rs",
+    "src/server/dispatch/consensus/fleet_catalog/records.rs",
+    "src/server/dispatch/consensus/fleet_catalog/write.rs",
     "src/server/dispatch/consensus/publication.rs",
     "src/server/dispatch/consensus/registry.rs",
     "src/server/dispatch/consensus/replicated.rs",
@@ -31,6 +37,7 @@ EXPECTED_PATHS = {
     "src/server/dispatch/graph_pipeline/modality.rs",
     "src/server/dispatch/graph_pipeline/native_routes.rs",
     "src/server/dispatch/graph_pipeline/pipeline.rs",
+    "src/server/dispatch/graph_pipeline/repository_index.rs",
     "src/server/dispatch/graph_pipeline/work_governance.rs",
     "src/server/dispatch/request_boundary.rs",
     "src/server/dispatch/request_boundary/authorization.rs",
@@ -171,11 +178,14 @@ LEGACY_COALESCER_METHODS = (
     "CompareAndSetNodeFields",
 )
 
-# The current merged dispatch compiler family has 76 distinct cfg predicates
-# (75 -> 76: `not(feature = "query")` on the SQL source preflight resolver).
+# The current merged dispatch compiler family has 77 distinct cfg predicates
+# (75 -> 76: `not(feature = "query")` on the SQL source preflight resolver;
+# 76 -> 77: `any(feature = "wasm-udf", feature = "federation")`, 7c72e5ce6's
+# shared UQL parse step).
 # The SPARQL HTTP mutation path is constrained by its redb/security/raft
 # combinations, and the compiler-declared module walk is the source universe.
-CFG_FINGERPRINT = "2e141e590f2b06b59db3a4605b39812ad46fcc8cc0386138cd814092aa3ab65b"
+CFG_PREDICATE_COUNT = 77
+CFG_FINGERPRINT = "231fc04baf5bb419439585b1163be48bf48f0315e3d516c0c4fd2cf75e0779bd"
 # 355 -> 358 production / 440 -> 443 compiler functions: `Method::SqlSourceBatch`
 # added the data-plane route group `dispatch_sql_source_methods`, the request
 # preflight resolver `preflight_sql_source_msgpack`, and
@@ -188,20 +198,38 @@ CFG_FINGERPRINT = "2e141e590f2b06b59db3a4605b39812ad46fcc8cc0386138cd814092aa3ab
 # `dispatch_decision_methods` and `dispatch_catalog_admin_methods`. Every arm
 # calls a handler OUTSIDE this module tree, so no other function moves and the
 # test/assertion inventories are unchanged.
-PRODUCTION_FUNCTION_COUNT = 361
+# Those 361/446 pins matched no committed tree: a4804f87c^ has 360/445 and
+# a4804f87c itself 363/448, so the gate was red from its own pinning commit.
+# 363/448 -> 464/594 production/compiler, 52 -> 80 tests, 145 -> 247
+# assertions: re-derived per name against a4804f87c, every delta attributed to
+# the commit that added it (`git log -S "fn <name>"`); full list in the train-3
+# integration record. Compiler-name deltas by commit:
+#   aca7421a0 +99 -1  EH-345 fleet catalog: the six `consensus/fleet_catalog*`
+#                     modules (-1 `valid_register_server_name`, moved there)
+#   a2238864b +16     typed connector-pack and registry surfaces
+#   dcc5d53c0 +7      native ingestion and write-back contracts
+#   f17f47ab3 +6      governed graph schema authority
+#   193892753 +2, dad0b3a64 +1, a133fe4ec +1  ControlLease / work-item reads
+#   656c544f9 +1      train-2 shared jscpd helper
+#   b1e5495a2 +6      EH-280 branch-aware IndexRepository (`repository_index.rs`)
+#   ed8eee9c9 +1      EH-280 scope-path validation
+#   5e64e9715 +5      registry-served / withheld method advertisement
+#   638a8a61d +2      EH-375 tenant-keyed lifecycle batch ids
+#   ac5638477 +1      train-3 shared jscpd helper
+PRODUCTION_FUNCTION_COUNT = 464
 PRODUCTION_FUNCTION_DIGEST = (
-    "4cd67c77f9cd164dd79d6a87ddf553b94ccceea3bce3f69ad29db01c94c4b055"
+    "0e460073f675ad3e48fd650c48850894994057b06be380747fba7666bfa0f787"
 )
-COMPILER_FUNCTION_COUNT = 446
+COMPILER_FUNCTION_COUNT = 594
 COMPILER_FUNCTION_DIGEST = (
-    "00e4d3df71226c12b3f37c1b3460d5395e53327b6891b0542c6956be63e018d0"
+    "3f02e082b80f849420180648ed28f723d028167a4050581d9a4373c011912238"
 )
-TEST_FUNCTION_COUNT = 52
+TEST_FUNCTION_COUNT = 80
 TEST_FUNCTION_DIGEST = (
-    "85b849ca6c25c0196bb1bb3bd7104f35b210871e072d6d1b007e88ada1974024"
+    "828f6a9550be5c041826d308791735330aef8c5a2c8d80fffc385ac4bdcd35a9"
 )
-ASSERTION_COUNT = 145
-ASSERTION_DIGEST = "ac9bd626e650acfb947510f8b1867837379a6a72726857d75316f50c46ada2c6"
+ASSERTION_COUNT = 247
+ASSERTION_DIGEST = "2c636e208767f5d5da029a001f8fb6b4875083fd054cbfe8b95ce8bbc7867b1b"
 
 
 def require(condition: bool, message: str) -> None:
@@ -359,7 +387,8 @@ def check_cfg_contract(parts: dict[str, str]) -> None:
     )
     digest = hashlib.sha256("\n".join(predicates).encode()).hexdigest()
     require(
-        len(predicates) == 76 and digest == CFG_FINGERPRINT, "cfg boundary set changed"
+        len(predicates) == CFG_PREDICATE_COUNT and digest == CFG_FINGERPRINT,
+        "cfg boundary set changed",
     )
 
 
