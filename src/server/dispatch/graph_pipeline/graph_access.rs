@@ -27,6 +27,7 @@ pub(super) fn stamp_capacity_timestamp(method: &mut Method) {
         }
         Method::ReclaimExpiredCapacity { request } => request.now_ms = now_ms,
         Method::UpdateCapacityCell { request } => request.now_ms = now_ms,
+        Method::ThrottleCapacityCell { request } => request.now_ms = now_ms,
         Method::ReconcileCapacity { .. } | Method::CapacityStatus { .. } => {}
         _ => unreachable!("capacity method classifier and timestamp binding diverged"),
     }

@@ -215,6 +215,41 @@ pub struct CapacityCellUpdateResult {
     pub message: Option<String>,
 }
 
+/// `ThrottleCapacityCell` (EH-406): report one error-budget window for one
+/// cell of the request graph.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CapacityThrottleRequest {
+    pub schema_version: NativeControlSchemaVersion,
+    pub cell_id: String,
+    pub sample: crate::capacity_throttle::ErrorBudgetSample,
+    /// Authority-owned: stamped by the engine, never trusted from a caller.
+    pub now_ms: u64,
+}
+
+impl CapacityThrottleRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != NativeControlSchemaVersion::V1 {
+            return Err("capacity throttle schema_version must be 1".to_string());
+        }
+        if self.cell_id.trim().is_empty() || self.cell_id.len() > MAX_CAPACITY_ID_BYTES {
+            return Err("throttle cell_id is outside native bounds".to_string());
+        }
+        self.sample.validate(self.now_ms)
+    }
+}
+
+/// Result of `ThrottleCapacityCell`: the cell as it now stands and the step.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CapacityThrottleResult {
+    pub schema_version: NativeControlSchemaVersion,
+    pub cell: CapacityCell,
+    pub action: crate::capacity_throttle::ThrottleActionRecord,
+}
+
 /// Native WorkItem admission request.  `context.tenant_id` and
 /// `context.graph` are checked against the verified request envelope; they are
 /// not caller-controlled routing hints.

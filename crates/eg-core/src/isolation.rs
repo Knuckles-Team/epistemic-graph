@@ -409,6 +409,8 @@ pub use policy_lease::{
 };
 
 #[cfg(all(test, feature = "security"))]
+mod elevation_tests;
+#[cfg(all(test, feature = "security"))]
 mod structure_tests;
 
 /// Isolation policy engine.
@@ -463,6 +465,10 @@ fn tenant_slug_from_graph_name(name: &str) -> Option<String> {
 }
 
 mod access_policy;
+pub use access_policy::{access_clock_ms, AccessBasis, AccessQuery};
+mod elevation_admin;
+#[cfg(feature = "security")]
+pub use elevation_admin::ElevationError;
 mod identity_admin;
 mod identity_query;
 mod layer_store;

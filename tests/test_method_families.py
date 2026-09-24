@@ -80,6 +80,8 @@ _RESOURCE_AND_CAPACITY_WRITES = frozenset(
         "ReleaseCapacity",
         "ReclaimExpiredCapacity",
         "UpdateCapacityCell",
+        # EH-406: the error-budget throttle step writes the same cell ledger.
+        "ThrottleCapacityCell",
     }
 )
 _MEMORY_SCENE_WRITES = frozenset(

@@ -103,3 +103,11 @@ fn only_the_declared_edges_are_legal() {
         }
     }
 }
+
+#[test]
+fn the_elevation_kind_cannot_be_issued_as_a_generic_control_lease() {
+    let mut request = issue();
+    request.kind = RBAC_ELEVATION_KIND.to_string();
+    let error = request.validate().unwrap_err();
+    assert!(error.contains("reserved"), "{error}");
+}

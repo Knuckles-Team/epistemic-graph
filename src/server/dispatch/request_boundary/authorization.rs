@@ -74,6 +74,9 @@ fn required_capacity_controller_scope(method: &Method) -> Option<&'static str> {
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. } => Some("capacity:lease"),
         Method::UpdateCapacityCell { .. } => Some("capacity:admin"),
+        // EH-406: the automatic controller's scope. It can only narrow a cell
+        // or give back what it narrowed; widening past that is capacity:admin.
+        Method::ThrottleCapacityCell { .. } => Some("capacity:throttle"),
         _ => None,
     }
 }

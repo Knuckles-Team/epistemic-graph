@@ -73,6 +73,7 @@ macro_rules! native_method_catalog {
             record ReleaseCapacity => WorkItem,
             record ReclaimExpiredCapacity => WorkItem,
             record UpdateCapacityCell => WorkItem,
+            record ThrottleCapacityCell => WorkItem,
 
             #[cfg(feature = "blob")]
             record BlobBegin => Blob,
@@ -130,6 +131,7 @@ macro_rules! native_method_catalog {
 
             record RegisterIdentity => Identity,
             record RbacAdmin => Identity,
+            record RbacElevation => Identity,
 
             record Reshard => ClusterAdmin,
             record CatalogAssign => ClusterAdmin,

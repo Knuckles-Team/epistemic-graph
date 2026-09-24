@@ -46,6 +46,7 @@ method_results! {
     ReconcileCapacity(ReconcileCapacity) => Raw<CapacityStatusResult>;
     CapacityStatus(CapacityStatus) => Raw<CapacityStatusResult>;
     UpdateCapacityCell(UpdateCapacityCell) => Raw<CapacityCellUpdateResult>;
+    ThrottleCapacityCell(ThrottleCapacityCell) => Raw<crate::native_control::CapacityThrottleResult>;
     KgDelegate(KgDelegate) => Raw<KgDelegateResult>;
     SubmitWorkItem(SubmitWorkItem) => Raw<SubmitWorkItemResult>;
     SubmitWorkItems(SubmitWorkItems) => Raw<SubmitWorkItemsResult>;
