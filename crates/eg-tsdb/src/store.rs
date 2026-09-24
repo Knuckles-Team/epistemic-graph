@@ -943,6 +943,13 @@ impl SeriesStore {
         Ok(outcome)
     }
 
+    /// Version of the store-level maintenance scope: every non-scoped append,
+    /// delete and retention write bumps it, so a caller can prove that a pass
+    /// committed nothing.
+    pub fn maintenance_version(&self) -> Result<u64> {
+        self.scope_version(&self.bootstrap)
+    }
+
     fn scope_version(&self, owner: &OwnedStoreHandle<TimeSeriesOwner>) -> Result<u64> {
         let read = self.kernel.read_scope(owner).map_err(redb_err)?;
         eg_transaction::version(&read).map_err(redb_err)
