@@ -118,6 +118,7 @@ METHOD_IDS = frozenset(
         "FinanceProbabilityBacktestOverfit",
         "FinanceDieboldMariano",
         "FinanceForensicReport",
+        "FinanceMarket",
         "FinanceKalmanFilter1d",
         "FinanceKalmanBeta",
         "FinanceKalmanVolatility",

@@ -1222,6 +1222,40 @@ class AuthorityScope(BaseModel):
     tenant: str | None = None
 
 
+class BacktestRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    draft: BacktestRunDraft
+    informational_only: bool
+    validation: BacktestValidation
+
+
+class BacktestRunDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    costs: CostModel
+    data_revisions: list[DataRevisionRef]
+    fill_rule: FillRule
+    fills: list[TradeFill]
+    returns: list[float]
+    signal_keys: list[str]
+    strategy: str
+    supersedes: str | None = None
+    universe: list[UniverseMember]
+    validation: ValidationInputs
+
+
+class BacktestValidation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cpcv_min_train: Annotated[int, Field(ge=0)]
+    cpcv_splits: Annotated[int, Field(ge=0)]
+    deflated_sharpe: float
+    observed_sharpe: float
+    probability_backtest_overfit: float
+
+
 class BackupReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1234,6 +1268,26 @@ class BackupReceipt(BaseModel):
     shards: Annotated[int, Field(ge=0)]
     xshard_decisions: Annotated[int, Field(ge=0)]
     xshard_prepares: Annotated[int, Field(ge=0)]
+
+
+class BarRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close: int
+    close_time: int
+    high: int
+    known_at: int
+    low: int
+    open: int
+    open_time: int
+    revision: Annotated[int, Field(ge=0)]
+    status: BarStatus
+    volume: int
+
+
+class BarStatus(str, Enum):
+    PROVISIONAL = "provisional"
+    FINAL = "final"
 
 
 class BatchUpdateReport(BaseModel):
@@ -1374,6 +1428,11 @@ CandidateSourceRecord = Annotated[
     CandidateSourceRecordAgentLibrary | CandidateSourceRecordGraph,
     Field(discriminator="source"),
 ]
+
+
+class CandleBasis(str, Enum):
+    RAW = "raw"
+    HEIKIN_ASHI = "heikin_ashi"
 
 
 class CanonicalTextAssetRef(BaseModel):
@@ -2838,6 +2897,13 @@ class CostFacts(BaseModel):
     quality: FactQuality
 
 
+class CostModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fee_bps: Annotated[int, Field(ge=0)]
+    slippage_bps: Annotated[int, Field(ge=0)]
+
+
 class CoverageDerivation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2897,6 +2963,21 @@ class CvSplit(BaseModel):
 class CypherMode(str, Enum):
     READ = "read"
     WRITE = "write"
+
+
+class DataRevisionRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    known_as_of: int
+    series_id: str
+    source_revision: str
+
+
+class DataStatus(str, Enum):
+    VALID = "valid"
+    WARMING = "warming"
+    STALE = "stale"
+    UNAVAILABLE = "unavailable"
 
 
 class DatalogReasoningResult(BaseModel):
@@ -4094,6 +4175,11 @@ class DieboldMariano(BaseModel):
     statistic: float
 
 
+class Direction(str, Enum):
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+
+
 class DirectlyFollowsRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4247,6 +4333,13 @@ class DurabilityDomain(str, Enum):
     MULTI_GRAPH = "multi_graph"
     LIFECYCLE = "lifecycle"
     CONTROL_PLANE = "control_plane"
+
+
+class EarlyClose(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close_minute: Annotated[int, Field(ge=0, le=65535)]
+    day: int
 
 
 class EdgeFunctionRow(BaseModel):
@@ -4656,6 +4749,18 @@ class EvidenceTimeRange(BaseModel):
     start_ms: Annotated[int, Field(ge=0)] | None = None
 
 
+class ExchangeCalendar(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    early_closes: list[EarlyClose]
+    holidays: list[int]
+    id: str
+    offsets: list[UtcOffsetSpan]
+    session_close_minute: Annotated[int, Field(ge=0, le=65535)]
+    session_open_minute: Annotated[int, Field(ge=0, le=65535)]
+    trading_weekdays: Annotated[int, Field(ge=0, le=255)]
+
+
 class ExistenceSignalWire(str, Enum):
     SUPPORTED = "Supported"
     CONTRADICTED = "Contradicted"
@@ -4844,6 +4949,101 @@ class Fill(BaseModel):
     fill_quantity: float
     order_id: str
     side: str
+
+
+class FillRule(str, Enum):
+    NEXT_BAR_OPEN = "next_bar_open"
+    FIRST_PRICE_AFTER_KNOWN = "first_price_after_known"
+
+
+class FinalityFilter(str, Enum):
+    FINAL_ONLY = "final_only"
+    INCLUDE_PROVISIONAL = "include_provisional"
+
+
+class FinanceMarketOpEncodePoints(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["encode_points"]
+    records: list[BarRecord]
+
+
+class FinanceMarketOpResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of: int | None = None
+    finality: FinalityFilter
+    op: Literal["resolve"]
+    points: list[SeriesPoint] = Field(default_factory=list)
+    records: list[BarRecord] = Field(default_factory=list)
+
+
+class FinanceMarketOpRollup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    calendar: TradingCalendar
+    op: Literal["rollup"]
+    timeframe: Timeframe
+    watermark: int
+
+
+class FinanceMarketOpIndicators(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    op: Literal["indicators"]
+    spec: IndicatorSpec
+
+
+class FinanceMarketOpSignalReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["signal_replay"]
+    request: SignalReplayRequest
+
+
+class FinanceMarketOpSignalAdvance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    op: Literal["signal_advance"]
+    state: SignalState
+
+
+class FinanceMarketOpSignalScan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["signal_scan"]
+    request: ScanRequest
+
+
+class FinanceMarketOpFlipConfidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["flip_confidence"]
+    request: FlipConfidenceRequest
+
+
+class FinanceMarketOpBacktestRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    draft: BacktestRunDraft
+    op: Literal["backtest_run"]
+
+
+FinanceMarketOp = Annotated[
+    FinanceMarketOpEncodePoints
+    | FinanceMarketOpResolve
+    | FinanceMarketOpRollup
+    | FinanceMarketOpIndicators
+    | FinanceMarketOpSignalReplay
+    | FinanceMarketOpSignalAdvance
+    | FinanceMarketOpSignalScan
+    | FinanceMarketOpFlipConfidence
+    | FinanceMarketOpBacktestRun,
+    Field(discriminator="op"),
+]
 
 
 class FiredAction(BaseModel):
@@ -5327,6 +5527,127 @@ class FleetWriteReceipt(BaseModel):
     observed_at_ms: Annotated[int, Field(ge=0)]
     record_id: str
     revision: Annotated[int, Field(ge=0)]
+
+
+class FlipAbstainReasonDataNotValid(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    data_status: DataStatus
+    reason: Literal["data_not_valid"]
+
+
+class FlipAbstainReasonInsufficientHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    n_min: Annotated[int, Field(ge=0)]
+    reason: Literal["insufficient_history"]
+
+
+class FlipAbstainReasonRegimeUnsupported(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    n_min: Annotated[int, Field(ge=0)]
+    reason: Literal["regime_unsupported"]
+    regime: Annotated[int, Field(ge=0)]
+
+
+class FlipAbstainReasonDrift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    earlier_lower: float
+    earlier_upper: float
+    reason: Literal["drift"]
+    recent_rate: float
+
+
+class FlipAbstainReasonAmbiguousSet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    reason: Literal["ambiguous_set"]
+
+
+FlipAbstainReason = Annotated[
+    FlipAbstainReasonDataNotValid
+    | FlipAbstainReasonInsufficientHistory
+    | FlipAbstainReasonRegimeUnsupported
+    | FlipAbstainReasonDrift
+    | FlipAbstainReasonAmbiguousSet,
+    Field(discriminator="reason"),
+]
+
+
+class FlipConfidenceCalibrated(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    alpha_permille: Annotated[int, Field(ge=0)]
+    follows_through: bool
+    horizon_bars: Annotated[int, Field(ge=0)]
+    n_calibration: Annotated[int, Field(ge=0)]
+    outcome: Literal["calibrated"]
+    probability: float
+
+
+class FlipConfidenceAbstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    horizon_bars: Annotated[int, Field(ge=0)]
+    outcome: Literal["abstained"]
+    reason: FlipAbstainReason
+
+
+FlipConfidence = Annotated[
+    FlipConfidenceCalibrated | FlipConfidenceAbstained,
+    Field(discriminator="outcome"),
+]
+
+
+class FlipConfidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    alpha_permille: Annotated[int, Field(ge=0)]
+    asset_class: str
+    data_status: DataStatus
+    direction: Direction
+    features: FlipFeatures
+    history: list[FlipOutcomeSample]
+    horizon_bars: Annotated[int, Field(ge=0)]
+    indicator_version: str
+    n_min: Annotated[int, Field(ge=0)]
+    timeframe: Timeframe
+
+
+class FlipFeatures(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    above_200w_sma: bool
+    regime: Annotated[int, Field(ge=0)]
+    timeframe_agreement: bool
+
+
+class FlipOutcomeSample(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    direction: Direction
+    effective_at: int
+    features: FlipFeatures
+    followed_through: bool
+
+
+class FlipRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    flip: TrendFlip
+    record_id: str
+    recorded_at: int
+    revises: str | None = None
+    status: FlipRecordStatus
+
+
+class FlipRecordStatus(str, Enum):
+    EMITTED = "emitted"
+    RETRACTED = "retracted"
 
 
 class ForecastAlgorithm(str, Enum):
@@ -5856,6 +6177,126 @@ class IndexTombstone(BaseModel):
     prior_blob_digest: str
     ref_name: str
     successor_path: str | None = None
+
+
+class IndicatorKindAtr(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["atr"]
+    period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindSuperTrend(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr_period: Annotated[int, Field(ge=0)]
+    basis: CandleBasis
+    kind: Literal["super_trend"]
+    multiplier_milli: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindSma(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["sma"]
+    period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindEma(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["ema"]
+    period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindBand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ema_period: Annotated[int, Field(ge=0)]
+    kind: Literal["band"]
+    sma_period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindHeikinAshi(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["heikin_ashi"]
+
+
+IndicatorKind = Annotated[
+    IndicatorKindAtr
+    | IndicatorKindSuperTrend
+    | IndicatorKindSma
+    | IndicatorKindEma
+    | IndicatorKindBand
+    | IndicatorKindHeikinAshi,
+    Field(discriminator="kind"),
+]
+
+
+class IndicatorPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close_time: int
+    open_time: int
+    value: IndicatorValue
+
+
+class IndicatorSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: IndicatorKind
+    version: Annotated[int, Field(ge=0)]
+
+
+class IndicatorValueWarming(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["warming"]
+
+
+class IndicatorValueLine(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["line"]
+    value: int
+
+
+class IndicatorValueBand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ema: int
+    kind: Literal["band"]
+    sma: int
+
+
+class IndicatorValueTrail(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr: int
+    direction: Direction
+    kind: Literal["trail"]
+    line: int
+
+
+class IndicatorValueCandle(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close: int
+    high: int
+    kind: Literal["candle"]
+    low: int
+    open: int
+
+
+IndicatorValue = Annotated[
+    IndicatorValueWarming
+    | IndicatorValueLine
+    | IndicatorValueBand
+    | IndicatorValueTrail
+    | IndicatorValueCandle,
+    Field(discriminator="kind"),
+]
 
 
 class InputsBlob(BaseModel):
@@ -9799,6 +10240,13 @@ class MethodGetControlLease(BaseModel):
     params: MethodGetControlLeaseParams
 
 
+class MethodFinanceMarket(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceMarket"]
+    params: MethodFinanceMarketParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -10236,7 +10684,8 @@ Method = Annotated[
     | MethodGetWorkItemOutcome
     | MethodIssueControlLease
     | MethodTransitionControlLease
-    | MethodGetControlLease,
+    | MethodGetControlLease
+    | MethodFinanceMarket,
     Field(discriminator="method"),
 ]
 
@@ -11410,6 +11859,12 @@ class MethodFinanceMarketImpactParams(BaseModel):
     daily_volatility: float
     impact_coefficient: float
     order_quantity: float
+
+
+class MethodFinanceMarketParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: FinanceMarketOp
 
 
 class MethodFinanceMarkovTransitionMatrixParams(BaseModel):
@@ -16776,6 +17231,56 @@ class SabrFit(BaseModel):
     rmse: float
 
 
+class ScanCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bearish: Annotated[int, Field(ge=0)]
+    bullish: Annotated[int, Field(ge=0)]
+    stale: Annotated[int, Field(ge=0)]
+    total: Annotated[int, Field(ge=0)]
+    unavailable: Annotated[int, Field(ge=0)]
+    warming: Annotated[int, Field(ge=0)]
+
+
+class ScanFilter(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    direction: Direction | None = None
+    flipped_since: int | None = None
+    statuses: list[DataStatus] = Field(default_factory=list)
+    timeframe: Timeframe | None = None
+
+
+class ScanPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    counts: ScanCounts
+    rows: list[ScanRow]
+    superseded: Annotated[int, Field(ge=0)]
+
+
+class ScanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    filter: ScanFilter | None = None
+    limit: Annotated[int, Field(ge=0)]
+    states: list[SignalState]
+
+
+class ScanRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_since_flip_bps: int | None = None
+    data_status: DataStatus
+    direction: Direction | None = None
+    flip_reference_price: int | None = None
+    key_digest: str
+    last_close: int | None = None
+    last_flip_at: int | None = None
+    listing_id: str
+    timeframe: Timeframe
+
+
 class ScenePose(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17859,6 +18364,22 @@ class SequentialPatternRow(BaseModel):
     support: float
 
 
+class SeriesIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    calendar_id: str
+    listing_id: str
+    price_basis: str
+    timeframe: Timeframe
+
+
+class SeriesPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ts: int
+    values: list[float]
+
+
 class ServedModalityApplyDisposition(str, Enum):
     APPLIED = "Applied"
     IDEMPOTENTREPLAY = "IdempotentReplay"
@@ -18234,6 +18755,58 @@ class ShortlistProvenance(BaseModel):
     ann_recall_mode: str | None = None
     embedder_model_digest: str | None = None
     now_ms: Annotated[int, Field(ge=0)]
+
+
+class SignalAdvanced(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    flips: list[TrendFlip]
+    state: SignalState
+
+
+class SignalKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    indicator_version: str
+    param_hash: str
+    series: SeriesIdentity
+
+
+class SignalReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current: list[TrendFlip]
+    records: list[FlipRecord]
+    state: SignalState
+
+
+class SignalReplayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of: int | None = None
+    records: list[BarRecord]
+    series: SeriesIdentity
+    spec: IndicatorSpec
+    stale_after: int | None = None
+
+
+class SignalState(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr: int | None = None
+    data_status: DataStatus
+    direction: Direction | None = None
+    flip_reference_price: int | None = None
+    kernel: SuperTrendCheckpoint
+    key: SignalKey
+    last_bar_close: int | None = None
+    last_bar_open: int | None = None
+    last_close: int | None = None
+    last_flip_at: int | None = None
+    line: int | None = None
+    source_revision: str
+    spec: IndicatorSpec
 
 
 class SkillType(str, Enum):
@@ -19310,6 +19883,20 @@ class SubmitWorkItemsResult(BaseModel):
     schema_version: NativeControlSchemaVersion
 
 
+class SuperTrendCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr: int | None = None
+    bars: Annotated[int, Field(ge=0)]
+    direction: Direction | None = None
+    ha_close: int | None = None
+    ha_open: int | None = None
+    lower: int | None = None
+    prev_close: int | None = None
+    true_range_sum: int
+    upper: int | None = None
+
+
 class SurveillanceRisk(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19481,6 +20068,44 @@ class TimeSeriesWindowRef(BaseModel):
     window_start: str
 
 
+class TimeframeMinutes(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    unit: Literal["minutes"]
+
+
+class TimeframeHours(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    unit: Literal["hours"]
+
+
+class TimeframeDay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    unit: Literal["day"]
+
+
+class TimeframeWeek(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    unit: Literal["week"]
+
+
+class TimeframeMonth(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    unit: Literal["month"]
+
+
+Timeframe = Annotated[
+    TimeframeMinutes | TimeframeHours | TimeframeDay | TimeframeWeek | TimeframeMonth,
+    Field(discriminator="unit"),
+]
+
+
 class ToolEffect(str, Enum):
     READ = "read"
     WRITE = "write"
@@ -19524,6 +20149,35 @@ class TraceFidelityLevel(str, Enum):
     FINAL_OUTPUT = "final_output"
 
 
+class TradeFill(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    direction: Direction
+    fill_at: int
+    fill_price: int
+    known_at: int
+    listing_id: str
+
+
+class TradingCalendarUtc24x7(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["utc24x7"]
+
+
+class TradingCalendarExchange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    calendar: ExchangeCalendar
+    kind: Literal["exchange"]
+
+
+TradingCalendar = Annotated[
+    TradingCalendarUtc24x7 | TradingCalendarExchange,
+    Field(discriminator="kind"),
+]
+
+
 class TrainTestSplitResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19561,6 +20215,21 @@ class TreeNode(BaseModel):
     right: int
     threshold: float
     value: float
+
+
+class TrendFlip(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bar_open: int
+    bar_revision: Annotated[int, Field(ge=0)]
+    effective_at: int
+    event_id: str
+    from_: Direction = Field(..., alias="from")
+    key_digest: str
+    line: int
+    observed_at: int
+    price: int
+    to: Direction
 
 
 class TriggerInfo(BaseModel):
@@ -19640,9 +20309,36 @@ class UnitRationalWire(BaseModel):
     numerator: Annotated[int, Field(ge=0)]
 
 
+class UniverseMember(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    from_: int = Field(..., alias="from")
+    listing_id: str
+    until: int | None = None
+
+
 class UnknownCostRule(str, Enum):
     EXCLUDE_WHEN_STRICT = "exclude_when_strict"
     RANK_BELOW_KNOWN = "rank_below_known"
+
+
+class UtcOffsetSpan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    from_: int = Field(..., alias="from")
+    offset_minutes: Annotated[int, Field(ge=-32768, le=32767)]
+
+
+class ValidationInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    embargo: Annotated[int, Field(ge=0)]
+    insample: list[list[float]]
+    n_groups: Annotated[int, Field(ge=0)]
+    n_test_groups: Annotated[int, Field(ge=0)]
+    n_trials: Annotated[int, Field(ge=0)]
+    oos: list[list[float]]
+    purge_window: Annotated[int, Field(ge=0)]
 
 
 class VectorSource(BaseModel):

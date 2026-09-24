@@ -2850,6 +2850,153 @@
         ],
         "type": "object"
       },
+      "ReqDef_BacktestRunDraft": {
+        "additionalProperties": false,
+        "description": "A backtest run as submitted, before its validation outputs are computed.",
+        "properties": {
+          "costs": {
+            "$ref": "#/components/schemas/ReqDef_CostModel"
+          },
+          "data_revisions": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_DataRevisionRef"
+            },
+            "type": "array"
+          },
+          "fill_rule": {
+            "$ref": "#/components/schemas/ReqDef_FillRule"
+          },
+          "fills": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_TradeFill"
+            },
+            "type": "array"
+          },
+          "returns": {
+            "description": "Per-period strategy returns after costs.",
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "signal_keys": {
+            "description": "Digests of every signal key the run consumed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "strategy": {
+            "type": "string"
+          },
+          "supersedes": {
+            "default": null,
+            "description": "The record this run revises, if any; records are never edited.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "universe": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_UniverseMember"
+            },
+            "type": "array"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ReqDef_ValidationInputs"
+          }
+        },
+        "required": [
+          "strategy",
+          "signal_keys",
+          "data_revisions",
+          "universe",
+          "costs",
+          "fill_rule",
+          "fills",
+          "returns",
+          "validation"
+        ],
+        "type": "object"
+      },
+      "ReqDef_BarRecord": {
+        "additionalProperties": false,
+        "description": "One version of one OHLCV bar. Prices are integer ticks of the series' tick\nsize; volume is integer units of the series' volume step.",
+        "properties": {
+          "close": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "close_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "high": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "known_at": {
+            "description": "When this version became knowable (a final bar never before its close).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "low": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "revision": {
+            "description": "0 for the first version; each correction is strictly higher.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReqDef_BarStatus"
+          },
+          "volume": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "open_time",
+          "close_time",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "status",
+          "revision",
+          "known_at"
+        ],
+        "type": "object"
+      },
+      "ReqDef_BarStatus": {
+        "description": "Whether a bar's period has closed and its values are settled.",
+        "oneOf": [
+          {
+            "const": "provisional",
+            "description": "The period is still open (or its data incomplete); a preview only.",
+            "type": "string"
+          },
+          {
+            "const": "final",
+            "description": "The period has closed; signals confirm only on final bars.",
+            "type": "string"
+          }
+        ]
+      },
       "ReqDef_BlobReference": {
         "properties": {
           "blob_id": {
@@ -3496,6 +3643,14 @@
             "type": "object"
           }
         ]
+      },
+      "ReqDef_CandleBasis": {
+        "description": "The candles a trailing-trend line is computed over.",
+        "enum": [
+          "raw",
+          "heikin_ashi"
+        ],
+        "type": "string"
       },
       "ReqDef_CanonicalTextAssetRef": {
         "additionalProperties": false,
@@ -5734,6 +5889,27 @@
         ],
         "type": "object"
       },
+      "ReqDef_CostModel": {
+        "additionalProperties": false,
+        "description": "Costs charged on every fill, in basis points of notional.",
+        "properties": {
+          "fee_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slippage_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fee_bps",
+          "slippage_bps"
+        ],
+        "type": "object"
+      },
       "ReqDef_CoverageDerivation": {
         "additionalProperties": false,
         "description": "How one required capability is covered, step by step.",
@@ -5835,6 +6011,56 @@
           "write"
         ],
         "type": "string"
+      },
+      "ReqDef_DataRevisionRef": {
+        "additionalProperties": false,
+        "description": "One bar series' data as the backtest read it.",
+        "properties": {
+          "known_as_of": {
+            "description": "Every bar version read was known at or before this time.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "series_id": {
+            "type": "string"
+          },
+          "source_revision": {
+            "description": "The `source_revision` digest of the bars read.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_id",
+          "source_revision",
+          "known_as_of"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DataStatus": {
+        "description": "The data status, reported separately from any direction.",
+        "oneOf": [
+          {
+            "enum": [
+              "valid"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "warming",
+            "description": "Fewer final bars than the indicator needs.",
+            "type": "string"
+          },
+          {
+            "const": "stale",
+            "description": "The last final bar is older than the caller's staleness bound.",
+            "type": "string"
+          },
+          {
+            "const": "unavailable",
+            "description": "No final bar at all.",
+            "type": "string"
+          }
+        ]
       },
       "ReqDef_DatasetSource": {
         "description": "Where a job's labelled items come from.",
@@ -7674,6 +7900,14 @@
         "pattern": "^[0-9a-f]{64}$",
         "type": "string"
       },
+      "ReqDef_Direction": {
+        "description": "A trend direction; only ever present when computable.",
+        "enum": [
+          "bullish",
+          "bearish"
+        ],
+        "type": "string"
+      },
       "ReqDef_DisclosureLevelWire": {
         "description": "Wire mirror of `eg_epistemic::redact::DisclosureLevel` (EPI-P3-4, L51) \u2014 the\n`Method::ExplainBelief::disclosure_level` request field AND the\n`ExplainBeliefRedactedResult::level` response field share this one type. Plain\nserde/enum, no `eg-epistemic` dependency needed here (`eg-types` sits BELOW\n`eg-epistemic` in the crate DAG).",
         "enum": [
@@ -7883,6 +8117,28 @@
           "control_plane"
         ],
         "type": "string"
+      },
+      "ReqDef_EarlyClose": {
+        "additionalProperties": false,
+        "description": "A session that closes early on one local day.",
+        "properties": {
+          "close_minute": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "day": {
+            "description": "Local civil day, as days since 1970-01-01.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "close_minute"
+        ],
+        "type": "object"
       },
       "ReqDef_EdgeSource": {
         "description": "Which side of a subsumption edge the engine got it from.",
@@ -8155,6 +8411,67 @@
         ],
         "type": "object"
       },
+      "ReqDef_ExchangeCalendar": {
+        "additionalProperties": false,
+        "description": "An exchange session calendar, entirely data: offsets (including daylight\nsaving changes) as spans, one regular session, trading weekdays, holidays and\nearly closes. No time-zone database is consulted, so the calendar a series\nwas built with is exactly reproducible.",
+        "properties": {
+          "early_closes": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_EarlyClose"
+            },
+            "type": "array"
+          },
+          "holidays": {
+            "description": "Local civil days without a session, as days since 1970-01-01.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "offsets": {
+            "description": "Ascending by `from`; the first span applies before its own `from` too.",
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_UtcOffsetSpan"
+            },
+            "type": "array"
+          },
+          "session_close_minute": {
+            "description": "Session close, minutes after local midnight (after the open).",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_open_minute": {
+            "description": "Session open, minutes after local midnight.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trading_weekdays": {
+            "description": "Bit 0 = Monday \u2026 bit 6 = Sunday.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "offsets",
+          "session_open_minute",
+          "session_close_minute",
+          "trading_weekdays",
+          "holidays",
+          "early_closes"
+        ],
+        "type": "object"
+      },
       "ReqDef_ExplorationBudget": {
         "additionalProperties": false,
         "description": "How much exploration a cold, uncalibrated question may spend.",
@@ -8406,6 +8723,251 @@
             },
             "required": [
               "step"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_FillRule": {
+        "description": "When a signal's fill happens.",
+        "oneOf": [
+          {
+            "const": "next_bar_open",
+            "description": "The open of the first bar after the signal is known.",
+            "type": "string"
+          },
+          {
+            "const": "first_price_after_known",
+            "description": "The first price actually available after the signal is known.",
+            "type": "string"
+          }
+        ]
+      },
+      "ReqDef_FinalityFilter": {
+        "description": "Which bar versions a resolved view keeps.",
+        "enum": [
+          "final_only",
+          "include_provisional"
+        ],
+        "type": "string"
+      },
+      "ReqDef_FinanceMarketOp": {
+        "description": "One market-signal operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Bar records as time-series store points (the `TsAppend` layout).",
+            "properties": {
+              "op": {
+                "const": "encode_points",
+                "type": "string"
+              },
+              "records": {
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_BarRecord"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "op",
+              "records"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The latest version of every bar known as of `as_of` (every version\nwhen absent), ordered by open time, over `records` together with\ntime-series store `points` decoded and validated in the bar layout.",
+            "properties": {
+              "as_of": {
+                "default": null,
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "finality": {
+                "$ref": "#/components/schemas/ReqDef_FinalityFilter"
+              },
+              "op": {
+                "const": "resolve",
+                "type": "string"
+              },
+              "points": {
+                "default": [],
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_SeriesPoint"
+                },
+                "type": "array"
+              },
+              "records": {
+                "default": [],
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_BarRecord"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "op",
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Resolved bars rolled up to a coarser calendar timeframe; a rolled bar is\nfinal only when every part is final and `watermark` has passed its close.",
+            "properties": {
+              "bars": {
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_BarRecord"
+                },
+                "type": "array"
+              },
+              "calendar": {
+                "$ref": "#/components/schemas/ReqDef_TradingCalendar"
+              },
+              "op": {
+                "const": "rollup",
+                "type": "string"
+              },
+              "timeframe": {
+                "$ref": "#/components/schemas/ReqDef_Timeframe"
+              },
+              "watermark": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "bars",
+              "calendar",
+              "timeframe",
+              "watermark"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "One indicator over resolved final bars, one value per bar.",
+            "properties": {
+              "bars": {
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_BarRecord"
+                },
+                "type": "array"
+              },
+              "op": {
+                "const": "indicators",
+                "type": "string"
+              },
+              "spec": {
+                "$ref": "#/components/schemas/ReqDef_IndicatorSpec"
+              }
+            },
+            "required": [
+              "op",
+              "bars",
+              "spec"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Replay every bar version of one series through a trailing-trend signal.",
+            "properties": {
+              "op": {
+                "const": "signal_replay",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_SignalReplayRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Advance a signal state by new final bars after its last one, in O(1) each.",
+            "properties": {
+              "bars": {
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_BarRecord"
+                },
+                "type": "array"
+              },
+              "op": {
+                "const": "signal_advance",
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/ReqDef_SignalState"
+              }
+            },
+            "required": [
+              "op",
+              "state",
+              "bars"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The latest-state scanner view over many signal states.",
+            "properties": {
+              "op": {
+                "const": "signal_scan",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_ScanRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Decide-calibrated follow-through for one flip, or an abstention.",
+            "properties": {
+              "op": {
+                "const": "flip_confidence",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_FlipConfidenceRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Validate a backtest run and seal it as a content-addressed record.",
+            "properties": {
+              "draft": {
+                "$ref": "#/components/schemas/ReqDef_BacktestRunDraft"
+              },
+              "op": {
+                "const": "backtest_run",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "draft"
             ],
             "type": "object"
           }
@@ -9158,6 +9720,119 @@
         ],
         "type": "object"
       },
+      "ReqDef_FlipConfidenceRequest": {
+        "additionalProperties": false,
+        "description": "Calibrate one candidate flip's follow-through at one horizon against the\nhistory of the same indicator version, timeframe and asset class.",
+        "properties": {
+          "alpha_permille": {
+            "description": "Conformal miscoverage in permille (100 = 0.1).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "asset_class": {
+            "type": "string"
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ReqDef_DataStatus",
+            "description": "The candidate signal's data status; anything but `valid` abstains."
+          },
+          "direction": {
+            "$ref": "#/components/schemas/ReqDef_Direction"
+          },
+          "features": {
+            "$ref": "#/components/schemas/ReqDef_FlipFeatures"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_FlipOutcomeSample"
+            },
+            "type": "array"
+          },
+          "horizon_bars": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "indicator_version": {
+            "type": "string"
+          },
+          "n_min": {
+            "description": "Policy minimum of historical flips.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/ReqDef_Timeframe"
+          }
+        },
+        "required": [
+          "indicator_version",
+          "timeframe",
+          "asset_class",
+          "horizon_bars",
+          "direction",
+          "features",
+          "data_status",
+          "history",
+          "alpha_permille",
+          "n_min"
+        ],
+        "type": "object"
+      },
+      "ReqDef_FlipFeatures": {
+        "additionalProperties": false,
+        "description": "The features a flip is conditioned on.",
+        "properties": {
+          "above_200w_sma": {
+            "description": "The close is above the 200-week SMA.",
+            "type": "boolean"
+          },
+          "regime": {
+            "description": "A regime label (e.g. from `FinanceDetectRegimes`).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeframe_agreement": {
+            "description": "The higher timeframe's direction agrees with the flip.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "timeframe_agreement",
+          "above_200w_sma",
+          "regime"
+        ],
+        "type": "object"
+      },
+      "ReqDef_FlipOutcomeSample": {
+        "additionalProperties": false,
+        "description": "One historical flip and whether the move followed through over the horizon.",
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/ReqDef_Direction"
+          },
+          "effective_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "features": {
+            "$ref": "#/components/schemas/ReqDef_FlipFeatures"
+          },
+          "followed_through": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "effective_at",
+          "direction",
+          "features",
+          "followed_through"
+        ],
+        "type": "object"
+      },
       "ReqDef_ForecastAlgorithm": {
         "description": "Which forecasting engine `MineForecast` runs (CONCEPT:EG-KG.mining.arima \u2014\nPhase 4). ARIMA is the default (Hannan-Rissanen AR(p)/MA(q) after `d`-order\ndifferencing); `holtwinters` degrades to Holt's linear-trend method when\n`period` is 0; `stl` is a classical decomposition + extrapolation.",
         "enum": [
@@ -9833,6 +10508,160 @@
           "ref_name",
           "path",
           "prior_blob_digest"
+        ],
+        "type": "object"
+      },
+      "ReqDef_IndicatorKind": {
+        "description": "A deterministic incremental indicator and its bound parameters.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Wilder average true range, seeded by the mean of the first `period` ranges.",
+            "properties": {
+              "kind": {
+                "const": "atr",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ATR trailing trend line (SuperTrend): `multiplier_milli` = 3000 is 3.0.",
+            "properties": {
+              "atr_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "basis": {
+                "$ref": "#/components/schemas/ReqDef_CandleBasis"
+              },
+              "kind": {
+                "const": "super_trend",
+                "type": "string"
+              },
+              "multiplier_milli": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "atr_period",
+              "multiplier_milli",
+              "basis"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Simple moving average of closes (`period` 200 on weekly bars is the 200W SMA).",
+            "properties": {
+              "kind": {
+                "const": "sma",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Exponential moving average of closes, seeded by the SMA of the first `period`.",
+            "properties": {
+              "kind": {
+                "const": "ema",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The 20/21 band: SMA(`sma_period`) and EMA(`ema_period`) of closes (weekly).",
+            "properties": {
+              "ema_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "band",
+                "type": "string"
+              },
+              "sma_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "sma_period",
+              "ema_period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Heikin-Ashi candles.",
+            "properties": {
+              "kind": {
+                "const": "heikin_ashi",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_IndicatorSpec": {
+        "additionalProperties": false,
+        "description": "A versioned indicator: a formula change is a new `version`, never an edit.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ReqDef_IndicatorKind"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind"
         ],
         "type": "object"
       },
@@ -27797,6 +28626,33 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Typed OHLCV bars over the time-series store, deterministic integer\nindicators, the per-series trend signal with its flip records, the\nDecide-calibrated flip confidence and the backtest-run record. Pure\ncompute over what the request carries; informational only \u2014 no op\nauthorises an order. See [`crate::compute_result::market`].",
+            "properties": {
+              "method": {
+                "const": "FinanceMarket",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ReqDef_FinanceMarketOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -32970,6 +33826,82 @@
         "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
         "type": "string"
       },
+      "ReqDef_ScanFilter": {
+        "additionalProperties": false,
+        "description": "Which states a scan keeps. Empty `statuses` keeps every status.",
+        "properties": {
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "flipped_since": {
+            "default": null,
+            "description": "Keep only states whose last flip is at or after this time.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "statuses": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_DataStatus"
+            },
+            "type": "array"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_Timeframe"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      },
+      "ReqDef_ScanRequest": {
+        "additionalProperties": false,
+        "description": "A latest-state scan over many signals.",
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/ReqDef_ScanFilter",
+            "default": {
+              "direction": null,
+              "flipped_since": null,
+              "statuses": [],
+              "timeframe": null
+            }
+          },
+          "limit": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_SignalState"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "states",
+          "limit"
+        ],
+        "type": "object"
+      },
       "ReqDef_ScopeTenantId": {
         "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
         "type": "string"
@@ -35447,6 +36379,53 @@
         ],
         "type": "object"
       },
+      "ReqDef_SeriesIdentity": {
+        "additionalProperties": false,
+        "description": "What a bar series is: one listing, price basis, timeframe and calendar.",
+        "properties": {
+          "calendar_id": {
+            "type": "string"
+          },
+          "listing_id": {
+            "type": "string"
+          },
+          "price_basis": {
+            "type": "string"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/ReqDef_Timeframe"
+          }
+        },
+        "required": [
+          "listing_id",
+          "price_basis",
+          "timeframe",
+          "calendar_id"
+        ],
+        "type": "object"
+      },
+      "ReqDef_SeriesPoint": {
+        "additionalProperties": false,
+        "description": "One time-series store point exactly as `TsAppend`/`TsRange` carry it: the\nbar's `open_time` and its fields in `eg_compute::finance::market::codec`'s\nfixed layout.",
+        "properties": {
+          "ts": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ts",
+          "values"
+        ],
+        "type": "object"
+      },
       "ReqDef_ServedModalityIngestItem": {
         "additionalProperties": false,
         "description": "One element of an atomic, bounded served-modality ingest stream. Every item uses\nthe enclosing operation's modality and is decoded before any durable state changes.",
@@ -36095,6 +37074,171 @@
         },
         "required": [
           "now_ms"
+        ],
+        "type": "object"
+      },
+      "ReqDef_SignalKey": {
+        "additionalProperties": false,
+        "description": "`listing + price basis + timeframe/calendar + indicator version + parameter hash`.",
+        "properties": {
+          "digest": {
+            "description": "`sha256:<hex>` of the whole key; what flip event ids are derived from.",
+            "type": "string"
+          },
+          "indicator_version": {
+            "description": "e.g. `super_trend@1`.",
+            "type": "string"
+          },
+          "param_hash": {
+            "description": "`sha256:<hex>` of the canonical parameter encoding.",
+            "type": "string"
+          },
+          "series": {
+            "$ref": "#/components/schemas/ReqDef_SeriesIdentity"
+          }
+        },
+        "required": [
+          "series",
+          "indicator_version",
+          "param_hash",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "ReqDef_SignalReplayRequest": {
+        "additionalProperties": false,
+        "description": "Replay a series' bar arrivals (every version, in any order) through one\ntrailing-trend signal.",
+        "properties": {
+          "as_of": {
+            "default": null,
+            "description": "Replay only versions known at or before this time (point in time).",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_BarRecord"
+            },
+            "type": "array"
+          },
+          "series": {
+            "$ref": "#/components/schemas/ReqDef_SeriesIdentity"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ReqDef_IndicatorSpec"
+          },
+          "stale_after": {
+            "default": null,
+            "description": "With `as_of`: a last bar closing longer ago than this is `stale`.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "series",
+          "spec",
+          "records"
+        ],
+        "type": "object"
+      },
+      "ReqDef_SignalState": {
+        "additionalProperties": false,
+        "description": "The latest state of one signal. A projection of the final bars: rebuilt by\nreplay, advanced one final bar at a time.",
+        "properties": {
+          "atr": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ReqDef_DataStatus"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flip_reference_price": {
+            "description": "The close (ticks) the last flip happened at: return-since-flip reference.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "kernel": {
+            "$ref": "#/components/schemas/ReqDef_SuperTrendCheckpoint"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ReqDef_SignalKey"
+          },
+          "last_bar_close": {
+            "description": "Close time of the last final bar consumed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_bar_open": {
+            "description": "Open time of the last final bar consumed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_close": {
+            "description": "Close of the last final bar, ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_flip_at": {
+            "description": "Bar close of the last witnessed flip; never invented for the first state.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "line": {
+            "description": "The trailing line, milli-ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_revision": {
+            "description": "`sha256:<hex>` over the `(open_time, revision)` of every bar consumed.",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ReqDef_IndicatorSpec"
+          }
+        },
+        "required": [
+          "key",
+          "spec",
+          "data_status",
+          "source_revision",
+          "kernel"
         ],
         "type": "object"
       },
@@ -38021,6 +39165,79 @@
         ],
         "type": "object"
       },
+      "ReqDef_SuperTrendCheckpoint": {
+        "additionalProperties": false,
+        "description": "The exact state of the trailing-trend kernel after the last final bar, so the\nnext bar advances it in O(1). All prices in milli-ticks.",
+        "properties": {
+          "atr": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "bars": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ha_close": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ha_open": {
+            "description": "Previous Heikin-Ashi open and close, for the Heikin-Ashi basis.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lower": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prev_close": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "true_range_sum": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "upper": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bars",
+          "true_range_sum"
+        ],
+        "type": "object"
+      },
       "ReqDef_SvmKernel": {
         "description": "One-Class SVM kernel (CONCEPT:EG-KG.mining.oneclass-svm).",
         "enum": [
@@ -38349,6 +39566,89 @@
         ],
         "type": "object"
       },
+      "ReqDef_Timeframe": {
+        "description": "A bar width. Minutes and hours align to the calendar's day (UTC midnight, or\nthe session open); day, week and month are calendar periods.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "n": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "const": "minutes",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit",
+              "n"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "n": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "const": "hours",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit",
+              "n"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "day",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ISO week, Monday first.",
+            "properties": {
+              "unit": {
+                "const": "week",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "month",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_ToolEffect": {
         "description": "Whether invoking a tool can change anything.\n\nNot a hint. A read-only agent graph is one whose reachable tools are all\n[`ToolEffect::Read`], and that is a property worth being able to prove\nbefore a run rather than discover during one.",
         "enum": [
@@ -38422,6 +39722,76 @@
           "final_output"
         ],
         "type": "string"
+      },
+      "ReqDef_TradeFill": {
+        "additionalProperties": false,
+        "description": "One simulated fill.",
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/ReqDef_Direction"
+          },
+          "fill_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "fill_price": {
+            "description": "Ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "known_at": {
+            "description": "When the signal that caused this fill became knowable.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "listing_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "listing_id",
+          "known_at",
+          "fill_at",
+          "fill_price",
+          "direction"
+        ],
+        "type": "object"
+      },
+      "ReqDef_TradingCalendar": {
+        "description": "The calendar bars align to.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Continuous UTC trading (crypto): days at UTC midnight, ISO weeks, months.",
+            "properties": {
+              "kind": {
+                "const": "utc24x7",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "calendar": {
+                "$ref": "#/components/schemas/ReqDef_ExchangeCalendar"
+              },
+              "kind": {
+                "const": "exchange",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "calendar"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ReqDef_TransactionSource": {
         "description": "A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).\n\nEach node carrying `node_label` becomes one \"basket owner\"; the basket is the set\nof `item_field` values gathered from its neighbors (following edges in\n`direction`), optionally filtered to a `relation`. This turns node neighborhoods\ninto transactions so mining runs directly over resident graph data \u2014 the\ncross-modal hook (e.g. \"for each :Capability, the set of concepts it touches\" =\none transaction \u21d2 concept-co-occurrence rules).",
@@ -38668,6 +40038,32 @@
         ],
         "type": "object"
       },
+      "ReqDef_UniverseMember": {
+        "additionalProperties": false,
+        "description": "A point-in-time universe member: tradable in `[from, until)`.",
+        "properties": {
+          "from": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "listing_id": {
+            "type": "string"
+          },
+          "until": {
+            "default": null,
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "listing_id",
+          "from"
+        ],
+        "type": "object"
+      },
       "ReqDef_UnknownCostRule": {
         "description": "What an unknown cost means when a budget is in force.",
         "oneOf": [
@@ -38682,6 +40078,90 @@
             "type": "string"
           }
         ]
+      },
+      "ReqDef_UtcOffsetSpan": {
+        "additionalProperties": false,
+        "description": "A UTC offset in force from `from` (UTC nanoseconds) until the next span.",
+        "properties": {
+          "from": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset_minutes": {
+            "format": "int16",
+            "maximum": 32767,
+            "minimum": -32768,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "offset_minutes"
+        ],
+        "type": "object"
+      },
+      "ReqDef_ValidationInputs": {
+        "additionalProperties": false,
+        "description": "The inputs of the mandatory validation outputs.",
+        "properties": {
+          "embargo": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "insample": {
+            "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "n_groups": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "n_test_groups": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "n_trials": {
+            "description": "Strategy variants tried (the deflated Sharpe's trial count).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "oos": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "purge_window": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n_groups",
+          "n_test_groups",
+          "purge_window",
+          "embargo",
+          "n_trials",
+          "insample",
+          "oos"
+        ],
+        "type": "object"
       },
       "ReqDef_VarId": {
         "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
@@ -45596,6 +47076,33 @@
               "kappa",
               "tau",
               "boundary_m"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_FinanceMarket": {
+        "additionalProperties": false,
+        "description": "Typed OHLCV bars over the time-series store, deterministic integer\nindicators, the per-series trend signal with its flip records, the\nDecide-calibrated flip confidence and the backtest-run record. Pure\ncompute over what the request carries; informational only \u2014 no op\nauthorises an order. See [`crate::compute_result::market`].",
+        "properties": {
+          "method": {
+            "const": "FinanceMarket",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "$ref": "#/components/schemas/ReqDef_FinanceMarketOp"
+              }
+            },
+            "required": [
+              "op"
             ],
             "type": "object"
           }
@@ -57996,6 +59503,217 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_BacktestRun": {
+        "additionalProperties": false,
+        "description": "The immutable, content-addressed backtest-run record.",
+        "properties": {
+          "digest": {
+            "description": "`sha256:<hex>` over the draft and the validation outputs.",
+            "type": "string"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/ResDef_Compute_BacktestRunDraft"
+          },
+          "informational_only": {
+            "description": "Always true: a backtest is evidence, never an order authority.",
+            "type": "boolean"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ResDef_Compute_BacktestValidation"
+          }
+        },
+        "required": [
+          "digest",
+          "draft",
+          "validation",
+          "informational_only"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_BacktestRunDraft": {
+        "additionalProperties": false,
+        "description": "A backtest run as submitted, before its validation outputs are computed.",
+        "properties": {
+          "costs": {
+            "$ref": "#/components/schemas/ResDef_Compute_CostModel"
+          },
+          "data_revisions": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_DataRevisionRef"
+            },
+            "type": "array"
+          },
+          "fill_rule": {
+            "$ref": "#/components/schemas/ResDef_Compute_FillRule"
+          },
+          "fills": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_TradeFill"
+            },
+            "type": "array"
+          },
+          "returns": {
+            "description": "Per-period strategy returns after costs.",
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "signal_keys": {
+            "description": "Digests of every signal key the run consumed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "strategy": {
+            "type": "string"
+          },
+          "supersedes": {
+            "default": null,
+            "description": "The record this run revises, if any; records are never edited.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "universe": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_UniverseMember"
+            },
+            "type": "array"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ResDef_Compute_ValidationInputs"
+          }
+        },
+        "required": [
+          "strategy",
+          "signal_keys",
+          "data_revisions",
+          "universe",
+          "costs",
+          "fill_rule",
+          "fills",
+          "returns",
+          "validation"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_BacktestValidation": {
+        "additionalProperties": false,
+        "description": "The mandatory validation outputs, computed by the engine's own kernels.",
+        "properties": {
+          "cpcv_min_train": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cpcv_splits": {
+            "description": "Purged combinatorial CV: the number of splits and their test/train sizes.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deflated_sharpe": {
+            "format": "double",
+            "type": "number"
+          },
+          "observed_sharpe": {
+            "format": "double",
+            "type": "number"
+          },
+          "probability_backtest_overfit": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cpcv_splits",
+          "cpcv_min_train",
+          "observed_sharpe",
+          "deflated_sharpe",
+          "probability_backtest_overfit"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_BarRecord": {
+        "additionalProperties": false,
+        "description": "One version of one OHLCV bar. Prices are integer ticks of the series' tick\nsize; volume is integer units of the series' volume step.",
+        "properties": {
+          "close": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "close_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "high": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "known_at": {
+            "description": "When this version became knowable (a final bar never before its close).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "low": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "revision": {
+            "description": "0 for the first version; each correction is strictly higher.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ResDef_Compute_BarStatus"
+          },
+          "volume": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "open_time",
+          "close_time",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "status",
+          "revision",
+          "known_at"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_BarStatus": {
+        "description": "Whether a bar's period has closed and its values are settled.",
+        "oneOf": [
+          {
+            "const": "provisional",
+            "description": "The period is still open (or its data incomplete); a preview only.",
+            "type": "string"
+          },
+          {
+            "const": "final",
+            "description": "The period has closed; signals confirm only on final bars.",
+            "type": "string"
+          }
+        ]
+      },
       "ResDef_Compute_BoundProof": {
         "description": "The lower-bound evidence a certificate carries.",
         "oneOf": [
@@ -58047,6 +59765,14 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Compute_CandleBasis": {
+        "description": "The candles a trailing-trend line is computed over.",
+        "enum": [
+          "raw",
+          "heikin_ashi"
+        ],
+        "type": "string"
       },
       "ResDef_Compute_CausalImpactMiningResult": {
         "description": "`MineCausalImpact`.",
@@ -58667,6 +60393,27 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_CostModel": {
+        "additionalProperties": false,
+        "description": "Costs charged on every fill, in basis points of notional.",
+        "properties": {
+          "fee_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slippage_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fee_bps",
+          "slippage_bps"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_CrossEntropyResult": {
         "description": "Mean categorical cross-entropy and its gradient w.r.t. the logits.",
         "properties": {
@@ -58717,6 +60464,56 @@
           "test"
         ],
         "type": "object"
+      },
+      "ResDef_Compute_DataRevisionRef": {
+        "additionalProperties": false,
+        "description": "One bar series' data as the backtest read it.",
+        "properties": {
+          "known_as_of": {
+            "description": "Every bar version read was known at or before this time.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "series_id": {
+            "type": "string"
+          },
+          "source_revision": {
+            "description": "The `source_revision` digest of the bars read.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_id",
+          "source_revision",
+          "known_as_of"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_DataStatus": {
+        "description": "The data status, reported separately from any direction.",
+        "oneOf": [
+          {
+            "enum": [
+              "valid"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "warming",
+            "description": "Fewer final bars than the indicator needs.",
+            "type": "string"
+          },
+          {
+            "const": "stale",
+            "description": "The last final bar is older than the caller's staleness bound.",
+            "type": "string"
+          },
+          {
+            "const": "unavailable",
+            "description": "No final bar at all.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Compute_DatasetStats": {
         "description": "Dataset statistics.",
@@ -58816,6 +60613,14 @@
           "a_better"
         ],
         "type": "object"
+      },
+      "ResDef_Compute_Direction": {
+        "description": "A trend direction; only ever present when computable.",
+        "enum": [
+          "bullish",
+          "bearish"
+        ],
+        "type": "string"
       },
       "ResDef_Compute_DirectlyFollowsRow": {
         "description": "A directly-follows edge between two activities.",
@@ -59108,6 +60913,21 @@
           "side"
         ],
         "type": "object"
+      },
+      "ResDef_Compute_FillRule": {
+        "description": "When a signal's fill happens.",
+        "oneOf": [
+          {
+            "const": "next_bar_open",
+            "description": "The open of the first bar after the signal is known.",
+            "type": "string"
+          },
+          {
+            "const": "first_price_after_known",
+            "description": "The first price actually available after the signal is known.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Compute_FittedClassifier": {
         "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit\u2192blob\u2192predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire \u2014\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
@@ -59533,6 +61353,250 @@
           }
         ]
       },
+      "ResDef_Compute_FlipAbstainReason": {
+        "description": "Why no confidence was given.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The signal is warming, stale or unavailable.",
+            "properties": {
+              "data_status": {
+                "$ref": "#/components/schemas/ResDef_Compute_DataStatus"
+              },
+              "reason": {
+                "const": "data_not_valid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "data_status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Fewer historical flips than the policy (or the conformal level) needs.",
+            "properties": {
+              "n": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_min": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "const": "insufficient_history",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "n",
+              "n_min"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Too few historical flips in the candidate's regime.",
+            "properties": {
+              "n": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_min": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "const": "regime_unsupported",
+                "type": "string"
+              },
+              "regime": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "reason",
+              "regime",
+              "n",
+              "n_min"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The recent half of the history no longer resembles the earlier half.",
+            "properties": {
+              "earlier_lower": {
+                "format": "double",
+                "type": "number"
+              },
+              "earlier_upper": {
+                "format": "double",
+                "type": "number"
+              },
+              "reason": {
+                "const": "drift",
+                "type": "string"
+              },
+              "recent_rate": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "reason",
+              "earlier_lower",
+              "earlier_upper",
+              "recent_rate"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The conformal set holds both outcomes (or neither): no singleton claim.",
+            "properties": {
+              "reason": {
+                "const": "ambiguous_set",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Compute_FlipConfidence": {
+        "description": "A calibrated follow-through claim, or a typed abstention. There is no third arm.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "alpha_permille": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "follows_through": {
+                "description": "The singleton conformal set: `true` = follows through.",
+                "type": "boolean"
+              },
+              "horizon_bars": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_calibration": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome": {
+                "const": "calibrated",
+                "type": "string"
+              },
+              "probability": {
+                "description": "Smoothed follow-through rate of the candidate's feature cell.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "outcome",
+              "horizon_bars",
+              "probability",
+              "follows_through",
+              "alpha_permille",
+              "n_calibration"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "horizon_bars": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome": {
+                "const": "abstained",
+                "type": "string"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/ResDef_Compute_FlipAbstainReason"
+              }
+            },
+            "required": [
+              "outcome",
+              "horizon_bars",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Compute_FlipRecord": {
+        "additionalProperties": false,
+        "description": "An append-only flip record. A revision never rewrites a record: it appends one\nthat `revises` the prior record id.",
+        "properties": {
+          "flip": {
+            "$ref": "#/components/schemas/ResDef_Compute_TrendFlip"
+          },
+          "record_id": {
+            "description": "`sha256:<hex>` over the record's content.",
+            "type": "string"
+          },
+          "recorded_at": {
+            "description": "The `known_at` of the arrival that produced this record.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "revises": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ResDef_Compute_FlipRecordStatus"
+          }
+        },
+        "required": [
+          "record_id",
+          "status",
+          "flip",
+          "recorded_at"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_FlipRecordStatus": {
+        "description": "Whether a flip record asserts a flip or withdraws a prior one.",
+        "oneOf": [
+          {
+            "enum": [
+              "emitted"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "retracted",
+            "description": "Revised data removed the flip; `revises` names the record withdrawn.",
+            "type": "string"
+          }
+        ]
+      },
       "ResDef_Compute_ForecastMiningResult": {
         "description": "`MineForecast`.",
         "properties": {
@@ -59802,6 +61866,302 @@
           "objective"
         ],
         "type": "object"
+      },
+      "ResDef_Compute_IndicatorKind": {
+        "description": "A deterministic incremental indicator and its bound parameters.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Wilder average true range, seeded by the mean of the first `period` ranges.",
+            "properties": {
+              "kind": {
+                "const": "atr",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ATR trailing trend line (SuperTrend): `multiplier_milli` = 3000 is 3.0.",
+            "properties": {
+              "atr_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "basis": {
+                "$ref": "#/components/schemas/ResDef_Compute_CandleBasis"
+              },
+              "kind": {
+                "const": "super_trend",
+                "type": "string"
+              },
+              "multiplier_milli": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "atr_period",
+              "multiplier_milli",
+              "basis"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Simple moving average of closes (`period` 200 on weekly bars is the 200W SMA).",
+            "properties": {
+              "kind": {
+                "const": "sma",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Exponential moving average of closes, seeded by the SMA of the first `period`.",
+            "properties": {
+              "kind": {
+                "const": "ema",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The 20/21 band: SMA(`sma_period`) and EMA(`ema_period`) of closes (weekly).",
+            "properties": {
+              "ema_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "band",
+                "type": "string"
+              },
+              "sma_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "sma_period",
+              "ema_period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Heikin-Ashi candles.",
+            "properties": {
+              "kind": {
+                "const": "heikin_ashi",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Compute_IndicatorPoint": {
+        "additionalProperties": false,
+        "description": "The indicator value after one closed bar.",
+        "properties": {
+          "close_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "value": {
+            "$ref": "#/components/schemas/ResDef_Compute_IndicatorValue"
+          }
+        },
+        "required": [
+          "open_time",
+          "close_time",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_IndicatorSpec": {
+        "additionalProperties": false,
+        "description": "A versioned indicator: a formula change is a new `version`, never an edit.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ResDef_Compute_IndicatorKind"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_IndicatorValue": {
+        "description": "One indicator output, in milli-ticks.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "warming",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "line",
+                "type": "string"
+              },
+              "value": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ema": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "band",
+                "type": "string"
+              },
+              "sma": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "sma",
+              "ema"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "atr": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "direction": {
+                "$ref": "#/components/schemas/ResDef_Compute_Direction"
+              },
+              "kind": {
+                "const": "trail",
+                "type": "string"
+              },
+              "line": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "atr",
+              "direction"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "close": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "high": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "candle",
+                "type": "string"
+              },
+              "low": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "open": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "open",
+              "high",
+              "low",
+              "close"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Compute_InterClusterEdge": {
         "description": "An edge between two clusters of one served level, by array-local index into\nthat response's `clusters`.",
@@ -61374,6 +63734,142 @@
         "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
         "type": "string"
       },
+      "ResDef_Compute_ScanCounts": {
+        "additionalProperties": false,
+        "description": "Counts over every state the filter kept (before the row limit), with the\ndenominator stated: one state per signal key.",
+        "properties": {
+          "bearish": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "bullish": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stale": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unavailable": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "warming": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "bullish",
+          "bearish",
+          "warming",
+          "stale",
+          "unavailable"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_ScanPage": {
+        "additionalProperties": false,
+        "description": "Rows ordered by most recent flip first, then key digest.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ResDef_Compute_ScanCounts"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_ScanRow"
+            },
+            "type": "array"
+          },
+          "superseded": {
+            "description": "States superseded by a newer state of the same key.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rows",
+          "counts",
+          "superseded"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_ScanRow": {
+        "additionalProperties": false,
+        "description": "One scanner row.",
+        "properties": {
+          "change_since_flip_bps": {
+            "description": "Change since the flip in basis points of the flip price.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ResDef_Compute_DataStatus"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Compute_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flip_reference_price": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "key_digest": {
+            "type": "string"
+          },
+          "last_close": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_flip_at": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "listing_id": {
+            "type": "string"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/ResDef_Compute_Timeframe"
+          }
+        },
+        "required": [
+          "key_digest",
+          "listing_id",
+          "timeframe",
+          "data_status"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_SequenceMiningResult": {
         "description": "`MineSequence`.",
         "properties": {
@@ -61433,9 +63929,226 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_SeriesIdentity": {
+        "additionalProperties": false,
+        "description": "What a bar series is: one listing, price basis, timeframe and calendar.",
+        "properties": {
+          "calendar_id": {
+            "type": "string"
+          },
+          "listing_id": {
+            "type": "string"
+          },
+          "price_basis": {
+            "type": "string"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/ResDef_Compute_Timeframe"
+          }
+        },
+        "required": [
+          "listing_id",
+          "price_basis",
+          "timeframe",
+          "calendar_id"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_SeriesPoint": {
+        "additionalProperties": false,
+        "description": "One time-series store point exactly as `TsAppend`/`TsRange` carry it: the\nbar's `open_time` and its fields in `eg_compute::finance::market::codec`'s\nfixed layout.",
+        "properties": {
+          "ts": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ts",
+          "values"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_Sha256Digest": {
         "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
         "type": "string"
+      },
+      "ResDef_Compute_SignalAdvanced": {
+        "additionalProperties": false,
+        "description": "A state advanced by new final bars, and the flips those bars produced.",
+        "properties": {
+          "flips": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_TrendFlip"
+            },
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResDef_Compute_SignalState"
+          }
+        },
+        "required": [
+          "state",
+          "flips"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_SignalKey": {
+        "additionalProperties": false,
+        "description": "`listing + price basis + timeframe/calendar + indicator version + parameter hash`.",
+        "properties": {
+          "digest": {
+            "description": "`sha256:<hex>` of the whole key; what flip event ids are derived from.",
+            "type": "string"
+          },
+          "indicator_version": {
+            "description": "e.g. `super_trend@1`.",
+            "type": "string"
+          },
+          "param_hash": {
+            "description": "`sha256:<hex>` of the canonical parameter encoding.",
+            "type": "string"
+          },
+          "series": {
+            "$ref": "#/components/schemas/ResDef_Compute_SeriesIdentity"
+          }
+        },
+        "required": [
+          "series",
+          "indicator_version",
+          "param_hash",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_SignalReplay": {
+        "additionalProperties": false,
+        "description": "The replayed state, the append-only flip records and the flips standing now.",
+        "properties": {
+          "current": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_TrendFlip"
+            },
+            "type": "array"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_FlipRecord"
+            },
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResDef_Compute_SignalState"
+          }
+        },
+        "required": [
+          "state",
+          "records",
+          "current"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_SignalState": {
+        "additionalProperties": false,
+        "description": "The latest state of one signal. A projection of the final bars: rebuilt by\nreplay, advanced one final bar at a time.",
+        "properties": {
+          "atr": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ResDef_Compute_DataStatus"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Compute_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flip_reference_price": {
+            "description": "The close (ticks) the last flip happened at: return-since-flip reference.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "kernel": {
+            "$ref": "#/components/schemas/ResDef_Compute_SuperTrendCheckpoint"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ResDef_Compute_SignalKey"
+          },
+          "last_bar_close": {
+            "description": "Close time of the last final bar consumed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_bar_open": {
+            "description": "Open time of the last final bar consumed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_close": {
+            "description": "Close of the last final bar, ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_flip_at": {
+            "description": "Bar close of the last witnessed flip; never invented for the first state.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "line": {
+            "description": "The trailing line, milli-ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_revision": {
+            "description": "`sha256:<hex>` over the `(open_time, revision)` of every bar consumed.",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ResDef_Compute_IndicatorSpec"
+          }
+        },
+        "required": [
+          "key",
+          "spec",
+          "data_status",
+          "source_revision",
+          "kernel"
+        ],
+        "type": "object"
       },
       "ResDef_Compute_SolveResult": {
         "additionalProperties": false,
@@ -61671,6 +64384,79 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_SuperTrendCheckpoint": {
+        "additionalProperties": false,
+        "description": "The exact state of the trailing-trend kernel after the last final bar, so the\nnext bar advances it in O(1). All prices in milli-ticks.",
+        "properties": {
+          "atr": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "bars": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Compute_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ha_close": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ha_open": {
+            "description": "Previous Heikin-Ashi open and close, for the Heikin-Ashi basis.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lower": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prev_close": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "true_range_sum": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "upper": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bars",
+          "true_range_sum"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_SurveillanceRisk": {
         "description": "Continuous-time-Kyle surveillance estimate over a trailing book/flow window.",
         "properties": {
@@ -61778,6 +64564,89 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_Timeframe": {
+        "description": "A bar width. Minutes and hours align to the calendar's day (UTC midnight, or\nthe session open); day, week and month are calendar periods.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "n": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "const": "minutes",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit",
+              "n"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "n": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "const": "hours",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit",
+              "n"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "day",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ISO week, Monday first.",
+            "properties": {
+              "unit": {
+                "const": "week",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "month",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Compute_TopicTerms": {
         "description": "A topic's weighted terms.",
         "properties": {
@@ -61796,6 +64665,40 @@
         "required": [
           "topic_id",
           "terms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_TradeFill": {
+        "additionalProperties": false,
+        "description": "One simulated fill.",
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/ResDef_Compute_Direction"
+          },
+          "fill_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "fill_price": {
+            "description": "Ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "known_at": {
+            "description": "When the signal that caused this fill became knowable.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "listing_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "listing_id",
+          "known_at",
+          "fill_at",
+          "fill_price",
+          "direction"
         ],
         "type": "object"
       },
@@ -61875,6 +64778,156 @@
           "left",
           "right",
           "value"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_TrendFlip": {
+        "additionalProperties": false,
+        "description": "One flip, at the close of one final bar.",
+        "properties": {
+          "bar_open": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "bar_revision": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "effective_at": {
+            "description": "The bar's close time: when the flip took effect.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "event_id": {
+            "description": "`sha256:<hex>` over the key digest and the bar close: the idempotency key.",
+            "type": "string"
+          },
+          "from": {
+            "$ref": "#/components/schemas/ResDef_Compute_Direction"
+          },
+          "key_digest": {
+            "type": "string"
+          },
+          "line": {
+            "description": "The trailing line after the flip, milli-ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "observed_at": {
+            "description": "When the flipping bar version became knowable.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "price": {
+            "description": "The bar close, ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "to": {
+            "$ref": "#/components/schemas/ResDef_Compute_Direction"
+          }
+        },
+        "required": [
+          "event_id",
+          "key_digest",
+          "from",
+          "to",
+          "bar_open",
+          "effective_at",
+          "observed_at",
+          "price",
+          "line",
+          "bar_revision"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_UniverseMember": {
+        "additionalProperties": false,
+        "description": "A point-in-time universe member: tradable in `[from, until)`.",
+        "properties": {
+          "from": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "listing_id": {
+            "type": "string"
+          },
+          "until": {
+            "default": null,
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "listing_id",
+          "from"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_ValidationInputs": {
+        "additionalProperties": false,
+        "description": "The inputs of the mandatory validation outputs.",
+        "properties": {
+          "embargo": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "insample": {
+            "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "n_groups": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "n_test_groups": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "n_trials": {
+            "description": "Strategy variants tried (the deflated Sharpe's trial count).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "oos": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "purge_window": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n_groups",
+          "n_test_groups",
+          "purge_window",
+          "embargo",
+          "n_trials",
+          "insample",
+          "oos"
         ],
         "type": "object"
       },
@@ -77448,6 +80501,153 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_BacktestRunDraft": {
+        "additionalProperties": false,
+        "description": "A backtest run as submitted, before its validation outputs are computed.",
+        "properties": {
+          "costs": {
+            "$ref": "#/components/schemas/ResDef_Query_CostModel"
+          },
+          "data_revisions": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_DataRevisionRef"
+            },
+            "type": "array"
+          },
+          "fill_rule": {
+            "$ref": "#/components/schemas/ResDef_Query_FillRule"
+          },
+          "fills": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_TradeFill"
+            },
+            "type": "array"
+          },
+          "returns": {
+            "description": "Per-period strategy returns after costs.",
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "signal_keys": {
+            "description": "Digests of every signal key the run consumed.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "strategy": {
+            "type": "string"
+          },
+          "supersedes": {
+            "default": null,
+            "description": "The record this run revises, if any; records are never edited.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "universe": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_UniverseMember"
+            },
+            "type": "array"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ResDef_Query_ValidationInputs"
+          }
+        },
+        "required": [
+          "strategy",
+          "signal_keys",
+          "data_revisions",
+          "universe",
+          "costs",
+          "fill_rule",
+          "fills",
+          "returns",
+          "validation"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_BarRecord": {
+        "additionalProperties": false,
+        "description": "One version of one OHLCV bar. Prices are integer ticks of the series' tick\nsize; volume is integer units of the series' volume step.",
+        "properties": {
+          "close": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "close_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "high": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "known_at": {
+            "description": "When this version became knowable (a final bar never before its close).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "low": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "revision": {
+            "description": "0 for the first version; each correction is strictly higher.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ResDef_Query_BarStatus"
+          },
+          "volume": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "open_time",
+          "close_time",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "status",
+          "revision",
+          "known_at"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_BarStatus": {
+        "description": "Whether a bar's period has closed and its values are settled.",
+        "oneOf": [
+          {
+            "const": "provisional",
+            "description": "The period is still open (or its data incomplete); a preview only.",
+            "type": "string"
+          },
+          {
+            "const": "final",
+            "description": "The period has closed; signals confirm only on final bars.",
+            "type": "string"
+          }
+        ]
+      },
       "ResDef_Query_BlobReference": {
         "properties": {
           "blob_id": {
@@ -78101,6 +81301,14 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Query_CandleBasis": {
+        "description": "The candles a trailing-trend line is computed over.",
+        "enum": [
+          "raw",
+          "heikin_ashi"
+        ],
+        "type": "string"
       },
       "ResDef_Query_CanonicalTextAssetRef": {
         "additionalProperties": false,
@@ -80551,6 +83759,27 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_CostModel": {
+        "additionalProperties": false,
+        "description": "Costs charged on every fill, in basis points of notional.",
+        "properties": {
+          "fee_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slippage_bps": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fee_bps",
+          "slippage_bps"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_CoverageDerivation": {
         "additionalProperties": false,
         "description": "How one required capability is covered, step by step.",
@@ -80652,6 +83881,56 @@
           "write"
         ],
         "type": "string"
+      },
+      "ResDef_Query_DataRevisionRef": {
+        "additionalProperties": false,
+        "description": "One bar series' data as the backtest read it.",
+        "properties": {
+          "known_as_of": {
+            "description": "Every bar version read was known at or before this time.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "series_id": {
+            "type": "string"
+          },
+          "source_revision": {
+            "description": "The `source_revision` digest of the bars read.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_id",
+          "source_revision",
+          "known_as_of"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DataStatus": {
+        "description": "The data status, reported separately from any direction.",
+        "oneOf": [
+          {
+            "enum": [
+              "valid"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "warming",
+            "description": "Fewer final bars than the indicator needs.",
+            "type": "string"
+          },
+          {
+            "const": "stale",
+            "description": "The last final bar is older than the caller's staleness bound.",
+            "type": "string"
+          },
+          {
+            "const": "unavailable",
+            "description": "No final bar at all.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Query_DatasetSource": {
         "description": "Where a job's labelled items come from.",
@@ -82515,6 +85794,14 @@
         "pattern": "^[0-9a-f]{64}$",
         "type": "string"
       },
+      "ResDef_Query_Direction": {
+        "description": "A trend direction; only ever present when computable.",
+        "enum": [
+          "bullish",
+          "bearish"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_DisclosureLevelWire": {
         "description": "Wire mirror of `eg_epistemic::redact::DisclosureLevel` (EPI-P3-4, L51) \u2014 the\n`Method::ExplainBelief::disclosure_level` request field AND the\n`ExplainBeliefRedactedResult::level` response field share this one type. Plain\nserde/enum, no `eg-epistemic` dependency needed here (`eg-types` sits BELOW\n`eg-epistemic` in the crate DAG).",
         "enum": [
@@ -82724,6 +86011,28 @@
           "control_plane"
         ],
         "type": "string"
+      },
+      "ResDef_Query_EarlyClose": {
+        "additionalProperties": false,
+        "description": "A session that closes early on one local day.",
+        "properties": {
+          "close_minute": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "day": {
+            "description": "Local civil day, as days since 1970-01-01.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "close_minute"
+        ],
+        "type": "object"
       },
       "ResDef_Query_EdgeSource": {
         "description": "Which side of a subsumption edge the engine got it from.",
@@ -83770,6 +87079,67 @@
         },
         "type": "object"
       },
+      "ResDef_Query_ExchangeCalendar": {
+        "additionalProperties": false,
+        "description": "An exchange session calendar, entirely data: offsets (including daylight\nsaving changes) as spans, one regular session, trading weekdays, holidays and\nearly closes. No time-zone database is consulted, so the calendar a series\nwas built with is exactly reproducible.",
+        "properties": {
+          "early_closes": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_EarlyClose"
+            },
+            "type": "array"
+          },
+          "holidays": {
+            "description": "Local civil days without a session, as days since 1970-01-01.",
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "offsets": {
+            "description": "Ascending by `from`; the first span applies before its own `from` too.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_UtcOffsetSpan"
+            },
+            "type": "array"
+          },
+          "session_close_minute": {
+            "description": "Session close, minutes after local midnight (after the open).",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_open_minute": {
+            "description": "Session open, minutes after local midnight.",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trading_weekdays": {
+            "description": "Bit 0 = Monday \u2026 bit 6 = Sunday.",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "offsets",
+          "session_open_minute",
+          "session_close_minute",
+          "trading_weekdays",
+          "holidays",
+          "early_closes"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_ExistenceSignalWire": {
         "description": "Wire mirror of `eg_epistemic::redact::ExistenceSignal`.",
         "enum": [
@@ -84209,6 +87579,251 @@
             },
             "required": [
               "step"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_FillRule": {
+        "description": "When a signal's fill happens.",
+        "oneOf": [
+          {
+            "const": "next_bar_open",
+            "description": "The open of the first bar after the signal is known.",
+            "type": "string"
+          },
+          {
+            "const": "first_price_after_known",
+            "description": "The first price actually available after the signal is known.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Query_FinalityFilter": {
+        "description": "Which bar versions a resolved view keeps.",
+        "enum": [
+          "final_only",
+          "include_provisional"
+        ],
+        "type": "string"
+      },
+      "ResDef_Query_FinanceMarketOp": {
+        "description": "One market-signal operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Bar records as time-series store points (the `TsAppend` layout).",
+            "properties": {
+              "op": {
+                "const": "encode_points",
+                "type": "string"
+              },
+              "records": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Query_BarRecord"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "op",
+              "records"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The latest version of every bar known as of `as_of` (every version\nwhen absent), ordered by open time, over `records` together with\ntime-series store `points` decoded and validated in the bar layout.",
+            "properties": {
+              "as_of": {
+                "default": null,
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "finality": {
+                "$ref": "#/components/schemas/ResDef_Query_FinalityFilter"
+              },
+              "op": {
+                "const": "resolve",
+                "type": "string"
+              },
+              "points": {
+                "default": [],
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Query_SeriesPoint"
+                },
+                "type": "array"
+              },
+              "records": {
+                "default": [],
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Query_BarRecord"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "op",
+              "finality"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Resolved bars rolled up to a coarser calendar timeframe; a rolled bar is\nfinal only when every part is final and `watermark` has passed its close.",
+            "properties": {
+              "bars": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Query_BarRecord"
+                },
+                "type": "array"
+              },
+              "calendar": {
+                "$ref": "#/components/schemas/ResDef_Query_TradingCalendar"
+              },
+              "op": {
+                "const": "rollup",
+                "type": "string"
+              },
+              "timeframe": {
+                "$ref": "#/components/schemas/ResDef_Query_Timeframe"
+              },
+              "watermark": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "op",
+              "bars",
+              "calendar",
+              "timeframe",
+              "watermark"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "One indicator over resolved final bars, one value per bar.",
+            "properties": {
+              "bars": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Query_BarRecord"
+                },
+                "type": "array"
+              },
+              "op": {
+                "const": "indicators",
+                "type": "string"
+              },
+              "spec": {
+                "$ref": "#/components/schemas/ResDef_Query_IndicatorSpec"
+              }
+            },
+            "required": [
+              "op",
+              "bars",
+              "spec"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Replay every bar version of one series through a trailing-trend signal.",
+            "properties": {
+              "op": {
+                "const": "signal_replay",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_SignalReplayRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Advance a signal state by new final bars after its last one, in O(1) each.",
+            "properties": {
+              "bars": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Query_BarRecord"
+                },
+                "type": "array"
+              },
+              "op": {
+                "const": "signal_advance",
+                "type": "string"
+              },
+              "state": {
+                "$ref": "#/components/schemas/ResDef_Query_SignalState"
+              }
+            },
+            "required": [
+              "op",
+              "state",
+              "bars"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The latest-state scanner view over many signal states.",
+            "properties": {
+              "op": {
+                "const": "signal_scan",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_ScanRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Decide-calibrated follow-through for one flip, or an abstention.",
+            "properties": {
+              "op": {
+                "const": "flip_confidence",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_FlipConfidenceRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Validate a backtest run and seal it as a content-addressed record.",
+            "properties": {
+              "draft": {
+                "$ref": "#/components/schemas/ResDef_Query_BacktestRunDraft"
+              },
+              "op": {
+                "const": "backtest_run",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "draft"
             ],
             "type": "object"
           }
@@ -84961,6 +88576,119 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_FlipConfidenceRequest": {
+        "additionalProperties": false,
+        "description": "Calibrate one candidate flip's follow-through at one horizon against the\nhistory of the same indicator version, timeframe and asset class.",
+        "properties": {
+          "alpha_permille": {
+            "description": "Conformal miscoverage in permille (100 = 0.1).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "asset_class": {
+            "type": "string"
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ResDef_Query_DataStatus",
+            "description": "The candidate signal's data status; anything but `valid` abstains."
+          },
+          "direction": {
+            "$ref": "#/components/schemas/ResDef_Query_Direction"
+          },
+          "features": {
+            "$ref": "#/components/schemas/ResDef_Query_FlipFeatures"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_FlipOutcomeSample"
+            },
+            "type": "array"
+          },
+          "horizon_bars": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "indicator_version": {
+            "type": "string"
+          },
+          "n_min": {
+            "description": "Policy minimum of historical flips.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/ResDef_Query_Timeframe"
+          }
+        },
+        "required": [
+          "indicator_version",
+          "timeframe",
+          "asset_class",
+          "horizon_bars",
+          "direction",
+          "features",
+          "data_status",
+          "history",
+          "alpha_permille",
+          "n_min"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_FlipFeatures": {
+        "additionalProperties": false,
+        "description": "The features a flip is conditioned on.",
+        "properties": {
+          "above_200w_sma": {
+            "description": "The close is above the 200-week SMA.",
+            "type": "boolean"
+          },
+          "regime": {
+            "description": "A regime label (e.g. from `FinanceDetectRegimes`).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "timeframe_agreement": {
+            "description": "The higher timeframe's direction agrees with the flip.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "timeframe_agreement",
+          "above_200w_sma",
+          "regime"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_FlipOutcomeSample": {
+        "additionalProperties": false,
+        "description": "One historical flip and whether the move followed through over the horizon.",
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/ResDef_Query_Direction"
+          },
+          "effective_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "features": {
+            "$ref": "#/components/schemas/ResDef_Query_FlipFeatures"
+          },
+          "followed_through": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "effective_at",
+          "direction",
+          "features",
+          "followed_through"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_ForecastAlgorithm": {
         "description": "Which forecasting engine `MineForecast` runs (CONCEPT:EG-KG.mining.arima \u2014\nPhase 4). ARIMA is the default (Hannan-Rissanen AR(p)/MA(q) after `d`-order\ndifferencing); `holtwinters` degrades to Holt's linear-trend method when\n`period` is 0; `stl` is a classical decomposition + extrapolation.",
         "enum": [
@@ -85636,6 +89364,160 @@
           "ref_name",
           "path",
           "prior_blob_digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_IndicatorKind": {
+        "description": "A deterministic incremental indicator and its bound parameters.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Wilder average true range, seeded by the mean of the first `period` ranges.",
+            "properties": {
+              "kind": {
+                "const": "atr",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ATR trailing trend line (SuperTrend): `multiplier_milli` = 3000 is 3.0.",
+            "properties": {
+              "atr_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "basis": {
+                "$ref": "#/components/schemas/ResDef_Query_CandleBasis"
+              },
+              "kind": {
+                "const": "super_trend",
+                "type": "string"
+              },
+              "multiplier_milli": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "atr_period",
+              "multiplier_milli",
+              "basis"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Simple moving average of closes (`period` 200 on weekly bars is the 200W SMA).",
+            "properties": {
+              "kind": {
+                "const": "sma",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Exponential moving average of closes, seeded by the SMA of the first `period`.",
+            "properties": {
+              "kind": {
+                "const": "ema",
+                "type": "string"
+              },
+              "period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The 20/21 band: SMA(`sma_period`) and EMA(`ema_period`) of closes (weekly).",
+            "properties": {
+              "ema_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "band",
+                "type": "string"
+              },
+              "sma_period": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "sma_period",
+              "ema_period"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Heikin-Ashi candles.",
+            "properties": {
+              "kind": {
+                "const": "heikin_ashi",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_IndicatorSpec": {
+        "additionalProperties": false,
+        "description": "A versioned indicator: a formula change is a new `version`, never an edit.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ResDef_Query_IndicatorKind"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "kind"
         ],
         "type": "object"
       },
@@ -103686,6 +107568,33 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Typed OHLCV bars over the time-series store, deterministic integer\nindicators, the per-series trend signal with its flip records, the\nDecide-calibrated flip confidence and the backtest-run record. Pure\ncompute over what the request carries; informational only \u2014 no op\nauthorises an order. See [`crate::compute_result::market`].",
+            "properties": {
+              "method": {
+                "const": "FinanceMarket",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ResDef_Query_FinanceMarketOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -109099,6 +113008,82 @@
         "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
         "type": "string"
       },
+      "ResDef_Query_ScanFilter": {
+        "additionalProperties": false,
+        "description": "Which states a scan keeps. Empty `statuses` keeps every status.",
+        "properties": {
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "flipped_since": {
+            "default": null,
+            "description": "Keep only states whose last flip is at or after this time.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "statuses": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_DataStatus"
+            },
+            "type": "array"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_Timeframe"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      },
+      "ResDef_Query_ScanRequest": {
+        "additionalProperties": false,
+        "description": "A latest-state scan over many signals.",
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/ResDef_Query_ScanFilter",
+            "default": {
+              "direction": null,
+              "flipped_since": null,
+              "statuses": [],
+              "timeframe": null
+            }
+          },
+          "limit": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_SignalState"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "states",
+          "limit"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_ScopeTenantId": {
         "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
         "type": "string"
@@ -111576,6 +115561,53 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_SeriesIdentity": {
+        "additionalProperties": false,
+        "description": "What a bar series is: one listing, price basis, timeframe and calendar.",
+        "properties": {
+          "calendar_id": {
+            "type": "string"
+          },
+          "listing_id": {
+            "type": "string"
+          },
+          "price_basis": {
+            "type": "string"
+          },
+          "timeframe": {
+            "$ref": "#/components/schemas/ResDef_Query_Timeframe"
+          }
+        },
+        "required": [
+          "listing_id",
+          "price_basis",
+          "timeframe",
+          "calendar_id"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_SeriesPoint": {
+        "additionalProperties": false,
+        "description": "One time-series store point exactly as `TsAppend`/`TsRange` carry it: the\nbar's `open_time` and its fields in `eg_compute::finance::market::codec`'s\nfixed layout.",
+        "properties": {
+          "ts": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "values": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ts",
+          "values"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_ServedModalityIngestItem": {
         "additionalProperties": false,
         "description": "One element of an atomic, bounded served-modality ingest stream. Every item uses\nthe enclosing operation's modality and is decoded before any durable state changes.",
@@ -112224,6 +116256,171 @@
         },
         "required": [
           "now_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_SignalKey": {
+        "additionalProperties": false,
+        "description": "`listing + price basis + timeframe/calendar + indicator version + parameter hash`.",
+        "properties": {
+          "digest": {
+            "description": "`sha256:<hex>` of the whole key; what flip event ids are derived from.",
+            "type": "string"
+          },
+          "indicator_version": {
+            "description": "e.g. `super_trend@1`.",
+            "type": "string"
+          },
+          "param_hash": {
+            "description": "`sha256:<hex>` of the canonical parameter encoding.",
+            "type": "string"
+          },
+          "series": {
+            "$ref": "#/components/schemas/ResDef_Query_SeriesIdentity"
+          }
+        },
+        "required": [
+          "series",
+          "indicator_version",
+          "param_hash",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_SignalReplayRequest": {
+        "additionalProperties": false,
+        "description": "Replay a series' bar arrivals (every version, in any order) through one\ntrailing-trend signal.",
+        "properties": {
+          "as_of": {
+            "default": null,
+            "description": "Replay only versions known at or before this time (point in time).",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_BarRecord"
+            },
+            "type": "array"
+          },
+          "series": {
+            "$ref": "#/components/schemas/ResDef_Query_SeriesIdentity"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ResDef_Query_IndicatorSpec"
+          },
+          "stale_after": {
+            "default": null,
+            "description": "With `as_of`: a last bar closing longer ago than this is `stale`.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "series",
+          "spec",
+          "records"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_SignalState": {
+        "additionalProperties": false,
+        "description": "The latest state of one signal. A projection of the final bars: rebuilt by\nreplay, advanced one final bar at a time.",
+        "properties": {
+          "atr": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ResDef_Query_DataStatus"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flip_reference_price": {
+            "description": "The close (ticks) the last flip happened at: return-since-flip reference.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "kernel": {
+            "$ref": "#/components/schemas/ResDef_Query_SuperTrendCheckpoint"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ResDef_Query_SignalKey"
+          },
+          "last_bar_close": {
+            "description": "Close time of the last final bar consumed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_bar_open": {
+            "description": "Open time of the last final bar consumed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_close": {
+            "description": "Close of the last final bar, ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_flip_at": {
+            "description": "Bar close of the last witnessed flip; never invented for the first state.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "line": {
+            "description": "The trailing line, milli-ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_revision": {
+            "description": "`sha256:<hex>` over the `(open_time, revision)` of every bar consumed.",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ResDef_Query_IndicatorSpec"
+          }
+        },
+        "required": [
+          "key",
+          "spec",
+          "data_status",
+          "source_revision",
+          "kernel"
         ],
         "type": "object"
       },
@@ -114171,6 +118368,79 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_SuperTrendCheckpoint": {
+        "additionalProperties": false,
+        "description": "The exact state of the trailing-trend kernel after the last final bar, so the\nnext bar advances it in O(1). All prices in milli-ticks.",
+        "properties": {
+          "atr": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "bars": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ha_close": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ha_open": {
+            "description": "Previous Heikin-Ashi open and close, for the Heikin-Ashi basis.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lower": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prev_close": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "true_range_sum": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "upper": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bars",
+          "true_range_sum"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_SvmKernel": {
         "description": "One-Class SVM kernel (CONCEPT:EG-KG.mining.oneclass-svm).",
         "enum": [
@@ -114499,6 +118769,89 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_Timeframe": {
+        "description": "A bar width. Minutes and hours align to the calendar's day (UTC midnight, or\nthe session open); day, week and month are calendar periods.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "n": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "const": "minutes",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit",
+              "n"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "n": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unit": {
+                "const": "hours",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit",
+              "n"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "day",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ISO week, Monday first.",
+            "properties": {
+              "unit": {
+                "const": "week",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "unit": {
+                "const": "month",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unit"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_ToolEffect": {
         "description": "Whether invoking a tool can change anything.\n\nNot a hint. A read-only agent graph is one whose reachable tools are all\n[`ToolEffect::Read`], and that is a property worth being able to prove\nbefore a run rather than discover during one.",
         "enum": [
@@ -114572,6 +118925,76 @@
           "final_output"
         ],
         "type": "string"
+      },
+      "ResDef_Query_TradeFill": {
+        "additionalProperties": false,
+        "description": "One simulated fill.",
+        "properties": {
+          "direction": {
+            "$ref": "#/components/schemas/ResDef_Query_Direction"
+          },
+          "fill_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "fill_price": {
+            "description": "Ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "known_at": {
+            "description": "When the signal that caused this fill became knowable.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "listing_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "listing_id",
+          "known_at",
+          "fill_at",
+          "fill_price",
+          "direction"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_TradingCalendar": {
+        "description": "The calendar bars align to.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Continuous UTC trading (crypto): days at UTC midnight, ISO weeks, months.",
+            "properties": {
+              "kind": {
+                "const": "utc24x7",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "calendar": {
+                "$ref": "#/components/schemas/ResDef_Query_ExchangeCalendar"
+              },
+              "kind": {
+                "const": "exchange",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "calendar"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Query_TransactionSource": {
         "description": "A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).\n\nEach node carrying `node_label` becomes one \"basket owner\"; the basket is the set\nof `item_field` values gathered from its neighbors (following edges in\n`direction`), optionally filtered to a `relation`. This turns node neighborhoods\ninto transactions so mining runs directly over resident graph data \u2014 the\ncross-modal hook (e.g. \"for each :Capability, the set of concepts it touches\" =\none transaction \u21d2 concept-co-occurrence rules).",
@@ -114818,6 +119241,32 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_UniverseMember": {
+        "additionalProperties": false,
+        "description": "A point-in-time universe member: tradable in `[from, until)`.",
+        "properties": {
+          "from": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "listing_id": {
+            "type": "string"
+          },
+          "until": {
+            "default": null,
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "listing_id",
+          "from"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_UnknownCostRule": {
         "description": "What an unknown cost means when a budget is in force.",
         "oneOf": [
@@ -114832,6 +119281,90 @@
             "type": "string"
           }
         ]
+      },
+      "ResDef_Query_UtcOffsetSpan": {
+        "additionalProperties": false,
+        "description": "A UTC offset in force from `from` (UTC nanoseconds) until the next span.",
+        "properties": {
+          "from": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset_minutes": {
+            "format": "int16",
+            "maximum": 32767,
+            "minimum": -32768,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "offset_minutes"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_ValidationInputs": {
+        "additionalProperties": false,
+        "description": "The inputs of the mandatory validation outputs.",
+        "properties": {
+          "embargo": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "insample": {
+            "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "n_groups": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "n_test_groups": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "n_trials": {
+            "description": "Strategy variants tried (the deflated Sharpe's trial count).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "oos": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "purge_window": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "n_groups",
+          "n_test_groups",
+          "purge_window",
+          "embargo",
+          "n_trials",
+          "insample",
+          "oos"
+        ],
+        "type": "object"
       },
       "ResDef_Query_VarId": {
         "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
@@ -125111,6 +129644,68 @@
         "$ref": "#/components/schemas/ResDef_Compute_Quote",
         "x-encoding": "Raw"
       },
+      "Res_compute_FinanceMarket": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_BacktestRun",
+            "x-body": "backtest_run",
+            "x-encoding": "Raw"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_SeriesPoint"
+            },
+            "type": "array",
+            "x-body": "encode_points",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_FlipConfidence",
+            "x-body": "flip_confidence",
+            "x-encoding": "Raw"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_IndicatorPoint"
+            },
+            "type": "array",
+            "x-body": "indicators",
+            "x-encoding": "Raw"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_BarRecord"
+            },
+            "type": "array",
+            "x-body": "resolve",
+            "x-encoding": "Raw"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_BarRecord"
+            },
+            "type": "array",
+            "x-body": "rollup",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_SignalAdvanced",
+            "x-body": "signal_advance",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_SignalReplay",
+            "x-body": "signal_replay",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_ScanPage",
+            "x-body": "signal_scan",
+            "x-encoding": "Raw"
+          }
+        ],
+        "x-selected-by": "op"
+      },
       "Res_compute_FinanceMarketImpact": {
         "format": "double",
         "type": "number",
@@ -127972,7 +132567,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 437 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 438 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -133268,6 +137863,63 @@
           }
         },
         "summary": "FinanceLogitQuotes",
+        "tags": [
+          "compute"
+        ],
+        "x-audited": false,
+        "x-authz-action": "compute:finance",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "None",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED"
+        ],
+        "x-idempotent": true,
+        "x-mutates": false,
+        "x-replay-class": "NotReplayable",
+        "x-stability": "stable",
+        "x-txn-participation": "None"
+      }
+    },
+    "/rpc/compute/FinanceMarket": {
+      "post": {
+        "operationId": "FinanceMarket",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_FinanceMarket"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_compute_FinanceMarket"
+                }
+              }
+            },
+            "description": "`FinanceMarket` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority",
         "tags": [
           "compute"
         ],

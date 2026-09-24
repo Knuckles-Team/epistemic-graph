@@ -112,7 +112,7 @@ mod tests {
         let weeks = rollup(&bars, &TradingCalendar::Utc24x7, Timeframe::Week, watermark).unwrap();
         let daily_events = events(bars, Timeframe::Day);
         let weekly_events = events(weeks, Timeframe::Week);
-        let horizon = 28 * NS_PER_DAY as u64;
+        let horizon = 182 * NS_PER_DAY as u64;
         let listing = series().listing_id;
         let all: Vec<Event> = daily_events.iter().chain(&weekly_events).cloned().collect();
         let pattern = agreement_pattern(
