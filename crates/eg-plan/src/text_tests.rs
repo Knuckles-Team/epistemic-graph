@@ -241,14 +241,11 @@ fn rank_text_without_index_is_empty_not_error() {
     );
 }
 
-/// RANK 3 + RANK 11 assimilation: a SELECTIVE upstream candidate set must still surface
-/// its BM25 hits even when hundreds of documents OUTSIDE that candidate set score
-/// higher globally — the fixed `k*4` over-fetch this replaces would have missed them
-/// (300 higher-scoring "noise" docs blow straight past a `k*4`/`k+32` window for a
-/// 2-candidate query), because it never sized the fetch off the candidate set's real
-/// selectivity against the corpus. The new selectivity-aware pool ([`crate::cost::
-/// CostModel::overfetch_pool_size`], plus the RANK-11 bloom gate once the pool is
-/// large) must retrieve BOTH candidates regardless.
+/// EH-532: a SELECTIVE upstream candidate set must still surface its BM25 hits even
+/// when hundreds of documents OUTSIDE that candidate set score higher globally — a
+/// global top-`n` over-fetch intersected with the candidates misses them (300
+/// higher-scoring "noise" docs blow straight past a `k*4`/`k+32` window for a
+/// 2-candidate query). `RankText` searches within the candidate set, so BOTH surface.
 #[test]
 fn rank_text_finds_selective_candidates_behind_many_higher_scoring_noise_docs() {
     use eg_core::compute::semantic::SemanticStore;
@@ -307,4 +304,72 @@ fn rank_text_finds_selective_candidates_behind_many_higher_scoring_noise_docs() 
 
 fn json_doc(keep: bool) -> Vec<u8> {
     blob(json!({ "type": "Doc", "keep": if keep { "yes" } else { "no" } }))
+}
+
+/// EH-532 correctness oracle: over a corpus where every category's members interleave
+/// with many higher-scoring non-members, `[Scan, Filter category, RankText]` returns
+/// EXACTLY the brute-force answer — the full-corpus BM25 ranking restricted to the
+/// category (same ids, same scores, same order) — never a truncated subset.
+#[test]
+fn filtered_rank_text_equals_the_brute_force_restricted_ranking() {
+    const CATEGORIES: [&str; 5] = ["a", "b", "c", "d", "e"];
+    let core = GraphCore::new();
+    let mut text = TextIndex::in_memory().unwrap();
+    for doc in 0..400usize {
+        let id = format!("doc{doc:03}");
+        let category = CATEGORIES[doc % CATEGORIES.len()];
+        core.add_node(
+            id.clone(),
+            blob(json!({ "type": "Doc", "category": category })),
+        );
+        // Term density varies with the id, so members and non-members interleave in
+        // the global ranking instead of clustering at the top.
+        let body = format!(
+            "{} filler words {}",
+            "graph ".repeat(1 + doc % 7),
+            "x ".repeat(doc % 5)
+        );
+        text.upsert(&id, &body);
+    }
+    text.commit().unwrap();
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic).with_text(&text);
+    let full = text.search("graph", 400);
+    for category in CATEGORIES {
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![crate::algebra::Pred::Eq {
+                    prop: "category".into(),
+                    value: category.into(),
+                }],
+            },
+            Op::RankText {
+                query: "graph".into(),
+            },
+        ]);
+        let got: Vec<(String, Option<f32>)> = plan
+            .execute(&ctx)
+            .unwrap()
+            .rows()
+            .iter()
+            .map(|row| (row.id.clone(), row.score))
+            .collect();
+        let oracle: Vec<(String, Option<f32>)> = full
+            .iter()
+            .filter(|hit| member_of(&hit.id, category, &CATEGORIES))
+            .map(|hit| (hit.id.clone(), Some(hit.score)))
+            .collect();
+        assert_eq!(got.len(), 80, "every member of {category} matches the term");
+        assert_eq!(got, oracle, "category {category}");
+    }
+}
+
+/// Brute-force category membership for the oracle, from the fixture's own id scheme.
+fn member_of(id: &str, category: &str, categories: &[&str]) -> bool {
+    let doc: usize = id.trim_start_matches("doc").parse().unwrap();
+    categories[doc % categories.len()] == category
 }

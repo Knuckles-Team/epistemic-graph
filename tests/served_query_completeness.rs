@@ -227,3 +227,97 @@ async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback
          against): {ids:?}"
     );
 }
+
+/// Add one `Doc` over the served write path, asserting success.
+async fn add_doc(
+    state: &Arc<RwLock<ServerState>>,
+    request: u64,
+    id: &str,
+    props: serde_json::Value,
+) {
+    let r = Box::pin(dispatch(
+        state,
+        test_support::commons_request(
+            SECRET,
+            request,
+            Method::AddNode {
+                node_id: id.to_string(),
+                properties_msgpack: test_support::json_bytes(props),
+            },
+        ),
+    ))
+    .await;
+    assert!(r.error.is_none(), "AddNode {id}: {:?}", r.error);
+}
+
+/// EH-532 on the SERVED path: a filtered `RankText` over the MAINTAINED persistent index
+/// returns every candidate that matches, even when 300 non-candidates outscore them all.
+/// The prior executor fetched a global top-`n` and intersected it with the candidates;
+/// against this corpus that returned none of the 40 correct hits.
+#[tokio::test]
+async fn served_filtered_ranktext_returns_every_matching_candidate() {
+    let state = state();
+    state.write().await.registry.set_secondary_index_factory(
+        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new()
+            .with_text_dir(None)
+            .into_arc(),
+    );
+    let mut request = 1_u64;
+    for doc in 0..300 {
+        let props =
+            json!({ "type": "Doc", "category": "other", "text": "apple apple apple apple" });
+        add_doc(&state, request, &format!("noise{doc}"), props).await;
+        request += 1;
+    }
+    let mut expected: Vec<String> = Vec::new();
+    for doc in 0..45 {
+        let id = format!("pick{doc:02}");
+        let matches = doc % 9 != 0;
+        let body = if matches {
+            "one apple in a longer sentence of words"
+        } else {
+            "no fruit here"
+        };
+        add_doc(
+            &state,
+            request,
+            &id,
+            json!({ "type": "Doc", "category": "pick", "text": body }),
+        )
+        .await;
+        request += 1;
+        if matches {
+            expected.push(id);
+        }
+    }
+    let plan = Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Filter {
+            preds: vec![eg_plan::Pred::Eq {
+                prop: "category".into(),
+                value: "pick".into(),
+            }],
+        },
+        Op::RankText {
+            query: "apple".into(),
+        },
+    ]);
+    let rows =
+        test_support::raw_rows(&test_support::unified_query(&state, SECRET, request, plan).await);
+    let mut ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
+    ids.sort();
+    assert_eq!(
+        ids, expected,
+        "exactly the matching candidates, none dropped"
+    );
+    let scores: Vec<f32> = rows
+        .iter()
+        .map(|(_, score)| score.expect("BM25 score"))
+        .collect();
+    assert!(
+        scores.windows(2).all(|pair| pair[0] >= pair[1]),
+        "BM25 descending: {scores:?}"
+    );
+}

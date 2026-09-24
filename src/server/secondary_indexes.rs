@@ -98,6 +98,19 @@ impl GraphTextIndex {
     pub fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
         self.index.lock_recovering("text index").search(query, k)
     }
+
+    /// BM25 top-`k` evaluated within `candidates` (EH-532) — the filtered read surface a
+    /// served `RankText` consumes. Reflects the last committed batch.
+    pub fn search_within(
+        &self,
+        query: &str,
+        candidates: &[&str],
+        k: usize,
+    ) -> Vec<eg_text::TextHit> {
+        self.index
+            .lock_recovering("text index")
+            .search_within(query, candidates, k)
+    }
 }
 
 #[cfg(feature = "text")]
@@ -196,7 +209,7 @@ impl SecondaryIndex for GraphTextIndex {
 /// `RankText`/`FuseRrf` leg search the MAINTAINED per-graph [`GraphTextIndex`] directly
 /// instead of `eg-plan`'s prior behavior of building a throwaway BM25 index from the
 /// queried snapshot on EVERY request. Cheap to construct per request — it only holds an
-/// `Arc<GraphCore>` clone — and each [`eg_plan::TextSource::search`] call re-resolves the
+/// `Arc<GraphCore>` clone — and each [`eg_plan::TextSource::search_within`] call re-resolves the
 /// registered index through the generic [`crate::index::IndexManager`] (a downcast via
 /// [`crate::index::SecondaryIndex::as_any`]) and searches it fresh under a brief internal
 /// lock, so it always reflects the LAST COMMITTED batch with no per-query rebuild. `eg-core`
@@ -214,46 +227,38 @@ impl ServedTextIndex {
         Self { core }
     }
 
-    /// `true` iff this graph has a maintained persistent text index registered — the
-    /// caller (the query handler) uses this to choose between pushing a `RankText`/
-    /// `FuseRrf` leg down into THIS adapter or falling back to a snapshot-derived index
-    /// (a graph created before the factory installed, or a test harness with no
-    /// `ServerIndexFactory` wired at all).
+    /// `true` iff this graph has a maintained persistent text index registered that
+    /// covers the live source — the caller (the query handler) uses this to choose
+    /// between pushing a `RankText`/`FuseRrf` leg down into THIS adapter or falling back
+    /// to a snapshot-derived index (a graph created before the factory installed, or a
+    /// test harness with no `ServerIndexFactory` wired at all).
     pub fn available(&self) -> bool {
+        self.read_current(|_| ()).is_some()
+    }
+
+    /// Run `read` against the registered [`GraphTextIndex`] iff its manifest covers the
+    /// live source version and counts; `None` otherwise (absent or stale index).
+    fn read_current<T>(&self, read: impl FnOnce(&GraphTextIndex) -> T) -> Option<T> {
         let source_snapshot_version = self.core.version();
         let nodes = self.core.node_count() as u64;
         let edges = self.core.edge_count() as u64;
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Text, |index| {
-                index
+                let covered = index
                     .manifest()
-                    .covers_source(source_snapshot_version, nodes, edges)
+                    .covers_source(source_snapshot_version, nodes, edges);
+                let text = index.as_any().downcast_ref::<GraphTextIndex>();
+                text.filter(|_| covered).map(read)
             })
-            .unwrap_or(false)
+            .flatten()
     }
 }
 
 #[cfg(feature = "text")]
 impl eg_plan::TextSource for ServedTextIndex {
-    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
-        let source_snapshot_version = self.core.version();
-        let nodes = self.core.node_count() as u64;
-        let edges = self.core.edge_count() as u64;
-        self.core
-            .indexes()
-            .with_server_index(crate::index::IndexKind::Text, |idx| {
-                if !idx
-                    .manifest()
-                    .covers_source(source_snapshot_version, nodes, edges)
-                {
-                    return Vec::new();
-                }
-                idx.as_any()
-                    .downcast_ref::<GraphTextIndex>()
-                    .map(|gti| gti.search(query, k))
-                    .unwrap_or_default()
-            })
+    fn search_within(&self, query: &str, candidates: &[&str], k: usize) -> Vec<eg_text::TextHit> {
+        self.read_current(|text| text.search_within(query, candidates, k))
             .unwrap_or_default()
     }
 }
