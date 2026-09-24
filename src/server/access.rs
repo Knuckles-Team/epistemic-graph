@@ -30,7 +30,43 @@ pub(crate) struct CarrierAuthority {
     can_write: bool,
 }
 
+/// One owner-scoped process-global call (EH-373/EH-374): the server state, the request
+/// id, and the verified carrier whose owner (tenant+principal) keys a registration
+/// catalog. The carrier is derived from the verified envelope only, never a request
+/// field.
+#[cfg(any(feature = "wasm-udf", feature = "federation"))]
+pub(crate) struct OwnerScopedCall<'a> {
+    pub(crate) state: &'a Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
+    pub(crate) req_id: u64,
+    pub(crate) carrier: Option<&'a CarrierAuthority>,
+}
+
+#[cfg(any(feature = "wasm-udf", feature = "federation"))]
+impl OwnerScopedCall<'_> {
+    /// The verified owner, or the `ACCESS_DENIED` refusal for `method`.
+    pub(crate) fn owner(
+        &self,
+        method: &str,
+    ) -> Result<CarrierAuthority, crate::protocol::Response> {
+        self.carrier.cloned().ok_or_else(|| {
+            crate::metrics::access_denied();
+            crate::protocol::Response::err(
+                self.req_id,
+                format!("ACCESS_DENIED: {method} requires a verified tenant carrier"),
+            )
+        })
+    }
+}
+
 impl CarrierAuthority {
+    /// A verified carrier for `agent` in the deployment's one tenant (the owner-scoped
+    /// catalog test fixtures).
+    #[cfg(all(test, any(feature = "federation", feature = "wasm-udf")))]
+    pub(crate) fn verified_for_test(agent: &str) -> Self {
+        Self::from_verified(&VerifiedRequestContext::verified_for_test(agent))
+            .expect("verified test carrier")
+    }
+
     pub(crate) fn from_verified(context: &VerifiedRequestContext) -> Result<Self, String> {
         let tenant = context.tenant().trim();
         let principal = context.principal().trim();

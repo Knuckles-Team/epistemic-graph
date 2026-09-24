@@ -133,13 +133,11 @@ mod tests {
     use super::*;
     use crate::isolation::{AgentIdentity, AgentRole};
     use crate::server::access::CarrierAuthority;
-    use crate::server::auth::VerifiedRequestContext;
     use crate::server::foreign_catalog::ForeignSourceCatalog;
     use eg_types::wire::ForeignSourceSpec;
 
     fn carrier(agent: &str) -> CarrierAuthority {
-        CarrierAuthority::from_verified(&VerifiedRequestContext::verified_for_test(agent))
-            .expect("verified test carrier")
+        CarrierAuthority::verified_for_test(agent)
     }
 
     fn spec() -> ForeignSourceSpec {

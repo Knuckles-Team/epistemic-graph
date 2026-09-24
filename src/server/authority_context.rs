@@ -494,3 +494,22 @@ impl VerifiedRequestContext {
         ))
     }
 }
+
+/// The signed request-context claims the server test harnesses issue for `agent` in the
+/// deployment's one tenant (wildcard scope): the native, sqlite and wire front-end
+/// tests all sign with exactly these.
+#[cfg(test)]
+pub(crate) fn signed_test_claims(agent: &str) -> RequestContextClaims {
+    RequestContextClaims {
+        principal: agent.to_string(),
+        tenant: "tenant-shared".to_string(),
+        audience: "epistemic-graph-test".to_string(),
+        agent_id: agent.to_string(),
+        roles: vec!["test".to_string()],
+        scopes: vec!["*".to_string()],
+        policy_version: "policy-test".to_string(),
+        delegation: Vec::new(),
+        node: None,
+        priority: None,
+    }
+}

@@ -381,18 +381,7 @@ mod tests {
 
     #[cfg(feature = "redb")]
     fn signed_req(sql: &str, id: u64, agent: &str, nonce: &str, idempotency_key: &str) -> String {
-        let context = crate::acl::RequestContextClaims {
-            principal: agent.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: agent.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let context = crate::server::authority_context::signed_test_claims(agent);
         let mut signed = Request {
             id,
             graph: "__commons__".to_string(),

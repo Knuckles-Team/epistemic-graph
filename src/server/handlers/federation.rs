@@ -14,33 +14,24 @@
 //! source returns are not RLS-filtered. A lightweight, non-blocking insert — no
 //! off-reactor work needed.
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
-use super::super::state::ServerState;
 use crate::protocol::{Method, Response, ResultPayload};
-use crate::server::access::CarrierAuthority;
+use crate::server::access::OwnerScopedCall;
 
 /// Try to handle a federation method. `Ok(resp)` = handled; `Err(method)` = not mine.
 pub(crate) async fn try_handle(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    carrier: Option<&CarrierAuthority>,
+    call: OwnerScopedCall<'_>,
     method: Method,
 ) -> Result<Response, Method> {
+    let req_id = call.req_id;
     match method {
         Method::RegisterForeignSource { name, source } => {
-            let Some(owner) = carrier else {
-                crate::metrics::access_denied();
-                return Ok(Response::err(
-                    req_id,
-                    "ACCESS_DENIED: RegisterForeignSource requires a verified tenant carrier"
-                        .to_string(),
-                ));
+            let owner = match call.owner("RegisterForeignSource") {
+                Ok(owner) => owner,
+                Err(refusal) => return Ok(refusal),
             };
             // EH-378: provision the source's share role (assigned to nobody) under the
             // same write lock as the registration, so a registered source always has one.
-            let mut s = state.write().await;
+            let mut s = call.state.write().await;
             if let Err(error) = crate::server::foreign_share::provision_share_role(
                 &mut s.isolation,
                 owner.agent_id(),
@@ -48,7 +39,7 @@ pub(crate) async fn try_handle(
             ) {
                 return Ok(Response::err(req_id, error));
             }
-            s.foreign_sources.register(owner, name.clone(), source);
+            s.foreign_sources.register(&owner, name.clone(), source);
             Ok(Response::ok(
                 req_id,
                 ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterForeignSource>(

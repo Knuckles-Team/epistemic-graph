@@ -247,12 +247,10 @@ mod tests {
     //! no cross-owner overwrite. The served-path proofs (UnifiedQuery, UQL text, NL)
     //! live in `server::tests::foreign_tenancy`.
     use super::*;
-    use crate::server::auth::VerifiedRequestContext;
 
     /// A verified carrier for `agent` in the deployment's one tenant.
     fn carrier(agent: &str) -> CarrierAuthority {
-        let context = VerifiedRequestContext::verified_for_test(agent);
-        CarrierAuthority::from_verified(&context).expect("verified test carrier")
+        CarrierAuthority::verified_for_test(agent)
     }
 
     fn http_spec(url: &str) -> ForeignSourceSpec {

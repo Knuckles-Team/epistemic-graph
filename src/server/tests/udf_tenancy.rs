@@ -6,8 +6,8 @@
 
 use super::*;
 
-/// Echoes its input bytes (the same identity module the dispatch UDF test uses).
-const IDENTITY_WAT: &str = r#"(module
+/// Echoes its input bytes (also the dispatch UDF test's identity module).
+pub(super) const IDENTITY_WAT: &str = r#"(module
     (memory (export "memory") 1)
     (global $n (mut i32) (i32.const 1024))
     (func (export "alloc") (param $l i32) (result i32)

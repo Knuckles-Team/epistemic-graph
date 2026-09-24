@@ -234,10 +234,9 @@ pub(crate) async fn handle_unified_query(
     #[cfg(feature = "security")]
     let rls = ctx.rls;
     // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
-    let legs = match ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await
-    {
+    let legs = match ctx.served_legs(&plan).await {
         Ok(legs) => legs,
-        Err(denied) => return Ok(Response::err(req_id, denied)),
+        Err(refusal) => return Ok(refusal),
     };
     // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
     // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot. Take
@@ -352,10 +351,9 @@ pub(crate) async fn handle_unified_query_text(
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
     // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
-    let legs = match ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await
-    {
+    let legs = match ctx.served_legs(&plan).await {
         Ok(legs) => legs,
-        Err(denied) => return Ok(Response::err(req_id, denied)),
+        Err(refusal) => return Ok(refusal),
     };
     // UQL (CONCEPT:AU-KG.query.top-nodes-by-degree): parse the TEXT query into the SAME `wire::Plan`
     // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —

@@ -314,7 +314,16 @@ pub(super) async fn route_process_global_domains(
     // `state` for the owner-scoped UdfCatalog, keyed by the VERIFIED carrier's
     // tenant+principal (EH-374). A method whose feature is off falls through.
     #[cfg(feature = "wasm-udf")]
-    let method = match handlers::wasm_udf::try_handle(state, req_id, carrier, method).await {
+    let method = match handlers::wasm_udf::try_handle(
+        crate::server::access::OwnerScopedCall {
+            state,
+            req_id,
+            carrier,
+        },
+        method,
+    )
+    .await
+    {
         Ok(r) => return Ok(r),
         Err(m) => m,
     };
@@ -325,7 +334,16 @@ pub(super) async fn route_process_global_domains(
     // method whose feature is off falls through to the graph_ops not-available
     // catch-all.
     #[cfg(feature = "federation")]
-    let method = match handlers::federation::try_handle(state, req_id, carrier, method).await {
+    let method = match handlers::federation::try_handle(
+        crate::server::access::OwnerScopedCall {
+            state,
+            req_id,
+            carrier,
+        },
+        method,
+    )
+    .await
+    {
         Ok(r) => return Ok(r),
         Err(m) => m,
     };

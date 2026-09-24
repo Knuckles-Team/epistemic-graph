@@ -1248,18 +1248,7 @@ mod tests {
 
     /// The signed claims [`request`] issues for `agent` in the deployment's one tenant.
     fn test_claims(agent: &str) -> RequestContextClaims {
-        RequestContextClaims {
-            principal: agent.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: agent.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        }
+        crate::server::authority_context::signed_test_claims(agent)
     }
 
     /// The verified carrier the server derives for a [`request`] made as `agent`
@@ -7052,18 +7041,7 @@ ex:p1 a ex:Paper .
         let state = test_state();
 
         // An identity UDF (echoes its input bytes) and an infinite-loop UDF.
-        let identity = wat::parse_str(
-            r#"(module
-                (memory (export "memory") 1)
-                (global $n (mut i32) (i32.const 1024))
-                (func (export "alloc") (param $l i32) (result i32)
-                    (local $p i32) (local.set $p (global.get $n))
-                    (global.set $n (i32.add (global.get $n) (local.get $l))) (local.get $p))
-                (func (export "udf") (param $p i32) (param $l i32) (result i64)
-                    (i64.or (i64.shl (i64.extend_i32_u (local.get $p)) (i64.const 32))
-                            (i64.extend_i32_u (local.get $l)))))"#,
-        )
-        .unwrap();
+        let identity = wat::parse_str(udf_tenancy::IDENTITY_WAT).unwrap();
         let infinite = wat::parse_str(
             r#"(module
                 (memory (export "memory") 1)

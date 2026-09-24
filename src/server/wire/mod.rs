@@ -5253,18 +5253,7 @@ mod ne_004_ne_005_tests {
     /// (never by poking the registry directly).
     fn request(id: u64, graph: &str, method: Method) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let claims = crate::acl::RequestContextClaims {
-            principal: AGENT.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: AGENT.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let claims = crate::server::authority_context::signed_test_claims(AGENT);
         let mut req = Request {
             id,
             graph: graph.to_string(),
@@ -6023,18 +6012,7 @@ mod wired_catalog_tests {
 
     fn request(id: u64, graph: &str, method: Method) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let claims = crate::acl::RequestContextClaims {
-            principal: CREATOR.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: CREATOR.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let claims = crate::server::authority_context::signed_test_claims(CREATOR);
         let mut req = Request {
             id,
             graph: graph.to_string(),

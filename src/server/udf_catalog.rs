@@ -73,12 +73,10 @@ impl UdfCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::auth::VerifiedRequestContext;
 
     /// A verified carrier for `agent` in the deployment's one tenant.
     fn carrier(agent: &str) -> CarrierAuthority {
-        let context = VerifiedRequestContext::verified_for_test(agent);
-        CarrierAuthority::from_verified(&context).expect("verified test carrier")
+        CarrierAuthority::verified_for_test(agent)
     }
 
     /// A UDF whose output is the constant byte `value` (so two modules are

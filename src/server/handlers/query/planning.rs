@@ -567,6 +567,20 @@ impl ServedPlanLegs {
     }
 }
 
+#[cfg(feature = "query")]
+impl QueryHandlerCtx<'_> {
+    /// [`ServedPlanLegs::resolve`] for this request's verified read authority; `Err`
+    /// is the caller-facing refusal response.
+    pub(crate) async fn served_legs(
+        &self,
+        plan: &eg_plan::Plan,
+    ) -> Result<ServedPlanLegs, Response> {
+        ServedPlanLegs::resolve(self.state, self.graph_name, self.read_authority, plan)
+            .await
+            .map_err(|denied| Response::err(self.req_id, denied))
+    }
+}
+
 /// Resolve the tsdb/text/geo/federation legs and run `plan` off-lock via
 /// `run_unified`, exactly as `UnifiedQuery`/`UnifiedQueryText`/`NlQuery` already
 /// did inline — pure extract-method out of those three arms' bodies (identical

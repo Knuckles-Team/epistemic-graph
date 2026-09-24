@@ -42,6 +42,16 @@ async fn register_in(
     assert_ok(&dispatch_as(state, id, agent, method).await);
 }
 
+/// A live remote engine (keep the returned handle alive) and a local fixture graph on
+/// which `OWNER_A` registered `remote_docs` against that remote, as request `id`.
+async fn registered_by_owner_a(id: u64) -> (Arc<RwLock<ServerState>>, Arc<RwLock<ServerState>>) {
+    let (remote, remote_addr) = spawn_federation_remote().await;
+    let local = multi_tenant_state().await;
+    build_unified_fixture(&local).await;
+    register_in(&local, id, OWNER_A, federation_remote_spec(remote_addr)).await;
+    (remote, local)
+}
+
 fn named_scan_plan() -> Method {
     Method::UnifiedQuery {
         plan: eg_plan::Plan::new(vec![
@@ -94,10 +104,7 @@ fn assert_not_registered_for_caller(resp: &crate::protocol::Response, surface: &
 #[tokio::test]
 async fn foreign_source_resolves_only_for_the_registering_principal() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let (_remote, remote_addr) = spawn_federation_remote().await;
-    let local = multi_tenant_state().await;
-    build_unified_fixture(&local).await;
-    register_in(&local, 900, OWNER_A, federation_remote_spec(remote_addr)).await;
+    let (_remote, local) = registered_by_owner_a(900).await;
 
     let a = dispatch_as(&local, 901, OWNER_A, named_scan_plan()).await;
     assert_ok(&a);
@@ -126,10 +133,7 @@ async fn foreign_source_resolves_only_for_the_registering_principal() {
 #[tokio::test]
 async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let (_remote, remote_addr) = spawn_federation_remote().await;
-    let local = multi_tenant_state().await;
-    build_unified_fixture(&local).await;
-    register_in(&local, 910, OWNER_A, federation_remote_spec(remote_addr)).await;
+    let (_remote, local) = registered_by_owner_a(910).await;
     let b_spec = eg_types::wire::ForeignSourceSpec::HttpJson {
         url: "http://127.0.0.1:9/eh373-principal-b".into(),
         json_path: "data".into(),
@@ -166,10 +170,7 @@ async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
 async fn nl_query_foreign_leg_is_owner_scoped() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     crate::server::set_nl_planner(Arc::new(EchoPlanner));
-    let (_remote, remote_addr) = spawn_federation_remote().await;
-    let local = multi_tenant_state().await;
-    build_unified_fixture(&local).await;
-    register_in(&local, 920, OWNER_A, federation_remote_spec(remote_addr)).await;
+    let (_remote, local) = registered_by_owner_a(920).await;
 
     let nl = || Method::NlQuery {
         text: FOREIGN_UQL.into(),
@@ -189,10 +190,7 @@ async fn nl_query_foreign_leg_is_owner_scoped() {
 #[tokio::test]
 async fn shared_source_needs_an_explicit_grant() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let (_remote, remote_addr) = spawn_federation_remote().await;
-    let local = multi_tenant_state().await;
-    build_unified_fixture(&local).await;
-    register_in(&local, 940, OWNER_A, federation_remote_spec(remote_addr)).await;
+    let (_remote, local) = registered_by_owner_a(940).await;
     let qualified = crate::server::foreign_share::shared_name(OWNER_A, "remote_docs");
     let text = || Method::UnifiedQueryText {
         text: format!("MATCH (:Doc) |> FOREIGN \"{qualified}\" |> LIMIT 10"),
