@@ -10,6 +10,8 @@
 //!   (multi-timeframe agreement through eg-stream's NFA) (EH-415).
 //! * [`confidence`] — Decide-calibrated flip confidence with abstention (EH-417).
 //! * [`backtest_run`] — the backtest-run provenance record (EH-418).
+//! * [`decimate`] — M4 chart decimation over integer ticks (EH-420).
+//! * [`snapshot`] — the analysis-snapshot record with its notices (EH-421).
 //!
 //! Prices are integer ticks and indicator values integer milli-ticks, so every
 //! output is bit-identical on every target. Nothing here reads a clock or a
@@ -19,6 +21,7 @@ pub mod backtest_run;
 pub mod calendar;
 pub mod codec;
 pub mod confidence;
+pub mod decimate;
 pub mod digest;
 pub mod events;
 pub mod fixed;
@@ -28,6 +31,7 @@ pub mod resolve;
 pub mod rollup;
 pub mod scan;
 pub mod signal;
+pub mod snapshot;
 pub mod supertrend;
 
 #[cfg(test)]
@@ -80,3 +84,5 @@ pub const INVALID_REQUEST: &str = "INVALID_REQUEST";
 pub const REVISION_NEEDS_REPLAY: &str = "REVISION_NEEDS_REPLAY";
 /// A fill before its signal was knowable, or outside the point-in-time universe.
 pub const LOOK_AHEAD: &str = "LOOK_AHEAD";
+/// An analysis claim that cites no source.
+pub const UNSOURCED_CLAIM: &str = "UNSOURCED_CLAIM";

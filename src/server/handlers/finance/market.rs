@@ -6,8 +6,8 @@
 //! typed refusal rendered `"CODE: detail"`.
 
 use eg_compute::finance::market::{
-    backtest_run, codec, confidence, indicators, rollup, scan, signal, FinanceMarketOp,
-    MarketResult,
+    backtest_run, codec, confidence, decimate, indicators, rollup, scan, signal, snapshot,
+    FinanceMarketOp, MarketResult,
 };
 use eg_types::result_contract::compute as results;
 use eg_types::result_contract::MethodResult;
@@ -68,6 +68,12 @@ fn handle(req_id: u64, op: FinanceMarketOp) -> Response {
         }
         FinanceMarketOp::BacktestRun { draft } => {
             answer::<results::FinanceMarketBacktestRun>(req_id, backtest_run::seal(&draft))
+        }
+        FinanceMarketOp::Decimate { request } => {
+            answer::<results::FinanceMarketDecimate>(req_id, decimate::decimate(&request))
+        }
+        FinanceMarketOp::AnalysisSnapshot { draft } => {
+            answer::<results::FinanceMarketAnalysisSnapshot>(req_id, snapshot::seal(&draft))
         }
     }
 }

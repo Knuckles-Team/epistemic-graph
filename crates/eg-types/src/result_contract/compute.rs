@@ -255,4 +255,8 @@ method_results! {
     FinanceMarketFlipConfidence(FinanceMarket / "flip_confidence") => Raw<market::FlipConfidence>;
     #[cfg(feature = "finance")]
     FinanceMarketBacktestRun(FinanceMarket / "backtest_run") => Raw<market::BacktestRun>;
+    #[cfg(feature = "finance")]
+    FinanceMarketDecimate(FinanceMarket / "decimate") => Raw<market::DecimatedChart>;
+    #[cfg(feature = "finance")]
+    FinanceMarketAnalysisSnapshot(FinanceMarket / "analysis_snapshot") => Raw<market::AnalysisSnapshot>;
 }

@@ -1,4 +1,4 @@
-"""End-to-end round trips of ``FinanceMarket`` (EH-413..EH-418).
+"""End-to-end round trips of ``FinanceMarket`` (EH-413..EH-418, EH-420, EH-421).
 
 Full path: Python client -> UDS -> Rust dispatch -> result, over the
 session-scoped server + ``clean_graph`` sync client from conftest.py. Bars are
@@ -11,6 +11,8 @@ sealed backtest-run record. Everything here is informational only.
 from __future__ import annotations
 
 from typing import Any
+
+import pytest
 
 DAY = 86_400_000_000_000
 START = 19_000 * DAY
@@ -195,3 +197,56 @@ def _draft() -> dict[str, Any]:
         },
         "supersedes": None,
     }
+
+
+def test_decimation_keeps_every_extreme_of_a_long_history(clean_graph):
+    bars = [_bar(i, 1_000 + (i * 37) % 211) for i in range(400)]
+    trail = clean_graph.finance.market("indicators", bars=bars, spec=SPEC)
+    chart = clean_graph.finance.market(
+        "decimate", request={"bars": bars, "indicators": [trail], "width": 40}
+    )
+    assert chart["decimated"] and chart["source_bars"] == 400
+    assert len(chart["bars"]) <= 40
+    assert max(b["high"] for b in chart["bars"]) == max(b["high"] for b in bars)
+    assert min(b["low"] for b in chart["bars"]) == min(b["low"] for b in bars)
+    assert chart["bars"][-1]["close"] == bars[-1]["close"]
+    assert len(chart["indicators"][0]) < len(trail)
+
+
+def test_analysis_snapshot_seals_verifies_and_refuses_unsourced_claims(clean_graph):
+    bars = _bars()
+    replayed = clean_graph.finance.market(
+        "signal_replay",
+        request={"series": SERIES, "spec": SPEC, "records": bars},
+    )
+    state = replayed["state"]
+    draft = {
+        "key": state["key"],
+        "spec": SPEC,
+        "window": {
+            "from_open": bars[0]["open_time"],
+            "to_close": bars[-1]["close_time"],
+            "bars": len(bars),
+        },
+        "source_revision": state["source_revision"],
+        "direction": state["direction"],
+        "data_status": state["data_status"],
+        "flips": replayed["current"],
+        "layers": ["trail", "volume"],
+        "claims": [
+            {
+                "text": "The flip followed a volume spike.",
+                "author": "agent",
+                "sources": [{"title": "venue", "url": "https://example.org/v"}],
+            }
+        ],
+        "created_at": bars[-1]["close_time"],
+    }
+    record = clean_graph.finance.market("analysis_snapshot", draft=draft)
+    assert record["informational_only"] and record["excludes_positions"]
+    assert record["notices"]["version"] == 1
+    again = clean_graph.finance.market("analysis_snapshot", draft=record["draft"])
+    assert again["digest"] == record["digest"]
+    draft["claims"][0]["sources"] = []
+    with pytest.raises(Exception, match="UNSOURCED_CLAIM"):
+        clean_graph.finance.market("analysis_snapshot", draft=draft)
