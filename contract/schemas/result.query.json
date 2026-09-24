@@ -2857,6 +2857,51 @@
       ],
       "type": "object"
     },
+    "BeliefPoint": {
+      "additionalProperties": false,
+      "description": "The head's belief at one slice: a distribution over the candidates on\n`Q32`, or `None` when the slice had no complete matrix, was out of the\nhead's fitted range, or the head is not listwise.",
+      "properties": {
+        "as_of_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "probabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundedVec_QuantisedValue_64"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "as_of_ms"
+      ],
+      "type": "object"
+    },
+    "BeliefSliceInputs": {
+      "additionalProperties": false,
+      "description": "The stored input of one slice: its clock and its feature matrix, in the\ndecision matrix's candidate and feature order. Empty values mean a fact a\nfeature needs was unknown at that time (the slice has no belief).",
+      "properties": {
+        "as_of_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "values": {
+          "$ref": "#/$defs/BoundedVec_int64_2048",
+          "default": []
+        }
+      },
+      "required": [
+        "as_of_ms"
+      ],
+      "type": "object"
+    },
     "BlobReference": {
       "properties": {
         "blob_id": {
@@ -2959,6 +3004,20 @@
     "BoundedVec_AgentGraphEntryRef_8": {
       "items": {
         "$ref": "#/$defs/AgentGraphEntryRef"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_BeliefPoint_8": {
+      "items": {
+        "$ref": "#/$defs/BeliefPoint"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_BeliefSliceInputs_8": {
+      "items": {
+        "$ref": "#/$defs/BeliefSliceInputs"
       },
       "maxItems": 8,
       "type": "array"
@@ -3073,6 +3132,13 @@
         "$ref": "#/$defs/QuantisedValue"
       },
       "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_QuantisedValue_64": {
+      "items": {
+        "$ref": "#/$defs/QuantisedValue"
+      },
+      "maxItems": 64,
       "type": "array"
     },
     "BoundedVec_ScoredOption_64": {
@@ -3220,6 +3286,15 @@
     "BoundedVec_string_8": {
       "items": {
         "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_uint64_8": {
+      "items": {
+        "format": "uint64",
+        "minimum": 0,
+        "type": "integer"
       },
       "maxItems": 8,
       "type": "array"
@@ -6064,6 +6139,10 @@
       "additionalProperties": false,
       "description": "One statistical decision request.\nNot `Eq`, for the same reason [`CandidateSource`] is not.",
       "properties": {
+        "belief_as_of": {
+          "$ref": "#/$defs/BoundedVec_uint64_8",
+          "description": "Times (strictly increasing, not after the decision's clock) at which\nto report the head's belief over the same options (EH-297). Omitted\nwhen empty."
+        },
         "candidates": {
           "$ref": "#/$defs/CandidateSource"
         },
@@ -37819,6 +37898,10 @@
           "default": null,
           "description": "The audit-sampling draw of an acted decision (EH-026)."
         },
+        "belief": {
+          "$ref": "#/$defs/BoundedVec_BeliefPoint_8",
+          "description": "The head's belief at each requested slice (EH-297); omitted when none."
+        },
         "calibration": {
           "anyOf": [
             {
@@ -37938,6 +38021,10 @@
       "additionalProperties": false,
       "description": "The input set of one statistical decision.",
       "properties": {
+        "belief_slices": {
+          "$ref": "#/$defs/BoundedVec_BeliefSliceInputs_8",
+          "description": "The belief slices' stored inputs (EH-297); omitted when none."
+        },
         "classification_rules": {
           "default": null,
           "description": "Identity of the rules (names, thresholds, ontology digest) the\ncandidates' derived classes came from (EH-200); a record replays only\nunder the same identity. `None` when no class was derived.",

@@ -3,15 +3,15 @@
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "b2cb368964340e05b58f65d8d226343d08cf48f0912fe7b560d619d19b2641c8",
     "contract/methods.json": "b76a62e639d6fad6d03f455ce765eb6c657dcf390597d00151bee4f6617faf2f",
-    "contract/schemas/method.request.json": "a6d17301c8e10f0a94a40986c53773314c1d9658c550a429f35ed2d6cdf7cb3b",
+    "contract/schemas/method.request.json": "0b3b1cbbe7c36e606a9c8df12c1ba5ee545bea32afcf83f42b3bb5962d6a9348",
     "contract/schemas/result.cluster.json": "7d91b463ac26c476e6641219aaa7cbc5b4ee7ae1b6127a5922d1ed263b138c08",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
-    "contract/schemas/result.coordination.json": "86aeacf0791b1f3179d0fbfa375d204ce4208d5b191310dce7d818ac30b46ce3",
+    "contract/schemas/result.coordination.json": "ba82a7e12e29fb2ebda97d0ad9b88c877582e9272c6f892c06ebc529d19c684a",
     "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
     "contract/schemas/result.ingestion.json": "33b88b5728252a24f66d0c201eac9bd548810a428631a4ab9705e01ccce3e415",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "fba024094fb73caaca923bbcc64defd4e566122ed1ae2331d66531f377fff31d",
+    "contract/schemas/result.query.json": "aec14b08bc9ffa52f20f49f4edb81aaa659695577488c1cb76a2fcfbd083180f",
     "contract/schemas/result.reasoning.json": "63d1811dc679bf4ddbd59626c64f4312f23226e5db224989c2d09e336ae6264f",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
     "contract/schemas/result.storage.json": "7eba5680665e050acd9978cccb43328712b5945f47f37fa5bb3d4b4e04cc5b65",
@@ -44,7 +44,7 @@
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "93b017a47bff833fd23378fe6425447a7d7a39411a2f3b5b0b876aafec0daeb6",
-  "contract_digest": "b61daf9fd3eafb7751163336faf153b4aa6cd3b76f51f3f7988d029ce3ec09c0",
+  "contract_digest": "0fba58a59ffd73c32e1a97f54f3224f69d26213766f5546307d9300a319f9803",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -567,5 +567,5 @@
     "schematized": 417,
     "unclassified": 0
   },
-  "source_tree_oid": "bd6b811720c0b4219c3cd6488725b9f77fa261325f6b2addf6d95bff865b9817"
+  "source_tree_oid": "3428c7e01ce0cd051eab81dee32d2e1f2bfba0aafb872d76012176c76f7ea425"
 }
