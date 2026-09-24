@@ -37,6 +37,7 @@ fn a_compiled_connector_manifest_keeps_its_pinned_canonical_digest() {
     assert_eq!(view.triple_count, 89);
     assert_eq!(view.schema_digests.len(), 1);
     assert_eq!(view.composed_digest, None);
+    assert_eq!(view.ontologies, ["http://knuckles.team/kg/arr"]);
     let album = view.classes.iter().find(|class| class.iri == kg("Album")).unwrap();
     assert_eq!(album.label.as_deref(), Some("Album"));
 }
@@ -60,6 +61,22 @@ fn the_vocabulary_view_names_classes_properties_and_targets() {
     assert!(!name.symmetric);
     assert_eq!(view.shape_target_classes, [kg("Agent")]);
     assert!(view.canonical_digest.is_some());
+}
+
+#[test]
+fn the_canonical_digest_ignores_serialization_and_tracks_content() {
+    let turtle = inline(&[VOCABULARY]).unwrap();
+    let lines: Vec<String> = eg_rdf::mapping::parse_turtle(VOCABULARY)
+        .unwrap()
+        .iter()
+        .rev()
+        .map(|triple| format!("{triple} ."))
+        .collect();
+    let ntriples = inline(&[&lines.join("\n")]).unwrap();
+    assert_eq!(turtle.canonical_digest, ntriples.canonical_digest);
+    assert_eq!(turtle.triple_count, ntriples.triple_count);
+    let grown = format!("{VOCABULARY}:Gamma a owl:Class .\n");
+    assert_ne!(inline(&[&grown]).unwrap().canonical_digest, turtle.canonical_digest);
 }
 
 #[test]

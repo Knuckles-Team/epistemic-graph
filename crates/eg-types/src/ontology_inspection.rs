@@ -93,6 +93,8 @@ pub struct OntologyInspection {
     /// Absent when a document has blank nodes, whose labels are not canonical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub canonical_digest: Option<String>,
+    /// Named `owl:Ontology` subjects, sorted.
+    pub ontologies: Vec<String>,
     pub classes: Vec<OntologyClassView>,
     pub object_properties: Vec<OntologyPropertyView>,
     pub datatype_properties: Vec<OntologyPropertyView>,

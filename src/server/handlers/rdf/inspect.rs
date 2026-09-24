@@ -22,6 +22,7 @@ const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
 const RDFS_DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
 const RDFS_RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
 const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
+const OWL_ONTOLOGY: &str = "http://www.w3.org/2002/07/owl#Ontology";
 const OWL_OBJECT_PROPERTY: &str = "http://www.w3.org/2002/07/owl#ObjectProperty";
 const OWL_DATATYPE_PROPERTY: &str = "http://www.w3.org/2002/07/owl#DatatypeProperty";
 const OWL_SYMMETRIC_PROPERTY: &str = "http://www.w3.org/2002/07/owl#SymmetricProperty";
@@ -138,6 +139,7 @@ fn inspection_of(inspected: Inspected) -> OntologyInspection {
         composed_digest: inspected.composed_digest,
         triple_count: lines.len() as u64,
         canonical_digest: canonical_digest(&inspected.triples, &lines),
+        ontologies: facts.typed(OWL_ONTOLOGY).map(|(iri, _)| iri.clone()).collect(),
         classes: facts.classes(),
         object_properties: facts.properties(OWL_OBJECT_PROPERTY),
         datatype_properties: facts.properties(OWL_DATATYPE_PROPERTY),
