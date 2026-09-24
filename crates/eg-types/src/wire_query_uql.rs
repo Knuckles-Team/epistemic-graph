@@ -394,7 +394,8 @@ fn fixed(text: &str) -> Printed {
     Ok(text.to_string())
 }
 
-/// `PREFIX<number>`.
+/// `PREFIX<number>` (only `BELIEF AS OF`, an epistemic clause, prints one).
+#[cfg(feature = "epistemic")]
 fn prefixed_num(prefix: &str, n: f64) -> Printed {
     Ok(format!("{prefix}{}", uql_num(n)?))
 }
