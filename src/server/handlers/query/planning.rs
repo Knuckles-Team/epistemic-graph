@@ -83,7 +83,13 @@ pub(crate) fn plan_dependency_set(plan: &eg_plan::Plan) -> Option<eg_core::dep_s
                     dims.push(Dim::Label(label.clone()));
                 }
             }
-            eg_plan::Op::Filter { .. } | eg_plan::Op::Limit { .. } => {}
+            eg_plan::Op::ScanAll {} => {
+                has_source = true;
+                dims.push(Dim::AllNodes);
+            }
+            eg_plan::Op::Filter { .. }
+            | eg_plan::Op::Limit { .. }
+            | eg_plan::Op::Project { .. } => {}
             // Any op reading state outside the dependency clock's model ⇒ coarse fallback.
             _ => return None,
         }
@@ -311,6 +317,44 @@ pub(crate) fn run_unified(
     served: ServedIndexes<'_>,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    run_unified_with(
+        plan,
+        view,
+        semantic,
+        served,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+        execute_rows,
+    )
+}
+
+/// The plain row finisher: execute and project `[id, score|nil]`.
+#[cfg(feature = "query")]
+pub(crate) fn execute_rows(
+    plan: &eg_plan::Plan,
+    ctx: &eg_plan::PlanCtx,
+) -> Result<Vec<(String, Option<f32>)>, String> {
+    let result = eg_plan::execute(plan, ctx)?;
+    Ok(result
+        .rows()
+        .iter()
+        .map(|r| (r.id.clone(), r.score))
+        .collect())
+}
+
+/// [`run_unified`]'s leg binding with a caller-chosen `finish` over the fully bound
+/// `PlanCtx` — `UnifiedQuery` executes and projects rows; `Method::Uql` runs a whole
+/// statement (EXPLAIN/PROFILE/channels/DAG) over the SAME bindings (UQL-07/08/09).
+/// `plan` decides which legs are bound (every op of the statement).
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with<T>(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+    served: ServedIndexes<'_>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+) -> Result<T, String> {
     #[cfg(feature = "tsdb")]
     let TsdbLegBind {
         tsdb,
@@ -408,12 +452,7 @@ pub(crate) fn run_unified(
         Some(shapes) => ctx.with_shape_source(shapes),
         None => ctx,
     };
-    let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
-    Ok(result
-        .rows()
-        .iter()
-        .map(|r| (r.id.clone(), r.score))
-        .collect())
+    finish(&eg_plan::Plan::new(ops), &ctx)
 }
 
 /// The `Op::SpatialScan` leg-binding of [`run_unified`] (CONCEPT:EG-KG.storage.incremental-spatial, L37): bind a
@@ -604,6 +643,24 @@ pub(crate) async fn run_unified_off_lock(
     plan: eg_plan::Plan,
     legs: ServedPlanLegs,
 ) -> UnifiedRunOutcome {
+    run_unified_off_lock_with(state, req_id, core, snap, plan, legs, execute_rows).await
+}
+
+/// [`run_unified_off_lock`] with a caller-chosen finisher (see [`run_unified_with`]).
+#[cfg(feature = "query")]
+pub(crate) async fn run_unified_off_lock_with<T, F>(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    snap: Arc<crate::graph::GraphView>,
+    plan: eg_plan::Plan,
+    legs: ServedPlanLegs,
+    finish: F,
+) -> Result<Result<T, String>, Response>
+where
+    T: Send + 'static,
+    F: FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> + Send + 'static,
+{
     let core_for_ctx = core.clone();
     #[cfg(feature = "tsdb")]
     let tsdb_scope = legs.tsdb_scope;
@@ -625,7 +682,7 @@ pub(crate) async fn run_unified_off_lock(
     #[cfg(not(feature = "tsdb"))]
     let _ = state;
     compute_off_lock(req_id, move || {
-        run_unified_with_staged(
+        run_unified_with_staged_finish(
             plan,
             &snap,
             &core_for_ctx,
@@ -640,6 +697,7 @@ pub(crate) async fn run_unified_off_lock(
                 // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                 staged_series: None,
             },
+            finish,
         )
     })
     .await
