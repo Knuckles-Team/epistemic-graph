@@ -19,6 +19,10 @@
 //!   non-finite sample (a Prometheus staleness marker), is counted in
 //!   [`RollupReport::ignored_metric_samples`] and nowhere else.
 //!
+//! A signal bound to an entity that is a declared part of a whole (a Pod
+//! scheduled by a Workload) counts towards both: the part's own observation
+//! and the whole's, whose provenance names the part.
+//!
 //! The result does not depend on the order signals arrive in: they are put in
 //! one canonical order first, so sums and counter deltas are reproduced exactly.
 
@@ -64,6 +68,11 @@ pub struct ObservationProvenance {
     /// Earliest and latest contributing event time, epoch milliseconds.
     pub first_ts_ms: u64,
     pub last_ts_ms: u64,
+    /// The parts whose signals rolled up into this observation along a
+    /// declared aggregation (for example the Pods of a Workload), as
+    /// part ids. Empty for an entity's own signals only.
+    #[serde(default)]
+    pub aggregated_from: BTreeSet<String>,
 }
 
 /// One entity's behaviour over one window — observation-class evidence.
@@ -103,6 +112,7 @@ pub struct RollupReport {
 }
 
 /// What one signal adds to its bucket.
+#[derive(Clone)]
 struct Contribution {
     requests: f64,
     errors: f64,
@@ -154,10 +164,12 @@ pub fn rollup(
         match directory.resolve(signal) {
             Resolution::Bound { entity, rule } => {
                 let start = signal.ts_ms - signal.ts_ms % window_ms;
-                buckets
-                    .entry((entity, start))
-                    .or_default()
-                    .add(signal, &rule, contribution);
+                let bound = Bound {
+                    entity,
+                    rule,
+                    start,
+                };
+                record(&mut buckets, directory, bound, signal, contribution);
             }
             Resolution::Unresolved(reason) => report.unresolved.push(UnresolvedSignal {
                 kind: signal.kind(),
@@ -172,6 +184,36 @@ pub fn rollup(
         .map(|((entity, start), bucket)| observation(entity, start, window_ms, bucket))
         .collect();
     report
+}
+
+/// A signal's binding and its window.
+struct Bound {
+    entity: EntityRef,
+    rule: String,
+    start: u64,
+}
+
+/// Add a bound signal to its entity's bucket and to the bucket of every whole
+/// the entity is a declared part of.
+fn record(
+    buckets: &mut BTreeMap<(EntityRef, u64), Bucket>,
+    directory: &EntityDirectory,
+    bound: Bound,
+    signal: &TelemetrySignal,
+    contribution: Contribution,
+) {
+    for whole in directory.wholes_of(&bound.entity) {
+        let bucket = buckets.entry((whole.clone(), bound.start)).or_default();
+        bucket.add(signal, &bound.rule, contribution.clone());
+        bucket
+            .provenance
+            .aggregated_from
+            .insert(bound.entity.id.clone());
+    }
+    buckets
+        .entry((bound.entity, bound.start))
+        .or_default()
+        .add(signal, &bound.rule, contribution);
 }
 
 /// The stable id of the observation of `entity` over the window starting at `start`.

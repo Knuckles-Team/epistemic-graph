@@ -691,8 +691,8 @@ ex:parent a owl:AsymmetricProperty .
         // +8: BFO realizable entity and disposition, declared for `:Skill`. Then +8:
         // infrastructure `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409),
         // and +12: `:Deployment` ⊑ `:Workload`, `:K8sService`/`:SwarmService` ⊑ `:Service`
-        // (EH-408/410 subsumption binding).
-        assert_eq!(composed.ontology.len(), 12_717);
+        // (EH-408/410 subsumption binding), and +5: `:scheduledBy` (Pod → Workload).
+        assert_eq!(composed.ontology.len(), 12_722);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -726,8 +726,8 @@ ex:parent a owl:AsymmetricProperty .
         assert_eq!(imports, 59);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
-        // 4 axioms each.
-        assert_eq!(semantic_axioms, 12_562);
+        // 4 axioms each; +5: the :scheduledBy property.
+        assert_eq!(semantic_axioms, 12_567);
 
         let count_type = |object: &str| {
             composed

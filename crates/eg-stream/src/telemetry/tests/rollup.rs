@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use super::super::{
-    rollup, EntityClass, MetricRole, RollupPolicy, SignalKind, TelemetrySignal, Unresolved,
+    rollup, Aggregation, EntityClass, MetricRole, RollupPolicy, SignalKind, TelemetrySignal,
+    Unresolved,
 };
 use super::{attributes, directory, entity, rollup_policy, span, traffic, WINDOW_MS};
 
@@ -146,4 +147,44 @@ fn unbound_signals_are_reported_with_their_reason() {
     );
     assert_eq!(report.unresolved[0].kind, SignalKind::Span);
     assert_eq!(report.unresolved[1].source, "raw");
+}
+
+#[test]
+fn a_pods_behaviour_also_rolls_up_to_the_workload_that_schedules_it() {
+    let pod = entity(EntityClass::Pod, "pod:shop/cart-1");
+    let deployment = entity(EntityClass::Deployment, "deploy:shop/cart");
+    let directory = directory().with_aggregations(&[Aggregation {
+        part: pod.clone(),
+        whole: deployment.clone(),
+        relation: "scheduledBy".into(),
+    }]);
+    let pod_keys = [
+        ("k8s.namespace.name", "shop"),
+        ("k8s.deployment.name", "cart"),
+        ("k8s.pod.name", "cart-1"),
+    ];
+    let signals = vec![
+        TelemetrySignal::log(1, "shop/app", "ERROR", attributes(&pod_keys)),
+        TelemetrySignal::log(2, "shop/app", "INFO", attributes(&pod_keys)),
+        TelemetrySignal::log(3, "shop/app", "INFO", attributes(&pod_keys[..2])),
+    ];
+    let report = rollup(&rollup_policy(), &directory, &signals);
+    let by_entity: BTreeMap<_, _> = report
+        .observations
+        .iter()
+        .map(|o| (o.entity.clone(), o))
+        .collect();
+    let per_pod = by_entity[&pod];
+    assert_eq!((per_pod.requests, per_pod.errors), (2.0, 1.0));
+    assert!(per_pod.provenance.aggregated_from.is_empty());
+    let per_deployment = by_entity[&deployment];
+    assert_eq!((per_deployment.requests, per_deployment.errors), (3.0, 1.0));
+    assert_eq!(
+        per_deployment
+            .provenance
+            .aggregated_from
+            .iter()
+            .collect::<Vec<_>>(),
+        ["pod:shop/cart-1"]
+    );
 }

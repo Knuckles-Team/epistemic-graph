@@ -40,33 +40,37 @@ pub enum EntityClass {
     Deployment,
     /// `kg:Agent`.
     Agent,
+    /// `infrastructure:Pod` -- a scheduled unit; per-pod facts (restarts,
+    /// crash loops, OOM kills) are its own. A Pod is not a Workload: it is
+    /// scheduled BY one, and its behaviour also aggregates to that Workload
+    /// through a declared [`Aggregation`].
+    Pod,
 }
 
 impl EntityClass {
-    /// The node `type` label and the local name of the class IRI.
-    pub fn label(self) -> &'static str {
+    /// The node `type` label (the local name of the class IRI) and the
+    /// namespace the class is declared in, from ONE exhaustive match so a new
+    /// class cannot be half-described.
+    fn descriptor(self) -> (&'static str, &'static str) {
         match self {
-            EntityClass::Server => "Server",
-            EntityClass::Service => "Service",
-            EntityClass::Host => "Host",
-            EntityClass::Deployment => "Workload",
-            EntityClass::Agent => "Agent",
+            EntityClass::Server => ("Server", KG_NAMESPACE),
+            EntityClass::Service => ("Service", INFRASTRUCTURE_NAMESPACE),
+            EntityClass::Host => ("Host", INFRASTRUCTURE_NAMESPACE),
+            EntityClass::Deployment => ("Workload", INFRASTRUCTURE_NAMESPACE),
+            EntityClass::Agent => ("Agent", KG_NAMESPACE),
+            EntityClass::Pod => ("Pod", INFRASTRUCTURE_NAMESPACE),
         }
     }
 
-    /// The namespace the class is declared in.
-    fn namespace(self) -> &'static str {
-        match self {
-            EntityClass::Server | EntityClass::Agent => KG_NAMESPACE,
-            EntityClass::Service | EntityClass::Host | EntityClass::Deployment => {
-                INFRASTRUCTURE_NAMESPACE
-            }
-        }
+    /// The node `type` label and the local name of the class IRI.
+    pub fn label(self) -> &'static str {
+        self.descriptor().0
     }
 
     /// The full class IRI.
     pub fn class_iri(self) -> String {
-        format!("{}{}", self.namespace(), self.label())
+        let (label, namespace) = self.descriptor();
+        format!("{namespace}{label}")
     }
 }
 
@@ -113,12 +117,17 @@ pub struct ResolutionPolicy {
 
 impl ResolutionPolicy {
     /// The OpenTelemetry semantic-convention and Prometheus defaults, most
-    /// specific first: an agent id, a Kubernetes deployment, an OTLP service, a
-    /// Prometheus job, a host name, a server address.
+    /// specific first: an agent id, a Kubernetes pod, a Kubernetes deployment,
+    /// an OTLP service, a Prometheus job, a host name, a server address.
     pub fn standard() -> ResolutionPolicy {
         ResolutionPolicy {
             rules: vec![
                 ResolutionRule::new("otel.agent", EntityClass::Agent, &["gen_ai.agent.id"]),
+                ResolutionRule::new(
+                    "k8s.pod",
+                    EntityClass::Pod,
+                    &["k8s.namespace.name", "k8s.pod.name"],
+                ),
                 ResolutionRule::new(
                     "k8s.deployment",
                     EntityClass::Deployment,
@@ -138,6 +147,18 @@ impl ResolutionPolicy {
 pub struct DeclaredEntity {
     pub entity: EntityRef,
     pub keys: BTreeMap<String, String>,
+}
+
+/// A declared part-of relation along which behaviour rolls up: every signal
+/// bound to `part` also counts towards `whole` (for example a Pod
+/// `scheduledBy` its Workload). One level: a whole's own wholes are not
+/// followed.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Aggregation {
+    pub part: EntityRef,
+    pub whole: EntityRef,
+    /// The declaring relation, recorded in the whole's provenance.
+    pub relation: String,
 }
 
 /// Why a signal did not bind.
@@ -169,6 +190,7 @@ pub enum Resolution {
 pub struct EntityDirectory {
     rules: Vec<ResolutionRule>,
     index: BTreeMap<(usize, Vec<String>), BTreeSet<EntityRef>>,
+    wholes: BTreeMap<EntityRef, BTreeSet<EntityRef>>,
 }
 
 impl EntityDirectory {
@@ -192,7 +214,24 @@ impl EntityDirectory {
         EntityDirectory {
             rules: policy.rules.clone(),
             index,
+            wholes: BTreeMap::new(),
         }
+    }
+
+    /// Record the declared part-of relations behaviour rolls up along.
+    pub fn with_aggregations(mut self, aggregations: &[Aggregation]) -> EntityDirectory {
+        for aggregation in aggregations {
+            self.wholes
+                .entry(aggregation.part.clone())
+                .or_default()
+                .insert(aggregation.whole.clone());
+        }
+        self
+    }
+
+    /// The wholes a signal bound to `part` also counts towards.
+    pub fn wholes_of(&self, part: &EntityRef) -> impl Iterator<Item = &EntityRef> {
+        self.wholes.get(part).into_iter().flatten()
     }
 
     /// Bind one signal (see the module docs for the precedence rule).
