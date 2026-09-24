@@ -2,6 +2,47 @@ use super::*;
 #[cfg(feature = "security")]
 use std::collections::HashSet;
 
+/// One graph-access question, as the chokepoint receives it. `now_ms` is the
+/// clock an elevation's hard expiry is checked against; the ownership fields
+/// matter only to the non-RBAC ACL build.
+#[derive(Debug, Clone, Copy)]
+pub struct AccessQuery<'a> {
+    pub agent_id: &'a str,
+    pub graph_name: &'a str,
+    pub graph_type: GraphType,
+    pub graph_owner: Option<&'a str>,
+    pub access: AccessLevel,
+    pub now_ms: u64,
+}
+
+/// Why the chokepoint allowed (or refused) one graph access.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AccessBasis {
+    Denied,
+    /// A System identity, a standing RBAC grant, or (non-security builds) the
+    /// ownership ACL.
+    Standing,
+    /// Allowed only by the named just-in-time elevation (EH-404). Callers
+    /// audit every such use.
+    Elevation(String),
+}
+
+impl AccessBasis {
+    pub fn is_allowed(&self) -> bool {
+        !matches!(self, Self::Denied)
+    }
+}
+
+/// Wall-clock milliseconds: the clock an elevation's hard expiry is checked
+/// against on every access decision.
+pub fn access_clock_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
+}
+
 impl IsolationLayer {
     pub fn check_access(
         &self,
@@ -11,65 +52,95 @@ impl IsolationLayer {
         graph_owner: Option<&str>,
         access: AccessLevel,
     ) -> bool {
-        let Some(identity) = self.agents.get(agent_id) else {
-            return false;
+        self.access_basis(&AccessQuery {
+            agent_id,
+            graph_name,
+            graph_type,
+            graph_owner,
+            access,
+            now_ms: access_clock_ms(),
+        })
+        .is_allowed()
+    }
+
+    /// The access decision, naming what allowed it. An elevation is consulted
+    /// only when no standing grant decided: an explicit RBAC `Deny` is never
+    /// overridden by an elevation.
+    pub fn access_basis(&self, query: &AccessQuery<'_>) -> AccessBasis {
+        let Some(identity) = self.agents.get(query.agent_id) else {
+            return AccessBasis::Denied;
         };
-        identity.role == AgentRole::System
-            || self.check_non_system_access(
-                identity,
-                agent_id,
-                graph_name,
-                graph_type,
-                graph_owner,
-                access,
-            )
+        if identity.role == AgentRole::System {
+            return AccessBasis::Standing;
+        }
+        self.check_non_system_access(identity, query)
     }
 
     #[cfg(feature = "security")]
     fn check_non_system_access(
         &self,
         identity: &AgentIdentity,
-        _agent_id: &str,
-        graph_name: &str,
-        _graph_type: GraphType,
-        _graph_owner: Option<&str>,
-        access: AccessLevel,
-    ) -> bool {
+        query: &AccessQuery<'_>,
+    ) -> AccessBasis {
         // Mandatory RBAC means no pre-RBAC ACL fall-through on empty/no-match.
-        let context = crate::acl::ResourceContext::graph(graph_name);
-        let action = match access {
-            AccessLevel::Read => crate::acl::RbacAction::Read,
-            AccessLevel::Write => crate::acl::RbacAction::Write,
+        let context = crate::acl::ResourceContext::graph(query.graph_name);
+        let (action, elevation_action) = match query.access {
+            AccessLevel::Read => (
+                crate::acl::RbacAction::Read,
+                eg_types::rbac_elevation::ElevationAction::Read,
+            ),
+            AccessLevel::Write => (
+                crate::acl::RbacAction::Write,
+                eg_types::rbac_elevation::ElevationAction::Write,
+            ),
         };
-        matches!(
-            self.rbac.evaluate(&identity.roles, &context, action),
-            Some(crate::acl::GrantEffect::Allow)
-        )
+        match self.rbac.evaluate(&identity.roles, &context, action) {
+            Some(crate::acl::GrantEffect::Allow) => AccessBasis::Standing,
+            Some(crate::acl::GrantEffect::Deny) => AccessBasis::Denied,
+            None => self
+                .rbac
+                .elevations()
+                .permitting(
+                    query.agent_id,
+                    query.graph_name,
+                    elevation_action,
+                    query.now_ms,
+                )
+                .map_or(AccessBasis::Denied, |id| {
+                    AccessBasis::Elevation(id.to_string())
+                }),
+        }
     }
 
     #[cfg(not(feature = "security"))]
     fn check_non_system_access(
         &self,
         identity: &AgentIdentity,
-        agent_id: &str,
-        graph_name: &str,
-        graph_type: GraphType,
-        graph_owner: Option<&str>,
-        access: AccessLevel,
-    ) -> bool {
-        match graph_type {
+        query: &AccessQuery<'_>,
+    ) -> AccessBasis {
+        let allowed = match query.graph_type {
             GraphType::Commons => true,
-            GraphType::Global => access == AccessLevel::Read,
+            GraphType::Global => query.access == AccessLevel::Read,
             GraphType::Agent => {
-                graph_owner == Some(agent_id)
-                    || graph_owner.is_some_and(|owner| self.is_manager_of(agent_id, owner))
+                query.graph_owner == Some(query.agent_id)
+                    || query
+                        .graph_owner
+                        .is_some_and(|owner| self.is_manager_of(query.agent_id, owner))
             }
             GraphType::Team => {
-                let team_name = graph_name.strip_prefix("team:").unwrap_or(graph_name);
+                let team_name = query
+                    .graph_name
+                    .strip_prefix("team:")
+                    .unwrap_or(query.graph_name);
                 identity.teams.contains(&team_name.to_string())
-                    && (access == AccessLevel::Read
+                    && (query.access == AccessLevel::Read
                         || matches!(identity.role, AgentRole::Manager { .. }))
             }
+        };
+        if allowed {
+            AccessBasis::Standing
+        } else {
+            AccessBasis::Denied
         }
     }
 

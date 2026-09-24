@@ -478,7 +478,8 @@ fn identity_normalized_method(
         | Method::RenewCapacity { .. }
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. } => method.clone(),
+        | Method::UpdateCapacityCell { .. }
+        | Method::ThrottleCapacityCell { .. } => method.clone(),
         other => return Cow::Borrowed(other),
     };
     match &mut owned {
@@ -492,6 +493,7 @@ fn identity_normalized_method(
         }
         Method::ReclaimExpiredCapacity { request } => request.now_ms = 0,
         Method::UpdateCapacityCell { request } => request.now_ms = 0,
+        Method::ThrottleCapacityCell { request } => request.now_ms = 0,
         _ => unreachable!("the clone arm above and this blanking arm must name the same methods"),
     }
     Cow::Owned(owned)

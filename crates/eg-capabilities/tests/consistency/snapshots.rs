@@ -45,6 +45,7 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "ReleaseCapacity",
     "ReclaimExpiredCapacity",
     "UpdateCapacityCell",
+    "ThrottleCapacityCell",
     "MintWorkItemClaimCapability",
     "ClearGraph",
     "ClearLedger",
@@ -312,6 +313,7 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "ReleaseCapacity",
     "ReclaimExpiredCapacity",
     "UpdateCapacityCell",
+    "ThrottleCapacityCell",
 ];
 
 /// Mirrors `src/mutation_apply.rs::is_durable_mutation`'s message-broker/stream true set.
@@ -386,6 +388,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "ReleaseCapacity",
     "ReclaimExpiredCapacity",
     "UpdateCapacityCell",
+    "ThrottleCapacityCell",
     "ClearGraph",
     "ClearLedger",
     "CompactNodesByType",
@@ -447,6 +450,9 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "FleetCatalog",
     // EH-346/EH-347: defense-in-depth marker, like `FleetCatalog`.
     "PolicyEvolution",
+    // EH-404: defense-in-depth marker; the durable record is the elevation
+    // ledger's own hash-chained audit trail in the rbac.redb policy image.
+    "RbacElevation",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",

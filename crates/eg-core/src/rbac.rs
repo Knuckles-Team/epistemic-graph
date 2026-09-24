@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, Role};
+use eg_types::rbac_elevation::ElevationLedger;
 use serde::{Deserialize, Serialize};
 
 /// The durable RBAC policy: named roles (with parents) + a flat list of grants.
@@ -27,6 +28,11 @@ pub struct RbacPolicy {
     roles: HashMap<String, Role>,
     /// All grants; evaluation filters by role membership + resource match.
     grants: Vec<Grant>,
+    /// Just-in-time elevations (EH-404). Part of the policy image so every
+    /// elevation transition is written, digested and rolled back with the
+    /// rest of the authorization state. Omitted from the image while empty.
+    #[serde(default, skip_serializing_if = "ElevationLedger::is_empty")]
+    elevations: ElevationLedger,
 }
 
 impl RbacPolicy {
@@ -64,6 +70,15 @@ impl RbacPolicy {
 
     pub fn grants(&self) -> &[Grant] {
         &self.grants
+    }
+
+    /// The elevation ledger the access chokepoint consults.
+    pub fn elevations(&self) -> &ElevationLedger {
+        &self.elevations
+    }
+
+    pub(crate) fn elevations_mut(&mut self) -> &mut ElevationLedger {
+        &mut self.elevations
     }
 
     /// Expand a set of role names to include every transitively-reachable parent
