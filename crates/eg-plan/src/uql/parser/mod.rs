@@ -85,6 +85,8 @@ pub(super) struct Parser<'a> {
     referenced: BTreeSet<String>,
     /// Bindings inlined as `FUSE (a, b)` branches.
     inlined: BTreeSet<String>,
+    /// `DERIVE … AS name` aliases declared so far (a later `RETURN`/`DERIVE` may name them).
+    derived: BTreeSet<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -101,7 +103,17 @@ impl<'a> Parser<'a> {
             bindings: BTreeMap::new(),
             referenced: BTreeSet::new(),
             inlined: BTreeSet::new(),
+            derived: BTreeSet::new(),
         }
+    }
+
+    /// A series value channel: `v0..vk` (a `TSSCAN` field, EH-521) or a declared
+    /// `DERIVE` alias.
+    pub(super) fn is_value_channel(&self, name: &str) -> bool {
+        let field = name
+            .strip_prefix('v')
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        field || self.derived.contains(name)
     }
 
     /// Every stage/source keyword → its parser. MATCH (it may lower to two ops) and

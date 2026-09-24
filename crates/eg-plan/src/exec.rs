@@ -35,6 +35,13 @@ pub use decisions::DecisionSource;
 pub(crate) mod dispatch;
 mod expand;
 mod pred_sql;
+// EH-521 — the `TSSCAN` source and the in-txn staged-series overlay it reads.
+#[cfg(feature = "timeseries")]
+mod tsscan;
+#[cfg(feature = "timeseries")]
+pub use tsscan::StagedSeries;
+#[cfg(feature = "timeseries")]
+pub(crate) use tsscan::{tsdb_scan_op, CommittedSeries};
 pub(crate) use dispatch::apply;
 pub(crate) use pred_sql::{sql_literal, where_clause};
 
@@ -300,59 +307,6 @@ impl TextEmbedder for HashEmbedder {
             }
         }
         Ok(v)
-    }
-}
-
-/// An in-memory overlay of a transaction's STAGED, uncommitted time-series points
-/// (CONCEPT:EG-KG.query.txn-tsdb-read-your) — the in-txn tsdb read-your-own-writes source. The native
-/// [`eg_tsdb::store::SeriesStore`] is redb-file-backed with no in-memory overlay, so an
-/// in-txn `Op::TsScan` cannot see the txn's own staged `measurements` through it; this
-/// dep-free map (series id → its staged `(ts_ns, field_values)` points) is consulted
-/// alongside the committed store and MERGED so the txn reads its own writes while an
-/// off-txn read (no overlay attached) sees committed only. Points are stored verbatim
-/// as staged (`i64` nanoseconds, matching `GraphTxnState.measurements`); the scan trims
-/// them to the requested window and takes the first field value, exactly as the
-/// committed-store path does.
-#[cfg(feature = "timeseries")]
-#[derive(Debug, Default, Clone)]
-pub struct StagedSeries {
-    series: std::collections::HashMap<String, Vec<(i64, Vec<f64>)>>,
-}
-
-#[cfg(feature = "timeseries")]
-impl StagedSeries {
-    /// An empty overlay.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Stage a batch of `(ts_ns, field_values)` points for `series` (appended — a series
-    /// may be staged across several `INSERT INTO series …` in one txn).
-    pub fn push_points(&mut self, series: &str, points: impl IntoIterator<Item = (i64, Vec<f64>)>) {
-        self.series
-            .entry(series.to_string())
-            .or_default()
-            .extend(points);
-    }
-
-    /// True when nothing is staged (the executor then behaves as if no overlay were
-    /// attached).
-    pub fn is_empty(&self) -> bool {
-        self.series.is_empty()
-    }
-
-    /// The staged points of `series` within `[from_ns, to_ns)`, as `(ts, first_value)` —
-    /// the SAME `(id=ts, score=value)` shape `tsdb_scan_op` emits for the committed store.
-    fn range(&self, series: &str, from_ns: i64, to_ns: i64) -> Vec<(i64, f32)> {
-        self.series
-            .get(series)
-            .map(|pts| {
-                pts.iter()
-                    .filter(|(ts, _)| *ts >= from_ns && *ts < to_ns)
-                    .filter_map(|(ts, vals)| vals.first().map(|&v| (*ts, v as f32)))
-                    .collect()
-            })
-            .unwrap_or_default()
     }
 }
 
@@ -1156,9 +1110,10 @@ fn window_agg_op(_ctx: &PlanCtx, input: RowSet, _secs: f64, _agg: &str) -> RowSe
 ///     produces), falling back to a numeric `value` property so a STANDALONE `Window`
 ///     over graph nodes (no preceding `Rank`) still aggregates. This path is byte-for-byte
 ///     the prior behavior.
-///  2. **A time-series SOURCE row** — the row's `id` is NOT a graph node but parses as an
-///     integer ts and carries a `score`. This is exactly what `Op::TsScan` (and a prior
-///     `Op::Window`) emit: `id` = the point timestamp, `score` = the value. Adding this
+///  2. **A time-series SOURCE row** — the row's `id` is NOT a graph node but is a series
+///     row id (`series@ts`, EH-521) or a bare integer ts, and carries a value. This is
+///     exactly what `Op::TsScan` (`series@ts`, exact value channel `v0`) and a prior
+///     `Op::Window` (bare bucket start, `score`) emit. Adding this
 ///     path is CONCEPT:EG-KG.compute.tsscan-series-window-60s — it makes `TsScan(series) → Window(secs)` actually
 ///     consume the tsdb series and produce windowed aggregates (before, a TsScan row's
 ///     numeric id was not a node, so every row was dropped and the window was empty).
@@ -1205,8 +1160,10 @@ fn window_aggregate(
             // is normalized ns → s here — both sources then bucket consistently, and the
             // emitted bucket-start ids are in the same (second) unit as the width.
             None => {
-                let ts_ns = r.id.parse::<i64>().ok()?;
-                let value = r.score? as f64;
+                let (_, ts_ns) = crate::rowset::parse_series_row_id(&r.id)?;
+                let value = input
+                    .value(&r.id, "v0")
+                    .or_else(|| r.score.map(f64::from))?;
                 Some(Point::single(ts_ns / 1_000_000_000, value))
             }
         })
@@ -1467,68 +1424,6 @@ fn sensor_align_op(
 }
 
 // ── the time-series SOURCE leg — native eg-tsdb SeriesStore scan (CONCEPT:EG-KG.query.native-time-series) ─
-
-/// SOURCE (time-series): read the points of each id in `series` within the `[from, to)`
-/// window out of the native eg-tsdb [`eg_tsdb::store::SeriesStore`] and emit one row per
-/// point — `id` = the point timestamp (stringified), `score` = the point's first field
-/// value — so a downstream `Rank`/`Limit`/`Filter` fuses the time-series leg with the
-/// graph/vector/relational legs in ONE plan (tsdb-in-plan fusion, CONCEPT:EG-KG.query.native-time-series).
-///
-/// Bounds are `f64` SECONDS on the wire (uniform with the other numeric plan ops); this
-/// op lowers them to the store's `i64`-nanosecond range internally, and the store's
-/// `range` is half-open `[from, to)` (t >= from && t < to), so the plan bound semantics
-/// match. `None` store (no [`PlanCtx::with_tsdb`] attached), an unknown series, or a
-/// point with no value all contribute nothing — the RowSet just stays empty/smaller:
-/// degrade, never err, exactly as `Rank` over an empty store or `SensorFuse` over no
-/// timed streams. Rows dedup by id (ts): on a ts shared across series the FIRST series'
-/// point wins ([`RowSet::from_scored`] keeps the first occurrence).
-///
-/// CONCEPT:EG-KG.query.txn-tsdb-read-your — in-txn read-your-own-writes: when a [`StagedSeries`] overlay is
-/// attached ([`PlanCtx::with_staged_series`]), the transaction's OWN staged points are
-/// emitted FIRST (before the committed store), so on a ts a series staged in-txn shadows
-/// the committed value (RYOW precedence) and staged-only points (a series the txn just
-/// created) are visible before commit. With no overlay the committed store is read alone
-/// — byte-for-byte the prior behavior.
-#[cfg(feature = "timeseries")]
-fn tsdb_scan_op(
-    store: Option<&eg_tsdb::store::SeriesStore>,
-    tenant: Option<&str>,
-    graph: Option<&str>,
-    staged: Option<&StagedSeries>,
-    series: &[String],
-    from: f64,
-    to: f64,
-) -> RowSet {
-    const NS_PER_S: f64 = 1e9;
-    let from_ns = (from.max(0.0) * NS_PER_S) as i64;
-    let to_ns = (to.max(0.0) * NS_PER_S) as i64;
-
-    // Staged points first (RYOW precedence — `from_scored` keeps the first occurrence of
-    // a ts), then the committed store's points.
-    let staged_rows = staged.into_iter().flat_map(|s| {
-        series
-            .iter()
-            .flat_map(move |sid| s.range(sid, from_ns, to_ns))
-            .map(|(ts, v)| (ts.to_string(), v))
-    });
-    let committed_rows = store.into_iter().flat_map(|st| {
-        series.iter().flat_map(move |sid| {
-            let points = match (tenant, graph) {
-                (Some(tenant), Some(graph)) => st.range_scoped(
-                    &eg_tsdb::store::SeriesKey::new(tenant, graph, sid),
-                    from_ns,
-                    to_ns,
-                ),
-                _ => Ok(Vec::new()),
-            };
-            points
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|p| p.values.first().map(|&v| (p.ts.to_string(), v as f32)))
-        })
-    });
-    RowSet::from_scored(staged_rows.chain(committed_rows))
-}
 
 // ── graph-native rerankers (CONCEPT:EG-KG.query.uql-parser-ops) ───────────────────────────────────
 

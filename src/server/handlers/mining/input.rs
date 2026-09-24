@@ -248,7 +248,7 @@ pub(super) fn gather_plan_rows(
             continue;
         }
         // CONCEPT:EG-KG.mining.tsdb-typed-absent — a time-series SOURCE row (an `Op::TsScan`
-        // point): the id IS the point timestamp — not a graph node, so it never resolves to
+        // point): the id is the series row id `series@ts` (EH-521) — not a graph node, so it never resolves to
         // an embedding — and `score` IS the value. Mirrors EXACTLY how `window_aggregate`
         // (CONCEPT:EG-KG.compute.tsscan-series-window-60s, `crates/eg-plan/src/exec.rs`)
         // already disambiguates a TsScan-produced row from a graph-node row. Without this
@@ -259,7 +259,7 @@ pub(super) fn gather_plan_rows(
         // `window_aggregate`'s own fix note describes. A row id that merely LOOKS numeric
         // but isn't a real timestamp is indistinguishable from a genuine one at this layer,
         // exactly as `window_aggregate` accepts the same ambiguity.
-        if let (Ok(_ts), Some(value)) = (row_id.parse::<i64>(), score) {
+        if let (Some(_), Some(value)) = (eg_plan::rowset::parse_series_row_id(&row_id), score) {
             feats.push(vec![value as f64]);
             ids.push(row_id);
         }

@@ -644,15 +644,16 @@ impl Plan {
 }
 
 /// One result row of a UQL statement (UQL-08): `id`, the final `score`, and the value of
-/// each requested score channel (aligned to [`UqlResult`]'s `columns`; `None` where no
-/// stage produced that channel for the row).
+/// each requested channel (aligned to [`UqlResult`]'s `columns`; `None` where no stage
+/// produced that channel for the row). Channels are `f64` (EH-521): a series value channel
+/// (`TSSCAN`'s `v0..vk`, a `DERIVE` alias) is exact; a score channel is its `f32` widened.
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct UqlRow {
     pub id: String,
     pub score: Option<f32>,
-    pub channels: Vec<Option<f32>>,
+    pub channels: Vec<Option<f64>>,
     /// `WITH KNOWLEDGE` (EH-450): the row's knowledge record; `None` without it.
     #[serde(default)]
     pub knowledge: Option<UqlKnowledge>,

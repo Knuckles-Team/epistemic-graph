@@ -822,7 +822,7 @@ mod tests {
         }]);
         let rows = eg_plan::execute(&plan, &ctx).unwrap();
         assert!(
-            rows.rows().iter().any(|r| r.id == "100"),
+            rows.rows().iter().any(|r| r.id == "temp@100"),
             "TsScan must read the txn's own staged measurement point (RYOW)"
         );
     }

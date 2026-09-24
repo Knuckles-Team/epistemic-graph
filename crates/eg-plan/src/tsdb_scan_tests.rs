@@ -224,7 +224,7 @@ fn build_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
 }
 
 /// `TsScan(temp, 0..10) → Rank → Limit`: the rows come from the eg-tsdb `SeriesStore`
-/// (id = point ts, score = value), then a vector Rank reorders them and Limit truncates —
+/// (id = `series@ts`, score = value), then a vector Rank reorders them and Limit truncates —
 /// proving the tsdb SOURCE op fuses with the vector leg in ONE plan (tsdb-in-plan fusion).
 #[cfg(feature = "timeseries")]
 #[test]
@@ -237,17 +237,17 @@ fn tsdb_in_plan_fusion() {
     let path = temp_store_path("fusion");
     let store = build_series(&path);
 
-    // The scan emits rows keyed by ns-ts string. Embed them so 2s ranks first, then 1s,
+    // The scan emits rows keyed `series@ts` (ns, EH-521). Embed them so 2s ranks first, then 1s,
     // then 3s — a vector order DIFFERENT from the tsdb ts order (proving the rerank).
     let mut semantic = SemanticStore::new();
     semantic
-        .add_embedding("1000000000".into(), vec![0.80, 0.60, 0.0, 0.0])
+        .add_embedding("temp@1000000000".into(), vec![0.80, 0.60, 0.0, 0.0])
         .unwrap(); // 2nd
     semantic
-        .add_embedding("2000000000".into(), vec![0.99, 0.10, 0.0, 0.0])
+        .add_embedding("temp@2000000000".into(), vec![0.99, 0.10, 0.0, 0.0])
         .unwrap(); // 1st
     semantic
-        .add_embedding("3000000000".into(), vec![0.10, 0.99, 0.0, 0.0])
+        .add_embedding("temp@3000000000".into(), vec![0.10, 0.99, 0.0, 0.0])
         .unwrap(); // 3rd
 
     // A tsdb SOURCE plan needs no graph; a bare snapshot suffices for the (unused) view.
@@ -275,9 +275,9 @@ fn tsdb_in_plan_fusion() {
         .iter()
         .map(|r| (r.id.as_str(), r.score))
         .collect();
-    assert_eq!(by_id.get("1000000000"), Some(&Some(10.0)));
-    assert_eq!(by_id.get("2000000000"), Some(&Some(20.0)));
-    assert_eq!(by_id.get("3000000000"), Some(&Some(30.0)));
+    assert_eq!(by_id.get("temp@1000000000"), Some(&Some(10.0)));
+    assert_eq!(by_id.get("temp@2000000000"), Some(&Some(20.0)));
+    assert_eq!(by_id.get("temp@3000000000"), Some(&Some(30.0)));
 
     // Fused: TsScan → Rank → Limit — tsdb rows reranked by the vector leg, top-2.
     let plan = Plan::new(vec![
@@ -294,7 +294,7 @@ fn tsdb_in_plan_fusion() {
     let fused = execute(&plan, &ctx).unwrap();
     assert_eq!(
         fused.ids(),
-        vec!["2000000000".to_string(), "1000000000".to_string()],
+        vec!["temp@2000000000".to_string(), "temp@1000000000".to_string()],
         "tsdb-sourced rows must be reordered by the vector Rank, then limited"
     );
 
@@ -351,9 +351,9 @@ fn tsdb_in_txn_ryow_staged_overlay() {
         by_id(execute(&scan("temp"), &ctx).unwrap())
     };
     assert_eq!(off.len(), 3, "off-txn sees the 3 committed points only");
-    assert_eq!(off.get(&one_s.to_string()), Some(&Some(10.0)));
+    assert_eq!(off.get(&format!("temp@{one_s}")), Some(&Some(10.0)));
     assert!(
-        !off.contains_key(&(4 * one_s).to_string()),
+        !off.contains_key(&format!("temp@{}", 4 * one_s)),
         "the staged 4s point is invisible off-txn"
     );
 
@@ -370,17 +370,17 @@ fn tsdb_in_txn_ryow_staged_overlay() {
         "in-txn sees committed 3 + the staged 4s point"
     );
     assert_eq!(
-        in_txn.get(&one_s.to_string()),
+        in_txn.get(&format!("temp@{one_s}")),
         Some(&Some(111.0)),
         "the staged 1s point shadows the committed 1s (read-your-own-writes)"
     );
-    assert_eq!(in_txn.get(&(4 * one_s).to_string()), Some(&Some(40.0)));
-    assert_eq!(in_txn.get(&(2 * one_s).to_string()), Some(&Some(20.0)));
+    assert_eq!(in_txn.get(&format!("temp@{}", 4 * one_s)), Some(&Some(40.0)));
+    assert_eq!(in_txn.get(&format!("temp@{}", 2 * one_s)), Some(&Some(20.0)));
 
     // A staged-only series (never committed) reads its own staged point in-txn …
     let staged_only = by_id(execute(&scan("temp2"), &ctx).unwrap());
     assert_eq!(
-        staged_only.get(&(5 * one_s).to_string()),
+        staged_only.get(&format!("temp2@{}", 5 * one_s)),
         Some(&Some(99.0)),
         "a series created inside the txn reads its own staged point"
     );
@@ -681,4 +681,128 @@ fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
     assert_eq!(score("tenant-a", "bob-owner"), Some(20.0));
     assert_eq!(score("tenant-b", "alice-owner"), Some(30.0));
     let _ = std::fs::remove_file(path);
+}
+
+// ── EH-521: TSSCAN fidelity ─────────────────────────────────────────────────────
+
+/// A two-series store: `a` and `b` both have a point at 1s (values chosen so neither
+/// survives an `f32` narrowing), `b` a second field.
+#[cfg(feature = "timeseries")]
+fn build_two_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
+    use eg_tsdb::point::Point;
+    use eg_tsdb::store::SeriesKey;
+
+    let store = eg_tsdb::dev_scope_grant::open_dev_store(path).unwrap();
+    let one_s: i64 = 1_000_000_000;
+    let fields = [("a", vec![1.000_000_123_456_789_f64]), ("b", vec![2.5, 123_456.789_012_345])];
+    for (series, values) in fields {
+        let names: Vec<String> = (0..values.len()).map(|i| format!("f{i}")).collect();
+        store
+            .append_scoped(
+                &SeriesKey::new(TEST_TENANT, TEST_GRAPH, series),
+                1,
+                one_s as u64,
+                &names,
+                &[Point { ts: one_s, values }],
+            )
+            .unwrap();
+    }
+    store
+}
+
+/// Two series with a point at the SAME timestamp are two rows (`a@ts`, `b@ts`); the old
+/// bare-ts id kept only the first series' point.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsscan_keeps_both_series_at_a_shared_timestamp() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+
+    let path = temp_store_path("two_series");
+    let store = build_two_series(&path);
+    let (core, semantic) = (GraphCore::new(), SemanticStore::new());
+    let view = core.analysis_snapshot();
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let plan = Plan::new(vec![Op::TsScan {
+        series: vec!["a".into(), "b".into()],
+        from: 0.0,
+        to: 10.0,
+    }]);
+    let out = execute(&plan, &ctx).unwrap();
+    assert_eq!(out.ids(), vec!["a@1000000000", "b@1000000000"]);
+    assert_eq!(out.value("a@1000000000", "v0"), Some(1.000_000_123_456_789));
+    assert_eq!(out.value("b@1000000000", "v1"), Some(123_456.789_012_345));
+    assert_eq!(out.value("a@1000000000", "v1"), None, "a has one field");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// An `f64` value round-trips BIT-EXACTLY through a UQL `RETURN v0` channel, while the
+/// `f32` score is only the rank currency.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsscan_value_channels_are_exact_f64_through_uql_return() {
+    use crate::exec::PlanCtx;
+    use crate::uql::serve::run_statement;
+    use crate::uql::{parse_statement, Params};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::UqlResult;
+
+    let path = temp_store_path("f64_channel");
+    let store = build_two_series(&path);
+    let (core, semantic) = (GraphCore::new(), SemanticStore::new());
+    let view = core.analysis_snapshot();
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let src = "TSSCAN ['a', 'b'] FROM 0 TO 10 |> RETURN v0, v1";
+    let stmt = parse_statement(src, &Params::new()).unwrap();
+    let UqlResult::Rows { rows, columns, .. } = run_statement(&stmt, &ctx).unwrap() else {
+        panic!("rows expected")
+    };
+    assert_eq!(columns, vec!["v0", "v1"]);
+    let a = rows.iter().find(|r| r.id == "a@1000000000").unwrap();
+    assert_eq!(a.channels[0].map(f64::to_bits), Some(1.000_000_123_456_789_f64.to_bits()));
+    assert_eq!(a.channels[1], None);
+    assert_ne!(a.score.map(f64::from), a.channels[0], "the f32 score is not exact");
+    let b = rows.iter().find(|r| r.id == "b@1000000000").unwrap();
+    assert_eq!(b.channels, vec![Some(2.5), Some(123_456.789_012_345)]);
+    let _ = std::fs::remove_file(&path);
+}
+
+/// `TSSCAN → WINDOW` over two series aggregates the exact `v0` values of both.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsscan_window_reads_series_row_ids_and_exact_values() {
+    use crate::exec::{execute, PlanCtx};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_types::wire::{Op, Plan};
+
+    let path = temp_store_path("two_series_window");
+    let store = build_two_series(&path);
+    let (core, semantic) = (GraphCore::new(), SemanticStore::new());
+    let view = core.analysis_snapshot();
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let plan = Plan::new(vec![
+        Op::TsScan {
+            series: vec!["a".into(), "b".into()],
+            from: 0.0,
+            to: 10.0,
+        },
+        Op::WindowAgg {
+            secs: 60.0,
+            agg: "sum".into(),
+        },
+    ]);
+    let out = execute(&plan, &ctx).unwrap();
+    let expected = (1.000_000_123_456_789_f64 + 2.5) as f32;
+    assert_eq!(out.rows()[0].score, Some(expected));
+    let _ = std::fs::remove_file(&path);
 }
