@@ -3,7 +3,9 @@
 //! agent-utilities authored these documents; EG owns them as immutable core sources
 //! so every graph's composed GraphSchema carries them. agent-utilities validates by
 //! omitting `shapes` from `ShaclValidate` and never ships, loads or parses a shapes
-//! document. The governance document is byte-identical to the former
+//! document. Because every committed validation composes these, each must only use
+//! constructs EG evaluates (the `every_core_shape_target_validates_without_error`
+//! guard). The governance document is byte-identical to the former
 //! `pack:agent-utilities` body, so a stale deployment that still attaches that pack
 //! dedupes against the core copy instead of conflicting with it.
 
@@ -60,9 +62,11 @@ pub(super) const AGENT_SHAPE_SPECS: &[CoreSpec] = &[
 mod tests {
     use super::super::current_core_catalog;
 
-    /// The exact bytes agent-utilities shipped (sha256 of each file as it left AU
-    /// origin/main 2f1610895); the governance digest equals AU's frozen
-    /// `pack:agent-utilities` raw pin.
+    /// The exact document bytes. Governance, process-intelligence, SDLC and
+    /// portfolio are byte-identical to what AU shipped at origin/main 2f1610895 (the
+    /// governance digest equals AU's frozen `pack:agent-utilities` raw pin); the
+    /// harness concentration shape and the temporal superseded-fact shape were
+    /// rewritten without GROUP BY / NOT EXISTS, which EG's sh:sparql declines.
     const PINS: &[(&str, &str)] = &[
         (
             "agent-governance-shapes",
@@ -70,7 +74,7 @@ mod tests {
         ),
         (
             "harness-shapes",
-            "8ceed432b8f0a3661d32104fa675b0d1f23e9ddff21221992541b415c4e62e32",
+            "9adf8d076018d2bb02c80e0a8816c4bc29676f1a2263799755fa1e11e3d33191",
         ),
         (
             "process-intelligence-shapes",
@@ -82,7 +86,7 @@ mod tests {
         ),
         (
             "temporal-shapes",
-            "5358f7d4a1af125fefce92436c2c75d3f3d2d7de1f57206e6902fdd48e9a2af9",
+            "b11887e2ad792018d91a8025e384eb69ca6e47993ea93d14003ab90b4999e9bf",
         ),
         (
             "portfolio-intelligence-shapes",

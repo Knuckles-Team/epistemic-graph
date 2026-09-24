@@ -133,3 +133,4 @@ pub const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
 // construct/recognise boolean- and integer-typed result literals.
 pub const XSD_BOOLEAN: &str = "http://www.w3.org/2001/XMLSchema#boolean";
 pub const XSD_INTEGER: &str = "http://www.w3.org/2001/XMLSchema#integer";
+pub const XSD_DOUBLE: &str = "http://www.w3.org/2001/XMLSchema#double";

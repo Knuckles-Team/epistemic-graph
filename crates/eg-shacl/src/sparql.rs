@@ -20,10 +20,11 @@
 //! plus the FILTER built-ins a shape's `sh:select` commonly needs (`isIRI`/
 //! `isBlank`/`isLiteral`/`isNumeric`/`bound`/`lang`/`langMatches`/`datatype`/`str`/
 //! `regex`/`contains`/`strStarts`/`strEnds`/`ucase`/`lcase`/`strlen`, `=`/
-//! `sameTerm`/`<`/`<=`/`>`/`>=`/`IN`, `&&`/`||`/`!`). Constructs the SHACL-SPARQL
+//! `sameTerm`/`<`/`<=`/`>`/`>=`/`IN`, `&&`/`||`/`!`, numeric `+`/`-` as `xsd:double`).
+//! Constructs the SHACL-SPARQL
 //! spec explicitly permits an implementation to decline — aggregates/`GROUP BY`,
 //! `MINUS`, `VALUES`, non-`SILENT` `SERVICE`, sub-`SELECT`, property paths,
-//! `EXISTS`, and arithmetic — are REJECTED (`Err`), never silently mishandled: an
+//! `EXISTS`, and `*`/`/`/unary arithmetic — are REJECTED (`Err`), never silently mishandled: an
 //! `sh:sparql` shape that needs one of those fails the validation run rather than
 //! producing a wrong or incomplete report. Rebinding a pre-bound variable via
 //! `BIND`/`AS` (e.g. `BIND(true AS $this)`) is likewise rejected — allowing it

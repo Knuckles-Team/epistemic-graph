@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use eg_rdf::oxrdf::{Literal, Term};
+use eg_rdf::oxrdf::{Literal, NamedNode, Term};
 use spargebra::algebra::{Expression, Function};
 
 use super::terms::{
@@ -43,11 +43,12 @@ pub(super) fn eval_term(
         | Expression::LessOrEqual(_, _) => eval_term_compare(ctx, expression, solution),
         Expression::In(_, _) => eval_term_in(ctx, expression, solution),
         Expression::FunctionCall(function, args) => eval_function(ctx, function, args, solution),
+        Expression::Add(_, _) | Expression::Subtract(_, _) => {
+            eval_term_additive(ctx, expression, solution)
+        }
         Expression::Exists(_)
         | Expression::If(_, _, _)
         | Expression::Coalesce(_)
-        | Expression::Add(_, _)
-        | Expression::Subtract(_, _)
         | Expression::Multiply(_, _)
         | Expression::Divide(_, _)
         | Expression::UnaryPlus(_)
@@ -153,14 +154,37 @@ fn eval_term_unsupported(expression: &Expression) -> Result<Option<Term>, String
         Expression::Exists(_) => Err("sh:sparql: EXISTS / NOT EXISTS is not supported".to_string()),
         Expression::If(_, _, _) => Err("sh:sparql: IF is not supported".to_string()),
         Expression::Coalesce(_) => Err("sh:sparql: COALESCE is not supported".to_string()),
-        Expression::Add(_, _)
-        | Expression::Subtract(_, _)
-        | Expression::Multiply(_, _)
+        Expression::Multiply(_, _)
         | Expression::Divide(_, _)
         | Expression::UnaryPlus(_)
-        | Expression::UnaryMinus(_) => Err("sh:sparql: arithmetic is not supported".to_string()),
+        | Expression::UnaryMinus(_) => {
+            Err("sh:sparql: arithmetic other than + and - is not supported".to_string())
+        }
         _ => Err("sh:sparql: invalid unsupported expression dispatch".to_string()),
     }
+}
+
+/// Numeric `+` / `-` over two numeric literals, as an `xsd:double`. A non-numeric
+/// or unbound operand is a SPARQL type error, i.e. an unbound result — never a
+/// silent zero.
+fn eval_term_additive(
+    ctx: &Ctx,
+    expression: &Expression,
+    solution: &Solution,
+) -> Result<Option<Term>, String> {
+    let (left, right, sign) = match expression {
+        Expression::Add(left, right) => (left, right, 1.0),
+        Expression::Subtract(left, right) => (left, right, -1.0),
+        _ => return Err("sh:sparql: invalid additive dispatch".to_string()),
+    };
+    let left = eval_term(ctx, left, solution)?.as_ref().and_then(numeric_of);
+    let right = eval_term(ctx, right, solution)?.as_ref().and_then(numeric_of);
+    Ok(left.zip(right).map(|(left, right)| {
+        Term::Literal(Literal::new_typed_literal(
+            (left + sign * right).to_string(),
+            NamedNode::new_unchecked(crate::vocab::XSD_DOUBLE),
+        ))
+    }))
 }
 
 fn cmp_expr(

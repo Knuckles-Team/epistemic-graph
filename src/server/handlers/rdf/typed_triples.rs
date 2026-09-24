@@ -25,7 +25,11 @@ pub(super) fn graph_from_typed_triples(triples: &[RdfTriple]) -> Result<eg_shacl
 fn typed_triple(triple: &RdfTriple) -> Result<Triple, String> {
     let subject = named(&triple.subject, "subject")?;
     let predicate = named(&triple.predicate, "predicate")?;
-    Ok(Triple::new(subject, predicate, object_term(&triple.object)?))
+    Ok(Triple::new(
+        subject,
+        predicate,
+        object_term(&triple.object)?,
+    ))
 }
 
 fn named(iri: &str, role: &str) -> Result<NamedNode, String> {
@@ -43,9 +47,15 @@ fn object_term(object: &RdfObject) -> Result<Term, String> {
     }
 }
 
-fn literal(lexical: &str, datatype: Option<&str>, language: Option<&str>) -> Result<Literal, String> {
+fn literal(
+    lexical: &str,
+    datatype: Option<&str>,
+    language: Option<&str>,
+) -> Result<Literal, String> {
     match (datatype, language) {
-        (Some(_), Some(_)) => Err("a literal carries a datatype or a language, not both".to_string()),
+        (Some(_), Some(_)) => {
+            Err("a literal carries a datatype or a language, not both".to_string())
+        }
         (Some(datatype), None) => Ok(Literal::new_typed_literal(
             lexical,
             named(datatype, "datatype")?,
@@ -90,7 +100,11 @@ mod tests {
                 "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
                 iri("http://knuckles.team/kg#WorkflowDefinition"),
             ),
-            triple("http://knuckles.team/kg#wf", "http://knuckles.team/kg#name", text("deploy")),
+            triple(
+                "http://knuckles.team/kg#wf",
+                "http://knuckles.team/kg#name",
+                text("deploy"),
+            ),
             triple(
                 "http://knuckles.team/kg#wf",
                 "http://knuckles.team/kg#step_count",
@@ -121,11 +135,18 @@ mod tests {
     #[test]
     fn a_malformed_triple_refuses_the_request_by_index() {
         let typed = [
-            triple("http://knuckles.team/kg#a", "http://knuckles.team/kg#p", text("ok")),
+            triple(
+                "http://knuckles.team/kg#a",
+                "http://knuckles.team/kg#p",
+                text("ok"),
+            ),
             triple("not an iri", "http://knuckles.team/kg#p", text("x")),
         ];
         let error = graph_from_typed_triples(&typed).unwrap_err();
-        assert!(error.starts_with("triple 1: subject is not an absolute IRI"), "{error}");
+        assert!(
+            error.starts_with("triple 1: subject is not an absolute IRI"),
+            "{error}"
+        );
 
         let both = RdfObject::Literal {
             lexical: "x".to_string(),

@@ -22,7 +22,7 @@
 //! `source_shape`, `constraint_component`, `message`, `severity`); the `Err` case is a
 //! `sh:sparql` query that fails to parse or uses a construct this engine does not
 //! evaluate (property paths, `MINUS`/`VALUES`/non-`SILENT` `SERVICE`/sub-`SELECT`/
-//! aggregates/`EXISTS`/arithmetic, or rebinding `$this` — all constructs the W3C
+//! aggregates/`EXISTS`/`*`,`/`,unary arithmetic, or rebinding `$this` — all constructs the W3C
 //! SHACL-SPARQL test suite itself expects an implementation MAY decline).
 //!
 //! Pi contract: pure Rust, no C/native dep — the `sh:sparql` engine parses with

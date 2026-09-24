@@ -89,7 +89,10 @@ fn inline_documents(documents: &[String]) -> Result<Inspected, String> {
     parsed(&named, None)
 }
 
-fn composed_documents(sources: &GraphSchemaSources, source_ids: &[String]) -> Result<Inspected, String> {
+fn composed_documents(
+    sources: &GraphSchemaSources,
+    source_ids: &[String],
+) -> Result<Inspected, String> {
     let wanted: BTreeSet<&str> = source_ids.iter().map(String::as_str).collect();
     let selected: Vec<(String, &str)> = sources
         .all()
@@ -108,7 +111,10 @@ fn composed_documents(sources: &GraphSchemaSources, source_ids: &[String]) -> Re
     parsed(&selected, Some(sources.composed_digest().to_hex()))
 }
 
-fn parsed(documents: &[(String, &str)], composed_digest: Option<String>) -> Result<Inspected, String> {
+fn parsed(
+    documents: &[(String, &str)],
+    composed_digest: Option<String>,
+) -> Result<Inspected, String> {
     let mut triples = Vec::new();
     let mut digests = BTreeSet::new();
     for (name, document) in documents {
@@ -154,7 +160,11 @@ fn canonical_digest(triples: &[Triple], lines: &BTreeSet<String>) -> Option<Stri
     if triples.iter().any(has_blank_node) {
         return None;
     }
-    let joined = lines.iter().map(String::as_str).collect::<Vec<_>>().join("\n");
+    let joined = lines
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
     Some(Digest256::sha256(joined.as_bytes()).to_hex())
 }
 
@@ -204,11 +214,16 @@ impl Facts {
             .insert(value);
     }
 
-    fn typed(&self, class: &str) -> impl Iterator<Item = (&String, &BTreeMap<&'static str, BTreeSet<String>>)> {
+    fn typed(
+        &self,
+        class: &str,
+    ) -> impl Iterator<Item = (&String, &BTreeMap<&'static str, BTreeSet<String>>)> {
         let class = class.to_string();
-        self.subjects
-            .iter()
-            .filter(move |(_, values)| values.get(RDF_TYPE).is_some_and(|types| types.contains(&class)))
+        self.subjects.iter().filter(move |(_, values)| {
+            values
+                .get(RDF_TYPE)
+                .is_some_and(|types| types.contains(&class))
+        })
     }
 
     fn classes(&self) -> Vec<OntologyClassView> {

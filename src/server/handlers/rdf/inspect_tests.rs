@@ -107,7 +107,7 @@ fn the_composed_schema_carries_the_agent_orchestration_shapes() {
     assert_eq!(harness.shape_target_classes, targets);
     assert_eq!(
         harness.schema_digests,
-        ["8ceed432b8f0a3661d32104fa675b0d1f23e9ddff21221992541b415c4e62e32"]
+        ["9adf8d076018d2bb02c80e0a8816c4bc29676f1a2263799755fa1e11e3d33191"]
     );
 }
 

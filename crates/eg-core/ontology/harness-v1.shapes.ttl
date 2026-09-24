@@ -12,7 +12,9 @@
 # guarantee the paper explicitly lacks.
 
 # CONCENTRATION: reject when ≥3 shipped edits target the same HarnessDimension
-# within a 5-round window (sub-threshold coupling tipping point).
+# within a 5-round window (sub-threshold coupling tipping point). Expressed as three
+# distinct shipped edits whose rounds span ≤5 (no aggregates: EG's sh:sparql engine
+# declines GROUP BY, as SHACL-SPARQL permits).
 :HarnessConcentrationShape a sh:NodeShape ;
     sh:targetClass :HarnessDimension ;
     sh:sparql [
@@ -20,13 +22,13 @@
         sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
         sh:select """
             PREFIX kg: <http://knuckles.team/kg#>
-            SELECT $this (COUNT(DISTINCT ?e) AS ?n) WHERE {
-                ?e kg:targetsDimension $this ;
-                   kg:editStatus "shipped" ;
-                   kg:editRound ?r .
+            SELECT DISTINCT $this WHERE {
+                ?e1 kg:targetsDimension $this ; kg:editStatus "shipped" ; kg:editRound ?r1 .
+                ?e2 kg:targetsDimension $this ; kg:editStatus "shipped" ; kg:editRound ?r2 .
+                ?e3 kg:targetsDimension $this ; kg:editStatus "shipped" ; kg:editRound ?r3 .
+                FILTER (?e1 != ?e2 && ?e1 != ?e3 && ?e2 != ?e3)
+                FILTER (?r1 <= ?r2 && ?r2 <= ?r3 && (?r3 - ?r1) <= 5)
             }
-            GROUP BY $this
-            HAVING (COUNT(DISTINCT ?e) >= 3 && (MAX(?r) - MIN(?r)) <= 5)
         """
     ] .
 

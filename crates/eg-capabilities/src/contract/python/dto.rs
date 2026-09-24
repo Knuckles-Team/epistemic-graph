@@ -196,6 +196,7 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
             "ShaclValidationReport",
             "ShaclValidationResult",
             "ShaclSeverity",
+            "OntologyInspection",
         ],
         result_model: Some("OwlReasonResult"),
         required: true,
@@ -213,6 +214,7 @@ pub(super) const SHARED_DTO_RESULT_MODELS: &[(&str, &str)] = &[
     ("OwlExplain", "OwlExplainResult"),
     ("RunDatalogReasoning", "DatalogReasoningResult"),
     ("ShaclValidate", "ShaclValidationReport"),
+    ("OntologyInspect", "OntologyInspection"),
 ];
 
 /// Schema-specific digest projections rendered as model methods. Framing and

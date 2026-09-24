@@ -33,17 +33,13 @@
 # object of some :supersedes) must have had its belief window CLOSED (a :txTo) —
 # i.e. invalidation must retract belief. An open belief on a superseded fact is an
 # unresolved contradiction the engine should never leave behind (KG-2.251).
+# SHACL Core (targetObjectsOf + minCount), not sh:sparql NOT EXISTS.
 :SupersededFactClosedShape a sh:NodeShape ;
     sh:name "Superseded Fact Closed Shape" ;
     sh:description "A superseded TemporalFact must have its belief window closed via txTo (CONCEPT:KG-2.251)." ;
-    sh:targetClass :TemporalFact ;
-    sh:sparql [
+    sh:targetObjectsOf :supersedes ;
+    sh:property [
+        sh:path :txTo ;
+        sh:minCount 1 ;
         sh:message "A superseded fact still has an open belief window (no txTo) — unresolved contradiction." ;
-        sh:prefixes :temporalPrefixes ;
-        sh:select """
-            SELECT $this
-            WHERE {
-                ?newer kg:supersedes $this .
-                FILTER NOT EXISTS { $this kg:txTo ?t }
-            }
-        """ ] .
+    ] .
