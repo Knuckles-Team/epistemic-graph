@@ -52,6 +52,7 @@ impl SemanticStore {
     ) -> Result<(), EmbeddingDimensionError> {
         self.validate_embedding(&embedding)?;
         self.arena.insert(node_id.clone(), &embedding)?;
+        self.generation.bump();
         let live_len = self.arena.len();
         self.maintain_incremental_index(&node_id, &embedding, live_len);
         Ok(())
@@ -76,6 +77,7 @@ impl SemanticStore {
         if !self.arena.remove(node_id) {
             return false;
         }
+        self.generation.bump();
         let live_len = self.arena.len();
         if let Some(ann) = self.index.write().as_mut() {
             ann.remove(node_id);
