@@ -63,6 +63,7 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "gates-facade",
                 "gates-variants",
                 "gates-crates",
+                "python-suite",
                 "lint-and-architecture",
                 "security",
                 "documentation-advisory",
@@ -178,6 +179,11 @@ LOCAL_SETUP_STEPS: dict[tuple[str, str, str], str] = {
         "release.yml",
         "gates-crates",
         "Install librdkafka/Cyrus-SASL build headers",
+    ): APT_VERIFY,
+    (
+        "release.yml",
+        "python-suite",
+        "Install ripgrep (scripts/check_current_only_architecture.py)",
     ): APT_VERIFY,
     (
         "release.yml",
