@@ -1,7 +1,9 @@
 //! Risk control: exact binomial tails and Clopper–Pearson intervals over a
 //! deterministic incomplete beta, selective risk control (Learn-then-Test with
-//! fixed-sequence testing), minimum-sample gates and beta–binomial pooling.
+//! fixed-sequence testing), minimum-sample gates, beta–binomial pooling and
+//! barrier-hit / time-to-exhaustion first-passage laws.
 
+pub mod barrier;
 pub mod beta;
 pub mod binomial;
 mod counts;
@@ -9,6 +11,10 @@ pub mod pooling;
 pub mod sample_gate;
 pub mod selective;
 
+pub use barrier::{
+    estimate_barrier_hit, first_passage_cdf, fit_drift_diffusion, terminal_crossing,
+    time_to_barrier_quantile, Barrier, BarrierEstimate, BarrierSpec, DriftDiffusion, Dynamics,
+};
 pub use beta::{beta_quantile, regularized_incomplete_beta};
 pub use binomial::{binomial_cdf, clopper_pearson, BinomialCounts, BinomialInterval, IntervalSide};
 pub use pooling::{

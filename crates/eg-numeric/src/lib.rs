@@ -44,9 +44,9 @@ pub mod risk;
 // crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
 #[cfg(feature = "contract")]
 mod contract;
-// scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358). Gated behind `analytics` (pulled
-// by `python`) so a `pi`/`default` engine build linking the rlib pulls no statrs.
-#[cfg(feature = "analytics")]
+// scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358). The statrs-backed half is
+// gated behind `analytics` (pulled by `python`) so a `pi`/`default` engine build linking the rlib
+// pulls no statrs; the pinned-libm `norm_cdf` half is always built.
 pub mod stats;
 // Complex64 surface (D-QN-3 handoff, executed in Q1 lane w3-quantum-q1): a thin
 // `Complex64` re-export + generic dense-block index application that

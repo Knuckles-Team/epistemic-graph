@@ -46,3 +46,16 @@ pub fn tanh(x: f64) -> f64 {
 pub fn ln_gamma(x: f64) -> f64 {
     libm::lgamma(x)
 }
+
+/// The complementary error function `erfc(x) = 1 - erf(x)`, accurate in the
+/// tails where `1 - erf(x)` would cancel.
+#[inline]
+pub fn erfc(x: f64) -> f64 {
+    libm::erfc(x)
+}
+
+/// Cosine (radians).
+#[inline]
+pub fn cos(x: f64) -> f64 {
+    libm::cos(x)
+}
