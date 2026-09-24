@@ -14,6 +14,7 @@ use crate::server::auth::VerifiedRequestContext;
 use crate::server::blob::engine_bodies::EngineBody;
 use crate::server::blob::BlobCursors;
 use crate::server::persistence::agent_library::AgentLibraryStore;
+use crate::server::request_scope::{interruptible, RequestCancel};
 
 mod annotations;
 mod catalog_attributes;
@@ -34,25 +35,42 @@ use validation::section_bytes;
 #[cfg(test)]
 use validation::{declared_shape_iris, valid_skill_frontmatter, validate_ontology_imports};
 
+/// Validate, copy bodies and commit one import (EH-536).
+///
+/// The whole pipeline runs on ONE blocking thread that owns the tenant's pack
+/// lock, so the lock is held exactly as long as the work runs -- never released
+/// by a dropped future while a commit is still in progress -- and it runs
+/// interruptibly: a cancelled request stops at its next reasoning step or stage
+/// boundary, and dropping `tenant_pack_guard` then frees the tenant for the next
+/// pack operation.
 pub(super) async fn validate_and_commit(
     store: Arc<AgentLibraryStore>,
     blob: Arc<BlobCursors>,
     _verified: &VerifiedRequestContext,
     request: ConnectorPackImportRequest,
     archive: Vec<u8>,
+    tenant_pack_guard: tokio::sync::OwnedMutexGuard<()>,
 ) -> Result<PackImportResult, String> {
-    // Validation is CPU-bound -- G14-G16 reasoning runs to a multi-million step
-    // budget -- so it runs on the blocking pool, never on an async worker.
-    let validation_store = store.clone();
+    let cancel = crate::server::request_scope::current();
     let chunks = blob.store.clone();
-    let (prepared, request) = tokio::task::spawn_blocking(move || {
-        let prior = validation_store
-            .connector_pack_members(&request.context.tenant_id, &request.index.connector)?;
-        let prepared = prepare(&validation_store, &*chunks, &request, &archive, prior)?;
-        Ok::<_, String>((prepared, request))
+    tokio::task::spawn_blocking(move || {
+        let _held = tenant_pack_guard;
+        run_import(&store, &*chunks, request, &archive, &cancel)
     })
     .await
-    .map_err(|error| format!("connector pack validation task failed: {error}"))??;
+    .map_err(|error| format!("connector pack import task failed: {error}"))?
+}
+
+fn run_import(
+    store: &AgentLibraryStore,
+    chunks: &dyn crate::server::blob::ChunkStore,
+    request: ConnectorPackImportRequest,
+    archive: &[u8],
+    cancel: &RequestCancel,
+) -> Result<PackImportResult, String> {
+    let prior =
+        store.connector_pack_members(&request.context.tenant_id, &request.index.connector)?;
+    let prepared = interruptible(cancel, || prepare(store, chunks, &request, archive, prior))??;
     let prepared = match prepared {
         Prepared::Rejected(result) => return Ok(result),
         Prepared::Ready(ready) => *ready,
@@ -65,18 +83,23 @@ pub(super) async fn validate_and_commit(
             body: body.clone(),
         })
         .collect::<Vec<_>>();
-    let body_store = blob.store.clone();
-    let tenant = request.context.tenant_id.clone();
-    let committed_at = request.context.created_at_ms;
-    let stored = tokio::task::spawn_blocking(move || {
-        body_store.put_engine_bodies(&tenant, &bodies, committed_at)
-    })
-    .await
-    .map_err(|error| format!("connector body copy task failed: {error}"))??;
+    still_wanted(cancel)?;
+    let stored = chunks.put_engine_bodies(
+        &request.context.tenant_id,
+        &bodies,
+        request.context.created_at_ms,
+    )?;
     let plan = prepared.finish(request, stored)?;
-    tokio::task::spawn_blocking(move || store.commit_connector_pack(plan))
-        .await
-        .map_err(|error| format!("connector pack commit task failed: {error}"))?
+    // The last point an abandoned import can stop: past it the commit is atomic.
+    still_wanted(cancel)?;
+    store.commit_connector_pack(plan)
+}
+
+fn still_wanted(cancel: &RequestCancel) -> Result<(), String> {
+    if cancel.is_cancelled() {
+        return Err(crate::server::request_scope::CANCELLED.to_string());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -417,3 +417,24 @@ pub(super) fn head_of(
         pack_digest: receipt.pack_digest,
     }
 }
+
+/// EH-536: a request queued on a busy tenant pack lock gives up when its
+/// request is cancelled instead of waiting out the holder.
+#[tokio::test]
+async fn a_cancelled_waiter_leaves_the_pack_lock_queue() {
+    use crate::server::request_scope::{scope, RequestCancel, CANCELLED};
+
+    let held = super::tenant_pack_lock("eh536-busy-tenant")
+        .await
+        .expect("an uncancelled caller takes the free lock");
+    let cancel = RequestCancel::new();
+    cancel.cancel();
+    let waited = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        scope(cancel, super::tenant_pack_lock("eh536-busy-tenant")),
+    )
+    .await
+    .expect("a cancelled waiter must not wait for the holder");
+    assert_eq!(waited.err().as_deref(), Some(CANCELLED));
+    drop(held);
+}

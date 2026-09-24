@@ -25,6 +25,7 @@ use tokio::sync::{Notify, RwLock, Semaphore};
 use tracing::{error, info};
 
 use super::dispatch::dispatch_verified_request;
+use super::request_scope::{self, RequestCancel};
 use super::{dispatch, ServerState};
 use crate::protocol::{Method, Request, Response};
 
@@ -40,7 +41,7 @@ use framing::{
 };
 use framing::{
     encode_bounded_frame, encode_frame, next_request, seconds_from_env, write_responses,
-    ConnectionLimits,
+    ConnectionLimits, IngressEnd,
 };
 pub use tls::{prepare_tcp_tls, PreparedTcpTls, TcpTlsConfig};
 
@@ -179,17 +180,30 @@ fn per_connection_inflight_limit() -> usize {
 /// never come. Fails LOUDLY: the expiry is logged at `error` and counted
 /// (`epistemic_graph_dispatch_deadline_exceeded_total`) — a silently-shed request is how
 /// this stall stayed invisible for days.
+///
+/// EH-536: the dispatch runs as `cancel`'s request scope. `cancel` is tripped
+/// when the deadline expires (before the future is dropped, so blocking work it
+/// started stops at its next interrupt check) and when the connection's peer
+/// closes (`peer_gone`) — then the dispatch keeps running so its handlers can
+/// observe the cancellation and unwind in order.
 async fn dispatch_within_deadline<F>(
     dispatch: F,
     deadline: std::time::Duration,
     req_id: u64,
+    peer_gone: &RequestCancel,
 ) -> Response
 where
     F: std::future::Future<Output = Response>,
 {
-    match tokio::time::timeout(deadline, dispatch).await {
+    let cancel = RequestCancel::new();
+    let scoped = request_scope::scope(
+        cancel.clone(),
+        cancel_when_peer_gone(dispatch, &cancel, peer_gone),
+    );
+    match tokio::time::timeout(deadline, scoped).await {
         Ok(resp) => resp,
         Err(_) => {
+            cancel.cancel();
             crate::metrics::dispatch_deadline_exceeded();
             error!(
                 req_id,
@@ -203,6 +217,23 @@ where
             )
         }
     }
+}
+
+/// Drive `dispatch`, tripping `cancel` if the connection's peer goes first.
+async fn cancel_when_peer_gone<F>(
+    dispatch: F,
+    cancel: &RequestCancel,
+    peer_gone: &RequestCancel,
+) -> Response
+where
+    F: std::future::Future<Output = Response>,
+{
+    tokio::pin!(dispatch);
+    tokio::select! {
+        response = &mut dispatch => return response,
+        () = peer_gone.cancelled() => cancel.cancel(),
+    }
+    dispatch.await
 }
 
 fn tls_handshake_timeout() -> std::time::Duration {
@@ -438,6 +469,7 @@ async fn dispatch_reserved_request(
     global_pool: Arc<Semaphore>,
     reservation: DispatchReservation,
     limits: ConnectionLimits,
+    peer_gone: RequestCancel,
 ) {
     let dispatch_start = std::time::Instant::now();
     let qos_class = reservation.qos.permit.as_ref().map(|permit| permit.class());
@@ -448,7 +480,8 @@ async fn dispatch_reserved_request(
         Some(context) => Box::pin(dispatch_verified_request(&state, req, context)),
         None => Box::pin(dispatch(&state, req)),
     };
-    let response = dispatch_within_deadline(boxed, limits.dispatch_deadline, req_id).await;
+    let response =
+        dispatch_within_deadline(boxed, limits.dispatch_deadline, req_id, &peer_gone).await;
     if let Some(class) = qos_class {
         crate::metrics::qos_dispatch_finished(
             class.label(),
@@ -504,8 +537,18 @@ where
     let (mut reader, writer) = tokio::io::split(stream);
     let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(conn_limit + 64);
     let writer = tokio::spawn(write_responses(writer, rx, limits.io_timeout));
+    let peer_gone = RequestCancel::new();
 
-    while let Some(req) = next_request(&mut reader, &tx, limits).await {
+    loop {
+        let req = match next_request(&mut reader, &tx, limits).await {
+            Ok(req) => req,
+            Err(IngressEnd::PeerClosed) => {
+                // The client left: nothing it had in flight has a reader (EH-536).
+                peer_gone.cancel();
+                break;
+            }
+            Err(IngressEnd::Stopped) => break,
+        };
         let is_shutdown = matches!(req.method, Method::Shutdown);
         let reservation =
             match reserve_request(&req, &state, &connection, &pools, qos.as_ref(), &tx).await {
@@ -521,6 +564,7 @@ where
             pools.global.clone(),
             reservation,
             limits,
+            peer_gone.clone(),
         ));
         if is_shutdown {
             break;
