@@ -39,14 +39,23 @@ pub(super) async fn sql(h: &Harness, who: &str, query: &str) -> Vec<Vec<Value>> 
     let persist_dir = std::path::PathBuf::from(h.state.read().await.persist_dir.clone().unwrap());
     let views = super::super::stat_view::DecisionViews::of(h.store.clone(), &authority);
     let graph = crate::graph::GraphCore::new().analysis_snapshot();
+    let request_graph = crate::server::sql_catalog_acl::RequestGraph {
+        name: "retrieval-sql-graph".to_string(),
+        core: std::sync::Arc::new(crate::graph::GraphCore::new()),
+    };
     // The SQL leg drives its own runtime (as on the blocking pool in
     // production), so it runs on a plain thread outside the test's runtime.
     std::thread::scope(|scope| {
         scope
             .spawn(|| {
-                let projection =
-                    authorized_read_store_for_query(&authority, &persist_dir, query, Some(&views))
-                        .unwrap();
+                let projection = authorized_read_store_for_query(
+                    &authority,
+                    &persist_dir,
+                    query,
+                    Some(&views),
+                    &request_graph,
+                )
+                .unwrap();
                 eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query)
                     .unwrap()
                     .rows
