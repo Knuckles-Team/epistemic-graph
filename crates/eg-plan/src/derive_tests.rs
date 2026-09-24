@@ -160,3 +160,48 @@ fn derive_prints_canonically_and_reparses() {
     );
     assert_eq!(crate::uql::parse(&printed).unwrap(), plan);
 }
+
+/// `SKILL` (EH-522 FeatureSkill) through UQL equals the evaluation kernel run directly,
+/// and finds the lead a feature really has.
+#[test]
+fn skill_reports_the_ic_decay_the_kernel_computes() {
+    use eg_numeric::evaluation::skill::{feature_skill, SkillSpec};
+    let n = 240i64;
+    let driver: Vec<f64> = (0..n + 2)
+        .map(|i| (i as f64 / 6.0).sin() + ((i * 7919) % 13) as f64 / 130.0)
+        .collect();
+    let feature: Vec<f64> = driver[..n as usize].to_vec();
+    let outcome: Vec<f64> = (0..n as usize)
+        .map(|i| driver[i.saturating_sub(2)])
+        .collect();
+    let mut staged = StagedSeries::new();
+    staged.push_points(
+        "s",
+        (0..n as usize).map(|i| ((i as i64 + 1) * ONE_S, vec![feature[i], outcome[i]])),
+    );
+    let out = rows(
+        "TSSCAN ['s'] FROM 0 TO 1000 |> SKILL v0 AGAINST v1 HORIZONS [1, 2, 5] WINDOW 20 \
+         BOOTSTRAP 100 SEED 3 |> RETURN mean_ic, icir, ic_lo, ic_hi, n_eff",
+        &staged,
+    );
+    let ids: Vec<&str> = out.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids, vec!["s:skill@1", "s:skill@2", "s:skill@5"]);
+    let spec = SkillSpec {
+        horizons: vec![1, 2, 5],
+        window: 20,
+        resamples: 100,
+        seed: 3,
+    };
+    let direct = feature_skill(&feature, &outcome, &spec).unwrap();
+    for (row, h) in out.iter().zip(&direct.horizons) {
+        assert_eq!(row.channels[0], Some(h.mean_ic));
+        assert_eq!(row.channels[1], Some(h.icir));
+        assert_eq!(
+            (row.channels[2], row.channels[3]),
+            (Some(h.ci_lo), Some(h.ci_hi))
+        );
+        assert_eq!(row.channels[4], Some(direct.n_eff));
+    }
+    assert!(direct.horizons[1].mean_ic > direct.horizons[0].mean_ic);
+    assert!(direct.horizons[1].mean_ic > direct.horizons[2].mean_ic);
+}

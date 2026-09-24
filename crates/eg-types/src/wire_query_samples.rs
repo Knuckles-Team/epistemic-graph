@@ -163,6 +163,17 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
         },
         #[cfg(feature = "timeseries")]
         OpKind::Derive => derive_sample(),
+        #[cfg(feature = "timeseries")]
+        OpKind::Skill => Op::Skill {
+            spec: crate::series_expr::SkillOp {
+                feature: "v0".into(),
+                outcome: "score".into(),
+                horizons: vec![1, 5, 20],
+                window: 60,
+                resamples: 500,
+                seed: 7,
+            },
+        },
         #[cfg(feature = "probabilistic")]
         OpKind::Probabilistic => Op::Probabilistic {
             query: ProbQuery::Conditional {

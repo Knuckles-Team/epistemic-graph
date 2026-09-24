@@ -40,6 +40,11 @@ mod pred_sql;
 mod derive;
 #[cfg(feature = "timeseries")]
 pub(crate) use derive::derive_op;
+// EH-522 — the `SKILL` predictive-skill report stage.
+#[cfg(feature = "timeseries")]
+mod skill;
+#[cfg(feature = "timeseries")]
+pub(crate) use skill::skill_op;
 // EH-521 — the `TSSCAN` source and the in-txn staged-series overlay it reads.
 #[cfg(feature = "timeseries")]
 mod tsscan;

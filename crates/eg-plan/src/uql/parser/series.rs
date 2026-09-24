@@ -23,6 +23,55 @@ impl Parser<'_> {
         }
     }
 
+    gated! { "timeseries",
+        /// `SKILL name AGAINST name HORIZONS [int, …] WINDOW int [BOOTSTRAP int SEED int]`.
+        fn skill(&mut self) -> Result<eg_types::wire::Op, UqlError> {
+            let feature = self.skill_channel()?;
+            self.expect_kw("AGAINST")?;
+            let outcome = self.skill_channel()?;
+            self.expect_kw("HORIZONS")?;
+            let span = self.cur_span();
+            let horizons = self.bracket_list("the horizons", |p| p.parse_number::<u64>("a horizon"))?;
+            self.expect_kw("WINDOW")?;
+            let window = self.parse_number::<u64>("the IC window")?;
+            if horizons.is_empty() || window < 2 {
+                return Err(UqlError::new(
+                    UqlCode::InvalidRange,
+                    "SKILL needs at least one horizon and an IC window of at least 2",
+                    span,
+                ));
+            }
+            let (resamples, seed) = self.skill_bootstrap()?;
+            self.derived
+                .extend(eg_types::series_expr::SKILL_CHANNELS.iter().map(|c| c.to_string()));
+            Ok(eg_types::wire::Op::Skill {
+                spec: eg_types::series_expr::SkillOp { feature, outcome, horizons, window, resamples, seed },
+            })
+        }
+    }
+
+    #[cfg(feature = "timeseries")]
+    fn skill_channel(&mut self) -> Result<String, UqlError> {
+        let span = self.cur_span();
+        let name = self.name("a value channel")?;
+        match self.channel_ref(name, span)? {
+            SeriesExpr::Channel { name } => Ok(name),
+            SeriesExpr::Const { .. } | SeriesExpr::Call { .. } => {
+                Err(self.err_here("expected a value channel"))
+            }
+        }
+    }
+
+    #[cfg(feature = "timeseries")]
+    fn skill_bootstrap(&mut self) -> Result<(u64, u64), UqlError> {
+        if !self.eat_kw("BOOTSTRAP") {
+            return Ok((0, 0));
+        }
+        let resamples = self.parse_number::<u64>("the bootstrap resamples")?;
+        self.expect_kw("SEED")?;
+        Ok((resamples, self.parse_number::<u64>("a seed")?))
+    }
+
     #[cfg(feature = "timeseries")]
     fn derive_column(&mut self) -> Result<eg_types::series_expr::DeriveColumn, UqlError> {
         let expr = self.series_expr()?;
@@ -66,7 +115,10 @@ impl Parser<'_> {
         if self.at_end() {
             return Ok(expr);
         }
-        Err(self.error(UqlCode::TrailingTokens, "expected the end of the expression"))
+        Err(self.error(
+            UqlCode::TrailingTokens,
+            "expected the end of the expression",
+        ))
     }
 
     fn at_series_number(&self) -> bool {

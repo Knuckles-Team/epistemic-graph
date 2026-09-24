@@ -65,6 +65,23 @@ pub(super) fn derive(columns: &[crate::series_expr::DeriveColumn]) -> Printed {
     Ok(format!("DERIVE {}", parts.join(", ")))
 }
 
+/// `SKILL f AGAINST y HORIZONS [h, …] WINDOW w [BOOTSTRAP n SEED s]` (EH-522).
+#[cfg(feature = "timeseries")]
+pub(super) fn skill(spec: &crate::series_expr::SkillOp) -> Printed {
+    let horizons: Vec<String> = spec.horizons.iter().map(u64::to_string).collect();
+    let mut out = format!(
+        "SKILL {} AGAINST {} HORIZONS [{}] WINDOW {}",
+        uql_ident(&spec.feature),
+        uql_ident(&spec.outcome),
+        horizons.join(", "),
+        spec.window
+    );
+    if spec.resamples > 0 {
+        out.push_str(&format!(" BOOTSTRAP {} SEED {}", spec.resamples, spec.seed));
+    }
+    Ok(out)
+}
+
 /// The canonical spelling of a series expression — `func(args…, params…)`, channels as
 /// identifiers, numbers in shortest round-trip form. The digest input of a derived column.
 #[cfg(feature = "timeseries")]

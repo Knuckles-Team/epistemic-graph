@@ -77,7 +77,7 @@ federation = [
 # different things; this needs only the first, which keeps `Op::SensorAlign`'s
 # executor arm gated on EXACTLY the same feature as its wire variant (`timeseries`) —
 # no combination of features can produce the variant without the arm.
-timeseries = ["query", "dep:eg-tsdb", "eg-tsdb/redb-store", "eg-tsdb/derive", "eg-types/timeseries", "dep:eg-tensor"]
+timeseries = ["query", "dep:eg-tsdb", "eg-tsdb/redb-store", "eg-tsdb/derive", "eg-types/timeseries", "dep:eg-tensor", "dep:eg-numeric"]
 # EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
 # running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the
@@ -342,6 +342,9 @@ eg-stream = { path = "../eg-stream", optional = true }
 # (no DataFusion); `redb-store` adds pure-Rust redb (no C dep, no pyo3). A default/Pi build
 # links none of it. eg-tsdb does NOT depend on eg-plan — no dependency cycle.
 eg-tsdb = { path = "../eg-tsdb", optional = true }
+# EH-522 — the `SKILL` stage's predictive-skill report (`eg_numeric::evaluation::skill`).
+# Already in the tree through eg-tsdb; named directly under `timeseries`.
+eg-numeric = { path = "../eg-numeric", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 # `float_roundtrip`: UQL's JSON literals (`JSON '[…]'`, JSONPath/CEP values) must parse back to
 # the EXACT f64 the printer wrote (UQL-06 print/parse identity). serde_json's default float

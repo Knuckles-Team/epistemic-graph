@@ -48,7 +48,7 @@ fn derive_row(program: &mut Program, row: &Row, name: &str, values: &mut ValueCh
     }
 }
 
-fn read_channel(values: &ValueChannels, row: &Row, channel: &str) -> Option<f64> {
+pub(super) fn read_channel(values: &ValueChannels, row: &Row, channel: &str) -> Option<f64> {
     if channel == SCORE {
         return row.score.map(f64::from);
     }
@@ -57,6 +57,11 @@ fn read_channel(values: &ValueChannels, row: &Row, channel: &str) -> Option<f64>
 
 /// Row indices per series, each in timestamp order; series in name order.
 fn series_groups(rows: &[Row]) -> Vec<Vec<usize>> {
+    named_series_groups(rows).into_values().collect()
+}
+
+/// Series name → its row indices in timestamp order.
+pub(super) fn named_series_groups(rows: &[Row]) -> BTreeMap<&str, Vec<usize>> {
     let mut by_series: BTreeMap<&str, Vec<(i64, usize)>> = BTreeMap::new();
     for (i, row) in rows.iter().enumerate() {
         if let Some((series, ts)) = parse_series_row_id(&row.id) {
@@ -64,10 +69,10 @@ fn series_groups(rows: &[Row]) -> Vec<Vec<usize>> {
         }
     }
     by_series
-        .into_values()
-        .map(|mut points| {
+        .into_iter()
+        .map(|(series, mut points)| {
             points.sort_unstable();
-            points.into_iter().map(|(_, i)| i).collect()
+            (series, points.into_iter().map(|(_, i)| i).collect())
         })
         .collect()
 }
