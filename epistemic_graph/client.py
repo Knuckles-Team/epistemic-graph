@@ -11246,7 +11246,8 @@ class QueryClient:
         """Run a UQL statement (CONCEPT:AU-KG.query.top-nodes-by-degree; UQL-07/08/09).
 
         ``text`` is UQL — a pipeline, a ``LET … FROM/JOIN`` program, optionally prefixed
-        with ``UQL 1;`` and ``EXPLAIN`` / ``PROFILE`` — e.g.::
+        with ``UQL 1;`` and ``EXPLAIN`` / ``PROFILE`` and optionally ending in
+        ``WITH PROOF`` and/or ``WITH KNOWLEDGE [(col, …)]`` — e.g.::
 
             MATCH (:Doc) WHERE year >= $min
               |> TRAVERSE -[:CITES]->{1,2}
@@ -11265,7 +11266,9 @@ class QueryClient:
 
         * ``"rows"`` — ``{"kind", "columns", "rows", "warnings"}``; each row is
           ``{"id", "score", "channels"}`` (``channels`` maps each ``RETURN``ed score
-          channel to its value, ``{}`` without ``RETURN``);
+          channel to its value, ``{}`` without ``RETURN``), plus ``"knowledge"`` (the
+          row's knowledge record) under ``WITH KNOWLEDGE`` and ``"proof"`` (``coverage``
+          and one step per admitting stage) under ``WITH PROOF``;
         * ``"profile"`` — the same plus ``"stages"`` (per-stage estimated/actual
           rows and microseconds);
         * ``"explain"`` — ``{"kind", "canonical", "optimized", "stages",
@@ -11935,7 +11938,7 @@ class TxnClient:
         """Run a UNIFIED cross-modal UQL read INSIDE the txn with read-your-own-writes
         (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). ``text``
         is the SAME UQL surface
-        :meth:`QueryClient.unified_query_text` parses; the read runs over a snapshot
+        :meth:`QueryClient.uql` parses (a plain pipeline); the read runs over a snapshot
         OVERLAID with THIS txn's staged (uncommitted) write-set, so a staged
         node/edge/embedding is visible before commit and invisible off-txn until
         commit. Returns the same ``{"id", "score"}`` rows as ``unified``. Query
@@ -16049,15 +16052,21 @@ def _uql_param(value: Any) -> dict[str, Any]:
     return _uql_literal(value)
 
 
+def _uql_row(columns: list[str], row: dict[str, Any]) -> dict[str, Any]:
+    out = {
+        "id": row["id"],
+        "score": row["score"],
+        "channels": dict(zip(columns, row["channels"], strict=True)),
+    }
+    # `WITH KNOWLEDGE` / `WITH PROOF` annotations, only when the statement asked.
+    for key in ("knowledge", "proof"):
+        if row.get(key) is not None:
+            out[key] = row[key]
+    return out
+
+
 def _uql_rows(columns: list[str], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": row["id"],
-            "score": row["score"],
-            "channels": dict(zip(columns, row["channels"], strict=True)),
-        }
-        for row in rows
-    ]
+    return [_uql_row(columns, row) for row in rows]
 
 
 def _uql_result(result: dict[str, Any]) -> dict[str, Any]:

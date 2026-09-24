@@ -111,7 +111,10 @@ ex:t1 a ex:Topic .
     fn a_reason_stage_proves_inferred_membership() {
         let (view, semantic) = papers();
         let ctx = PlanCtx::new(&view, &semantic);
-        let rows = rows_of("REASON <http://example.org/Work> |> LIMIT 10 WITH PROOF", &ctx);
+        let rows = rows_of(
+            "REASON <http://example.org/Work> |> LIMIT 10 WITH PROOF",
+            &ctx,
+        );
         let mut ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
         ids.sort_unstable();
         assert_eq!(ids, ["<http://example.org/p1>", "<http://example.org/p2>"]);

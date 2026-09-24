@@ -310,3 +310,83 @@ async fn an_assembly_outcome_is_credited_to_its_slate() {
         "components are never credited individually"
     );
 }
+
+/// EH-066: the decision record views — the `decisions`/`decision_evaluations`/
+/// `decision_resolutions` relations every served SQL surface projects, and the UQL
+/// `DECISIONS` source — answer only from what the caller may read.
+#[cfg(feature = "query")]
+#[tokio::test]
+async fn decision_record_views_answer_only_from_visible_rows() {
+    use super::super::stat_view::DecisionViews;
+    use crate::server::access::CarrierAuthority;
+    use crate::server::sql_catalog_acl::{authorized_read_store_for_query, ReadOnlyRelations};
+
+    let h = Harness::new().await;
+    let record = declared_abstention(&h).await;
+    let commit = DecisionLogOp::Commit {
+        record: Box::new(record.clone()),
+    };
+    let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+    let human = AbstentionResolver::Human;
+    resolve(&h, resolution(&logged.record_id, "r-1", "plan-deep", human))
+        .await
+        .unwrap();
+    let carrier = |who: &str| {
+        let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
+        CarrierAuthority::from_verified(&verified).unwrap()
+    };
+    let persist_dir = h.state.read().await.persist_dir.clone().unwrap();
+    let persist_dir = std::path::PathBuf::from(persist_dir);
+    let graph = crate::graph::GraphCore::new().analysis_snapshot();
+    let sql = |who: &str, query: &str| {
+        let authority = carrier(who);
+        let views = DecisionViews::of(h.store.clone(), &authority);
+        let projection =
+            authorized_read_store_for_query(&authority, &persist_dir, query, Some(&views)).unwrap();
+        eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query).unwrap()
+    };
+
+    let mine = sql(
+        "decider",
+        "SELECT outcome, source, evidence_class FROM decisions",
+    );
+    assert_eq!(
+        mine.rows,
+        vec![vec![
+            serde_json::json!("abstained"),
+            serde_json::json!("declared"),
+            serde_json::json!("claim")
+        ]]
+    );
+    let joined = sql(
+        "decider",
+        "SELECT r.option_id FROM decision_resolutions r JOIN decisions d USING (record_id)",
+    );
+    assert_eq!(joined.rows, vec![vec![serde_json::json!("plan-deep")]]);
+    for table in eg_query::READ_ONLY_RELATION_NAMES {
+        let theirs = sql("stranger", &format!("SELECT count(*) FROM {table}"));
+        assert_eq!(
+            theirs.rows,
+            vec![vec![serde_json::json!(0)]],
+            "{table}: another principal's declared record is not even counted"
+        );
+    }
+    let names: Vec<String> = DecisionViews::of(h.store.clone(), &carrier("decider"))
+        .materialize()
+        .unwrap()
+        .into_iter()
+        .map(|(schema, _)| schema.name)
+        .collect();
+    assert_eq!(names, eg_query::READ_ONLY_RELATION_NAMES);
+
+    // UQL `DECISIONS`: the same visibility through the plan source.
+    let uql = |who: &str| {
+        let views = DecisionViews::of(h.store.clone(), &carrier(who));
+        let semantic = eg_core::compute::semantic::SemanticStore::new();
+        let plan = eg_plan::uql::parse("DECISIONS WHERE outcome = 'abstained'").unwrap();
+        let ctx = eg_plan::PlanCtx::new(&graph, &semantic).with_decisions(&views);
+        eg_plan::execute(&plan, &ctx).unwrap().ids()
+    };
+    assert_eq!(uql("decider"), vec![logged.record_id.clone()]);
+    assert!(uql("stranger").is_empty());
+}

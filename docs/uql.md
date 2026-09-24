@@ -131,6 +131,7 @@ A source seeds the RowSet from nothing. Start every pipeline with one.
 | `SENSOR ALIGN ['imu' LINEAR, 'gps' NEAREST] CLOCK UNIFORM FROM 0 TO 1000 STEP 10` | `SensorAlign` (ns) | `timeseries` |
 | `SPATIAL SCAN 'roads' BBOX [0, 0, 10, 10]` | `SpatialScan{layer,bbox}` | `geo` |
 | `TENSOR SCAN 'frames'` | `TensorScan{layer}` | `tensor` |
+| `DECISIONS [WHERE p]` | `DecisionScan{preds}` — the caller's visible decision records | — (served: `decide`) |
 
 These also seed when they lead a pipeline, and narrow when they follow one: `WHERE`,
 `AS OF`, `VALID AS OF`, `REASON`, `EVIDENCE FOR`, `CONTRADICTS`, `SUPPORTED BY`,
@@ -142,6 +143,21 @@ text spelling: register it with `RegisterForeignSource` and use `FOREIGN SCAN '<
 
 ```uql
 MATCH () WHERE status IN ('open', 'new') |> LIMIT 20
+```
+
+`DECISIONS` (EH-066) reads the caller's decision log — only the records the caller may read:
+the tenant's shared records and its own principal-visible ones — and keeps those whose columns
+satisfy the relational predicates. Row ids are record ids (in record-id order, unscored); the
+columns are those of the SQL `decisions` relation (`record_id`, `question_id`,
+`question_kind`, `safety`, `source`, `outcome`, `option_id`, `resolution_kind`,
+`evidence_class`, `policy_digest`, `committed_by`, `created_at_ms`, `committed_at_ms`). The
+same records are also SQL relations — `decisions`, `decision_evaluations`,
+`decision_resolutions` — on every served SQL surface (`Sql`, the Postgres wire), read-only and
+per caller. A plan with `DECISIONS` is never result-cached (the log changes without a graph
+write).
+
+```uql
+DECISIONS WHERE outcome = 'acted' AND committed_at_ms >= 1700000000000 |> LIMIT 50
 ```
 
 ## Stages
@@ -299,6 +315,48 @@ and time).
 UQL 1; EXPLAIN MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]-> |> LIMIT 10
 ```
 
+Programs take all three modes too (EH-449). A program runs node by node exactly as written —
+there is no DAG cost reordering — so `EXPLAIN` reports the program as both its canonical and
+its optimized plan, one stage per node (`#2 <- #0,#1 RERANK MENTIONS`, with the node's cost
+estimate: its input's, or the smallest joined input's), and `incremental: false`. `PROFILE`
+adds each node's actual rows and time, and `RETURN` channels are traced the same way; when
+two branches score the same channel for a row, the node that runs later (topological order)
+wins.
+
+```uql
+PROFILE LET docs = MATCH (:Doc); LET cited = FROM docs |> TRAVERSE CITES;
+JOIN docs, cited |> RERANK MENTIONS |> RETURN mentions
+```
+
+## Row annotations: `WITH PROOF`, `WITH KNOWLEDGE`
+
+A statement may end in `WITH PROOF`, `WITH KNOWLEDGE [(column, …)]`, or both. They annotate
+each result row from the same snapshot the statement ran over; `EXPLAIN` has no rows to
+annotate.
+
+* `WITH KNOWLEDGE` (EH-450) attaches the row's knowledge record — the `KnowledgeSet` row:
+  `kind`, `confidence`, the bitemporal window (`valid_from`/`valid_until`,
+  `tx_from`/`tx_until`), the named columns as one `projection` object, and the epistemic
+  neighbourhood (`source_refs`, `evidence_refs`, `policy_labels`, `contradiction_ids`,
+  `proof_ids`, `transformation_ids`, `alternative_ids`; empty, never invented, without
+  `epistemic`).
+* `WITH PROOF` (EH-448, the UQL surface of the proof-carrying results) attaches why the row
+  is in the result: one step per stage that ADMITS rows, in pipeline order. A `SPARQL` source
+  proves a row with its witness — the ground triples that instantiate the query's patterns
+  under a solution binding the row; a `REASON` stage with the OWL proof tree of the row's
+  class membership (its asserted type and the subsumption chain). Stages that only order,
+  score or cut rows (`RANK`, `TEXT`, `RERANK`, `LIMIT`, `RETURN`, `CONFIDENCE`, `SOURCE
+  RELIABILITY`, a `FUSE` of such) need no proof. Any other admitting stage (`MATCH`, `WHERE`,
+  `TRAVERSE`, `AS OF`, …) contributes an `Unproved` step. The proof's `coverage` is
+  `complete` only when every admitting stage proved the row and each of those proofs is
+  itself complete — a partial proof is never presented as a complete one.
+
+```uql
+SPARQL 'SELECT ?w WHERE { ?w a <http://example.org/Paper> }' VAR 'w'
+  |> RANK BY ~[1, 0] |> LIMIT 5
+  WITH PROOF, KNOWLEDGE (title)
+```
+
 ## Feature gating
 
 One rule for every clause: the parser **recognizes** every keyword in every build, and a clause
@@ -354,8 +412,28 @@ result = await client.uql(
 rows = result["rows"]  # [{"id", "score", "channels": {"mmr": …}}]; result["kind"] == "rows"
 ```
 
+On the wire this is `Method::Uql { text, params }` — the one query-text method (EH-434 retired
+the rows-only `UnifiedQueryText`). Executed answers are result-cached like `UnifiedQuery`
+answers (keyed on the text, the bound params and the caller's RLS context); `PROFILE` answers
+and plans that read the decision log are not.
+
 **MCP / REST** — the served `graph_query` / `graph_search` surfaces accept UQL through the same
 `unified` core.
+
+## DecideText
+
+DecideText is the decision front end (DECIDE-LAYER-DESIGN §5). It is not UQL — it parses to a
+typed decide or assembly request, never to a plan `Op`, and UQL refuses its clauses by name
+(`UQL_DECISION_CLAUSE_IN_UQL`) — but it is in UQL's family (EH-452): the same lexer, `$name`
+parameters (`@name` is refused with the fix), a `{ … }` candidate query that is ordinary UQL
+(braces inside its strings do not close it; its own diagnostic points into the DecideText
+source), the same structured errors, and a grammar table
+(`crates/eg-plan/src/decide_text/grammar.rs`) this block is generated from:
+
+<!-- BEGIN GENERATED: decide-text-grammar -->
+```text
+```
+<!-- END GENERATED: decide-text-grammar -->
 
 ## Gotchas
 

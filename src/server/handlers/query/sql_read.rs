@@ -96,7 +96,7 @@ pub(crate) fn sql_read_snapshot(
 #[cfg(feature = "query")]
 async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     let SqlReadScope {
-        state: _,
+        state,
         req_id,
         core,
         caller,
@@ -113,6 +113,7 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
         rls,
     );
     catalog_sql_response(
+        state,
         req_id,
         snap,
         authority.clone(),
@@ -205,9 +206,12 @@ impl CacheSlot {
                 deps.clone(),
                 payload,
             ),
-            None => {
-                eg_core::result_cache::cache_result(core.result_cache(), self.hash, self.version, payload)
-            }
+            None => eg_core::result_cache::cache_result(
+                core.result_cache(),
+                self.hash,
+                self.version,
+                payload,
+            ),
         }
     }
 }
@@ -221,6 +225,8 @@ pub(crate) fn served_cache_hash(
     mut payload: Vec<u8>,
     legs: &ServedPlanLegs,
 ) -> u128 {
+    #[cfg(not(feature = "security"))]
+    let _ = ctx;
     legs.salt_cache_key(&mut payload);
     rls_cache_hash(
         kind,
@@ -310,7 +316,10 @@ pub(crate) async fn handle_unified_query(
         Err(error) => return Ok(Response::err(req_id, error)),
     };
     #[cfg(feature = "result-cache")]
-    if let Some(bytes) = key.as_ref().and_then(|(hash, dep)| cached_payload(&core, *hash, dep)) {
+    if let Some(bytes) = key
+        .as_ref()
+        .and_then(|(hash, dep)| cached_payload(&core, *hash, dep))
+    {
         return Ok(Response::ok(
             req_id,
             ResultPayload::of_cache_hit::<query_results::UnifiedQuery>(bytes),
@@ -342,15 +351,20 @@ pub(crate) async fn handle_unified_query(
 
 /// Run one read statement against the tenant's authorized SQL catalog off the
 /// async runtime, cancellable by the request's cancel token and timeout: the
-/// execution both served SQL read paths (`handle_sql`, KnowledgeStream) share.
+/// execution both served SQL read paths (`handle_sql`, KnowledgeStream) share. The
+/// caller's read-only relations (the decision record views, EH-066) join the catalog
+/// when the statement can see them.
 #[cfg(feature = "query")]
 pub(super) async fn catalog_sql_response(
+    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     snap: Arc<crate::graph::GraphView>,
     authority: crate::server::access::CarrierAuthority,
     persist_dir: std::path::PathBuf,
     query: String,
 ) -> Response {
+    let read_only =
+        crate::server::handlers::decide::read_only_relations(state, &authority, &query).await;
     let cancel = eg_query::CancellationToken::new();
     let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
     let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
@@ -360,6 +374,7 @@ pub(super) async fn catalog_sql_response(
             &authority,
             &persist_dir,
             &query,
+            read_only.as_deref(),
         )?;
         eg_query::exec_sql_typed_with_tables_cancellable(
             &snap,

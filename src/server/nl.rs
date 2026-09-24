@@ -2,7 +2,7 @@
 //!
 //! The engine's NL surface is LLM-OPTIONAL and pure-Rust in the core: the
 //! [`eg_plan::NlPlanner`] seam (CONCEPT:EG-KG.query.core-query-input) turns NL into a UQL query STRING that then
-//! runs through the existing deterministic `UnifiedQueryText` pipeline. This module owns
+//! runs through the existing deterministic UQL pipeline. This module owns
 //! WHICH planner the facade uses:
 //!
 //!  * **Injected** — when `agent-utilities` (or any embedder) drives the engine it does

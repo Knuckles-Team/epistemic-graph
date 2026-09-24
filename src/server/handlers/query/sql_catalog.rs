@@ -460,7 +460,7 @@ pub(crate) fn nl_schema_hint(core: &Arc<GraphCore>) -> String {
 }
 
 /// The per-(actor,version) `FilteredViewCache` probe-then-build used by every
-/// `result-cache` MISS across the Sql/UnifiedQuery/UnifiedQueryText/GraphQl/
+/// `result-cache` MISS across the Sql/UnifiedQuery/Uql/GraphQl/
 /// CypherQuery arms (mirrors `rls_snapshot` below, which is the SAME idiom for a
 /// `not(result-cache)` build) — pure extract-method out of each of those arms'
 /// bodies, no behaviour change. The `not(feature = "security")` fallback
@@ -505,7 +505,7 @@ pub(crate) fn rls_snapshot(
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Arc<crate::graph::GraphView> {
     // perf/row-visibility-index (B-sweep): this ONE helper backs FIVE `Method`
-    // arms in a `not(result-cache)` build (Sql/UnifiedQuery/UnifiedQueryText/
+    // arms in a `not(result-cache)` build (Sql/UnifiedQuery/Uql/
     // GraphQl/CypherQuery — every `rls_snapshot(...)` call site in this file), so
     // wiring the per-(actor,version) `FilteredViewCache` here amortizes the
     // per-node RLS decode for all of them in one place, mirroring EXACTLY
