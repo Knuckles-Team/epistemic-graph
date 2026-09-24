@@ -25,16 +25,35 @@ Two layers of proof:
 
 import asyncio
 import contextlib
+import json
 import os
 import time
 
 import msgpack
 import pytest
-from conftest import request_context
+from conftest import WRITE_SEQUENCE, request_context
 
 from epistemic_graph.client import EpistemicGraphClient, StaleRouteError
 
 # ── Deterministic client-demux proof against a mock of the pipelined engine ──
+
+
+def _op(**directive) -> tuple[str, dict]:
+    """A real, engine-decodable request carrying the mock's per-call directive
+    (``delay``/``tag``/``fail``/``stale``) as JSON in its node id -- the client
+    signs the body the engine re-derives, so it refuses an invented method."""
+    node_id = json.dumps(directive, sort_keys=True)
+    return "AddNode", {"node_id": node_id, "properties_msgpack": b"\x80"}
+
+
+def _directive(req: dict) -> dict:
+    """The directive ``_op`` encoded, or ``{}`` for any other request."""
+    node_id = (req.get("params") or {}).get("node_id")
+    try:
+        decoded = json.loads(node_id) if isinstance(node_id, str) else None
+    except ValueError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}
 
 
 class PipelinedMockServer:
@@ -51,7 +70,7 @@ class PipelinedMockServer:
         self.max_inflight = 0
 
     async def _process(self, writer, write_lock, req):
-        params = req.get("params") or {}
+        params = _directive(req)
         delay = float(params.get("delay", 0.0))
         await asyncio.sleep(delay)
         if params.get("stale"):
@@ -157,7 +176,7 @@ async def test_one_connection_pipelines_concurrently():
     try:
         t0 = time.perf_counter()
         results = await asyncio.gather(
-            *(client._send("Op", {"delay": work, "tag": i}) for i in range(n))
+            *(client._send(*_op(delay=work, tag=i)) for i in range(n))
         )
         elapsed = time.perf_counter() - t0
 
@@ -186,7 +205,7 @@ async def test_out_of_order_completion_is_demuxed():
     try:
 
         async def call(tag: str, delay: float):
-            r = await client._send("Op", {"delay": delay, "tag": tag})
+            r = await client._send(*_op(delay=delay, tag=tag))
             completion.append(tag)
             return r
 
@@ -214,18 +233,18 @@ async def test_one_error_does_not_corrupt_other_inflight():
     try:
 
         async def ok(tag: int):
-            return await client._send("Op", {"delay": 0.05, "tag": tag})
+            return await client._send(*_op(delay=0.05, tag=tag))
 
         async def boom():
             with pytest.raises(RuntimeError):
-                await client._send("Op", {"delay": 0.02, "fail": True})
+                await client._send(*_op(delay=0.02, fail=True))
             return "raised"
 
         r0, rb, r1, r2 = await asyncio.gather(ok(0), boom(), ok(1), ok(2))
         assert (r0, r1, r2) == (0, 1, 2), "error must not corrupt sibling results"
         assert rb == "raised"
         # Connection is still healthy after one in-flight error.
-        assert await client._send("Op", {"tag": 99}) == 99
+        assert await client._send(*_op(tag=99)) == 99
     finally:
         await client.close()
         await server.stop()
@@ -238,7 +257,7 @@ async def test_stale_route_error_exposes_structured_redirect():
     client = await _client_to(server.port)
     try:
         with pytest.raises(StaleRouteError) as excinfo:
-            await client._send("Op", {"stale": True})
+            await client._send(*_op(stale=True))
         assert excinfo.value.target_ref == "tenant:graph"
         assert excinfo.value.group == 5
         assert excinfo.value.epoch == 12
@@ -258,8 +277,8 @@ async def test_within_caller_ordering_preserved():
     client = await _client_to(server.port)
     try:
         order = []
-        for tag in ("AddNode", "AddEdge", "Commit"):
-            order.append(await client._send(tag, {"delay": 0.0, "tag": tag}))
+        for method, params in WRITE_SEQUENCE:
+            order.append(await client._send(method, params))
         assert order == ["AddNode", "AddEdge", "Commit"]
     finally:
         await client.close()
