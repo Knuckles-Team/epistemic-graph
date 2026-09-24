@@ -41,6 +41,7 @@ pub(super) fn inputs(
         &inputs.request.candidates.kinds,
     )?;
     check_templates(inputs)?;
+    super::topology::validate::inputs(inputs)?;
     check_solver(inputs)
 }
 

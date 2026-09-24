@@ -12,3 +12,4 @@ pub mod method_bodies;
 pub mod repository_index;
 pub mod source_ingestion;
 pub mod sql_source;
+pub mod topology;

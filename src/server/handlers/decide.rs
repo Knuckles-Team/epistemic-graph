@@ -49,7 +49,6 @@ mod stat_replay;
 mod stat_resolve;
 #[cfg(feature = "decide")]
 mod stat_slate;
-// EH-066 — the decision record views (SQL catalog relations + the UQL `DECISIONS` source).
 #[cfg(feature = "decide")]
 mod stat_retention;
 #[cfg(feature = "decide")]
@@ -67,10 +66,22 @@ mod stat_retrieval_views;
 pub(crate) mod served_adapter;
 #[cfg(all(test, feature = "decide"))]
 mod stat_tests;
+// EH-066 — the decision record views (SQL catalog relations + the UQL `DECISIONS` source).
 #[cfg(all(feature = "decide", feature = "query"))]
 mod stat_view;
 #[cfg(feature = "decide")]
 mod telemetry;
+
+// Swarm topology through the assembly decision (SWARM-TOPOLOGY-DECIDE-DESIGN):
+// the schema entailments and capacity headroom a topology question reads, and
+// the publish-time topology shape check.
+#[cfg(feature = "decide")]
+mod capacity_premise;
+#[cfg(feature = "decide")]
+mod topology_read;
+#[cfg(feature = "decide")]
+mod topology_schema;
+pub(crate) mod topology_shape;
 
 pub(crate) use assemble::handle_agent_assemble;
 pub(crate) use commit::handle_decision_commit;

@@ -72,6 +72,14 @@ pub enum PremiseProvenance {
     Observation { evaluation_id: String },
     /// The request itself: a requirement the caller stated in `field`.
     Request { field: String },
+    /// A keyed graph schema source, at the composed schema digest the fact
+    /// was entailed under (swarm-topology admissibility).
+    SchemaSource {
+        source_key: String,
+        schema_digest: String,
+    },
+    /// A live capacity cell read at an epoch (swarm-topology headroom).
+    CapacityCell { cell_id: String, epoch: u64 },
 }
 
 /// One fact the decision used.

@@ -35,6 +35,7 @@ mod objective;
 mod seal;
 mod search;
 mod template;
+mod topology;
 mod validate;
 mod why_not;
 
@@ -107,6 +108,7 @@ pub fn inputs(
         },
         templates: eg_types::contract::BoundedVec::new(templates)
             .map_err(|error| AssembleError::new(DecisionErrorCode::AssemblyInputsInvalid, error))?,
+        topology: None,
     })
 }
 

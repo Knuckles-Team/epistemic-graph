@@ -218,6 +218,18 @@ pub trait PersistenceBackend: Send + Sync {
         Err("persistence backend does not support native capacity status".to_string())
     }
 
+    /// What each named cell still admits for `priority`, read from one MVCC
+    /// snapshot under the acquire path's own pricing rule. The default fails
+    /// closed for non-authoritative backends.
+    async fn read_capacity_headroom(
+        &self,
+        _graph_fname: &str,
+        _cells: &[String],
+        _priority: eg_types::capacity_lease::LeasePriority,
+    ) -> Result<Vec<eg_types::decision::CapacityHeadroom>, String> {
+        Err("persistence backend does not support native capacity headroom".to_string())
+    }
+
     /// Reconstruct the registry from durable storage at boot. Returns the number
     /// of graphs loaded. No-op (Ok(0)) when nothing is configured.
     async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String>;

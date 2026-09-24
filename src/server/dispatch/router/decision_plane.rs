@@ -63,8 +63,13 @@ async fn dispatch_decision_methods(
     ControlFlow::Break(match method {
         Method::AgentAssemble { request } => {
             dispatch_boxed(async {
-                handlers::decide::handle_agent_assemble(state, req.id, verified_context, *request)
-                    .await
+                handlers::decide::handle_agent_assemble(
+                    state,
+                    req.id,
+                    (&req.graph, verified_context),
+                    *request,
+                )
+                .await
             })
             .await
         }

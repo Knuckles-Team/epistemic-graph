@@ -537,6 +537,11 @@ pub struct AgentGraphDraft {
     /// premise of a context engine is that the context is the justification.
     #[serde(default)]
     pub synthesis_evidence: Option<ComponentDependency>,
+    /// The topology facts a graph TEMPLATE declares for swarm-topology
+    /// decisions. Inside the definition digest; absent from every graph that
+    /// declares none, so their digests do not move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<crate::decision::topology::TopologyFacts>,
 }
 
 impl AgentGraphDraft {
@@ -568,6 +573,8 @@ pub struct AgentGraphEntry {
     pub policy_digest: String,
     #[serde(default)]
     pub synthesis_evidence: Option<ComponentDependency>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<crate::decision::topology::TopologyFacts>,
     /// The composed work ceiling ADMISSION derived for this revision --
     /// [`CompositionFacts::total_work`] from the publish that created it.
     ///
@@ -673,6 +680,7 @@ impl AgentGraphEntry {
             purpose_id: draft.purpose_id,
             policy_digest: draft.policy_digest,
             synthesis_evidence: draft.synthesis_evidence,
+            topology: draft.topology,
             composed_work_ceiling,
             entry_revision,
             lifecycle,
@@ -747,6 +755,7 @@ impl AgentGraphEntry {
             purpose_id: self.purpose_id.clone(),
             policy_digest: self.policy_digest.clone(),
             synthesis_evidence: self.synthesis_evidence.clone(),
+            topology: self.topology.clone(),
         }
     }
 }
@@ -760,6 +769,9 @@ impl AgentGraphDraft {
             // WHY a shape was synthesized. Any kind may carry it.
             validate_text("synthesis_evidence", &evidence.component_id)?;
             validate_digest("synthesis_evidence", &evidence.definition_digest)?;
+        }
+        if let Some(topology) = &self.topology {
+            topology.validate()?;
         }
         self.shape.validate()
     }
@@ -791,6 +803,15 @@ pub fn draft_definition_digest(draft: &AgentGraphDraft) -> String {
     put_text(&mut hasher, &draft.purpose_id);
     put_text(&mut hasher, &draft.policy_digest);
     put_opt_dependency(&mut hasher, draft.synthesis_evidence.as_ref());
+    // Only a template that declares topology facts hashes them, after a
+    // marker, so every graph without them keeps its digest.
+    if let Some(topology) = &draft.topology {
+        put_text(&mut hasher, "topology");
+        put_text(
+            &mut hasher,
+            &crate::decision::topology::facts_digest(topology),
+        );
+    }
     format!("{DIGEST_PREFIX}{}", hex::encode(hasher.finalize()))
 }
 
@@ -1450,6 +1471,7 @@ mod tests {
             purpose_id: "agent-construction".into(),
             policy_digest: digest('7'),
             synthesis_evidence: None,
+            topology: None,
         }
     }
 
@@ -2421,6 +2443,7 @@ mod tests {
             purpose_id: _,
             policy_digest: _,
             synthesis_evidence: _,
+            topology: _,
         } = rich_draft();
 
         type Mutator = (&'static str, fn(&mut AgentGraphDraft));
@@ -2433,6 +2456,7 @@ mod tests {
             ("purpose_id", |d| d.purpose_id = "agent-rebuild".into()),
             ("policy_digest", |d| d.policy_digest = digest('c')),
             ("synthesis_evidence", |d| d.synthesis_evidence = None),
+            ("topology", |d| d.topology = None),
         ];
 
         let baseline = AgentGraphEntry::publish(rich_draft(), 10, 1, 1_000)
@@ -2466,6 +2490,7 @@ mod tests {
             kind: AgentComponentKind::Ontology,
             definition_digest: digest('c'),
         });
+        rich.topology = Some(crate::test_support::topology::facts());
         rich
     }
 }

@@ -72,6 +72,7 @@ pub fn policy() -> DecisionPolicy {
         a2a_requires_observation: true,
         cold_start: ColdStart::DeterministicOnly,
         statistical: None,
+        topology: None,
     }
 }
 
@@ -87,6 +88,7 @@ pub fn assembly_request() -> AssemblyRequest {
             constraints: AssemblyConstraints::default(),
             pins: bounded(Vec::new()),
             denies: bounded(vec!["component-denied".to_string()]),
+            topology: None,
         },
         candidates: LibraryCandidateScope {
             kinds: bounded(vec![AgentComponentKind::Tool]),
@@ -231,6 +233,7 @@ pub fn every_decision_outcome() -> Vec<DecisionOutcome> {
                 component: dependency("component-a", AgentComponentKind::Tool),
             }]),
             certificate: Box::new(solver::certificate()),
+            topology: None,
         },
         DecisionOutcome::Abstained {
             reasons: bounded(every_abstain_reason()),
@@ -270,6 +273,7 @@ fn inputs() -> DecisionInputs {
             node_budget: 100_000,
         },
         templates: bounded(Vec::new()),
+        topology: None,
     }
 }
 
