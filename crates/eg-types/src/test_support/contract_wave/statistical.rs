@@ -351,6 +351,7 @@ pub fn log_ops() -> Vec<(
                     tenant_id: "tenant-a".to_string(),
                     question_id: None,
                     window: window(),
+                    attribution: None,
                 },
             },
         ),

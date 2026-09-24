@@ -27,8 +27,8 @@ pub mod shapley;
 #[cfg(test)]
 mod tests;
 
-pub use game::{Aggregate, AggregateGame, Game};
-pub use linear::linear_split;
+pub use game::{Aggregate, AggregateGame, Game, LoggedGame};
+pub use linear::{additive_fit, linear_split};
 pub use owen::owen_values;
 pub use regression::{factor_ols, FactorAttribution, HacLags};
 pub use shapley::{shapley_exact, shapley_sampled, SampleSpec};

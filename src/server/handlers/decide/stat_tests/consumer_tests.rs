@@ -295,6 +295,7 @@ async fn an_assembly_outcome_is_credited_to_its_slate() {
             tenant_id: v1::TENANT.to_string(),
             question_id: Some("assembly".to_string()),
             window: window(),
+            attribution: None,
         },
     };
     let rows: OutcomeAggregate =

@@ -33,5 +33,6 @@ pub mod nl;
 pub mod quant;
 pub mod refusal;
 pub mod retrieval;
+pub mod track_record;
 
 pub use refusal::{Refusal, RefusalResult};

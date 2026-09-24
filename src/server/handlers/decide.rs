@@ -47,6 +47,9 @@ mod stat_replay;
 mod stat_resolve;
 #[cfg(feature = "decide")]
 mod stat_slate;
+// EH-523: the per-component split of a slate's outcome on the outcome aggregate.
+#[cfg(feature = "decide")]
+mod stat_slate_attribution;
 // EH-066 — the decision record views (SQL catalog relations + the UQL `DECISIONS` source).
 #[cfg(feature = "decide")]
 mod stat_retention;
@@ -60,6 +63,9 @@ mod stat_retrieval;
 // EH-394..398: the retrieval-learning relations of the decision views.
 #[cfg(all(feature = "decide", feature = "query"))]
 mod stat_retrieval_views;
+// EH-525: the learned reputation relation of the decision views.
+#[cfg(all(feature = "decide", feature = "query"))]
+mod stat_reputation;
 // EH-396: the query adapter on the served read paths.
 #[cfg(feature = "decide")]
 pub(crate) mod served_adapter;

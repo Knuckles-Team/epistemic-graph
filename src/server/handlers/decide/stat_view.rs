@@ -7,7 +7,8 @@
 //!   the chosen option, resolution kind, evidence class, policy digest, who committed it
 //!   and when);
 //! * `decision_evaluations` — the evaluations of those records;
-//! * `decision_resolutions` — the abstention resolutions of those records.
+//! * `decision_resolutions` — the abstention resolutions of those records;
+//! * `reputation` — learned reputations over those records (EH-525, `stat_reputation`).
 //!
 //! Visibility is applied BEFORE a row exists — tenant-visible records plus the caller's
 //! own principal-visible ones ([`visible_entries`]) — and evaluations and resolutions
@@ -239,11 +240,31 @@ impl ReadOnlyRelations for DecisionViews {
             &self.reader,
             &self.served_tenant,
         )?);
+        // EH-525: learned reputations over the same visible log.
+        relations.push(super::stat_reputation::reputation_relation(
+            &self.store,
+            &self.reader,
+        )?);
         Ok(relations)
     }
 }
 
 impl eg_plan::exec::DecisionSource for DecisionViews {
+    /// EH-525: `SOURCE RELIABILITY` reads the subject's learned reputation.
+    fn learned_reliability(
+        &self,
+        subject: &str,
+        prior_mean: f64,
+        prior_strength: f64,
+    ) -> Result<Option<eg_plan::exec::LearnedReliability>, String> {
+        super::stat_reputation::learned_reliability(
+            &self.store,
+            &self.reader,
+            subject,
+            (prior_mean, prior_strength),
+        )
+    }
+
     fn decision_rows(&self) -> Result<Vec<Map<String, Value>>, String> {
         let (_, rows) = relation("decisions", DECISION_COLUMNS, &self.entries()?);
         Ok(rows

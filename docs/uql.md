@@ -160,7 +160,12 @@ columns are those of the SQL `decisions` relation (`record_id`, `question_id`,
 same records are also SQL relations — `decisions`, `decision_evaluations`,
 `decision_resolutions` — on every served SQL surface (`Sql`, the Postgres wire), read-only and
 per caller. A plan with `DECISIONS` is never result-cached (the log changes without a graph
-write).
+write). The `reputation` relation (EH-525) learns from the same visible records: one row per
+executed `option`, per `agent` it ran as, and per `forecaster` (a fitted decision head), with
+the pooled, age-discounted success probability (`mean`, `lower`, `upper`) or, for a
+forecaster, its proper scores (`brier` = `reliability` − `resolution` + `uncertainty`,
+`log_loss`, `ece`). Only independent observations count (never a self-report), and a row
+below the policy's support floor reports `insufficient_history` with no numbers.
 
 ```uql
 DECISIONS WHERE outcome = 'acted' AND committed_at_ms >= 1700000000000 |> LIMIT 50

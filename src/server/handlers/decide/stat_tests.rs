@@ -728,5 +728,10 @@ mod learning_tests;
 
 #[cfg(feature = "query")]
 mod evaluator_tests;
+// EH-523: the served per-component slate split.
+mod attribution_tests;
+// EH-525: the learned reputation relation and SOURCE RELIABILITY.
+#[cfg(feature = "query")]
+mod reputation_tests;
 
 mod nl_tests;

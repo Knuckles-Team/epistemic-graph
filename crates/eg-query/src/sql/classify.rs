@@ -1472,6 +1472,8 @@ pub const READ_ONLY_RELATION_NAMES: &[&str] = &[
     "decision_class_usage",
     "decision_proven_paths",
     "decision_pointers",
+    // EH-525: learned reputations over the same visible log.
+    "reputation",
 ];
 
 /// `nodes`/`edges` are the graph projection's reserved table names — a user
