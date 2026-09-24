@@ -165,6 +165,8 @@ mod dispatch_reachability_tests {
         "GraphSchema.attach",
         "GraphSchema.attach_pack",
         "GraphSchema.detach",
+        "GraphSchema.attach_approved",
+        "GraphSchema.validate_repair",
         "MutationOutbox.dead_letters",
         "MutationOutbox.rewind",
         "MutationOutbox.status",

@@ -1,14 +1,32 @@
+use std::collections::BTreeMap;
+
 use serde_json::{json, Map, Value};
 
 use super::*;
+use crate::graph_schema::repair::{FieldContract, JsonType};
 use crate::graph_schema::GraphSchemaOp;
 
 const SOURCE: &str = "approved:container-manager-mcp";
-const SHAPES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .";
 const NOW: u64 = 1_700_000_000_000;
 
+fn contract_with(field: &str) -> RecordContract {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        field.to_string(),
+        FieldContract {
+            required: true,
+            types: vec![JsonType::String],
+        },
+    );
+    RecordContract { fields }
+}
+
+fn contract() -> RecordContract {
+    contract_with("name")
+}
+
 fn candidate() -> String {
-    approved_candidate_digest(SOURCE, Some(SHAPES), None)
+    approved_candidate_digest(SOURCE, &contract())
 }
 
 fn lease(status: ControlLeaseStatus, grant: Value) -> ControlLeaseView {
@@ -86,42 +104,42 @@ fn an_approval_of_another_kind_target_or_candidate_is_a_mismatch() {
 }
 
 #[test]
-fn the_candidate_digest_binds_the_key_and_both_documents() {
+fn the_candidate_digest_binds_the_key_and_the_typed_contract() {
     let base = candidate();
     assert_eq!(base.len(), 64);
-    assert_eq!(base, approved_candidate_digest(SOURCE, Some(SHAPES), None));
+    assert_eq!(base, approved_candidate_digest(SOURCE, &contract()));
     assert_ne!(
         base,
-        approved_candidate_digest("approved:other", Some(SHAPES), None)
+        approved_candidate_digest("approved:other", &contract())
     );
-    assert_ne!(base, approved_candidate_digest(SOURCE, None, Some(SHAPES)));
     assert_ne!(
         base,
-        approved_candidate_digest(SOURCE, Some("@prefix x: <y> ."), None)
+        approved_candidate_digest(SOURCE, &contract_with("title"))
     );
 }
 
 #[test]
 fn the_candidate_digest_matches_its_documented_framing() {
-    // The AU proposer computes the same bytes (agent_utilities
-    // schema_drift.repair.approved_candidate_digest); this pins the framing.
-    let shapes_hex = Digest256::sha256(SHAPES.as_bytes()).to_hex();
-    let framed = format!("{APPROVED_CANDIDATE_DOMAIN}\0{SOURCE}\0{shapes_hex}\0\0");
+    // The AU proposer computes the same bytes from the same typed contract
+    // (agent_utilities schema_drift.candidate.approved_candidate_digest).
+    let framed = format!(
+        "{APPROVED_CANDIDATE_DOMAIN}\0{SOURCE}\0{}\0",
+        r#"{"fields":{"name":{"required":true,"types":["string"]}}}"#
+    );
     assert_eq!(candidate(), Digest256::sha256(framed.as_bytes()).to_hex());
 }
 
 fn approved_op(source_id: &str, lease_id: &str) -> GraphSchemaOp {
     GraphSchemaOp::AttachApproved {
         source_id: source_id.to_string(),
-        shapes_ttl: Some(SHAPES.to_string()),
-        ontology_ttl: None,
+        contract: contract(),
         approval_lease_id: lease_id.to_string(),
         if_composed_digest: None,
     }
 }
 
 #[test]
-fn attach_approved_requires_its_namespace_a_lease_id_and_a_document() {
+fn attach_approved_requires_its_namespace_a_lease_id_and_a_contract() {
     approved_op(SOURCE, "action_approval:1").validate().unwrap();
     for bad_key in ["admin:x", "approved:", "pack:x"] {
         assert!(approved_op(bad_key, "action_approval:1")
@@ -130,19 +148,11 @@ fn attach_approved_requires_its_namespace_a_lease_id_and_a_document() {
     }
     assert!(approved_op(SOURCE, " ").validate().is_err());
     assert!(approved_op(SOURCE, &"x".repeat(513)).validate().is_err());
-    let GraphSchemaOp::AttachApproved {
-        source_id,
-        approval_lease_id,
-        ..
-    } = approved_op(SOURCE, "action_approval:1")
-    else {
-        unreachable!()
-    };
-    let empty = GraphSchemaOp::AttachApproved {
-        source_id,
-        shapes_ttl: None,
-        ontology_ttl: None,
-        approval_lease_id,
+    let empty = GraphSchemaOp::ValidateRepair {
+        source_id: SOURCE.to_string(),
+        contract: RecordContract {
+            fields: BTreeMap::new(),
+        },
         if_composed_digest: None,
     };
     assert!(empty.validate().is_err());
@@ -152,7 +162,7 @@ fn attach_approved_requires_its_namespace_a_lease_id_and_a_document() {
 fn a_generic_attach_can_never_write_the_approved_namespace() {
     let generic = GraphSchemaOp::Attach {
         source_id: SOURCE.to_string(),
-        shapes_ttl: Some(SHAPES.to_string()),
+        shapes_ttl: Some("@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string()),
         ontology_ttl: None,
         if_composed_digest: None,
     };

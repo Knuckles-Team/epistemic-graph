@@ -210,6 +210,9 @@ pub(crate) async fn handle_gateway(
         GraphSchemaOp::AttachApproved { .. } => {
             approved::handle_gateway(tenant_id, ctx, plan, method, op).await
         }
+        GraphSchemaOp::ValidateRepair { .. } => {
+            approved::handle_validate(ctx, plan, method, op).await
+        }
     }
 }
 
@@ -412,7 +415,9 @@ fn apply(
             sources.attach_dynamic(source_id.clone(), approved::source(op)?)?
         }
         GraphSchemaOp::Detach { source_id, .. } => sources.detach_dynamic(source_id),
-        GraphSchemaOp::AttachPack { .. } => unreachable!("attach-pack has its own route"),
+        GraphSchemaOp::AttachPack { .. } | GraphSchemaOp::ValidateRepair { .. } => {
+            unreachable!("attach-pack and validate-repair have their own routes")
+        }
     };
     if matches!(op, GraphSchemaOp::Detach { .. }) {
         compose::validate_and_compose(&sources)?;
