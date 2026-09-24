@@ -64,8 +64,6 @@ mod ann_projection;
 pub(crate) use ann_projection::authorized_read_store_for_query;
 #[cfg(feature = "security")]
 mod identity_view;
-#[cfg(feature = "security")]
-pub(crate) use identity_view::publish as publish_identity_view;
 
 /// The one denial string for EVERY authorization failure in this module —
 /// nonexistent table, unowned/ungranted table, unauthorized grant/revoke/RLS

@@ -55,7 +55,7 @@ fn query(dir: &std::path::Path, scopes: &[&str], sql: &str) -> Result<Vec<Vec<St
 fn an_identity_reader_selects_users_and_nobody_else_sees_the_relations() {
     let dir = test_persist_dir();
     std::fs::create_dir_all(&dir).unwrap();
-    publish(dir.to_str(), &store());
+    crate::server::identity_view::publish(dir.to_str(), &store());
     let sql = "SELECT principal_id, username, has_password FROM __identity__users";
     let rows = query(&dir, &["identity:read"], sql).unwrap();
     assert_eq!(rows, vec![vec![
@@ -72,7 +72,7 @@ fn an_identity_reader_selects_users_and_nobody_else_sees_the_relations() {
 fn no_relation_projects_a_secret() {
     let dir = test_persist_dir();
     std::fs::create_dir_all(&dir).unwrap();
-    publish(dir.to_str(), &store());
+    crate::server::identity_view::publish(dir.to_str(), &store());
     for relation in store().sql_relations() {
         let sql = format!("SELECT * FROM {IDENTITY_RELATION_PREFIX}{}", relation.name);
         let rows = query(&dir, &["identity:admin"], &sql).unwrap();

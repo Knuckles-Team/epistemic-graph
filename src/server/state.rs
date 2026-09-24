@@ -458,7 +458,7 @@ impl ServerState {
     /// Called after every write that can change the store.
     #[cfg(feature = "security")]
     pub(crate) fn publish_identity_view(&self) {
-        crate::server::sql_catalog_acl::publish_identity_view(
+        crate::server::identity_view::publish(
             self.persist_dir.as_deref(),
             self.isolation.rbac().identity_store(),
         );

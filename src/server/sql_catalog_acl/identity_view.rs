@@ -9,17 +9,14 @@
 //! `identity:read` or `identity:admin` scope. The relation names carry the
 //! reserved prefix [`IDENTITY_RELATION_PREFIX`], which no tenant table may use.
 //!
-//! The engine publishes a snapshot of its store, keyed by its persistence
-//! directory, after every write that changes it; the projection reads the
-//! snapshot of the engine that owns `persist_dir`.
+//! The projection reads the snapshot the engine owning `persist_dir`
+//! published (`crate::server::identity_view`).
 #![cfg(feature = "security")]
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::path::Path;
 
 use eg_query::{Column, ColumnType, TableSchema};
-use eg_types::identity::{IdentityStore, SqlType};
+use eg_types::identity::SqlType;
 
 use super::AuthorizedReadStore;
 use crate::server::access::CarrierAuthority;
@@ -27,26 +24,7 @@ use crate::server::access::CarrierAuthority;
 /// The reserved relation-name prefix (`__identity__users`, …).
 pub(crate) const IDENTITY_RELATION_PREFIX: &str = "__identity__";
 
-type Views = RwLock<HashMap<PathBuf, Arc<IdentityStore>>>;
-
-fn views() -> &'static Views {
-    static VIEWS: OnceLock<Views> = OnceLock::new();
-    VIEWS.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
-/// Publish `store` as the identity view of the engine at `persist_dir`.
-pub(crate) fn publish(persist_dir: Option<&str>, store: &IdentityStore) {
-    let Some(dir) = persist_dir else {
-        return;
-    };
-    if let Ok(mut views) = views().write() {
-        views.insert(PathBuf::from(dir), Arc::new(store.clone()));
-    }
-}
-
-fn published(persist_dir: &Path) -> Option<Arc<IdentityStore>> {
-    views().read().ok()?.get(persist_dir).cloned()
-}
+use crate::server::identity_view::published;
 
 /// Refuse a tenant table name in the reserved identity namespace.
 pub(crate) fn refuse_reserved_name(name: &str) -> Result<(), String> {
