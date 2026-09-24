@@ -143,7 +143,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// `RETURN name {, name}` — each name a score channel this build produces.
+    /// `RETURN name {, name}` — each name a score channel this build produces, a series
+    /// value channel `v0..vk` (EH-521) or a `DERIVE … AS name` alias declared earlier.
     pub(super) fn return_stage(&mut self) -> Result<Op, UqlError> {
         let mut channels = vec![self.channel()?];
         while self.eat(&Tok::Comma) {
@@ -156,7 +157,7 @@ impl<'a> Parser<'a> {
         let span = self.cur_span();
         let name = self.name("a score channel")?;
         let known = eg_types::wire::OpKind::score_channels();
-        if known.contains(&name.as_str()) {
+        if known.contains(&name.as_str()) || self.is_value_channel(&name) {
             return Ok(name);
         }
         Err(UqlError::new(

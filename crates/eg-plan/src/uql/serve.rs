@@ -5,8 +5,10 @@
 //! The executor is unchanged: a plan without `RETURN` runs through [`crate::execute`]
 //! exactly as `UnifiedQuery` does. A plan WITH `RETURN` (or under `PROFILE`) runs the
 //! optimized plan stage by stage through the same `apply` dispatch, recording after each
-//! scoring stage its score under the stage's channel ([`OpKind::score_channel`]) — so the
-//! channels are a side table keyed by row id and the `RowSet` currency itself is untouched.
+//! scoring stage its score under the stage's channel ([`OpKind::score_channel`]), plus the
+//! exact value channels a stage carries (`TSSCAN`'s `v0..vk`, `DERIVE` aliases, EH-521) —
+//! so the channels are a side table keyed by row id and the `RowSet` currency itself is
+//! untouched. Channel values are `f64` on the wire; a score channel is its `f32` widened.
 //! Deterministic: the side table is ordered, the stage order is the optimizer's.
 //!
 //! `LET … FROM/JOIN` programs get the same three modes node by node ([`dag`], EH-449), and
@@ -32,8 +34,8 @@ use crate::rowset::RowSet;
 // graph write. (The capability policy side is `eg-capabilities`' `uql_surfaces_are_read_only`.)
 const _READ_ONLY_DISPATCH: for<'a> fn(&Op, RowSet, &PlanCtx<'a>) -> Result<RowSet, String> = apply;
 
-/// Row id → channel → score.
-type ChannelTable = BTreeMap<String, BTreeMap<&'static str, f32>>;
+/// Row id → channel → value.
+type ChannelTable = BTreeMap<String, BTreeMap<String, f64>>;
 
 /// Every op of a statement, for the server's leg binding (text/spatial/foreign/tsdb
 /// indexes are bound when ANY stage needs them, whatever the body shape).
@@ -96,7 +98,7 @@ fn micros_since(started: Instant) -> u64 {
 }
 
 /// One row's value for each requested channel (`None` where no stage wrote it).
-fn row_channels(id: &str, columns: &[String], table: &ChannelTable) -> Vec<Option<f32>> {
+fn row_channels(id: &str, columns: &[String], table: &ChannelTable) -> Vec<Option<f64>> {
     let row = table.get(id);
     columns
         .iter()
@@ -151,6 +153,10 @@ fn traced(plan: &Plan, ctx: &PlanCtx) -> Result<Traced, String> {
 }
 
 fn record_channel(op: &Op, rows: &RowSet, table: &mut ChannelTable) {
+    for (id, values) in rows.values() {
+        let row = table.entry(id.clone()).or_default();
+        row.extend(values.iter().map(|(name, &v)| (name.clone(), v)));
+    }
     let Some(channel) = op_kind(op).score_channel() else {
         return;
     };
@@ -159,7 +165,7 @@ fn record_channel(op: &Op, rows: &RowSet, table: &mut ChannelTable) {
             table
                 .entry(row.id.clone())
                 .or_default()
-                .insert(channel, score);
+                .insert(channel.to_string(), f64::from(score));
         }
     }
 }
