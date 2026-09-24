@@ -198,6 +198,10 @@ fi
 GOT="$(scanner_cmd "$KISS" --version 2>/dev/null)" || die "kiss --version failed"
 [ "$GOT" = "kiss $VERSION" ] || die \
   "version drift: expected 'kiss $VERSION', got '$GOT'"
+# `kiss 0.4.10` is printed by both the crates.io build and the pinned fork
+# build (scripts/kiss_fork.py); only the fork passes the inline-module probe.
+scanner_cmd python3 -I "$STAGED_ROOT/scripts/kiss_fork.py" "$KISS" >/dev/null || die \
+  "kiss at $KISS is not the pinned fork build; see scripts/kiss_fork.py"
 [ -f "$CFG" ] && [ ! -L "$CFG" ] || die \
   "missing staged .config/kiss.toml (hand-authored KISS thresholds)"
 cfg_resolved="$(realpath -- "$CFG" 2>/dev/null)" || die "could not resolve $CFG"

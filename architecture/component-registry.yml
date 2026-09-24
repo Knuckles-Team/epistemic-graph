@@ -3917,6 +3917,7 @@ components:
       - "tests/test_integration_baseline.py"
       - "tests/test_isolation.py"
       - "tests/test_kiss_diff_scope.py"
+      - "tests/test_kiss_fork.py"
       - "tests/test_kiss_hook_context.py"
       - "tests/test_kiss_staged.py"
       - "tests/test_kvcache_config.py"
