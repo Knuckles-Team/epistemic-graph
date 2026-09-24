@@ -75,6 +75,17 @@ pub(crate) fn fresh(store: &dyn ChunkStore, id: &str) -> MutationBatch {
 /// Stream `data` through the in-process path one chunk at a time (bounded memory),
 /// exactly as the protocol cursor does, and commit its engine-owned manifest.
 pub(crate) fn chunked(store: &dyn ChunkStore, data: &[u8], chunk_size: usize) -> CommittedBlob {
+    chunked_as(store, data, chunk_size, super::ENGINE_BLOB_OWNER_SCOPE)
+}
+
+/// [`chunked`], committed under `owner_scope` -- the shape a verified caller's
+/// own upload has.
+pub(crate) fn chunked_as(
+    store: &dyn ChunkStore,
+    data: &[u8],
+    chunk_size: usize,
+    owner_scope: &str,
+) -> CommittedBlob {
     let mut chunks = Vec::new();
     let mut chunk_lens = Vec::new();
     for part in data.chunks(chunk_size) {
@@ -84,7 +95,7 @@ pub(crate) fn chunked(store: &dyn ChunkStore, data: &[u8], chunk_size: usize) ->
     }
     let manifest = BlobManifest {
         schema_version: BLOB_MANIFEST_VERSION,
-        owner_scope: super::ENGINE_BLOB_OWNER_SCOPE.to_string(),
+        owner_scope: owner_scope.to_string(),
         chunks,
         chunk_lens,
         len: data.len() as u64,
