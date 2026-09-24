@@ -11597,38 +11597,42 @@ class QueryClient:
     async def uql(
         self,
         text: str,
-    ) -> list[dict[str, Any]]:
-        """Run a UQL TEXT query (CONCEPT:AU-KG.query.top-nodes-by-degree) — the
-        human/agent-writable
-        front-end over :meth:`unified`.
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run a UQL statement (CONCEPT:AU-KG.query.top-nodes-by-degree; UQL-07/08/09).
 
-        ``text`` is a UQL pipeline that the engine PARSES into the SAME cross-modal
-        ``Plan`` AST :meth:`unified` carries, then runs through the IDENTICAL
-        executor (no new execution path). One query expresses filter (relational) +
-        traverse (graph) + rank (vector) across modalities, e.g.::
+        ``text`` is UQL — a pipeline, a ``LET … FROM/JOIN`` program, optionally prefixed
+        with ``UQL 1;`` and ``EXPLAIN`` / ``PROFILE`` — e.g.::
 
-            MATCH (:Doc) WHERE year > 2024
+            MATCH (:Doc) WHERE year >= $min
               |> TRAVERSE -[:CITES]->{1,2}
-              |> RANK BY ~[1.0, 0.0, 0.0, 0.0]
-              |> LIMIT 10
+              |> RANK BY ~$vec
+              |> RETURN similarity
+              |> LIMIT $k
 
-        Grammar (this increment): ``MATCH (:Label) [WHERE preds]`` seeds the scan
-        (an inline ``WHERE`` is sugar for a ``|> WHERE`` filter stage); pipeline
-        stages are ``TRAVERSE -[:REL]->{min,max}`` (or bare ``TRAVERSE REL{min,max}``;
-        ``{n}`` = exactly n hops, absent = 1 hop), ``RANK BY ~[v0, v1, …]`` (an inline
-        literal query vector), ``LIMIT k``, and a later-stage ``WHERE``. Predicates are
-        ``prop > num`` / ``prop < num`` / ``prop = value`` joined by ``AND``; keywords
-        are case-insensitive. The query surface is included in the mandatory main build.
+        ``params`` binds each ``$name`` to a Python value — ``str``, ``bool``,
+        ``int`` / ``float``, or a ``list`` (numbers bind a query vector or an ``IN``
+        list, strings an ``IN`` list). Values are bound as typed VALUES by the
+        engine, never spliced into the text, so a parameter cannot change the
+        query's structure. The grammar is ``docs/uql.md``; errors carry a stable
+        ``UQL_*`` code and a caret diagnostic.
 
-        On a syntax error the engine returns a clear, caret-annotated parse error
-        (raised as the transport's error). Returns the same
-        ``{"id": str, "score": float | None}`` rows as :meth:`unified`.
+        Returns one dict whose ``"kind"`` says what ran:
+
+        * ``"rows"`` — ``{"kind", "columns", "rows", "warnings"}``; each row is
+          ``{"id", "score", "channels"}`` (``channels`` maps each ``RETURN``ed score
+          channel to its value, ``{}`` without ``RETURN``);
+        * ``"profile"`` — the same plus ``"stages"`` (per-stage estimated/actual
+          rows and microseconds);
+        * ``"explain"`` — ``{"kind", "canonical", "optimized", "stages",
+          "incremental", "incremental_note", "warnings"}`` (nothing executes).
         """
-        result = (
-            await _gen.query.send_unified_query_text(self._client, {"text": text})
-        ).payload
-        rows = result or []
-        return [{"id": id_, "score": score} for id_, score in rows]
+        body = {
+            "text": text,
+            "params": {k: _uql_param(v) for k, v in (params or {}).items()},
+        }
+        result = (await _gen.query.send_uql(self._client, body)).payload
+        return _uql_result(result)
 
     async def explain_plan(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
         """``EXPLAIN PLAN`` (CONCEPT:EG-KG.query.plan-dag) — serialize ``plan`` (the
@@ -16337,3 +16341,44 @@ class SyncEpistemicGraphClient:
 
             return sync_wrapper
         return attr
+
+
+def _uql_literal(value: Any) -> dict[str, Any]:
+    """One typed UQL literal (``PredLiteral``) for a Python scalar."""
+    if isinstance(value, bool):
+        return {"Bool": value}
+    if isinstance(value, (int, float)):
+        return {"Num": float(value)}
+    if isinstance(value, str):
+        return {"Str": value}
+    kind = type(value).__name__
+    raise TypeError(
+        f"UQL parameter values are str, bool, int, float or lists of them, not {kind}"
+    )
+
+
+def _uql_param(value: Any) -> dict[str, Any]:
+    """A typed ``UqlParam`` for a Python value (lists bind vectors / IN lists)."""
+    if isinstance(value, (list, tuple)):
+        return {"List": [_uql_literal(v) for v in value]}
+    return _uql_literal(value)
+
+
+def _uql_rows(columns: list[str], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": row["id"],
+            "score": row["score"],
+            "channels": dict(zip(columns, row["channels"], strict=True)),
+        }
+        for row in rows
+    ]
+
+
+def _uql_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Flatten the externally tagged ``UqlResult`` into one dict with a ``kind``."""
+    ((kind, body),) = result.items()
+    out = {"kind": kind.lower(), **body}
+    if "rows" in out:
+        out["rows"] = _uql_rows(out["columns"], out["rows"])
+    return out
