@@ -30,6 +30,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "rust_module_tree.py",
         "scanner_contract.py",
         "kiss_diff_scope.py",
+        "kiss_fork.py",
     ):
         shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
     shutil.copy2(ROOT / "pyproject.toml", repo / "pyproject.toml")
@@ -47,6 +48,11 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "  exit 0\n"
         "fi\n"
         '[ "${1:-}" = check ]\n'
+        # scripts/kiss_fork.py's inline-module probe: `check --lang rust .`.
+        'if [ "${2:-}" = --lang ]; then\n'
+        "  [ -f src/a/tests/helper.rs ] && printf 'NO VIOLATIONS\\n' && exit 0\n"
+        "  exit 6\n"
+        "fi\n"
         'if [ -n "${KISS_EXPECT_CONFIG_TEXT:-}" ]; then\n'
         '  grep -Fq -- "$KISS_EXPECT_CONFIG_TEXT" "$3" || exit 9\n'
         "fi\n"
@@ -91,6 +97,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "scripts/rust_module_tree.py",
         "scripts/scanner_contract.py",
         "scripts/kiss_diff_scope.py",
+        "scripts/kiss_fork.py",
         "src/example.rs",
         cwd=repo,
     )
@@ -540,4 +547,30 @@ def test_hook_rejects_staged_policy_input_symlink(
 
     assert result.returncode == 2
     assert "staged policy input is missing or not a regular file" in result.stderr
+    assert not log.exists()
+
+
+def test_hook_rejects_the_upstream_build_that_prints_the_pinned_version(
+    repository: tuple[Path, Path, Path],
+) -> None:
+    """crates.io kiss 0.4.10 prints the pinned version line but aborts on an
+    inline-module child; only the pinned fork build passes the probe."""
+    repo, kiss, log = repository
+    source = repo / "src/example.rs"
+    source.write_text("staged clean\n", encoding="utf-8")
+    _run("git", "add", "--", "src/example.rs", cwd=repo)
+    upstream = kiss.with_name("kiss-upstream")
+    upstream.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [ \"${1:-}\" = --version ]; then printf 'kiss 0.4.10\\n'; exit 0; fi\n"
+        "printf 'missing module helper declared from src/a.rs\\n' >&2\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    upstream.chmod(upstream.stat().st_mode | stat.S_IXUSR)
+
+    result = _run_hook(repo, upstream, log)
+
+    assert result.returncode == 2
+    assert "is not the pinned fork build" in result.stderr
     assert not log.exists()

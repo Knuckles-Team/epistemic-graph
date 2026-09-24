@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
+from kiss_fork import NotForkBuild, require_fork_build
 from scanner_contract import (
     ScannerContractError,
     load_contract,
@@ -239,6 +240,10 @@ def _require_pinned_version(kiss_bin: str, env: dict[str, str]) -> None:
     got = version.stdout.decode("utf-8", errors="replace").strip()
     if got != f"kiss {expected}":
         fail(f"expected kiss {expected}, got {got}")
+    try:
+        require_fork_build(kiss_bin, env)
+    except NotForkBuild as exc:
+        fail(str(exc))
 
 
 def main() -> int:

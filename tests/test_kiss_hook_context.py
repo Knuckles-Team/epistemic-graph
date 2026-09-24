@@ -92,6 +92,7 @@ def test_hook_resolves_its_worktree_when_called_outside_checkout(
         "scripts/rust_module_tree.py",
         "scripts/rust_lexer.py",
         "scripts/kiss_diff_scope.py",
+        "scripts/kiss_fork.py",
     ):
         blob = subprocess.run(
             ["git", "hash-object", "-w", authority],
