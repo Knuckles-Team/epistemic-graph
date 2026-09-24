@@ -12332,6 +12332,23 @@ class TimeSeriesClient:
         rows = (await _gen.storage.send_ts_list_series(self._client, {})).payload
         return [str(s) for s in (rows or [])]
 
+    async def define_series(self, series_id: str, source: str, expr: str) -> dict[str, Any]:
+        """EH-524 — define ``series_id`` as a MATERIALISED DERIVED series of
+        ``source`` (a series in the caller's own scope) by ``expr``, a UQL ``DERIVE``
+        series expression over the source's fields ``v0..vk`` (for example
+        ``"zscore(ewma(v0, 12), 60)"``). Every append to the source advances it from
+        its checkpoint; a corrected source point appends new versions (points are
+        ``[value, revision, known_at_ms]``). Idempotent for the same definition.
+        Returns the receipt: ``derived_from``, the canonical ``expr``, its ``digest``,
+        ``kernel_version``, ``appended``, ``caught_up`` and ``last_ts``."""
+        receipt = (
+            await _gen.storage.send_ts_define_series(
+                self._client,
+                {"series_id": series_id, "source": source, "expr": expr},
+            )
+        ).payload
+        return dict(receipt or {})
+
 
 def _sparql_rows(result: SparqlResult) -> list[dict[str, str | None]]:
     """One ``{var: value}`` dict per row of a typed ``SparqlResult``."""

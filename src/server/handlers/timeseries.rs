@@ -64,6 +64,10 @@ use eg_tsdb::store::{ScopedAppendBatch, SeriesKey, SeriesStore};
 use eg_types::contract::Nonce;
 use eg_types::result_contract::storage as results;
 
+// EH-524 — materialised derived series: `TsDefineSeries` and the maintenance a
+// `TsAppend` runs on the series derived from the appended one.
+mod derived;
+
 const MAX_POINTS_MSGPACK_BYTES: usize = 32 * 1024 * 1024;
 const MAX_POINTS_MSGPACK_ITEMS: usize = 1_000_000;
 const MAX_POINTS_PER_REQUEST: usize = 100_000;
@@ -223,60 +227,114 @@ async fn prepare_append(
         Ok(points) => points,
         Err(error) => return Err(Response::err(context.req_id, error)),
     };
-    let graph = context.graph.to_string();
-    let scope = context.authority.namespace("ts-scope", &graph);
-    let expected = match store.mutation_version(context.authority.tenant_scope(), &scope) {
-        Ok(version) => version,
-        Err(error) => {
-            return Err(Response::err(
-                context.req_id,
-                format!("time-series MutationBatch version read failed: {error}"),
-            ))
-        }
-    };
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
-        "timeseries",
-        &scope,
-        context.req_id,
-        context.original_method,
-    );
     let committed_at_ms = crate::server::dispatch::authoritative_now_ms();
-    let batch = match crate::server::mutation_batch::compile_opaque_method(
-        crate::server::mutation_batch::CompileBatch {
-            batch_id: &batch_id,
-            request_id: context.req_id,
-            attempt_nonce: context.attempt_nonce,
-            principal: Some(context.authority.actor_scope()),
-            tenant: context.authority.tenant_scope(),
-            graph: &scope,
-            placement_epoch: context.placement_epoch,
-            idempotency_key: &batch_id,
-            expected_graph_version: Some(expected),
-            fencing_token: context.fencing_token,
-            created_at_ms: committed_at_ms,
-            default_surface: MutationSurface::Other,
-            authoritative_state: None,
-        },
-        context.original_method,
-        MutationSurface::Other,
-        DurabilityDomain::TimeSeries,
-        "timeseries_append",
-    ) {
-        Ok(batch) => batch,
-        Err(error) => {
-            return Err(Response::err(
-                context.req_id,
-                format!("time-series MutationBatch compile failed: {error}"),
-            ))
-        }
-    };
+    let batch = context
+        .series_batch(&store, context.original_method, committed_at_ms)
+        .map_err(|error| Response::err(context.req_id, error))?;
     Ok(PreparedAppend {
         store,
         points,
-        graph,
+        graph: context.graph.to_string(),
         batch,
         committed_at_ms,
     })
+}
+
+/// What a series batch commits under: the scope, the fencing and the request identity.
+/// Plain data, so the blocking maintenance work (EH-524) can carry it off the reactor.
+#[derive(Clone)]
+pub(super) struct BatchScope {
+    authority: CarrierAuthority,
+    graph: String,
+    req_id: u64,
+    attempt_nonce: Option<Nonce>,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+}
+
+impl BatchScope {
+    /// Compile the one native MutationBatch a series write commits under, keyed by the
+    /// request and `method` (the method digest separates several writes of one request).
+    pub(super) fn series_batch(
+        &self,
+        store: &SeriesStore,
+        method: &Method,
+        committed_at_ms: u64,
+    ) -> Result<MutationBatch, String> {
+        let scope = self.authority.namespace("ts-scope", &self.graph);
+        let expected = store
+            .mutation_version(self.authority.tenant_scope(), &scope)
+            .map_err(|error| format!("time-series MutationBatch version read failed: {error}"))?;
+        let batch_id = crate::server::mutation_batch::opaque_request_key(
+            "timeseries",
+            &scope,
+            self.req_id,
+            method,
+        );
+        crate::server::mutation_batch::compile_opaque_method(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id: self.req_id,
+                attempt_nonce: self.attempt_nonce,
+                principal: Some(self.authority.actor_scope()),
+                tenant: self.authority.tenant_scope(),
+                graph: &scope,
+                placement_epoch: self.placement_epoch,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(expected),
+                fencing_token: self.fencing_token,
+                created_at_ms: committed_at_ms,
+                default_surface: MutationSurface::Other,
+                authoritative_state: None,
+            },
+            method,
+            MutationSurface::Other,
+            DurabilityDomain::TimeSeries,
+            "timeseries_append",
+        )
+        .map_err(|error| format!("time-series MutationBatch compile failed: {error}"))
+    }
+
+    /// The canonical key of `series_id` in this scope.
+    pub(super) fn key(&self, series_id: &str) -> Result<SeriesKey, String> {
+        scoped_key(&self.authority, &self.graph, series_id)
+    }
+
+    /// Every series key of this scope.
+    pub(super) fn keys(&self, store: &SeriesStore) -> Result<Vec<SeriesKey>, String> {
+        let tenant = self.authority.tenant_scope();
+        let graph = self.authority.namespace("timeseries-graph", &self.graph);
+        let all = store.list_series().map_err(|error| error.to_string())?;
+        let mut keys: Vec<SeriesKey> = all
+            .into_iter()
+            .filter_map(|encoded| SeriesKey::decode(&encoded))
+            .filter(|key| key.tenant == tenant && key.graph == graph)
+            .collect();
+        keys.sort_unstable_by(|a, b| a.series.cmp(&b.series));
+        Ok(keys)
+    }
+}
+
+impl TsRequestContext<'_> {
+    fn batch_scope(&self) -> BatchScope {
+        BatchScope {
+            authority: self.authority.clone(),
+            graph: self.graph.to_string(),
+            req_id: self.req_id,
+            attempt_nonce: self.attempt_nonce,
+            placement_epoch: self.placement_epoch,
+            fencing_token: self.fencing_token,
+        }
+    }
+
+    fn series_batch(
+        &self,
+        store: &SeriesStore,
+        method: &Method,
+        committed_at_ms: u64,
+    ) -> Result<MutationBatch, String> {
+        self.batch_scope().series_batch(store, method, committed_at_ms)
+    }
 }
 
 async fn handle_append(
@@ -291,8 +349,10 @@ async fn handle_append(
         Ok(prepared) => prepared,
         Err(response) => return response,
     };
+    let min_ts = prepared.points.iter().map(|p| p.ts).min();
+    let source = series_id.clone();
     let authority = context.authority.clone();
-    match compute_off_lock(context.req_id, move || {
+    let appended = compute_off_lock(context.req_id, move || {
         let key = scoped_key(&authority, &prepared.graph, &series_id)?;
         prepared
             .store
@@ -305,12 +365,17 @@ async fn handle_append(
                     points: &prepared.points,
                     batch: &prepared.batch,
                     committed_at_ms: prepared.committed_at_ms,
+                    derived: None,
                 },
             )
             .map_err(|error| error.to_string())
     })
-    .await
-    {
+    .await;
+    if matches!(appended, Ok(Ok(_))) {
+        // EH-524: the series derived from this one advance from their checkpoints.
+        derived::maintain_after_append(context, source, min_ts).await;
+    }
+    match appended {
         Ok(Ok(committed_n)) => Response::ok(
             context.req_id,
             ResultPayload::scalar::<results::TsAppend>(committed_n),
@@ -550,20 +615,10 @@ async fn handle_list_series(context: &TsRequestContext<'_>) -> Response {
         Ok(store) => store,
         Err(response) => return response,
     };
-    let graph = context.graph.to_string();
-    let authority = context.authority.clone();
+    let scope = context.batch_scope();
     match compute_off_lock(context.req_id, move || {
-        let expected_tenant = authority.tenant_scope().to_string();
-        let expected_graph = authority.namespace("timeseries-graph", &graph);
-        let all = store.list_series().map_err(|error| error.to_string())?;
-        let mut series_ids: Vec<String> = all
-            .into_iter()
-            .filter_map(|encoded| SeriesKey::decode(&encoded))
-            .filter(|key| key.tenant == expected_tenant && key.graph == expected_graph)
-            .map(|key| key.series)
-            .collect();
-        series_ids.sort_unstable();
-        Ok::<_, String>(series_ids)
+        let keys = scope.keys(&store)?;
+        Ok::<_, String>(keys.into_iter().map(|key| key.series).collect::<Vec<_>>())
     })
     .await
     {
@@ -647,212 +702,17 @@ pub(crate) async fn try_handle_with_nonce(
         Method::TsDeleteSeries { series_id } => Ok(handle_delete_series(&context, series_id).await),
         // Enumeration is scoped to the caller's verified tenant and graph.
         Method::TsListSeries => Ok(handle_list_series(&context).await),
+        Method::TsDefineSeries {
+            series_id,
+            source,
+            expr,
+        } => Ok(derived::handle_define(&context, series_id, source, expr).await),
         other => Err(other),
     }
 }
 
 #[cfg(test)]
-mod nested_payload_tests {
-    use super::*;
+mod nested_payload_tests;
 
-    #[test]
-    fn point_decoder_rejects_bombs_ragged_rows_and_non_finite_values() {
-        assert!(decode_wire_points(&[0xdd, 0xff, 0xff, 0xff, 0xff]).is_err());
-
-        let ragged =
-            rmp_serde::to_vec_named(&vec![(1_i64, vec![1.0_f64]), (2_i64, vec![1.0_f64, 2.0])])
-                .unwrap();
-        assert!(decode_wire_points(&ragged).is_err());
-
-        let non_finite = rmp_serde::to_vec_named(&vec![(1_i64, vec![f64::INFINITY])]).unwrap();
-        assert!(decode_wire_points(&non_finite).is_err());
-
-        let valid = rmp_serde::to_vec_named(&vec![
-            (1_i64, vec![1.0_f64, 2.0]),
-            (2_i64, vec![3.0_f64, 4.0]),
-        ])
-        .unwrap();
-        assert_eq!(decode_wire_points(&valid).unwrap().len(), 2);
-    }
-
-    #[cfg(feature = "security")]
-    #[test]
-    fn same_series_name_isolated_by_actor_and_tenant() {
-        let alice = CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
-                "alice", "tenant-a",
-            ),
-        )
-        .unwrap();
-        let bob = CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
-                "bob", "tenant-a",
-            ),
-        )
-        .unwrap();
-        let cross_tenant = CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
-                "alice", "tenant-b",
-            ),
-        )
-        .unwrap();
-        let key = |authority: &CarrierAuthority| {
-            SeriesKey::new(
-                authority.tenant_scope(),
-                authority.namespace("timeseries-graph", "shared"),
-                "cpu",
-            )
-            .encode()
-        };
-        assert_ne!(key(&alice), key(&bob));
-        assert_ne!(key(&alice), key(&cross_tenant));
-    }
-
-    /// Stronger, end-to-end version of the proof above: instead of comparing
-    /// encoded keys, this appends real points through the exact
-    /// `MutationBatch`-compiled path `TsAppend` itself uses, then reads them
-    /// back through the exact `range_scoped`/`scan_all_scoped` primitives
-    /// `TsRange`/`TsWindow`/`TsGapFill`/`TsAsofJoin` call. This is the leak-
-    /// equivalence-to-RLS proof this file's module doc promises: default-deny
-    /// RLS filters rows a caller CAN address but was never granted; this
-    /// mechanism instead makes a non-owning caller unable to even ADDRESS the
-    /// row in the first place -- both leave a non-owning caller reading ZERO
-    /// rows of someone else's data, and this test exercises that end to end
-    /// against the real store rather than inferring it from key inequality.
-    #[cfg(feature = "security")]
-    #[test]
-    fn cross_actor_and_cross_tenant_reads_see_no_points_through_the_real_store() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let store = SeriesStore::open(
-            &dir.path().join("series.redb"),
-            crate::store_authority::process_verifier(),
-            crate::store_authority::process_authority().principal(),
-            &crate::store_authority::process_authority().proof(),
-        )
-        .expect("open test store");
-
-        let alice = CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
-                "alice", "tenant-a",
-            ),
-        )
-        .unwrap();
-        let bob = CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
-                "bob", "tenant-a",
-            ),
-        )
-        .unwrap();
-        let cross_tenant_alice = CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
-                "alice", "tenant-b",
-            ),
-        )
-        .unwrap();
-
-        let graph = "shared-graph";
-        let series_id = "cpu";
-        let points = vec![
-            Point {
-                ts: 1,
-                values: vec![1.0],
-            },
-            Point {
-                ts: 2,
-                values: vec![2.0],
-            },
-        ];
-
-        // Alice appends through the exact MutationBatch-compiled path
-        // `TsAppend` itself uses -- not a test shortcut straight into the
-        // store, so this proves the SERVED write path is leak-equivalent too.
-        let scope = alice.namespace("ts-scope", graph);
-        let expected = store
-            .mutation_version(alice.tenant_scope(), &scope)
-            .expect("read initial mutation version");
-        let method = Method::TsAppend {
-            series_id: series_id.to_string(),
-            n_fields: 1,
-            bucket_ns: 60_000_000_000,
-            field_names: vec!["value".to_string()],
-            points_msgpack: Vec::new(),
-        };
-        let batch_id =
-            crate::server::mutation_batch::opaque_request_key("timeseries", &scope, 1, &method);
-        let now = crate::server::dispatch::authoritative_now_ms();
-        let batch = crate::server::mutation_batch::compile_opaque_method(
-            crate::server::mutation_batch::CompileBatch {
-                batch_id: &batch_id,
-                request_id: 1,
-                attempt_nonce: None,
-                principal: Some(alice.actor_scope()),
-                tenant: alice.tenant_scope(),
-                graph: &scope,
-                placement_epoch: 0,
-                idempotency_key: &batch_id,
-                expected_graph_version: Some(expected),
-                fencing_token: None,
-                created_at_ms: now,
-                default_surface: MutationSurface::Other,
-                authoritative_state: None,
-            },
-            &method,
-            MutationSurface::Other,
-            DurabilityDomain::TimeSeries,
-            "timeseries_append",
-        )
-        .expect("compile append batch");
-        let alice_key = scoped_key(&alice, graph, series_id).unwrap();
-        let committed = store
-            .append_scoped_batch(
-                &alice_key,
-                ScopedAppendBatch {
-                    n_fields: 1,
-                    bucket_ns: 60_000_000_000,
-                    field_names: &["value".to_string()],
-                    points: &points,
-                    batch: &batch,
-                    committed_at_ms: now,
-                },
-            )
-            .expect("append committed");
-        assert_eq!(committed, 2);
-
-        // Alice reads her own points back -- proves the mechanism actually
-        // serves data (not just that every read is uninterestingly empty).
-        let alice_read = store
-            .range_scoped(&alice_key, i64::MIN, i64::MAX)
-            .expect("alice range read");
-        assert_eq!(alice_read.len(), 2);
-        assert_eq!(
-            store
-                .scan_all_scoped(&alice_key)
-                .expect("alice full scan")
-                .len(),
-            2
-        );
-
-        // Bob, addressing the IDENTICAL graph+series_id, sees NOTHING.
-        let bob_key = scoped_key(&bob, graph, series_id).unwrap();
-        assert!(store
-            .range_scoped(&bob_key, i64::MIN, i64::MAX)
-            .expect("bob range read")
-            .is_empty());
-        assert!(store
-            .scan_all_scoped(&bob_key)
-            .expect("bob full scan")
-            .is_empty());
-
-        // Same actor id, different tenant, addressing the IDENTICAL
-        // graph+series_id: also sees nothing.
-        let cross_tenant_key = scoped_key(&cross_tenant_alice, graph, series_id).unwrap();
-        assert!(store
-            .range_scoped(&cross_tenant_key, i64::MIN, i64::MAX)
-            .expect("cross-tenant range read")
-            .is_empty());
-        assert!(store
-            .scan_all_scoped(&cross_tenant_key)
-            .expect("cross-tenant full scan")
-            .is_empty());
-    }
-}
+#[cfg(test)]
+mod derived_tests;

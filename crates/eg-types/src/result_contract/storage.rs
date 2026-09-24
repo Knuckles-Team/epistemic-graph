@@ -18,6 +18,7 @@ use crate::connector_pack::{
     PackRetireResult,
 };
 use crate::decision::{AssemblyResult, DecisionCommitResult};
+use crate::series_expr::DerivedSeriesReceipt;
 #[cfg(feature = "query")]
 use crate::storage_wire::SqlSourceBatchResult;
 use crate::storage_wire::{BackupReceipt, RestoreReceipt, SqliteExportReport, SqliteImportReport};
@@ -68,6 +69,7 @@ method_results! {
     TsEvict(TsEvict) => Count<u64>;
     TsDeleteSeries(TsDeleteSeries) => Count<u64>;
     TsListSeries(TsListSeries) => Raw<Vec<String>>;
+    TsDefineSeries(TsDefineSeries) => Raw<DerivedSeriesReceipt>;
     BlobBegin(BlobBegin) => Count<u64>;
     BlobChunkPut(BlobChunkPut) => Count<u64>;
     BlobCommit(BlobCommit) => Text<String>;

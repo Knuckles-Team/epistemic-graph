@@ -167,9 +167,9 @@ fn moment_stat(op: Rolling, m: &Moments, x: f64) -> Option<f64> {
 }
 
 fn zscore(m: &Moments, x: f64) -> Option<f64> {
-    let (mean, std) = (m.mean()?, m.population_std()?);
+    let std = m.population_std();
     Some(if std > STD_FLOOR {
-        (x - mean) / std
+        (x - m.mean) / std
     } else {
         0.0
     })
