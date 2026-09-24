@@ -57,6 +57,9 @@ pub mod changepoint;
 
 #[cfg(feature = "promql")]
 pub mod promql;
+// EH-522 / EH-524 — derived series: expressions compiled to checkpointed kernel trees.
+#[cfg(feature = "derive")]
+pub mod derive;
 
 // CONCEPT:EG-OS.observability.trace-assembly — distributed span model + indexed span store + trace assembly +
 // service-dependency graph. Dependency-free (no redb/Arrow), so it links wherever the

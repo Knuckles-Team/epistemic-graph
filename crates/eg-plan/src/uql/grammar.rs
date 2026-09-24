@@ -213,6 +213,15 @@ pub const PRODUCTIONS: &[Production] = &[
     p("agg", Aux, &[], None,
       "\"MEAN\" | \"AVG\" | \"SUM\" | \"MIN\" | \"MAX\" | \"COUNT\" | \"FIRST\" | \"LAST\"",
       "the WindowAgg aggregate", ""),
+    p("derive", Stage, &["DERIVE"], Some(Timeseries),
+      "\"DERIVE\" sexpr \"AS\" name { \",\" sexpr \"AS\" name }",
+      "Derive{columns} (per-series incremental kernels in ts order, EH-522)",
+      "TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE zscore(ewma(v0, 12), 60) AS lat_z |> RETURN lat_z"),
+    p("sexpr", Aux, &[], None,
+      "signed_num | name | name \"(\" [ sexpr { \",\" sexpr } ] \")\"",
+      "SeriesExpr: a constant, a value channel (v0..vk, score, an alias) or a call to lag diff \
+       ret logret rmean rstd rsum rmin rmax rrank zscore ewma ewma_halflife abs sign neg clip \
+       add sub mul div (ratio) rcorr ic wsum — series arguments first, then numbers", ""),
     p("limit", Stage, &["LIMIT"], None, "\"LIMIT\" ( int | param )", "Limit{k}",
       "MATCH (:Doc) |> LIMIT 10"),
     p("return", Stage, &["RETURN"], None, "\"RETURN\" name { \",\" name }",

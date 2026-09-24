@@ -56,6 +56,7 @@ kinds! {
     #[cfg(feature = "timeseries")] SensorFuse,
     #[cfg(feature = "timeseries")] SensorAlign,
     #[cfg(feature = "timeseries")] TsScan,
+    #[cfg(feature = "timeseries")] Derive,
     #[cfg(feature = "probabilistic")] Probabilistic,
     #[cfg(feature = "epistemic")] EvidenceFor,
     #[cfg(feature = "epistemic")] Contradicts,
@@ -131,6 +132,8 @@ pub fn op_kind(op: &Op) -> OpKind {
         Op::SensorAlign { .. } => OpKind::SensorAlign,
         #[cfg(feature = "timeseries")]
         Op::TsScan { .. } => OpKind::TsScan,
+        #[cfg(feature = "timeseries")]
+        Op::Derive { .. } => OpKind::Derive,
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { .. } => OpKind::Probabilistic,
         #[cfg(feature = "epistemic")]
@@ -236,6 +239,9 @@ impl OpKind {
             OpKind::TensorScan | OpKind::TensorOp => None,
             #[cfg(feature = "stream")]
             OpKind::Cep => None,
+            // DERIVE writes the channels its columns name, not a fixed score channel.
+            #[cfg(feature = "timeseries")]
+            OpKind::Derive => None,
             #[cfg(feature = "epistemic")]
             OpKind::EvidenceFor | OpKind::Contradicts | OpKind::SupportedBy => None,
         }
@@ -257,6 +263,8 @@ impl OpKind {
             OpKind::RankText => ProofRole::Neutral,
             #[cfg(feature = "epistemic")]
             OpKind::SourceReliability | OpKind::ConfidenceOp => ProofRole::Neutral,
+            #[cfg(feature = "timeseries")]
+            OpKind::Derive => ProofRole::Neutral,
             OpKind::Scan
             | OpKind::ScanAll
             | OpKind::Filter

@@ -121,7 +121,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // native eg-tsdb series scan. Gated behind `timeseries` (the eg-plan→eg-tsdb edge
         // `Op::Window` already opens).
         #[cfg(feature = "timeseries")]
-        Op::SensorFuse { .. } | Op::SensorAlign { .. } | Op::TsScan { .. } => {
+        Op::SensorFuse { .. } | Op::SensorAlign { .. } | Op::TsScan { .. } | Op::Derive { .. } => {
             apply_timeseries(op, input, ctx)
         }
 
@@ -345,13 +345,13 @@ pub(super) fn apply_epistemic(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<R
 /// FUSE (multimodal sensor fusion, CONCEPT:EG-KG.query.multi-rate-sensor-stream) — ASOF-
 /// aligned (`SensorFuse`) or declared-clock-resampled (`SensorAlign`) stream fusion; plus
 /// SOURCE (native time-series, CONCEPT:EG-KG.query.native-time-series) — `TsScan` off the
-/// ctx-attached `SeriesStore`. Every arm shares the single `timeseries` gate.
+/// ctx-attached `SeriesStore`; plus TRANSFORM `Derive` (EH-522) over the incoming series
+/// rows. Every arm shares the single `timeseries` gate. The three sources resolve their rows
+/// off the snapshot and replace `input` outright; only `Derive` reads it.
 #[cfg(feature = "timeseries")]
 pub(super) fn apply_timeseries(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
-    // Every arm here is a SOURCE that resolves its rows off the snapshot and replaces
-    // `input` outright, so the incoming candidate set is intentionally dropped, not read.
-    drop(input);
     match op {
+        Op::Derive { columns } => derive_op(input, columns),
         Op::SensorFuse {
             streams,
             tolerance_ns,

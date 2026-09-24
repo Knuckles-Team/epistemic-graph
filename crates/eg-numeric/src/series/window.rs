@@ -166,8 +166,7 @@ pub fn ranks(xs: &[f64]) -> Vec<f64> {
     xs.iter().map(|&x| average_rank(&sorted, x)).collect()
 }
 
-/// Bivariate Welford co-moments over a sliding window, plus the weighted sums a
-/// weighted mean needs.
+/// Bivariate Welford co-moments over a sliding window, plus the running `Σ x·y`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CoMoments {
     n: usize,
@@ -177,7 +176,6 @@ pub struct CoMoments {
     m2x: f64,
     m2y: f64,
     sum_xy: f64,
-    sum_y: f64,
 }
 
 impl CoMoments {
@@ -193,7 +191,6 @@ impl CoMoments {
         self.m2x += dx * (x - self.mx);
         self.m2y += dy * (y - self.my);
         self.sum_xy += x * y;
-        self.sum_y += y;
     }
 
     /// Remove a pair previously added.
@@ -212,7 +209,6 @@ impl CoMoments {
         self.m2x = (self.m2x - dx * (x - self.mx)).max(0.0);
         self.m2y = (self.m2y - dy * (y - self.my)).max(0.0);
         self.sum_xy -= x * y;
-        self.sum_y -= y;
     }
 
     /// Pearson correlation (`None` when either side is constant).
@@ -221,9 +217,9 @@ impl CoMoments {
         (self.n > 1 && denom > STD_FLOOR).then(|| self.cxy / denom)
     }
 
-    /// `Σ x·y / Σ y` — `x` weighted by `y` (`None` when the weights sum to zero).
-    pub fn weighted_mean(&self) -> Option<f64> {
-        (self.sum_y.abs() > STD_FLOOR).then(|| self.sum_xy / self.sum_y)
+    /// `Σ x·y`.
+    pub fn weighted_sum(&self) -> f64 {
+        self.sum_xy
     }
 }
 

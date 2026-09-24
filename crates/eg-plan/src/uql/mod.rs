@@ -79,6 +79,14 @@ pub fn parse_with(src: &str, params: &Params) -> Result<Plan, UqlError> {
     }
 }
 
+/// Parse one series expression (the `DERIVE` sub-grammar, EH-522) whose channel names are
+/// bound by the caller — a materialised derived series' sources (EH-524).
+pub fn parse_series_expr(src: &str) -> Result<eg_types::series_expr::SeriesExpr, UqlError> {
+    let tokens = lexer::lex(src)?;
+    let params = Params::new();
+    parser::Parser::new(src, &tokens, &params).series_definition()
+}
+
 /// Parse a plain pipeline (no parameters) into the [`Plan`] AST.
 pub fn parse(src: &str) -> Result<Plan, UqlError> {
     parse_with(src, &Params::new())

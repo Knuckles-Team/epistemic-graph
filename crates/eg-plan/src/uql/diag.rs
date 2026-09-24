@@ -29,6 +29,7 @@ pub enum UqlCode {
     StatementNotPipeline,
     CredentialBearingSpec,
     UnknownChannel,
+    UnknownFunction,
     // parameters
     UnboundParameter,
     ParameterType,
@@ -59,6 +60,7 @@ pub const ALL_CODES: &[UqlCode] = &[
     UqlCode::StatementNotPipeline,
     UqlCode::CredentialBearingSpec,
     UqlCode::UnknownChannel,
+    UqlCode::UnknownFunction,
     UqlCode::UnboundParameter,
     UqlCode::ParameterType,
     UqlCode::UnusedParameter,
@@ -89,6 +91,7 @@ impl UqlCode {
             Self::StatementNotPipeline => "UQL_STATEMENT_NOT_PIPELINE",
             Self::CredentialBearingSpec => "UQL_CREDENTIAL_BEARING_SPEC",
             Self::UnknownChannel => "UQL_UNKNOWN_CHANNEL",
+            Self::UnknownFunction => "UQL_UNKNOWN_FUNCTION",
             Self::UnboundParameter => "UQL_UNBOUND_PARAMETER",
             Self::ParameterType => "UQL_PARAMETER_TYPE",
             Self::UnusedParameter => "UQL_UNUSED_PARAMETER",
