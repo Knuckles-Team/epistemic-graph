@@ -35,12 +35,12 @@ type TraceResponse = (&'static str, &'static str, String);
 pub async fn handle(
     state: &Arc<ObsState>,
     method: &str,
-    path: &str,
-    query: &str,
+    (path, query): (&str, &str),
     body: &str,
+    tenant: Option<&str>,
 ) -> (&'static str, &'static str, String) {
     if path == "/v1/traces" {
-        return handle_ingest(state, method, body).await;
+        return handle_ingest(state, method, body, tenant).await;
     }
 
     if path == "/api/dependencies" || path == "/api/services/dependencies" {
@@ -62,7 +62,23 @@ pub async fn handle(
     )
 }
 
-async fn handle_ingest(state: &Arc<ObsState>, method: &str, body: &str) -> TraceResponse {
+/// Parse the OTLP body and, for a verified writer, bind every span to its tenant
+/// (EH-410); a span naming another tenant refuses the whole request.
+fn tenant_spans(body: &str, tenant: Option<&str>) -> Result<Vec<Span>, TraceResponse> {
+    let mut spans = parse_otlp_traces(body).map_err(|e| ("400 Bad Request", "text/plain", e))?;
+    if let Some(tenant) = tenant {
+        crate::server::obs::writer::stamp_spans(&mut spans, tenant)
+            .map_err(|e| ("403 Forbidden", "text/plain", e))?;
+    }
+    Ok(spans)
+}
+
+async fn handle_ingest(
+    state: &Arc<ObsState>,
+    method: &str,
+    body: &str,
+    tenant: Option<&str>,
+) -> TraceResponse {
     if method != "POST" {
         return (
             "405 Method Not Allowed",
@@ -70,9 +86,9 @@ async fn handle_ingest(state: &Arc<ObsState>, method: &str, body: &str) -> Trace
             "POST only".to_string(),
         );
     }
-    let spans = match parse_otlp_traces(body) {
-        Ok(s) => s,
-        Err(e) => return ("400 Bad Request", "text/plain", e),
+    let spans = match tenant_spans(body, tenant) {
+        Ok(spans) => spans,
+        Err(refused) => return refused,
     };
     let store = state.trace_store();
     let accepted = tokio::task::spawn_blocking(move || store.add_spans(spans))

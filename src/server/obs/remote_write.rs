@@ -160,6 +160,21 @@ pub fn ingest_write_request(
     Ok(outcome)
 }
 
+/// Decode the body and, for a verified writer, bind every series to its tenant
+/// (EH-410); a series naming another tenant refuses the whole request.
+fn tenant_request(
+    raw_body: &[u8],
+    tenant: Option<&str>,
+) -> Result<WriteRequest, (&'static str, &'static str, String)> {
+    let mut req =
+        decode_write_request(raw_body).map_err(|e| ("400 Bad Request", "text/plain", e))?;
+    if let Some(tenant) = tenant {
+        super::writer::stamp_series(&mut req, tenant)
+            .map_err(|e| ("403 Forbidden", "text/plain", e))?;
+    }
+    Ok(req)
+}
+
 /// Route + execute a Prometheus `remote_write` POST (`/api/v1/write`) → `(status,
 /// content_type, body)` (CONCEPT:EG-OS.observability.prometheus-ingest). Decodes the snappy protobuf body and lands
 /// its samples in the tsdb; a well-formed empty request is a no-op `204`. `raw_body`
@@ -169,6 +184,7 @@ pub async fn handle(
     state: &Arc<ObsState>,
     method: &str,
     raw_body: &[u8],
+    tenant: Option<&str>,
 ) -> (&'static str, &'static str, String) {
     if method != "POST" {
         return (
@@ -177,9 +193,9 @@ pub async fn handle(
             "POST only".to_string(),
         );
     }
-    let req = match decode_write_request(raw_body) {
+    let req = match tenant_request(raw_body, tenant) {
         Ok(r) => r,
-        Err(e) => return ("400 Bad Request", "text/plain", e),
+        Err(refused) => return refused,
     };
     let st = state.clone();
     match tokio::task::spawn_blocking(move || ingest_write_request(&st, &req)).await {
