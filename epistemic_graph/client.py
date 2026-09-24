@@ -11598,7 +11598,7 @@ class QueryClient:
         self,
         text: str,
         params: dict[str, Any] | None = None,
-    ) -> Any:
+    ) -> dict[str, Any]:
         """Run a UQL statement (CONCEPT:AU-KG.query.top-nodes-by-degree; UQL-07/08/09).
 
         ``text`` is UQL — a pipeline, a ``LET … FROM/JOIN`` program, optionally prefixed
@@ -11617,11 +11617,15 @@ class QueryClient:
         query's structure. The grammar is ``docs/uql.md``; errors carry a stable
         ``UQL_*`` code and a caret diagnostic.
 
-        Returns, for a run: a list of ``{"id", "score"}`` rows, plus
-        ``"channels"`` (``{name: value}``) when the query ``RETURN``s score
-        channels. ``EXPLAIN`` returns ``{"canonical", "optimized", "stages",
-        "incremental", "incremental_note", "warnings"}``; ``PROFILE`` returns
-        ``{"rows", "columns", "stages", "warnings"}``.
+        Returns one dict whose ``"kind"`` says what ran:
+
+        * ``"rows"`` — ``{"kind", "columns", "rows", "warnings"}``; each row is
+          ``{"id", "score", "channels"}`` (``channels`` maps each ``RETURN``ed score
+          channel to its value, ``{}`` without ``RETURN``);
+        * ``"profile"`` — the same plus ``"stages"`` (per-stage estimated/actual
+          rows and microseconds);
+        * ``"explain"`` — ``{"kind", "canonical", "optimized", "stages",
+          "incremental", "incremental_note", "warnings"}`` (nothing executes).
         """
         body = {
             "text": text,
@@ -16361,22 +16365,20 @@ def _uql_param(value: Any) -> dict[str, Any]:
 
 
 def _uql_rows(columns: list[str], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out = []
-    for row in rows:
-        item = {"id": row["id"], "score": row["score"]}
-        if columns:
-            item["channels"] = dict(zip(columns, row["channels"], strict=True))
-        out.append(item)
+    return [
+        {
+            "id": row["id"],
+            "score": row["score"],
+            "channels": dict(zip(columns, row["channels"], strict=True)),
+        }
+        for row in rows
+    ]
+
+
+def _uql_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Flatten the externally tagged ``UqlResult`` into one dict with a ``kind``."""
+    ((kind, body),) = result.items()
+    out = {"kind": kind.lower(), **body}
+    if "rows" in out:
+        out["rows"] = _uql_rows(out["columns"], out["rows"])
     return out
-
-
-def _uql_result(result: dict[str, Any]) -> Any:
-    """Unwrap the externally tagged ``UqlResult``."""
-    if "Rows" in result:
-        body = result["Rows"]
-        return _uql_rows(body["columns"], body["rows"])
-    if "Profile" in result:
-        body = dict(result["Profile"])
-        body["rows"] = _uql_rows(body["columns"], body["rows"])
-        return body
-    return result["Explain"]

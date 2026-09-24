@@ -347,10 +347,11 @@ operator writes graph state (a test asserts every `Op` is classified read-only).
 **Python client**:
 
 ```python
-rows = await client.uql(
-    "MATCH (:Concept) WHERE year >= $min |> RERANK MMR 0.5 5 |> LIMIT $k",
+result = await client.uql(
+    "MATCH (:Concept) WHERE year >= $min |> RERANK MMR 0.5 5 |> RETURN mmr |> LIMIT $k",
     params={"min": 2020, "k": 5},
 )
+rows = result["rows"]  # [{"id", "score", "channels": {"mmr": …}}]; result["kind"] == "rows"
 ```
 
 **MCP / REST** — the served `graph_query` / `graph_search` surfaces accept UQL through the same
