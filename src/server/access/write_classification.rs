@@ -97,6 +97,7 @@ fn requires_write_decision_surface(method: &Method) -> Option<bool> {
         Method::DecisionLog { op } => Some(op.is_mutation()),
         Method::DecisionEval { op } => Some(op.is_mutation()),
         Method::MutationOutbox { op } => Some(op.is_mutation()),
+        Method::EdgeIndex { op } => Some(op.is_mutation()),
         _ => None,
     }
 }
