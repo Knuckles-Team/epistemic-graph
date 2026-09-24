@@ -242,7 +242,10 @@ pub(super) fn qualified_generation(
         ));
     }
     let (_, pointer) = read_pointer(store, tenant, &generation_pointer(logical))?;
-    if pointer.target().unwrap_or(logical) != receipt.active_graph {
+    // The measured baseline must still be the active generation -- or the
+    // shadow already is (a replayed activation, answered as a replay).
+    let current = pointer.target().unwrap_or(logical);
+    if current != receipt.active_graph && current != shadow_graph {
         return Err(mismatch(
             "the receipt measured a generation that is no longer the active one",
         ));
