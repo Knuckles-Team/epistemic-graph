@@ -1,5 +1,6 @@
 //! Deterministic probability kernels: log-sum-exp, softmax, log-softmax,
-//! entropy, sigmoid, softplus, logit and the standard-normal CDF/survival.
+//! entropy, sigmoid, softplus, logit, and the standard-normal CDF, survival and
+//! quantile.
 //!
 //! All of them use only IEEE basic operations, correctly rounded `abs`, the
 //! pinned transcendentals in [`super::math`], and serial left-to-right sums, so
@@ -96,4 +97,33 @@ pub fn logit(p: f64) -> StatResult<f64> {
         });
     }
     Ok(math::ln(p) - math::ln_1p(-p))
+}
+
+/// Enough halvings of `[-40, 40]` to reach adjacent floats anywhere in range.
+const NORMAL_QUANTILE_BISECTIONS: u32 = 1100;
+
+/// The standard normal quantile `Φ⁻¹(p)` for `p` strictly inside `(0, 1)`: a bisection
+/// on `[-40, 40]` that stops only when the midpoint reaches an adjacent float, so its
+/// bits are a pure function of `p` (the same scheme as the beta quantile).
+pub fn normal_quantile(p: f64) -> StatResult<f64> {
+    if !(p > 0.0 && p < 1.0) {
+        return Err(StatError::OutOfDomain {
+            what: "normal quantile probability",
+            index: 0,
+            domain: "(0, 1)",
+        });
+    }
+    let (mut lower, mut upper) = (-40.0f64, 40.0f64);
+    for _ in 0..NORMAL_QUANTILE_BISECTIONS {
+        let mid = lower + (upper - lower) * 0.5;
+        if mid <= lower || mid >= upper {
+            break;
+        }
+        if normal_cdf(mid) < p {
+            lower = mid;
+        } else {
+            upper = mid;
+        }
+    }
+    Ok(lower + (upper - lower) * 0.5)
 }
