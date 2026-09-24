@@ -1,10 +1,11 @@
-//! Render schema-driven nested Python DTO modules.
+//! The nested-DTO surfaces and the schema-driven rendering helpers the module
+//! renderer shares (`surfaces` decides which module renders each definition).
 
 use std::fmt::Write as _;
 
 use super::dto_surfaces::DtoSurface;
 use super::names::enum_member;
-use super::{mapping_type, push_field, FieldPresence, HEADER};
+use super::{mapping_type, push_field, write_import_block, FieldPresence};
 
 /// Typed result models whose DTO is emitted by another method's shared module.
 /// Keeping this separate avoids emitting the same generated module twice while
@@ -626,28 +627,6 @@ pub(super) fn push_type_alias(out: &mut String, name: &str, annotation: &str) {
     }
 }
 
-fn dto_emission_rank(name: &str, node: &serde_json::Value) -> u8 {
-    if ref_name(node).is_some() && CANONICAL_DIGEST_SPECS.iter().any(|spec| spec.model == name) {
-        // A transparent request wrapper is a real Python subclass, so its base
-        // model must already exist when the class statement executes.
-        return 1;
-    }
-    if JSON_VALUE_TYPES.contains(&name) {
-        return 2;
-    }
-    if node.get("enum").is_some()
-        || string_literal_variants(node).is_some()
-        || tagged_variants(node).is_some()
-        || node.get("type").and_then(|value| value.as_str()) == Some("object")
-    {
-        return 0;
-    }
-    // Type aliases are evaluated at module import time. Emit them only after
-    // every class they may reference; postponed annotations protect class fields,
-    // but do not protect `Alias = list[ClassDefinedLater]`.
-    2
-}
-
 fn resolved_properties<'a>(
     model: &str,
     definitions: &'a serde_json::Map<String, serde_json::Value>,
@@ -666,60 +645,36 @@ fn resolved_properties<'a>(
     }
 }
 
-pub(super) fn dto_module(
+/// Every definition a surface's roots reach, roots included; `None` for an
+/// optional surface whose roots the contract does not (yet) declare.
+pub(super) fn surface_closure(
     surface: &DtoSurface,
     definitions: &serde_json::Map<String, serde_json::Value>,
-) -> String {
-    let names = collect_surface_names(surface, definitions);
-    validate_digest_specs(&names, definitions);
-    let (body, models) = render_definitions(&names, definitions);
-    let mut out = String::from(HEADER);
-    let _ = writeln!(
-        out,
-        "\"\"\"Generated {} nested wire DTOs.\"\"\"",
-        surface.method
-    );
-    out.push_str("\nfrom __future__ import annotations\n\n");
-    push_dto_imports(&mut out, &body);
-    if !surface.constants.is_empty() {
-        out.push('\n');
+) -> Option<std::collections::BTreeSet<String>> {
+    let missing: Vec<_> = surface
+        .roots
+        .iter()
+        .filter(|root| !definitions.contains_key(**root))
+        .copied()
+        .collect();
+    if !missing.is_empty() {
+        assert!(
+            !surface.required,
+            "{} DTO roots are missing: {}",
+            surface.method,
+            missing.join(", ")
+        );
+        return None;
     }
-    for (name, value) in surface.constants {
-        let _ = writeln!(out, "{name} = {value}");
-    }
-    out.push_str(&body);
-    // Two blank lines after a trailing top-level class (E305 / the formatter);
-    // a trailing alias assignment is already followed by exactly one.
-    let ends_in_class = body
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty() && !line.starts_with(' '))
-        .is_some_and(|line| line.starts_with("class "));
-    if ends_in_class && !models.is_empty() {
-        out.push('\n');
-    }
-    for model in models {
-        let _ = writeln!(out, "\n{model}.model_rebuild()");
-    }
-    out
-}
-
-fn collect_surface_names(
-    surface: &DtoSurface,
-    definitions: &serde_json::Map<String, serde_json::Value>,
-) -> std::collections::BTreeSet<String> {
     let mut names = std::collections::BTreeSet::new();
     for root in surface.roots {
         names.insert((*root).to_string());
-        let node = definitions
-            .get(*root)
-            .unwrap_or_else(|| panic!("{} DTO root {root} is missing", surface.method));
-        collect_definition_refs(node, definitions, &mut names);
+        collect_definition_refs(&definitions[*root], definitions, &mut names);
     }
-    names
+    Some(names)
 }
 
-fn validate_digest_specs(
+pub(super) fn validate_digest_specs(
     names: &std::collections::BTreeSet<String>,
     definitions: &serde_json::Map<String, serde_json::Value>,
 ) {
@@ -768,45 +723,32 @@ fn digest_paths(spec: &CanonicalDigestSpec) -> impl Iterator<Item = &str> {
         .chain(spec.named_struct_paths.iter().map(|(path, _)| *path))
 }
 
-/// Whether an ALIAS (rank 2) names another definition. Aliases are evaluated at
-/// import time, so a leaf alias (`Digest256 = Annotated[str, ...]`) must be
-/// bound before an alias built from it (`BoundedVec_Digest256_64 =
-/// Annotated[list[Digest256], ...]`); alphabetical order alone emitted the
-/// latter first. Classes are unaffected: postponed annotations resolve them.
-fn alias_references_definitions(rank: u8, node: &serde_json::Value) -> bool {
-    rank == 2 && node.to_string().contains("\"$ref\"")
+/// Whether `body` uses the identifier `name` (not merely a longer identifier that
+/// contains it, such as `ImpliesAny` for `Any`).
+fn uses_name(body: &str, name: &str) -> bool {
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    body.match_indices(name).any(|(start, _)| {
+        let before = body[..start].chars().next_back();
+        let after = body[start + name.len()..].chars().next();
+        !before.is_some_and(ident) && !after.is_some_and(ident)
+    })
 }
 
-fn render_definitions(
-    names: &std::collections::BTreeSet<String>,
-    definitions: &serde_json::Map<String, serde_json::Value>,
-) -> (String, Vec<String>) {
-    let mut body = String::new();
-    let mut models = Vec::new();
-    let mut ordered_names: Vec<&String> = names.iter().collect();
-    ordered_names.sort_by_key(|name| {
-        let node = definitions
-            .get(name.as_str())
-            .expect("referenced DTO definition exists");
-        let rank = dto_emission_rank(name, node);
-        (rank, alias_references_definitions(rank, node))
-    });
-    for name in ordered_names {
-        let node = definitions
-            .get(name)
-            .unwrap_or_else(|| panic!("referenced DTO definition {name} is missing"));
-        models.extend(push_dto_definition(&mut body, name, node));
-    }
-    (body, models)
-}
-
-pub(super) fn push_dto_imports(out: &mut String, body: &str) {
+/// The imports a module body needs, in ruff-isort form: `enum`/`typing`, the
+/// pydantic names the body uses, then the package-relative imports -- the shared
+/// digest helpers and every `foreign` definition the module re-exports from its
+/// owner (EH-377), one exploded block per module in module order.
+pub(super) fn push_dto_imports(
+    out: &mut String,
+    body: &str,
+    foreign: &std::collections::BTreeMap<&str, Vec<String>>,
+) {
     if body.contains("(str, Enum)") {
         out.push_str("from enum import Enum\n");
     }
     let typing_names = ["Annotated", "Any", "Literal"]
         .into_iter()
-        .filter(|name| body.contains(name))
+        .filter(|name| uses_name(body, name))
         .collect::<Vec<_>>();
     if !typing_names.is_empty() {
         let _ = writeln!(out, "from typing import {}", typing_names.join(", "));
@@ -814,20 +756,35 @@ pub(super) fn push_dto_imports(out: &mut String, body: &str) {
     if body.contains("(str, Enum)") || !typing_names.is_empty() {
         out.push('\n');
     }
-    out.push_str("from pydantic import BaseModel, ConfigDict, Field\n");
-    let digest_names = [
+    let pydantic_names = [
+        ("BaseModel", "(BaseModel)"),
+        ("ConfigDict", "ConfigDict("),
+        ("Field", "Field("),
+    ]
+    .into_iter()
+    .filter(|(_, marker)| body.contains(marker))
+    .map(|(name, _)| name)
+    .collect::<Vec<_>>();
+    if !pydantic_names.is_empty() {
+        let _ = writeln!(out, "from pydantic import {}", pydantic_names.join(", "));
+    }
+    let mut local = foreign.clone();
+    let digest_names: Vec<String> = [
         "canonical_msgpack",
         "framed_named_msgpack_digest",
         "framed_sha256",
     ]
     .into_iter()
     .filter(|name| body.contains(&format!("{name}(")))
-    .collect::<Vec<_>>();
+    .map(str::to_owned)
+    .collect();
     if !digest_names.is_empty() {
-        out.push_str("\nfrom .digest import (\n");
-        for name in digest_names {
-            let _ = writeln!(out, "    {name},");
-        }
-        out.push_str(")\n");
+        local.insert("digest", digest_names);
+    }
+    if !local.is_empty() && !pydantic_names.is_empty() {
+        out.push('\n');
+    }
+    for (module, names) in local {
+        write_import_block(out, module, names);
     }
 }
