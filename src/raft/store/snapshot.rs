@@ -193,8 +193,12 @@ impl EgStore {
     }
 
     /// Read ONE stored log entry by index from redb (helper for `get_log_state`).
-    pub(super) fn read_one_entry(&self, idx: u64) -> Result<Option<EntryOf<TypeConfig>>, String> {
-        let blobs = self.redb().raft_log_read(self.group_id, idx, idx)?;
+    pub(super) fn read_one_entry(
+        redb: &RedbBackend,
+        group_id: GroupId,
+        idx: u64,
+    ) -> Result<Option<EntryOf<TypeConfig>>, String> {
+        let blobs = redb.raft_log_read(group_id, idx, idx)?;
         match blobs.into_iter().next() {
             Some(b) => Ok(Some(decode_raft_value(
                 &b,
@@ -215,13 +219,21 @@ impl RaftSnapshotBuilder<TypeConfig> for Arc<EgStore> {
         };
         let graphs = self.dump_graphs().await.map_err(ioerr)?;
         let native_indexes: Vec<u64> = self.native_history.read().await.iter().copied().collect();
-        let mut native_history = Vec::with_capacity(native_indexes.len());
-        for log_index in native_indexes {
-            let bytes = self
-                .redb()
-                .raft_meta_get(self.group_id, &native_history_key(log_index))
-                .map_err(ioerr)?
-                .ok_or_else(|| ioerr("native snapshot history command is missing"))?;
+        let stored = self
+            .writer_read(move |redb, group_id| {
+                native_indexes
+                    .into_iter()
+                    .map(|log_index| {
+                        let bytes = redb.raft_meta_get(group_id, &native_history_key(log_index))?;
+                        Ok((log_index, bytes))
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+            })
+            .await
+            .map_err(ioerr)?;
+        let mut native_history = Vec::with_capacity(stored.len());
+        for (log_index, bytes) in stored {
+            let bytes = bytes.ok_or_else(|| ioerr("native snapshot history command is missing"))?;
             let request: RaftRequest =
                 decode_raft_value(&bytes, MAX_RAFT_LOG_ENTRY_BYTES, MAX_RAFT_LOG_ITEMS)
                     .map_err(ioerr)?;
