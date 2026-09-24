@@ -503,6 +503,15 @@ path = "benches/adaptive_reopt.rs"
 harness = false
 required-features = ["query"]
 
+# ── Filtered ranking stage costs (EH-565) ─────────────────────────────────────────────
+# Scan / scan+filter / filtered BM25 / filtered vector rank over a 20k-doc corpus shaped
+# like the pinned HelixDB comparison corpus, one criterion group per stage.
+[[bench]]
+name = "filtered_rank"
+path = "benches/filtered_rank.rs"
+harness = false
+required-features = ["query", "text"]
+
 # ── Integration test targets, explicitly gated (D-EGTC-10 / w5-eg-ci-truly-green) ──
 # Every file under `tests/` names `query`-gated (or narrower) public API
 # (`execute`/`PlanCtx`/`PlanDag`/`Circuit`/`federation::ForeignSourceRegistry`/
