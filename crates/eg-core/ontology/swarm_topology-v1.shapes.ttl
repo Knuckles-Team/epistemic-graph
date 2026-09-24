@@ -1,0 +1,133 @@
+# Swarm topology shapes (SWARM-TOPOLOGY-DECIDE-DESIGN §4, ST-1).
+#
+# SHACL Core plus aggregate-free `sh:sparql` only (DECIDE §4.8): an absence check
+# uses the `OPTIONAL ... FILTER(!BOUND(...))` form, never NOT EXISTS; property-pair
+# comparisons are SPARQL filters (EG SHACL has no sh:lessThanOrEquals).
+# EG also runs the same rules programmatically and fail-closed at publish
+# (`TemplateTopologyShape`, ST-4). Core source `core:swarm-topology@1`: a
+# template's RDF projection is validated by `ShaclValidate` against the
+# composed schema (no caller shapes).
+
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix sh:    <http://www.w3.org/ns/shacl#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+
+swarm:TemplateTopologyShape a sh:NodeShape ;
+    sh:targetClass swarm:TopologyTemplate ;
+    sh:property [ sh:path swarm:class ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path swarm:hasSlot ; sh:minCount 1 ; sh:maxCount 6 ; sh:node swarm:SlotShape ] ;
+    sh:property [ sh:path swarm:hasStopRule ; sh:minCount 1 ; sh:maxCount 1 ; sh:node swarm:StopRuleShape ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A fan-out (Child) slot needs a fanout node and a join node in the template." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:hasSlot ?slot .
+                ?slot swarm:role swarm:Child .
+                OPTIONAL { $this swarm:nodeKind ?fan . FILTER(?fan = "fanout") }
+                OPTIONAL { $this swarm:nodeKind ?join . FILTER(?join = "join") }
+                FILTER(!BOUND(?fan) || !BOUND(?join))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A verifier-pass stop rule needs a Verifier slot." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:hasStopRule ?rule .
+                ?rule a swarm:VerifierPassStop .
+                OPTIONAL { $this swarm:hasSlot ?slot . ?slot swarm:role swarm:Verifier . }
+                FILTER(!BOUND(?slot))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A peer team's slots carry at least one round and a stop rule." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:class ?class .
+                FILTER(?class IN (swarm:PeerTeam, swarm:Debate, swarm:Council, swarm:CritiqueLoop))
+                $this swarm:hasSlot ?slot .
+                OPTIONAL { ?slot swarm:maxRounds ?rounds . FILTER(?rounds >= 1) }
+                FILTER(!BOUND(?rounds))
+            }
+        """ ;
+    ] .
+
+swarm:SlotShape a sh:NodeShape ;
+    sh:targetClass swarm:Slot ;
+    sh:property [ sh:path swarm:nodeId ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ] ;
+    sh:property [
+        sh:path swarm:role ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:in ( swarm:Parent swarm:Child swarm:Peer swarm:Aggregator swarm:Verifier )
+    ] ;
+    sh:property [
+        sh:path swarm:minWidth ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:integer ; sh:minInclusive 1 ; sh:maxInclusive 16
+    ] ;
+    sh:property [
+        sh:path swarm:maxWidth ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:integer ; sh:minInclusive 1 ; sh:maxInclusive 16
+    ] ;
+    sh:property [
+        sh:path swarm:maxRounds ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:integer ; sh:minInclusive 1 ; sh:maxInclusive 8
+    ] ;
+    sh:property [ sh:path swarm:lease ; sh:maxCount 6 ; sh:node swarm:LeaseFactShape ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A slot's minWidth is at most its maxWidth." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:minWidth ?low ; swarm:maxWidth ?high .
+                FILTER(?low > ?high)
+            }
+        """ ;
+    ] .
+
+swarm:StopRuleShape a sh:NodeShape ;
+    sh:targetClass swarm:StopRule ;
+    sh:property [ sh:path swarm:n ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 1 ; sh:maxInclusive 16 ] ;
+    sh:property [ sh:path swarm:k ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 1 ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A quorum's k is at most its n." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this swarm:k ?k ; swarm:n ?n .
+                FILTER(?k > ?n)
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A quorum stop rule names both k and n." ;
+        sh:prefixes swarm:SwarmPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this a swarm:QuorumStop .
+                OPTIONAL { $this swarm:k ?k . }
+                OPTIONAL { $this swarm:n ?n . }
+                FILTER(!BOUND(?k) || !BOUND(?n))
+            }
+        """ ;
+    ] .
+
+swarm:LeaseFactShape a sh:NodeShape ;
+    sh:targetClass swarm:LeaseDemand ;
+    sh:property [
+        sh:path swarm:resourceClass ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:in ( "llm_generator" "llm_embedding" "gpu" "worker" "cpu" "broker" )
+    ] ;
+    sh:property [ sh:path swarm:amount ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 0 ] .
+
+swarm:SwarmPrefixes a owl:Ontology ;
+    sh:declare [ sh:prefix "swarm" ; sh:namespace "http://knuckles.team/kg/swarm#"^^xsd:anyURI ] .
