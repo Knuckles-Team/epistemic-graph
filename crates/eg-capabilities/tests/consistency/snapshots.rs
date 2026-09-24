@@ -431,6 +431,8 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     // identity store's hash-chained audit trail, written in the same
     // rbac.redb image as the change it records.
     "Identity",
+    // EH-560: marker; the durable record is the governed ledger's trail.
+    "GovernedChange",
     "RbacAdmin",
     "RegisterIdentity",
     "RemoveEdge",

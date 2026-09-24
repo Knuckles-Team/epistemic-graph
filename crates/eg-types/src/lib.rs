@@ -185,6 +185,9 @@ pub mod rbac_elevation;
 // IDM-01..05 -- the engine-owned identity store: principals, credentials,
 // sessions, roles/groups/IdPs, the auth-mode singleton and scope classes.
 pub mod identity;
+// EH-560 -- governed changes: reserved control-lease kinds whose approval EG
+// proves two-person (approver != proposer, exact digest, single use).
+pub mod governed_change;
 // EH-406 -- error-budget adaptive (AIMD) throttling on a capacity cell:
 // automatic steps only narrow or give back what they narrowed.
 pub mod capacity_throttle;

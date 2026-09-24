@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, Role};
+use eg_types::governed_change::GovernedLedger;
 use eg_types::identity::IdentityStore;
 use eg_types::rbac_elevation::ElevationLedger;
 use serde::{Deserialize, Serialize};
@@ -41,6 +42,10 @@ pub struct RbacPolicy {
     /// only through the projected roles, grants and identities, which are.
     #[serde(default, skip_serializing_if = "IdentityStore::is_empty")]
     identity: IdentityStore,
+    /// EH-560 governed changes: two-person approvals EG proves, in the same
+    /// image as the rest of the authorization state. Omitted while empty.
+    #[serde(default, skip_serializing_if = "GovernedLedger::is_empty")]
+    governed: GovernedLedger,
 }
 
 impl RbacPolicy {
@@ -87,6 +92,15 @@ impl RbacPolicy {
 
     pub(crate) fn elevations_mut(&mut self) -> &mut ElevationLedger {
         &mut self.elevations
+    }
+
+    /// The governed-change ledger.
+    pub fn governed(&self) -> &GovernedLedger {
+        &self.governed
+    }
+
+    pub(crate) fn governed_mut(&mut self) -> &mut GovernedLedger {
+        &mut self.governed
     }
 
     /// The identity store.

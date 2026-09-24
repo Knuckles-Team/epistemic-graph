@@ -548,6 +548,9 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
         Method::RbacElevation { op, .. } => {
             Some(control_redb_op_policy(op.is_mutation(), op.authz_action()))
         }
+        Method::GovernedChange { op, .. } => {
+            Some(control_redb_op_policy(op.is_mutation(), op.authz_action()))
+        }
         Method::Identity { op, .. } => {
             Some(control_redb_op_policy(op.is_mutation(), op.authz_action()))
         }

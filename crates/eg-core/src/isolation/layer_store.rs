@@ -91,3 +91,35 @@ pub(super) fn holds_only_identity_store_state(
         && rbac.roles().all(|role| owned(&role.name))
         && rbac.grants().iter().all(|grant| owned(&grant.role))
 }
+
+/// A policy-image transition's failure: its own refusal, or the write.
+#[cfg(feature = "security")]
+pub(super) enum PolicyWriteError<E> {
+    Refused(E),
+    Persist(String),
+}
+
+#[cfg(feature = "security")]
+impl IsolationLayer {
+    /// Apply `transition` to the RBAC policy image and write it through; a
+    /// refusal or a failed write leaves the image exactly as it was. The one
+    /// discipline behind elevations and governed changes.
+    pub(super) fn transact_policy<R, E>(
+        &mut self,
+        transition: impl FnOnce(&mut crate::rbac::RbacPolicy) -> Result<R, E>,
+    ) -> Result<R, PolicyWriteError<E>> {
+        let previous = self.rbac.clone();
+        let outcome = match transition(&mut self.rbac) {
+            Ok(outcome) => outcome,
+            Err(refusal) => {
+                self.rbac = previous;
+                return Err(PolicyWriteError::Refused(refusal));
+            }
+        };
+        if let Err(error) = self.persist_state() {
+            self.rbac = previous;
+            return Err(PolicyWriteError::Persist(error));
+        }
+        Ok(outcome)
+    }
+}

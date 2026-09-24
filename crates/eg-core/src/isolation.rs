@@ -474,6 +474,9 @@ pub use elevation_admin::ElevationError;
 mod identity_admin;
 mod identity_query;
 mod identity_store_admin;
+mod governed_admin;
+#[cfg(feature = "security")]
+pub use governed_admin::GovernedError;
 #[cfg(feature = "security")]
 pub use identity_store_admin::{AuditActor, IdentityStoreError, STORE_MANAGED, STORE_NAMESPACE};
 mod layer_store;

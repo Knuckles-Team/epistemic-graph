@@ -49,6 +49,11 @@ pub enum IdentityEvent {
     AccessDenied,
     /// An administrator's SQL dump was merged.
     Imported,
+    /// EH-560 governed changes.
+    ChangeProposed,
+    ChangeApproved,
+    ChangeRevoked,
+    ChangeConsumed,
 }
 
 /// One tamper-evident entry.

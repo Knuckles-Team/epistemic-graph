@@ -233,6 +233,15 @@ impl IssueControlLeaseRequest {
         ] {
             bounded(field, value)?;
         }
+        if self.kind.starts_with(crate::governed_change::GOVERNED_KIND_PREFIX) {
+            // EH-560: a governed change is proposed, approved (two-person)
+            // and consumed only through `GovernedChange`; a generic lease of
+            // a governed kind would be an approval nobody proved.
+            return Err(format!(
+                "control lease kind '{}' is reserved for GovernedChange",
+                self.kind
+            ));
+        }
         if self.kind == RBAC_ELEVATION_KIND {
             // EH-404: an elevation is issued only by the two-person
             // `RbacElevation` flow; a generic lease of that kind would be an

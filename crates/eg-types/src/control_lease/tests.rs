@@ -111,3 +111,22 @@ fn the_elevation_kind_cannot_be_issued_as_a_generic_control_lease() {
     let error = request.validate().unwrap_err();
     assert!(error.contains("reserved"), "{error}");
 }
+
+/// EH-560: a governed kind is issued only through `GovernedChange`; the
+/// generic lease path refuses the whole `governed.` namespace, while an
+/// ordinary kind next to it is still accepted.
+#[test]
+fn a_governed_kind_cannot_be_issued_as_a_generic_control_lease() {
+    for kind in [
+        crate::governed_change::SCHEMA_REPAIR_KIND,
+        "governed.anything-new",
+    ] {
+        let mut request = issue();
+        request.kind = kind.to_string();
+        let error = request.validate().unwrap_err();
+        assert!(error.contains("reserved"), "{kind}: {error}");
+    }
+    let mut ordinary = issue();
+    ordinary.kind = "action.approval".to_string();
+    assert!(ordinary.validate().is_ok());
+}

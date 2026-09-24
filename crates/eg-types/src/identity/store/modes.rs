@@ -37,7 +37,10 @@ const BUILTIN_ROLES: [(&str, &[&str]); 5] = [
     (USER_ROLE, &["kg:read", "identity:self"]),
     (ELEVATION_APPROVER_ROLE, &["rbac:approve-elevation"]),
     (LIVE_ORDER_APPROVER_ROLE, &["finance:approve-live-order"]),
-    (SCHEMA_APPROVER_ROLE, &["governance:approve-schema-repair"]),
+    (
+        SCHEMA_APPROVER_ROLE,
+        &["governance:approve-schema-repair", "governance:read"],
+    ),
 ];
 
 /// Built-in groups: `(group_id, role_id)`.

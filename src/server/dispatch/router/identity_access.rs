@@ -62,6 +62,20 @@ pub(super) async fn dispatch_identity_and_access_methods(
             )
             .await
         }
+        // ── Governed changes (EH-560) ─────────────────────────────────────
+        #[cfg(feature = "security")]
+        Method::GovernedChange { op, actor } => {
+            crate::server::dispatch::governed::dispatch_governed_change(
+                state,
+                req.id,
+                verified_context,
+                crate::server::dispatch::elevation::ElevationStampAuthority::of(
+                    state_machine_authorized,
+                ),
+                (op, actor),
+            )
+            .await
+        }
         // ── The identity store (IDM-01..04) ───────────────────────────────
         #[cfg(feature = "security")]
         Method::Identity { op, stamp } => {

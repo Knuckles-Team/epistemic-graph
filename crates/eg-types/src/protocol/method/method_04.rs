@@ -440,6 +440,16 @@ $($variants)*
         actor: Option<crate::rbac_elevation::ElevationActor>,
     },
 
+    /// Governed changes (EH-560): propose, approve (two-person, exact scope,
+    /// exact digest), revoke, get or list a reserved `governed.*` change.
+    /// `actor` is SERVER-STAMPED from the verified request context at the
+    /// request boundary; a caller-supplied value is overwritten.
+    GovernedChange {
+        op: crate::governed_change::GovernedChangeOp,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        actor: Option<crate::governed_change::GovernedActor>,
+    },
+
     /// The engine-owned identity store (IDM-01..04): principals, credentials,
     /// sessions, second factors, roles, groups, identity providers and the
     /// auth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary

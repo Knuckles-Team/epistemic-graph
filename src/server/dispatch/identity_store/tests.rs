@@ -3,39 +3,15 @@
 //! hashed and cleared before apply, and the floors refuse weak secrets.
 
 use super::*;
-use crate::acl::RequestContextClaims;
-use crate::isolation::IsolationLayer;
-use crate::protocol::Request;
 use eg_types::identity::*;
 
 const PASSWORD: &str = "correct horse battery staple";
 const SESSION: &str = "sess-0123456789abcdefghijklmnopqrstuv";
 
-fn state() -> Arc<RwLock<ServerState>> {
-    Arc::new(RwLock::new(ServerState::new_for_test(
-        "identity-test-secret",
-        IsolationLayer::new(),
-    )))
-}
+use super::super::test_support::{send as send_method, state, verified};
 
 fn context(principal: &str, scopes: &[&str]) -> VerifiedRequestContext {
-    static KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let key = KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    VerifiedRequestContext::from_verified_claims(
-        RequestContextClaims {
-            principal: principal.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: principal.to_string(),
-            roles: Vec::new(),
-            scopes: scopes.iter().map(|scope| scope.to_string()).collect(),
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        },
-        format!("identity-test-{key}"),
-    )
+    verified(principal, scopes, &[])
 }
 
 fn broker() -> VerifiedRequestContext {
@@ -48,26 +24,10 @@ async fn send_stamped(
     op: IdentityOp,
     forged: Option<IdentityStamp>,
 ) -> Response {
-    let request = Request {
-        id: 11,
-        graph: "__commons__".to_string(),
-        auth_token: String::new(),
-        agent_id: Some(context.agent_id().to_string()),
-        method: Method::Identity { op, stamp: forged },
-    };
-    Box::pin(super::super::request_boundary::dispatch_with_context(
-        state,
-        request,
-        Some(context),
-    ))
-    .await
+    send_method(state, context, Method::Identity { op, stamp: forged }).await
 }
 
-async fn send(
-    state: &Arc<RwLock<ServerState>>,
-    context: VerifiedRequestContext,
-    op: IdentityOp,
-) -> Response {
+async fn send(state: &Arc<RwLock<ServerState>>, context: VerifiedRequestContext, op: IdentityOp) -> Response {
     send_stamped(state, context, op, None).await
 }
 
