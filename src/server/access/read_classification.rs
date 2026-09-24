@@ -171,6 +171,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "UnionGetNeighbors",
     "UnionGetNodeProperties",
     "UnionGetNodesByLabel",
+    "Uql",
     "Vf2SubgraphMatch",
     "Watch",
     "WhatChanged",
