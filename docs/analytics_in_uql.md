@@ -140,6 +140,26 @@ GROUP BY category;
 SELECT id FROM signals WHERE zscore(value) > 3.0;   -- outliers, in one pass
 ```
 
+## Series analytics: one kernel for UQL, SQL, PromQL and derived series (EH-522/524)
+
+The incremental series operators (`eg_numeric::series`) are served four ways, with the same
+values bit for bit:
+
+```uql
+TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE zscore(ewma(v0, 12), 60) AS lat_z |> RETURN lat_z
+```
+
+```sql
+SELECT ts, eg_zscore(v, 60) OVER (PARTITION BY series ORDER BY ts) AS z FROM points;
+```
+
+* PromQL `stddev_over_time` / `stdvar_over_time` / `avg_over_time` share the same moments.
+* `TsDefineSeries { series_id, source, expr }` materialises an expression as a stored series
+  maintained incrementally on every `TsAppend` to its source (points `[value, revision,
+  known_at_ms]`; a corrected source point appends revisions, never edits).
+* `SKILL f AGAINST y HORIZONS [...] WINDOW w` reports a feature's rolling rank-IC decay, ICIR,
+  a bootstrap interval and the breadth across horizons (`eg_numeric::evaluation::skill`).
+
 ## See also
 
 - `docs/architecture/numeric-kernel.md` — the `eg-numeric` kernel internals.

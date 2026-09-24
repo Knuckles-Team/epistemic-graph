@@ -228,6 +228,27 @@ pub struct DeriveColumn {
     pub name: String,
 }
 
+/// A UQL `SKILL` stage (EH-522 FeatureSkill): which channels, horizons, IC window and
+/// bootstrap.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SkillOp {
+    pub feature: String,
+    pub outcome: String,
+    pub horizons: Vec<u64>,
+    pub window: u64,
+    /// Bootstrap resamples for the interval on the mean IC (`0`: none).
+    #[serde(default)]
+    pub resamples: u64,
+    #[serde(default)]
+    pub seed: u64,
+}
+
+/// The value channels a `SKILL` stage writes on each report row.
+pub const SKILL_CHANNELS: [&str; 8] = [
+    "mean_ic", "ic_std", "icir", "ic_lo", "ic_hi", "n", "n_eff", "ir",
+];
+
 /// What `TsDefineSeries` answers (EH-524): the definition, its lineage and provenance,
 /// and how far maintenance got.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
