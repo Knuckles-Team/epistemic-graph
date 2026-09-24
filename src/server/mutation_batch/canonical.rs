@@ -483,6 +483,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::FinanceOrderBookImbalance { .. }
         | Method::Fork
         | Method::RbacAdmin { .. }
+        | Method::RbacElevation { .. }
         | Method::FinanceKalmanFilter1d { .. }
         | Method::FinanceRiskParity { .. }
         | Method::ReserveDevelopmentLane { .. }
@@ -681,6 +682,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. }
         | Method::UpdateCapacityCell { .. }
+        | Method::ThrottleCapacityCell { .. }
         | work_item_kernel_writes!()
         | Method::CommitWorkItemResult { .. }
         | work_item_resource_writes!()
@@ -837,6 +839,7 @@ pub(crate) fn is_capacity_method(method: &Method) -> bool {
             | Method::ReconcileCapacity { .. }
             | Method::CapacityStatus { .. }
             | Method::UpdateCapacityCell { .. }
+            | Method::ThrottleCapacityCell { .. }
     )
 }
 

@@ -51,6 +51,10 @@ pub const CONTROL_LEASE_LIST_CURSOR: CursorFamily = CursorFamily {
     max_bytes: 16 * 1024,
     noun: "control lease list",
 };
+/// The reserved kind of a just-in-time RBAC elevation (EH-404,
+/// `crate::rbac_elevation`). Only the two-person `RbacElevation` flow issues
+/// one; `IssueControlLease` refuses it.
+pub const RBAC_ELEVATION_KIND: &str = "rbac.elevation";
 /// Bound on the tenant, lease id, kind and idempotency key.
 const MAX_CONTROL_LEASE_REF_BYTES: usize = 512;
 
@@ -247,6 +251,14 @@ impl IssueControlLeaseRequest {
             return Err(format!(
                 "control lease kind '{DECISION_EVALUATION_LEASE_KIND}' is issued by DecisionLog.commit only"
             ));
+        }
+        if self.kind == RBAC_ELEVATION_KIND {
+            // EH-404: an elevation is issued only by the two-person
+            // `RbacElevation` flow; a generic lease of that kind would be an
+            // unapproved grant body the access chokepoint must never meet.
+            return Err(
+                "control lease kind 'rbac.elevation' is reserved for RbacElevation".to_string(),
+            );
         }
         self.validate_body()
     }

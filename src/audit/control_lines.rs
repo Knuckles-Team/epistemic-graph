@@ -67,9 +67,26 @@ fn op_family_audit_line(method: &Method) -> Option<String> {
     let (family, mutation, name) = match method {
         Method::FleetCatalog { op } => ("FLEET_CATALOG", op.is_mutation(), op.name()),
         Method::PolicyEvolution { op } => ("POLICY_EVOLUTION", op.is_mutation(), op.name()),
-        _ => return None,
+        _ => return rbac_elevation_audit_line(method),
     };
     mutation.then(|| format!("{family}|{name}"))
+}
+
+/// EH-404: defense-in-depth marker. An elevation never reaches a graph
+/// commit; its durable record is the hash-chained audit trail inside the
+/// elevation ledger, written in the same rbac.redb transaction as the
+/// transition. Reads are never audited.
+fn rbac_elevation_audit_line(method: &Method) -> Option<String> {
+    let Method::RbacElevation { op, .. } = method else {
+        return None;
+    };
+    op.is_mutation().then(|| {
+        format!(
+            "RBAC_ELEVATION|{}|{}",
+            op.name(),
+            op.elevation_id().unwrap_or_default()
+        )
+    })
 }
 
 pub(super) fn graph_schema_audit_line(method: &Method) -> Option<String> {
@@ -309,6 +326,13 @@ pub(super) fn capacity_audit_line(method: &Method) -> Option<String> {
         Method::ReclaimExpiredCapacity { request } => Some(format!(
             "RECLAIM_EXPIRED_CAPACITY|{}|{}",
             request.tenant_ref, request.max_count
+        )),
+        Method::ThrottleCapacityCell { request } => Some(format!(
+            "THROTTLE_CAPACITY_CELL|{}|requests={}|errors={}|window_end={}",
+            request.cell_id,
+            request.sample.requests,
+            request.sample.errors,
+            request.sample.window_end_ms
         )),
         Method::UpdateCapacityCell { request } => Some(format!(
             "UPDATE_CAPACITY_CELL|{}|{}",

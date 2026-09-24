@@ -156,3 +156,11 @@ fn a_lease_listing_selects_the_tenants_leases_by_kind_status_and_grant() {
     .validate()
     .is_err());
 }
+
+#[test]
+fn the_elevation_kind_cannot_be_issued_as_a_generic_control_lease() {
+    let mut request = issue();
+    request.kind = RBAC_ELEVATION_KIND.to_string();
+    let error = request.validate().unwrap_err();
+    assert!(error.contains("reserved"), "{error}");
+}

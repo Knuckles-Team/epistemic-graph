@@ -171,6 +171,12 @@ method_results! {
     RbacAddGrant(RbacAdmin / "AddGrant") => Text<String>;
     RbacRemoveGrant(RbacAdmin / "RemoveGrant") => Json<RbacGrantRemoval>;
     RbacList(RbacAdmin / "List") => Json<RbacPolicyListing>;
+    // EH-404: every write answers the lease as it now stands; `list` answers
+    // the caller's visible leases with their status at the engine's clock.
+    RbacElevationRequest(RbacElevation / "request") => Json<crate::rbac_elevation::ElevationLease>;
+    RbacElevationApprove(RbacElevation / "approve") => Json<crate::rbac_elevation::ElevationLease>;
+    RbacElevationRevoke(RbacElevation / "revoke") => Json<crate::rbac_elevation::ElevationLease>;
+    RbacElevationList(RbacElevation / "list") => Json<Vec<crate::rbac_elevation::ElevationLease>>;
     // `null` when no identity is registered for the agent; an identity holding no
     // roles is a present identity with an empty `roles` list.
     GetIdentity(GetIdentity) => Json<Option<AgentIdentity>>;

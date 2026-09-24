@@ -557,7 +557,32 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
             op.authz_action(),
             TxnParticipation::Atomic,
         )),
+        Method::RbacElevation { op, .. } => Some(rbac_elevation_policy(op)),
         _ => None,
+    }
+}
+
+/// Just-in-time elevation (EH-404). Its writes are RBAC policy writes in the
+/// rbac.redb image, each hash-chain audited in the elevation ledger; a replay
+/// of an approval is refused rather than answered idempotently.
+fn rbac_elevation_policy(op: &eg_types::rbac_elevation::RbacElevationOp) -> MethodPolicy {
+    let mutates = op.is_mutation();
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            DurabilityDomain::ControlRedb
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action: op.authz_action(),
+        idempotent: !mutates,
+        audited: mutates,
+        emits_cdc: false,
+        txn_participation: if mutates {
+            TxnParticipation::Atomic
+        } else {
+            TxnParticipation::Snapshot
+        },
     }
 }
 
