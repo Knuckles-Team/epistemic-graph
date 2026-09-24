@@ -2988,6 +2988,7 @@ dependencies = [
  "eg-epistemic",
  "eg-geo",
  "eg-modality",
+ "eg-numeric",
  "eg-query",
  "eg-rdf",
  "eg-shacl",
