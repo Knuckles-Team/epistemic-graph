@@ -159,6 +159,23 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
         )
 
 
+def _assert_provisioned_before(job_names: list, provider: str, consumer: str) -> None:
+    """When `consumer` runs in a job, `provider` runs earlier in that job."""
+    if consumer in job_names:
+        assert provider in job_names
+        assert job_names.index(provider) < job_names.index(consumer)
+
+
+def _assert_gates_jobs_provision_first(doc: dict, required: tuple) -> None:
+    """Every job that runs an sqlite3-backed test provisions the CLI first, and
+    the Whisper fixture precedes its test, within the job that runs it."""
+    for job in GATES_JOBS:
+        job_names = [step.get("name") for step in doc["jobs"][job]["steps"]]
+        for consumer in (required[1], required[2]):
+            _assert_provisioned_before(job_names, required[0], consumer)
+        _assert_provisioned_before(job_names, required[3], required[4])
+
+
 def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
     """The two suites that once returned early must stay runnable and blocking.
 
@@ -177,17 +194,7 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
         "Test (Whisper real-model transcription and cancellation)",
     )
     assert all(name in names for name in required)
-    # Every job that runs an sqlite3-backed test provisions the CLI first, and
-    # the Whisper fixture precedes its test, within the job that runs it.
-    for job in GATES_JOBS:
-        job_names = [step.get("name") for step in doc["jobs"][job]["steps"]]
-        for consumer in (required[1], required[2]):
-            if consumer in job_names:
-                assert required[0] in job_names
-                assert job_names.index(required[0]) < job_names.index(consumer)
-        if required[4] in job_names:
-            assert required[3] in job_names
-            assert job_names.index(required[3]) < job_names.index(required[4])
+    _assert_gates_jobs_provision_first(doc, required)
     selected = [step for step in steps if step.get("name") in required]
     assert all(
         "if" not in step and "continue-on-error" not in step for step in selected
@@ -195,11 +202,7 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
 
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
     rows = {row["name"]: row for row in _gates_rows(plan)}
-    assert rows[required[0]]["mode"] == "RUN"
-    assert rows[required[1]]["mode"] == "RUN"
-    assert rows[required[2]]["mode"] == "RUN"
-    assert rows[required[3]]["mode"] == "RUN"
-    assert rows[required[4]]["mode"] == "RUN"
+    assert all(rows[name]["mode"] == "RUN" for name in required)
     assert all(rows[name]["blocking"] is True for name in required)
     assert rows[required[1]]["detail"] == (
         f"{RESCUE}cargo test --locked -p eg-sqlite-format --test differential "
@@ -939,25 +942,33 @@ def _workspace_packages() -> dict[str, set[tuple[str, str]]]:
     }
 
 
+def _flag_values(args: list[str], flag: str) -> list[str]:
+    return [args[i + 1] for i, a in enumerate(args) if a == flag]
+
+
+def _chosen_packages(args: list[str], packages: dict) -> list[str]:
+    if "--workspace" in args:
+        return [p for p in packages if p not in _flag_values(args, "--exclude")]
+    return _flag_values(args, "-p") or ["epistemic-graph"]
+
+
+def _runs_target(kind: str, name: str, tests: set[str], lib_only: bool) -> bool:
+    if tests:
+        return kind == "test" and name in tests
+    return kind == "lib" or not lib_only
+
+
 def _selected_targets(line: str, packages: dict) -> set[tuple[str, str, str]]:
     import shlex
 
     args = shlex.split(line.split("cargo test", 1)[1].split(" -- ")[0])
-    flag_values = lambda flag: [args[i + 1] for i, a in enumerate(args) if a == flag]  # noqa: E731
-    chosen = flag_values("-p") or ["epistemic-graph"]
-    if "--workspace" in args:
-        chosen = [p for p in packages if p not in flag_values("--exclude")]
-    tests, lib_only = set(flag_values("--test")), "--lib" in args
-    selected = set()
-    for package in chosen:
-        for kind, name in packages[package]:
-            if tests:
-                keep = kind == "test" and name in tests
-            else:
-                keep = kind == "lib" or not lib_only
-            if keep:
-                selected.add((package, kind, name))
-    return selected
+    tests, lib_only = set(_flag_values(args, "--test")), "--lib" in args
+    return {
+        (package, kind, name)
+        for package in _chosen_packages(args, packages)
+        for kind, name in packages[package]
+        if _runs_target(kind, name, tests, lib_only)
+    }
 
 
 def test_every_workspace_test_target_is_run_by_a_release_step():
@@ -976,9 +987,21 @@ def test_every_workspace_test_target_is_run_by_a_release_step():
     assert sorted(every - selected) == [], "test targets no release step runs"
 
 
-def test_pyo3_crates_are_tested_with_every_feature_but_python():
+def _unlisted_pyo3_features(crate: str, listed: set[str]) -> set[str]:
+    """`crate`'s features (bar default/python) neither listed nor implied by one."""
     import tomllib
 
+    manifest = REPO_ROOT / "crates" / crate / "Cargo.toml"
+    declared = tomllib.loads(manifest.read_text())["features"]
+    unlisted = {
+        f for f in set(declared) - {"default", "python"} if f"{crate}/{f}" not in listed
+    }
+    enabled = [g.split("/")[1] for g in listed if g.startswith(f"{crate}/")]
+    implied = {f for f in unlisted if any(f in declared.get(g, []) for g in enabled)}
+    return unlisted - implied
+
+
+def test_pyo3_crates_are_tested_with_every_feature_but_python():
     doc = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
     step = next(
         s
@@ -987,26 +1010,7 @@ def test_pyo3_crates_are_tested_with_every_feature_but_python():
     )
     listed = set(step["run"].split("--features ", 1)[1].split()[0].split(","))
     for crate in ("eg-numeric", "eg-pyengine"):
-        manifest = REPO_ROOT / "crates" / crate / "Cargo.toml"
-        features = set(tomllib.loads(manifest.read_text())["features"]) - {
-            "default",
-            "python",
-        }
-        implied = {
-            f
-            for f in features
-            if f"{crate}/{f}" not in listed
-            and any(
-                f
-                in tomllib.loads(manifest.read_text())["features"].get(
-                    g.split("/")[1], []
-                )
-                for g in listed
-                if g.startswith(f"{crate}/")
-            )
-        }
-        missing = {f for f in features if f"{crate}/{f}" not in listed} - implied
-        assert missing == set(), (crate, missing)
+        assert _unlisted_pyo3_features(crate, listed) == set(), crate
 
 
 def test_clippy_denies_warnings_on_every_release_profile():
