@@ -14,7 +14,7 @@ use eg_types::result_contract::MethodResult;
 
 use crate::protocol::{Method, Response, ResultPayload};
 
-fn answer<M: MethodResult>(req_id: u64, result: MarketResult<M::Body>) -> Response {
+pub(super) fn answer<M: MethodResult>(req_id: u64, result: MarketResult<M::Body>) -> Response {
     match result {
         Ok(body) => Response::ok(req_id, ResultPayload::of::<M>(body)),
         Err(error) => Response::err(req_id, error.to_string()),

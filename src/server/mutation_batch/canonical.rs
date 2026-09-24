@@ -213,7 +213,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // regardless.
         Method::FinanceMatchOrders { .. }
         | Method::FinanceForensicReport { .. }
-        | Method::FinanceMarket { .. } => default_mutation_domain(surface),
+        | Method::FinanceMarket { .. }
+        | Method::FinanceSignalModels { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
         // list `graphlearn`, but `eg-capabilities` forces `eg-types/graphlearn` on
         // regardless.
