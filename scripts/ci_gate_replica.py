@@ -169,6 +169,7 @@ from ci_replica.drift import (
     DriftReport,
     consistency_check,
 )
+from ci_replica.pytest_temp import with_short_basetemp
 from ci_replica.registry import (
     ARTIFACT_IO_ACTIONS,
     BUILD_AFFECTING_FILE_PATTERNS,
@@ -398,6 +399,8 @@ def _run_step(
     env = _build_step_env(job_env, cargo_build_jobs, env_path, out_path, path_path)
     # A step's own `env:` is scoped to that step, as on a runner.
     env.update(_resolved_step_env(step_env))
+    # AF_UNIX: engine sockets under pytest's temp must fit 108 bytes here too.
+    env = with_short_basetemp(env)
     status, elapsed = _execute_step(cmd_text, env, working_directory)
 
     # Thread $GITHUB_ENV / $GITHUB_PATH additions forward to later steps in
