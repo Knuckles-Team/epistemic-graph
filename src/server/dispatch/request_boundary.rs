@@ -70,6 +70,7 @@ pub(super) fn append_native_capacity_ops(ops: &mut Vec<&'static str>, available:
             "ReconcileCapacity",
             "CapacityStatus",
             "UpdateCapacityCell",
+            "ThrottleCapacityCell",
         ]);
     }
 }
@@ -266,10 +267,18 @@ async fn preflight_commit_owner(
 
 async fn dispatch_preamble_checks(
     state: &Arc<RwLock<ServerState>>,
-    req: Request,
+    mut req: Request,
     verified_context: &VerifiedRequestContext,
     state_machine_authorized: bool,
 ) -> Result<(Request, DispatchAuthority), Response> {
+    // EH-404: who acts on an elevation comes from the verified context, never
+    // the body, and is fixed here -- before consensus routing -- so a replica
+    // applies exactly the actor this boundary authorized.
+    super::elevation::stamp_elevation_actor(
+        &mut req.method,
+        verified_context,
+        super::elevation::ElevationStampAuthority::of(state_machine_authorized),
+    );
     let method_policy = eg_capabilities::policy(&req.method);
     let action = method_policy.authz_action;
     let identity_bootstrap =

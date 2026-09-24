@@ -72,7 +72,8 @@ class MethodPolicyRow:
 # 430 -> 436: graph-os EG-2..EG-5 typed control-plane methods -- `GetWorkItem`,
 # `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 # `TransitionControlLease` and `GetControlLease`.
-EXPECTED_METHOD_POLICY_ROWS = 436
+# 436 -> 438: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
+EXPECTED_METHOD_POLICY_ROWS = 438
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

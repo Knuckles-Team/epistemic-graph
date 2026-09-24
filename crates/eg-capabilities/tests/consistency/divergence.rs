@@ -188,6 +188,7 @@ pub(crate) const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("ReserveDevelopmentLane", "UNASSIGNED", "routes via handlers::development_lane::try_handle to the native development_lane_* redb tables under the raft placement-leader gate"),
     ("RaftChangeMembership", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely (self-routes in dispatch.rs before dispatch_graph_op, like Reshard/CatalogAssign)"),
     ("RbacAdmin", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("RbacElevation", "UNASSIGNED", "EH-404: an RBAC policy write in rbac.redb, not a graph write; like RbacAdmin it is absent from access.rs::requires_write, and its request/approve/revoke authority is the op's own action plus the ledger's two-person rule"),
     ("RebalanceExecute", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     // Pre-existing gap (predates the statechart work): `RecomputeMaterialization`
     // mutates per policy (ReasoningProjection writeback) but, like its matview siblings

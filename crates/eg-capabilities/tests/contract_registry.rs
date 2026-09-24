@@ -181,9 +181,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 430 -> 436: graph-os EG-2..EG-5 -- `GetWorkItem`, `ListWorkItems`,
     // `GetWorkItemOutcome`, `IssueControlLease`, `TransitionControlLease`,
     // `GetControlLease`.
+    // 436 -> 438: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
     assert_eq!(
         variants.len(),
-        436,
+        438,
         "the wire method census changed; update this exact count deliberately"
     );
 }

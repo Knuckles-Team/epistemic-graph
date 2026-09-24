@@ -34,6 +34,8 @@ use super::shard::{Shard, ShardWrite};
 use super::{decode_durable, DurableCrypto};
 use crate::protocol::Method;
 
+mod throttle;
+
 /// One capacity table opened for writing on one graph's scope.
 type CapacityRows<'a> = ScopedOwnerTableMut<'a, (&'static str, &'static str), &'static [u8]>;
 
@@ -136,6 +138,7 @@ fn method_now_ms(method: &Method) -> Result<u64, String> {
         }
         Method::ReclaimExpiredCapacity { request } => Ok(request.now_ms),
         Method::UpdateCapacityCell { request } => Ok(request.now_ms),
+        Method::ThrottleCapacityCell { request } => Ok(request.now_ms),
         _ => Err("capacity ledger received an unsupported method".to_string()),
     }
 }
@@ -324,6 +327,10 @@ fn apply(
         }
         Method::UpdateCapacityCell { request } => {
             let result = update_cell(write, graph, request, crypto)?;
+            encode(&result)
+        }
+        Method::ThrottleCapacityCell { request } => {
+            let result = throttle::throttle_cell(write, graph, request, crypto)?;
             encode(&result)
         }
         _ => Err("capacity ledger received an unsupported method".to_string()),

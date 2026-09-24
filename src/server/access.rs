@@ -652,7 +652,15 @@ fn check_graph_access_with_policy(
         crate::metrics::access_denied();
         return Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string());
     }
-    if isolation.check_access(agent, graph_name, graph_type, graph_owner, access) {
+    let query = crate::isolation::AccessQuery {
+        agent_id: agent,
+        graph_name,
+        graph_type,
+        graph_owner,
+        access,
+        now_ms: crate::isolation::access_clock_ms(),
+    };
+    if decide_graph_access(isolation, &query) {
         Ok(())
     } else {
         crate::metrics::access_denied();
@@ -660,6 +668,27 @@ fn check_graph_access_with_policy(
             "ACCESS_DENIED: verified principal lacks {access:?} access to graph '{graph_name}'"
         ))
     }
+}
+
+/// The served graph-access decision: the isolation chokepoint's answer, with
+/// every access that only a just-in-time elevation allowed (EH-404) written
+/// to the elevation audit target -- each use, not just the grant.
+pub(crate) fn decide_graph_access(
+    isolation: &IsolationLayer,
+    query: &crate::isolation::AccessQuery<'_>,
+) -> bool {
+    let basis = isolation.access_basis(query);
+    if let crate::isolation::AccessBasis::Elevation(elevation_id) = &basis {
+        tracing::info!(
+            target: "epistemic_graph::rbac::elevation::audit",
+            elevation_id = %elevation_id,
+            actor = query.agent_id,
+            graph = query.graph_name,
+            access = ?query.access,
+            "graph access allowed by rbac elevation"
+        );
+    }
+    basis.is_allowed()
 }
 
 /// Deny an unregistered/unauthenticated caller (or an unprovisioned isolation

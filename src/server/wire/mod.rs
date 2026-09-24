@@ -1786,9 +1786,15 @@ impl WireSession {
             // the not-found error surfaces instead of a misleading ACCESS_DENIED.
             None => return Ok(()),
         };
-        if s.isolation
-            .check_access(&actor, graph, graph_type, owner.as_deref(), access)
-        {
+        let query = crate::isolation::AccessQuery {
+            agent_id: &actor,
+            graph_name: graph,
+            graph_type,
+            graph_owner: owner.as_deref(),
+            access,
+            now_ms: crate::isolation::access_clock_ms(),
+        };
+        if crate::server::access::decide_graph_access(&s.isolation, &query) {
             Ok(())
         } else {
             crate::metrics::access_denied();

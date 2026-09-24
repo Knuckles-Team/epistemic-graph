@@ -176,6 +176,12 @@ pub mod tenant_cursor;
 // graph-os EG-2 — native control leases: a tenant-bound, time-boxed grant with
 // a one-way active -> revoked|expired lifecycle (not a capacity admission).
 pub mod control_lease;
+// EH-404 -- just-in-time RBAC elevation: an `rbac.elevation` control lease the
+// graph-access chokepoint consults (two-person, exact-scope, hard expiry).
+pub mod rbac_elevation;
+// EH-406 -- error-budget adaptive (AIMD) throttling on a capacity cell:
+// automatic steps only narrow or give back what they narrowed.
+pub mod capacity_throttle;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for

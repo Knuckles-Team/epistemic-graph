@@ -491,6 +491,7 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("ReleaseCapacity", "ControlPlane"),
     ("ReclaimExpiredCapacity", "ControlPlane"),
     ("UpdateCapacityCell", "ControlPlane"),
+    ("ThrottleCapacityCell", "ControlPlane"),
     ("Sql", "SqlCatalog"),
     ("SqlSourceBatch", "SqlCatalog"),
     ("AddTriples", "RdfDataset"),
