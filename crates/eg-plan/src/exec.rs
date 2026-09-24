@@ -41,6 +41,7 @@ pub(crate) mod dispatch;
 mod expand;
 mod pred_sql;
 pub mod propagate;
+mod string_eq;
 // EH-522 — the `DERIVE` per-series incremental operators.
 #[cfg(feature = "timeseries")]
 mod derive;
@@ -722,13 +723,14 @@ fn traverse_op(
     Ok(RowSet::from_ids(reached))
 }
 
-/// RANK (vector, CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) — hybrid metadata pre-filter.
-/// Push the current candidate set INTO the ANN scan as an allowlist so the returned top-k
-/// already satisfies the predicate — filtering happens DURING the probe instead of
-/// over-fetching `k*4` and post-filtering. Semantics are unchanged: with an empty candidate
-/// set the allowlist rejects everything (a source `Rank` yields no rows, exactly as the
-/// prior over-fetch-then-intersect did). The behavior-identical extraction of the `Op::Rank`
-/// arm (Lane 0 de-conflict) so [`apply`] is a thin dispatch table.
+/// RANK (vector, CONCEPT:EG-KG.query.filtered-vector-rank) — rank EVERY candidate by exact
+/// cosine similarity (EH-564/EH-565). The op ranks the whole candidate set (a trailing
+/// `Limit` truncates afterwards), so it scores the candidates' own embeddings instead of
+/// walking the ANN graph with the candidates as an allowlist: a filtered HNSW walk asked
+/// for `|candidates|` hits both cost more than the exact scan (the walk's beam grows to
+/// the candidate count) and could strand candidates the walk never reached, so a
+/// traversal-then-rank query returned fewer than `k` hits. With an empty candidate set a
+/// `Rank` yields no rows.
 ///
 /// F4 (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard): an inline query vector whose dimension
 /// doesn't match the store's embedding dimension is rejected with a typed error
@@ -755,10 +757,9 @@ fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> Result<RowSet, String
             query.len()
         ));
     }
-    let k = candidates.len().max(1);
     let scored = ctx
         .semantic
-        .semantic_search_filtered(query, k, |id| candidates.contains(id));
+        .exact_search_filtered(query, candidates.len(), |id| candidates.contains(id));
     Ok(RowSet::from_scored(scored))
 }
 
@@ -1619,12 +1620,7 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     // DataFusion entirely for this exact shape; every other predicate shape (including
     // an equality on a SAME-NAMED ordinary JSON property, which this must never
     // misfire on) still goes through the real SQL leg unchanged.
-    let passed: Vec<String> = match relational.as_slice() {
-        [Pred::Eq { prop, value }] if prop == "id" => {
-            point_lookup_ids(ctx.view, value, restrict.as_deref())
-        }
-        _ => sql_filter_ids(ctx.view, &relational, restrict.as_deref())?,
-    };
+    let passed = relational_ids(ctx.view, &relational, restrict.as_deref())?;
     // Preserve the input's order (so a vector-first plan stays ranked); if there was no
     // input (Filter is the source), the SQL order is the order.
     let mut out = if input.is_empty() {

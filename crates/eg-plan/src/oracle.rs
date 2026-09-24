@@ -50,13 +50,9 @@ pub fn separate_surfaces(
     let reached = bfs_reached(view, &filtered, rel, min, max);
     let reached_set: HashSet<&str> = reached.iter().map(String::as_str).collect();
 
-    // Surface 3 — vector: kNN, keep reached, top-k.
-    let want = (reached_set.len() * 4).max(reached_set.len() + 32).max(k);
-    let ranked = semantic.semantic_search(query, want);
-    let scored: Vec<(String, f32)> = ranked
-        .into_iter()
-        .filter(|(id, _)| reached_set.contains(id.as_str()))
-        .collect();
+    // Surface 3 — vector: exact cosine over the reached set, top-k.
+    let scored =
+        semantic.exact_search_filtered(query, reached_set.len(), |id| reached_set.contains(id));
     Ok(RowSet::from_scored(scored).limit(k))
 }
 
