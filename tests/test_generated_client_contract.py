@@ -31,6 +31,11 @@ _TYPED_OPERATION_SENDS = {
     "send_agent_component_search",
     "send_connector_pack_import",
     "send_connector_pack_status",
+    "send_fleet_catalog_clear_override",
+    "send_fleet_catalog_list",
+    "send_fleet_catalog_lookup",
+    "send_fleet_catalog_record_discovery",
+    "send_fleet_catalog_set_override",
 }
 
 
@@ -136,12 +141,13 @@ def _request_class_fields(node: ast.ClassDef) -> tuple[set[str], set[str]]:
 
 
 def _model_fields(trees: dict[str, ast.Module]) -> dict[str, tuple[set[str], set[str]]]:
-    """``ClassName`` -> (all field names, required field names)."""
+    """``ClassName`` -> (all field names, required field names) for every params model
+    a send validates against (``Method<Id>Params``) and every typed request model."""
     return {
         node.name: _request_class_fields(node)
         for tree in trees.values()
         for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name.endswith("Request")
+        if isinstance(node, ast.ClassDef) and node.name.endswith(("Request", "Params"))
     }
 
 
@@ -260,8 +266,11 @@ class GeneratedClientContract(unittest.TestCase):
 
     def test_literal_request_dicts_match_their_generated_model(self) -> None:
         models = _model_fields(self.trees)
+        # Each generated send validates its params with `Method<Id>Params` (the
+        # strict model module); an eg-types DTO root may also be named
+        # `<Id>Request`, so that name is not the envelope.
         by_send = {
-            f"send_{_snake(d['id'])}": f"{d['id']}Request"
+            f"send_{_snake(d['id'])}": f"Method{d['id']}Params"
             for d in self.descriptors
             if "python" in d["consumer_profiles"]
         }
