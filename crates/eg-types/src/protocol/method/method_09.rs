@@ -373,11 +373,18 @@ $($variants)*
     },
 
 
-    /// Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized
-    /// PageRank over a directed weighted graph (`edges`), restarting to a `seed`
-    /// risk distribution instead of teleporting uniformly. With `writeback=true`
-    /// materializes each node's propagated score as a typed `:RiskScore` node — a
-    /// graph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.
+    /// Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation). The default
+    /// `model: share` is personalized PageRank over a directed weighted graph
+    /// (`edges`), restarting to a `seed` risk distribution instead of teleporting
+    /// uniformly: each node's SHARE of propagated risk mass (the shares sum to 1 —
+    /// a mass share, not a probability). The impact models (`noisy_or`,
+    /// `independent_cascade`, EH-526) instead read `edges` weights as transmission
+    /// probabilities and `seed` as seed-hit probabilities and return `P(node is
+    /// hit)` with hop depth, the strongest paths and per-seed attribution. With
+    /// `writeback=true` `share` materializes `:RiskScore` nodes and the impact
+    /// models `:ImpactAssessment` nodes — a graph MUTATION, WAL-replayed by
+    /// re-propagating deterministically (the Monte Carlo stream is seeded). Gated
+    /// `mining`.
     #[cfg(feature = "mining")]
     MineRiskPropagation {
         /// Node ids, index-aligned with `seed` and referenced by `edges`.
@@ -399,6 +406,10 @@ $($variants)*
         /// Hard iteration cap.
         #[serde(default = "default_max_iter")]
         max_iterations: usize,
+        /// The propagation model (default `share`; `damping`/`tolerance`/
+        /// `max_iterations` apply to `share` only).
+        #[serde(default)]
+        model: crate::compute_result::mining::RiskModel,
         /// Materialize each node's propagated score as a typed `:RiskScore` node.
         #[serde(default)]
         writeback: bool,

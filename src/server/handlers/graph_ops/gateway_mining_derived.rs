@@ -283,6 +283,7 @@ define_mining_apply!(
         damping,
         tolerance,
         max_iterations,
+        model,
         writeback,
     },
     as_claim,
@@ -293,6 +294,7 @@ define_mining_apply!(
         damping,
         tolerance,
         max_iterations,
+        model,
         writeback: WritebackOptions {
             enabled: writeback,
             #[cfg(feature = "epistemic")]

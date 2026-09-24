@@ -638,6 +638,7 @@ pub(super) fn replay_risk_propagation(core: &GraphCore, method: &Method) -> bool
         damping,
         tolerance,
         max_iterations,
+        model,
         writeback: true,
         #[cfg(feature = "epistemic")]
         as_claim,
@@ -646,6 +647,22 @@ pub(super) fn replay_risk_propagation(core: &GraphCore, method: &Method) -> bool
         return false;
     };
     if nodes.is_empty() {
+        return true;
+    }
+    if let Some((kind, options)) = super::insight::impact_model(model) {
+        let inputs = super::impact::ImpactInputs {
+            nodes,
+            seed,
+            edges,
+            kind,
+            options,
+        };
+        let run = super::impact::run_impact(&inputs);
+        super::impact::materialize_assessments(core, &inputs, &run);
+        #[cfg(feature = "epistemic")]
+        if *as_claim {
+            super::impact::materialize_assessment_claims(core, &inputs, &run);
+        }
         return true;
     }
     let out = run_risk_propagation(nodes, seed, edges, *damping, *tolerance, *max_iterations);

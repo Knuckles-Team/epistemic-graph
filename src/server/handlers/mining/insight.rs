@@ -9,12 +9,15 @@ use eg_compute::graph_algos::AdjacencyGraph;
 use eg_compute::mining::{
     community, ontology_gap, retrieval_quality, risk_propagation, root_cause,
 };
+use eg_types::compute_result::mining::ImpactOptions;
 use eg_types::compute_result::mining::{
     CommunityMiningResult, CommunityRow, OntologyGapMiningResult, OntologyGapRow,
-    RetrievalQualityMiningResult, RiskPropagationMiningResult, RiskScoreRow, RootCauseCandidateRow,
-    RootCauseMiningResult,
+    RetrievalQualityMiningResult, RiskModel, RiskPropagationMiningResult, RiskScoreRow,
+    RootCauseCandidateRow, RootCauseMiningResult,
 };
 use eg_types::result_contract::compute as results;
+
+use super::impact::{handle_impact, ImpactInputs, ImpactKind};
 
 pub(in crate::server::handlers) struct RootCauseRequest {
     pub(in crate::server::handlers) nodes: Vec<String>,
@@ -183,7 +186,17 @@ pub(in crate::server::handlers) struct RiskPropagationRequest {
     pub(in crate::server::handlers) damping: f64,
     pub(in crate::server::handlers) tolerance: f64,
     pub(in crate::server::handlers) max_iterations: usize,
+    pub(in crate::server::handlers) model: RiskModel,
     pub(in crate::server::handlers) writeback: WritebackOptions,
+}
+
+/// The impact model a non-`share` [`RiskModel`] names, with its options.
+pub(super) fn impact_model(model: &RiskModel) -> Option<(ImpactKind, &ImpactOptions)> {
+    match model {
+        RiskModel::Share => None,
+        RiskModel::NoisyOr(options) => Some((ImpactKind::NoisyOr, options)),
+        RiskModel::IndependentCascade(options) => Some((ImpactKind::IndependentCascade, options)),
+    }
 }
 
 pub(in crate::server::handlers) fn handle_risk_propagation(
@@ -198,6 +211,7 @@ pub(in crate::server::handlers) fn handle_risk_propagation(
         damping,
         tolerance,
         max_iterations,
+        model,
         writeback,
     } = request;
     if nodes.is_empty() {
@@ -205,6 +219,16 @@ pub(in crate::server::handlers) fn handle_risk_propagation(
             req_id,
             "mining: risk_propagation requires non-empty `nodes`",
         );
+    }
+    if let Some((kind, options)) = impact_model(&model) {
+        let inputs = ImpactInputs {
+            nodes: &nodes,
+            seed: &seed,
+            edges: &edges,
+            kind,
+            options,
+        };
+        return handle_impact(req_id, core, &inputs, writeback);
     }
     let out = run_risk_propagation(&nodes, &seed, &edges, damping, tolerance, max_iterations);
     let written = if writeback.enabled {
@@ -222,6 +246,9 @@ pub(in crate::server::handlers) fn handle_risk_propagation(
         .map(|(id, &score)| RiskScoreRow {
             node: id.clone(),
             score,
+            hops: None,
+            lower: None,
+            upper: None,
         })
         .collect();
     Response::ok(
@@ -231,6 +258,7 @@ pub(in crate::server::handlers) fn handle_risk_propagation(
             iterations: out.iterations,
             converged: out.converged,
             written_back: written,
+            impact: None,
         }),
     )
 }

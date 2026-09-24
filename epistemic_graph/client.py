@@ -9972,13 +9972,21 @@ class MiningClient:
         tolerance: float = 1e-9,
         max_iterations: int = 100,
         writeback: bool = False,
+        model: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized
-        PageRank over a directed weighted graph ``edges`` (``(from_id, to_id,
-        weight)``), restarting to the ``seed`` risk distribution (index-aligned with
-        ``nodes``; any non-negative scale, normalized internally) instead of
-        teleporting uniformly. With ``writeback=True`` materializes each node's
-        propagated score as a typed ``:RiskScore`` node."""
+        """Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation).
+
+        The default model is personalized PageRank over a directed weighted graph
+        ``edges`` (``(from_id, to_id, weight)``), restarting to the ``seed`` risk
+        distribution (index-aligned with ``nodes``; any non-negative scale,
+        normalized internally): each node's SHARE of propagated risk mass, which
+        sums to one and is not a probability. ``model={"kind": "noisy_or", ...}``
+        or ``{"kind": "independent_cascade", ...}`` (EH-526) reads the edge
+        weights as transmission probabilities and ``seed`` as seed-hit
+        probabilities and returns the probability that each node is hit, with
+        hop depth, the strongest paths, per-seed attribution and a provenance
+        digest under ``impact``. With ``writeback=True`` the share model writes
+        ``:RiskScore`` nodes and the impact models ``:ImpactAssessment`` nodes."""
         params: dict[str, Any] = {
             "nodes": nodes,
             "seed": seed,
@@ -9988,6 +9996,8 @@ class MiningClient:
             "max_iterations": max_iterations,
             "writeback": writeback,
         }
+        if model is not None:
+            params["model"] = model
         return (
             await _gen.compute.send_mine_risk_propagation(self._client, params)
         ).payload
