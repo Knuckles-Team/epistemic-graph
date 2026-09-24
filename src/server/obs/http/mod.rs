@@ -60,7 +60,7 @@ pub async fn serve_with_security(
     serve_inner(listener, state, Some(security_state)).await;
 }
 
-pub(super) async fn serve_inner(
+async fn serve_inner(
     listener: TcpListener,
     state: Arc<ObsState>,
     security_state: Option<Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
