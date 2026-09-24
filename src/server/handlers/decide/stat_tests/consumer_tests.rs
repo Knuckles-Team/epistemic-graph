@@ -338,14 +338,27 @@ async fn decision_record_views_answer_only_from_visible_rows() {
     let persist_dir = h.state.read().await.persist_dir.clone().unwrap();
     let persist_dir = std::path::PathBuf::from(persist_dir);
     let graph = crate::graph::GraphCore::new().analysis_snapshot();
+    // The SQL leg drives its own runtime (as it does on the blocking pool in
+    // production), so it runs on a plain thread outside the test's runtime.
     let sql = |who: &str, query: &str| {
         let authority = carrier(who);
         let views = DecisionViews::of(h.store.clone(), &authority);
-        let projection =
-            authorized_read_store_for_query(&authority, &persist_dir, query, Some(&views)).unwrap();
-        eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query).unwrap()
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let projection = authorized_read_store_for_query(
+                        &authority,
+                        &persist_dir,
+                        query,
+                        Some(&views),
+                    )
+                    .unwrap();
+                    eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query).unwrap()
+                })
+                .join()
+                .unwrap()
+        })
     };
-
     let mine = sql(
         "decider",
         "SELECT outcome, source, evidence_class FROM decisions",
