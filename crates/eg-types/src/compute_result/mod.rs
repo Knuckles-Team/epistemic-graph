@@ -17,6 +17,8 @@ pub mod distributed;
 pub mod finance;
 #[cfg(feature = "graphlearn")]
 pub mod graphlearn;
+#[cfg(feature = "finance")]
+pub mod market;
 #[cfg(feature = "mining")]
 pub mod mining;
 #[cfg(feature = "ml-pipeline")]

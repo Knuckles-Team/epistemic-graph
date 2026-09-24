@@ -16,6 +16,8 @@ mod approved;
 pub(crate) mod attach_pack;
 pub(crate) mod compiled;
 pub(crate) mod compose;
+#[cfg(test)]
+mod finance_tests;
 #[cfg(all(test, feature = "shacl"))]
 mod swarm_topology_tests;
 #[cfg(test)]

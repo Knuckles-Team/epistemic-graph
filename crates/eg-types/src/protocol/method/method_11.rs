@@ -159,6 +159,17 @@ $($variants)*
         #[serde(with = "serde_bytes")]
         policy_msgpack: Vec<u8>,
     },
+
+    // ── Market bars and trend signals (EH-413..EH-418) ─────────────────────
+    /// Typed OHLCV bars over the time-series store, deterministic integer
+    /// indicators, the per-series trend signal with its flip records, the
+    /// Decide-calibrated flip confidence and the backtest-run record. Pure
+    /// compute over what the request carries; informational only — no op
+    /// authorises an order. See [`crate::compute_result::market`].
+    #[cfg(feature = "finance")]
+    FinanceMarket {
+        op: Box<crate::compute_result::market::FinanceMarketOp>,
+    },
         ]);
     };
 }
