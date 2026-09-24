@@ -14,7 +14,7 @@ Usage (build host; see docs/benchmarks-helix.md for the full recipe)::
         --eg-server target/release/epistemic-graph-server \\
         --helix-server /path/to/helix/target/release/server \\
         --helix-sdk /path/to/helix/sdks/python/src \\
-        --workdir /var/tmp/helix-compare --out report.json --markdown report.md
+        --workdir ./helix-compare-work --out report.json --markdown report.md
 
 ``--smoke N`` shrinks the corpus to N documents and every workload to a tenth
 for harness debugging; its report is marked UNPINNED and is not evidence.
