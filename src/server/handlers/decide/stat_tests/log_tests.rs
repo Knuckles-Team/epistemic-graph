@@ -72,6 +72,7 @@ pub(super) async fn decision_log_round_trip(h: &Harness, record: StatisticalDeci
     tampered.record_digest = eg_types::decision::digest::statistical_record_digest(&tampered);
     let commit = |r: StatisticalDecisionRecord| DecisionLogOp::Commit {
         record: Box::new(r),
+        evaluator: None,
     };
     let refused = decode::<DecisionLogCommitted>(log_op(h, "decider", commit(tampered)).await);
     assert!(refused.unwrap_err().starts_with("DECISION_REPLAY_MISMATCH"));
