@@ -45,8 +45,11 @@ pub struct EdgeSearchRequest<'a> {
     pub prefilter: Option<&'a RowPredicate>,
     /// The caller's row-level security over the edge's own property blob (the
     /// graph's `can_see_row` on the served path), applied inside the walk.
-    pub visible: Option<&'a dyn Fn(&[u8]) -> bool>,
+    pub visible: Option<EdgeVisibility<'a>>,
 }
+
+/// Row-level security over one edge's own property blob: `true` admits it.
+pub type EdgeVisibility<'a> = &'a dyn Fn(&[u8]) -> bool;
 
 /// One result edge.
 #[derive(Debug, Clone, PartialEq)]
