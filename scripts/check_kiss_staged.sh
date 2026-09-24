@@ -268,10 +268,27 @@ is_cargo_target_root() {
   [ -f "$STAGED_ROOT/$crate_dir/Cargo.toml" ] && [ ! -L "$STAGED_ROOT/$crate_dir/Cargo.toml" ]
 }
 
+# A file loaded through `#[path = "..."]` is ALSO a "mod-rs" file (Rust Reference,
+# "Module source filenames"): it owns its own directory, so its `mod x;` children
+# resolve beside it -- `compute/semantic_hnsw.rs`, loaded by `compute/semantic.rs`'s
+# `#[path = "semantic_hnsw.rs"] mod backend;`, declares children that live at
+# `compute/semantic_hnsw_index.rs`, not `compute/semantic_hnsw/`. rustc learns that
+# only from the PARENT's attribute, and this walk starts at the changed file, so
+# look for a sibling that path-loads this file by its bare name (the only form this
+# repository uses). Without it every staged change to such a file failed closed as
+# "CANNOT RUN" on source rustc compiles.
+is_path_loaded_module() {
+  local path="$1" dir base
+  dir="$(dirname -- "$path")"
+  base="$(basename -- "$path")"
+  grep -lsF "path = \"$base\"]" "$STAGED_ROOT/$dir"/*.rs > /dev/null
+}
+
 validate_module_closure() {
   local path="$1"
   local crate_root=0
   is_cargo_target_root "$path" && crate_root=1
+  is_path_loaded_module "$path" && crate_root=1
   scanner_cmd python3 -I - "$STAGED_ROOT" "$path" "$crate_root" <<'PY'
 import sys
 from pathlib import Path
