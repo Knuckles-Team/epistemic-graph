@@ -9,6 +9,7 @@
 
 use super::*;
 use crate::redb_store::scrub::{load_scrub_cursor, scrub_pass, ScrubBudget, ScrubPass};
+use tokio::sync::oneshot;
 
 impl RedbBackend {
     /// One bounded scrub pass on every shard, in shard order.

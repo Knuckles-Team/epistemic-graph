@@ -815,7 +815,8 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // `decision_records`.
     // 159 -> 161: the SQL ANN generation and changed-row tables.
     // 161 -> 162: the edge-index registry table.
-    assert_eq!(names.len(), 162);
+    // 162 -> 163: the graph shard's file-wide `storage_scrub_cursor` (EH-384).
+    assert_eq!(names.len(), 163);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
