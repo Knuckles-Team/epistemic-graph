@@ -178,6 +178,9 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
             "GraphSchemaSourceView",
             "GraphSchemaSourcesView",
             "SchemaSourceOriginView",
+            "GraphSchemaClassesView",
+            "GraphSchemaTermView",
+            "GraphSchemaTermKind",
         ],
         result_model: Some("GraphSchemaCommitted"),
         required: true,
@@ -209,6 +212,7 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
 pub(super) const SHARED_DTO_RESULT_MODELS: &[(&str, &str)] = &[
     ("SourceIngestStatus", "SourceIngestStatus"),
     ("GraphSchemaList", "GraphSchemaSourcesView"),
+    ("GraphSchemaClasses", "GraphSchemaClassesView"),
     ("OwlReasonDistributed", "OwlReasonResult"),
     ("OwlExplain", "OwlExplainResult"),
     ("RunDatalogReasoning", "DatalogReasoningResult"),

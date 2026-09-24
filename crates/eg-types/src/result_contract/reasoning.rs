@@ -1,6 +1,6 @@
 //! Declared results of the `reasoning` contract domain.
 
-use crate::graph_schema::{GraphSchemaCommitted, GraphSchemaSourcesView};
+use crate::graph_schema::{GraphSchemaClassesView, GraphSchemaCommitted, GraphSchemaSourcesView};
 #[cfg(feature = "sparql")]
 use crate::protocol::SparqlResult;
 #[cfg(feature = "owl")]
@@ -15,6 +15,7 @@ method_results! {
     // attach, attach-pack and detach paths all answer the committed view.
     GraphSchema(GraphSchema) => Raw<GraphSchemaCommitted>;
     GraphSchemaList(GraphSchemaList) => Raw<GraphSchemaSourcesView>;
+    GraphSchemaClasses(GraphSchemaClasses) => Raw<GraphSchemaClassesView>;
     RunDatalogReasoning(RunDatalogReasoning) => Json<DatalogReasoningResult>;
     // The graph serialized as an N-Triples document.
     GetRdf(GetRdf) => Raw<String>;

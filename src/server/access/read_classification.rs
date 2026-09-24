@@ -293,6 +293,12 @@ pub(super) const REASON_SOLVE_PURE_COMPUTE: &str =
 // `security:admin`, which additionally requires the RBAC admin capability.
 pub(super) const REASON_GRAPH_SCHEMA_CONTROL_STATE: &str =
     "GraphSchemaList reads the request graph's attached schema-source keys, origins and digests -- graph control state behind security:admin and the RBAC admin capability, never a GraphView/core.analysis_snapshot() row read";
+// EH-389: the class/property vocabulary the composed schema declares -- the
+// ontology's own terms and the key of the source declaring each, never graph
+// rows and never the source documents. Gated like every ontology read
+// (`owl:read`); the request graph's read authority is the whole scope.
+pub(super) const REASON_GRAPH_SCHEMA_VOCABULARY: &str =
+    "GraphSchemaClasses reads the declared class/property IRIs of the request graph's composed schema and the key of the source declaring each -- schema vocabulary behind owl:read, never a GraphView/core.analysis_snapshot() row read and never a source document";
 // RF-ADR-009: status reads one source-partition marker keyed by the verified
 // tenant, graph, connector and stream. The marker is ingestion control state,
 // not a caller-visible graph row; its `source:ingest` capability and verified
@@ -339,6 +345,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("Solve", REASON_SOLVE_PURE_COMPUTE),
     // REASON_GRAPH_SCHEMA_CONTROL_STATE
     ("GraphSchemaList", REASON_GRAPH_SCHEMA_CONTROL_STATE),
+    // REASON_GRAPH_SCHEMA_VOCABULARY
+    ("GraphSchemaClasses", REASON_GRAPH_SCHEMA_VOCABULARY),
     // REASON_SOURCE_INGESTION_MARKER
     ("SourceIngestStatus", REASON_SOURCE_INGESTION_MARKER),
     // REASON_SERVER_LIFECYCLE

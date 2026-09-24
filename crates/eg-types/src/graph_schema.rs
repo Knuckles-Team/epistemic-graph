@@ -14,6 +14,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::contract::{closed_error_codes, BoundedVec, ResourceId};
 
+mod terms;
+pub use terms::{
+    term_local_name, validate_term_page_limit, GraphSchemaClassesView, GraphSchemaTermKind,
+    GraphSchemaTermPosition, GraphSchemaTermView, MAX_GRAPH_SCHEMA_TERMS_PAGE,
+};
+
 /// Format identity (RF-ADR-006) of the schema-source views.
 pub const GRAPH_SCHEMA_RESULT_SCHEMA_VERSION: u16 = 1;
 
@@ -268,6 +274,10 @@ closed_error_codes! {
         ComposedDigestMismatch => "COMPOSED_DIGEST_MISMATCH",
         /// The engine has no snapshot-bound connector-pack body resolver.
         AttachPackResolverUnavailable => "ATTACH_PACK_RESOLVER_UNAVAILABLE",
+        /// A `GraphSchemaClasses` cursor this surface did not mint.
+        TermCursorInvalid => "SCHEMA_TERM_CURSOR_INVALID",
+        /// A `GraphSchemaClasses` page size outside its bounds.
+        TermPageInvalid => "SCHEMA_TERM_PAGE_INVALID",
     }
 }
 

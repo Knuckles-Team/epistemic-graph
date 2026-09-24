@@ -117,6 +117,17 @@ $($variants)*
     },
     /// List the request graph's schema sources and its composed digest.
     GraphSchemaList,
+    /// One page of the classes and properties the request graph's composed
+    /// schema declares, ordered by `(iri, kind)` (EH-389). `kind` keeps one
+    /// term kind; `cursor` is the previous page's `next_cursor`; `limit` is
+    /// 1..=`MAX_GRAPH_SCHEMA_TERMS_PAGE`.
+    GraphSchemaClasses {
+        #[serde(default)]
+        kind: Option<crate::graph_schema::GraphSchemaTermKind>,
+        #[serde(default)]
+        cursor: Option<String>,
+        limit: u32,
+    },
     /// Operator view and in-order re-delivery of one owner's mutation outbox.
     MutationOutbox {
         op: Box<crate::mutation_outbox::MutationOutboxOp>,

@@ -14,6 +14,7 @@
 
 pub(crate) mod attach_pack;
 pub(crate) mod compose;
+pub(crate) mod terms;
 #[cfg(test)]
 mod world_model_tests;
 
