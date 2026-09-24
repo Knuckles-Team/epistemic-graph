@@ -3,6 +3,8 @@ use super::*;
 use eg_types::fleet_catalog::DiscoveryScope;
 
 const DIGEST: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+const OUTPUT_DIGEST: &str =
+    "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 
 /// Built from JSON so a fact the Decide lanes add with a default does not
 /// break this fixture.
@@ -46,6 +48,7 @@ fn tool(component_id: &str) -> AgentComponentEntry {
             "effect": "read",
             "required_scopes": [],
             "input_schema_digest": DIGEST,
+            "output_schema_digest": OUTPUT_DIGEST,
         }),
     )
 }
@@ -176,6 +179,7 @@ fn every_content_kind_projects_its_typed_facts() {
     };
     assert_eq!(tool_row.tool_mode, ToolMode::Condensed);
     assert_eq!(tool_row.input_schema_digest.as_deref(), Some(DIGEST));
+    assert_eq!(tool_row.output_schema_digest.as_deref(), Some(OUTPUT_DIGEST));
     assert!(tool_row.component.enabled);
     assert_eq!(
         tool_row.component.acl.publisher,
