@@ -43,17 +43,17 @@ impl Window {
         Ok(Self { from_ms, to_ms })
     }
 
-    pub(super) fn from_ns(self) -> i64 {
+    pub(super) fn start_ns(self) -> i64 {
         millis_to_nanos(self.from_ms)
     }
 
-    pub(super) fn to_ns(self) -> i64 {
+    pub(super) fn end_ns(self) -> i64 {
         millis_to_nanos(self.to_ms)
     }
 
     #[cfg(feature = "traces")]
     fn contains_ns(self, ns: i64) -> bool {
-        ns >= self.from_ns() && ns < self.to_ns()
+        ns >= self.start_ns() && ns < self.end_ns()
     }
 }
 
@@ -125,8 +125,8 @@ fn push_logs(
 ) -> Result<(), String> {
     for stream in streams {
         let query = LogQuery {
-            from: window.from_ns(),
-            to: window.to_ns(),
+            from: window.start_ns(),
+            to: window.end_ns(),
             size: MAX_SIGNALS + 1,
             ..LogQuery::all(stream.clone())
         };
@@ -151,8 +151,8 @@ fn push_spans(obs: &ObsState, tenant: &str, window: &Window, signals: &mut Vec<T
     }
 
     let query = TraceQuery {
-        from: window.from_ns(),
-        to: window.to_ns(),
+        from: window.start_ns(),
+        to: window.end_ns(),
         tags: vec![(TENANT_ATTRIBUTE.to_string(), tenant.to_string())],
         ..TraceQuery::new(MAX_SIGNALS + 1)
     };
@@ -220,7 +220,7 @@ fn push_metrics(
             continue;
         }
         let points = store
-            .range(series_id, window.from_ns(), window.to_ns())
+            .range(series_id, window.start_ns(), window.end_ns())
             .map_err(|_| "telemetry metric samples are unavailable".to_string())?;
         signals.extend(points.iter().filter_map(|point| {
             let value = *point.values.first()?;
