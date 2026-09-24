@@ -54,6 +54,9 @@ pub async fn serve_with_security(
     state: Arc<ObsState>,
     security_state: Arc<tokio::sync::RwLock<crate::server::ServerState>>,
 ) {
+    // EH-408/EH-409: this store is also the one `TelemetryDerive` reads over
+    // RPC, so the served engine registers it on its own state first.
+    security_state.write().await.obs = Some(state.clone());
     serve_inner(listener, state, Some(security_state)).await;
 }
 

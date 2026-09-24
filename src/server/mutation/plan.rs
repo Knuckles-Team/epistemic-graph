@@ -832,11 +832,14 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
     // each write into a `CreateNodeIfAbsent`/`CompareAndSetNodeFields` against
     // `__commons__` through `dispatch_graph_op`. `PolicyEvolution` (EH-346/347)
     // lowers each write into one `CreateNodeIfAbsent` against the request graph.
+    // `TelemetryDerive` (EH-408/409) self-translates its facts into one `BatchUpdate`
+    // against the request graph.
     if matches!(
         method,
         Method::RegisterServer { .. }
             | Method::FleetCatalog { .. }
             | Method::PolicyEvolution { .. }
+            | Method::TelemetryDerive { .. }
     ) {
         return Some(ClusterMutationRoute::VolatileControl);
     }

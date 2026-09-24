@@ -246,7 +246,9 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
         Method::RunDatalogReasoning { .. } => Some("__run_datalog_reasoning"),
         Method::ClearLedger | Method::ApplyLedger { .. } => Some("__ledger"),
         Method::CompactNodesByType { .. } => Some("__compact_nodes_by_type"),
-        _ => source_ingestion_marker_event_id(method).or_else(|| op_family_marker_event_id(method)),
+        _ => source_ingestion_marker_event_id(method)
+            .or_else(|| op_family_marker_event_id(method))
+            .or_else(|| telemetry_derive_marker_event_id(method)),
     }
 }
 
@@ -261,6 +263,13 @@ fn op_family_marker_event_id(method: &Method) -> Option<&'static str> {
         Method::PolicyEvolution { op } if op.is_mutation() => Some("__policy_evolution"),
         _ => None,
     }
+}
+
+/// EH-408/EH-409: defense-in-depth, like the fleet catalog's marker -- the
+/// derivation self-translates into one `BatchUpdate`, whose own node and edge
+/// events are the real ones.
+fn telemetry_derive_marker_event_id(method: &Method) -> Option<&'static str> {
+    matches!(method, Method::TelemetryDerive { .. }).then_some("__telemetry_derive")
 }
 
 fn source_ingestion_marker_event_id(method: &Method) -> Option<&'static str> {

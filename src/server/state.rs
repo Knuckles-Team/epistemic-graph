@@ -303,6 +303,12 @@ pub struct ServerState {
     /// OWN file — NOT a second handle on an authoritative graph shard.
     #[cfg(feature = "tsdb")]
     pub tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
+    /// The in-process observability store (logs, remote-write metrics, spans;
+    /// feature `obs`). `Some` once startup has opened it for the observability
+    /// listener; `TelemetryDerive` (EH-408/EH-409) reads stored telemetry
+    /// through this handle, never through the HTTP listener.
+    #[cfg(feature = "obs")]
+    pub obs: Option<Arc<crate::server::obs::ObsState>>,
     /// Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`). `Some` on
     /// any `streaming` build (constructed unconditionally — it needs no persist dir,
     /// the in-memory ring IS the cursor surface). The dispatch write-side-effect block
@@ -489,6 +495,8 @@ impl ServerState {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
+            #[cfg(feature = "obs")]
+            obs: None,
             // Keep field composition side-effect-free. Production startup
             // installs the optional Kafka sink after constructing state.
             #[cfg(feature = "streaming")]
