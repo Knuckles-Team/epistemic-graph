@@ -1,110 +1,108 @@
-//! DecideText tokens. Words are case-insensitive keywords or identifiers; a
-//! `{ ... }` block after `QUERY` is captured raw (balanced) and handed to the
-//! ordinary UQL parser, so `|>` inside it belongs to the candidate query and
-//! never to the decision clauses.
+//! DecideText tokens, lexed by THE UQL lexer (EH-452): one lexical family, so strings
+//! (single- or double-quoted, escapes resolved), comments, Unicode words, IRIs and
+//! `$name` parameters mean the same thing in both languages.
+//!
+//! The `{ … }` candidate query after `QUERY` is found by balancing brace TOKENS — a
+//! string is one token, so a brace inside a string literal never counts — and its exact
+//! source text is handed to the ordinary UQL parser, with its offset so the candidate's
+//! own diagnostics point into the DecideText source.
 
 use super::{DecideTextError, DecideTextErrorKind};
+use crate::uql::lexer::{self as uql_lexer, Tok as UqlTok, Token};
 
-/// One token and the byte offset it starts at.
+/// One DecideText token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Tok {
+    /// A keyword or a bare value: a word, an IRI (brackets stripped) or a number (its
+    /// source text).
     Word(String),
     Str(String),
+    /// `$name`.
     Param(String),
-    Block(String),
+    /// A `{ … }` candidate query: its trimmed source text and the offset it starts at.
+    Block(String, usize),
     LBracket,
     RBracket,
     Comma,
     Pipe,
 }
 
-pub(super) type Spanned = (Tok, usize);
+/// A token and its byte span.
+pub(super) type Spanned = (Tok, (usize, usize));
 
-fn syntax(msg: impl Into<String>, at: usize) -> DecideTextError {
-    DecideTextError::new(DecideTextErrorKind::Syntax, msg, at)
+fn syntax(msg: impl Into<String>, span: (usize, usize)) -> DecideTextError {
+    DecideTextError::new(DecideTextErrorKind::Syntax, msg, span)
 }
 
-fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || matches!(c, '_' | ':' | '/' | '-' | '.' | '#')
-}
-
-fn take_while(src: &str, start: usize, keep: impl Fn(char) -> bool) -> usize {
-    src[start..]
-        .char_indices()
-        .find(|&(_, c)| !keep(c))
-        .map_or(src.len(), |(offset, _)| start + offset)
-}
-
-fn string(src: &str, at: usize) -> Result<(Tok, usize), DecideTextError> {
-    let close = src[at + 1..]
-        .find('"')
-        .ok_or_else(|| syntax("unterminated string", at))?;
-    let end = at + 1 + close;
-    Ok((Tok::Str(src[at + 1..end].to_string()), end + 1))
-}
-
-fn block(src: &str, at: usize) -> Result<(Tok, usize), DecideTextError> {
-    let mut depth = 0usize;
-    for (offset, c) in src[at..].char_indices() {
-        depth = match c {
-            '{' => depth + 1,
-            '}' => depth - 1,
-            _ => depth,
-        };
-        if depth == 0 {
-            let end = at + offset;
-            return Ok((Tok::Block(src[at + 1..end].trim().to_string()), end + 1));
-        }
-    }
-    Err(syntax("unbalanced `{` in the candidate query", at))
-}
-
-fn param(src: &str, at: usize) -> Result<(Tok, usize), DecideTextError> {
-    let end = take_while(src, at + 1, |c| c.is_alphanumeric() || c == '_');
-    if end == at + 1 {
-        return Err(syntax("`@` must name a parameter", at));
-    }
-    Ok((Tok::Param(src[at + 1..end].to_string()), end))
-}
-
-fn punctuation(c: char) -> Option<Tok> {
-    match c {
-        '[' => Some(Tok::LBracket),
-        ']' => Some(Tok::RBracket),
-        ',' => Some(Tok::Comma),
-        _ => None,
-    }
-}
-
-fn next_token(src: &str, at: usize, c: char) -> Result<(Tok, usize), DecideTextError> {
-    if let Some(tok) = punctuation(c) {
-        return Ok((tok, at + 1));
-    }
-    match c {
-        '"' => string(src, at),
-        '{' => block(src, at),
-        '@' => param(src, at),
-        '|' if src[at..].starts_with("|>") => Ok((Tok::Pipe, at + 2)),
-        c if is_word_char(c) => {
-            let end = take_while(src, at, is_word_char);
-            Ok((Tok::Word(src[at..end].to_string()), end))
-        }
-        other => Err(syntax(format!("unexpected character `{other}`"), at)),
-    }
+/// A `$name` is DecideText's parameter; the old `@name` spelling is refused by name.
+fn at_sign(span: (usize, usize)) -> DecideTextError {
+    syntax("`@name` is not a DecideText parameter", span)
+        .with_help("parameters are spelled `$name`, exactly as in UQL (`COVERS $capabilities`)")
 }
 
 /// Tokenise a DecideText source.
 pub(super) fn lex(src: &str) -> Result<Vec<Spanned>, DecideTextError> {
-    let mut tokens = Vec::new();
-    let mut at = 0;
-    while let Some(c) = src[at..].chars().next() {
-        if c.is_whitespace() {
-            at += c.len_utf8();
+    let tokens = uql_lexer::lex(src).map_err(|e| {
+        let span = (e.at, e.at + 1);
+        syntax(e.msg.clone(), span).caused_by(crate::uql::UqlError::from(e))
+    })?;
+    let mut out = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+    while let Some(token) = tokens.get(i) {
+        if token.kind == UqlTok::LBrace {
+            let close = matching_brace(&tokens, i)?;
+            out.push(block(src, token, &tokens[close]));
+            i = close + 1;
             continue;
         }
-        let (tok, end) = next_token(src, at, c)?;
-        tokens.push((tok, at));
-        at = end;
+        out.push((word_or_punct(src, token)?, (token.start, token.end)));
+        i += 1;
     }
-    Ok(tokens)
+    Ok(out)
+}
+
+/// The index of the `}` token balancing the `{` at `open`.
+fn matching_brace(tokens: &[Token], open: usize) -> Result<usize, DecideTextError> {
+    let mut depth = 0usize;
+    for (offset, token) in tokens[open..].iter().enumerate() {
+        match token.kind {
+            UqlTok::LBrace => depth += 1,
+            UqlTok::RBrace => depth -= 1,
+            _ => continue,
+        }
+        if depth == 0 {
+            return Ok(open + offset);
+        }
+    }
+    let at = tokens[open].start;
+    Err(syntax(
+        "unbalanced `{` in the candidate query",
+        (at, at + 1),
+    ))
+}
+
+fn block(src: &str, open: &Token, close: &Token) -> Spanned {
+    let inner = &src[open.end..close.start];
+    let offset = open.end + (inner.len() - inner.trim_start().len());
+    (
+        Tok::Block(inner.trim().to_string(), offset),
+        (open.start, close.end),
+    )
+}
+
+fn word_or_punct(src: &str, token: &Token) -> Result<Tok, DecideTextError> {
+    let span = (token.start, token.end);
+    Ok(match &token.kind {
+        UqlTok::Ident(word) | UqlTok::QIdent(word) => Tok::Word(word.clone()),
+        UqlTok::Iri(iri) => Tok::Word(iri.trim_start_matches('<').trim_end_matches('>').into()),
+        UqlTok::Num(_) => Tok::Word(src[token.start..token.end].to_string()),
+        UqlTok::Str(text) => Tok::Str(text.clone()),
+        UqlTok::Param(name) => Tok::Param(name.clone()),
+        UqlTok::LBracket => Tok::LBracket,
+        UqlTok::RBracket => Tok::RBracket,
+        UqlTok::Comma => Tok::Comma,
+        UqlTok::Pipe => Tok::Pipe,
+        UqlTok::At => return Err(at_sign(span)),
+        other => return Err(syntax(format!("unexpected {other} in DecideText"), span)),
+    })
 }

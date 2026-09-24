@@ -43,7 +43,7 @@ pub use sql::{
     InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict, OnConflictAction,
     ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache, SqlContextCache, StatementKind,
     StreamOutcome, TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin,
-    UpdateTable, UserAnnDecision, UserAnnPushdown, VectorMetric, WhereEq,
+    UpdateTable, UserAnnDecision, UserAnnPushdown, VectorMetric, WhereEq, READ_ONLY_RELATION_NAMES,
 };
 
 #[cfg(feature = "sql")]

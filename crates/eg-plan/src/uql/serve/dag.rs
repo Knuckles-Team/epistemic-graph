@@ -15,9 +15,7 @@ use std::time::Instant;
 
 use eg_types::wire::{Op, UqlResult, UqlStageReport};
 
-use super::{
-    micros_since, record_channel, returned_channels, rows_of, stage_text, ChannelTable,
-};
+use super::{micros_since, record_channel, returned_channels, rows_of, stage_text, ChannelTable};
 use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
 use crate::exec::{apply, PlanCtx};
 use crate::rowset::RowSet;
@@ -89,11 +87,7 @@ fn node_ops(nodes: &[DagNode]) -> Vec<Op> {
 }
 
 /// One stage report per node; `actual` carries each node's (rows, micros) under PROFILE.
-fn reports(
-    nodes: &[DagNode],
-    ctx: &PlanCtx,
-    actual: Option<&[(u64, u64)]>,
-) -> Vec<UqlStageReport> {
+fn reports(nodes: &[DagNode], ctx: &PlanCtx, actual: Option<&[(u64, u64)]>) -> Vec<UqlStageReport> {
     nodes
         .iter()
         .enumerate()

@@ -1732,6 +1732,14 @@ mod txn_ryow_dispatch_tests {
         crate::server::decode_unified_ids(resp)
     }
 
+    /// A parameterless `Method::Uql` statement (the one query-text surface, EH-434).
+    fn uql(text: &str) -> Method {
+        Method::Uql {
+            text: text.into(),
+            params: Default::default(),
+        }
+    }
+
     async fn begin(state: &Arc<RwLock<ServerState>>, id: u64) -> String {
         let r = dispatch_on_heap(
             state,
@@ -1850,13 +1858,9 @@ mod txn_ryow_dispatch_tests {
         );
 
         // OFF-TXN identical query: empty — staged writes are invisible before commit.
-        let off = dispatch_on_heap(
-            &state,
-            req(8, Method::UnifiedQueryText { text: vec_q.into() }),
-        )
-        .await;
+        let off = dispatch_on_heap(&state, req(8, uql(vec_q))).await;
         assert!(
-            unified_ids(&off).is_empty(),
+            crate::server::decode_uql_ids(&off).is_empty(),
             "off-txn query must see none of the txn's uncommitted writes"
         );
     }
@@ -1883,10 +1887,9 @@ mod txn_ryow_dispatch_tests {
         let q = "MATCH (:Committed) |> LIMIT 5";
 
         // Before commit: off-txn empty, in-txn sees it (RYOW).
-        let before =
-            dispatch_on_heap(&state, req(3, Method::UnifiedQueryText { text: q.into() })).await;
+        let before = dispatch_on_heap(&state, req(3, uql(q))).await;
         assert!(
-            unified_ids(&before).is_empty(),
+            crate::server::decode_uql_ids(&before).is_empty(),
             "off-txn empty before commit"
         );
         let in_txn = dispatch_on_heap(
@@ -1922,10 +1925,9 @@ mod txn_ryow_dispatch_tests {
             "commit must succeed: {:?}",
             c.error
         );
-        let after =
-            dispatch_on_heap(&state, req(6, Method::UnifiedQueryText { text: q.into() })).await;
+        let after = dispatch_on_heap(&state, req(6, uql(q))).await;
         assert_eq!(
-            unified_ids(&after),
+            crate::server::decode_uql_ids(&after),
             vec!["cn".to_string()],
             "committed node must be visible off-txn after commit"
         );

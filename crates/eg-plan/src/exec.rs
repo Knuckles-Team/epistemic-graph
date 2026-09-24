@@ -42,7 +42,9 @@ pub(crate) use pred_sql::{sql_literal, where_clause};
 /// handler this is exactly what is already available off-lock: the `GraphView`
 /// (topology + property blobs) and a `SemanticStore` clone, both taken at one
 /// `GraphCore::version()` — so the cross-modal read is snapshot-isolated for free
-/// (CONCEPT:EG-KG.txn.multi-op-occ-acid).
+/// (CONCEPT:EG-KG.txn.multi-op-occ-acid). `Clone` so a served path can bind one more
+/// per-request source (the decision log, EH-066) onto an already-bound context.
+#[derive(Clone)]
 pub struct PlanCtx<'a> {
     pub view: &'a GraphView,
     pub semantic: &'a SemanticStore,

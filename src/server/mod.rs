@@ -68,17 +68,34 @@ pub fn join_engine_driver<T>(driver: std::thread::JoinHandle<T>) -> std::io::Res
 /// so Cargo's integration-test crates can share the assertion semantics.
 #[doc(hidden)]
 pub fn decode_unified_ids(response: &crate::protocol::Response) -> Vec<String> {
+    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(raw_result(response)).unwrap();
+    rows.into_iter().map(|(id, _)| id).collect()
+}
+
+/// Decode the row ids of a successful `Method::Uql` response (a `Rows` or `Profile`
+/// result) — the `decode_unified_ids` of the one query-text surface (EH-434).
+#[cfg(feature = "query")]
+#[doc(hidden)]
+pub fn decode_uql_ids(response: &crate::protocol::Response) -> Vec<String> {
+    use eg_types::wire::UqlResult;
+    let rows = match rmp_serde::from_slice(raw_result(response)).unwrap() {
+        UqlResult::Rows { rows, .. } | UqlResult::Profile { rows, .. } => rows,
+        UqlResult::Explain { .. } => panic!("an EXPLAIN result has no rows"),
+    };
+    rows.into_iter().map(|row| row.id).collect()
+}
+
+/// The raw payload of a successful query response.
+fn raw_result(response: &crate::protocol::Response) -> &[u8] {
     assert!(
         response.error.is_none(),
-        "unified query error: {:?}",
+        "query error: {:?}",
         response.error
     );
-    let bytes = match response.result.as_ref() {
+    match response.result.as_ref() {
         Some(crate::protocol::ResultPayload::Raw(bytes)) => bytes,
         other => panic!("expected Raw result, got {other:?}"),
-    };
-    let rows: Vec<(String, Option<f32>)> = rmp_serde::from_slice(bytes).unwrap();
-    rows.into_iter().map(|(id, _)| id).collect()
+    }
 }
 
 fn loopback_hostname_addr(addr: &str) -> bool {
@@ -1857,7 +1874,7 @@ mod tests {
     }
 
     /// UQL e2e (CONCEPT:AU-KG.query.top-nodes-by-degree): the SAME query written as a UQL TEXT string, served
-    /// via `Method::UnifiedQueryText`, returns the BYTE-IDENTICAL result to (a) the
+    /// via `Method::Uql`, returns the BYTE-IDENTICAL result to (a) the
     /// hand-built structured `Method::UnifiedQuery` plan AND (b) the separate-surfaces
     /// oracle. This is the proof the text front-end is faithful: text → Plan → the
     /// SAME run_unified executor, no new execution path.
@@ -1919,12 +1936,15 @@ mod tests {
                 301,
                 "__commons__",
                 None,
-                Method::UnifiedQueryText { text: uql.into() },
+                Method::Uql {
+                    text: uql.into(),
+                    params: Default::default(),
+                },
             ),
         )
         .await;
         assert_ok(&textq);
-        let text_ids = unified_ids(&textq);
+        let text_ids = decode_uql_ids(&textq);
 
         // (3) The siloed oracle over the same snapshot.
         let core = {
@@ -1981,16 +2001,17 @@ mod tests {
                 302,
                 "__commons__",
                 None,
-                Method::UnifiedQueryText {
+                Method::Uql {
                     text: "MATCH (:Doc) |> FROBNICATE".into(),
+                    params: Default::default(),
                 },
             ),
         )
         .await;
         let err = resp.error.expect("malformed UQL must error");
         assert!(
-            err.contains("UQL parse error") && err.contains("pipeline stage"),
-            "expected a clear UQL parse error, got: {err}"
+            err.contains("UQL_UNKNOWN_STAGE") && err.contains("pipeline stage"),
+            "expected a coded UQL parse error, got: {err}"
         );
     }
 
@@ -2021,7 +2042,7 @@ mod tests {
         //     (`RowVisibility::tagged == false` ⇒ hidden) unless the identity is
         //     `AgentRole::System`. A merely-registered `Agent`-role identity clears
         //     gate 1 but still gets an EMPTY `GraphView` back from gate 2 — the
-        //     remote's own `UnifiedQueryText` handler then builds a SQL scan over
+        //     remote's own `Uql` handler then builds a SQL scan over
         //     zero rows, and DataFusion's schema inference (which promotes JSON
         //     property keys to real columns ONLY from rows it actually sees) infers
         //     no columns at all, so `WHERE year > 2024` fails with "No field named

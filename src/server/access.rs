@@ -17,6 +17,9 @@ use std::sync::Arc;
 pub(crate) struct CarrierAuthority {
     tenant_scope: String,
     actor_scope: String,
+    /// The verified tenant id and principal persistence id exactly as the Agent
+    /// Library keys a tenant's decision log and its principal-visible records (EH-066).
+    log_owner: (String, String),
     owner_scope: String,
     agent_id: String,
     /// Per-request replay identity copied from the already-verified envelope.
@@ -115,6 +118,10 @@ impl CarrierAuthority {
         let can_read = admin || scopes.iter().any(|scope| scope == "kg:read");
         let can_write = admin || scopes.iter().any(|scope| scope == "kg:write");
         Ok(Self {
+            log_owner: (
+                context.tenant().to_string(),
+                context.principal_persistence_id(),
+            ),
             tenant_scope,
             actor_scope,
             owner_scope,
@@ -137,6 +144,12 @@ impl CarrierAuthority {
 
     pub(crate) fn owner_scope(&self) -> &str {
         &self.owner_scope
+    }
+
+    /// `(verified tenant id, principal persistence id)` — the keys of the caller's
+    /// decision log and of the records only it may see (EH-066).
+    pub(crate) fn log_owner(&self) -> (&str, &str) {
+        (&self.log_owner.0, &self.log_owner.1)
     }
 
     pub(crate) fn agent_id(&self) -> &str {

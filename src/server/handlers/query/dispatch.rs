@@ -1,6 +1,6 @@
-use super::*;
 #[cfg(feature = "query")]
 use super::uql_statement::handle_uql;
+use super::*;
 use crate::server::handlers::TryHandleContext;
 
 pub(in crate::server) fn try_handle<'a>(
@@ -310,9 +310,7 @@ pub(in crate::server) enum PolicyAwareQuery {
         params_msgpack: Vec<u8>,
     },
     /// One UQL pipeline answered as `[id, score|nil]` rows (the `cross_modal` family).
-    CrossModal {
-        text: String,
-    },
+    CrossModal { text: String },
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
@@ -392,7 +390,9 @@ async fn try_handle_with_policy_inner(
             query,
             params_msgpack,
         } => handle_sql_with_lease(&lease_ctx, query, params_msgpack).await,
-        PolicyAwareQuery::CrossModal { text } => handle_cross_modal_with_lease(&lease_ctx, text).await,
+        PolicyAwareQuery::CrossModal { text } => {
+            handle_cross_modal_with_lease(&lease_ctx, text).await
+        }
     }
 }
 
@@ -484,6 +484,7 @@ async fn handle_sql_with_lease(
     })?;
     let (snap, _graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
     Ok(super::sql_read::catalog_sql_response(
+        state,
         req_id,
         snap,
         authority.clone(),
