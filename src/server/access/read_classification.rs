@@ -245,6 +245,8 @@ pub(super) const REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE: &str =
 // boot precisely because no such RPC existed).
 pub(super) const REASON_IDENTITY_STORE_ADMIN_GATED: &str =
     "src/server/dispatch.rs's GetIdentity arm answers from IsolationLayer::get_identity -- a point read of the in-memory RBAC identity map (`agents: HashMap<String, AgentIdentity>`, crates/eg-core/src/isolation.rs), the SAME store RegisterIdentity writes and RbacAdmin governs. It is control-plane principal metadata (agent_id/role/teams/roles), not one resolved graph's rows: it never constructs a GraphView/GraphCore and never calls project_core/filter_view, so there is no per-node `_owner`/`_visibility`/`_grants` for RLS to filter on. Authority is the same `security:admin` authz_action the rest of the Zero-Trust Consensus family carries (crates/eg-capabilities/src/lib.rs), so it grants no visibility to any caller who could not already call RegisterIdentity/RbacAdmin against that identical store";
+pub(super) const REASON_IDENTITY_ACCESS_CHECK: &str =
+    "src/server/dispatch/router/identity_access.rs's CheckAccess arm answers IsolationLayer::check_access (the same decision check_graph_access applies to a principal's own requests) for one named principal on the REQUEST graph, after first requiring the CALLER's own Read access to that graph. It returns one boolean, never a GraphView row, identity or policy, so there is nothing for RLS to filter; its own authz_action is security:check (not security:admin), which reveals no more than whether that principal's request would be admitted";
 pub(super) const REASON_CLUSTER_TOPOLOGY_READ: &str =
     "src/server/handlers/topology.rs::handle_cluster_members answers from the durable NodeInfoStore + live MultiRaft membership (self-reported node/raft-group topology) -- not one resolved graph's rows, never touches core/GraphView/project_core. Gated by its own authz_action `cluster:topology-read` (crates/eg-capabilities/src/lib.rs), deliberately NOT kg:admin (REASON_CLUSTER_ADMIN_GATED) so ordinary service roles can re-resolve after a failover -- a distinct, weaker gate than the admin-only cluster methods above, so it gets its own reason rather than being folded into theirs";
 // BUG-044-class facade audit (push/eg-merge-artifacts): `QueryWorkItemReservation`/
@@ -388,6 +390,7 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_CLUSTER_TOPOLOGY_READ
     ("ClusterMembers", REASON_CLUSTER_TOPOLOGY_READ),
     ("GetIdentity", REASON_IDENTITY_STORE_ADMIN_GATED),
+    ("CheckAccess", REASON_IDENTITY_ACCESS_CHECK),
     // REASON_CHANNEL_MEMBERSHIP
     ("GetChannelMembers", REASON_CHANNEL_MEMBERSHIP),
     ("GetChannelMessages", REASON_CHANNEL_MEMBERSHIP),

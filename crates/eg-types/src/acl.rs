@@ -91,6 +91,29 @@ pub struct AgentIdentity {
     pub roles: Vec<String>,
 }
 
+/// The access `CheckAccess` asks about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum AccessCheck {
+    Read,
+    Write,
+}
+
+/// `CheckAccess`'s answer: would `agent_id`'s request of `access` on `graph`
+/// be admitted right now, by the same isolation/RBAC decision EG applies to
+/// that principal's own requests. An unregistered or revoked principal is
+/// `allowed: false`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AccessDecision {
+    pub agent_id: String,
+    pub graph: String,
+    pub access: AccessCheck,
+    pub allowed: bool,
+}
+
 // ── RBAC role model (CONCEPT:EG-KG.compute.feature) ─────────────────────────────────────────
 // Durable, serde-serializable role/grant records layered ON TOP of the per-agent
 // RLS/ACL. They persist exactly like `AgentIdentity` (in-memory in the

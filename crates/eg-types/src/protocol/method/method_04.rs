@@ -421,6 +421,19 @@ $($variants)*
         agent_id: String,
     },
 
+    /// Would `agent_id`'s own request of `access` on the REQUEST graph be
+    /// admitted right now? Answers from the same isolation/RBAC decision the
+    /// engine applies to that principal's requests, so a service that acts on
+    /// a person's behalf (a confused-deputy-safe executor, e.g. graph-os
+    /// delivering an alert) can re-check the person's CURRENT authority --
+    /// revocation takes effect at the next check. Gated `security:check`: a
+    /// yes/no about one principal on one graph the caller can itself read,
+    /// never the identity or policy. See [`crate::acl::AccessDecision`].
+    CheckAccess {
+        agent_id: String,
+        access: crate::acl::AccessCheck,
+    },
+
     /// Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the
     /// enum; the handler is gated behind the `security` feature (a non-security build
     /// falls to the dispatch "not available in this build" catch-all, like EG-090's

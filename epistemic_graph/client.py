@@ -8163,6 +8163,30 @@ class ConsensusClient:
             ),
         )
 
+    async def check_access(
+        self, agent_id: str, access: str = "read", *, graph: str | None = None
+    ) -> bool:
+        """Would ``agent_id``'s own request of ``access`` (``read`` or
+        ``write``) on ``graph`` be admitted now (``Method::CheckAccess``,
+        ``authz_action: security:check``)?
+
+        For an executor acting on a person's behalf -- it re-checks the
+        person's CURRENT authority, so a revoked grant stops the action at the
+        next check. The caller must itself be able to read ``graph``; the
+        answer is the engine's own admission decision, never the identity or
+        the policy. A failed call raises; it is never read as ``False``.
+        """
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            raise ValueError("agent_id must be a non-empty opaque identifier")
+        if access not in ("read", "write"):
+            raise ValueError("access must be 'read' or 'write'")
+        decision = (
+            await _gen.security.send_check_access(
+                self._client, {"agent_id": agent_id, "access": access}, graph=graph
+            )
+        ).payload
+        return bool(decision["allowed"])
+
     async def apply_multisig_mutation(
         self,
         signer_keys: dict[str, str],

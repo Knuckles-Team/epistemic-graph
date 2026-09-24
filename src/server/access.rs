@@ -741,6 +741,27 @@ pub(crate) fn decide_graph_access(
     basis.is_allowed()
 }
 
+/// `CheckAccess` (EH-416): would `agent_id`'s own request of `access` on this
+/// graph be admitted now? The same decision [`check_graph_access`] applies to
+/// that principal's requests, as a boolean; an unregistered or revoked
+/// principal (or an unprovisioned policy) is `false`.
+pub(crate) fn principal_may_access(
+    isolation: &IsolationLayer,
+    agent_id: &str,
+    graph_name: &str,
+    graph_type: crate::protocol::GraphType,
+    graph_owner: Option<&str>,
+    access: eg_types::acl::AccessCheck,
+) -> bool {
+    let level = match access {
+        eg_types::acl::AccessCheck::Read => AccessLevel::Read,
+        eg_types::acl::AccessCheck::Write => AccessLevel::Write,
+    };
+    !agent_id.is_empty()
+        && isolation.has_rules()
+        && isolation.check_access(agent_id, graph_name, graph_type, graph_owner, level)
+}
+
 /// Deny an unregistered/unauthenticated caller (or an unprovisioned isolation
 /// policy) BEFORE the target graph's existence is resolved.
 ///
@@ -1612,6 +1633,59 @@ mod universal_row_read_tests {
     /// passing `authority.actor_scope()` instead of `authority.agent_id()` as
     /// `commit_cross_modal_txn`'s `caller` -- reproduces exactly the failure
     /// this test's second assertion checks for.
+    /// EH-416: `CheckAccess` answers the engine's own decision for a named
+    /// principal -- a registered reader is allowed, a stranger is not, and
+    /// re-registering the principal without the role (revocation) turns the
+    /// answer to `false` at the next check.
+    #[cfg(feature = "security")]
+    #[test]
+    fn principal_may_access_follows_registration_and_revocation() {
+        use eg_types::acl::{AccessCheck, Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        let reader = |roles: Vec<String>| AgentIdentity {
+            agent_id: "alice".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles,
+        };
+        let mut isolation = IsolationLayer::new();
+        isolation.add_role(Role::new("finance-reader"));
+        isolation.add_grant(Grant {
+            role: "finance-reader".to_string(),
+            resource: ResourceSelector::Graph("tenant-a".to_string()),
+            action: RbacAction::Read,
+            effect: GrantEffect::Allow,
+        });
+        isolation.register_agent(reader(vec!["finance-reader".to_string()]));
+        let may = |isolation: &IsolationLayer, agent: &str, access: AccessCheck| {
+            principal_may_access(
+                isolation,
+                agent,
+                "tenant-a",
+                crate::protocol::GraphType::Agent,
+                None,
+                access,
+            )
+        };
+        assert!(may(&isolation, "alice", AccessCheck::Read));
+        assert!(
+            !may(&isolation, "alice", AccessCheck::Write),
+            "read grants no write"
+        );
+        assert!(
+            !may(&isolation, "mallory", AccessCheck::Read),
+            "unregistered is denied"
+        );
+        assert!(
+            !may(&isolation, "", AccessCheck::Read),
+            "an empty principal is denied"
+        );
+        isolation.register_agent(reader(Vec::new()));
+        assert!(
+            !may(&isolation, "alice", AccessCheck::Read),
+            "revocation takes effect at the next check"
+        );
+    }
+
     #[test]
     fn rbac_check_is_keyed_by_agent_id_not_actor_scope() {
         let alice = CarrierAuthority::from_verified(
