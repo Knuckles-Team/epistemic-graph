@@ -69,6 +69,7 @@ macro_rules! native_method_catalog {
             record GapTransition => WorkItem,
             record GapSettle => WorkItem,
             record WorkOfferPut => WorkItem,
+            record RetireSealedRecord => WorkItem,
             record ReserveWorkItemResources => WorkItem,
             record ReleaseWorkItemResources => WorkItem,
             record ReclaimWorkItemResources => WorkItem,

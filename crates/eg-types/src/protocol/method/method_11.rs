@@ -181,6 +181,18 @@ $($variants)*
     FinanceSignalModels {
         op: Box<crate::compute_result::signal_models::FinanceSignalModelsOp>,
     },
+
+    // ── Sealed records (EH-558) ─────────────────────────────────────────────
+    /// Retire one sealed record: the owning op, and the only way to remove a
+    /// sealed record's content. With the record's digest it replaces the row by
+    /// an audited tombstone (class, digest, who, when, why) in one durable,
+    /// idempotent native transaction; generic node writes may not change or
+    /// remove a sealed row. `request.tenant` must equal the verified request
+    /// tenant, and the engine stamps `retired_by` from the verified caller. See
+    /// [`crate::sealed_record`].
+    RetireSealedRecord {
+        request: crate::sealed_record::RetireSealedRecordRequest,
+    },
         ]);
     };
 }

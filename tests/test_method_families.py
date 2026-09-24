@@ -72,6 +72,7 @@ _WORK_ITEM_METHODS = frozenset(
         "GapTransition",
         "GapSettle",
         "WorkOfferPut",
+        "RetireSealedRecord",
     }
 )
 _RESOURCE_AND_CAPACITY_WRITES = frozenset(
@@ -134,6 +135,7 @@ _DURABLE_AT_BASE = (
         "GapTransition",
         "GapSettle",
         "WorkOfferPut",
+        "RetireSealedRecord",
         "ClearGraph",
         "AddEmbedding",
     }
@@ -168,6 +170,7 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "GapTransition",
         "GapSettle",
         "WorkOfferPut",
+        "RetireSealedRecord",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",
         "ReclaimWorkItemResources",

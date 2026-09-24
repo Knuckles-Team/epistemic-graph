@@ -1960,6 +1960,7 @@ mod tests {
         ("GapTransition", "dedicated engine-native MutationBatch Gap lifecycle revision-CAS transition in the WorkItem kernel, redb_store/work_item/market/lifecycle.rs"),
         ("GapSettle", "dedicated engine-native MutationBatch Gap evidence write-back from the stored WorkItem row, redb_store/work_item/market/lifecycle.rs"),
         ("WorkOfferPut", "dedicated engine-native MutationBatch work-offer version-CAS write on the Gap row, redb_store/work_item/market/lifecycle.rs"),
+        ("RetireSealedRecord", "dedicated engine-native MutationBatch digest-checked sealed-record retirement (tombstone in place) in the WorkItem kernel, redb_store/work_item/sealed_record.rs"),
         ("ReserveWorkItemResources", "dedicated engine-native MutationBatch host-reservation transaction in mutation_batch.rs/redb_store.rs"),
         ("ReleaseWorkItemResources", "dedicated engine-native MutationBatch reservation-release transaction in mutation_batch.rs/redb_store.rs"),
         ("ReclaimWorkItemResources", "dedicated engine-native MutationBatch reservation-reclaim transaction in mutation_batch.rs/redb_store.rs"),

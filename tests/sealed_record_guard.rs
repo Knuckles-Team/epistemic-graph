@@ -176,3 +176,107 @@ async fn ordinary_nodes_and_maintenance_are_unaffected() {
     );
     assert_eq!(served.props("doc").await, None);
 }
+
+fn retire(digest: &str, key: &str) -> Method {
+    Method::RetireSealedRecord {
+        request: eg_types::sealed_record::RetireSealedRecordRequest {
+            tenant: "integration-test-tenant".to_string(),
+            node_id: "snap".to_string(),
+            digest: digest.to_string(),
+            reason: "share revoked".to_string(),
+            retired_at_ms: 42,
+            idempotency_key: key.to_string(),
+            retired_by: "client-claimed-actor".to_string(),
+        },
+    }
+}
+
+fn outcome(response: &Response) -> serde_json::Value {
+    assert!(response.error.is_none(), "retire: {:?}", response.error);
+    match &response.result {
+        Some(ResultPayload::Json(value)) => value.clone(),
+        other => panic!("RetireSealedRecord answers JSON, got {other:?}"),
+    }
+}
+
+/// The owning op: only the record's seal retires it, the row becomes an audited
+/// tombstone stamped with the ENGINE's view of the actor, a retry is idempotent,
+/// and no generic write can revive the id or forge a tombstone elsewhere.
+#[tokio::test]
+async fn retirement_is_the_owning_op_and_leaves_an_audited_tombstone() {
+    let mut served = Served::new();
+    let create = served.send(add_node("snap", snapshot("{}"))).await;
+    assert!(create.error.is_none(), "create: {:?}", create.error);
+
+    let wrong = outcome(&served.send(retire("sha256:ff", "retire-wrong")).await);
+    assert_eq!(wrong["outcome"], "digest_mismatch");
+    assert_eq!(served.props("snap").await, Some(snapshot("{}")));
+
+    let done = outcome(&served.send(retire("sha256:ab", "retire-1")).await);
+    assert_eq!(done["outcome"], "retired");
+    let tombstone = served.props("snap").await.expect("the tombstone row");
+    assert_eq!(tombstone["type"], "SealedRecordTombstone");
+    assert_eq!(tombstone["record_class"], "AnalysisSnapshot");
+    assert_eq!(tombstone["digest"], "sha256:ab");
+    assert_eq!(tombstone["reason"], "share revoked");
+    assert_eq!(tombstone["retired_at_ms"], 42);
+    let actor = tombstone["retired_by"].as_str().unwrap();
+    assert!(
+        actor.starts_with("principal:sha256:"),
+        "engine-stamped actor: {actor}"
+    );
+    assert!(
+        tombstone.get("record").is_none(),
+        "the sealed content is gone"
+    );
+
+    let again = outcome(&served.send(retire("sha256:ab", "retire-2")).await);
+    assert_eq!(again["outcome"], "already_retired");
+
+    let revive = served.send(add_node("snap", snapshot("{}"))).await;
+    assert!(refused(&revive), "revive: {:?}", revive.error);
+    let forged = json!({"type": "SealedRecordTombstone", "digest": "sha256:cd"});
+    let forge = served.send(add_node("other", forged)).await;
+    assert!(
+        forge
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("owning op")),
+        "forge: {:?}",
+        forge.error
+    );
+}
+
+/// Expiry is the same op, issued by the engine from the configured policy: the
+/// record is retired at its expiry instant, attributed to the retention actor, and
+/// a second sweep has nothing left to do.
+#[tokio::test]
+async fn retention_policy_expires_records_through_the_owning_op() {
+    use epistemic_graph::server::sealed_retention::{
+        expire_sealed_records, parse_policy, RETENTION_ACTOR,
+    };
+
+    let mut served = Served::new();
+    let mut young = snapshot("{}");
+    young["sealedAtMs"] = json!(9_000);
+    let mut old = snapshot("{\"old\":1}");
+    old["sealedAtMs"] = json!(1_000);
+    for (id, props) in [("young", young.clone()), ("old", old)] {
+        let response = served.send(add_node(id, props)).await;
+        assert!(response.error.is_none(), "{id}: {:?}", response.error);
+    }
+    let policy = parse_policy("AnalysisSnapshot=500").unwrap();
+    assert_eq!(
+        expire_sealed_records(&served.state, &policy, 5_000).await,
+        1
+    );
+    let tombstone = served.props("old").await.expect("tombstone");
+    assert_eq!(tombstone["type"], "SealedRecordTombstone");
+    assert_eq!(tombstone["retired_by"], RETENTION_ACTOR);
+    assert_eq!(tombstone["retired_at_ms"], 1_500);
+    assert_eq!(served.props("young").await, Some(young));
+    assert_eq!(
+        expire_sealed_records(&served.state, &policy, 5_000).await,
+        0
+    );
+}

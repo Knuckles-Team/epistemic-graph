@@ -289,9 +289,14 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     // 103 -> 107: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
     // `GapSettle`, `WorkOfferPut` -- all WorkItem-kernel writes;
     // 107 -> 109: EH-404 `RbacElevation` and EH-406 `ThrottleCapacityCell`;
-    // 109 -> 110: EH-524 `TsDefineSeries => TimeSeries`.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 110);
-    for control_lease_write in ["IssueControlLease", "TransitionControlLease"] {
+    // 109 -> 110: EH-524 `TsDefineSeries => TimeSeries`;
+    // 110 -> 111: EH-558's `RetireSealedRecord`.
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 111);
+    for control_lease_write in [
+        "IssueControlLease",
+        "TransitionControlLease",
+        "RetireSealedRecord",
+    ] {
         assert!(
             unique.contains(control_lease_write),
             "{control_lease_write} must commit through native consensus"

@@ -364,7 +364,16 @@ fn filtered_rank_text_equals_the_brute_force_restricted_ranking() {
             .map(|hit| (hit.id.clone(), Some(hit.score)))
             .collect();
         assert_eq!(got.len(), 80, "every member of {category} matches the term");
-        assert_eq!(got, oracle, "category {category}");
+        let ids =
+            |rows: &[(String, Option<f32>)]| rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&got), ids(&oracle), "category {category}");
+        for (g, w) in got.iter().zip(&oracle) {
+            let (g, w) = (g.1.unwrap(), w.1.unwrap());
+            assert!(
+                (g - w).abs() <= 1e-5 * w.abs().max(1.0),
+                "category {category}: {g} vs {w}"
+            );
+        }
     }
 }
 

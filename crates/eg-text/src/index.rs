@@ -417,6 +417,20 @@ mod tests {
             .collect()
     }
 
+    /// Same ids in the same order, and the same BM25 scores up to float summation order
+    /// (a multi-term query's per-term scores are summed in a different order when the
+    /// candidate conjunct joins the scorer tree).
+    fn assert_same_ranking(got: &[TextHit], want: &[TextHit], label: &str) {
+        let ids = |hits: &[TextHit]| hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(got), ids(want), "{label}");
+        for (g, w) in got.iter().zip(want) {
+            assert!(
+                (g.score - w.score).abs() <= 1e-5 * w.score.abs().max(1.0),
+                "{label}: {g:?} vs {w:?}"
+            );
+        }
+    }
+
     /// EH-532: a candidate-restricted search equals the full ranking restricted to the
     /// candidate set — same ids, same scores, same order — for selective and broad
     /// candidate sets and for `k` below and above the number of matching candidates.
@@ -429,11 +443,8 @@ mod tests {
             for query in ["graph", "ledger proof", "tensor lease shard"] {
                 for k in [1usize, 10, allowed.len()] {
                     let got = ix.search_within(query, &allowed, k);
-                    assert_eq!(
-                        got,
-                        restricted_oracle(&ix, query, &allowed, k),
-                        "stride {stride} query {query:?} k {k}"
-                    );
+                    let want = restricted_oracle(&ix, query, &allowed, k);
+                    assert_same_ranking(&got, &want, &format!("stride {stride} {query:?} k {k}"));
                 }
             }
         }

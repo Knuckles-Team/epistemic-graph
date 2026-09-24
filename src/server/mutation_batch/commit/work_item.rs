@@ -93,6 +93,7 @@ fn control_lease_tenant(method: &Method) -> Result<String, String> {
     match method {
         Method::IssueControlLease { request } => Ok(request.tenant.clone()),
         Method::TransitionControlLease { request } => Ok(request.tenant.clone()),
+        Method::RetireSealedRecord { request } => Ok(request.tenant.clone()),
         Method::PolicyEvolutionStore { request } => Ok(request.tenant_id.clone()),
         // EH-348 work-market writes ride the same kernel.
         other => eg_types::work_market::market_write_scope(other)

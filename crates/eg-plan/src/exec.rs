@@ -65,8 +65,10 @@ pub(crate) use events::events_op;
 // EH-521 — the `TSSCAN` source and the in-txn staged-series overlay it reads.
 #[cfg(feature = "timeseries")]
 mod tsscan;
+pub(crate) mod vector_rank;
 pub(crate) use dispatch::{apply, apply_with_channels, StageChannels};
 pub(crate) use pred_sql::{sql_literal, where_clause};
+pub(crate) use vector_rank::rank_op;
 #[cfg(feature = "timeseries")]
 pub use tsscan::StagedSeries;
 #[cfg(feature = "timeseries")]
@@ -596,6 +598,27 @@ impl Driver for SerialDriver {
     }
 }
 
+/// Apply `ops[at]` (== `op`) through the driver's `step`, except that a vector `Rank`
+/// immediately followed by `Limit k` runs as one top-`k` rank (EH-565): only the top `k`
+/// is ever read, so a large candidate set may take the filtered-ANN path instead of
+/// scoring every candidate.
+fn step_at<F>(
+    ops: &[Op],
+    at: usize,
+    op: &Op,
+    cur: RowSet,
+    ctx: &PlanCtx,
+    step: &mut F,
+) -> Result<RowSet, String>
+where
+    F: FnMut(&Op, RowSet, &PlanCtx) -> Result<RowSet, String>,
+{
+    match vector_rank::rank_then_limit(ops, at) {
+        Some((query, k)) => vector_rank::rank_limit(ctx, query, cur, k),
+        None => step(op, cur, ctx),
+    }
+}
+
 /// The adaptive-reoptimization runtime-feedback loop (CONCEPT:EG-KG.query.adaptive-reoptimization) —
 /// factored out of [`SerialDriver::run`] so [`crate::runtime::ParallelDriver`]'s physical
 /// driver (L35, `par-runtime`) runs the IDENTICAL policy instead of a re-implemented copy.
@@ -620,8 +643,8 @@ where
         // The global cost-optimizer kill-switch also disables the runtime feedback
         // loop below — byte-for-byte the pre-optimizer left fold.
         let mut cur = RowSet::new();
-        for op in ops {
-            cur = step(op, cur, ctx)?;
+        for (at, op) in ops.iter().enumerate() {
+            cur = step_at(ops, at, op, cur, ctx, &mut step)?;
         }
         return Ok(cur);
     }
@@ -640,7 +663,7 @@ where
     while i < remaining.len() {
         let op = remaining[i].clone();
         let estimated_out = card.rows_out(&op, estimated_in, ctx);
-        cur = step(&op, cur, ctx)?;
+        cur = step_at(&remaining, i, &op, cur, ctx, &mut step)?;
         let actual_out = cur.len() as f64;
 
         // Learned-cost online training (CONCEPT:EG-KG.query.adaptive-reoptimization, W4.12
@@ -721,46 +744,6 @@ fn traverse_op(
     let reached = bfs_reached(ctx.view, &input.ids(), rel, min, max);
     ctx.budget.check_traversal(reached.len())?;
     Ok(RowSet::from_ids(reached))
-}
-
-/// RANK (vector, CONCEPT:EG-KG.query.filtered-vector-rank) — rank EVERY candidate by exact
-/// cosine similarity (EH-564/EH-565). The op ranks the whole candidate set (a trailing
-/// `Limit` truncates afterwards), so it scores the candidates' own embeddings instead of
-/// walking the ANN graph with the candidates as an allowlist: a filtered HNSW walk asked
-/// for `|candidates|` hits both cost more than the exact scan (the walk's beam grows to
-/// the candidate count) and could strand candidates the walk never reached, so a
-/// traversal-then-rank query returned fewer than `k` hits. With an empty candidate set a
-/// `Rank` yields no rows.
-///
-/// F4 (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard): an inline query vector whose dimension
-/// doesn't match the store's embedding dimension is rejected with a typed error
-/// BEFORE it reaches the ANN/brute-force scan — but only when there is an actual
-/// candidate to rank against (an empty candidate set still yields an empty `RowSet`,
-/// unchanged, exactly like a source `Rank`'s existing empty-allowlist behavior — a
-/// dimension check against a query nobody will run isn't a real error). Without this
-/// guard a live mismatch was silent — `dot_product` zips to the shorter slice, so a
-/// wrong-width query either scored against truncated/misaligned dimensions or came
-/// back as an empty `RowSet` indistinguishable from "no matches" — never surfacing
-/// that the query itself was malformed.
-fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> Result<RowSet, String> {
-    let candidates = input.id_set();
-    if candidates.is_empty() {
-        return Ok(RowSet::new());
-    }
-    let store_dim = ctx.semantic.dim();
-    if store_dim != 0 && query.len() != store_dim {
-        return Err(format!(
-            "RANK BY ~{:?}: query vector dimension mismatch — expected {} (the store's \
-             embedding dimension), got {}",
-            query,
-            store_dim,
-            query.len()
-        ));
-    }
-    let scored = ctx
-        .semantic
-        .exact_search_filtered(query, candidates.len(), |id| candidates.contains(id));
-    Ok(RowSet::from_scored(scored))
 }
 
 /// RANK (vector-from-text, CONCEPT:EG-KG.compute.no-embedder-bound-op) — the UQL `RANK BY ~ "text"`

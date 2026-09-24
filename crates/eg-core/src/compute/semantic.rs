@@ -66,23 +66,42 @@ fn next_embedding_generation() -> u64 {
 }
 
 impl SemanticStore {
-    /// EXACT cosine top-`n_results` over the stored rows `allow` admits (EH-564/EH-565,
-    /// CONCEPT:EG-KG.query.filtered-vector-rank): every admitted row is scored, never an
-    /// ANN walk, so a candidate-restricted ranking returns every admitted row with an
-    /// embedding in exact cosine order (ties by id) whatever the index state. Empty for
-    /// a zero-length, non-finite, zero-norm or wrong-width query.
-    pub fn exact_search_filtered(
+    /// EXACT cosine top-`n_results` over exactly the `candidates` that hold an embedding
+    /// (EH-564/EH-565, CONCEPT:EG-KG.query.filtered-vector-rank), best first, ties by id.
+    /// Cost is O(|candidates| · dim): each candidate's row is looked up by id, never an
+    /// ANN walk and never a scan of the whole store. Empty for a zero-length,
+    /// non-finite, zero-norm or wrong-width query.
+    pub fn exact_rank_candidates<'c>(
         &self,
         query: &[f32],
+        candidates: impl IntoIterator<Item = &'c str>,
         n_results: usize,
-        allow: impl Fn(&str) -> bool + Sync,
     ) -> Vec<(String, f32)> {
         let width_ok = self.dim() == 0 || self.dim() == query.len();
-        if query.is_empty() || !width_ok || query.iter().any(|value| !value.is_finite()) {
+        let query_norm = l2(query);
+        if !width_ok || !query_norm.is_normal() {
             return Vec::new();
         }
-        self.brute_force_search_filtered(query, n_results, allow)
+        let mut scored: Vec<(String, f32)> = candidates
+            .into_iter()
+            .filter_map(|id| {
+                let row = self.get_embedding(id)?;
+                let row_norm = l2(&row);
+                let dot: f32 = row.iter().zip(query).map(|(a, b)| a * b).sum();
+                row_norm
+                    .is_normal()
+                    .then(|| (id.to_string(), dot / (query_norm * row_norm)))
+            })
+            .collect();
+        scored.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        scored.truncate(n_results);
+        scored
     }
+}
+
+/// Euclidean norm; NaN for a non-finite vector, 0 for an empty one.
+fn l2(values: &[f32]) -> f32 {
+    values.iter().map(|v| v * v).sum::<f32>().sqrt()
 }
 
 /// The durable image of one IVF-PQ index generation. Only the `ann` backend

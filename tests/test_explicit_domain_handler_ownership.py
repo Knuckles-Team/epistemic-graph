@@ -26,6 +26,7 @@ WORK_ITEM_METHODS = {
     "GapTransition",
     "GapSettle",
     "WorkOfferPut",
+    "RetireSealedRecord",
 }
 DEVELOPMENT_LANE_WRITES = {
     "ReserveDevelopmentLane",

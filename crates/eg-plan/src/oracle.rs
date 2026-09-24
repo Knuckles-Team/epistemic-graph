@@ -51,8 +51,7 @@ pub fn separate_surfaces(
     let reached_set: HashSet<&str> = reached.iter().map(String::as_str).collect();
 
     // Surface 3 — vector: exact cosine over the reached set, top-k.
-    let scored =
-        semantic.exact_search_filtered(query, reached_set.len(), |id| reached_set.contains(id));
+    let scored = semantic.exact_rank_candidates(query, reached_set.iter().copied(), k);
     Ok(RowSet::from_scored(scored).limit(k))
 }
 

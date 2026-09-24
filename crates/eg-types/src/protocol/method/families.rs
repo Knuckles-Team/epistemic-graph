@@ -67,7 +67,8 @@ impl Method {
             | Self::GapUpsert { .. }
             | Self::GapTransition { .. }
             | Self::GapSettle { .. }
-            | Self::WorkOfferPut { .. } => MethodWriteFamily::WorkItemLease,
+            | Self::WorkOfferPut { .. }
+            | Self::RetireSealedRecord { .. } => MethodWriteFamily::WorkItemLease,
             Self::ReserveWorkItemResources { .. }
             | Self::ReleaseWorkItemResources { .. }
             | Self::ReclaimWorkItemResources { .. }

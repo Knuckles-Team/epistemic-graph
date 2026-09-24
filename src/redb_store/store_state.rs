@@ -156,6 +156,7 @@ pub(crate) fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bo
                             | Method::GapTransition { .. }
                             | Method::GapSettle { .. }
                             | Method::WorkOfferPut { .. }
+                            | Method::RetireSealedRecord { .. }
                             | work_item_resource_writes!()
                             | Method::SubmitWorkItem { .. }
                             | Method::SubmitWorkItems { .. }

@@ -43,7 +43,8 @@ pub use eg_compute::reasoning;
 pub use eg_compute::{algorithms, ast, parser, screen};
 
 /// The native WorkItem-kernel lease and lifecycle writes (claim, renew,
-/// cancel, defer, metadata CAS, and the graph-os EG-2 control-lease writes),
+/// cancel, defer, metadata CAS, the graph-os EG-2 control-lease writes and the
+/// EH-558 sealed-record retirement),
 /// as ONE pattern. The apply and classification sites match through it, so a
 /// new family member is added once and every exhaustive `match` using it
 /// still fails to compile until it is classified. The dispatch arm in
@@ -63,6 +64,7 @@ macro_rules! work_item_kernel_writes {
             | $crate::protocol::Method::GapTransition { .. }
             | $crate::protocol::Method::GapSettle { .. }
             | $crate::protocol::Method::WorkOfferPut { .. }
+            | $crate::protocol::Method::RetireSealedRecord { .. }
     };
 }
 
@@ -181,6 +183,9 @@ pub(crate) mod test_support;
 // embedded, and Raft paths.
 #[cfg(any(feature = "server", feature = "redb"))]
 pub mod mutation_apply;
+// EH-558: sealed record rows are create-only for every generic writer, in every mode.
+#[cfg(any(feature = "server", feature = "redb"))]
+pub(crate) mod sealed_guard;
 // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batches concurrent single-op
 // writes to one graph into a single topology-lock acquisition. Tokio-based, so it
 // lives in the server-gated top-level crate.
