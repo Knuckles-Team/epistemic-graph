@@ -87,6 +87,13 @@ $($variants)*
     PolicyEvolution {
         op: Box<crate::policy_evolution::PolicyEvolutionOp>,
     },
+    /// ENGINE-INTERNAL: the durable WorkItem-kernel write that stores one
+    /// record `PolicyEvolution` already admitted. Refused from the wire; the
+    /// only way a policy-evolution row can be created (generic graph writes to
+    /// such rows are refused by the row guard).
+    PolicyEvolutionStore {
+        request: Box<crate::policy_evolution::StoredPolicyRecord>,
+    },
         ]);
     };
 }

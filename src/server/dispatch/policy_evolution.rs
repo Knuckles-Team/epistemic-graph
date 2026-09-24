@@ -15,7 +15,7 @@
 
 use eg_types::policy_evolution::{
     PolicyEvolutionRecord, PolicyRecordGetRequest, PolicyRecordKind, PolicyRecordReceipt,
-    PolicyWriteDisposition,
+    PolicyRecordStored, PolicyWriteDisposition, StoredPolicyRecord,
 };
 use eg_types::result_contract::graph::{
     ModelPolicyVersionRegister, PolicyCapabilityPut, PolicyCaptureCommit, PolicyEvaluationCommit,
@@ -29,7 +29,7 @@ mod blobs;
 mod gate;
 mod store;
 
-use store::{GraphRecords, RecordStamp};
+use store::GraphRecords;
 
 /// Where one policy-evolution request lands: the request graph, and who asked.
 pub(super) struct PolicyEvolutionTarget<'a> {
@@ -133,8 +133,10 @@ async fn commit(
     })
 }
 
-/// The single graph operation. `false` from `CreateNodeIfAbsent` means a
-/// concurrent writer committed the same content-addressed record first.
+/// The single durable write: the WorkItem kernel's internal
+/// `PolicyEvolutionStore`, the only writer of a policy-evolution row. A
+/// `created: false` answer means a concurrent writer committed the same
+/// content-addressed record first.
 async fn write_node(
     state: &Arc<RwLock<ServerState>>,
     target: &PolicyEvolutionTarget<'_>,
@@ -142,14 +144,15 @@ async fn write_node(
     record_id: &str,
     record: &PolicyEvolutionRecord,
 ) -> Result<PolicyWriteDisposition, String> {
-    let stamp = RecordStamp {
-        tenant_id: verified.tenant(),
+    let request = StoredPolicyRecord {
+        record_id: record_id.to_string(),
+        tenant_id: verified.tenant().to_string(),
         recorded_by: verified.principal_persistence_id(),
         recorded_at_ms: authoritative_now_ms(),
+        record: record.clone(),
     };
-    let method = Method::CreateNodeIfAbsent {
-        node_id: record_id.to_string(),
-        properties_msgpack: store::record_properties(record_id, record, &stamp)?,
+    let method = Method::PolicyEvolutionStore {
+        request: Box::new(request),
     };
     let response = dispatch_graph_op(
         state,
@@ -160,19 +163,32 @@ async fn write_node(
         method,
     )
     .await;
-    match response {
+    let stored: PolicyRecordStored = match response {
         Response {
             error: Some(error), ..
-        } => Err(error),
+        } => return Err(error),
         Response {
-            result: Some(ResultPayload::Bool(created)),
+            result: Some(payload),
             ..
-        } => Ok(if created {
-            PolicyWriteDisposition::Written
-        } else {
-            PolicyWriteDisposition::Replayed
-        }),
-        Response { .. } => Err("policy record write answered no acknowledgement".into()),
+        } => decode_stored(payload)?,
+        Response { .. } => return Err("policy record store answered no result".into()),
+    };
+    Ok(if stored.created {
+        PolicyWriteDisposition::Written
+    } else {
+        PolicyWriteDisposition::Replayed
+    })
+}
+
+/// The kernel's typed answer, in either result encoding.
+fn decode_stored(payload: ResultPayload) -> Result<PolicyRecordStored, String> {
+    let limits = eg_types::msgpack::MsgpackLimits::new(64 * 1024, 1_024, 8);
+    match payload {
+        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(&bytes, limits)
+            .map_err(|_| "policy record store answered a corrupt result".to_string()),
+        ResultPayload::Json(value) => serde_json::from_value(value)
+            .map_err(|_| "policy record store answered a corrupt result".to_string()),
+        _ => Err("policy record store answered an unexpected result".to_string()),
     }
 }
 

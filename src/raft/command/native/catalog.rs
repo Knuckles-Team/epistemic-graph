@@ -64,6 +64,7 @@ macro_rules! native_method_catalog {
             record CasWorkItemMetadata => WorkItem,
             record IssueControlLease => WorkItem,
             record TransitionControlLease => WorkItem,
+            record PolicyEvolutionStore => WorkItem,
             record ReserveWorkItemResources => WorkItem,
             record ReleaseWorkItemResources => WorkItem,
             record ReclaimWorkItemResources => WorkItem,
