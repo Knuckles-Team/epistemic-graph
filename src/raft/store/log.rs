@@ -26,8 +26,8 @@ impl RaftLogReader<TypeConfig> for Arc<EgStore> {
             return Ok(Vec::new());
         }
         let blobs = self
-            .redb()
-            .raft_log_read(self.group_id, lo, hi)
+            .writer_read(move |redb, group_id| redb.raft_log_read(group_id, lo, hi))
+            .await
             .map_err(ioerr)?;
         if blobs.len() > MAX_RAFT_LOG_BATCH_ENTRIES
             || blobs
@@ -56,17 +56,17 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
     type LogReader = Self;
 
     async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, io::Error> {
-        let (_, last_idx) = self.redb().raft_log_bounds(self.group_id).map_err(ioerr)?;
-        let last_purged = *self.last_purged_log_id.read().await;
         // Reconstruct the last log id from the stored entry (redb holds the Entry),
         // so a restart knows its log tail WITHOUT the leader.
-        let last_log_id = match last_idx {
-            Some(i) => match self.read_one_entry(i).map_err(ioerr)? {
-                Some(e) => Some(e.log_id()),
-                None => last_purged,
-            },
-            None => last_purged,
-        };
+        let last_entry = self
+            .writer_read(|redb, group_id| match redb.raft_log_bounds(group_id)?.1 {
+                Some(last) => EgStore::read_one_entry(redb, group_id, last),
+                None => Ok(None),
+            })
+            .await
+            .map_err(ioerr)?;
+        let last_purged = *self.last_purged_log_id.read().await;
+        let last_log_id = last_entry.map_or(last_purged, |entry| Some(entry.log_id()));
         Ok(LogState {
             last_purged_log_id: last_purged,
             last_log_id,
@@ -120,12 +120,18 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
             batch.push((entry.log_id().index, blob));
         }
         // Durable append: rides the SAME group-commit transaction as any concurrent
-        // M2 graph mutation (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — one fsync covers both. Our append is
-        // synchronously durable, so we fire the 0.10 `IOFlushed` callback the moment
-        // the group-commit fsync resolves (openraft treats the entry as on-disk then).
-        match self.redb().raft_log_append(self.group_id, batch).await {
-            Ok(()) => {
-                callback.io_completed(Ok(()));
+        // M2 graph mutation (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — one fsync
+        // covers both. EH-288: only the ENQUEUE is awaited here (the shard writer's
+        // FIFO makes the entries readable to every later command); the `IOFlushed`
+        // callback fires from the store's flush notifier once the fsync resolves, so
+        // the Raft core is never parked behind the shard writer.
+        match self
+            .redb()
+            .raft_log_append_submit(self.group_id, batch)
+            .await
+        {
+            Ok(completion) => {
+                self.flushes.notify(completion, callback);
                 Ok(())
             }
             Err(e) => {

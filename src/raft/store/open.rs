@@ -111,6 +111,7 @@ impl EgStore {
             snapshot_idx: parking_lot::Mutex::new(0),
             apply_snapshot_gate: Mutex::new(()),
             ctx,
+            flushes: flush::FlushNotifier::default(),
         }))
     }
 
@@ -119,6 +120,26 @@ impl EgStore {
         self.backend
             .as_redb()
             .expect("raft store backend is always redb (checked at open)")
+    }
+
+    /// Run a synchronous shard-writer read on the blocking pool (EH-288). These
+    /// reads queue behind the shard's writes and fsyncs; waiting for them on an
+    /// async worker thread stalled every Raft core scheduled there.
+    pub(super) async fn writer_read<T, F>(&self, read: F) -> Result<T, String>
+    where
+        F: FnOnce(&RedbBackend, GroupId) -> Result<T, String> + Send + 'static,
+        T: Send + 'static,
+    {
+        let backend = self.backend.clone();
+        let group_id = self.group_id;
+        tokio::task::spawn_blocking(move || {
+            let redb = backend
+                .as_redb()
+                .ok_or_else(|| "raft requires the redb persistence backend".to_string())?;
+            read(redb, group_id)
+        })
+        .await
+        .map_err(|error| format!("raft store read task failed: {error}"))?
     }
 
     pub(super) async fn persist_vote(&self, vote: &VoteOf<TypeConfig>) -> Result<(), String> {
@@ -153,7 +174,11 @@ impl EgStore {
         let chunk = log_index / NATIVE_HISTORY_BITMAP_BITS;
         let offset = log_index % NATIVE_HISTORY_BITMAP_BITS;
         let bitmap_key = native_history_bitmap_key(chunk);
-        let mut bitmap = match self.redb().raft_meta_get(self.group_id, &bitmap_key)? {
+        let key = bitmap_key.clone();
+        let stored = self
+            .writer_read(move |redb, group_id| redb.raft_meta_get(group_id, &key))
+            .await?;
+        let mut bitmap = match stored {
             Some(value) if value.len() == NATIVE_HISTORY_BITMAP_BYTES => value,
             Some(_) => return Err("persisted native history bitmap is invalid".to_string()),
             None => vec![0; NATIVE_HISTORY_BITMAP_BYTES],

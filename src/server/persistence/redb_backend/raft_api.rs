@@ -23,10 +23,29 @@ impl RedbBackend {
         group_id: u64,
         entries: Vec<(u64, Vec<u8>)>,
     ) -> Result<(), String> {
-        if entries.is_empty() {
-            return Ok(());
-        }
+        self.raft_log_append_submit(group_id, entries)
+            .await?
+            .await
+            .map_err(|_| "redb writer dropped raft_log_append completion".to_string())?
+    }
+
+    /// Enqueue a Raft log append on the group's shard writer and return its
+    /// durability completion WITHOUT waiting for the fsync (EH-288). The writer
+    /// applies one shard's commands in send order, so every later read, truncation
+    /// or purge of the group observes this append -- the "readable once `append`
+    /// returns, durable once the callback fires" contract openraft's log storage
+    /// asks for.
+    #[cfg(feature = "raft")]
+    pub async fn raft_log_append_submit(
+        &self,
+        group_id: u64,
+        entries: Vec<(u64, Vec<u8>)>,
+    ) -> Result<oneshot::Receiver<Result<(), String>>, String> {
         let (done, rx) = oneshot::channel();
+        if entries.is_empty() {
+            let _ = done.send(Ok(()));
+            return Ok(rx);
+        }
         let cmd = Cmd::RaftLogAppend {
             group_id,
             entries,
@@ -41,8 +60,7 @@ impl RedbBackend {
             .await
             .map_err(|e| format!("raft_log_append join error: {e}"))?
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.await
-            .map_err(|_| "redb writer dropped raft_log_append completion".to_string())?
+        Ok(rx)
     }
 
     /// Read an inclusive `[lo, hi]` log index range for a group, in order.

@@ -3448,24 +3448,16 @@ async fn multi_group_writes_commit_on_independent_group_logs() {
     // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     const N_GROUPS: u64 = 8;
-    // One graph per group (not 3): the property under test — each group's own log
-    // holds exactly its own graphs' writes, none of another's — needs every group to
-    // own at least one graph, not a particular multiplicity. This stays a DISCLOSED
-    // WORKAROUND, not a fix (EH-288, open). Two real head-of-line-blocking defects
-    // in `network.rs`/`multi.rs` are now fixed and landed: `HeartbeatCoalescer`
-    // used to await every peer's flush in one shared call before it could pick up a
-    // new heartbeat for ANY peer (one slow peer withheld delivery to all); `serve_conn`
-    // used to dispatch a heartbeat batch's bundled groups sequentially (one backlogged
-    // group delayed every other group's reply in the same wire frame). Both confirmed
-    // by direct wall-clock instrumentation and fixed; measured worst case fell from
-    // 9.8s to 4.6s. Restoring `GRAPHS_PER_GROUP` to 3 with ONLY those two fixes still
-    // reproduces the failure: an isolated, single-group heartbeat frame with nothing
-    // else bundled in it can still take multiple seconds inside `raft.append_entries()`
-    // itself, a residual mechanism not yet root-caused (see EH-288 investigation notes
-    // for the live state) that a per-group `client_write` admission bound did NOT fix
-    // either (tried and refuted by measurement). Keep at 1 until that residual is
-    // closed — do not silently drop this comment or the workaround.
-    const GRAPHS_PER_GROUP: usize = 1;
+    // Three graphs per group: the workload that used to fail 5/5 even alone on an
+    // idle host (EH-288, "no current leader"). Two head-of-line-blocking defects in
+    // `network.rs`/`multi.rs` were fixed first (the heartbeat coalescer awaiting every
+    // peer's flush; `serve_conn` dispatching a batch's groups sequentially). The
+    // residual -- a lone heartbeat taking seconds inside `raft.append_entries()` --
+    // was the store: `append` awaited the shard writer's group-commit fsync inside
+    // the Raft core, and log reads blocked async worker threads on the writer queue,
+    // so a busy shard parked every core scheduled beside it until followers elected.
+    // Fixed in `raft/store/{log,flush}.rs` (EH-534); this test is the regression.
+    const GRAPHS_PER_GROUP: usize = 3;
     const WRITES_PER_GRAPH: u64 = 10;
 
     let per_group = GRAPHS_PER_GROUP * WRITES_PER_GRAPH as usize;
