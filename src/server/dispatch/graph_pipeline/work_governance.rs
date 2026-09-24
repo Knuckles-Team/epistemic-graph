@@ -149,6 +149,9 @@ fn capacity_commit_result(method: &Method) -> fn(&[u8]) -> Result<ResultPayload,
         Method::UpdateCapacityCell { .. } => {
             ResultPayload::of_receipt::<eg_types::result_contract::coordination::UpdateCapacityCell>
         }
+        Method::ThrottleCapacityCell { .. } => {
+            ResultPayload::of_receipt::<eg_types::result_contract::coordination::ThrottleCapacityCell>
+        }
         _ => |_| Err("capacity commit receipt for a non-capacity method".to_string()),
     }
 }
@@ -205,7 +208,8 @@ pub(super) async fn dispatch_op_capacity_ops(
         | Method::RenewCapacity { .. }
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. }) => {
+        | Method::UpdateCapacityCell { .. }
+        | Method::ThrottleCapacityCell { .. }) => {
             capacity_commit_response(backend, &fname, method, req_id).await
         }
         _ => unreachable!("capacity classifier and dispatch diverged"),

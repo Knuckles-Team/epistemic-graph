@@ -270,6 +270,14 @@ macro_rules! __eg_method_chunk_0 {
         request: crate::native_control::CapacityCellUpdateRequest,
     },
 
+    /// Error-budget adaptive throttling (EH-406): report one observation
+    /// window for one cell. Narrows the cell's throttle ceiling on an error
+    /// burst and gives it back only on recovery evidence, never above the
+    /// declared capacity; the policy and the capacity stay operator-owned.
+    ThrottleCapacityCell {
+        request: crate::native_control::CapacityThrottleRequest,
+    },
+
     /// Idempotent WorkItem admission and command-log append.
     SubmitWorkItem {
         request: crate::native_control::SubmitWorkItemRequest,

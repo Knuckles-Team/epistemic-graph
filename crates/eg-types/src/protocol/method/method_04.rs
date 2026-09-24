@@ -429,6 +429,17 @@ $($variants)*
         op: crate::acl::RbacAdminOp,
     },
 
+    /// Just-in-time RBAC elevation (EH-404): request, approve (two-person),
+    /// revoke, or list the `rbac.elevation` leases the graph-access chokepoint
+    /// consults. `actor` is SERVER-STAMPED from the verified request context
+    /// at the request boundary -- any caller-supplied value is overwritten --
+    /// so the replicated command carries who acted without trusting the body.
+    RbacElevation {
+        op: crate::rbac_elevation::RbacElevationOp,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        actor: Option<crate::rbac_elevation::ElevationActor>,
+    },
+
     ApplyMultisigMutation {
         signatures: Vec<String>,
         threshold: usize,

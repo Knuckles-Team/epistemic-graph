@@ -53,7 +53,8 @@ impl Method {
             | Self::RenewCapacity { .. }
             | Self::ReleaseCapacity { .. }
             | Self::ReclaimExpiredCapacity { .. }
-            | Self::UpdateCapacityCell { .. } => MethodWriteFamily::CapacityLease,
+            | Self::UpdateCapacityCell { .. }
+            | Self::ThrottleCapacityCell { .. } => MethodWriteFamily::CapacityLease,
             Self::ClaimWorkItem { .. }
             | Self::RenewWorkItemLease { .. }
             | Self::CommitWorkItemResult { .. }
