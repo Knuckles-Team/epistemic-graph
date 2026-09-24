@@ -450,6 +450,7 @@ SEND_BY_METHOD = {
     "SummaryChildren": graph.send_summary_children,
     "SupersedeEdge": graph.send_supersede_edge,
     "SweepExpired": messaging.send_sweep_expired,
+    "TelemetryDerive": ingestion.send_telemetry_derive,
     "ToMsgpack": storage.send_to_msgpack,
     "TopologicalSort": compute.send_topological_sort,
     "TouchNodes": graph.send_touch_nodes,

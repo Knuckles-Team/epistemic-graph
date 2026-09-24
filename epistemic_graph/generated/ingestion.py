@@ -132,6 +132,64 @@ async def send_source_ingest_status(
     return SourceIngestStatus.model_validate(payload)
 
 
+class TelemetryDeriveRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        TelemetryDerive
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/TelemetryDerive
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_ms: int
+    policy_msgpack: bytes
+    streams: list[str] | None = None
+    to_ms: int
+
+
+async def send_telemetry_derive(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TelemetryDerive
+    Authorization:
+        telemetry:derive
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.ingestion.json
+        #/methods/TelemetryDerive
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    TelemetryDeriveRequest.model_validate(params or {})
+    payload = await client._send(
+        "TelemetryDerive",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TelemetryDerive", payload)
+
+
 class ServedModalityRequest(BaseModel):
     """Validate one engine-contract request body.
 

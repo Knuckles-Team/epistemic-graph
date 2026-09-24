@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 436,
+  "method_count": 437,
   "methods": [
     {
       "consumer_profiles": [
@@ -11575,6 +11575,53 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.ingestion.json#/methods/SourceIngestStatus",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "ingestion",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "TelemetryDerive",
+      "note": "EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op; a re-derivation is an idempotent upsert",
+      "policy": {
+        "audited": true,
+        "authz_action": "telemetry:derive",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/TelemetryDerive"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/TelemetryDerive",
         "selected_by": null
       },
       "stability": "stable"
