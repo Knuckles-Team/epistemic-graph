@@ -9149,8 +9149,10 @@ class FinanceClient:
 
         ``op`` is one of ``encode_points``, ``resolve`` (over records and/or
         stored points), ``rollup``, ``indicators``, ``signal_replay``,
-        ``signal_advance``, ``signal_scan``, ``flip_confidence`` or
-        ``backtest_run``; ``params`` are that op's fields. Prices are integer
+        ``signal_advance``, ``signal_scan``, ``flip_confidence``,
+        ``backtest_run``, ``decimate`` (M4 chart thinning) or
+        ``analysis_snapshot`` (seal or re-verify an analysis record);
+        ``params`` are that op's fields. Prices are integer
         ticks and indicator values integer milli-ticks. Pure compute and
         informational only: no result authorises an order.
         """

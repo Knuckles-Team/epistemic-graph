@@ -1233,11 +1233,11 @@ mod tests {
             ),
             (
                 "finance",
-                "0157b7a990fd352b4a7d3557234358fa03efcb83d805106863081e9581a55d48",
+                "15c3f41854479ddd9509077f8f979d299e1ec4ab8dd8ca51180da7536710b3ec",
             ),
             (
                 "finance-shapes",
-                "16f38425e0e6478c732cc2e2a205ab30c44f13fbf2edbd7bc16d1a08e7ff5a4f",
+                "c5c8e77e8d79283a6fe53dd97a22e16561012088f18d902793b3cb7aa197a239",
             ),
             (
                 "worldview",
