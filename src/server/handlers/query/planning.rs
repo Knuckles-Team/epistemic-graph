@@ -576,6 +576,10 @@ pub(crate) struct ServedPlanLegs {
     /// EH-066 — the caller's visible decision log, bound when the plan reads it.
     #[cfg(feature = "decide")]
     pub(crate) decisions: Option<Arc<dyn eg_plan::exec::DecisionSource>>,
+    /// EH-396 — the tenant's active query adapter for this graph, bound when the plan
+    /// ranks by vector.
+    #[cfg(feature = "decide")]
+    pub(crate) adapter: Option<Arc<crate::server::handlers::decide::served_adapter::ServedAdapter>>,
 }
 
 #[cfg(feature = "query")]
@@ -600,6 +604,14 @@ impl ServedPlanLegs {
             foreign: served_foreign_leg(state, plan, read_authority).await?,
             #[cfg(feature = "decide")]
             decisions: served_decision_leg(state, plan, read_authority).await?,
+            #[cfg(feature = "decide")]
+            adapter: crate::server::handlers::decide::served_adapter::served_plan_adapter(
+                state,
+                graph_name,
+                read_authority,
+                plan,
+            )
+            .await,
         })
     }
 
@@ -628,7 +640,10 @@ impl ServedPlanLegs {
         if let Some(foreign) = self.foreign.as_ref() {
             payload.extend_from_slice(foreign.cache_salt().as_bytes());
         }
-        #[cfg(not(any(feature = "tsdb", feature = "federation")))]
+        // EH-396: the active adapter re-aims vector ranks, so it keys the answer.
+        #[cfg(feature = "decide")]
+        crate::server::handlers::decide::served_adapter::salt(self.adapter.as_deref(), payload);
+        #[cfg(not(any(feature = "tsdb", feature = "federation", feature = "decide")))]
         let _ = payload;
     }
 }
@@ -717,6 +732,8 @@ where
         foreign,
         #[cfg(feature = "decide")]
         decisions,
+        #[cfg(feature = "decide")]
+        adapter,
     } = legs;
     #[cfg(feature = "tsdb")]
     let tsdb = if tsdb_scope.is_some() {
@@ -734,6 +751,9 @@ where
     compute_off_lock(req_id, move || {
         #[cfg(feature = "decide")]
         let finish = with_decision_log(decisions, finish);
+        // EH-396: the tenant's adapter re-aims every vector rank of the plan.
+        #[cfg(feature = "decide")]
+        let plan = crate::server::handlers::decide::served_adapter::adapt_plan(plan, adapter);
         run_unified_with_staged_finish(
             plan,
             &snap,

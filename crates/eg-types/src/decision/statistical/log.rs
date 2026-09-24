@@ -302,30 +302,62 @@ pub enum DecisionLogOp {
         tenant_id: String,
         resolution: AbstentionResolution,
     },
+    /// Record retrieval-learning evidence (EH-394..EH-397,
+    /// [`super::retrieval::LearningWrite`]).
+    Learn {
+        tenant_id: String,
+        write: super::retrieval::LearningWrite,
+    },
+}
+
+/// The authorization class of a decision-log operation: which action it
+/// needs, and whether it commits durable state. One table answers both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogOpClass {
+    /// Commit a decision, or attest a run the caller committed.
+    Write,
+    /// Join independent evidence to a committed record.
+    Evaluate,
+    /// Change what the engine serves (fitted heads, adapters, generations).
+    Govern,
+    /// Log maintenance.
+    Admin,
+    Read,
+}
+
+impl LogOpClass {
+    /// The authorization action of the class.
+    pub fn action(self) -> &'static str {
+        match self {
+            Self::Write => "agent:decision-write",
+            Self::Evaluate => "agent:decision-evaluate",
+            Self::Govern => "admin:decision-head",
+            Self::Admin => "admin:decision-log",
+            Self::Read => "agent:decision-read",
+        }
+    }
 }
 
 impl DecisionLogOp {
-    /// Whether this operation commits durable state; the one classifier.
+    /// The operation's authorization class; the one classifier.
+    pub fn class(&self) -> LogOpClass {
+        match self {
+            Self::Commit { .. } => LogOpClass::Write,
+            Self::Evaluate { .. } | Self::Resolve { .. } => LogOpClass::Evaluate,
+            Self::Compact { .. } => LogOpClass::Admin,
+            Self::Get { .. } | Self::Aggregate { .. } | Self::Verify { .. } => LogOpClass::Read,
+            Self::Learn { write, .. } => write.class(),
+        }
+    }
+
+    /// Whether this operation commits durable state.
     pub fn is_mutation(&self) -> bool {
-        matches!(
-            self,
-            Self::Commit { .. }
-                | Self::Evaluate { .. }
-                | Self::Compact { .. }
-                | Self::Resolve { .. }
-        )
+        self.class() != LogOpClass::Read
     }
 
     /// The authorization action this operation needs.
     pub fn authz_action(&self) -> &'static str {
-        match self {
-            Self::Commit { .. } => "agent:decision-write",
-            Self::Evaluate { .. } | Self::Resolve { .. } => "agent:decision-evaluate",
-            Self::Compact { .. } => "admin:decision-log",
-            Self::Get { .. } | Self::Aggregate { .. } | Self::Verify { .. } => {
-                "agent:decision-read"
-            }
-        }
+        self.class().action()
     }
 
     /// The tenant this operation names.
@@ -336,7 +368,8 @@ impl DecisionLogOp {
             | Self::Get { tenant_id, .. }
             | Self::Compact { tenant_id, .. }
             | Self::Verify { tenant_id, .. }
-            | Self::Resolve { tenant_id, .. } => tenant_id,
+            | Self::Resolve { tenant_id, .. }
+            | Self::Learn { tenant_id, .. } => tenant_id,
             Self::Aggregate { request } => &request.tenant_id,
         }
     }

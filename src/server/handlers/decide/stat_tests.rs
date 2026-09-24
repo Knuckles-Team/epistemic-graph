@@ -720,4 +720,10 @@ mod classes_tests;
 
 mod consumer_tests;
 
+#[cfg(feature = "query")]
+mod retrieval_tests;
+
+#[cfg(feature = "query")]
+mod learning_tests;
+
 mod nl_tests;

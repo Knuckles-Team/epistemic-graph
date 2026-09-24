@@ -100,6 +100,15 @@ def test_every_log_op_matches_the_contract() -> None:
         dc.resolve_op("tenant-a", "decision:abc", "r-1", "plan-deep"),
         dc.resolve_op("tenant-a", "decision:abc", "r-2", "plan-deep", producer="llm"),
         dc.aggregate_op("tenant-a", (0, 10), "au.retrieval.plan"),
+        dc.record_outcome_op(
+            "tenant-a", "decision:abc", [("n1", "prose"), ("p1", None)], ["p1"]
+        ),
+        dc.learn_op(
+            "tenant-a",
+            "move_pointer",
+            pointer={"pointer": "adapter", "graph": "kg"},
+            movement={"movement": "rollback"},
+        ),
     ]
     for op in ops:
         assert valid(DEFS["DecisionLogOp"], op), op
