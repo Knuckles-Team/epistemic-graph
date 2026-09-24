@@ -51,6 +51,7 @@ mod manifests;
 mod parse;
 mod snapshot;
 mod state;
+pub(crate) mod writer;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
