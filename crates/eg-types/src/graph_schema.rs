@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::contract::{closed_error_codes, BoundedVec, ResourceId};
 
 pub mod approval;
+pub mod repair;
 
 /// Format identity (RF-ADR-006) of the schema-source views.
 pub const GRAPH_SCHEMA_RESULT_SCHEMA_VERSION: u16 = 1;
@@ -62,19 +63,27 @@ pub enum GraphSchemaOp {
         #[serde(default)]
         if_composed_digest: Option<String>,
     },
-    /// EH-403: attach or replace a governed candidate under `approved:<name>`.
-    /// The engine refuses it unless `approval_lease_id` names an approved
-    /// (`consumed`), unexpired `action.approval` control lease of the caller's
-    /// tenant whose grant binds this exact candidate (see [`approval`]). A
-    /// proposed schema change therefore never reaches the ontology without an
-    /// approval record.
+    /// EH-403: attach or replace a governed repair candidate under
+    /// `approved:<name>`. The candidate is a TYPED record contract; EG renders
+    /// its SHACL (AUD-27: callers never send RDF). The engine refuses it unless
+    /// `approval_lease_id` names an approved (`consumed`), unexpired
+    /// `action.approval` control lease of the caller's tenant whose grant binds
+    /// this exact contract (see [`approval`]). A proposed schema change
+    /// therefore never reaches the ontology without an approval record.
     AttachApproved {
         source_id: String,
-        #[serde(default)]
-        shapes_ttl: Option<String>,
-        #[serde(default)]
-        ontology_ttl: Option<String>,
+        contract: repair::RecordContract,
         approval_lease_id: String,
+        #[serde(default)]
+        if_composed_digest: Option<String>,
+    },
+    /// EH-403: render a repair candidate and run the full entering-schema
+    /// validation (composition + the graph's data) against the request graph
+    /// WITHOUT attaching it -- the shadow-graph check a proposal runs before an
+    /// approval is requested. Answers `changed: false`.
+    ValidateRepair {
+        source_id: String,
+        contract: repair::RecordContract,
         #[serde(default)]
         if_composed_digest: Option<String>,
     },
@@ -94,6 +103,7 @@ impl GraphSchemaOp {
             Self::AttachPack { .. } => "attach_pack",
             Self::Detach { .. } => "detach",
             Self::AttachApproved { .. } => "attach_approved",
+            Self::ValidateRepair { .. } => "validate_repair",
         }
     }
 
@@ -102,7 +112,8 @@ impl GraphSchemaOp {
         match self {
             Self::Attach { source_id, .. }
             | Self::Detach { source_id, .. }
-            | Self::AttachApproved { source_id, .. } => source_id,
+            | Self::AttachApproved { source_id, .. }
+            | Self::ValidateRepair { source_id, .. } => source_id,
             Self::AttachPack { connector, .. } => connector.as_str(),
         }
     }
@@ -120,6 +131,9 @@ impl GraphSchemaOp {
                 if_composed_digest, ..
             }
             | Self::AttachApproved {
+                if_composed_digest, ..
+            }
+            | Self::ValidateRepair {
                 if_composed_digest, ..
             } => if_composed_digest.as_deref(),
         }
@@ -156,14 +170,21 @@ fn validate_operation_payload(operation: &GraphSchemaOp) -> Result<(), String> {
         GraphSchemaOp::Detach { source_id, .. } => validate_source_id(source_id),
         GraphSchemaOp::AttachApproved {
             source_id,
-            shapes_ttl,
-            ontology_ttl,
+            contract,
             approval_lease_id,
             ..
         } => {
             approval::validate_approved_source_id(source_id)?;
             approval::validate_approval_lease_id(approval_lease_id)?;
-            validate_documents(shapes_ttl.as_deref(), ontology_ttl.as_deref())
+            contract.validate()
+        }
+        GraphSchemaOp::ValidateRepair {
+            source_id,
+            contract,
+            ..
+        } => {
+            approval::validate_approved_source_id(source_id)?;
+            contract.validate()
         }
     }
 }
