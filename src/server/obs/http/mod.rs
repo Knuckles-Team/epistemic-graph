@@ -173,19 +173,30 @@ fn is_read_only_obs_path(path: &str) -> bool {
         || path.ends_with("/_search")
 }
 
-async fn observability_access_denied(
+/// Who may use this request under `serve_with_security` (BUG-037 / EH-410).
+///
+/// Without a secured deployment nothing is checked (`Ok(None)`). Under one,
+/// reads are always denied (no carrier can prove tenant ownership of a read
+/// here), and ingest is admitted only for a verified telemetry writer, whose
+/// tenant every written record is then bound to.
+fn admit(
     security_state: Option<&Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
-) -> bool {
+    req: &HttpMessage,
+    path: &str,
+) -> Result<Option<super::writer::TelemetryWriter>, (&'static str, &'static str, String)> {
     if security_state.is_none() {
-        return false;
+        return Ok(None);
     }
-    // A18: neither observability reads NOR ingest/mutations carry a
-    // credential this surface can verify yet (no `eg2.` envelope, bearer
-    // token, or other proof), so no `CarrierAuthority` can ever be minted
-    // here today; this always denies under `serve_with_security`, honestly
-    // (via the real check) rather than via the old unconditional stub —
-    // and, per BUG-037, applies identically to both `ObsOperation` arms.
-    crate::server::access::unauthenticated_carrier_denied(None)
+    let operation = classify_observability_operation(path);
+    let writer = match operation {
+        // No carrier on this surface can prove tenant ownership of a read.
+        ObsOperation::Read if crate::server::access::unauthenticated_carrier_denied(None) => None,
+        ObsOperation::Read => return Ok(None),
+        ObsOperation::Mutation => super::writer::request_writer(req.header("authorization")),
+    };
+    writer
+        .map(Some)
+        .ok_or_else(|| access_denied_response(operation))
 }
 
 /// Route + execute an ingest request → `(status, content_type, body)`.
@@ -204,9 +215,11 @@ pub(super) async fn handle(
     // no-data control returns (OPTIONS above, the health probe just above)
     // already ran, so anything reaching this point genuinely serves
     // observability data one way or the other.
-    if observability_access_denied(security_state).await {
-        return access_denied_response(classify_observability_operation(path));
-    }
+    let writer = match admit(security_state, &req, path) {
+        Ok(writer) => writer,
+        Err(denied) => return denied,
+    };
+    let tenant = writer.as_ref().map(|writer| writer.tenant.as_str());
 
     // CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus HTTP query API (GET or POST), routed BEFORE the
     // POST-only ingest guard (instant queries are typically GET). Gated on `promql`,
@@ -223,7 +236,7 @@ pub(super) async fn handle(
     // (`/api/traces`), single-trace assembly (`/api/traces/<id>`) and the
     // service-dependency graph (`/api/dependencies`).
     #[cfg(feature = "traces")]
-    if let Some(resp) = try_traces_route(state, &req.method, path, query, &body).await {
+    if let Some(resp) = try_traces_route(state, &req.method, (path, query), &body, tenant).await {
         return resp;
     }
 
@@ -233,11 +246,11 @@ pub(super) async fn handle(
     // durable eg-tsdb SeriesStore. Gated on `otel-export`; absent the feature this path
     // falls through to the unknown-ingest 404.
     #[cfg(feature = "otel-export")]
-    if let Some(resp) = try_otel_write_route(state, &req.method, path, &req.body).await {
+    if let Some(resp) = try_otel_write_route(state, &req.method, path, &req.body, tenant).await {
         return resp;
     }
 
-    handle_ingest(state, &req, path, query, &body).await
+    handle_ingest(state, &req, (path, query), &body, tenant).await
 }
 
 /// The POST-only ingest path: `_search` (EG-162), then route-by-shape log ingest.
@@ -245,9 +258,9 @@ pub(super) async fn handle(
 async fn handle_ingest(
     state: &Arc<ObsState>,
     req: &HttpMessage,
-    path: &str,
-    query: &str,
+    (path, query): (&str, &str),
     body: &str,
+    tenant: Option<&str>,
 ) -> (&'static str, &'static str, String) {
     if req.method != "POST" {
         return (
@@ -275,10 +288,13 @@ async fn handle_ingest(
         );
     };
 
-    let records = match records {
+    let mut records = match records {
         Ok(r) => r,
         Err(e) => return ("400 Bad Request", "text/plain", e),
     };
+    if let Some(tenant) = tenant {
+        super::writer::stamp_logs(&mut records, tenant);
+    }
 
     // Ingest OFF the reactor (redb + Tantivy commit are blocking).
     let st = state.clone();
@@ -357,9 +373,9 @@ async fn try_promql_route(
 async fn try_traces_route(
     state: &Arc<ObsState>,
     method: &str,
-    path: &str,
-    query: &str,
+    (path, query): (&str, &str),
     body: &str,
+    tenant: Option<&str>,
 ) -> Option<(&'static str, &'static str, String)> {
     if path == "/v1/traces"
         || path == "/api/traces"
@@ -367,7 +383,9 @@ async fn try_traces_route(
         || path == "/api/dependencies"
         || path == "/api/services/dependencies"
     {
-        return Some(crate::server::traces::handle(state, method, path, query, body).await);
+        return Some(
+            crate::server::traces::handle(state, method, (path, query), body, tenant).await,
+        );
     }
     None
 }
@@ -380,9 +398,10 @@ async fn try_otel_write_route(
     method: &str,
     path: &str,
     body_bytes: &[u8],
+    tenant: Option<&str>,
 ) -> Option<(&'static str, &'static str, String)> {
     if path == "/api/v1/write" {
-        return Some(super::remote_write::handle(state, method, body_bytes).await);
+        return Some(super::remote_write::handle(state, method, body_bytes, tenant).await);
     }
     None
 }

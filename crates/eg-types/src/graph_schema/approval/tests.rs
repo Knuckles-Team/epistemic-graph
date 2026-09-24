@@ -90,9 +90,15 @@ fn the_candidate_digest_binds_the_key_and_both_documents() {
     let base = candidate();
     assert_eq!(base.len(), 64);
     assert_eq!(base, approved_candidate_digest(SOURCE, Some(SHAPES), None));
-    assert_ne!(base, approved_candidate_digest("approved:other", Some(SHAPES), None));
+    assert_ne!(
+        base,
+        approved_candidate_digest("approved:other", Some(SHAPES), None)
+    );
     assert_ne!(base, approved_candidate_digest(SOURCE, None, Some(SHAPES)));
-    assert_ne!(base, approved_candidate_digest(SOURCE, Some("@prefix x: <y> ."), None));
+    assert_ne!(
+        base,
+        approved_candidate_digest(SOURCE, Some("@prefix x: <y> ."), None)
+    );
 }
 
 #[test]
@@ -118,7 +124,9 @@ fn approved_op(source_id: &str, lease_id: &str) -> GraphSchemaOp {
 fn attach_approved_requires_its_namespace_a_lease_id_and_a_document() {
     approved_op(SOURCE, "action_approval:1").validate().unwrap();
     for bad_key in ["admin:x", "approved:", "pack:x"] {
-        assert!(approved_op(bad_key, "action_approval:1").validate().is_err());
+        assert!(approved_op(bad_key, "action_approval:1")
+            .validate()
+            .is_err());
     }
     assert!(approved_op(SOURCE, " ").validate().is_err());
     assert!(approved_op(SOURCE, &"x".repeat(513)).validate().is_err());
