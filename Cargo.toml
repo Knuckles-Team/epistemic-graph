@@ -538,7 +538,7 @@ asr-whisper = ["server", "dep:eg-asr-whisper", "eg-audio/asr", "eg-types/asr-nat
 # when `dep:eg-storage` is linked, which is what the `redb` feature does. A
 # `--features query` build without it cannot name the composition root's
 # verifier, so the edge is stated here rather than left to fail at link time.
-query = ["redb", "dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg", "dep:arrow"]
+query = ["redb", "dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
 # The one native streaming query/job result currency. Every served family adapts to
 # governed, bounded KnowledgeBatch envelopes with stable Arrow schemas.
 knowledge-batch = [

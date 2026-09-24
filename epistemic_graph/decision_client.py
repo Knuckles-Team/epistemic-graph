@@ -149,12 +149,6 @@ def aggregate_op(
     }
 
 
-def query_op(tenant_id: str, sql: str) -> dict[str, Any]:
-    """One read-only SQL statement over the caller's visible log (EH-066):
-    relations ``decisions``, ``evaluations`` and ``resolutions``."""
-    return {"op": "query", "tenant_id": tenant_id, "sql": sql}
-
-
 def _payload(result: Any) -> Any:
     return getattr(result, "payload", result)
 
@@ -197,6 +191,5 @@ __all__ = [
     "library",
     "param",
     "q32_of",
-    "query_op",
     "resolve_op",
 ]
