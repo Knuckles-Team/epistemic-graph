@@ -29,7 +29,7 @@ pub(super) fn shapley_weights(players: usize) -> Vec<f64> {
         .collect()
 }
 
-fn budget_refusal(needed: u64, budget: u64) -> AttributionError {
+pub(super) fn budget_refusal(needed: u64, budget: u64) -> AttributionError {
     AttributionError::new(
         AttributionCode::BudgetExceeded,
         format!("{needed} coalition evaluations exceed the budget of {budget}"),
