@@ -19,78 +19,9 @@
 //  Special functions (self-contained — no scipy on the wire)
 // ════════════════════════════════════════════════════════════════════════
 mod sf {
-    /// Error function — Abramowitz & Stegun 7.1.26 (|err| < 1.5e-7).
-    pub fn erf(x: f64) -> f64 {
-        let sign = if x < 0.0 { -1.0 } else { 1.0 };
-        let x = x.abs();
-        let t = 1.0 / (1.0 + 0.3275911 * x);
-        let y = 1.0
-            - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t
-                + 0.254829592)
-                * t
-                * (-x * x).exp();
-        sign * y
-    }
-
-    /// Standard-normal CDF.
-    pub fn norm_cdf(x: f64) -> f64 {
-        0.5 * (1.0 + erf(x / std::f64::consts::SQRT_2))
-    }
-
-    /// Inverse standard-normal CDF (Acklam's rational approximation).
-    pub fn norm_ppf(p: f64) -> f64 {
-        if p <= 0.0 {
-            return f64::NEG_INFINITY;
-        }
-        if p >= 1.0 {
-            return f64::INFINITY;
-        }
-        const A: [f64; 6] = [
-            -3.969683028665376e+01,
-            2.209460984245205e+02,
-            -2.759285104469687e+02,
-            1.383_577_518_672_69e2,
-            -3.066479806614716e+01,
-            2.506628277459239e+00,
-        ];
-        const B: [f64; 5] = [
-            -5.447609879822406e+01,
-            1.615858368580409e+02,
-            -1.556989798598866e+02,
-            6.680131188771972e+01,
-            -1.328068155288572e+01,
-        ];
-        const C: [f64; 6] = [
-            -7.784894002430293e-03,
-            -3.223964580411365e-01,
-            -2.400758277161838e+00,
-            -2.549732539343734e+00,
-            4.374664141464968e+00,
-            2.938163982698783e+00,
-        ];
-        const D: [f64; 4] = [
-            7.784695709041462e-03,
-            3.224671290700398e-01,
-            2.445134137142996e+00,
-            3.754408661907416e+00,
-        ];
-        let plow = 0.02425;
-        let phigh = 1.0 - plow;
-        if p < plow {
-            let q = (-2.0 * p.ln()).sqrt();
-            (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
-                / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
-        } else if p <= phigh {
-            let q = p - 0.5;
-            let r = q * q;
-            (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
-                / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
-        } else {
-            let q = (-2.0 * (1.0 - p).ln()).sqrt();
-            -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
-                / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
-        }
-    }
+    // The normal special functions and the sample moments are the evaluation kernels'
+    // (EH-530): one implementation, pinned transcendentals, full-precision `Φ`.
+    pub use eg_numeric::evaluation::special::{excess_kurtosis, norm_cdf, norm_ppf, skew};
 
     /// ln Γ(x) — Lanczos approximation (g = 7, n = 9).
     pub fn ln_gamma(x: f64) -> f64 {
@@ -248,38 +179,6 @@ mod sf {
             w[n - 1 - i] = wi;
         }
         (x, w)
-    }
-
-    /// Sample skewness (Fisher-Pearson) of a slice.
-    pub fn skew(d: &[f64]) -> f64 {
-        let n = d.len() as f64;
-        if n < 3.0 {
-            return 0.0;
-        }
-        let mean = d.iter().sum::<f64>() / n;
-        let m2 = d.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
-        let m3 = d.iter().map(|x| (x - mean).powi(3)).sum::<f64>() / n;
-        if m2 <= 1e-18 {
-            0.0
-        } else {
-            m3 / m2.powf(1.5)
-        }
-    }
-
-    /// Excess kurtosis (Fisher) of a slice.
-    pub fn excess_kurtosis(d: &[f64]) -> f64 {
-        let n = d.len() as f64;
-        if n < 4.0 {
-            return 0.0;
-        }
-        let mean = d.iter().sum::<f64>() / n;
-        let m2 = d.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
-        let m4 = d.iter().map(|x| (x - mean).powi(4)).sum::<f64>() / n;
-        if m2 <= 1e-18 {
-            0.0
-        } else {
-            m4 / (m2 * m2) - 3.0
-        }
     }
 }
 

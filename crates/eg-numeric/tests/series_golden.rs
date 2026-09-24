@@ -3,7 +3,7 @@
 //! `DERIVE` table, over a walk with a flat run, within a relative 1e-9.
 
 use eg_numeric::series::{
-    apply, apply_pair, PairStat, Rolling, Shift, Smoothing, Spec, MAX_WINDOW,
+    apply, apply_pair, KalmanNoise, PairStat, Rolling, Shift, Smoothing, Spec, MAX_WINDOW,
 };
 use serde::Deserialize;
 
@@ -27,7 +27,11 @@ struct Case {
 fn spec(func: &str, params: &[f64]) -> Spec {
     let n = params[0] as usize;
     assert!(n <= MAX_WINDOW);
-    let table: [(&str, Spec); 16] = [
+    let noise = KalmanNoise {
+        q: params[0],
+        r: params.get(1).copied().unwrap_or(0.0),
+    };
+    let table: [(&str, Spec); 18] = [
         ("lag", Spec::Shift(Shift::Lag, n)),
         ("diff", Spec::Shift(Shift::Diff, n)),
         ("ret", Spec::Shift(Shift::Ret, n)),
@@ -44,6 +48,8 @@ fn spec(func: &str, params: &[f64]) -> Spec {
         ("rcorr", Spec::Pair(PairStat::Corr, n)),
         ("ic", Spec::Pair(PairStat::RankCorr, n)),
         ("wsum", Spec::Pair(PairStat::WeightedSum, n)),
+        ("kalman", Spec::KalmanLevel(noise)),
+        ("kbeta", Spec::KalmanBeta(noise)),
     ];
     table
         .into_iter()
@@ -65,14 +71,21 @@ fn every_kernel_matches_the_pandas_reference() {
     let golden: Golden = serde_json::from_str(GOLDEN).expect("golden.json parses");
     assert_eq!(
         golden.cases.len(),
-        16,
+        18,
         "the reference covers every stateful kernel"
     );
+    // `kbeta` regresses on y / 100 (a return-sized regressor).
+    let y_small: Vec<f64> = golden.y.iter().map(|v| v / 100.0).collect();
     for case in &golden.cases {
         let spec = spec(&case.func, &case.params);
+        let second = if case.func == "kbeta" {
+            &y_small
+        } else {
+            &golden.y
+        };
         let got = match spec.arity() {
             1 => apply(spec, &golden.x),
-            _ => apply_pair(spec, &golden.x, &golden.y),
+            _ => apply_pair(spec, &golden.x, second),
         }
         .unwrap();
         assert_eq!(got.len(), case.values.len(), "{}", case.func);

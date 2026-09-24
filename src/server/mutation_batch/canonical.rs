@@ -375,7 +375,6 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::DsLinearRegression { .. }
         | Method::FinanceBreakevenAlpha { .. }
         | Method::DsLogSoftmax { .. }
-        | Method::FinanceEwma { .. }
         | Method::DsSoftmax { .. }
         | Method::FinanceOuOptimalThresholds { .. }
         | Method::FinancePurgedCpcv { .. }
@@ -552,7 +551,6 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ListGraphs
         | Method::CatalogList
         | Method::DsGrpoSurrogate { .. }
-        | Method::FinanceRollingZscore { .. }
         | Method::FinanceMonteCarloVar { .. }
         | Method::GetNeighbors { .. }
         | Method::FinanceRiskMetrics { .. }

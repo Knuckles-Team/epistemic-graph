@@ -44,9 +44,7 @@ fn route_for_primary(method: &Method) -> Option<FinanceRoute> {
         | Method::FinanceMonteCarloVar { .. }
         | Method::FinanceStressTest { .. } => Some(FinanceRoute::Risk),
         Method::FinanceDetectRegimes { .. } => Some(FinanceRoute::Regime),
-        Method::FinanceRollingZscore { .. }
-        | Method::FinanceEwma { .. }
-        | Method::FinanceSignalDecay { .. }
+        Method::FinanceSignalDecay { .. }
         | Method::FinanceCombineAlphas { .. }
         | Method::FinanceCrossSectionalRank { .. }
         | Method::FinanceMomentum { .. }

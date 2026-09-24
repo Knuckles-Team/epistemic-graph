@@ -21,16 +21,9 @@ $($variants)*
 
 
     // ── Extended Finance: Signals / alpha ─────────────────────────────
-    FinanceRollingZscore {
-        values: Vec<f64>,
-        window: usize,
-    },
-
-    FinanceEwma {
-        values: Vec<f64>,
-        span: usize,
-    },
-
+    // (The rolling z-score and EWMA array Methods were retired by EH-530: the one
+    // series kernel is served as UQL `DERIVE zscore(v0, w)` / `ewma(v0, span)` and SQL
+    // `eg_zscore(v, w)` / `eg_ewma(v, span)`.)
     FinanceSignalDecay {
         signal: Vec<f64>,
         half_life: f64,

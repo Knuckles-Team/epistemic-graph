@@ -8346,19 +8346,9 @@ class FinanceClient:
         ).payload
 
     # ── Signals / alpha ───────────────────────────────────────────────
-    async def rolling_zscore(self, values: list[float], window: int) -> list[float]:
-        return (
-            await _gen.compute.send_finance_rolling_zscore(
-                self._client, {"values": values, "window": window}
-            )
-        ).payload
-
-    async def ewma(self, values: list[float], span: int) -> list[float]:
-        return (
-            await _gen.compute.send_finance_ewma(
-                self._client, {"values": values, "span": span}
-            )
-        ).payload
+    # The rolling z-score and EWMA were retired here (EH-530): run them where the data
+    # lives — UQL ``DERIVE zscore(v0, w)`` / ``ewma(v0, span)``, SQL
+    # ``eg_zscore(v, w) OVER (…)`` — one kernel for every surface.
 
     async def signal_decay(self, signal: list[float], half_life: float) -> list[float]:
         return (

@@ -62,6 +62,32 @@ def zscore(x: pd.Series, w: int) -> pd.Series:
     return z.where(~(std <= 1e-12), 0.0).where(std.notna())
 
 
+def kalman_level(z: pd.Series, q: float, r: float) -> pd.Series:
+    out, x, p = [], None, r
+    for obs in z:
+        if x is None:
+            x = obs
+        else:
+            p = p + q
+            k = p / (p + r)
+            x = x + k * (obs - x)
+            p = p * (1.0 - k)
+        out.append(x)
+    return pd.Series(out)
+
+
+def kalman_beta(z: pd.Series, h: pd.Series, q: float, r: float) -> pd.Series:
+    out, beta, p = [], 0.0, 1.0
+    for obs, hh in zip(z, h):
+        p = p + q
+        s = hh * p * hh + r
+        k = p * hh / s if abs(s) > 1e-18 else 0.0
+        beta = beta + k * (obs - hh * beta)
+        p = p * (1.0 - k * hh)
+        out.append(beta)
+    return pd.Series(out)
+
+
 def cases(x: pd.Series, y: pd.Series) -> list[dict]:
     w, k = 20, 3
     table = [
@@ -81,6 +107,8 @@ def cases(x: pd.Series, y: pd.Series) -> list[dict]:
         ("rcorr", [w], x.rolling(w).corr(y)),
         ("ic", [w], rolling_ic(x, y, w)),
         ("wsum", [w], (x * y).rolling(w).sum()),
+        ("kalman", [0.01, 0.5], kalman_level(x, 0.01, 0.5)),
+        ("kbeta", [0.01, 0.5], kalman_beta(x, y / 100.0, 0.01, 0.5)),
     ]
     return [{"func": f, "params": p, "values": clean(v)} for f, p, v in table]
 

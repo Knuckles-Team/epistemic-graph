@@ -51,6 +51,9 @@ fn every_spec() -> Vec<Spec> {
     for op in [PairStat::Corr, PairStat::RankCorr, PairStat::WeightedSum] {
         specs.push(Spec::Pair(op, 9));
     }
+    let noise = KalmanNoise { q: 0.01, r: 0.5 };
+    specs.push(Spec::KalmanLevel(noise));
+    specs.push(Spec::KalmanBeta(noise));
     specs
 }
 
