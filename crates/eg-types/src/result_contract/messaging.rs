@@ -77,6 +77,9 @@ method_results! {
     DropTrigger(DropTrigger) => Bool<bool>;
     #[cfg(feature = "streaming")]
     ListTriggers(ListTriggers) => Raw<Vec<TriggerInfo>>;
+    // EH-400: per-class invalidation events, the class volatility policy and foreign-source
+    // watermark freshness of the request graph.
+    FreshnessFeed(FreshnessFeed) => Raw<crate::freshness::FreshnessFeed>;
     #[cfg(feature = "streaming")]
     FiredTriggers(FiredTriggers) => Raw<FiredTriggersResult>;
     #[cfg(feature = "streaming")]

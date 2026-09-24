@@ -78,6 +78,18 @@ impl GraphCore {
         &self.dep_clock
     }
 
+    /// A validity probe over [`Self::dep_clock`] that also carries the live embedding-store
+    /// generation (EH-393), read once here. Pass it to `result_cache().get_dep` when the cached
+    /// query may be vector-ranked; its [`crate::dep_scope::DepProbe::embedding_generation`] is
+    /// also the stamp a freshly computed result records.
+    #[cfg(feature = "result-cache")]
+    pub fn dep_probe(&self) -> crate::dep_scope::DepProbe<'_> {
+        crate::dep_scope::DepProbe::new(
+            &self.dep_clock,
+            Some(self.semantic_store.read().generation()),
+        )
+    }
+
     /// The named graph-projection catalog (CONCEPT:EG-KG.query.named-graph-projection-catalog,
     /// W4.5/N5) — the `gds.graph.project`-equivalent materialized-projection cache. `eg-query`'s
     /// `gds.graph.project`/`gds.graph.drop`/`gds.graph.list`/`gds.graph.exists` procedures and

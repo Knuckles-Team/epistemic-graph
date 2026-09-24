@@ -11,7 +11,7 @@ impl GraphCore {
     /// once per schema-defining triple INSERTED that names `id` as subject or
     /// object, in the same mutation as the triple write.
     pub fn mark_schema_ref(&self, id: &str) {
-        *self.schema_refs.entry(id.to_string()).or_insert(0) += 1;
+        self.step_schema_ref(id, SchemaRefStep::Mark);
     }
 
     /// Release one LIVE schema-defining triple naming `id` (BUG A3). Call once
@@ -21,9 +21,38 @@ impl GraphCore {
     /// rely on for correctness (mark/unmark are expected to stay symmetric per
     /// triple).
     pub fn unmark_schema_ref(&self, id: &str) {
-        if let Some(mut count) = self.schema_refs.get_mut(id) {
-            *count = count.saturating_sub(1);
+        self.step_schema_ref(id, SchemaRefStep::Unmark);
+    }
+
+    /// Apply one mark/unmark to `id`'s live schema-reference count. When the count crosses 0↔1
+    /// the node's schema-ness — and so its row visibility — changed.
+    fn step_schema_ref(&self, id: &str, step: SchemaRefStep) {
+        let crossed = match step {
+            SchemaRefStep::Mark => {
+                let mut count = self.schema_refs.entry(id.to_string()).or_insert(0);
+                *count += 1;
+                *count == 1
+            }
+            SchemaRefStep::Unmark => self.schema_refs.get_mut(id).is_some_and(|mut count| {
+                let was_schema = *count > 0;
+                *count = count.saturating_sub(1);
+                was_schema && *count == 0
+            }),
+        };
+        if crossed {
+            self.note_schema_membership_change();
         }
+    }
+
+    /// A node just became (or stopped being) schema, which changes its row visibility for every
+    /// non-System reader (`IsolationLayer::filter_view` exempts schema nodes). That is not a
+    /// node/edge change-set entry, so no footprint can attribute it: floor the dependency clock
+    /// past the current version so no dependency-scoped result computed before it survives
+    /// (EH-393 soundness).
+    fn note_schema_membership_change(&self) {
+        #[cfg(feature = "result-cache")]
+        self.dep_clock
+            .note_unattributed(self.version().saturating_add(1));
     }
 
     /// Is `id` CURRENTLY ontology schema (TBox)? DERIVED from the live reverse
@@ -179,4 +208,11 @@ impl GraphCore {
         let evict_ids = self.lru_eviction_candidates(max_nodes);
         self.evict_resident_nodes(&evict_ids)
     }
+}
+
+/// One schema-reference count step (a schema-defining triple inserted or deleted).
+#[derive(Clone, Copy)]
+enum SchemaRefStep {
+    Mark,
+    Unmark,
 }

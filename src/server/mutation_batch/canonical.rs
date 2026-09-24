@@ -619,6 +619,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ListWorkItems { .. }
         | Method::GetWorkItemOutcome { .. }
         | Method::GetControlLease { .. }
+        // EH-400: reads the dependency clock's invalidation feed and class/watermark nodes.
+        | Method::FreshnessFeed { .. }
         | Method::MutationOutbox { .. } => default_mutation_domain(surface),
         Method::FinanceSabrImpliedVol { .. }
         | Method::CatalogAssign { .. }

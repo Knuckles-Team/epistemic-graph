@@ -54,31 +54,53 @@ async fn try_handle_inner(
         rls,
     };
 
+    dispatch_query_family(&hctx, method).await
+}
+
+/// Route one query-surface method to its family's dispatcher.
+async fn dispatch_query_family(
+    hctx: &QueryHandlerCtx<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[cfg(all(feature = "query", feature = "result-cache"))]
+    if let Method::FreshnessFeed {
+        after_version,
+        limit,
+        policy_after,
+    } = method
+    {
+        let request = FeedRequest {
+            after_version,
+            limit,
+            policy_after,
+        };
+        return Ok(handle_freshness_feed(hctx, request).await);
+    }
     #[cfg(feature = "query")]
     if is_sql_query_method(&method) {
-        return dispatch_sql_query(&hctx, method).await;
+        return dispatch_sql_query(hctx, method).await;
     }
     #[cfg(feature = "query")]
     if is_explain_method(&method) {
-        return dispatch_explain_method(&hctx, method).await;
+        return dispatch_explain_method(hctx, method).await;
     }
     #[cfg(all(feature = "query", feature = "epistemic-tms"))]
     if is_epistemic_tms_method(&method) {
-        return dispatch_epistemic_tms_method(&hctx, method).await;
+        return dispatch_epistemic_tms_method(hctx, method).await;
     }
     #[cfg(all(
         feature = "query",
         any(feature = "evidence-graph", feature = "epistemic-causal")
     ))]
     if is_evidence_causal_method(&method) {
-        return dispatch_evidence_causal_method(&hctx, method).await;
+        return dispatch_evidence_causal_method(hctx, method).await;
     }
     #[cfg(feature = "query")]
     if is_txn_query_method(&method) {
-        return dispatch_txn_query_method(&hctx, method).await;
+        return dispatch_txn_query_method(hctx, method).await;
     }
     #[cfg(any(feature = "nl-query", feature = "graphql", feature = "cypher"))]
-    return dispatch_external_query_method(&hctx, method).await;
+    return dispatch_external_query_method(hctx, method).await;
     #[cfg(not(any(feature = "nl-query", feature = "graphql", feature = "cypher")))]
     Err(method)
 }
