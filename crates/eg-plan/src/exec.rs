@@ -26,6 +26,12 @@ use crate::algebra::{Op, Plan, Pred};
 use crate::rowset::RowSet;
 use eg_types::wire::TimeAxis;
 
+// EH-066 — the `DECISIONS` source over the caller's visible decision log.
+mod decisions;
+// The OWL membership closure behind `REASON` (and its `WITH PROOF` explanation, EH-448).
+#[cfg(feature = "owl")]
+pub(crate) mod reason;
+pub use decisions::DecisionSource;
 pub(crate) mod dispatch;
 mod expand;
 mod pred_sql;
@@ -122,6 +128,9 @@ pub struct PlanCtx<'a> {
     /// with the operator itself.
     #[cfg(feature = "owl")]
     pub shape_source: Option<&'a dyn ShapeSource>,
+    /// The caller's visible decision log for a `DECISIONS` source (EH-066); `None` makes
+    /// that source a typed error. Bound per request by the served path.
+    pub decisions: Option<&'a dyn DecisionSource>,
     /// CONCEPT:EG-KG.query.reason-decay-in-plan — the wall-clock `(now, default_half_life)`
     /// that makes an `Op::Reason` compute TIME-DECAYED OWL confidence IN-PLAN, so a single
     /// fused plan can BOTH bi-temporal `AsOf`-reselect liveness AND Ebbinghaus-decay-reweight
@@ -375,6 +384,7 @@ impl<'a> PlanCtx<'a> {
             decay: None,
             #[cfg(feature = "owl")]
             shape_source: None,
+            decisions: None,
             #[cfg(feature = "epistemic")]
             belief_policy: None,
             #[cfg(feature = "geo")]
@@ -422,6 +432,12 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "owl")]
     pub fn with_shape_source(mut self, shapes: &'a dyn ShapeSource) -> Self {
         self.shape_source = Some(shapes);
+        self
+    }
+
+    /// Attach the caller's visible decision log for a `DECISIONS` source (EH-066).
+    pub fn with_decisions(mut self, decisions: &'a dyn DecisionSource) -> Self {
+        self.decisions = Some(decisions);
         self
     }
 
@@ -997,12 +1013,8 @@ fn reason_op(
 }
 
 /// SOURCE (OWL): the individuals the native OWL 2 reasoner INFERS to be members of
-/// `target_class` (CONCEPT:EG-KG.ontology.concept-12). Parses the `ontology` Turtle (or, when empty,
-/// the axioms already present in the graph view's blobs — they round-trip as RDF),
-/// runs EL⁺ classification, reads the graph's asserted instance types, and projects
-/// every (possibly only-inferred) member of `target_class` into a `RowSet`. These are
-/// ids the property-graph stored NO explicit `target_class` type edge for, yet they
-/// then flow — like any RowSet — into a downstream `Traverse`/`Rank`/`Filter`/`Limit`.
+/// `target_class` (CONCEPT:EG-KG.ontology.concept-12), confidence-scored — see
+/// [`reason::ReasonMembership`], which `WITH PROOF` reuses to explain each membership.
 #[cfg(feature = "owl")]
 fn reason_source(
     view: &GraphView,
@@ -1010,44 +1022,7 @@ fn reason_source(
     target_class: &str,
     ontology: &str,
 ) -> Result<RowSet, String> {
-    use eg_rdf::owl::{asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner};
-
-    // Axioms: an explicit ontology document, else the triples already in the graph.
-    let triples = if ontology.trim().is_empty() {
-        eg_rdf::owl::tbox_triples_from_view(view)
-    } else {
-        eg_rdf::mapping::parse_turtle(ontology)?
-    };
-    let mut reasoner = Reasoner::from_triples(&triples);
-    // Confidence-weighted (CONCEPT:EG-KG.ontology.concept-13): each inferred member carries its
-    // membership confidence as the RowSet SCORE, so a bare `Reason` plan is already
-    // ranked by confidence and composes with a downstream vector `Rank`/`Limit`. The
-    // closure is identical to the unweighted one for a HARD ontology (every score 1.0).
-    let cls = reasoner.classify_weighted();
-
-    let target = normalize_class(target_class);
-    // String-type↔IRI-class bridge (CONCEPT:EG-KG.ontology.string-type-iri-class): derive the bridge base from the
-    // REASON target IRI's namespace, so a node with a BARE string `type` (e.g.
-    // `{"type":"Sensor"}`) is resolved as `<base/Sensor>` and — through the TBox subclass
-    // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
-    // <base/Device>`. The target must carry the current absolute class namespace.
-    let class_base = eg_rdf::owl::class_namespace(&target).ok_or_else(|| {
-        "Reason requires an absolute target class with a current class namespace".to_string()
-    })?;
-    // Asserted instance→class assignments + their per-fact confidence. CONCEPT:EG-KG.query.reason-decay-in-plan:
-    // when a `(now, half_life)` decay context is bound on the `PlanCtx` (via `with_decay`), the
-    // fact confidences are Ebbinghaus-decayed by each node's age relative to `now` RIGHT HERE,
-    // so time-decayed OWL confidence composes IN-PLAN alongside `Op::AsOf` in ONE fused plan.
-    // ABSENT a decay context, `now = 0` / `half_life = 0` keeps the op decay-NEUTRAL — a bare
-    // `Reason` stays a stable, deterministic source/leaf (byte-for-byte the prior behavior). The
-    // AXIOM confidence still flows through into the score either way.
-    let (now, half_life) = decay.unwrap_or((0, 0.0));
-    let asserted = asserted_types_with_confidence_from_view(view, now, half_life, &class_base)?;
-    let scored: Vec<(String, f32)> = instances_of_weighted(&cls, &asserted, &target, 0.0)
-        .into_iter()
-        .map(|(id, conf)| (id, conf as f32))
-        .collect();
-    Ok(RowSet::from_scored(scored))
+    Ok(reason::ReasonMembership::of(view, decay, target_class, ontology)?.members())
 }
 
 /// SOURCE (SPARQL): the node bindings of `var` in the SPARQL `query` over the view
@@ -1069,18 +1044,6 @@ fn sparql_source(view: &GraphView, query: &str, var: &str) -> Result<RowSet, Str
         })
     });
     Ok(RowSet::from_ids(ids))
-}
-
-/// Canonicalize a class id to the ontology's `<iri>` form (accept a bare IRI too).
-#[cfg(feature = "owl")]
-fn normalize_class(c: &str) -> String {
-    if c.starts_with('<') {
-        c.to_string()
-    } else if c.starts_with("http") {
-        format!("<{c}>")
-    } else {
-        c.to_string()
-    }
 }
 
 /// SOURCE: all node ids whose `type` property equals `label`.

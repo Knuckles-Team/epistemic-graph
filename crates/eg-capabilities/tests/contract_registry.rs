@@ -17,6 +17,8 @@ const RETIRED_METHODS: &[&str] = &[
     "SpectralCluster",
     "HypergraphEncodeInteraction",
     "FindSimilarPairs",
+    // EH-434: one query-text surface — UQL text is `Uql`.
+    "UnifiedQueryText",
 ];
 
 fn repo_root() -> PathBuf {

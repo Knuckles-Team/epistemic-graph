@@ -3,11 +3,15 @@
 //! maintainability) and `PROFILE` (execute, per-stage actual rows and time).
 //!
 //! The executor is unchanged: a plan without `RETURN` runs through [`crate::execute`]
-//! exactly as `UnifiedQueryText` does. A plan WITH `RETURN` (or under `PROFILE`) runs the
+//! exactly as `UnifiedQuery` does. A plan WITH `RETURN` (or under `PROFILE`) runs the
 //! optimized plan stage by stage through the same `apply` dispatch, recording after each
 //! scoring stage its score under the stage's channel ([`OpKind::score_channel`]) — so the
 //! channels are a side table keyed by row id and the `RowSet` currency itself is untouched.
 //! Deterministic: the side table is ordered, the stage order is the optimizer's.
+//!
+//! `LET … FROM/JOIN` programs get the same three modes node by node ([`dag`], EH-449), and
+//! `WITH PROOF` / `WITH KNOWLEDGE` annotate the finished rows from the same snapshot
+//! ([`annotate`], EH-448/EH-450).
 
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -15,6 +19,10 @@ use std::time::Instant;
 use eg_types::wire::{op_kind, Op, Plan, UqlResult, UqlRow, UqlStageReport};
 
 use super::{Body, Mode, Statement};
+
+mod annotate;
+mod dag;
+mod proof;
 use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
 use crate::exec::{apply, plan_optimize, PlanCtx};
 use crate::rowset::RowSet;
@@ -43,17 +51,16 @@ pub fn run_statement(stmt: &Statement, ctx: &PlanCtx) -> Result<UqlResult, Strin
         .iter()
         .map(|w| format!("{}: {}", w.code.as_str(), w.msg))
         .collect();
-    match (&stmt.body, stmt.mode) {
+    let mut result = match (&stmt.body, stmt.mode) {
         (Body::Pipeline(plan), Mode::Run) => run(plan, ctx, warnings),
         (Body::Pipeline(plan), Mode::Explain) => explain(plan, ctx, warnings),
         (Body::Pipeline(plan), Mode::Profile) => profile(plan, ctx, warnings),
-        (Body::Dag(nodes), Mode::Run) => run_dag(nodes, ctx, warnings),
-        (Body::Dag(_), Mode::Explain | Mode::Profile) => Err(
-            "UQL_UNSUPPORTED: EXPLAIN/PROFILE of a LET … FROM/JOIN program is not supported; \
-             explain each binding as a pipeline"
-                .into(),
-        ),
-    }
+        (Body::Dag(nodes), Mode::Run) => dag::run(nodes, ctx, warnings),
+        (Body::Dag(nodes), Mode::Explain) => dag::explain(nodes, ctx, warnings),
+        (Body::Dag(nodes), Mode::Profile) => dag::profile(nodes, ctx, warnings),
+    }?;
+    annotate::annotate(&mut result, stmt, ctx)?;
+    Ok(result)
 }
 
 /// The channels the LAST `RETURN` names (empty without one).
@@ -77,8 +84,15 @@ fn rows_of(rows: &RowSet, columns: &[String], table: &ChannelTable) -> Vec<UqlRo
             id: r.id.clone(),
             score: r.score,
             channels: row_channels(&r.id, columns, table),
+            knowledge: None,
+            proof: None,
         })
         .collect()
+}
+
+/// Microseconds since `started`, saturating.
+fn micros_since(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
 /// One row's value for each requested channel (`None` where no stage wrote it).
@@ -124,7 +138,7 @@ fn traced(plan: &Plan, ctx: &PlanCtx) -> Result<Traced, String> {
     for op in &optimized.ops {
         let started = Instant::now();
         cur = apply(op, cur, ctx)?;
-        let micros = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        let micros = micros_since(started);
         record_channel(op, &cur, &mut table);
         stages.push((op.clone(), cur.len() as u64, micros));
     }
@@ -212,28 +226,6 @@ fn profile(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResul
         rows: rows_of(&traced.rows, &columns, &traced.table),
         columns,
         stages,
-        warnings,
-    })
-}
-
-fn run_dag(
-    nodes: &[super::DagNode],
-    ctx: &PlanCtx,
-    warnings: Vec<String>,
-) -> Result<UqlResult, String> {
-    let ops: Vec<Op> = nodes.iter().map(|n| n.op.clone()).collect();
-    if !returned_channels(&ops).is_empty() {
-        return Err(
-            "UQL_UNSUPPORTED: RETURN channels are traced on pipelines, not on LET … \
-                    FROM/JOIN programs"
-                .into(),
-        );
-    }
-    let rows = crate::dag_exec::execute_dag(&super::to_plan_dag(nodes), ctx)?;
-    ctx.budget.check_result(rows.len())?;
-    Ok(UqlResult::Rows {
-        rows: rows_of(&rows, &[], &ChannelTable::new()),
-        columns: Vec::new(),
         warnings,
     })
 }

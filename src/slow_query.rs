@@ -119,10 +119,6 @@ pub fn describe(method: &Method) -> Option<SlowQuery> {
             Some(plan.ops.len()),
             None,
         )),
-        #[cfg(feature = "query")]
-        Method::UnifiedQueryText { text, .. } => {
-            Some(SlowQuery::new("unified_query_text", text, None, None))
-        }
         // The statement text only: bound `$param` values are never part of it.
         #[cfg(feature = "query")]
         Method::Uql { text, .. } => Some(SlowQuery::new("uql", text, None, None)),
