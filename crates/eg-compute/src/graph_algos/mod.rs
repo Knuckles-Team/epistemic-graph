@@ -53,6 +53,7 @@ pub mod centrality;
 pub mod coloring;
 pub mod components;
 pub mod graph;
+pub mod impact;
 pub mod kcore;
 pub mod label_propagation;
 pub mod leiden;

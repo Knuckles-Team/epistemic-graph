@@ -53,3 +53,9 @@ pub fn ln_gamma(x: f64) -> f64 {
 pub fn erfc(x: f64) -> f64 {
     libm::erfc(x)
 }
+
+/// Cosine (radians).
+#[inline]
+pub fn cos(x: f64) -> f64 {
+    libm::cos(x)
+}
