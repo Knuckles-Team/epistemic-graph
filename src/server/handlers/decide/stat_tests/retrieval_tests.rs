@@ -165,6 +165,16 @@ fn template(composed_digest: &str) -> RetrievalPathTemplate {
     }
 }
 
+/// A record only its committer may see, attested: nothing learned from it
+/// reaches anyone else.
+async fn attest_private(h: &Harness, template_entry: &DecisionLogEntry) {
+    let visibility = template_entry.visibility.clone();
+    clone_visible(h, template_entry, "rec-private", visibility);
+    let mut private = outcome("rec-private", &["x"], &[]);
+    private.returned = returned_unclassed(&["x"]);
+    assert!(learn(h, "decider", attest(private)).await.is_ok());
+}
+
 #[tokio::test]
 async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
     let h = Harness::new().await;
@@ -180,17 +190,7 @@ async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
         foreign.unwrap_err().starts_with("ACCESS_DENIED"),
         "only the committer attests its run"
     );
-    // A record only its committer may see: nothing learned from it reaches
-    // anyone else.
-    clone_visible(
-        &h,
-        &template_entry,
-        "rec-private",
-        template_entry.visibility.clone(),
-    );
-    let mut private = outcome("rec-private", &["x"], &[]);
-    private.returned = returned_unclassed(&["x"]);
-    assert!(learn(&h, "decider", attest(private)).await.is_ok());
+    attest_private(&h, &template_entry).await;
     let mut bogus = attested.clone();
     bogus.cited = BoundedVec::new(vec!["zz".to_string()]).unwrap();
     assert!(learn(&h, "decider", attest(bogus)).await.is_err());
