@@ -694,8 +694,9 @@ ex:parent a owl:AsymmetricProperty .
         // +8: BFO realizable entity and disposition, declared for `:Skill`.
         // +1: BFO `Continuant owl:disjointWith Occurrent`. +471: the world model — the
         // life, environment and nutrition modules (145 + 71 + 114), their catalog imports
-        // (3) and the foundation's world-model vocabulary (138).
-        assert_eq!(composed.ontology.len(), 13_169);
+        // (3) and the foundation's world-model vocabulary (138). Then +8: infrastructure
+        // `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409).
+        assert_eq!(composed.ontology.len(), 13_177);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology

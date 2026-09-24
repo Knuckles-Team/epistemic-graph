@@ -156,7 +156,9 @@ pub mod semantic_index;
 pub mod source_ingestion;
 #[cfg(feature = "statechart")]
 pub mod statechart;
+// EH-408 / EH-409 — the receipt of a served telemetry derivation.
 pub mod storage_wire;
+pub mod telemetry_derive;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 pub mod types;

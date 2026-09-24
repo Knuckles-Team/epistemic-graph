@@ -60,6 +60,26 @@ $($variants)*
         tenant: String,
         lease_id: String,
     },
+
+    // ── Telemetry facts (EH-408 / EH-409) ──────────────────────────────────
+    /// Derive ontology-bound telemetry facts in the request graph. Reads the
+    /// caller's stored log records (from the named `streams`, each of which
+    /// must lie in the caller's tenant namespace), metric samples and spans
+    /// over `[from_ms, to_ms)`; binds them to the graph's declared Server /
+    /// Service / Host / Workload / Agent individuals; rolls them up, runs the
+    /// declared CEP patterns and the declared-health conformance check; and
+    /// writes every fact in one `BatchUpdate` against the request graph.
+    /// `policy_msgpack` is a MessagePack `eg_stream::telemetry::TelemetryPolicy`.
+    /// See [`crate::telemetry_derive`].
+    TelemetryDerive {
+        from_ms: u64,
+        to_ms: u64,
+        #[serde(default)]
+        streams: Vec<String>,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
+        #[serde(with = "serde_bytes")]
+        policy_msgpack: Vec<u8>,
+    },
         ]);
     };
 }

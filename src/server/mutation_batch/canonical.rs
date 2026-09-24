@@ -607,6 +607,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ConnectorPack { .. }
         | Method::SourceIngest { .. }
         | Method::SourceIngestStatus { .. }
+        // EH-408/EH-409: self-translates into a request-graph `BatchUpdate`,
+        // which carries its own domain.
+        | Method::TelemetryDerive { .. }
         | Method::WriteBack { .. }
         | Method::DecisionFit { .. }
         | Method::DecisionEval { .. }

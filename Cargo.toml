@@ -669,6 +669,8 @@ obs = [
     "dep:arrow",
     "dep:polars-core",
     "dep:polars-io",
+    # EH-408/EH-409: the pure telemetry→fact engine (serde + serde_json only).
+    "dep:eg-stream",
 ]
 # CONCEPT:EG-172 — PromQL + the Prometheus HTTP query API (`/api/v1/query[_range]`,
 # `/labels`) served on the obs listener over the durable eg-tsdb series. Pure-Rust

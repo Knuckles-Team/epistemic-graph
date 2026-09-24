@@ -816,10 +816,13 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
     // mechanism (the translation) already lands the mutation on an already-safe path.
     // `FleetCatalog` (EH-345) writes the same way: its handler self-translates
     // each write into a `CreateNodeIfAbsent`/`CompareAndSetNodeFields` against
-    // `__commons__` through `dispatch_graph_op`.
+    // `__commons__` through `dispatch_graph_op`. `TelemetryDerive` (EH-408/409)
+    // self-translates its facts into one `BatchUpdate` against the request graph.
     if matches!(
         method,
-        Method::RegisterServer { .. } | Method::FleetCatalog { .. }
+        Method::RegisterServer { .. }
+            | Method::FleetCatalog { .. }
+            | Method::TelemetryDerive { .. }
     ) {
         return Some(ClusterMutationRoute::VolatileControl);
     }

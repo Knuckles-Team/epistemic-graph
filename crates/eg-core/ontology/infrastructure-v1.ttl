@@ -70,6 +70,16 @@
 part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:subClassOf bfo:0000031 .
 
+:BehaviourObservation a owl:Class ;
+    rdfs:label "Behaviour Observation" ;
+    rdfs:comment "One entity's observed behaviour over one telemetry window (request volume, errors, error ratio, rate, latency percentiles), rolled up by EG from the logs, metrics and spans bound to that entity through declared resolution keys. Observation-class evidence: it carries its provenance (resolution rules, source streams/series/traces, per-kind signal counts, event-time span) and OBSERVES the entity; raw points stay in the time-series store (EH-408)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ConformanceViolation a owl:Class ;
+    rdfs:label "Conformance Violation" ;
+    rdfs:comment "A :BehaviourObservation that contradicts its entity's declared health: erroring or slow while declared healthy, or serving while declared retired. Cites the declaration it breaks and DERIVED_FROM the observation that breaks it (EH-409)." ;
+    rdfs:subClassOf bfo:0000031 .
+
 :HealthAnomaly a owl:Class ;
     rdfs:label "Health Anomaly" ;
     rdfs:comment "An entity+signal observed drifting off its :HealthBaseline (above-baseline / saturated / a caller-defined systemic kind) — produced by agent_utilities.observability.health.detect_anomaly / correlate." ;
