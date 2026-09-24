@@ -182,10 +182,11 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // `GetWorkItemOutcome`, `IssueControlLease`, `TransitionControlLease`,
     // `GetControlLease`.
     // 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
-    // 437 -> 438: the `PolicyEvolution` op family (EH-346/EH-347).
+    // 437 -> 439: the `PolicyEvolution` op family and its engine-internal
+    // `PolicyEvolutionStore` row writer (EH-346/EH-347).
     assert_eq!(
         variants.len(),
-        438,
+        439,
         "the wire method census changed; update this exact count deliberately"
     );
 }

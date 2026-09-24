@@ -73,8 +73,9 @@ class MethodPolicyRow:
 # `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 # `TransitionControlLease` and `GetControlLease`.
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
-# 437 -> 438: the `PolicyEvolution` op family (EH-346/EH-347).
-EXPECTED_METHOD_POLICY_ROWS = 438
+# 437 -> 439: the `PolicyEvolution` op family and its engine-internal
+# `PolicyEvolutionStore` row writer (EH-346/EH-347).
+EXPECTED_METHOD_POLICY_ROWS = 439
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
