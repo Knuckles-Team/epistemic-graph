@@ -279,6 +279,30 @@ pub(crate) fn run_unified_with_staged(
     #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    run_unified_with_staged_finish(
+        plan,
+        view,
+        core,
+        staged,
+        #[cfg(feature = "federation")]
+        foreign,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+        execute_rows,
+    )
+}
+
+/// [`run_unified_with_staged`] with a caller-chosen finisher (see [`run_unified_with`]).
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with_staged_finish<T>(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    core: &Arc<GraphCore>,
+    staged: &[(String, Vec<f32>)],
+    #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+) -> Result<T, String> {
     let indexes = CoreIndexes::open(core);
     let served = indexes.served(
         #[cfg(feature = "federation")]
@@ -286,23 +310,25 @@ pub(crate) fn run_unified_with_staged(
     );
     if staged.is_empty() {
         let committed = core.semantic_store.read();
-        return run_unified(
+        return run_unified_with(
             plan,
             view,
             &committed,
             served,
             #[cfg(feature = "tsdb")]
             tsdb_ctx,
+            finish,
         );
     }
     let committed = core.semantic_store.read().clone();
     let semantic = eg_core::compute::semantic::semantic_overlay(committed, staged);
-    run_unified(
+    run_unified_with(
         plan,
         view,
         &semantic,
         served,
         #[cfg(feature = "tsdb")]
         tsdb_ctx,
+        finish,
     )
 }
