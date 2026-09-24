@@ -4709,7 +4709,15 @@
       },
       "result_schema": {
         "bodies": {
+          "analysis_snapshot": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "backtest_run": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "decimate": {
             "dynamic": null,
             "encoding": "Raw"
           },

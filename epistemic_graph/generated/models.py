@@ -1014,6 +1014,36 @@ class Algorithm(str, Enum):
     DEPTH_FIRST_DUAL_ASCENT = "depth_first_dual_ascent"
 
 
+class AnalysisSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    draft: AnalysisSnapshotDraft
+    excludes_positions: bool
+    informational_only: bool
+    notices: SnapshotNotices
+
+
+class AnalysisSnapshotDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of: int | None = None
+    claims: list[SnapshotClaim] = Field(default_factory=list)
+    confidence: FlipConfidence | None = None
+    created_at: int
+    data_status: DataStatus
+    decision_refs: list[str] = Field(default_factory=list)
+    direction: Direction | None = None
+    flips: list[TrendFlip]
+    key: SignalKey
+    last_close: int | None = None
+    layers: list[str] = Field(default_factory=list)
+    line: int | None = None
+    source_revision: str
+    spec: IndicatorSpec
+    window: BarWindow
+
+
 class AnalyticsJobRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1288,6 +1318,14 @@ class BarRecord(BaseModel):
 class BarStatus(str, Enum):
     PROVISIONAL = "provisional"
     FINAL = "final"
+
+
+class BarWindow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: Annotated[int, Field(ge=0)]
+    from_open: int
+    to_close: int
 
 
 class BatchUpdateReport(BaseModel):
@@ -2076,12 +2114,25 @@ class ChannelType(str, Enum):
     GROUP = "Group"
 
 
+class ClaimAuthor(str, Enum):
+    AGENT = "agent"
+    PERSON = "person"
+
+
 class ClaimProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     model_profile: ComponentDependency | None = None
     producer: str
     prompt_digest: str | None = None
+
+
+class ClaimSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record_ref: str | None = None
+    title: str
+    url: str | None = None
 
 
 class ClaimWorkItemRequest(BaseModel):
@@ -3040,6 +3091,23 @@ class DecideRequest(BaseModel):
     policy: DecisionPolicyRef
     question: StatisticalQuestion
     tenant_id: str
+
+
+class DecimateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    indicators: list[list[IndicatorPoint]] = Field(default_factory=list)
+    width: Annotated[int, Field(ge=0)]
+
+
+class DecimatedChart(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    decimated: bool
+    indicators: list[list[IndicatorPoint]]
+    source_bars: Annotated[int, Field(ge=0)]
 
 
 class DecisionBatch(BaseModel):
@@ -5032,6 +5100,20 @@ class FinanceMarketOpBacktestRun(BaseModel):
     op: Literal["backtest_run"]
 
 
+class FinanceMarketOpDecimate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["decimate"]
+    request: DecimateRequest
+
+
+class FinanceMarketOpAnalysisSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    draft: AnalysisSnapshotDraft
+    op: Literal["analysis_snapshot"]
+
+
 FinanceMarketOp = Annotated[
     FinanceMarketOpEncodePoints
     | FinanceMarketOpResolve
@@ -5041,7 +5123,9 @@ FinanceMarketOp = Annotated[
     | FinanceMarketOpSignalAdvance
     | FinanceMarketOpSignalScan
     | FinanceMarketOpFlipConfidence
-    | FinanceMarketOpBacktestRun,
+    | FinanceMarketOpBacktestRun
+    | FinanceMarketOpDecimate
+    | FinanceMarketOpAnalysisSnapshot,
     Field(discriminator="op"),
 ]
 
@@ -18827,6 +18911,23 @@ class SlotAssignment(BaseModel):
 
     component: ComponentDependency
     slot: str
+
+
+class SnapshotClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    author: ClaimAuthor
+    sources: list[ClaimSource]
+    text: str
+
+
+class SnapshotNotices(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    hallucination: str
+    informational_only: str
+    mechanical_trigger: str
+    version: Annotated[int, Field(ge=0)]
 
 
 class SolveModelSpec(BaseModel):

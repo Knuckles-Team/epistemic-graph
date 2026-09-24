@@ -2450,6 +2450,122 @@
         }
       ]
     },
+    "AnalysisSnapshotDraft": {
+      "additionalProperties": false,
+      "description": "What the caller asks to seal.",
+      "properties": {
+        "as_of": {
+          "default": null,
+          "description": "The point in time the analysis was replayed as of, if any.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "claims": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SnapshotClaim"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FlipConfidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "created_at": {
+          "description": "When the analysis was made (ns since the epoch, UTC).",
+          "format": "int64",
+          "type": "integer"
+        },
+        "data_status": {
+          "$ref": "#/$defs/DataStatus"
+        },
+        "decision_refs": {
+          "default": [],
+          "description": "Decision-log record ids the analysis relied on.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Direction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flips": {
+          "description": "The flips standing in the window, oldest first: the mechanical trigger.",
+          "items": {
+            "$ref": "#/$defs/TrendFlip"
+          },
+          "type": "array"
+        },
+        "key": {
+          "$ref": "#/$defs/SignalKey",
+          "description": "The signal key; it must be the key of `spec` over its series."
+        },
+        "last_close": {
+          "default": null,
+          "description": "Close of the last final bar, ticks.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "layers": {
+          "default": [],
+          "description": "The chart layers shown, so a shared view draws the same picture.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "line": {
+          "default": null,
+          "description": "The trailing line, milli-ticks.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "source_revision": {
+          "description": "The signal state's `source_revision`: the bar versions it read.",
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/IndicatorSpec"
+        },
+        "window": {
+          "$ref": "#/$defs/BarWindow"
+        }
+      },
+      "required": [
+        "key",
+        "spec",
+        "window",
+        "source_revision",
+        "data_status",
+        "flips",
+        "created_at"
+      ],
+      "type": "object"
+    },
     "AnomalyAlgorithm": {
       "description": "Which detector `MineAnomaly` runs (CONCEPT:EG-KG.mining.isolation-forest).",
       "enum": [
@@ -2972,6 +3088,33 @@
           "type": "string"
         }
       ]
+    },
+    "BarWindow": {
+      "additionalProperties": false,
+      "description": "The bars an analysis covers.",
+      "properties": {
+        "bars": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from_open": {
+          "description": "Open time of the first bar.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "to_close": {
+          "description": "Close time of the last bar.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from_open",
+        "to_close",
+        "bars"
+      ],
+      "type": "object"
     },
     "BlobReference": {
       "properties": {
@@ -4599,6 +4742,14 @@
         }
       ]
     },
+    "ClaimAuthor": {
+      "description": "Who made a claim. Either way it is a claim, never a fact.",
+      "enum": [
+        "agent",
+        "person"
+      ],
+      "type": "string"
+    },
     "ClaimProvenance": {
       "additionalProperties": false,
       "description": "How a free-text task was mapped onto native task IRIs, and by what.\n\nA mapping is a CLAIM, never a proof: it is recorded with its producer so a\nrecord that leans on one is classified by its weakest premise.",
@@ -4627,6 +4778,33 @@
       },
       "required": [
         "producer"
+      ],
+      "type": "object"
+    },
+    "ClaimSource": {
+      "additionalProperties": false,
+      "description": "A source a claim cites: a URL, an engine record, or both.",
+      "properties": {
+        "record_ref": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "title"
       ],
       "type": "object"
     },
@@ -6133,6 +6311,40 @@
         "candidates",
         "feature_schema",
         "policy"
+      ],
+      "type": "object"
+    },
+    "DecimateRequest": {
+      "additionalProperties": false,
+      "description": "Decimate ordered bars, and indicator series aligned to them, to `width`\npixel columns. Indicators are computed over the FULL history first; this\nonly thins what is drawn.",
+      "properties": {
+        "bars": {
+          "items": {
+            "$ref": "#/$defs/BarRecord"
+          },
+          "type": "array"
+        },
+        "indicators": {
+          "default": [],
+          "description": "Each series has one point per bar, at the bar's open time (as\n`indicators` returns it).",
+          "items": {
+            "items": {
+              "$ref": "#/$defs/IndicatorPoint"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "width": {
+          "description": "Pixel columns the chart spans.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bars",
+        "width"
       ],
       "type": "object"
     },
@@ -8946,6 +9158,42 @@
             "draft"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Bars and aligned indicator series thinned by M4 to a pixel width.",
+          "properties": {
+            "op": {
+              "const": "decimate",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/DecimateRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Validate an analysis and seal it as a content-addressed snapshot with\nits notices; re-sealing a stored draft verifies the record.",
+          "properties": {
+            "draft": {
+              "$ref": "#/$defs/AnalysisSnapshotDraft"
+            },
+            "op": {
+              "const": "analysis_snapshot",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "draft"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -9695,6 +9943,200 @@
         "value"
       ],
       "type": "object"
+    },
+    "FlipAbstainReason": {
+      "description": "Why no confidence was given.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The signal is warming, stale or unavailable.",
+          "properties": {
+            "data_status": {
+              "$ref": "#/$defs/DataStatus"
+            },
+            "reason": {
+              "const": "data_not_valid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "data_status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Fewer historical flips than the policy (or the conformal level) needs.",
+          "properties": {
+            "n": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "n_min": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "const": "insufficient_history",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "n",
+            "n_min"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Too few historical flips in the candidate's regime.",
+          "properties": {
+            "n": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "n_min": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "const": "regime_unsupported",
+              "type": "string"
+            },
+            "regime": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "reason",
+            "regime",
+            "n",
+            "n_min"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The recent half of the history no longer resembles the earlier half.",
+          "properties": {
+            "earlier_lower": {
+              "format": "double",
+              "type": "number"
+            },
+            "earlier_upper": {
+              "format": "double",
+              "type": "number"
+            },
+            "reason": {
+              "const": "drift",
+              "type": "string"
+            },
+            "recent_rate": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "reason",
+            "earlier_lower",
+            "earlier_upper",
+            "recent_rate"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The conformal set holds both outcomes (or neither): no singleton claim.",
+          "properties": {
+            "reason": {
+              "const": "ambiguous_set",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FlipConfidence": {
+      "description": "A calibrated follow-through claim, or a typed abstention. There is no third arm.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "alpha_permille": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "follows_through": {
+              "description": "The singleton conformal set: `true` = follows through.",
+              "type": "boolean"
+            },
+            "horizon_bars": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "n_calibration": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "outcome": {
+              "const": "calibrated",
+              "type": "string"
+            },
+            "probability": {
+              "description": "Smoothed follow-through rate of the candidate's feature cell.",
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "outcome",
+            "horizon_bars",
+            "probability",
+            "follows_through",
+            "alpha_permille",
+            "n_calibration"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "horizon_bars": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "outcome": {
+              "const": "abstained",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/FlipAbstainReason"
+            }
+          },
+          "required": [
+            "outcome",
+            "horizon_bars",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FlipConfidenceRequest": {
       "additionalProperties": false,
@@ -10622,6 +11064,29 @@
         }
       ]
     },
+    "IndicatorPoint": {
+      "additionalProperties": false,
+      "description": "The indicator value after one closed bar.",
+      "properties": {
+        "close_time": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "open_time": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/IndicatorValue"
+        }
+      },
+      "required": [
+        "open_time",
+        "close_time",
+        "value"
+      ],
+      "type": "object"
+    },
     "IndicatorSpec": {
       "additionalProperties": false,
       "description": "A versioned indicator: a formula change is a new `version`, never an edit.",
@@ -10640,6 +11105,125 @@
         "kind"
       ],
       "type": "object"
+    },
+    "IndicatorValue": {
+      "description": "One indicator output, in milli-ticks.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "warming",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "line",
+              "type": "string"
+            },
+            "value": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ema": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "kind": {
+              "const": "band",
+              "type": "string"
+            },
+            "sma": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "sma",
+            "ema"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "atr": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "direction": {
+              "$ref": "#/$defs/Direction"
+            },
+            "kind": {
+              "const": "trail",
+              "type": "string"
+            },
+            "line": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "line",
+            "atr",
+            "direction"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "close": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "high": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "kind": {
+              "const": "candle",
+              "type": "string"
+            },
+            "low": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "open": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "open",
+            "high",
+            "low",
+            "close"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "IssueControlLeaseRequest": {
       "additionalProperties": false,
@@ -37245,6 +37829,30 @@
       ],
       "type": "object"
     },
+    "SnapshotClaim": {
+      "additionalProperties": false,
+      "description": "An explanation statement. A snapshot refuses a claim without a source.",
+      "properties": {
+        "author": {
+          "$ref": "#/$defs/ClaimAuthor"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/ClaimSource"
+          },
+          "type": "array"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "author",
+        "sources"
+      ],
+      "type": "object"
+    },
     "SolveModelSpec": {
       "additionalProperties": false,
       "description": "A complete 0-1 integer programme: binary variables, labelled constraints and\na lexicographic objective whose first level is the most significant.",
@@ -39871,6 +40479,67 @@
         "left",
         "right",
         "value"
+      ],
+      "type": "object"
+    },
+    "TrendFlip": {
+      "additionalProperties": false,
+      "description": "One flip, at the close of one final bar.",
+      "properties": {
+        "bar_open": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "bar_revision": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "effective_at": {
+          "description": "The bar's close time: when the flip took effect.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "event_id": {
+          "description": "`sha256:<hex>` over the key digest and the bar close: the idempotency key.",
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/$defs/Direction"
+        },
+        "key_digest": {
+          "type": "string"
+        },
+        "line": {
+          "description": "The trailing line after the flip, milli-ticks.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "observed_at": {
+          "description": "When the flipping bar version became knowable.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "price": {
+          "description": "The bar close, ticks.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "to": {
+          "$ref": "#/$defs/Direction"
+        }
+      },
+      "required": [
+        "event_id",
+        "key_digest",
+        "from",
+        "to",
+        "bar_open",
+        "effective_at",
+        "observed_at",
+        "price",
+        "line",
+        "bar_revision"
       ],
       "type": "object"
     },

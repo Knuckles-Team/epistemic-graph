@@ -1983,7 +1983,9 @@ EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the 
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
+| `analysis_snapshot` | `AnalysisSnapshot` | Raw |  |
 | `backtest_run` | `BacktestRun` | Raw |  |
+| `decimate` | `DecimatedChart` | Raw |  |
 | `encode_points` | array of `SeriesPoint` | Raw |  |
 | `flip_confidence` | `FlipConfidence` | Raw |  |
 | `indicators` | array of `IndicatorPoint` | Raw |  |

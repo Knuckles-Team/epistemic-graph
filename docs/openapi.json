@@ -2474,6 +2474,122 @@
           }
         ]
       },
+      "ReqDef_AnalysisSnapshotDraft": {
+        "additionalProperties": false,
+        "description": "What the caller asks to seal.",
+        "properties": {
+          "as_of": {
+            "default": null,
+            "description": "The point in time the analysis was replayed as of, if any.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "claims": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_SnapshotClaim"
+            },
+            "type": "array"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_FlipConfidence"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "created_at": {
+            "description": "When the analysis was made (ns since the epoch, UTC).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ReqDef_DataStatus"
+          },
+          "decision_refs": {
+            "default": [],
+            "description": "Decision-log record ids the analysis relied on.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flips": {
+            "description": "The flips standing in the window, oldest first: the mechanical trigger.",
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_TrendFlip"
+            },
+            "type": "array"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ReqDef_SignalKey",
+            "description": "The signal key; it must be the key of `spec` over its series."
+          },
+          "last_close": {
+            "default": null,
+            "description": "Close of the last final bar, ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "layers": {
+            "default": [],
+            "description": "The chart layers shown, so a shared view draws the same picture.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "line": {
+            "default": null,
+            "description": "The trailing line, milli-ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_revision": {
+            "description": "The signal state's `source_revision`: the bar versions it read.",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ReqDef_IndicatorSpec"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ReqDef_BarWindow"
+          }
+        },
+        "required": [
+          "key",
+          "spec",
+          "window",
+          "source_revision",
+          "data_status",
+          "flips",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "ReqDef_AnomalyAlgorithm": {
         "description": "Which detector `MineAnomaly` runs (CONCEPT:EG-KG.mining.isolation-forest).",
         "enum": [
@@ -2996,6 +3112,33 @@
             "type": "string"
           }
         ]
+      },
+      "ReqDef_BarWindow": {
+        "additionalProperties": false,
+        "description": "The bars an analysis covers.",
+        "properties": {
+          "bars": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from_open": {
+            "description": "Open time of the first bar.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "to_close": {
+            "description": "Close time of the last bar.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_open",
+          "to_close",
+          "bars"
+        ],
+        "type": "object"
       },
       "ReqDef_BlobReference": {
         "properties": {
@@ -4623,6 +4766,14 @@
           }
         ]
       },
+      "ReqDef_ClaimAuthor": {
+        "description": "Who made a claim. Either way it is a claim, never a fact.",
+        "enum": [
+          "agent",
+          "person"
+        ],
+        "type": "string"
+      },
       "ReqDef_ClaimProvenance": {
         "additionalProperties": false,
         "description": "How a free-text task was mapped onto native task IRIs, and by what.\n\nA mapping is a CLAIM, never a proof: it is recorded with its producer so a\nrecord that leans on one is classified by its weakest premise.",
@@ -4651,6 +4802,33 @@
         },
         "required": [
           "producer"
+        ],
+        "type": "object"
+      },
+      "ReqDef_ClaimSource": {
+        "additionalProperties": false,
+        "description": "A source a claim cites: a URL, an engine record, or both.",
+        "properties": {
+          "record_ref": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "title"
         ],
         "type": "object"
       },
@@ -6157,6 +6335,40 @@
           "candidates",
           "feature_schema",
           "policy"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DecimateRequest": {
+        "additionalProperties": false,
+        "description": "Decimate ordered bars, and indicator series aligned to them, to `width`\npixel columns. Indicators are computed over the FULL history first; this\nonly thins what is drawn.",
+        "properties": {
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_BarRecord"
+            },
+            "type": "array"
+          },
+          "indicators": {
+            "default": [],
+            "description": "Each series has one point per bar, at the bar's open time (as\n`indicators` returns it).",
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/ReqDef_IndicatorPoint"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "width": {
+            "description": "Pixel columns the chart spans.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bars",
+          "width"
         ],
         "type": "object"
       },
@@ -8970,6 +9182,42 @@
               "draft"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Bars and aligned indicator series thinned by M4 to a pixel width.",
+            "properties": {
+              "op": {
+                "const": "decimate",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_DecimateRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Validate an analysis and seal it as a content-addressed snapshot with\nits notices; re-sealing a stored draft verifies the record.",
+            "properties": {
+              "draft": {
+                "$ref": "#/components/schemas/ReqDef_AnalysisSnapshotDraft"
+              },
+              "op": {
+                "const": "analysis_snapshot",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "draft"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -9719,6 +9967,200 @@
           "value"
         ],
         "type": "object"
+      },
+      "ReqDef_FlipAbstainReason": {
+        "description": "Why no confidence was given.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The signal is warming, stale or unavailable.",
+            "properties": {
+              "data_status": {
+                "$ref": "#/components/schemas/ReqDef_DataStatus"
+              },
+              "reason": {
+                "const": "data_not_valid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "data_status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Fewer historical flips than the policy (or the conformal level) needs.",
+            "properties": {
+              "n": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_min": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "const": "insufficient_history",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "n",
+              "n_min"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Too few historical flips in the candidate's regime.",
+            "properties": {
+              "n": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_min": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "const": "regime_unsupported",
+                "type": "string"
+              },
+              "regime": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "reason",
+              "regime",
+              "n",
+              "n_min"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The recent half of the history no longer resembles the earlier half.",
+            "properties": {
+              "earlier_lower": {
+                "format": "double",
+                "type": "number"
+              },
+              "earlier_upper": {
+                "format": "double",
+                "type": "number"
+              },
+              "reason": {
+                "const": "drift",
+                "type": "string"
+              },
+              "recent_rate": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "reason",
+              "earlier_lower",
+              "earlier_upper",
+              "recent_rate"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The conformal set holds both outcomes (or neither): no singleton claim.",
+            "properties": {
+              "reason": {
+                "const": "ambiguous_set",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_FlipConfidence": {
+        "description": "A calibrated follow-through claim, or a typed abstention. There is no third arm.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "alpha_permille": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "follows_through": {
+                "description": "The singleton conformal set: `true` = follows through.",
+                "type": "boolean"
+              },
+              "horizon_bars": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_calibration": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome": {
+                "const": "calibrated",
+                "type": "string"
+              },
+              "probability": {
+                "description": "Smoothed follow-through rate of the candidate's feature cell.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "outcome",
+              "horizon_bars",
+              "probability",
+              "follows_through",
+              "alpha_permille",
+              "n_calibration"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "horizon_bars": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome": {
+                "const": "abstained",
+                "type": "string"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/ReqDef_FlipAbstainReason"
+              }
+            },
+            "required": [
+              "outcome",
+              "horizon_bars",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ReqDef_FlipConfidenceRequest": {
         "additionalProperties": false,
@@ -10646,6 +11088,29 @@
           }
         ]
       },
+      "ReqDef_IndicatorPoint": {
+        "additionalProperties": false,
+        "description": "The indicator value after one closed bar.",
+        "properties": {
+          "close_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "value": {
+            "$ref": "#/components/schemas/ReqDef_IndicatorValue"
+          }
+        },
+        "required": [
+          "open_time",
+          "close_time",
+          "value"
+        ],
+        "type": "object"
+      },
       "ReqDef_IndicatorSpec": {
         "additionalProperties": false,
         "description": "A versioned indicator: a formula change is a new `version`, never an edit.",
@@ -10664,6 +11129,125 @@
           "kind"
         ],
         "type": "object"
+      },
+      "ReqDef_IndicatorValue": {
+        "description": "One indicator output, in milli-ticks.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "warming",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "line",
+                "type": "string"
+              },
+              "value": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ema": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "band",
+                "type": "string"
+              },
+              "sma": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "sma",
+              "ema"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "atr": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "direction": {
+                "$ref": "#/components/schemas/ReqDef_Direction"
+              },
+              "kind": {
+                "const": "trail",
+                "type": "string"
+              },
+              "line": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "atr",
+              "direction"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "close": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "high": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "candle",
+                "type": "string"
+              },
+              "low": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "open": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "open",
+              "high",
+              "low",
+              "close"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ReqDef_IssueControlLeaseRequest": {
         "additionalProperties": false,
@@ -37269,6 +37853,30 @@
         ],
         "type": "object"
       },
+      "ReqDef_SnapshotClaim": {
+        "additionalProperties": false,
+        "description": "An explanation statement. A snapshot refuses a claim without a source.",
+        "properties": {
+          "author": {
+            "$ref": "#/components/schemas/ReqDef_ClaimAuthor"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_ClaimSource"
+            },
+            "type": "array"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "author",
+          "sources"
+        ],
+        "type": "object"
+      },
       "ReqDef_SolveModelSpec": {
         "additionalProperties": false,
         "description": "A complete 0-1 integer programme: binary variables, labelled constraints and\na lexicographic objective whose first level is the most significant.",
@@ -39895,6 +40503,67 @@
           "left",
           "right",
           "value"
+        ],
+        "type": "object"
+      },
+      "ReqDef_TrendFlip": {
+        "additionalProperties": false,
+        "description": "One flip, at the close of one final bar.",
+        "properties": {
+          "bar_open": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "bar_revision": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "effective_at": {
+            "description": "The bar's close time: when the flip took effect.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "event_id": {
+            "description": "`sha256:<hex>` over the key digest and the bar close: the idempotency key.",
+            "type": "string"
+          },
+          "from": {
+            "$ref": "#/components/schemas/ReqDef_Direction"
+          },
+          "key_digest": {
+            "type": "string"
+          },
+          "line": {
+            "description": "The trailing line after the flip, milli-ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "observed_at": {
+            "description": "When the flipping bar version became knowable.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "price": {
+            "description": "The bar close, ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "to": {
+            "$ref": "#/components/schemas/ReqDef_Direction"
+          }
+        },
+        "required": [
+          "event_id",
+          "key_digest",
+          "from",
+          "to",
+          "bar_open",
+          "effective_at",
+          "observed_at",
+          "price",
+          "line",
+          "bar_revision"
         ],
         "type": "object"
       },
@@ -59374,6 +60043,154 @@
           }
         ]
       },
+      "ResDef_Compute_AnalysisSnapshot": {
+        "additionalProperties": false,
+        "description": "The immutable, content-addressed analysis snapshot.",
+        "properties": {
+          "digest": {
+            "description": "`sha256:<hex>` over the draft and the notices.",
+            "type": "string"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/ResDef_Compute_AnalysisSnapshotDraft"
+          },
+          "excludes_positions": {
+            "description": "Always true: a snapshot never includes positions or account data.",
+            "type": "boolean"
+          },
+          "informational_only": {
+            "description": "Always true.",
+            "type": "boolean"
+          },
+          "notices": {
+            "$ref": "#/components/schemas/ResDef_Compute_SnapshotNotices"
+          }
+        },
+        "required": [
+          "digest",
+          "draft",
+          "notices",
+          "informational_only",
+          "excludes_positions"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_AnalysisSnapshotDraft": {
+        "additionalProperties": false,
+        "description": "What the caller asks to seal.",
+        "properties": {
+          "as_of": {
+            "default": null,
+            "description": "The point in time the analysis was replayed as of, if any.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "claims": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_SnapshotClaim"
+            },
+            "type": "array"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Compute_FlipConfidence"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "created_at": {
+            "description": "When the analysis was made (ns since the epoch, UTC).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ResDef_Compute_DataStatus"
+          },
+          "decision_refs": {
+            "default": [],
+            "description": "Decision-log record ids the analysis relied on.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Compute_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flips": {
+            "description": "The flips standing in the window, oldest first: the mechanical trigger.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_TrendFlip"
+            },
+            "type": "array"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ResDef_Compute_SignalKey",
+            "description": "The signal key; it must be the key of `spec` over its series."
+          },
+          "last_close": {
+            "default": null,
+            "description": "Close of the last final bar, ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "layers": {
+            "default": [],
+            "description": "The chart layers shown, so a shared view draws the same picture.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "line": {
+            "default": null,
+            "description": "The trailing line, milli-ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_revision": {
+            "description": "The signal state's `source_revision`: the bar versions it read.",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ResDef_Compute_IndicatorSpec"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ResDef_Compute_BarWindow"
+          }
+        },
+        "required": [
+          "key",
+          "spec",
+          "window",
+          "source_revision",
+          "data_status",
+          "flips",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_AnomalyMiningResult": {
         "description": "`MineAnomaly`.",
         "properties": {
@@ -59714,6 +60531,33 @@
           }
         ]
       },
+      "ResDef_Compute_BarWindow": {
+        "additionalProperties": false,
+        "description": "The bars an analysis covers.",
+        "properties": {
+          "bars": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from_open": {
+            "description": "Open time of the first bar.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "to_close": {
+            "description": "Close time of the last bar.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_open",
+          "to_close",
+          "bars"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_BoundProof": {
         "description": "The lower-bound evidence a certificate carries.",
         "oneOf": [
@@ -59892,6 +60736,41 @@
           "status",
           "proof",
           "nodes_expanded"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_ClaimAuthor": {
+        "description": "Who made a claim. Either way it is a claim, never a fact.",
+        "enum": [
+          "agent",
+          "person"
+        ],
+        "type": "string"
+      },
+      "ResDef_Compute_ClaimSource": {
+        "additionalProperties": false,
+        "description": "A source a claim cites: a URL, an engine record, or both.",
+        "properties": {
+          "record_ref": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "title"
         ],
         "type": "object"
       },
@@ -60575,6 +61454,45 @@
           "correlation_matrix",
           "n_samples",
           "n_features"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_DecimatedChart": {
+        "additionalProperties": false,
+        "description": "The drawable chart: at most `width` bar buckets, and per indicator at most\nfour points per column plus every trend-direction change.",
+        "properties": {
+          "bars": {
+            "description": "One bar per non-empty column: the first open, highest high, lowest low,\nlast close and summed volume of the bars in it; final only when every\npart is final.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_BarRecord"
+            },
+            "type": "array"
+          },
+          "decimated": {
+            "description": "False when the request already fit and came back unchanged.",
+            "type": "boolean"
+          },
+          "indicators": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/ResDef_Compute_IndicatorPoint"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "source_bars": {
+            "description": "Bars in the request.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bars",
+          "indicators",
+          "source_bars",
+          "decimated"
         ],
         "type": "object"
       },
@@ -64147,6 +65065,57 @@
           "data_status",
           "source_revision",
           "kernel"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_SnapshotClaim": {
+        "additionalProperties": false,
+        "description": "An explanation statement. A snapshot refuses a claim without a source.",
+        "properties": {
+          "author": {
+            "$ref": "#/components/schemas/ResDef_Compute_ClaimAuthor"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_ClaimSource"
+            },
+            "type": "array"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "author",
+          "sources"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_SnapshotNotices": {
+        "additionalProperties": false,
+        "description": "The notices every snapshot carries, stamped by the engine, never the caller.",
+        "properties": {
+          "hallucination": {
+            "type": "string"
+          },
+          "informational_only": {
+            "type": "string"
+          },
+          "mechanical_trigger": {
+            "type": "string"
+          },
+          "version": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "informational_only",
+          "hallucination",
+          "mechanical_trigger"
         ],
         "type": "object"
       },
@@ -80102,6 +81071,122 @@
           }
         ]
       },
+      "ResDef_Query_AnalysisSnapshotDraft": {
+        "additionalProperties": false,
+        "description": "What the caller asks to seal.",
+        "properties": {
+          "as_of": {
+            "default": null,
+            "description": "The point in time the analysis was replayed as of, if any.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "claims": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_SnapshotClaim"
+            },
+            "type": "array"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_FlipConfidence"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "created_at": {
+            "description": "When the analysis was made (ns since the epoch, UTC).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "data_status": {
+            "$ref": "#/components/schemas/ResDef_Query_DataStatus"
+          },
+          "decision_refs": {
+            "default": [],
+            "description": "Decision-log record ids the analysis relied on.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flips": {
+            "description": "The flips standing in the window, oldest first: the mechanical trigger.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_TrendFlip"
+            },
+            "type": "array"
+          },
+          "key": {
+            "$ref": "#/components/schemas/ResDef_Query_SignalKey",
+            "description": "The signal key; it must be the key of `spec` over its series."
+          },
+          "last_close": {
+            "default": null,
+            "description": "Close of the last final bar, ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "layers": {
+            "default": [],
+            "description": "The chart layers shown, so a shared view draws the same picture.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "line": {
+            "default": null,
+            "description": "The trailing line, milli-ticks.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_revision": {
+            "description": "The signal state's `source_revision`: the bar versions it read.",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ResDef_Query_IndicatorSpec"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ResDef_Query_BarWindow"
+          }
+        },
+        "required": [
+          "key",
+          "spec",
+          "window",
+          "source_revision",
+          "data_status",
+          "flips",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_AnomalyAlgorithm": {
         "description": "Which detector `MineAnomaly` runs (CONCEPT:EG-KG.mining.isolation-forest).",
         "enum": [
@@ -80647,6 +81732,33 @@
             "type": "string"
           }
         ]
+      },
+      "ResDef_Query_BarWindow": {
+        "additionalProperties": false,
+        "description": "The bars an analysis covers.",
+        "properties": {
+          "bars": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "from_open": {
+            "description": "Open time of the first bar.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "to_close": {
+            "description": "Close time of the last bar.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_open",
+          "to_close",
+          "bars"
+        ],
+        "type": "object"
       },
       "ResDef_Query_BlobReference": {
         "properties": {
@@ -82436,6 +83548,14 @@
           }
         ]
       },
+      "ResDef_Query_ClaimAuthor": {
+        "description": "Who made a claim. Either way it is a claim, never a fact.",
+        "enum": [
+          "agent",
+          "person"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_ClaimProvenance": {
         "additionalProperties": false,
         "description": "How a free-text task was mapped onto native task IRIs, and by what.\n\nA mapping is a CLAIM, never a proof: it is recorded with its producer so a\nrecord that leans on one is classified by its weakest premise.",
@@ -82464,6 +83584,33 @@
         },
         "required": [
           "producer"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_ClaimSource": {
+        "additionalProperties": false,
+        "description": "A source a claim cites: a URL, an engine record, or both.",
+        "properties": {
+          "record_ref": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "title"
         ],
         "type": "object"
       },
@@ -84027,6 +85174,40 @@
           "candidates",
           "feature_schema",
           "policy"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DecimateRequest": {
+        "additionalProperties": false,
+        "description": "Decimate ordered bars, and indicator series aligned to them, to `width`\npixel columns. Indicators are computed over the FULL history first; this\nonly thins what is drawn.",
+        "properties": {
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_BarRecord"
+            },
+            "type": "array"
+          },
+          "indicators": {
+            "default": [],
+            "description": "Each series has one point per bar, at the bar's open time (as\n`indicators` returns it).",
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/ResDef_Query_IndicatorPoint"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "width": {
+            "description": "Pixel columns the chart spans.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bars",
+          "width"
         ],
         "type": "object"
       },
@@ -87826,6 +89007,42 @@
               "draft"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Bars and aligned indicator series thinned by M4 to a pixel width.",
+            "properties": {
+              "op": {
+                "const": "decimate",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_DecimateRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Validate an analysis and seal it as a content-addressed snapshot with\nits notices; re-sealing a stored draft verifies the record.",
+            "properties": {
+              "draft": {
+                "$ref": "#/components/schemas/ResDef_Query_AnalysisSnapshotDraft"
+              },
+              "op": {
+                "const": "analysis_snapshot",
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "draft"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -88575,6 +89792,200 @@
           "value"
         ],
         "type": "object"
+      },
+      "ResDef_Query_FlipAbstainReason": {
+        "description": "Why no confidence was given.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The signal is warming, stale or unavailable.",
+            "properties": {
+              "data_status": {
+                "$ref": "#/components/schemas/ResDef_Query_DataStatus"
+              },
+              "reason": {
+                "const": "data_not_valid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "data_status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Fewer historical flips than the policy (or the conformal level) needs.",
+            "properties": {
+              "n": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_min": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "const": "insufficient_history",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "n",
+              "n_min"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Too few historical flips in the candidate's regime.",
+            "properties": {
+              "n": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_min": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "const": "regime_unsupported",
+                "type": "string"
+              },
+              "regime": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "reason",
+              "regime",
+              "n",
+              "n_min"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The recent half of the history no longer resembles the earlier half.",
+            "properties": {
+              "earlier_lower": {
+                "format": "double",
+                "type": "number"
+              },
+              "earlier_upper": {
+                "format": "double",
+                "type": "number"
+              },
+              "reason": {
+                "const": "drift",
+                "type": "string"
+              },
+              "recent_rate": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "reason",
+              "earlier_lower",
+              "earlier_upper",
+              "recent_rate"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The conformal set holds both outcomes (or neither): no singleton claim.",
+            "properties": {
+              "reason": {
+                "const": "ambiguous_set",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_FlipConfidence": {
+        "description": "A calibrated follow-through claim, or a typed abstention. There is no third arm.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "alpha_permille": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "follows_through": {
+                "description": "The singleton conformal set: `true` = follows through.",
+                "type": "boolean"
+              },
+              "horizon_bars": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "n_calibration": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome": {
+                "const": "calibrated",
+                "type": "string"
+              },
+              "probability": {
+                "description": "Smoothed follow-through rate of the candidate's feature cell.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "outcome",
+              "horizon_bars",
+              "probability",
+              "follows_through",
+              "alpha_permille",
+              "n_calibration"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "horizon_bars": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome": {
+                "const": "abstained",
+                "type": "string"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/ResDef_Query_FlipAbstainReason"
+              }
+            },
+            "required": [
+              "outcome",
+              "horizon_bars",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Query_FlipConfidenceRequest": {
         "additionalProperties": false,
@@ -89502,6 +90913,29 @@
           }
         ]
       },
+      "ResDef_Query_IndicatorPoint": {
+        "additionalProperties": false,
+        "description": "The indicator value after one closed bar.",
+        "properties": {
+          "close_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_time": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "value": {
+            "$ref": "#/components/schemas/ResDef_Query_IndicatorValue"
+          }
+        },
+        "required": [
+          "open_time",
+          "close_time",
+          "value"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_IndicatorSpec": {
         "additionalProperties": false,
         "description": "A versioned indicator: a formula change is a new `version`, never an edit.",
@@ -89520,6 +90954,125 @@
           "kind"
         ],
         "type": "object"
+      },
+      "ResDef_Query_IndicatorValue": {
+        "description": "One indicator output, in milli-ticks.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "warming",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "line",
+                "type": "string"
+              },
+              "value": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ema": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "band",
+                "type": "string"
+              },
+              "sma": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "sma",
+              "ema"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "atr": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "direction": {
+                "$ref": "#/components/schemas/ResDef_Query_Direction"
+              },
+              "kind": {
+                "const": "trail",
+                "type": "string"
+              },
+              "line": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "line",
+              "atr",
+              "direction"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "close": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "high": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "kind": {
+                "const": "candle",
+                "type": "string"
+              },
+              "low": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "open": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "open",
+              "high",
+              "low",
+              "close"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Query_IssueControlLeaseRequest": {
         "additionalProperties": false,
@@ -116451,6 +118004,30 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_SnapshotClaim": {
+        "additionalProperties": false,
+        "description": "An explanation statement. A snapshot refuses a claim without a source.",
+        "properties": {
+          "author": {
+            "$ref": "#/components/schemas/ResDef_Query_ClaimAuthor"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_ClaimSource"
+            },
+            "type": "array"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "author",
+          "sources"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_SolveModelSpec": {
         "additionalProperties": false,
         "description": "A complete 0-1 integer programme: binary variables, labelled constraints and\na lexicographic objective whose first level is the most significant.",
@@ -119098,6 +120675,67 @@
           "left",
           "right",
           "value"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_TrendFlip": {
+        "additionalProperties": false,
+        "description": "One flip, at the close of one final bar.",
+        "properties": {
+          "bar_open": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "bar_revision": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "effective_at": {
+            "description": "The bar's close time: when the flip took effect.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "event_id": {
+            "description": "`sha256:<hex>` over the key digest and the bar close: the idempotency key.",
+            "type": "string"
+          },
+          "from": {
+            "$ref": "#/components/schemas/ResDef_Query_Direction"
+          },
+          "key_digest": {
+            "type": "string"
+          },
+          "line": {
+            "description": "The trailing line after the flip, milli-ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "observed_at": {
+            "description": "When the flipping bar version became knowable.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "price": {
+            "description": "The bar close, ticks.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "to": {
+            "$ref": "#/components/schemas/ResDef_Query_Direction"
+          }
+        },
+        "required": [
+          "event_id",
+          "key_digest",
+          "from",
+          "to",
+          "bar_open",
+          "effective_at",
+          "observed_at",
+          "price",
+          "line",
+          "bar_revision"
         ],
         "type": "object"
       },
@@ -129647,8 +131285,18 @@
       "Res_compute_FinanceMarket": {
         "oneOf": [
           {
+            "$ref": "#/components/schemas/ResDef_Compute_AnalysisSnapshot",
+            "x-body": "analysis_snapshot",
+            "x-encoding": "Raw"
+          },
+          {
             "$ref": "#/components/schemas/ResDef_Compute_BacktestRun",
             "x-body": "backtest_run",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_DecimatedChart",
+            "x-body": "decimate",
             "x-encoding": "Raw"
           },
           {
