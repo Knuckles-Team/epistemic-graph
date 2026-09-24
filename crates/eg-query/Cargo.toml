@@ -65,7 +65,7 @@ finance = ["sql", "eg-compute/finance"]
 # nalgebra/ndarray kernel rlib — NO pyo3 (eg-numeric's `python` feature stays off), so the
 # Pi-contract holds (numeric is out of `pi`; `cargo tree --features pi` links neither
 # eg-numeric nor nalgebra).
-numeric = ["sql", "dep:eg-numeric", "dep:ndarray"]
+numeric = ["sql", "dep:eg-numeric", "dep:ndarray", "dep:eg-tsdb", "eg-tsdb/derive"]
 # CA-19 (GOC-77 W01-W05, BUG-224) — the `iceberg('namespace.table'[, snapshot_id])`
 # federated table function (`sql/iceberg_federation.rs`), registered alongside
 # `nodes`/`edges` so ONE UQL/SQL query joins an external Iceberg-REST table
@@ -112,6 +112,10 @@ eg-transaction = { path = "../eg-transaction", optional = true }
 # Surface-B SQL UDFs. OPTIONAL, only under `numeric`; the engine links it WITHOUT pyo3
 # (eg-numeric's `python` feature stays off), preserving the Pi-contract (out of `pi`).
 eg-numeric = { path = "../eg-numeric", optional = true }
+# EH-522 — the `eg_<func>` SQL window functions run the SAME derived-series program a UQL
+# `DERIVE` column runs (`eg_tsdb::derive`). Only under `numeric`. eg-tsdb sits beside
+# eg-query (both above eg-compute; eg-tsdb links no eg-query), so the edge is acyclic.
+eg-tsdb = { path = "../eg-tsdb", optional = true }
 # CONCEPT:EG-329 — marshal Arrow columns into `ndarray` views the kernel consumes.
 # Only under `numeric`; already in the tree via eg-numeric, so no new heavy dep.
 ndarray = { version = "0.17", optional = true }

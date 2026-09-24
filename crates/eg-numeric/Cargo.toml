@@ -116,7 +116,8 @@ num-complex = { version = "0.4", default-features = false, optional = true }
 # Shared Decide-layer fixtures (`eg_types::test_support::decision`).
 eg-types = { path = "../eg-types", features = ["test-support"] }
 # The offline scorer-training example reads an FX-SYNTH gold corpus exported as
-# JSON (`examples/decision_scorer_train.rs`). Same version the lockfile resolves.
+# JSON (`examples/decision_scorer_train.rs`), and the pandas reference goldens
+# (`tests/series_golden.rs`) read JSON. Same version the lockfile resolves.
 serde_json = "1.0"
 # Series-kernel checkpoint round trips (`series::tests`), bit-exact. Already in the lockfile.
 rmp-serde = "1.3"

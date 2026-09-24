@@ -77,6 +77,9 @@ mod iceberg_federation;
 /// `numeric` (out of `pi`); no pyo3 in the engine build.
 #[cfg(feature = "numeric")]
 mod numeric;
+/// EH-522 — `eg_<func>(…) OVER (…)` window functions over the series kernels.
+#[cfg(feature = "numeric")]
+mod series_udwf;
 /// Postgres-family extension parity: pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
 /// ParadeDB `@@@` BM25 — the pure parse/plan/project layer.
 mod pgfamily;

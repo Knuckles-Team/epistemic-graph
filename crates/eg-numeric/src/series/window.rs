@@ -1,7 +1,7 @@
-//! Sliding-window accumulators behind the rolling series kernels (EH-522): Welford
-//! moments with removal, a monotonic deque for min/max, a sorted window for rank, and
-//! bivariate co-moments for correlation. Every one is plain data (serde), so a kernel's
-//! whole state is its checkpoint.
+//! Window statistics behind the rolling series kernels (EH-522): exact two-pass moments
+//! and correlation over the window's values, a monotonic deque for min/max and a sorted
+//! window for rank. The stateful ones are plain data (serde), so a kernel's whole state
+//! is its checkpoint.
 
 use std::collections::VecDeque;
 
@@ -10,64 +10,44 @@ use serde::{Deserialize, Serialize};
 /// Below this a window's standard deviation is treated as zero.
 pub const STD_FLOOR: f64 = 1e-12;
 
-/// Welford mean / second moment over a sliding window, plus the running sum.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// The moments of a window: count, sum, mean and population (`ddof = 0`) variance,
+/// computed two-pass and in order from the values themselves — exact on a flat window
+/// (no add/remove residue) and bit-identical wherever the window is the same.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Moments {
-    n: usize,
-    mean: f64,
-    m2: f64,
-    sum: f64,
+    pub n: usize,
+    pub sum: f64,
+    pub mean: f64,
+    pub variance: f64,
 }
 
 impl Moments {
-    /// The moments of a whole slice (the batch form PromQL's `*_over_time` shares).
-    pub fn of(xs: &[f64]) -> Self {
-        let mut m = Self::default();
-        xs.iter().for_each(|&x| m.add(x));
-        m
-    }
-
-    /// Add an observation.
-    pub fn add(&mut self, x: f64) {
-        self.n += 1;
-        let d = x - self.mean;
-        self.mean += d / self.n as f64;
-        self.m2 += d * (x - self.mean);
-        self.sum += x;
-    }
-
-    /// Remove an observation previously added.
-    pub fn remove(&mut self, x: f64) {
-        if self.n <= 1 {
-            *self = Self::default();
-            return;
+    /// The moments of `xs` (`None` when empty). Also the batch form PromQL's
+    /// `avg/sum/stddev/stdvar_over_time` share.
+    pub fn of<I>(xs: I) -> Option<Self>
+    where
+        I: Iterator<Item = f64> + Clone,
+    {
+        let (n, sum) = xs.clone().fold((0usize, 0.0), |(n, s), x| (n + 1, s + x));
+        if n == 0 {
+            return None;
         }
-        self.n -= 1;
-        let d = x - self.mean;
-        self.mean -= d / self.n as f64;
-        self.m2 = (self.m2 - d * (x - self.mean)).max(0.0);
-        self.sum -= x;
+        let mean = sum / n as f64;
+        let squares = xs.fold(0.0, |acc, x| {
+            let d = x - mean;
+            acc + d * d
+        });
+        Some(Self {
+            n,
+            sum,
+            mean,
+            variance: squares / n as f64,
+        })
     }
 
-    /// Observations held.
-    pub fn count(&self) -> usize {
-        self.n
-    }
-
-    /// Mean (`None` when empty).
-    pub fn mean(&self) -> Option<f64> {
-        (self.n > 0).then_some(self.mean)
-    }
-
-    /// Sum.
-    pub fn sum(&self) -> f64 {
-        self.sum
-    }
-
-    /// Population (`ddof = 0`) standard deviation — PromQL's `stddev_over_time` and the
-    /// z-score convention (`None` when empty).
-    pub fn population_std(&self) -> Option<f64> {
-        (self.n > 0).then(|| (self.m2 / self.n as f64).sqrt())
+    /// Population standard deviation.
+    pub fn population_std(&self) -> f64 {
+        self.variance.sqrt()
     }
 }
 
@@ -166,66 +146,18 @@ pub fn ranks(xs: &[f64]) -> Vec<f64> {
     xs.iter().map(|&x| average_rank(&sorted, x)).collect()
 }
 
-/// Bivariate Welford co-moments over a sliding window, plus the running `Σ x·y`.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct CoMoments {
-    n: usize,
-    mx: f64,
-    my: f64,
-    cxy: f64,
-    m2x: f64,
-    m2y: f64,
-    sum_xy: f64,
-}
-
-impl CoMoments {
-    /// Add a pair.
-    pub fn add(&mut self, x: f64, y: f64) {
-        self.n += 1;
-        let n = self.n as f64;
-        let dx = x - self.mx;
-        let dy = y - self.my;
-        self.mx += dx / n;
-        self.my += dy / n;
-        self.cxy += dx * (y - self.my);
-        self.m2x += dx * (x - self.mx);
-        self.m2y += dy * (y - self.my);
-        self.sum_xy += x * y;
-    }
-
-    /// Remove a pair previously added.
-    pub fn remove(&mut self, x: f64, y: f64) {
-        if self.n <= 1 {
-            *self = Self::default();
-            return;
-        }
-        self.n -= 1;
-        let n = self.n as f64;
-        let dx = x - self.mx;
-        let dy = y - self.my;
-        self.mx -= dx / n;
-        self.my -= dy / n;
-        self.cxy -= dx * (y - self.my);
-        self.m2x = (self.m2x - dx * (x - self.mx)).max(0.0);
-        self.m2y = (self.m2y - dy * (y - self.my)).max(0.0);
-        self.sum_xy -= x * y;
-    }
-
-    /// Pearson correlation (`None` when either side is constant).
-    pub fn corr(&self) -> Option<f64> {
-        let denom = (self.m2x * self.m2y).sqrt();
-        (self.n > 1 && denom > STD_FLOOR).then(|| self.cxy / denom)
-    }
-
-    /// `Σ x·y`.
-    pub fn weighted_sum(&self) -> f64 {
-        self.sum_xy
-    }
-}
-
-/// Pearson correlation of two equal-length slices (`None` when either is constant).
+/// Pearson correlation of two equal-length series, two-pass (`None` when either is
+/// constant or there are fewer than two pairs).
 pub fn pearson(xs: &[f64], ys: &[f64]) -> Option<f64> {
-    let mut m = CoMoments::default();
-    xs.iter().zip(ys).for_each(|(&x, &y)| m.add(x, y));
-    m.corr()
+    let mx = Moments::of(xs.iter().copied())?.mean;
+    let my = Moments::of(ys.iter().copied())?.mean;
+    let (mut cxy, mut sxx, mut syy) = (0.0, 0.0, 0.0);
+    for (&x, &y) in xs.iter().zip(ys) {
+        let (dx, dy) = (x - mx, y - my);
+        cxy += dx * dy;
+        sxx += dx * dx;
+        syy += dy * dy;
+    }
+    let denom = (sxx * syy).sqrt();
+    (xs.len() > 1 && denom > STD_FLOOR).then(|| cxy / denom)
 }

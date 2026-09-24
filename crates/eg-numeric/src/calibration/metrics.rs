@@ -171,6 +171,27 @@ pub fn brier_score(probabilities: &ProbabilityMatrix, labels: &[usize]) -> StatR
     serial_mean(&terms, "brier items")
 }
 
+/// Binary Brier score `mean_i (p_i - o_i)^2` of forecasts `p` against outcomes `o`
+/// (0/1, or a fractional outcome). The one implementation every surface uses (the
+/// finance `brier_score` delegates here, EH-530). [`brier_score`] is its K-class
+/// generalisation, which sums the gaps of every class — twice this for two classes.
+pub fn binary_brier_score(forecasts: &[f64], outcomes: &[f64]) -> StatResult<f64> {
+    validate::parameter(
+        forecasts.len() == outcomes.len(),
+        "outcomes",
+        "one outcome per forecast",
+    )?;
+    let squares: Vec<f64> = forecasts
+        .iter()
+        .zip(outcomes)
+        .map(|(p, o)| {
+            let gap = p - o;
+            gap * gap
+        })
+        .collect();
+    serial_mean(&squares, "brier forecasts")
+}
+
 /// A probability floor for log loss, strictly inside `(0, 0.5)`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProbabilityFloor(f64);

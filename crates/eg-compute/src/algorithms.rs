@@ -28,10 +28,7 @@ pub use batch::{
     BatchOperation,
 };
 pub use community::{community_detection, community_detection_weighted};
-pub use finance::{
-    compute_exponential_decay, compute_rolling_mean, compute_rolling_std, compute_rolling_zscore,
-    simulate_order_matching,
-};
+pub use finance::simulate_order_matching;
 pub use graph_traversal::{
     betweenness_centrality, compute_degree_centrality, connected_components, degree_centrality_all,
     find_cycle, get_blast_radius, get_shortest_path, graph_coloring, minimum_spanning_tree,
