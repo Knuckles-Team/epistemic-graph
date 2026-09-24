@@ -3,7 +3,7 @@
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/methods.json": "955c7ac12fc2831ab77a4e480f9504af24bd53259b50735c2c3d7db05b9049f1",
-    "contract/schemas/method.request.json": "820621d5dd80e77f214ed185db0eb2b5f27ac41160e362ddef448b8c347491c9",
+    "contract/schemas/method.request.json": "fe6db885c4f79e0f0703ee81fbbcf3b4808000810c09bfb492b9797720a7da08",
     "contract/schemas/result.cluster.json": "0aac12793ab69a65c1326ba4471c48bfa4a87596be9eb7972eaa09fe65608c42",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
     "contract/schemas/result.coordination.json": "48c2a66d36a42b1bdbd6fb8fb340a0a863932a652d113be1e37a9095f517f1c8",
@@ -11,7 +11,7 @@
     "contract/schemas/result.ingestion.json": "33b88b5728252a24f66d0c201eac9bd548810a428631a4ab9705e01ccce3e415",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "4ae0ca75a2b89215c5039d4168271611c2a1abc44a4d0a4bdb7676dab5f63ba2",
+    "contract/schemas/result.query.json": "8d503a1b9bc4bbe42b5abe7cb26b0fe95622cf0ab53dff83bee10e2b1facba4d",
     "contract/schemas/result.reasoning.json": "208ed85f87ad7515d0c9cbd5d99c96e3ada406ab2e8d81e32c93ac29b4331a18",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
     "contract/schemas/result.storage.json": "4a25d907a27708013f379cacc259eeb9f1a4e1f0f212240559f1ca0e964442b9",
@@ -47,8 +47,8 @@
     "epistemic_graph/generated/transactions.py": "29172b0f7938e6c31f88a8def3676631fbfc08135607207919544aa7446cec68",
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
-  "cargo_lock_sha256": "a1b994c624888a0f24fce8e7dab119de26be496c6c025743903f02a7f7084107",
-  "contract_digest": "a408d0831dd5fd1eae40a4a504d334ec084a3d8a9c76b913f29573ea11d160af",
+  "cargo_lock_sha256": "b932e9249e2b884b21e1559ee7fb253d6beda8ea7974b93852f4ece595fb5316",
+  "contract_digest": "3f804d3ad7dd9f4e2722ea4d266fe358bf2cbeaf79c4c0d3e5c495d94303caea",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -585,5 +585,5 @@
     "schematized": 423,
     "unclassified": 0
   },
-  "source_tree_oid": "bc73bd514dc1307c630fef70fc3d56828f565152eb8be1631261568c8e6a871f"
+  "source_tree_oid": "020a70a19329b81dcdc4f99df4870a2709c40f120d807dd416612c4666b4179e"
 }
