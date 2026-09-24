@@ -16,6 +16,8 @@ pub(crate) mod attach_pack;
 pub(crate) mod compose;
 pub(crate) mod terms;
 #[cfg(test)]
+mod terms_served_tests;
+#[cfg(test)]
 mod world_model_tests;
 
 use std::sync::Arc;
@@ -373,6 +375,14 @@ fn compose_pack_documents(
     Ok(Some(Arc::from(body)))
 }
 
+/// The schema-source set a schema read may disclose: the REQUEST graph's own
+/// keyed sources, and nothing else. `GraphSchemaList` and `GraphSchemaClasses`
+/// both read through this one accessor, so the vocabulary read can never show a
+/// source key the list would not (EH-389 visibility ruling, 2026-09-24).
+pub(crate) fn disclosed_sources(core: &GraphCore) -> Arc<crate::graph::GraphSchemaSources> {
+    core.schema_sources()
+}
+
 /// List the request graph's schema sources and its composed digest.
 pub(crate) async fn handle_list(req_id: u64, graph_name: &str, core: &Arc<GraphCore>) -> Response {
     list_response(req_id, list(graph_name, core))
@@ -457,7 +467,7 @@ fn list(
         GraphSchemaSourceView, GraphSchemaSourcesView, SchemaSourceOriginView,
         GRAPH_SCHEMA_RESULT_SCHEMA_VERSION,
     };
-    let sources = core.schema_sources();
+    let sources = disclosed_sources(core);
     let project =
         |source_id: &str, source: &crate::graph::GraphSchemaSource| -> GraphSchemaSourceView {
             GraphSchemaSourceView {
