@@ -2,9 +2,9 @@
 //! §5): admissibility entailed in-process under the request graph's composed
 //! schema sources.
 //!
-//! The vocabulary is data. AU attaches it as the keyed `swarm-topology`
-//! source (admin, `security:admin`) or ships it in a connector pack; a tenant
-//! extends it under its own key. The engine knows exactly two anchor terms in
+//! The vocabulary is data: the EG core schema source `core:swarm-topology@1`
+//! (authored by agent-utilities, owned by EG), present in every graph's composed
+//! schema; a pack may ship more and a tenant extends it under its own key. The engine knows exactly two anchor terms in
 //! its own namespace: the role [`ADMITS_TOPOLOGY`] (a vocabulary states
 //! `TaskShape ⊑ ∃ admits . TopologyClass`, with its own `admits` a
 //! sub-property of the anchor) and the class [`NEEDS_INDEPENDENT_CHECK`].
@@ -42,10 +42,16 @@ fn unkey(node: &str) -> String {
         .to_string()
 }
 
-/// A vocabulary under a reserved importer prefix is a pack CLAIM; every other
-/// source was attached by an admin.
+/// Importer prefixes whose vocabulary is a publisher CLAIM.
+const CLAIMED_PREFIXES: &[&str] = &["pack:", "ingest:"];
+
+/// A vocabulary a connector pack or an ingest installed is a CLAIM; the EG core
+/// catalog (`core:swarm-topology@1`) and admin-attached keys are DEFINITIONS.
 fn authority_of(source_id: &str) -> SchemaAuthority {
-    match eg_types::graph_schema::is_reserved_schema_source(source_id) {
+    match CLAIMED_PREFIXES
+        .iter()
+        .any(|prefix| source_id.starts_with(prefix))
+    {
         true => SchemaAuthority::Pack,
         false => SchemaAuthority::Admin,
     }
@@ -165,15 +171,8 @@ fn collect_axioms(node: &eg_rdf::owl::ProofNode, out: &mut Vec<String>) {
 mod tests {
     use super::*;
 
-    const TBOX: &str = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
-        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
-        @prefix eg: <http://epistemic-graph/owl#> .\n\
-        @prefix s: <http://knuckles.team/kg/swarm#> .\n\
-        s:admits rdfs:subPropertyOf eg:admitsTopology .\n\
-        s:Debate rdfs:subClassOf s:PeerTeam .\n\
-        s:IndependentSubtasks rdfs:subClassOf [ a owl:Restriction ; owl:onProperty s:admits ; owl:someValuesFrom s:FanOutJoin ] .\n\
-        s:NeedsNegotiation rdfs:subClassOf [ a owl:Restriction ; owl:onProperty s:admits ; owl:someValuesFrom s:PeerTeam ] .\n\
-        s:NeedsIndependentCheck rdfs:subClassOf eg:NeedsIndependentCheck .\n";
+    /// The shipped core vocabulary itself (`core:swarm-topology@1`).
+    const TBOX: &str = include_str!("../../../../crates/eg-core/ontology/swarm_topology-v1.ttl");
 
     const S: &str = "http://knuckles.team/kg/swarm#";
 
