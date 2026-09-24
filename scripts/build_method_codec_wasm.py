@@ -73,6 +73,11 @@ WASM_FEATURES = (
     "--enable-multivalue",
 )
 WASM_OPT_PASSES = ("-Oz", "--strip-debug", "--strip-producers")
+# wasm-opt starts one worker per logical CPU, all inside ONE 32-bit wasm heap;
+# on a 64-core host that exhausts the heap and aborts ("RuntimeError:
+# unreachable"). A fixed count removes the host dependency; the output is the
+# same bytes at 1, 4 or 24 workers (verified: sha256 dab9d7fe...).
+WASM_OPT_CORES = "4"
 
 
 def build(root: Path, target_dir: Path) -> bytes:
@@ -152,7 +157,8 @@ def optimize(module: Path, tools: Path) -> bytes:
     optimized = module.with_suffix(".opt.wasm")
     script = wasm_opt_dir(tools) / "wasm-opt.js"
     command = [node, str(script), *WASM_FEATURES, *WASM_OPT_PASSES]
-    subprocess.run([*command, str(module), "-o", str(optimized)], check=True)
+    env = {**os.environ, "BINARYEN_CORES": WASM_OPT_CORES}
+    subprocess.run([*command, str(module), "-o", str(optimized)], check=True, env=env)
     return optimized.read_bytes()
 
 
