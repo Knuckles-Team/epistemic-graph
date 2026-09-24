@@ -18,7 +18,12 @@
 //!
 //! A stream outside the caller's tenant refuses the whole request, and an
 //! engine without an observability store refuses with a typed error.
-#![cfg(all(feature = "obs", feature = "traces", feature = "promql"))]
+#![cfg(all(
+    feature = "obs",
+    feature = "shacl",
+    feature = "traces",
+    feature = "promql"
+))]
 
 mod common;
 #[path = "common/test_support.rs"]
@@ -64,7 +69,8 @@ async fn declare_services(state: &test_support::SharedState) {
         ),
         (
             "svc:payments",
-            json!({"type": "Service", "resolution_keys": {"service.name": "payments"}}),
+            // Bound as a Service because the ontology says K8sService ⊑ Service.
+            json!({"type": "K8sService", "resolution_keys": {"service.name": "payments"}}),
         ),
     ];
     for (index, (id, properties)) in services.into_iter().enumerate() {

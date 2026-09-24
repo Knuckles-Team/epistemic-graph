@@ -689,8 +689,10 @@ ex:parent a owl:AsymmetricProperty .
         // module-local domain/range of 12 other shared properties (and the double domain
         // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
         // +8: BFO realizable entity and disposition, declared for `:Skill`. Then +8:
-        // infrastructure `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409).
-        assert_eq!(composed.ontology.len(), 12_705);
+        // infrastructure `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409),
+        // and +12: `:Deployment` ⊑ `:Workload`, `:K8sService`/`:SwarmService` ⊑ `:Service`
+        // (EH-408/410 subsumption binding).
+        assert_eq!(composed.ontology.len(), 12_717);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -722,9 +724,10 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 30);
         assert_eq!(imports, 59);
-        // +8 (EH-408/409): infrastructure :BehaviourObservation and
-        // :ConformanceViolation, 4 axioms each.
-        assert_eq!(semantic_axioms, 12_550);
+        // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
+        // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
+        // 4 axioms each.
+        assert_eq!(semantic_axioms, 12_562);
 
         let count_type = |object: &str| {
             composed
@@ -773,7 +776,8 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            379
+            // +5 (EH-408/409/410): the five infrastructure classes above.
+            384
         );
     }
 

@@ -3,7 +3,7 @@ use super::*;
 /// Telemetry facts (EH-408 / EH-409): `TelemetryDerive` self-routes here,
 /// reads the in-process observability store and the request graph, and
 /// self-translates its facts into one gateway-routed `BatchUpdate` against the
-/// request graph. Without the `obs` feature there is no store to read.
+/// request graph. It needs the `obs` store and the `shacl` schema reasoner.
 ///
 /// Hands a method it does not own back as `ControlFlow::Continue`.
 pub(super) async fn dispatch_telemetry_methods(
@@ -19,7 +19,7 @@ pub(super) async fn dispatch_telemetry_methods(
     else {
         return ControlFlow::Continue(method);
     };
-    #[cfg(feature = "obs")]
+    #[cfg(all(feature = "obs", feature = "shacl"))]
     {
         use super::super::telemetry::{handle_telemetry_derive, DeriveRequest, DeriveTarget};
 
@@ -39,12 +39,12 @@ pub(super) async fn dispatch_telemetry_methods(
             dispatch_boxed(handle_telemetry_derive(ctx.state, target, request)).await,
         )
     }
-    #[cfg(not(feature = "obs"))]
+    #[cfg(not(all(feature = "obs", feature = "shacl")))]
     {
         let _ = (from_ms, to_ms, streams, policy_msgpack);
         ControlFlow::Break(Response::err(
             ctx.req.id,
-            "TelemetryDerive requires the `obs` feature",
+            "TelemetryDerive requires the `obs` and `shacl` features",
         ))
     }
 }
