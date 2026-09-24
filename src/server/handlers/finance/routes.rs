@@ -17,6 +17,7 @@ enum FinanceRoute {
     StateSpace,
     SignalCalibration,
     Derivatives,
+    Market,
     Other,
 }
 
@@ -78,6 +79,7 @@ fn route_for_market(method: &Method) -> Option<FinanceRoute> {
         Method::FinanceKellyFraction { .. }
         | Method::FinanceBayesianKelly { .. }
         | Method::FinancePosteriorCredibleInterval { .. } => Some(FinanceRoute::Sizing),
+        Method::FinanceMarket { .. } => Some(FinanceRoute::Market),
         _ => None,
     }
 }
@@ -138,6 +140,7 @@ pub(super) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             super::route_families::handle_signal_calibration(req_id, method)
         }
         FinanceRoute::Derivatives => super::route_families::handle_derivatives(req_id, method),
+        FinanceRoute::Market => super::market::handle_market(req_id, method),
         FinanceRoute::Other => Err(method),
     }
 }

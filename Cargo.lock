@@ -2739,6 +2739,7 @@ dependencies = [
  "eg-geo",
  "eg-modality",
  "eg-numeric",
+ "eg-stream",
  "eg-types",
  "hex",
  "nalgebra",

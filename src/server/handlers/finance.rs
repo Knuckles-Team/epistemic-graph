@@ -8,6 +8,7 @@
 // non-finance request (the common path), so we keep the move and scope the lint.
 #![allow(clippy::result_large_err)]
 
+mod market;
 mod route_families;
 mod routes;
 

@@ -1,0 +1,244 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-mkt: <https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/Markets/> .
+@prefix fibo-lst: <https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecuritiesListings/> .
+@prefix wd: <http://www.wikidata.org/entity/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Finance base ontology (EH-411, train 6), in the style of the world-model modules.
+#
+# A THIN native TBox under the core BFO layer, with skos mappings (never imports) to
+# FIBO and Wikidata (IRIs verified against spec.edmcouncil.org and the Wikidata API,
+# 2026-09-24). Instruments, venues and listings are individuals; bars are dense data in
+# the time-series store, never graph nodes: a :BarSeries names the store series. Every
+# signal-derived record is informational only and never authorises an order.
+
+<http://knuckles.team/kg/finance> a owl:Ontology ;
+    rdfs:label "Finance — Markets and Trend Signals" ;
+    rdfs:comment "Financial instruments, trading venues and listings; OHLCV bar series held in the time-series store; versioned indicator specifications, the per-series signal state and the trend-flip records it emits; macro-policy events and backtest-run provenance records. Informational only: no class here authorises an order." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+# ── Instruments, venues and listings ──────────────────────────────────────────────
+
+:FinancialInstrument a owl:Class ;
+    rdfs:label "Financial Instrument" ;
+    rdfs:comment "A tradable financial contract or asset definition — a share, an ETF unit, a currency, a crypto asset, an index, a commodity contract. One instrument trades on many venues; each venue/quote/type combination is a :Listing. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:exactMatch fibo-fi:FinancialInstrument,
+        wd:Q247506 .
+
+:Venue a owl:Class ;
+    rdfs:label "Trading Venue" ;
+    rdfs:comment "A place of trade: a regulated exchange, an alternative trading system, a centralised or decentralised crypto exchange, or an index publisher's calculation venue." ;
+    rdfs:subClassOf :System ;
+    skos:exactMatch wd:Q179076 ;
+    skos:broadMatch fibo-mkt:Exchange .
+
+:Listing a owl:Class ;
+    rdfs:label "Listing" ;
+    rdfs:comment "One instrument on one venue against one quote instrument as one listing type (spot, perpetual, future, option, index): the identity a ticker alone does not give. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:closeMatch fibo-lst:Listing .
+
+:listedInstrument a owl:ObjectProperty ;
+    rdfs:label "listed instrument" ;
+    rdfs:comment "The base instrument a listing trades." ;
+    rdfs:domain :Listing ;
+    rdfs:range :FinancialInstrument .
+
+:quoteInstrument a owl:ObjectProperty ;
+    rdfs:label "quote instrument" ;
+    rdfs:comment "The instrument a listing is priced in (USD, USDT, BTC)." ;
+    rdfs:domain :Listing ;
+    rdfs:range :FinancialInstrument .
+
+:listedOn a owl:ObjectProperty ;
+    rdfs:label "listed on" ;
+    rdfs:comment "The venue a listing trades on." ;
+    rdfs:domain :Listing ;
+    rdfs:range :Venue .
+
+:listingType a owl:DatatypeProperty ;
+    rdfs:label "listing type" ;
+    rdfs:comment "spot, perpetual, future, option or index." ;
+    rdfs:domain :Listing ;
+    rdfs:range xsd:string .
+
+:venueSymbol a owl:DatatypeProperty ;
+    rdfs:label "venue symbol" ;
+    rdfs:comment "The symbol the venue itself uses for a listing (BTC/USDT, AAPL)." ;
+    rdfs:domain :Listing ;
+    rdfs:range xsd:string .
+
+# ── Bar series and indicator specifications ──────────────────────────────────────
+
+:BarSeries a owl:Class ;
+    rdfs:label "Bar Series" ;
+    rdfs:comment "The OHLCV bars of one listing at one timeframe on one trading calendar and price basis. The bars themselves are time-series data (finalised and provisional bars, revisions appended, never rewritten); this node names the store series that holds them." ;
+    rdfs:subClassOf :Dataset ;
+    skos:broadMatch wd:Q186588 ;
+    skos:relatedMatch wd:Q3503416 .
+
+:barSeriesOf a owl:ObjectProperty ;
+    rdfs:label "bar series of" ;
+    rdfs:comment "The listing whose trades a bar series aggregates." ;
+    rdfs:domain :BarSeries ;
+    rdfs:range :Listing .
+
+:barTimeframe a owl:DatatypeProperty ;
+    rdfs:label "bar timeframe" ;
+    rdfs:comment "The bar width: a number of minutes or hours (e.g. 1m, 4h), or a calendar day, week or month (1D, 1W, 1M)." ;
+    rdfs:domain :BarSeries ;
+    rdfs:range xsd:string .
+
+:tradingCalendar a owl:DatatypeProperty ;
+    rdfs:label "trading calendar" ;
+    rdfs:comment "The calendar bars align to: utc-24x7 for crypto, or an exchange session calendar id." ;
+    rdfs:domain :BarSeries ;
+    rdfs:range xsd:string .
+
+:priceBasis a owl:DatatypeProperty ;
+    rdfs:label "price basis" ;
+    rdfs:comment "What a bar's prices are: trade, mid, adjusted or unadjusted." ;
+    rdfs:domain :BarSeries ;
+    rdfs:range xsd:string .
+
+:tsdbSeriesId a owl:DatatypeProperty ;
+    rdfs:label "time-series id" ;
+    rdfs:comment "The series id of the bars in the engine's time-series store." ;
+    rdfs:domain :BarSeries ;
+    rdfs:range xsd:string .
+
+:IndicatorSpec a owl:Class ;
+    rdfs:label "Indicator Specification" ;
+    rdfs:comment "A versioned, documented formula with bound parameters — an ATR trailing-trend line, a moving average, a band. Its parameter hash identifies it; a changed formula is a new version, never an edit. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:closeMatch wd:Q4456825 .
+
+:indicatorVersion a owl:DatatypeProperty ;
+    rdfs:label "indicator version" ;
+    rdfs:comment "The version of the indicator formula, e.g. atr-trail@1." ;
+    rdfs:domain :IndicatorSpec ;
+    rdfs:range xsd:string .
+
+:parameterHash a owl:DatatypeProperty ;
+    rdfs:label "parameter hash" ;
+    rdfs:comment "sha256 of the canonical encoding of the bound parameters." ;
+    rdfs:domain :IndicatorSpec ;
+    rdfs:range xsd:string .
+
+# ── Signal state and trend flips ─────────────────────────────────────────────────
+
+:SignalState a owl:Class ;
+    rdfs:label "Signal State" ;
+    rdfs:comment "The latest state of one indicator over one bar series after its last finalised bar: a trend direction when computable, and a data status (warming, valid, stale, unavailable) reported separately. A projection of the bars, rebuilt by replay. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q1004322 .
+
+:signalOf a owl:ObjectProperty ;
+    rdfs:label "signal of" ;
+    rdfs:comment "The bar series a signal state is computed over." ;
+    rdfs:domain :SignalState ;
+    rdfs:range :BarSeries .
+
+:signalSpec a owl:ObjectProperty ;
+    rdfs:label "signal spec" ;
+    rdfs:comment "The indicator specification a signal state is computed by." ;
+    rdfs:domain :SignalState ;
+    rdfs:range :IndicatorSpec .
+
+:trendDirection a owl:DatatypeProperty ;
+    rdfs:label "trend direction" ;
+    rdfs:comment "bullish or bearish; absent while the state is not computable." ;
+    rdfs:domain :SignalState ;
+    rdfs:range xsd:string .
+
+:dataStatus a owl:DatatypeProperty ;
+    rdfs:label "data status" ;
+    rdfs:comment "warming, valid, stale or unavailable." ;
+    rdfs:domain :SignalState ;
+    rdfs:range xsd:string .
+
+:TrendFlip a owl:Class ;
+    rdfs:label "Trend Flip" ;
+    rdfs:comment "The change of a signal's direction at the close of one finalised bar. Idempotent on its event id (signal key and bar close). Late data yields a revision that :revisesFlip the prior record; no flip record is ever rewritten. Informational only." ;
+    rdfs:subClassOf :Event ;
+    skos:relatedMatch wd:Q1004322 .
+
+:flipOf a owl:ObjectProperty ;
+    rdfs:label "flip of" ;
+    rdfs:comment "The signal state whose direction changed." ;
+    rdfs:domain :TrendFlip ;
+    rdfs:range :SignalState .
+
+:flipFrom a owl:DatatypeProperty ;
+    rdfs:label "flip from" ;
+    rdfs:comment "The direction before the flip." ;
+    rdfs:domain :TrendFlip ;
+    rdfs:range xsd:string .
+
+:flipTo a owl:DatatypeProperty ;
+    rdfs:label "flip to" ;
+    rdfs:comment "The direction after the flip." ;
+    rdfs:domain :TrendFlip ;
+    rdfs:range xsd:string .
+
+:flipEffectiveAt a owl:DatatypeProperty ;
+    rdfs:label "flip effective at" ;
+    rdfs:comment "The close time of the finalised bar the flip happened on." ;
+    rdfs:domain :TrendFlip ;
+    rdfs:range xsd:dateTime .
+
+:flipEventId a owl:DatatypeProperty ;
+    rdfs:label "flip event id" ;
+    rdfs:comment "sha256 over the signal key and the bar close; the idempotency key of the flip." ;
+    rdfs:domain :TrendFlip ;
+    rdfs:range xsd:string .
+
+:revisesFlip a owl:ObjectProperty ;
+    rdfs:label "revises flip" ;
+    rdfs:comment "A flip revision (late or corrected data) names the flip record it revises." ;
+    rdfs:domain :TrendFlip ;
+    rdfs:range :TrendFlip .
+
+# ── Macro events and backtest runs ───────────────────────────────────────────────
+
+:MacroEvent a owl:Class ;
+    rdfs:label "Macro Event" ;
+    rdfs:comment "A documented macro-policy event with a source link — a central-bank rate decision (hike, cut or hold), a balance-sheet announcement." ;
+    rdfs:subClassOf :Event ;
+    skos:relatedMatch wd:Q178476 .
+
+:policyAction a owl:DatatypeProperty ;
+    rdfs:label "policy action" ;
+    rdfs:comment "hike, cut or hold (or another documented action)." ;
+    rdfs:domain :MacroEvent ;
+    rdfs:range xsd:string .
+
+:announcedAt a owl:DatatypeProperty ;
+    rdfs:label "announced at" ;
+    rdfs:comment "When the event was announced (the time it became knowable)." ;
+    rdfs:domain :MacroEvent ;
+    rdfs:range xsd:dateTime .
+
+:BacktestRun a owl:Class ;
+    rdfs:label "Backtest Run" ;
+    rdfs:comment "The provenance record of one backtest: the signal keys and data revisions it read, its cost and fill rules, its point-in-time universe and its mandatory validation outputs (purged CPCV, deflated Sharpe, probability of backtest overfitting). Immutable; content-addressed by its digest. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q798528 .
+
+:backtestOf a owl:ObjectProperty ;
+    rdfs:label "backtest of" ;
+    rdfs:comment "The indicator specification a backtest run evaluated." ;
+    rdfs:domain :BacktestRun ;
+    rdfs:range :IndicatorSpec .
+
+:backtestDigest a owl:DatatypeProperty ;
+    rdfs:label "backtest digest" ;
+    rdfs:comment "sha256 of the canonical backtest-run record." ;
+    rdfs:domain :BacktestRun ;
+    rdfs:range xsd:string .
