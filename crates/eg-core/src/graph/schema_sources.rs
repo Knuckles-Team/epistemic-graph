@@ -1205,7 +1205,7 @@ mod tests {
             ),
             (
                 "sdlc_lifecycle",
-                "46ef976ec39b73306db74c5678a68089a94aee702ebcb948793c2833e9e40907",
+                "81ada4f509f18c302b3cca917d3c59862c6563abaa0961cb9de5f8df934738e3",
             ),
             (
                 "software",
