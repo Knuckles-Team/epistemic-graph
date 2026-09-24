@@ -601,6 +601,21 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
     assert!(ingestion.contains("return IndexResult.model_validate(payload)"));
 }
 
+/// A definition shared by the request document (rooted at `Method`) and a
+/// result document merges: `MutationOperation.method` is `#/$defs/Method` in
+/// both, never the request document's root `#`.
+#[test]
+fn request_root_references_merge_with_result_definitions() {
+    let catalog = Catalog::collect();
+    let document = schema::method_request_document();
+    let definitions = merged_definitions(&document, &catalog, "query");
+    let method = definitions
+        .get("MutationOperation")
+        .and_then(|node| node.pointer("/properties/method/$ref"))
+        .and_then(|reference| reference.as_str());
+    assert_eq!(method, Some("#/$defs/Method"));
+}
+
 #[test]
 fn digest_projection_names_exact_source_change_set_fields() {
     let catalog = Catalog::collect();

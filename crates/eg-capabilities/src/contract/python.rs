@@ -17,11 +17,13 @@ use super::results::{Body, Catalog, Declared};
 use super::{normalize, schema, Artifact};
 use crate::{ConsumerProfile, MethodDescriptor};
 
+mod definitions;
 mod digest;
 mod dto;
 mod package;
 mod runtime;
 
+use definitions::merged_definitions;
 use digest::digest_module;
 #[cfg(test)]
 use dto::CANONICAL_DIGEST_SPECS;
@@ -728,41 +730,6 @@ fn init_module(modules: &[String], sends: &BTreeMap<String, String>) -> String {
     }
     out.push_str("}\n");
     out
-}
-
-fn merged_definitions(
-    document: &serde_json::Value,
-    catalog: &Catalog,
-    result_domain: &str,
-) -> serde_json::Map<String, serde_json::Value> {
-    let mut definitions = document
-        .get("$defs")
-        .and_then(|value| value.as_object())
-        .cloned()
-        .unwrap_or_default();
-    if let Some(domain_definitions) = catalog.definitions.get(result_domain) {
-        for (name, definition) in domain_definitions {
-            if let Some(previous) = definitions.insert(name.clone(), definition.clone()) {
-                assert_eq!(
-                    &previous, definition,
-                    "request and result schemas disagree on definition {name}"
-                );
-            }
-        }
-    }
-    // Closed error codes travel on the error response, not inside a successful
-    // result body, so they are intentionally absent from both method and result
-    // documents.  They remain Rust-owned wire types and the typed Python seam
-    // must generate them from that authority rather than copy string literals.
-    let write_codes = serde_json::json!({
-        "type": "string",
-        "enum": eg_types::connector_pack::PackWriteErrorCode::ALL
-            .iter()
-            .map(|code| code.as_str())
-            .collect::<Vec<_>>(),
-    });
-    definitions.insert("PackWriteErrorCode".to_string(), write_codes);
-    definitions
 }
 
 /// Every generated Python file, in deterministic path order.

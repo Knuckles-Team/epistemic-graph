@@ -92,10 +92,11 @@ pub const SQL_BEFORE_SOURCE_CHECKPOINTS: LayoutPredecessor = LayoutPredecessor {
 };
 
 /// `sql.redb` before the maintained ANN authority's durable generations and
-/// changed-row log (RF-019 / EH-352).
+/// changed-row log, and the durable edge-index registrations (RF-019 /
+/// EH-351 / EH-352).
 pub const SQL_BEFORE_DURABLE_ANN: LayoutPredecessor = LayoutPredecessor {
     layout: OwnerLayout::Sql,
-    label: "SQL catalog store before durable ANN index generations",
+    label: "SQL catalog store before durable ANN and edge index generations",
     owner_tables: SQL_TABLES_BEFORE_DURABLE_ANN,
     data_lost: SQL_DATA_LOST,
     file_name: "sql.redb",
@@ -174,7 +175,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
         OwnerLayout::SemanticIndex => {
             "3008d8726d15a864daf6c723004152fc61bb40bc8de0fea486dfdaace0c985d8"
         }
-        OwnerLayout::Sql => "abae4905ed8ea379c808cc9be3aec978300049a9ae0d405df487ea31d714f555",
+        OwnerLayout::Sql => "7435c69e2de7052a351a89f17ccb4a988f92189f09d523ee7f8e088607924398",
         OwnerLayout::PathIndex => {
             "c79d89a41ad97d55cf35238ca8706db8c958923624de068a430c3bca72656df9"
         }
