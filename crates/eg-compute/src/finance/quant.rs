@@ -19,23 +19,9 @@
 //  Special functions (self-contained — no scipy on the wire)
 // ════════════════════════════════════════════════════════════════════════
 mod sf {
-    /// Error function — Abramowitz & Stegun 7.1.26 (|err| < 1.5e-7).
-    pub fn erf(x: f64) -> f64 {
-        let sign = if x < 0.0 { -1.0 } else { 1.0 };
-        let x = x.abs();
-        let t = 1.0 / (1.0 + 0.3275911 * x);
-        let y = 1.0
-            - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t
-                + 0.254829592)
-                * t
-                * (-x * x).exp();
-        sign * y
-    }
-
-    /// Standard-normal CDF.
-    pub fn norm_cdf(x: f64) -> f64 {
-        0.5 * (1.0 + erf(x / std::f64::consts::SQRT_2))
-    }
+    /// The standard-normal CDF: the one pinned-libm implementation every surface
+    /// shares (EH-527; this module's former A&S 7.1.26 copy is retired).
+    pub use eg_numeric::stats::norm_cdf;
 
     /// Inverse standard-normal CDF (Acklam's rational approximation).
     pub fn norm_ppf(p: f64) -> f64 {
