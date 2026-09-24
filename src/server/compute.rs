@@ -8,14 +8,33 @@ use crate::protocol::Response;
 /// needs under a short read lock, drop the lock, then hand the owned snapshot
 /// here — so the tokio runtime threads and the per-graph RwLock are never
 /// held across O(V·E)-class work.
+///
+/// EH-536: the work runs interruptibly on behalf of the calling request. When
+/// the request is cancelled (client gone, dispatch deadline) the caller is
+/// answered at once, and reasoning inside `f` stops at its next step charge;
+/// a result computed under a tripped cancellation is never returned.
 pub(crate) async fn compute_off_lock<T, F>(req_id: u64, f: F) -> Result<T, Response>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(f)
-        .await
-        .map_err(|e| Response::err(req_id, format!("Blocking compute task failed: {}", e)))
+    use crate::server::request_scope::{current, interruptible};
+
+    let cancel = current();
+    let worker = cancel.clone();
+    let job = tokio::task::spawn_blocking(move || interruptible(&worker, f));
+    let joined = tokio::select! {
+        joined = job => joined,
+        () = cancel.cancelled() => Ok(Err(crate::server::request_scope::CANCELLED.to_string())),
+    };
+    match joined {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(cancelled)) => Err(Response::err(req_id, cancelled)),
+        Err(e) => Err(Response::err(
+            req_id,
+            format!("Blocking compute task failed: {}", e),
+        )),
+    }
 }
 
 /// Confidence-weight raw semantic-search hits (CONCEPT:EG-KG.txn.per-graph-write-isolation): drop

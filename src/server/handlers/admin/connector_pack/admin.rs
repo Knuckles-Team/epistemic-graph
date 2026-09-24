@@ -191,7 +191,7 @@ where
         + Send
         + 'static,
 {
-    let _tenant_pack_guard = super::tenant_pack_lock(request.verified.tenant()).await;
+    let tenant_pack_guard = super::tenant_pack_lock(request.verified.tenant()).await?;
     let store = super::agent_library_store(request.state).await?;
     let context = crate::server::handlers::admin::agent::bind_agent_library_context(
         &store,
@@ -201,6 +201,11 @@ where
         request.purpose,
         true,
     )?;
-    crate::server::dispatch::blocking_task("connector pack admin", move || write(&store, context))
-        .await
+    // The blocking write owns the lock: a dropped dispatch future cannot free
+    // the tenant while the write still runs (EH-536).
+    crate::server::dispatch::blocking_task("connector pack admin", move || {
+        let _held = tenant_pack_guard;
+        write(&store, context)
+    })
+    .await
 }

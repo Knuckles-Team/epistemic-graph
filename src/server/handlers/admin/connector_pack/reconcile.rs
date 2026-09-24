@@ -49,7 +49,10 @@ pub(crate) async fn serve(
                 "ACCESS_DENIED: connector pack tenant must match verified request tenant",
             );
         }
-        let _tenant_pack_guard = super::tenant_pack_lock(verified.tenant()).await;
+        let _tenant_pack_guard = match super::tenant_pack_lock(verified.tenant()).await {
+            Ok(guard) => guard,
+            Err(cancelled) => return Response::err(req_id, cancelled),
+        };
         let method = eg_types::protocol::Method::ConnectorPack {
             op: Box::new(eg_types::connector_pack::ConnectorPackOp::ReconcileBodies { request }),
         };

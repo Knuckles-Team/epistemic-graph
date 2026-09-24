@@ -220,6 +220,18 @@ impl ConnectionLimits {
 pub(super) enum FrameReadError {
     Rejected(Response),
     Closed(Option<Response>),
+    /// The peer closed (or reset) the connection between frames.
+    PeerClosed,
+}
+
+/// Why a connection's ingress stopped reading.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum IngressEnd {
+    /// The client closed the connection: nobody awaits its in-flight replies.
+    PeerClosed,
+    /// Idle deadline, a malformed frame, or a closed writer. In-flight
+    /// requests may still be answered.
+    Stopped,
 }
 
 /// Prefix and body reads each retain their own I/O deadline. A bad length closes
@@ -235,11 +247,10 @@ where
     use tokio::io::AsyncReadExt;
 
     let mut prefix = [0u8; 4];
-    if !matches!(
-        tokio::time::timeout(limits.io_timeout, reader.read_exact(&mut prefix)).await,
-        Ok(Ok(_))
-    ) {
-        return Err(FrameReadError::Closed(None));
+    match tokio::time::timeout(limits.io_timeout, reader.read_exact(&mut prefix)).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(_)) => return Err(FrameReadError::PeerClosed),
+        Err(_) => return Err(FrameReadError::Closed(None)),
     }
     let len = u32::from_be_bytes(prefix) as usize;
     if len == 0 || len > limits.request_bytes {
@@ -276,24 +287,25 @@ pub(super) async fn next_request<R>(
     reader: &mut R,
     tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
     limits: ConnectionLimits,
-) -> Option<Request>
+) -> Result<Request, IngressEnd>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
     loop {
         match read_request_frame(reader, limits).await {
-            Ok(request) => return Some(request),
+            Ok(request) => return Ok(request),
             Err(FrameReadError::Rejected(response)) => {
                 if tx.send(encode_frame(&response)).await.is_err() {
-                    return None;
+                    return Err(IngressEnd::Stopped);
                 }
             }
             Err(FrameReadError::Closed(response)) => {
                 if let Some(response) = response {
                     let _ = tx.send(encode_frame(&response)).await;
                 }
-                return None;
+                return Err(IngressEnd::Stopped);
             }
+            Err(FrameReadError::PeerClosed) => return Err(IngressEnd::PeerClosed),
         }
     }
 }

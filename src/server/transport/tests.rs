@@ -453,6 +453,7 @@ async fn hung_dispatch_is_abandoned_with_a_typed_error() {
         std::future::pending::<Response>(),
         std::time::Duration::from_millis(20),
         77,
+        &RequestCancel::new(),
     )
     .await;
     assert_eq!(resp.id, 77, "the abandoned request is still answered by id");
@@ -464,6 +465,63 @@ async fn hung_dispatch_is_abandoned_with_a_typed_error() {
         "expected a typed timeout error, got {:?}",
         resp.error
     );
+}
+
+/// EH-536: a client that closes its connection cancels what it left in flight.
+/// The dispatch is NOT dropped — it observes the cancellation and unwinds itself.
+#[tokio::test]
+async fn a_closed_peer_cancels_its_in_flight_dispatch() {
+    let peer_gone = RequestCancel::new();
+    let dispatch = async {
+        request_scope::current().cancelled().await;
+        Response::err(5, "observed the cancellation")
+    };
+    let pending =
+        dispatch_within_deadline(dispatch, std::time::Duration::from_secs(30), 5, &peer_gone);
+    let trip = async {
+        tokio::task::yield_now().await;
+        peer_gone.cancel();
+    };
+    let (resp, ()) = tokio::join!(pending, trip);
+    assert_eq!(resp.error.as_deref(), Some("observed the cancellation"));
+}
+
+/// EH-536: the dispatch deadline trips the request's cancellation before the
+/// future is dropped, so blocking work the request started can stop too.
+#[tokio::test]
+async fn the_dispatch_deadline_cancels_the_request_scope() {
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let slot = std::sync::Arc::clone(&seen);
+    let dispatch = async move {
+        *slot.lock().unwrap() = Some(request_scope::current());
+        std::future::pending::<Response>().await
+    };
+    let resp = dispatch_within_deadline(
+        dispatch,
+        std::time::Duration::from_millis(20),
+        6,
+        &RequestCancel::new(),
+    )
+    .await;
+    assert!(resp.error.unwrap_or_default().starts_with("TIMEOUT:"));
+    let cancel = seen.lock().unwrap().take().expect("the dispatch ran");
+    assert!(cancel.is_cancelled());
+}
+
+/// Only a closed peer reads as `PeerClosed`; an idle connection is a plain close
+/// that leaves in-flight requests alone.
+#[tokio::test(start_paused = true)]
+async fn a_peer_close_between_frames_is_told_apart_from_an_idle_deadline() {
+    let mut closed: &[u8] = &[];
+    assert!(matches!(
+        read_request_frame(&mut closed, frame_test_limits()).await,
+        Err(FrameReadError::PeerClosed)
+    ));
+    let (_client, mut idle) = tokio::io::duplex(64);
+    assert!(matches!(
+        read_request_frame(&mut idle, frame_test_limits()).await,
+        Err(FrameReadError::Closed(None))
+    ));
 }
 
 /// D-HYD-2 defect pin. THE livelock, reproduced in miniature.
@@ -507,8 +565,13 @@ async fn a_hung_dispatch_does_not_permanently_exhaust_the_principal_quota() {
         // EXACTLY the production shape: the permit rides the dispatch task and is
         // released only when that task returns.
         stranded.push(tokio::spawn(async move {
-            let resp =
-                dispatch_within_deadline(std::future::pending::<Response>(), deadline, 1).await;
+            let resp = dispatch_within_deadline(
+                std::future::pending::<Response>(),
+                deadline,
+                1,
+                &RequestCancel::new(),
+            )
+            .await;
             drop(permit);
             resp
         }));

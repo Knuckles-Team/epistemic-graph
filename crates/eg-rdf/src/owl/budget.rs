@@ -72,7 +72,11 @@ impl StepMeter {
     /// Charge one derivation step. `false` means the budget is spent: the caller must
     /// not add the fact, and the classification reports [`BudgetExhausted`].
     pub(super) fn charge(&mut self) -> bool {
-        if self.limit.is_some_and(|limit| self.steps >= limit) {
+        // An interrupted completion (EH-536) stops exactly like a spent one; its
+        // caller installed the probe and discards the result.
+        if self.limit.is_some_and(|limit| self.steps >= limit)
+            || eg_core::interrupt::due(self.steps)
+        {
             self.refused = true;
             return false;
         }
@@ -165,6 +169,21 @@ mod tests {
         assert_eq!(exhausted, BudgetExhausted { max_steps: 50_000 });
         let complete = reasoner.classify();
         assert!(complete.entails_subclass("<http://example.org/C0>", "<http://example.org/C1000>"));
+    }
+
+    /// EH-536: a completion running under a raised interrupt probe stops at its
+    /// first step charge instead of running its whole budget.
+    #[test]
+    fn an_interrupted_completion_stops_like_a_spent_budget() {
+        let triples = chain(200);
+        let outcome = eg_core::interrupt::scoped(
+            || true,
+            || Reasoner::from_triples(&triples).classify_within(DerivationBudget::new(1_000_000)),
+        );
+        assert!(outcome.is_err());
+        assert!(Reasoner::from_triples(&triples)
+            .classify_within(DerivationBudget::new(1_000_000))
+            .is_ok());
     }
 
     /// The verdict is a pure function of the axioms and the budget.
