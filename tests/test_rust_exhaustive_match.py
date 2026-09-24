@@ -47,7 +47,7 @@ def test_flat_exhaustive_match_has_no_catch_all():
     }
 }
 """
-    assert _shape(source) == (3, 0)
+    assert _shape(source) == (3, 0, 0)
 
 
 @pytest.mark.parametrize(
@@ -107,7 +107,7 @@ def test_a_catch_all_in_a_string_or_comment_is_not_an_arm():
     }
 }
 """
-    assert _shape(source) == (2, 0)
+    assert _shape(source) == (2, 0, 0)
 
 
 def test_a_nested_match_is_counted_and_its_catch_all_disqualifies():
@@ -121,7 +121,7 @@ def test_a_nested_match_is_counted_and_its_catch_all_disqualifies():
     }
 }
 """
-    assert _shape(source) == (4, 1)
+    assert _shape(source) == (4, 1, 0)
 
 
 def test_a_function_without_any_match_is_never_exempt():
@@ -132,7 +132,7 @@ def test_a_function_without_any_match_is_never_exempt():
         + "".join(f"    if x == {index} {{ return {index}; }}\n" for index in range(20))
         + "    0\n}\n"
     )
-    assert module.dispatch_shape(ladder, 1) == (0, 0)
+    assert module.dispatch_shape(ladder, 1) == (0, 0, 0)
     assert not module.exhaustive_dispatch_exempt(
         ladder, 1, 21, 2, CAP_CYCLOMATIC, CAP_COGNITIVE
     )
@@ -184,7 +184,7 @@ def test_an_arm_count_above_the_measured_cyclomatic_is_never_exempt():
     module = _module()
     arms = "".join(f"        Kind::V{index} => {index},\n" for index in range(12))
     source = f"fn dispatch(kind: Kind) -> u8 {{\n    match kind {{\n{arms}    }}\n}}\n"
-    assert module.dispatch_shape(source, 1) == (12, 0)
+    assert module.dispatch_shape(source, 1) == (12, 0, 0)
     # 12 arms cannot be attributed inside a measured cyclomatic of 11.
     assert not module.exhaustive_dispatch_exempt(
         source, 1, 11, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
@@ -203,7 +203,7 @@ def test_a_trailing_catch_all_beyond_400_lines_is_not_exempt():
 }}
 """
     assert source[: source.index("other =>")].count("\n") > 400
-    assert module.dispatch_shape(source, 1) == (2, 1)
+    assert module.dispatch_shape(source, 1) == (2, 1, 0)
     assert not module.exhaustive_dispatch_exempt(
         source, 1, CAP_CYCLOMATIC + 1, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
     )
@@ -234,7 +234,7 @@ def test_real_tree_dispatcher_with_a_trailing_catch_all_is_not_exempt():
     source = path.read_text(encoding="utf-8")
 
     shape = module.dispatch_shape(source, line)
-    assert shape == (10, 1)
+    assert shape == (10, 1, 0)
     assert 12 - shape.arms == 2
     assert not module.exhaustive_dispatch_exempt(
         source, line, 12, 3, CAP_CYCLOMATIC, CAP_COGNITIVE
@@ -253,4 +253,90 @@ def test_real_tree_exhaustive_dispatcher_is_exempt():
     assert shape.catch_alls == 0
     assert module.exhaustive_dispatch_exempt(
         source, line, shape.arms + 1, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
+    )
+
+
+# ---- the full build is what is measured -------------------------------------
+
+UNBUILT = '#[cfg(not(all(feature = "geo", feature = "owl")))]'
+
+
+def _gated_dispatch(real_arms: int, fallback_attribute: str) -> str:
+    arms = "\n".join(f"        Kind::V{i} => {i}," for i in range(real_arms))
+    return (
+        "fn dispatch(kind: Kind) -> u8 {\n    match kind {\n"
+        f"{arms}\n        {fallback_attribute}\n        _ => 0,\n    }}\n}}\n"
+    )
+
+
+def test_full_build_value_is_three_valued():
+    value = _module().full_build_value
+    assert value('feature = "geo"') is True
+    assert value('not(all(feature = "geo", feature = "owl"))') is False
+    assert value('any(feature = "geo", test)') is True
+    assert value('all(unix, not(feature = "geo"))') is False
+    assert value("test") is None
+    assert value("not(test)") is None
+    assert value('all(feature = "geo", test)') is None
+
+
+def test_an_unbuilt_fallback_arm_is_absent_from_the_full_build():
+    """Ten real arms plus a `not(all(..))` fallback: cccc charges eleven, the
+    full build compiles ten -- within the cap, and not a catch-all."""
+    module = _module()
+    source = _gated_dispatch(10, UNBUILT)
+    assert module.dispatch_shape(source, 1) == (10, 0, 1)
+    assert module.exhaustive_dispatch_exempt(
+        source, 1, 11, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
+    )
+
+
+def test_a_planted_real_arm_beside_the_unbuilt_fallback_still_fails():
+    """One more real arm makes the full build eleven: over the cap, and the
+    residual after the arms is zero, so no exemption."""
+    module = _module()
+    source = _gated_dispatch(11, UNBUILT)
+    assert module.dispatch_shape(source, 1) == (11, 0, 1)
+    assert not module.exhaustive_dispatch_exempt(
+        source, 1, 12, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
+    )
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    ['#[cfg(feature = "geo")]', "#[cfg(not(test))]", "#[allow(unreachable_patterns)]"],
+)
+def test_a_fallback_the_full_build_may_compile_is_still_a_catch_all(attribute):
+    module = _module()
+    source = _gated_dispatch(10, attribute)
+    assert module.dispatch_shape(source, 1) == (11, 1, 0)
+    assert not module.exhaustive_dispatch_exempt(
+        source, 1, 11, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
+    )
+
+
+def test_real_tree_feature_gated_dispatcher_is_measured_as_the_full_build():
+    """`eg-plan exec::dispatch::apply`: cccc cyclomatic 11 including a
+    `#[cfg(not(all(..)))] _` fallback the full build does not compile. With an
+    extra unconditional arm planted, it fails again."""
+    module = _module()
+    path = ROOT / "crates" / "eg-plan" / "src" / "exec" / "dispatch.rs"
+    line = _function_line(path, "apply")
+    source = path.read_text(encoding="utf-8")
+    shape = module.dispatch_shape(source, line)
+    assert shape is not None and shape.absent == 1 and shape.catch_alls == 0
+    assert module.exhaustive_dispatch_exempt(
+        source, line, shape.arms + shape.absent, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
+    )
+    planted = source.replace(
+        "        Op::Udf { .. } => apply_single_feature_ops(op, input, ctx),",
+        "        Op::Udf { .. } => apply_single_feature_ops(op, input, ctx),\n"
+        "        Op::Planted { .. } => apply_single_feature_ops(op, input, ctx),",
+        1,
+    )
+    assert planted != source
+    grown = module.dispatch_shape(planted, line)
+    assert grown is not None and grown.arms == shape.arms + 1
+    assert not module.exhaustive_dispatch_exempt(
+        planted, line, grown.arms + grown.absent, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
     )
