@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "query")]
+use super::uql_statement::handle_uql;
 use crate::server::handlers::TryHandleContext;
 
 pub(in crate::server) fn try_handle<'a>(
@@ -103,7 +105,7 @@ async fn dispatch_sql_query(ctx: &QueryHandlerCtx<'_>, method: Method) -> Result
         } => handle_sql(ctx, query, params_msgpack).await,
         Method::UnifiedQuery { plan } => handle_unified_query(ctx, plan).await,
         Method::UnifiedQueryText { text } => handle_unified_query_text(ctx, text).await,
-        Method::Uql { text, params } => super::uql::handle_uql(ctx, text, params).await,
+        Method::Uql { text, params } => handle_uql(ctx, text, params).await,
         other => Err(other),
     }
 }
