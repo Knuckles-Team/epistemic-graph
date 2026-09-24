@@ -48,6 +48,7 @@ use crate::lock_recovery::LockRecovery;
 use crate::protocol::Method;
 
 mod leader_balance;
+mod membership_follow;
 mod membership_removal;
 mod placement_commit;
 
@@ -549,6 +550,8 @@ impl MultiRaft {
         let groups: Arc<RwLock<BTreeMap<GroupId, EgRaft>>> = Arc::new(RwLock::new(BTreeMap::new()));
         let groups_for_listener = groups.clone();
         let auth_for_listener = auth.clone();
+        let owner: Arc<membership_follow::MembershipOwner> = Arc::default();
+        let owner_for_listener = owner.clone();
         let router = Arc::new(GroupRouter::new());
         let placement = Arc::new(PlacementCatalog::new(ctx.state.clone()));
         let read_service = Arc::new(super::xread::ReadPageService::new(
@@ -582,11 +585,15 @@ impl MultiRaft {
                 let auth = auth_for_listener.clone();
                 let frame_budget = frame_budget.clone();
                 let read_service = read_service_for_listener.clone();
+                let owner = owner_for_listener.clone();
                 let task = tokio::spawn(async move {
                     let _permit = permit;
-                    if let Err(e) =
-                        serve_conn(stream, groups, auth, frame_budget, read_service).await
-                    {
+                    let peer = PeerServices {
+                        groups,
+                        owner,
+                        read_service,
+                    };
+                    if let Err(e) = serve_conn(stream, peer, auth, frame_budget).await {
                         tracing::debug!("raft multi rpc conn ended: {e}");
                     }
                 });
@@ -617,6 +624,7 @@ impl MultiRaft {
             leader_balance_task: Mutex::new(None),
             shutdown_lock: tokio::sync::Mutex::new(()),
         });
+        let _ = owner.set(Arc::downgrade(&multi));
         let heartbeat_task = tokio::spawn(heartbeat_coalescer.run(multi.pool.clone()));
         *multi
             .heartbeat_flush_task
@@ -1059,114 +1067,6 @@ impl MultiRaft {
             }
         }
         epoch
-    }
-
-    /// Attach `new_node` (reachable at `addr`) to group `gid` as a NON-VOTING LEARNER
-    /// (CONCEPT:EG-KG.storage.kg-kg-2) — the primitive `cluster_deployment.md` §5 item 2 flagged as having
-    /// no external caller. MUST be called on the group's current LEADER (membership
-    /// changes are leader-only in Raft). Registers `addr` in the node's [`BasicNode`]
-    /// so every member's network layer can reach it, then runs ONLY the openraft
-    /// `add_learner(new_node, blocking)` step: it starts replicating to the node and
-    /// BLOCKS until its log is caught up, but does NOT touch the voter set, so quorum
-    /// size and fault tolerance are unaffected. This is the safe, always-available
-    /// first step; promote the learner afterward with [`change_group_voters`] (or use
-    /// [`add_group_member`] for the old bundled add+promote behavior). Idempotent:
-    /// re-adding an existing learner/voter re-confirms the same membership.
-    ///
-    /// [`change_group_voters`]: MultiRaft::change_group_voters
-    /// [`add_group_member`]: MultiRaft::add_group_member
-    pub async fn add_group_learner(
-        &self,
-        gid: GroupId,
-        new_node: NodeId,
-        addr: String,
-    ) -> Result<(), String> {
-        self.pool
-            .register_peer(new_node, &addr)
-            .map_err(|_| "invalid or conflicting Raft peer registration".to_string())?;
-        self.failure_domains
-            .write()
-            .entry(new_node)
-            .or_insert_with(|| super::config::failure_domain_for_peer(new_node, &addr));
-        let raft = self
-            .groups
-            .read()
-            .await
-            .get(&gid)
-            .cloned()
-            .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
-        raft.add_learner(new_node, BasicNode::new(addr), true)
-            .await
-            .map_err(|e| format!("add_learner {new_node} to group {gid}: {e}"))?;
-        Ok(())
-    }
-
-    /// Set group `gid`'s VOTER set to exactly `voters` (CONCEPT:EG-KG.storage.kg-kg-2) — openraft
-    /// `change_membership`. This is the promotion/rebalance half of the two-step join,
-    /// split out of [`add_group_member`] so a learner added via [`add_group_learner`]
-    /// can be promoted (or the voter set otherwise changed) as its OWN admin step: pass
-    /// the full desired voter set (existing voters plus whichever learner(s) are being
-    /// promoted). MUST be called on the group's current LEADER. Refuses to produce an
-    /// EMPTY voter set (that would make the group leaderless / unrecoverable).
-    /// Idempotent: setting the same voter set re-commits the same config.
-    ///
-    /// [`add_group_member`]: MultiRaft::add_group_member
-    /// [`add_group_learner`]: MultiRaft::add_group_learner
-    pub async fn change_group_voters(
-        &self,
-        gid: GroupId,
-        voters: BTreeSet<NodeId>,
-    ) -> Result<(), String> {
-        if voters.is_empty() {
-            return Err(format!(
-                "refusing to set an empty voter set for group {gid}"
-            ));
-        }
-        let raft = self
-            .groups
-            .read()
-            .await
-            .get(&gid)
-            .cloned()
-            .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
-        raft.change_membership(voters, false)
-            .await
-            .map_err(|e| format!("change_membership group {gid}: {e}"))?;
-        Ok(())
-    }
-
-    /// Add `new_node` (reachable at `addr`) to group `gid` as a VOTER (CONCEPT:EG-KG.storage.kg-kg-2).
-    /// MUST be called on the group's current LEADER (membership changes are leader-only
-    /// in Raft). The original bundled two-step join, now composed from
-    /// [`add_group_learner`] (add + block-until-caught-up) followed by
-    /// [`change_group_voters`] (commit the new uniform config including `new_node`) —
-    /// byte-identical behavior to before the split, kept for callers that always want
-    /// the immediate promotion. Idempotent-ish: re-adding an existing voter re-commits
-    /// the same set.
-    ///
-    /// [`add_group_learner`]: MultiRaft::add_group_learner
-    /// [`change_group_voters`]: MultiRaft::change_group_voters
-    pub async fn add_group_member(
-        &self,
-        gid: GroupId,
-        new_node: NodeId,
-        addr: String,
-    ) -> Result<(), String> {
-        self.add_group_learner(gid, new_node, addr).await?;
-        let raft = self
-            .groups
-            .read()
-            .await
-            .get(&gid)
-            .cloned()
-            .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
-        let mut voters: BTreeSet<NodeId> = {
-            let metrics = raft.metrics();
-            let watched = metrics.borrow_watched();
-            watched.membership_config.voter_ids().collect()
-        };
-        voters.insert(new_node);
-        self.change_group_voters(gid, voters).await
     }
 
     /// Legacy removal entry point. A bare `change_membership` cannot prove
@@ -1716,13 +1616,24 @@ impl MultiRaft {
 /// Serve one connection on the shared listener, demuxing each framed RPC to the
 /// group it is tagged for (CONCEPT:EG-KG.sharding.raft-resharding). An RPC for a group this node doesn't
 /// run gets a per-variant error reply (openraft treats it as a transient failure).
+/// What one inbound peer connection serves.
+struct PeerServices {
+    groups: Arc<RwLock<BTreeMap<GroupId, EgRaft>>>,
+    owner: Arc<membership_follow::MembershipOwner>,
+    read_service: Arc<super::xread::ReadPageService>,
+}
+
 async fn serve_conn(
     stream: tokio::net::TcpStream,
-    groups: Arc<RwLock<BTreeMap<GroupId, EgRaft>>>,
+    peer: PeerServices,
     auth: Option<Arc<network::RaftTransportAuth>>,
     frame_budget: Arc<tokio::sync::Semaphore>,
-    read_service: Arc<super::xread::ReadPageService>,
 ) -> std::io::Result<()> {
+    let PeerServices {
+        groups,
+        owner,
+        read_service,
+    } = peer;
     let mut stream = network::RaftConnection::accept(stream, auth.as_deref(), frame_budget).await?;
     loop {
         let body = match tokio::time::timeout(network::RAFT_FRAME_IO_TIMEOUT, stream.read_payload())
@@ -1743,11 +1654,9 @@ async fn serve_conn(
         // CONCEPT:EG-KG.storage.concept-2) demuxes each tagged sub-RPC to ITS group and replies in the
         // SAME order so each awaiting caller matches its own reply.
         let reply = match frame {
-            RaftFrame::One(rpc) => {
-                let gid = rpc.group_id();
-                let raft = groups.read().await.get(&gid).cloned();
-                RaftFrameReply::One(network::dispatch_group(raft, gid, *rpc, &read_service).await)
-            }
+            RaftFrame::One(rpc) => RaftFrameReply::One(
+                membership_follow::serve_one(&groups, &owner, *rpc, &read_service).await,
+            ),
             RaftFrame::Batch(rpcs) => {
                 if rpcs.is_empty()
                     || rpcs.len() > network::MAX_RAFT_BATCH_RPCS

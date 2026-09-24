@@ -61,30 +61,18 @@ pub(crate) async fn try_handle(
         ));
     };
 
-    let control = match multi.group(group).await {
-        Some(g) => g,
-        None => {
-            return Ok(Response::stale_route(
-                req_id,
-                "__raft_membership__",
-                group,
-                0,
-                None,
-                "raft group is not running on this node",
-            ))
-        }
-    };
-    let leader = control.current_leader().await;
-    if leader != Some(control.node_id) {
+    if multi.group(group).await.is_none() {
         return Ok(Response::stale_route(
             req_id,
             "__raft_membership__",
             group,
             0,
-            leader,
-            "raft membership changes require the current group leader",
+            None,
+            "raft group is not running on this node",
         ));
     }
+    // EH-534: any member accepts the change; `MultiRaft` follows the group's
+    // current leader (forwarding over the peer channel) instead of redirecting.
 
     let declared = raft_admin_result(&op);
     let result = match op {

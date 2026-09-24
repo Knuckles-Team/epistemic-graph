@@ -78,6 +78,9 @@ use tokio::sync::{oneshot, Notify};
 use super::{EgRaft, GroupId, NodeId, TypeConfig};
 
 mod heartbeat_flush;
+mod membership;
+pub(crate) use membership::forward_membership;
+pub use membership::{MembershipChange, MembershipOutcome};
 
 /// A transport failure → `Unreachable` so openraft backs off and retries (correct
 /// for connection refused / a peer that is down — the failover-survival path).
@@ -741,6 +744,9 @@ pub enum GroupRpc {
     /// Bounded durable graph page, served only after a ReadIndex barrier and an
     /// epoch/fencing-token check on the destination leader.
     ReadPage(GroupId, super::xread::ReadPageRequest),
+    /// A membership change forwarded to the group's current leader (EH-534).
+    /// Served by the node's `MultiRaft`, never by `dispatch_group`.
+    Membership(GroupId, MembershipChange),
 }
 
 impl GroupRpc {
@@ -752,7 +758,8 @@ impl GroupRpc {
             | GroupRpc::TransferLeader(g, _)
             | GroupRpc::ClientWrite(g, _)
             | GroupRpc::ReadBarrier(g)
-            | GroupRpc::ReadPage(g, _) => *g,
+            | GroupRpc::ReadPage(g, _)
+            | GroupRpc::Membership(g, _) => *g,
         }
     }
 }
@@ -769,6 +776,7 @@ pub enum GroupRpcReply {
     ClientWrite(Box<Result<super::RaftResponse, String>>),
     ReadBarrier(Result<u64, super::xread::ReadPageError>),
     ReadPage(Result<super::xread::ReadPageReply, super::xread::ReadPageError>),
+    Membership(Result<MembershipOutcome, String>),
 }
 
 // ── heartbeat coalescing wire envelope (CONCEPT:EG-KG.storage.concept-2) ──────────────────
@@ -1170,6 +1178,7 @@ pub(crate) async fn dispatch_group(
             GroupRpc::ReadPage(..) => GroupRpcReply::ReadPage(Err(
                 super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::GroupUnavailable),
             )),
+            GroupRpc::Membership(..) => membership_not_here(),
         },
         Some(raft) => match rpc {
             GroupRpc::Append(_, req) => {
@@ -1222,8 +1231,17 @@ pub(crate) async fn dispatch_group(
             GroupRpc::ReadPage(_, request) => {
                 GroupRpcReply::ReadPage(read_service.read_page(raft, gid, request).await)
             }
+            GroupRpc::Membership(..) => membership_not_here(),
         },
     }
+}
+
+/// A membership frame reaching `dispatch_group` bypassed the node manager that
+/// owns peer registration; refuse it rather than half-apply it.
+fn membership_not_here() -> GroupRpcReply {
+    GroupRpcReply::Membership(Err(
+        "Raft membership changes are served by the node manager".to_string(),
+    ))
 }
 
 /// Forward one engine-internal client write over the authenticated Raft peer

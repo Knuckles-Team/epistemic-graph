@@ -85,7 +85,7 @@
 //! code: the OS thread. Every `#[tokio::test(flavor = "multi_thread", ...)]` cluster
 //! test builds its OWN [`tokio::runtime::Runtime`] with its own freshly spawned worker
 //! threads, torn down when the test ends; no two cluster tests running concurrently
-//! ever share an OS thread. So [`ring_for_current_thread`] now keys the bounded ring
+//! ever share an OS thread. So the capture registry now keys the bounded ring
 //! by [`std::thread::ThreadId`] (`std::thread::current().id()`, guaranteed unique for
 //! the process, never reused) instead of one shared instance: each thread gets its own
 //! independent [`CAPACITY`]-bounded ring, so a chatty thread belonging to a DIFFERENT,
@@ -94,17 +94,21 @@
 //! only the CALLING thread's own ring, so a dump can never contain another test's
 //! events — the property the two-fake-clusters test below proves directly.
 //!
-//! **Residual, narrower limitation:** this scopes by thread, not by "everything one
-//! test does." A cluster test's own background raft workers (heartbeat/replication
-//! loops production code spawns via bare `tokio::spawn`, not `.instrument()`-wrapped)
-//! run on worker threads distinct from whichever thread evaluates the failing
-//! assertion, so a dump taken on the assertion's thread will not automatically include
-//! a sibling worker thread's events from the SAME test. [`render_dump_for_thread`]
-//! remains available for a human who wants a specific thread's ring while
-//! investigating (thread ids appear on every rendered line already). This is a smaller
-//! problem than the one fixed here: it is quiet-vs-quiet noise within one test, never
-//! contamination from an unrelated, concurrently running one.
-
+//! ## EH-534: one ring per tokio RUNTIME, so a test sees its whole cluster
+//!
+//! Per-thread scoping had a gap the EH-287 investigation hit: a cluster test's
+//! raft nodes run their elections and heartbeats on the runtime's worker threads,
+//! not on the thread that evaluates the failing assertion, so the dump held the test
+//! thread's 45 events and none of the election on node 2 that actually caused the
+//! failure. The capture scope is now the tokio runtime the event is emitted from
+//! ([`tokio::runtime::Handle::id`]): every multi-thread cluster test builds its own
+//! runtime, all of its nodes' tasks (and its `spawn_blocking` threads) share that
+//! runtime's ring, and two concurrently running tests still never share one.
+//! Outside a runtime the scope stays the OS thread, as before. The runtime's
+//! threads own its ring and the registry holds it weakly, so a finished test's
+//! ring is freed with its runtime. Lines keep their thread tag.
+//!
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -246,8 +250,8 @@ impl Visit for FieldVisitor {
     }
 }
 
-/// The `tracing_subscriber::Layer` that feeds the calling thread's own
-/// [`Ring`] (see [`ring_for_current_thread`], EH-326). Composed with a
+/// The `tracing_subscriber::Layer` that feeds the emitting scope's
+/// [`Ring`] (see [`ring_for_current_scope`], EH-326/EH-534). Composed with a
 /// [`Targets`] filter in [`install_subscriber`] — this type itself captures
 /// unconditionally whatever the filter lets through.
 struct CaptureLayer;
@@ -270,7 +274,7 @@ where
         event.record(&mut visitor);
         let mut fields = visitor.fields;
         append_ancestor_span_fields(&ctx, event, &mut fields);
-        let Some(ring) = ring_for_current_thread() else {
+        let Some(ring) = ring_for_current_scope() else {
             return;
         };
         ring.push(
@@ -309,39 +313,64 @@ fn thread_tag() -> String {
     format!("{:?}", std::thread::current().id())
 }
 
-/// EH-326: one bounded [`Ring`] per OS thread rather than one shared globally — see
-/// the module docs. The thread OWNS its ring through `OWN_RING`, so the ring is
-/// freed when the thread exits (a long test binary spawns hundreds of short-lived
-/// runtime workers; retaining every one's full ring would grow without bound). The
-/// registry holds only `Weak` handles so [`render_dump_for_thread`] can still reach
-/// a live sibling thread's ring by id.
-static REGISTRY: OnceLock<Mutex<HashMap<ThreadId, Weak<Ring>>>> = OnceLock::new();
+/// What one ring is shared by: the tokio runtime an event is emitted from, or
+/// the OS thread outside any runtime (EH-326, EH-534 -- see the module docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Scope {
+    Runtime(tokio::runtime::Id),
+    Thread(ThreadId),
+}
+
+fn current_scope() -> Scope {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => Scope::Runtime(handle.id()),
+        Err(_) => Scope::Thread(std::thread::current().id()),
+    }
+}
+
+/// Weak handles to every live scope's ring. The scope's threads own the ring
+/// through `OWN_RING`, so it is freed once the last of them exits.
+static REGISTRY: OnceLock<Mutex<HashMap<Scope, Weak<Ring>>>> = OnceLock::new();
 static SETUP: OnceLock<()> = OnceLock::new();
 
 thread_local! {
-    static OWN_RING: Arc<Ring> = register_current_thread_ring();
+    static OWN_RING: RefCell<Option<(Scope, Arc<Ring>)>> = const { RefCell::new(None) };
 }
 
-fn registry() -> &'static Mutex<HashMap<ThreadId, Weak<Ring>>> {
+fn registry() -> &'static Mutex<HashMap<Scope, Weak<Ring>>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Create the calling thread's ring and publish a weak handle to it, pruning the
-/// handles of threads that have already exited.
-fn register_current_thread_ring() -> Arc<Ring> {
-    let ring = Arc::new(Ring::new());
+/// The live ring of `scope`, created on first use; handles of scopes that have
+/// ended are pruned then.
+fn shared_ring(scope: Scope) -> Arc<Ring> {
     let mut map = registry().lock_recovering("raft trace capture registry");
+    if let Some(ring) = map.get(&scope).and_then(Weak::upgrade) {
+        return ring;
+    }
     map.retain(|_, weak| weak.strong_count() > 0);
-    map.insert(std::thread::current().id(), Arc::downgrade(&ring));
+    let ring = Arc::new(Ring::new());
+    map.insert(scope, Arc::downgrade(&ring));
     ring
 }
 
-/// The calling thread's own ring, creating it on first use. Never shared with any
-/// other thread, so a chatty thread belonging to a different, concurrently running
-/// test can never evict this thread's events (EH-326). `None` only while the
-/// thread's locals are being torn down, when the event is dropped.
-fn ring_for_current_thread() -> Option<Arc<Ring>> {
-    OWN_RING.try_with(Arc::clone).ok()
+/// The ring for the calling thread's current scope, cached per thread. `None`
+/// only while the thread's locals are being torn down, when the event is dropped.
+fn ring_for_current_scope() -> Option<Arc<Ring>> {
+    let scope = current_scope();
+    OWN_RING
+        .try_with(|slot| {
+            let mut slot = slot.borrow_mut();
+            match slot.as_ref() {
+                Some((cached, ring)) if *cached == scope => Arc::clone(ring),
+                _ => {
+                    let ring = shared_ring(scope);
+                    *slot = Some((scope, Arc::clone(&ring)));
+                    ring
+                }
+            }
+        })
+        .ok()
 }
 
 /// Install the capturing subscriber as the process's global default `tracing`
@@ -385,23 +414,18 @@ pub(crate) fn init() {
     });
 }
 
-/// Render the calling thread's own ring — never another thread's, and so never
-/// another concurrently running test's (EH-326; see module docs). Used by the panic
-/// hook (which always runs ON the panicking thread) and directly by tests.
+/// Render the calling scope's ring -- its whole tokio runtime inside one, else
+/// its own thread -- and never another concurrently running test's (EH-326,
+/// EH-534). Used by the panic hook (which runs on the panicking thread, inside the
+/// failing test's runtime) and directly by tests.
 pub(crate) fn render_dump() -> String {
-    render_dump_for_thread(std::thread::current().id())
-}
-
-/// Render one specific thread's ring by id, for a human digging into a SIBLING
-/// worker thread of a test whose own dump ([`render_dump`]) didn't have what they
-/// needed — see the "residual, narrower limitation" in the module docs.
-pub(crate) fn render_dump_for_thread(id: ThreadId) -> String {
+    let scope = current_scope();
     let map = registry().lock_recovering("raft trace capture registry");
-    match map.get(&id).and_then(Weak::upgrade) {
+    match map.get(&scope).and_then(Weak::upgrade) {
         Some(ring) => ring.render(),
         None => format!(
-            "=== EH-286/EH-326 raft trace capture: no events recorded for thread {id:?} \
-             (init() never ran on it, it never emitted a matching event, or it has exited) ==="
+            "=== EH-286/EH-326 raft trace capture: no events recorded for {scope:?} \
+             (init() never ran, or nothing in it emitted a matching event) ==="
         ),
     }
 }
@@ -625,6 +649,48 @@ mod tests {
             !noisy_dump.contains(&trigger),
             "the noisy cluster's dump must never contain the quiet cluster's event: {noisy_dump}"
         );
+    }
+
+    /// EH-534: an event emitted on ANOTHER worker thread of the same runtime -- a
+    /// raft node's election task, say -- is in the dump the test thread renders,
+    /// and an event from a different runtime is not.
+    #[test]
+    fn a_runtime_dump_holds_every_worker_thread_and_no_other_runtime() {
+        init();
+        let run_tag = format!("{}-{:?}", std::process::id(), std::thread::current().id());
+        let worker_event = format!("ELECTION-{run_tag}");
+        let foreign_event = format!("FOREIGN-{run_tag}");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .build()
+            .unwrap();
+        let foreign = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .build()
+            .unwrap();
+        let test_thread = std::thread::current().id();
+        let emitted_elsewhere = runtime.block_on(async {
+            let event = worker_event.clone();
+            tokio::spawn(async move {
+                tracing::debug!(target: "openraft::core", "{event}");
+                std::thread::current().id()
+            })
+            .await
+            .unwrap()
+        });
+        foreign.block_on(async {
+            let event = foreign_event.clone();
+            tokio::spawn(async move { tracing::debug!(target: "openraft::core", "{event}") })
+                .await
+                .unwrap();
+        });
+        assert_ne!(
+            emitted_elsewhere, test_thread,
+            "spawned onto a worker thread"
+        );
+        let dump = runtime.block_on(async { render_dump() });
+        assert!(dump.contains(&worker_event), "{dump}");
+        assert!(!dump.contains(&foreign_event), "{dump}");
     }
 
     /// The ring itself, isolated from the global one, doesn't leak state across
