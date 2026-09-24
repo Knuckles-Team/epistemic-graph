@@ -247,7 +247,8 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
         Method::ClearLedger | Method::ApplyLedger { .. } => Some("__ledger"),
         Method::CompactNodesByType { .. } => Some("__compact_nodes_by_type"),
         _ => source_ingestion_marker_event_id(method)
-            .or_else(|| fleet_catalog_marker_event_id(method)),
+            .or_else(|| fleet_catalog_marker_event_id(method))
+            .or_else(|| telemetry_derive_marker_event_id(method)),
     }
 }
 
@@ -256,6 +257,13 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
 /// whose own node events are the real ones. Reads emit nothing.
 fn fleet_catalog_marker_event_id(method: &Method) -> Option<&'static str> {
     matches!(method, Method::FleetCatalog { op } if op.is_mutation()).then_some("__fleet_catalog")
+}
+
+/// EH-408/EH-409: defense-in-depth, like the fleet catalog's marker -- the
+/// derivation self-translates into one `BatchUpdate`, whose own node and edge
+/// events are the real ones.
+fn telemetry_derive_marker_event_id(method: &Method) -> Option<&'static str> {
+    matches!(method, Method::TelemetryDerive { .. }).then_some("__telemetry_derive")
 }
 
 fn source_ingestion_marker_event_id(method: &Method) -> Option<&'static str> {

@@ -14,6 +14,7 @@ use crate::semantic_index::{
 use crate::source_ingestion::{
     SourceIngestStatus as SourceIngestStatusBody, SourceIngestionReceipt,
 };
+use crate::telemetry_derive::TelemetryDeriveReceipt;
 #[cfg(feature = "modality-serving")]
 mod modality;
 mod semantic;
@@ -48,6 +49,8 @@ method_results! {
     AddEmbedding(AddEmbedding) => Text<String>;
     SourceIngest(SourceIngest) => Raw<SourceIngestionReceipt>;
     SourceIngestStatus(SourceIngestStatus) => Raw<SourceIngestStatusBody>;
+    // EH-408 / EH-409: counts plus the id of every fact node written.
+    TelemetryDerive(TelemetryDerive) => Raw<TelemetryDeriveReceipt>;
     // `(node_id, weighted_similarity)` pairs, best first.
     SemanticSearch(SemanticSearch) => Raw<Vec<(String, f32)>>;
     Discover(Discover) => Json<Vec<DiscoverHit>>;
