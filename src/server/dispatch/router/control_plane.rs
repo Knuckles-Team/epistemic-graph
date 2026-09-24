@@ -312,6 +312,13 @@ pub(super) async fn dispatch_graph_translated_op_families(
             ))
             .await
         }
+        // EH-346: the kernel write behind PolicyEvolution is engine-internal;
+        // the handler dispatches it straight into the graph pipeline, never
+        // through this wire-facing chain.
+        Method::PolicyEvolutionStore { .. } => Response::err(
+            req.id,
+            eg_types::policy_evolution::PolicyRefusal::NativeAuthorityRequired.to_string(),
+        ),
         other => return ControlFlow::Continue(other),
     };
     ControlFlow::Break(response)
