@@ -2,6 +2,7 @@
 //! outcome aggregate. The logged game is the evaluated slates; a split is computed only
 //! from sub-slates that were themselves assembled and evaluated at `min_support`.
 
+use super::consumer_tests::evaluate_assembly;
 use super::*;
 use crate::server::persistence::decision_record::tests as v1;
 use eg_types::agent_component::ComponentDependency;
@@ -56,24 +57,8 @@ fn commit_slate(
 
 /// `successes` of 10 independent evaluations of slate `graph`.
 async fn evaluate_slate(h: &Harness, graph: &str, successes: usize) {
-    let evaluator = VerifiedRequestContext::verified_for_test_in_tenant("evaluator", v1::TENANT);
-    for n in 0..10 {
-        let op = DecisionLogOp::Evaluate {
-            tenant_id: v1::TENANT.to_string(),
-            evaluation: DecisionOutcomeEvaluation {
-                record_id: format!("decision:slate-{graph}"),
-                evaluation_id: format!("e-{n}"),
-                class: EvidenceClass::Observation,
-                selected_agent: "agent".to_string(),
-                lease_holder: "worker".to_string(),
-                fidelity: OutcomeFidelity::FullStep,
-                success: Some(n < successes),
-            },
-        };
-        let _: StoredEvaluation =
-            decode(super::super::log::handle_decision_log(&h.state, 40, &evaluator, op).await)
-                .unwrap();
-    }
+    let outcomes: Vec<bool> = (0..10).map(|n| n < successes).collect();
+    evaluate_assembly(h, &format!("decision:slate-{graph}"), &outcomes).await;
 }
 
 async fn split(h: &Harness, method: SlateAttributionMethod) -> Result<SlateAttribution, String> {
