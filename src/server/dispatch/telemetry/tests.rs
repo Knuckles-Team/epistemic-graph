@@ -10,12 +10,12 @@ use eg_stream::telemetry::{
 };
 use serde_json::json;
 
-use super::classes::bindable_types;
+use super::classes::{bindable_types, ontology_digest, BindableTypes, ClassificationCache};
 use super::collect::{log_signal, require_tenant_streams, stream_in_tenant, Window};
 use super::declarations::declarations_from;
 use super::materialize::{fact_batch, FactOwner};
 use crate::algorithms::{decode_batch_operations, BatchOperation};
-use crate::graph::GraphSchemaSources;
+use crate::graph::{GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin};
 use crate::server::obs::LogRecord;
 
 fn node(id: &str, properties: serde_json::Value) -> (String, Vec<u8>) {
@@ -94,13 +94,15 @@ fn the_ontology_decides_which_node_types_bind() {
     ] {
         assert_eq!(targets(node_type), [class], "{node_type}");
     }
-    // A Pod is scheduled BY a Workload; it is not one, so it binds as nothing.
-    assert!(targets("Pod").is_empty());
+    // A Pod is scheduled BY a Workload; it is not one. It binds as a Pod.
+    assert_eq!(targets("Pod"), [EntityClass::Pod]);
     assert!(targets("Document").is_empty());
 }
 
-#[test]
-fn declarations_come_from_visible_individuals_of_subsumed_types_only() {
+/// A graph of fleet individuals: services, a deployment, two pods (one
+/// `scheduledBy` the deployment, one only `runsOn` it), a document and a
+/// service with no declaration.
+fn fleet_core() -> GraphCore {
     let core = GraphCore::new();
     for (id, properties) in [
         node(
@@ -128,6 +130,11 @@ fn declarations_come_from_visible_individuals_of_subsumed_types_only() {
                    {"k8s.namespace.name": "shop", "k8s.pod.name": "cart-1"}}),
         ),
         node(
+            "pod:orphan",
+            json!({"type": "Pod", "resolution_keys":
+                   {"k8s.namespace.name": "shop", "k8s.pod.name": "orphan"}}),
+        ),
+        node(
             "doc:1",
             json!({"type": "Document", "resolution_keys": {"service.name": "checkout"}}),
         ),
@@ -135,8 +142,28 @@ fn declarations_come_from_visible_individuals_of_subsumed_types_only() {
     ] {
         core.add_node(id, properties);
     }
+    for (source, target, relationship) in [
+        ("pod:cart-1", "deploy:shop/cart", "scheduledBy"),
+        ("pod:orphan", "deploy:shop/cart", "runsOn"),
+    ] {
+        core.add_edge(
+            source.into(),
+            target.into(),
+            rmp_serde::to_vec_named(&json!({ "relationship": relationship })).unwrap(),
+        )
+        .unwrap();
+    }
+    core
+}
+
+fn fleet_declarations() -> super::declarations::ReadDeclarations {
     let types = bindable_types(&GraphSchemaSources::default()).unwrap();
-    let read = declarations_from(&core, &types, |id, _| id != "svc:hidden");
+    declarations_from(&fleet_core(), &types, |id, _| id != "svc:hidden")
+}
+
+#[test]
+fn declarations_come_from_visible_individuals_of_subsumed_types_only() {
+    let read = fleet_declarations();
     let entities: Vec<_> = read
         .declarations
         .entities
@@ -147,6 +174,8 @@ fn declarations_come_from_visible_individuals_of_subsumed_types_only() {
         entities,
         [
             (EntityClass::Deployment, "deploy:shop/cart"),
+            (EntityClass::Pod, "pod:cart-1"),
+            (EntityClass::Pod, "pod:orphan"),
             (EntityClass::Service, "svc:checkout"),
         ]
     );
@@ -159,6 +188,20 @@ fn declarations_come_from_visible_individuals_of_subsumed_types_only() {
         read.invalid, 2,
         "svc:bad's keys and health are both unusable"
     );
+}
+
+#[test]
+fn a_scheduled_by_edge_declares_that_a_pod_rolls_up_to_its_workload() {
+    let read = fleet_declarations();
+    // Only the declared `scheduledBy` edge is a roll-up relation.
+    let [aggregation] = read.declarations.aggregations.as_slice() else {
+        panic!("one aggregation: {:?}", read.declarations.aggregations);
+    };
+    assert_eq!(
+        (aggregation.part.id.as_str(), aggregation.whole.id.as_str()),
+        ("pod:cart-1", "deploy:shop/cart")
+    );
+    assert_eq!(aggregation.whole.class, EntityClass::Deployment);
 }
 
 #[test]
@@ -220,4 +263,75 @@ fn an_empty_derivation_writes_nothing() {
     assert!(fact_batch(&FactGraph::default(), &owner)
         .unwrap()
         .is_empty());
+}
+
+fn operator_source(ontology: Option<&str>, shapes: Option<&str>) -> GraphSchemaSource {
+    GraphSchemaSource::new(
+        SchemaSourceOrigin::Operator,
+        shapes.map(Into::into),
+        ontology.map(Into::into),
+        0,
+    )
+    .unwrap()
+}
+
+#[test]
+fn classification_is_cached_by_ontology_digest() {
+    let fresh = || Ok(std::sync::Arc::new(BindableTypes::default()));
+    let cache = ClassificationCache::default();
+    let core = GraphSchemaSources::default();
+    let core_key = ontology_digest(&core).unwrap();
+
+    cache.get_or_classify(core_key, fresh).unwrap();
+    cache.get_or_classify(core_key, fresh).unwrap();
+    assert_eq!(cache.classifications(), 1, "an unchanged digest is a hit");
+
+    // Shapes do not change the class hierarchy, so they do not change the key.
+    let mut shapes_only = core.clone();
+    shapes_only.dynamic.insert(
+        "shapes".into(),
+        operator_source(None, Some("@prefix sh: <http://www.w3.org/ns/shacl#> .")),
+    );
+    assert_eq!(ontology_digest(&shapes_only).unwrap(), core_key);
+
+    // An attached ontology does.
+    let mut extended = core.clone();
+    extended.dynamic.insert(
+        "extra".into(),
+        operator_source(
+            Some("<urn:x:Probe> a <http://www.w3.org/2002/07/owl#Class> ."),
+            None,
+        ),
+    );
+    let extended_key = ontology_digest(&extended).unwrap();
+    assert_ne!(extended_key, core_key);
+    cache.get_or_classify(extended_key, fresh).unwrap();
+    assert_eq!(cache.classifications(), 2, "a changed digest is a miss");
+    cache.get_or_classify(core_key, fresh).unwrap();
+    assert_eq!(
+        cache.classifications(),
+        2,
+        "the older entry is still resident"
+    );
+
+    // A failed classification is not cached.
+    let failing = eg_types::contract::Digest256::sha256(b"failing");
+    assert!(cache
+        .get_or_classify(failing, || Err("no".to_string()))
+        .is_err());
+    cache.get_or_classify(failing, fresh).unwrap();
+    assert_eq!(cache.classifications(), 4);
+
+    // Bounded: sixteen newer identities evict the least recently used one.
+    for index in 0..16u8 {
+        let key = eg_types::contract::Digest256::sha256(&[index]);
+        cache.get_or_classify(key, fresh).unwrap();
+    }
+    let before = cache.classifications();
+    cache.get_or_classify(extended_key, fresh).unwrap();
+    assert_eq!(
+        cache.classifications(),
+        before + 1,
+        "evicted, so classified again"
+    );
 }

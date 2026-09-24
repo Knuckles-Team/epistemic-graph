@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::binding::{DeclaredEntity, EntityDirectory, ResolutionPolicy};
+use super::binding::{Aggregation, DeclaredEntity, EntityDirectory, ResolutionPolicy};
 use super::conformance::{check_conformance, ConformanceViolation, DeclaredState};
 use super::derive::{
     correlate_incidents, detect_anomalies, AnomalyRule, HealthAnomaly, Incident, IncidentRule,
@@ -29,6 +29,9 @@ pub struct Declarations {
     pub entities: Vec<DeclaredEntity>,
     #[serde(default)]
     pub health: Vec<DeclaredState>,
+    /// Part-of relations behaviour also rolls up along (a Pod → its Workload).
+    #[serde(default)]
+    pub aggregations: Vec<Aggregation>,
 }
 
 /// Every fact derived from one batch of telemetry.
@@ -49,7 +52,8 @@ pub fn derive_facts(
     declarations: &Declarations,
     signals: &[TelemetrySignal],
 ) -> TelemetryFacts {
-    let directory = EntityDirectory::build(&policy.resolution, &declarations.entities);
+    let directory = EntityDirectory::build(&policy.resolution, &declarations.entities)
+        .with_aggregations(&declarations.aggregations);
     let report = rollup(&policy.rollup, &directory, signals);
     let anomalies = detect_anomalies(&policy.anomalies, &report.observations);
     let incidents = correlate_incidents(&policy.incidents, &anomalies);
