@@ -8,11 +8,15 @@
 //!
 //! `pack:` and `ingest:` are reserved key prefixes. A source under one of them
 //! is owned by an importer, so an operator attaching there by hand would be
-//! forging the provenance the key asserts.
+//! forging the provenance the key asserts. `approved:` is reserved the same
+//! way: only [`GraphSchemaOp::AttachApproved`] writes it, and only with an
+//! approval record naming the exact candidate (see [`approval`]).
 
 use serde::{Deserialize, Serialize};
 
 use crate::contract::{closed_error_codes, BoundedVec, ResourceId};
+
+pub mod approval;
 
 /// Format identity (RF-ADR-006) of the schema-source views.
 pub const GRAPH_SCHEMA_RESULT_SCHEMA_VERSION: u16 = 1;
@@ -27,7 +31,7 @@ pub const MAX_SCHEMA_DOCUMENT_BYTES: usize = 2 << 20;
 pub const MAX_SCHEMA_SOURCE_ID_BYTES: usize = 128;
 
 /// Key prefixes only an importer may write.
-pub const RESERVED_SCHEMA_SOURCE_PREFIXES: &[&str] = &["core:", "pack:", "ingest:"];
+pub const RESERVED_SCHEMA_SOURCE_PREFIXES: &[&str] = &["core:", "pack:", "ingest:", "approved:"];
 
 /// Attach, replace or detach one keyed schema source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +62,22 @@ pub enum GraphSchemaOp {
         #[serde(default)]
         if_composed_digest: Option<String>,
     },
+    /// EH-403: attach or replace a governed candidate under `approved:<name>`.
+    /// The engine refuses it unless `approval_lease_id` names an approved
+    /// (`consumed`), unexpired `action.approval` control lease of the caller's
+    /// tenant whose grant binds this exact candidate (see [`approval`]). A
+    /// proposed schema change therefore never reaches the ontology without an
+    /// approval record.
+    AttachApproved {
+        source_id: String,
+        #[serde(default)]
+        shapes_ttl: Option<String>,
+        #[serde(default)]
+        ontology_ttl: Option<String>,
+        approval_lease_id: String,
+        #[serde(default)]
+        if_composed_digest: Option<String>,
+    },
 }
 
 impl GraphSchemaOp {
@@ -73,13 +93,16 @@ impl GraphSchemaOp {
             Self::Attach { .. } => "attach",
             Self::AttachPack { .. } => "attach_pack",
             Self::Detach { .. } => "detach",
+            Self::AttachApproved { .. } => "attach_approved",
         }
     }
 
     /// The audit token naming the source key it was done to.
     pub fn source_token(&self) -> &str {
         match self {
-            Self::Attach { source_id, .. } | Self::Detach { source_id, .. } => source_id,
+            Self::Attach { source_id, .. }
+            | Self::Detach { source_id, .. }
+            | Self::AttachApproved { source_id, .. } => source_id,
             Self::AttachPack { connector, .. } => connector.as_str(),
         }
     }
@@ -94,6 +117,9 @@ impl GraphSchemaOp {
                 if_composed_digest, ..
             }
             | Self::Detach {
+                if_composed_digest, ..
+            }
+            | Self::AttachApproved {
                 if_composed_digest, ..
             } => if_composed_digest.as_deref(),
         }
@@ -124,16 +150,31 @@ fn validate_operation_payload(operation: &GraphSchemaOp) -> Result<(), String> {
             ..
         } => {
             validate_source_id(source_id)?;
-            validate_document("shapes_ttl", shapes_ttl.as_deref())?;
-            validate_document("ontology_ttl", ontology_ttl.as_deref())?;
-            if shapes_ttl.is_none() && ontology_ttl.is_none() {
-                return Err("graph schema attach needs at least one document".to_string());
-            }
-            Ok(())
+            validate_documents(shapes_ttl.as_deref(), ontology_ttl.as_deref())
         }
         GraphSchemaOp::AttachPack { .. } => Ok(()),
         GraphSchemaOp::Detach { source_id, .. } => validate_source_id(source_id),
+        GraphSchemaOp::AttachApproved {
+            source_id,
+            shapes_ttl,
+            ontology_ttl,
+            approval_lease_id,
+            ..
+        } => {
+            approval::validate_approved_source_id(source_id)?;
+            approval::validate_approval_lease_id(approval_lease_id)?;
+            validate_documents(shapes_ttl.as_deref(), ontology_ttl.as_deref())
+        }
     }
+}
+
+fn validate_documents(shapes_ttl: Option<&str>, ontology_ttl: Option<&str>) -> Result<(), String> {
+    validate_document("shapes_ttl", shapes_ttl)?;
+    validate_document("ontology_ttl", ontology_ttl)?;
+    if shapes_ttl.is_none() && ontology_ttl.is_none() {
+        return Err("graph schema attach needs at least one document".to_string());
+    }
+    Ok(())
 }
 
 /// Whether `source_id` is owned by an importer rather than an operator.
@@ -144,6 +185,12 @@ pub fn is_reserved_schema_source(source_id: &str) -> bool {
 }
 
 fn validate_source_id(source_id: &str) -> Result<(), String> {
+    validate_source_key_shape(source_id)?;
+    validate_source_namespace(source_id)
+}
+
+/// Length and printability of any schema source key.
+fn validate_source_key_shape(source_id: &str) -> Result<(), String> {
     if source_id.is_empty() || source_id.len() > MAX_SCHEMA_SOURCE_ID_BYTES {
         return Err(format!(
             "graph schema source id must be 1..={MAX_SCHEMA_SOURCE_ID_BYTES} bytes"
@@ -152,7 +199,7 @@ fn validate_source_id(source_id: &str) -> Result<(), String> {
     if source_id.chars().any(char::is_control) {
         return Err("graph schema source id carries a control character".to_string());
     }
-    validate_source_namespace(source_id)
+    Ok(())
 }
 
 fn validate_source_namespace(source_id: &str) -> Result<(), String> {
@@ -200,6 +247,11 @@ pub enum SchemaSourceOriginView {
     Ingestion {
         mapping: String,
         revision: u64,
+    },
+    /// EH-403: attached by `AttachApproved` under the named approval lease.
+    Approved {
+        name: String,
+        approval_lease_id: String,
     },
 }
 
@@ -268,6 +320,10 @@ closed_error_codes! {
         ComposedDigestMismatch => "COMPOSED_DIGEST_MISMATCH",
         /// The engine has no snapshot-bound connector-pack body resolver.
         AttachPackResolverUnavailable => "ATTACH_PACK_RESOLVER_UNAVAILABLE",
+        /// `AttachApproved` found no approved, unexpired approval lease.
+        ApprovalRequired => "SCHEMA_APPROVAL_REQUIRED",
+        /// The approval lease approves a different candidate or action.
+        ApprovalMismatch => "SCHEMA_APPROVAL_MISMATCH",
     }
 }
 
@@ -286,7 +342,7 @@ mod tests {
 
     #[test]
     fn operator_and_importer_owned_keys_are_not_generic_attach_targets() {
-        for source_id in ["operator", "core:x@1", "pack:x", "ingest:x"] {
+        for source_id in ["operator", "core:x@1", "pack:x", "ingest:x", "approved:x"] {
             let error = attach(source_id, Some("valid".to_string()))
                 .validate()
                 .unwrap_err();
