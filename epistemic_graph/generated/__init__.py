@@ -485,6 +485,7 @@ SEND_BY_METHOD = {
     "UpdateCapacityCell": coordination.send_update_capacity_cell,
     "UpdateDevelopmentLaneQuota": coordination.send_update_development_lane_quota,
     "UpdateResourceHost": coordination.send_update_resource_host,
+    "Uql": query.send_uql,
     "VerifyWorkItemClaimCapability": (
         coordination.send_verify_work_item_claim_capability
     ),

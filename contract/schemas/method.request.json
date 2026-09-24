@@ -21412,6 +21412,81 @@
         }
       ]
     },
+    "UqlParam": {
+      "description": "A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound\nvalues are substituted into the parsed plan as typed literals — never spliced into\nthe text — so a parameter can never change the query's structure.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Str": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Str"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Num": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "Num"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Bool": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Bool"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A query vector (`RANK BY ~$v`).",
+          "properties": {
+            "Vector": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Vector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A literal list (`x IN $values`).",
+          "properties": {
+            "List": {
+              "items": {
+                "$ref": "#/$defs/PredLiteral"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "List"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "VarId": {
       "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
       "format": "uint32",
@@ -38437,6 +38512,39 @@
           },
           "required": [
             "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "Uql": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "Uql",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "additionalProperties": {
+                "$ref": "#/$defs/UqlParam"
+              },
+              "default": {},
+              "type": "object"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
           ],
           "type": "object"
         }

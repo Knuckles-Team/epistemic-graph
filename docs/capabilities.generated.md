@@ -352,6 +352,7 @@
 | `KnowledgeStream` | false | None | `query:stream` | true | false | false | Snapshot | one RequestContext/RLS/placement-bound stream with the sole native Arrow IPC projection for all seven query families |
 | `UnifiedQuery` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `UnifiedQueryText` | false | None | `query:unified` | true | false | false | Snapshot |  |
+| `Uql` | false | None | `query:unified` | true | false | false | Snapshot | UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenance` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenanceByIds` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile |

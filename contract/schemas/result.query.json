@@ -23043,6 +23043,39 @@
         },
         {
           "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "Uql",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "params": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/UqlParam"
+                  },
+                  "default": {},
+                  "type": "object"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "`EXPLAIN PLAN` — serialize `plan` as a [`crate::wire::Plan`]::PlanDag conversion\n(a linear plan is a degenerate chain, CONCEPT:EG-KG.query.plan-dag) both BEFORE and\nAFTER the DAG-aware cost optimizer (`eg_plan::optimizer::optimize_dag`), plus the\nactive rule set (`eg_plan::cost_opt_rule_names()`) — the optimizer rewrite trace.\nReturns an `ExplainPlanResult` via `ResultPayload::raw`. Gated `query` (same as\n`UnifiedQuery`).",
           "properties": {
             "method": {
@@ -40004,6 +40037,283 @@
         }
       ]
     },
+    "UqlParam": {
+      "description": "A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound\nvalues are substituted into the parsed plan as typed literals — never spliced into\nthe text — so a parameter can never change the query's structure.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Str": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Str"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Num": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "Num"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Bool": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Bool"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A query vector (`RANK BY ~$v`).",
+          "properties": {
+            "Vector": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Vector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A literal list (`x IN $values`).",
+          "properties": {
+            "List": {
+              "items": {
+                "$ref": "#/$defs/PredLiteral"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "List"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UqlResult": {
+      "description": "The result of a `Method::Uql` statement (UQL-07/08/09).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Executed rows; `columns` are the `RETURN`ed score channels.",
+          "properties": {
+            "Rows": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "items": {
+                    "$ref": "#/$defs/UqlRow"
+                  },
+                  "type": "array"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "warnings"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Rows"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`EXPLAIN`: the canonical and the optimized plan, per-stage estimates, and\nwhether the plan is incrementally maintainable (with the reason when not).",
+          "properties": {
+            "Explain": {
+              "properties": {
+                "canonical": {
+                  "type": "string"
+                },
+                "incremental": {
+                  "type": "boolean"
+                },
+                "incremental_note": {
+                  "type": "string"
+                },
+                "optimized": {
+                  "type": "string"
+                },
+                "stages": {
+                  "items": {
+                    "$ref": "#/$defs/UqlStageReport"
+                  },
+                  "type": "array"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "canonical",
+                "optimized",
+                "stages",
+                "incremental",
+                "incremental_note",
+                "warnings"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Explain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PROFILE`: the rows plus per-stage actual rows and time.",
+          "properties": {
+            "Profile": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "items": {
+                    "$ref": "#/$defs/UqlRow"
+                  },
+                  "type": "array"
+                },
+                "stages": {
+                  "items": {
+                    "$ref": "#/$defs/UqlStageReport"
+                  },
+                  "type": "array"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "stages",
+                "warnings"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Profile"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UqlRow": {
+      "description": "One result row of a UQL statement (UQL-08): `id`, the final `score`, and the value of\neach requested score channel (aligned to [`UqlResult`]'s `columns`; `None` where no\nstage produced that channel for the row).",
+      "properties": {
+        "channels": {
+          "items": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "channels"
+      ],
+      "type": "object"
+    },
+    "UqlStageReport": {
+      "description": "One pipeline stage in an `EXPLAIN` / `PROFILE` report (UQL-09).",
+      "properties": {
+        "estimated_rows": {
+          "description": "The cost model's estimated output rows.",
+          "format": "double",
+          "type": "number"
+        },
+        "micros": {
+          "description": "Wall time in microseconds (`PROFILE` only).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rows": {
+          "description": "Actual output rows (`PROFILE` only).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stage": {
+          "description": "The stage in canonical UQL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "estimated_rows"
+      ],
+      "type": "object"
+    },
     "VarId": {
       "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
       "format": "uint32",
@@ -41456,6 +41766,18 @@
               "type": "array"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Uql": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/UqlResult"
           }
         }
       },
