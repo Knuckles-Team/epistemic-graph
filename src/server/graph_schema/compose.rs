@@ -703,7 +703,9 @@ ex:parent a owl:AsymmetricProperty .
         // life, environment and nutrition modules (145 + 71 + 114), their catalog imports
         // (3) and the foundation's world-model vocabulary (138).
         // +8: infrastructure `:BehaviourObservation` and `:ConformanceViolation` (EH-408/409).
-        assert_eq!(composed.ontology.len(), 13_177);
+        // +12: `:Deployment` ⊑ `:Workload`, `:K8sService`/`:SwarmService` ⊑ `:Service`
+        // (EH-408/410 subsumption binding).
+        assert_eq!(composed.ontology.len(), 13_189);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -735,9 +737,10 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 33);
         assert_eq!(imports, 67);
-        // +8 (EH-408/409): infrastructure :BehaviourObservation and
-        // :ConformanceViolation, 4 axioms each.
-        assert_eq!(semantic_axioms, 13_005);
+        // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
+        // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
+        // 4 axioms each.
+        assert_eq!(semantic_axioms, 13_017);
 
         let count_type = |object: &str| {
             composed
@@ -786,7 +789,8 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            412
+            // +5 (EH-408/409/410): the five infrastructure classes above.
+            417
         );
     }
 
