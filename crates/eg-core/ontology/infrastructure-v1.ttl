@@ -116,6 +116,21 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
 (CONCEPT:KG-2.158).""" ;
     rdfs:subClassOf bfo:0000015 .
 
+:Deployment a owl:Class ;
+    rdfs:label "Deployment" ;
+    rdfs:comment "A Kubernetes Deployment: the :Workload controller that keeps a replica set of stateless :Pod replicas at its declared spec (producer: container-manager). EH-410: telemetry carrying its k8s.namespace.name + k8s.deployment.name binds to it as a :Workload." ;
+    rdfs:subClassOf :Workload .
+
+:K8sService a owl:Class ;
+    rdfs:label "Kubernetes Service" ;
+    rdfs:comment "A Kubernetes Service: the stable network identity in front of a set of :Pod replicas (producer: container-manager) -- a :Service of the service-health layer." ;
+    rdfs:subClassOf :Service .
+
+:SwarmService a owl:Class ;
+    rdfs:label "Swarm Service" ;
+    rdfs:comment "A Docker Swarm service: a replicated container service with a routed virtual IP (producer: container-manager) -- a :Service of the service-health layer." ;
+    rdfs:subClassOf :Service .
+
 :Workload a owl:Class ;
     rdfs:label "Workload" ;
     rdfs:comment "The desired-state controller owning a set of :Pod replicas (Deployment/StatefulSet/DaemonSet) — specializes the existing :ContainerStack for the orchestration layer." ;

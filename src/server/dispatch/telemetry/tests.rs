@@ -10,10 +10,12 @@ use eg_stream::telemetry::{
 };
 use serde_json::json;
 
+use super::classes::bindable_types;
 use super::collect::{log_signal, require_tenant_streams, stream_in_tenant, Window};
 use super::declarations::declarations_from;
 use super::materialize::{fact_batch, FactOwner};
 use crate::algorithms::{decode_batch_operations, BatchOperation};
+use crate::graph::GraphSchemaSources;
 use crate::server::obs::LogRecord;
 
 fn node(id: &str, properties: serde_json::Value) -> (String, Vec<u8>) {
@@ -64,13 +66,46 @@ fn a_stored_log_record_becomes_a_log_signal() {
     assert_eq!(signal.attributes["service.name"], "checkout");
 }
 
+fn targets(node_type: &str) -> Vec<EntityClass> {
+    let types = bindable_types(&GraphSchemaSources::default()).unwrap();
+    types
+        .targets(node_type)
+        .map(|set| set.iter().copied().collect())
+        .unwrap_or_default()
+}
+
 #[test]
-fn declarations_come_from_visible_bindable_individuals_only() {
+fn the_ontology_decides_which_node_types_bind() {
+    // Subsumption in infrastructure-v1, not a list: K8sService/SwarmService ⊑
+    // Service, Deployment ⊑ Workload.
+    assert_eq!(targets("K8sService"), [EntityClass::Service]);
+    assert_eq!(targets("SwarmService"), [EntityClass::Service]);
+    assert_eq!(targets("Deployment"), [EntityClass::Deployment]);
+    assert_eq!(
+        targets("http://knuckles.team/kg/infrastructure#K8sService"),
+        [EntityClass::Service]
+    );
+    for (node_type, class) in [
+        ("Server", EntityClass::Server),
+        ("Service", EntityClass::Service),
+        ("Host", EntityClass::Host),
+        ("Workload", EntityClass::Deployment),
+        ("Agent", EntityClass::Agent),
+    ] {
+        assert_eq!(targets(node_type), [class], "{node_type}");
+    }
+    // A Pod is scheduled BY a Workload; it is not one, so it binds as nothing.
+    assert!(targets("Pod").is_empty());
+    assert!(targets("Document").is_empty());
+}
+
+#[test]
+fn declarations_come_from_visible_individuals_of_subsumed_types_only() {
     let core = GraphCore::new();
     for (id, properties) in [
         node(
             "svc:checkout",
-            json!({"type": "Service", "resolution_keys": {"service.name": "checkout"},
+            json!({"type": "K8sService", "resolution_keys": {"service.name": "checkout"},
                    "declared_health": {"health": "healthy", "max_error_ratio": 0.05}}),
         ),
         node(
@@ -79,12 +114,18 @@ fn declarations_come_from_visible_bindable_individuals_only() {
         ),
         node(
             "svc:bad",
-            json!({"type": "Service", "resolution_keys": {"service.name": 7},
-                               "declared_health": {"health": "sometimes"}}),
+            json!({"type": "SwarmService", "resolution_keys": {"service.name": 7},
+                   "declared_health": {"health": "sometimes"}}),
         ),
         node(
-            "host:r820",
-            json!({"type": "Host", "resolution_keys": {"host.name": "r820"}}),
+            "deploy:shop/cart",
+            json!({"type": "Deployment", "resolution_keys":
+                   {"k8s.namespace.name": "shop", "k8s.deployment.name": "cart"}}),
+        ),
+        node(
+            "pod:cart-1",
+            json!({"type": "Pod", "resolution_keys":
+                   {"k8s.namespace.name": "shop", "k8s.pod.name": "cart-1"}}),
         ),
         node(
             "doc:1",
@@ -94,7 +135,8 @@ fn declarations_come_from_visible_bindable_individuals_only() {
     ] {
         core.add_node(id, properties);
     }
-    let read = declarations_from(&core, |id, _| id != "svc:hidden");
+    let types = bindable_types(&GraphSchemaSources::default()).unwrap();
+    let read = declarations_from(&core, &types, |id, _| id != "svc:hidden");
     let entities: Vec<_> = read
         .declarations
         .entities
@@ -104,8 +146,8 @@ fn declarations_come_from_visible_bindable_individuals_only() {
     assert_eq!(
         entities,
         [
+            (EntityClass::Deployment, "deploy:shop/cart"),
             (EntityClass::Service, "svc:checkout"),
-            (EntityClass::Host, "host:r820"),
         ]
     );
     let [health] = read.declarations.health.as_slice() else {
