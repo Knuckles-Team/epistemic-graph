@@ -67,14 +67,14 @@ impl Method {
 
     /// The typed refusal a carrier answers for this inner method, if any.
     pub fn carrier_refusal_message(&self) -> Option<String> {
-        let name: &'static str = self.into();
+        let name = self.tag_name();
         self.carrier_refusal()
             .map(|refusal| format!("{CARRIER_REFUSAL_CODE}: {name} ({})", refusal.reason()))
     }
 
     /// The typed refusal for a caller naming an engine-internal method.
     pub fn engine_internal_message(&self) -> Option<String> {
-        let name: &'static str = self.into();
+        let name = self.tag_name();
         (!self.is_wire_callable()).then(|| format!("{ENGINE_INTERNAL_CODE}: {name}"))
     }
 }
