@@ -40,13 +40,36 @@ pub fn graph_schema_ops() -> Vec<(&'static str, GraphSchemaOp)> {
             "GraphSchema.attach_approved",
             GraphSchemaOp::AttachApproved {
                 source_id: "approved:contract-sample".to_string(),
-                shapes_ttl: Some("@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string()),
-                ontology_ttl: None,
+                contract: repair_contract(),
                 approval_lease_id: "action_approval:contract-sample".to_string(),
                 if_composed_digest: Some(super::digest_text(0xd3)),
             },
         ),
+        (
+            "GraphSchema.validate_repair",
+            GraphSchemaOp::ValidateRepair {
+                source_id: "approved:contract-sample".to_string(),
+                contract: repair_contract(),
+                if_composed_digest: None,
+            },
+        ),
     ]
+}
+
+/// A one-field repair contract (EH-403 / AUD-27 typed candidate).
+fn repair_contract() -> crate::graph_schema::repair::RecordContract {
+    use crate::graph_schema::repair::{FieldContract, JsonType, RecordContract};
+    RecordContract {
+        fields: [(
+            "name".to_string(),
+            FieldContract {
+                required: true,
+                types: vec![JsonType::String],
+            },
+        )]
+        .into_iter()
+        .collect(),
+    }
 }
 
 fn position() -> OutboxPositionView {

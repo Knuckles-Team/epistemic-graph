@@ -13,6 +13,7 @@ use eg_types::control_lease::{
 use eg_types::graph_schema::approval::{
     approved_candidate_digest, SCHEMA_APPROVAL_ACTION, SCHEMA_APPROVAL_LEASE_KIND,
 };
+use eg_types::graph_schema::repair::{FieldContract, JsonType, RecordContract};
 use eg_types::graph_schema::{
     GraphSchemaCommitted, GraphSchemaSourcesView, SchemaSourceOriginView,
 };
@@ -27,11 +28,23 @@ const TENANT: &str = "tenant-shared";
 const ADMIN: &str = "schema-approval-admin";
 const GRAPH: &str = "drift-live";
 const SOURCE: &str = "approved:container-manager-mcp";
-const SHAPES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
-                      @prefix ex: <http://example/drift#> .\n\
-                      ex:RecordShape a sh:NodeShape ; sh:targetClass ex:Record ; \
-                      sh:property [ sh:path ex:name ; sh:datatype \
-                      <http://www.w3.org/2001/XMLSchema#string> ] .\n";
+fn contract_with(field: &str) -> RecordContract {
+    RecordContract {
+        fields: [(
+            field.to_string(),
+            FieldContract {
+                required: true,
+                types: vec![JsonType::String],
+            },
+        )]
+        .into_iter()
+        .collect(),
+    }
+}
+
+fn contract() -> RecordContract {
+    contract_with("name")
+}
 
 struct Served {
     _dir: tempfile::TempDir,
@@ -137,8 +150,7 @@ impl Served {
     async fn attach_approved(&self, lease_id: &str) -> Response {
         let op = GraphSchemaOp::AttachApproved {
             source_id: SOURCE.to_string(),
-            shapes_ttl: Some(SHAPES.to_string()),
-            ontology_ttl: None,
+            contract: contract(),
             approval_lease_id: lease_id.to_string(),
             if_composed_digest: None,
         };
@@ -166,7 +178,7 @@ fn refusal(response: &Response) -> &str {
 }
 
 fn candidate() -> String {
-    approved_candidate_digest(SOURCE, Some(SHAPES), None)
+    approved_candidate_digest(SOURCE, &contract())
 }
 
 #[tokio::test]
@@ -207,7 +219,7 @@ async fn no_approval_a_pending_approval_or_another_candidates_approval_is_refuse
     let pending = served.attach_approved("action_approval:pending").await;
     assert!(refusal(&pending).contains("still pending"));
 
-    let other = approved_candidate_digest(SOURCE, Some("@prefix ex: <http://example/> ."), None);
+    let other = approved_candidate_digest(SOURCE, &contract_with("title"));
     served.approval("action_approval:other", &other, true).await;
     let mismatched = served.attach_approved("action_approval:other").await;
     assert!(refusal(&mismatched).starts_with("SCHEMA_APPROVAL_MISMATCH"));
@@ -228,7 +240,7 @@ async fn a_generic_attach_cannot_write_the_approved_namespace() {
     let served = Served::new().await;
     let op = GraphSchemaOp::Attach {
         source_id: SOURCE.to_string(),
-        shapes_ttl: Some(SHAPES.to_string()),
+        shapes_ttl: Some("@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string()),
         ontology_ttl: None,
         if_composed_digest: None,
     };
@@ -236,4 +248,26 @@ async fn a_generic_attach_cannot_write_the_approved_namespace() {
         .call(GRAPH, "generic", Method::GraphSchema { op: Box::new(op) })
         .await;
     assert!(refusal(&response).contains("SCHEMA_SOURCE_RESERVED"));
+}
+
+#[tokio::test]
+async fn validate_repair_renders_and_validates_without_attaching() {
+    let served = Served::new().await;
+    let op = GraphSchemaOp::ValidateRepair {
+        source_id: SOURCE.to_string(),
+        contract: contract(),
+        if_composed_digest: None,
+    };
+    let method = Method::GraphSchema { op: Box::new(op) };
+    let validated: GraphSchemaCommitted = decode(served.call(GRAPH, "validate", method).await);
+    assert!(!validated.changed);
+    let listed: GraphSchemaSourcesView = decode(
+        served
+            .call(GRAPH, "list-validate", Method::GraphSchemaList)
+            .await,
+    );
+    assert!(listed
+        .dynamic_sources
+        .iter()
+        .all(|source| source.source_id != SOURCE));
 }

@@ -15,12 +15,13 @@
 //!   `approved:<name>` key as `target`, and the exact candidate as
 //!   `candidate_digest` ([`approved_candidate_digest`]).
 //!
-//! The digest binds the key and both documents, so an approval of one
+//! The digest binds the key and the typed contract, so an approval of one
 //! candidate can never activate another. The check is pure: the served handler
 //! reads the lease and supplies its clock.
 
 use serde_json::Value;
 
+use super::repair::RecordContract;
 use super::GraphSchemaErrorCode;
 use crate::contract::Digest256;
 use crate::control_lease::{ControlLeaseStatus, ControlLeaseView};
@@ -36,22 +37,14 @@ pub const APPROVED_CANDIDATE_DOMAIN: &str = "eg/approved-schema-candidate/v1";
 /// Bound on the approval lease id (the control-lease reference bound).
 const MAX_APPROVAL_LEASE_ID_BYTES: usize = 512;
 
-/// The identity an approval binds: the key plus the SHA-256 of each document
-/// (empty for an absent one), under [`APPROVED_CANDIDATE_DOMAIN`], each part
-/// terminated by a NUL byte. Lower-case hex.
-pub fn approved_candidate_digest(
-    source_id: &str,
-    shapes_ttl: Option<&str>,
-    ontology_ttl: Option<&str>,
-) -> String {
-    let document = |body: Option<&str>| {
-        body.map(|text| Digest256::sha256(text.as_bytes()).to_hex())
-            .unwrap_or_default()
-    };
-    let shapes = document(shapes_ttl);
-    let ontology = document(ontology_ttl);
+/// The identity an approval binds: the key plus the record contract's
+/// canonical JSON ([`super::repair::RecordContract::canonical_json`]), under
+/// [`APPROVED_CANDIDATE_DOMAIN`], each part terminated by a NUL byte. Lower-case
+/// hex. A caller computes it from the same typed contract it sends -- no RDF.
+pub fn approved_candidate_digest(source_id: &str, contract: &RecordContract) -> String {
+    let canonical = contract.canonical_json();
     let mut framed = String::new();
-    for part in [APPROVED_CANDIDATE_DOMAIN, source_id, &shapes, &ontology] {
+    for part in [APPROVED_CANDIDATE_DOMAIN, source_id, &canonical] {
         framed.push_str(part);
         framed.push('\0');
     }

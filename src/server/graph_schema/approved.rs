@@ -42,22 +42,58 @@ async fn admit(tenant_id: &str, ctx: &MutationCtx<'_>, op: &GraphSchemaOp) -> Re
     op.validate()?;
     let GraphSchemaOp::AttachApproved {
         source_id,
-        shapes_ttl,
-        ontology_ttl,
+        contract,
         approval_lease_id,
         ..
     } = op
     else {
         return Err("attach_approved handler received another operation".to_string());
     };
-    let candidate =
-        approved_candidate_digest(source_id, shapes_ttl.as_deref(), ontology_ttl.as_deref());
+    let candidate = approved_candidate_digest(source_id, contract);
     let lease = read_lease(ctx, tenant_id, approval_lease_id).await?;
     verify_schema_approval(
         lease.as_ref(),
         source_id,
         &candidate,
         crate::server::txn::now_ms(),
+    )
+}
+
+/// `ValidateRepair`: render the candidate and run the entering-schema
+/// validation against the request graph without installing anything.
+pub(super) async fn handle_validate(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    op: &GraphSchemaOp,
+) -> Response {
+    let op = op.clone();
+    let graph_name = ctx.graph_name.to_string();
+    crate::server::handlers::graph_ops::commit_gateway(ctx, plan, method, move |core| {
+        validate(core, &graph_name, &op)
+    })
+    .await
+}
+
+fn validate(
+    core: &crate::graph::GraphCore,
+    graph_name: &str,
+    op: &GraphSchemaOp,
+) -> Result<crate::protocol::ResultPayload, String> {
+    op.validate()?;
+    let mut sources = (*core.schema_sources()).clone();
+    super::check_expected_digest(&sources, op.expected_composed_digest())?;
+    sources.attach_dynamic(op.source_token().to_string(), source(op)?)?;
+    super::compose::validate_entering_schema(&sources)?;
+    let current = core.schema_sources().composed_digest().to_hex();
+    crate::protocol::ResultPayload::of::<eg_types::result_contract::reasoning::GraphSchema>(
+        eg_types::graph_schema::GraphSchemaCommitted {
+            schema_version: eg_types::graph_schema::GRAPH_SCHEMA_RESULT_SCHEMA_VERSION,
+            graph: graph_name.to_string(),
+            composed_digest: current,
+            graph_version: core.version(),
+            changed: false,
+        },
     )
 }
 
@@ -98,31 +134,41 @@ fn approval_store_unavailable() -> String {
     )
 }
 
-/// The `Approved`-origin source a validated `AttachApproved` installs.
+/// The `Approved`-origin source a repair op installs (or, for
+/// `ValidateRepair`, would install): EG renders the SHACL from the typed
+/// contract (AUD-27).
 pub(super) fn source(op: &GraphSchemaOp) -> Result<crate::graph::GraphSchemaSource, String> {
-    let GraphSchemaOp::AttachApproved {
-        source_id,
-        shapes_ttl,
-        ontology_ttl,
-        approval_lease_id,
-        ..
-    } = op
-    else {
-        return Err("approved schema source needs an attach_approved operation".to_string());
+    let (source_id, contract, approval) = match op {
+        GraphSchemaOp::AttachApproved {
+            source_id,
+            contract,
+            approval_lease_id,
+            ..
+        } => (source_id, contract, approval_lease_id.as_str()),
+        GraphSchemaOp::ValidateRepair {
+            source_id,
+            contract,
+            ..
+        } => (source_id, contract, VALIDATION_ONLY),
+        _ => return Err("approved schema source needs a repair operation".to_string()),
     };
     let name = source_id
         .strip_prefix(eg_types::graph_schema::approval::APPROVED_SOURCE_PREFIX)
         .ok_or_else(|| "approved schema source id lacks its namespace".to_string())?;
+    let shapes = eg_types::graph_schema::repair::render_repair_shapes(name, contract);
     crate::graph::GraphSchemaSource::new(
         crate::graph::SchemaSourceOrigin::Approved {
             name: name.to_string(),
-            approval_lease_id: approval_lease_id.clone(),
+            approval_lease_id: approval.to_string(),
         },
-        shapes_ttl.as_deref().map(Arc::from),
-        ontology_ttl.as_deref().map(Arc::from),
+        Some(Arc::from(shapes)),
+        None,
         0,
     )
 }
+
+/// The origin marker of a validated-but-never-installed candidate.
+const VALIDATION_ONLY: &str = "validation-only";
 
 #[cfg(all(test, feature = "redb"))]
 mod tests;
