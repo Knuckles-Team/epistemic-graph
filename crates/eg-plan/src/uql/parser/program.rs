@@ -1,6 +1,7 @@
 //! Statements (UQL-11): the `UQL <n>;` version pragma, `EXPLAIN`/`PROFILE`, named
 //! sub-plans (`LET name = pipeline;`) and the `FROM name` / `JOIN a, b` heads that turn
-//! a program into a DAG of the same ops a [`crate::dag::PlanDag`] carries.
+//! a program into a DAG of the same ops a [`crate::dag::PlanDag`] carries; and the
+//! statement's row annotations, `WITH PROOF` (EH-448) and `WITH KNOWLEDGE` (EH-450).
 //!
 //! Bindings must be defined before use (so a program can never be cyclic) and every
 //! binding must be used. A program whose main pipeline and bindings use only plain heads
@@ -49,12 +50,30 @@ pub enum Body {
     Dag(Vec<DagNode>),
 }
 
+/// Statement-level row annotations: `WITH PROOF`, `WITH KNOWLEDGE [(col, …)]`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Annotations {
+    /// `WITH PROOF` (EH-448): each row carries why it is in the result.
+    pub proof: bool,
+    /// `WITH KNOWLEDGE [(col, …)]` (EH-450): each row carries its knowledge record,
+    /// projecting the named columns; `None` when not requested.
+    pub knowledge: Option<Vec<String>>,
+}
+
+impl Annotations {
+    /// Whether the statement asked for any annotation.
+    pub fn any(&self) -> bool {
+        self.proof || self.knowledge.is_some()
+    }
+}
+
 /// A parsed statement.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Statement {
     pub version: u32,
     pub mode: Mode,
     pub body: Body,
+    pub annotations: Annotations,
     pub warnings: Vec<UqlWarning>,
 }
 
@@ -77,7 +96,7 @@ pub(in crate::uql) struct Chain {
 }
 
 impl<'a> Parser<'a> {
-    /// `statement = [ UQL int ; ] [ EXPLAIN | PROFILE ] { binding } pipeline`.
+    /// `statement = [ UQL int ; ] [ EXPLAIN | PROFILE ] { binding } pipeline [ annotations ]`.
     pub(in crate::uql) fn statement(&mut self) -> Result<Statement, UqlError> {
         let version = self.version_pragma()?;
         let mode = self.mode();
@@ -85,6 +104,7 @@ impl<'a> Parser<'a> {
             self.binding()?;
         }
         let main = self.chain()?;
+        let annotations = self.annotations()?;
         if !self.at_end() {
             return Err(self
                 .error(
@@ -99,8 +119,58 @@ impl<'a> Parser<'a> {
             version,
             mode,
             body,
+            annotations,
             warnings: self.take_warnings(),
         })
+    }
+
+    /// `annotations = WITH annotation { , annotation }`; none without `WITH`.
+    fn annotations(&mut self) -> Result<Annotations, UqlError> {
+        let mut out = Annotations::default();
+        if !self.eat_kw("WITH") {
+            return Ok(out);
+        }
+        self.annotation(&mut out)?;
+        while self.eat(&Tok::Comma) {
+            self.annotation(&mut out)?;
+        }
+        Ok(out)
+    }
+
+    /// `annotation = PROOF | KNOWLEDGE [ ( name { , name } ) ]`; each at most once.
+    fn annotation(&mut self, out: &mut Annotations) -> Result<(), UqlError> {
+        let span = self.cur_span();
+        let repeated = if self.eat_kw("PROOF") {
+            std::mem::replace(&mut out.proof, true)
+        } else if self.eat_kw("KNOWLEDGE") {
+            let columns = self.knowledge_columns()?;
+            out.knowledge.replace(columns).is_some()
+        } else {
+            return Err(self
+                .err_here("expected `PROOF` or `KNOWLEDGE` after `WITH`")
+                .expecting(vec!["`PROOF`".into(), "`KNOWLEDGE`".into()]));
+        };
+        if repeated {
+            return Err(UqlError::new(
+                UqlCode::UnexpectedToken,
+                "this annotation is already given",
+                span,
+            ));
+        }
+        Ok(())
+    }
+
+    /// The optional `( name { , name } )` column list of `WITH KNOWLEDGE`.
+    fn knowledge_columns(&mut self) -> Result<Vec<String>, UqlError> {
+        if !self.eat(&Tok::LParen) {
+            return Ok(Vec::new());
+        }
+        let mut columns = vec![self.name("a column name")?];
+        while self.eat(&Tok::Comma) {
+            columns.push(self.name("a column name")?);
+        }
+        self.expect(&Tok::RParen, "`)` to close the KNOWLEDGE columns")?;
+        Ok(columns)
     }
 
     fn version_pragma(&mut self) -> Result<u32, UqlError> {

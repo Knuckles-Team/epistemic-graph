@@ -1,8 +1,14 @@
-//! `Method::Uql` (UQL-07/08/09): a full UQL statement — typed `$name` params bound as
-//! values, `EXPLAIN`/`PROFILE`, `LET … FROM/JOIN` programs and `RETURN` score channels —
-//! run over the SAME RLS-filtered off-lock snapshot and served index bindings as
-//! `UnifiedQueryText` (`run_unified_off_lock_with`). Read-only; no result cache (a
-//! statement's EXPLAIN/PROFILE output is not a cacheable row set).
+//! `Method::Uql` (UQL-07/08/09, EH-434 — the one query-text surface): a full UQL
+//! statement — typed `$name` params bound as values, `EXPLAIN`/`PROFILE`, `LET …
+//! FROM/JOIN` programs, `RETURN` score channels and `WITH PROOF`/`WITH KNOWLEDGE` row
+//! annotations — run over the SAME RLS-filtered off-lock snapshot and served index
+//! bindings as `UnifiedQuery` (`run_unified_off_lock_with`). Read-only.
+//!
+//! Result cache: an executed statement's answer is cached exactly like a `UnifiedQuery`
+//! answer — keyed on the text, the bound params and the verified legs under the caller's
+//! RLS context; a plain pipeline with a bounded dependency set in the dependency-scoped
+//! namespace. A `PROFILE` answer carries wall times and is never cached, nor is a
+//! statement whose legs read the decision log (it moves without the graph version).
 
 use super::*;
 
@@ -23,7 +29,30 @@ pub(crate) async fn handle_uql(
         Ok(legs) => legs,
         Err(resp) => return Ok(resp),
     };
-    let snap = uql_snapshot(ctx);
+    #[cfg(feature = "result-cache")]
+    let key = match uql_cache_key(ctx, &text, &params, &stmt, &legs) {
+        Ok(key) => key,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    #[cfg(feature = "result-cache")]
+    if let Some(bytes) = key
+        .as_ref()
+        .and_then(|(hash, dep)| cached_payload(ctx.core, *hash, dep))
+    {
+        return Ok(Response::ok(
+            req_id,
+            ResultPayload::of_cache_hit::<query_results::Uql>(bytes),
+        ));
+    }
+    let (snap, version) = sql_read_snapshot(
+        ctx.core,
+        #[cfg(feature = "security")]
+        ctx.caller,
+        #[cfg(feature = "security")]
+        ctx.rls,
+    );
+    #[cfg(not(feature = "result-cache"))]
+    let _ = version;
     let result = run_unified_off_lock_with(
         ctx.state,
         req_id,
@@ -34,29 +63,38 @@ pub(crate) async fn handle_uql(
         move |_plan, plan_ctx| eg_plan::uql::serve::run_statement(&stmt, plan_ctx),
     )
     .await;
-    Ok(match result {
-        Ok(Ok(body)) => result_response::<query_results::Uql>(req_id, &body),
-        Ok(Err(msg)) => Response::err(req_id, format!("UQL error: {msg}")),
-        Err(resp) => resp,
-    })
+    Ok(served_response::<query_results::Uql>(
+        req_id,
+        result,
+        "UQL",
+        #[cfg(feature = "result-cache")]
+        ctx.core,
+        #[cfg(feature = "result-cache")]
+        key.map(|(hash, dep)| CacheSlot { hash, dep, version }),
+    ))
 }
 
-/// The caller's RLS-filtered snapshot (the same helpers `UnifiedQueryText` uses).
-#[cfg(feature = "query")]
-fn uql_snapshot(ctx: &QueryHandlerCtx<'_>) -> Arc<crate::graph::GraphView> {
-    #[cfg(all(feature = "result-cache", feature = "security"))]
-    let (snap, _version) = versioned_rls_snapshot(ctx.core, ctx.caller, ctx.rls);
-    #[cfg(all(feature = "result-cache", not(feature = "security")))]
-    let snap = Arc::new(ctx.core.analysis_snapshot());
-    #[cfg(not(feature = "result-cache"))]
-    let snap = rls_snapshot(
-        ctx.core,
-        #[cfg(feature = "security")]
-        ctx.caller,
-        #[cfg(feature = "security")]
-        ctx.rls,
-    );
-    snap
+/// The statement's cache key and dependency set; `None` when its answer is not
+/// cacheable (`PROFILE`, or legs outside the graph version).
+#[cfg(all(feature = "query", feature = "result-cache"))]
+fn uql_cache_key(
+    ctx: &QueryHandlerCtx<'_>,
+    text: &str,
+    params: &std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
+    stmt: &eg_plan::uql::Statement,
+    legs: &ServedPlanLegs,
+) -> Result<Option<(u128, Option<eg_core::dep_scope::DepSet>)>, String> {
+    use eg_plan::uql::{Body, Mode};
+    if stmt.mode == Mode::Profile || !legs.cacheable() {
+        return Ok(None);
+    }
+    let payload = msgpack_bytes(&(text, params))?;
+    let hash = served_cache_hash(ctx, "uql", payload, legs);
+    let dep = match (&stmt.body, stmt.mode, stmt.annotations.any()) {
+        (Body::Pipeline(plan), Mode::Run, false) => plan_dependency_set(plan),
+        _ => None,
+    };
+    Ok(Some((hash, dep)))
 }
 
 /// Served `Method::Uql`: typed params bind as values, EXPLAIN returns the report, and a

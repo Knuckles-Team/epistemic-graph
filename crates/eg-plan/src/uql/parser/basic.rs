@@ -1,5 +1,5 @@
 //! The always-available clauses: `MATCH`, `WHERE`, `TRAVERSE`, `RANK`, `RERANK`,
-//! `AS OF`/`VALID AS OF`, `WINDOW`, `LIMIT`, `RETURN` and `FOREIGN`.
+//! `AS OF`/`VALID AS OF`, `WINDOW`, `LIMIT`, `RETURN`, `FOREIGN` and `DECISIONS`.
 
 use eg_types::wire::{Op, TimeAxis};
 
@@ -50,6 +50,16 @@ impl<'a> Parser<'a> {
             });
         }
         Ok(ops)
+    }
+
+    /// `DECISIONS [ WHERE pred ]` (EH-066) — the caller's visible decision log.
+    pub(super) fn decisions(&mut self) -> Result<Op, UqlError> {
+        let preds = if self.eat_kw("WHERE") {
+            self.pred_list()?
+        } else {
+            Vec::new()
+        };
+        Ok(Op::DecisionScan { preds })
     }
 
     pub(super) fn where_stage(&mut self) -> Result<Op, UqlError> {
