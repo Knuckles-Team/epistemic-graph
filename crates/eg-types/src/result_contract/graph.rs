@@ -2,7 +2,7 @@
 
 use super::transactions::SparqlUpdateReport;
 use super::Dynamic;
-use crate::policy_evolution::{PolicyRecordReceipt, PolicyRecordView};
+use crate::policy_evolution::{PolicyRecordReceipt, PolicyRecordStored, PolicyRecordView};
 use crate::rdf_report::LoadReport;
 use crate::types::{
     CompactNodesResult, DecayStats, GraphDiff, GraphMetrics, PropertyBlob, PruneStats, ScenePose,
@@ -91,4 +91,6 @@ method_results! {
     PolicyEvaluationCommit(PolicyEvolution / "commit_policy_evaluation") => Raw<PolicyRecordReceipt>;
     // `null` when no record with this id is visible in the request graph.
     PolicyRecordGet(PolicyEvolution / "get") => Raw<Option<PolicyRecordView>>;
+    // Engine-internal kernel write behind every PolicyEvolution write.
+    PolicyEvolutionStore(PolicyEvolutionStore) => Raw<PolicyRecordStored>;
 }

@@ -42,7 +42,8 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::DeferWorkItem { .. }
         | Method::CasWorkItemMetadata { .. }
         | Method::IssueControlLease { .. }
-        | Method::TransitionControlLease { .. }) => method,
+        | Method::TransitionControlLease { .. }
+        | Method::PolicyEvolutionStore { .. }) => method,
         other => return Err(other),
     };
 
