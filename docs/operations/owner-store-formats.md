@@ -24,7 +24,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `node_info` | `02e5ca262822f4de0a1507780b2e908e605655d3a758e78c2a75f205ffa80347` | none |
 | `cluster_hierarchy` | `0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431` | none |
 | `graph_shard` | `25d465035cd1c285493e057e754e4a97f8757ffe19fb910392217fa7386de48c` | none |
-| `agent_library` | `89ccb41fa67be8de71397835b560ce88003b47507129306aa4baf83afc0673f1` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
+| `agent_library` | `7ea9bcde54e8961cedaa586b3520f890100c5f53f9f5f9574a30dea02c882445` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
 
 ## `BLOB_FORMAT_UPGRADE_REQUIRED`
 

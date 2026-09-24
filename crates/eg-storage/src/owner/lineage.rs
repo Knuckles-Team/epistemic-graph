@@ -179,7 +179,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "25d465035cd1c285493e057e754e4a97f8757ffe19fb910392217fa7386de48c"
         }
         OwnerLayout::AgentLibrary => {
-            "89ccb41fa67be8de71397835b560ce88003b47507129306aa4baf83afc0673f1"
+            "7ea9bcde54e8961cedaa586b3520f890100c5f53f9f5f9574a30dea02c882445"
         }
     }
 }
