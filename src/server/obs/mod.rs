@@ -53,6 +53,8 @@ mod snapshot;
 mod state;
 pub(crate) mod writer;
 
+pub use writer::writer_auth_configured;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;

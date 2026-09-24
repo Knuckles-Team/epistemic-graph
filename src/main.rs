@@ -302,15 +302,32 @@ fn native_tcp_addr_is_loopback(addr: &str) -> bool {
 ///   * an explicit loopback socket address / ``localhost:port`` is honored.
 ///   * a non-loopback address is rejected. Remote access terminates at an
 ///     authenticated TLS identity-binding gateway that connects to loopback.
-fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
+/// The address an auxiliary-listener flag names (an enable token binds
+/// `default_addr`, a bare port binds loopback), before any bind policy.
+fn parse_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
     let v = value.map(str::trim).filter(|s| !s.is_empty())?;
-    let resolved = match v.to_ascii_lowercase().as_str() {
+    match v.to_ascii_lowercase().as_str() {
         "0" | "off" | "false" | "no" | "disabled" => None,
         "1" | "on" | "true" | "yes" | "enabled" => Some(default_addr.to_string()),
         _ if v.chars().all(|c| c.is_ascii_digit()) => Some(format!("127.0.0.1:{v}")),
         _ => Some(v.to_string()),
-    };
-    let addr = resolved?;
+    }
+}
+
+/// EH-410: the observability listener may leave loopback only when its ingest
+/// is authenticated (a telemetry-writer JWT validator is configured); reads on
+/// it stay denied either way. Without that, it is loopback-only like every
+/// other auxiliary listener.
+#[cfg(feature = "obs")]
+fn resolve_obs_listener_addr(value: Option<&str>) -> Option<String> {
+    if epistemic_graph::server::obs::writer_auth_configured() {
+        return parse_listener_addr(value, "127.0.0.1:5080");
+    }
+    resolve_listener_addr(value, "127.0.0.1:5080")
+}
+
+fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
+    let addr = parse_listener_addr(value, default_addr)?;
     let is_loopback = addr
         .parse::<SocketAddr>()
         .map(|socket| socket.ip().is_loopback())
@@ -765,6 +782,9 @@ async fn spawn_obs_listener(
     // segments into the blob CAS. Self-contained (its own ObsState under the persist
     // dir). Deploy-configurable (EG-022): a bare enable token binds the safe localhost
     // default `127.0.0.1:5080` (O2's log-ingest port); a bare port binds loopback:port.
+    #[cfg(feature = "obs")]
+    let obs_addr = resolve_obs_listener_addr(obs_addr_arg);
+    #[cfg(not(feature = "obs"))]
     let obs_addr = resolve_listener_addr(obs_addr_arg, "127.0.0.1:5080");
     #[cfg(feature = "obs")]
     if let Some(ref obs_addr) = obs_addr {
