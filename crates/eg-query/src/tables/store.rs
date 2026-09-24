@@ -68,7 +68,6 @@ pub(crate) use ann_durable::{GenerationWrite, StoredGeneration};
 pub(crate) use ann_source::{AnnChangedRows, AnnRowReader, AnnSourceRows, ScanExtent};
 use authority::{sql_scope_identity, SqlAuthority, SqlMutation};
 pub(crate) use authority::{SqlRead, SqlWrite};
-pub(crate) use edge_durable::EdgeIndexRecord;
 
 use super::index::{
     catalog_key as secondary_catalog_key, entry_key as secondary_entry_key,
