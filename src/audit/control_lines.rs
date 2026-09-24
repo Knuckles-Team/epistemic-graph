@@ -78,7 +78,7 @@ fn op_family_audit_line(method: &Method) -> Option<String> {
 /// transition. Reads are never audited.
 fn rbac_elevation_audit_line(method: &Method) -> Option<String> {
     let Method::RbacElevation { op, .. } = method else {
-        return None;
+        return telemetry_derive_audit_line(method);
     };
     op.is_mutation().then(|| {
         format!(
@@ -87,6 +87,16 @@ fn rbac_elevation_audit_line(method: &Method) -> Option<String> {
             op.elevation_id().unwrap_or_default()
         )
     })
+}
+
+/// EH-408/EH-409: defense-in-depth, like `FLEET_CATALOG` -- a derivation lowers
+/// into exactly one `BATCH_UPDATE` line against the request graph, which is the
+/// durable one. The line names the window, never the telemetry.
+fn telemetry_derive_audit_line(method: &Method) -> Option<String> {
+    let Method::TelemetryDerive { from_ms, to_ms, .. } = method else {
+        return None;
+    };
+    Some(format!("TELEMETRY_DERIVE|{from_ms}|{to_ms}"))
 }
 
 pub(super) fn graph_schema_audit_line(method: &Method) -> Option<String> {

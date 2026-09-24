@@ -95,6 +95,8 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "SqlSourceBatch",
     "SourceIngest",
     "StartTrajectory",
+    // EH-408/EH-409: always writes (one BatchUpdate of derived facts).
+    "TelemetryDerive",
     "SupersedeEdge",
     "SweepExpired",
     "UpdateResourceHost",
@@ -291,6 +293,9 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     // the existing ApplyChangeEnvelope authority. It owns no parallel graph
     // applier or native command; this inventory records that adapter lowering.
     "SourceIngest",
+    // EH-408/EH-409: derived facts self-translate into ONE `BatchUpdate`
+    // against the request graph, the same lowering shape as `FleetCatalog`.
+    "TelemetryDerive",
     "Sql",
     // EH-351: create/refresh/drop commit the edge-index registration and its
     // generations in the tenant SQL catalog natively, as `Sql` DDL does.
@@ -453,6 +458,8 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     // EH-404: defense-in-depth marker; the durable record is the elevation
     // ledger's own hash-chained audit trail in the rbac.redb policy image.
     "RbacElevation",
+    // EH-408/EH-409: defense-in-depth marker, like `FleetCatalog`.
+    "TelemetryDerive",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",
@@ -512,6 +519,8 @@ pub(crate) const CDC_RS_EMITS_CDC: &[&str] = &[
     "FleetCatalog",
     // EH-346/EH-347: defense-in-depth marker, like `FleetCatalog`.
     "PolicyEvolution",
+    // EH-408/EH-409: defense-in-depth marker, like `FleetCatalog`.
+    "TelemetryDerive",
     "RemoveEdge",
     "RemoveNode",
     "RunDatalogReasoning",

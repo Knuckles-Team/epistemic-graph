@@ -11,115 +11,37 @@ use tokio::sync::RwLock;
 use super::multi::MultiRaft;
 use super::{AppCtx, GroupId, NodeId};
 use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
-use crate::channels::ChannelManager;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{Method, Request};
-use crate::registry::GraphRegistry;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::{compute_verified_envelope_token, ServerState, VerifiedEnvelopeParams};
 
 static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// Build a harness `ServerState` over an already-open persistence backend.
+///
+/// The production baseline ([`ServerState::new`]) with the harness's own
+/// settings: the given persistence, wider admission (64 in flight, 16 per
+/// graph) and no CDC hub unless a harness asks for one
+/// ([`make_state_with_cdc`]). Starting from the baseline keeps a newly added
+/// server field from needing a second hand-written default here.
 pub(crate) async fn make_state(
     dir: &str,
     backend: Arc<dyn PersistenceBackend>,
     isolation: IsolationLayer,
     auth_secret: &str,
 ) -> Arc<RwLock<ServerState>> {
-    #[cfg(feature = "redb")]
-    let cold_tracker = Arc::new(crate::server::persistence::cold_offload::ColdTenantTracker::new());
-    let registry = GraphRegistry::new();
-    let channels = ChannelManager::new();
-    #[cfg(feature = "viz-static-export")]
-    let viz_engine: Option<Arc<crate::server::viz_engine::VizEngineState>> = None;
-    let auth_secret = auth_secret.to_string();
-    let persist_dir = Some(dir.to_string());
-    let persistence = Some(backend);
-    let max_in_flight = Arc::new(tokio::sync::Semaphore::new(64));
-    let read_admission = Arc::new(tokio::sync::Semaphore::new(64));
-    let per_graph_inflight = Arc::new(dashmap::DashMap::new());
-    let per_graph_inflight_limit = 16;
-    let write_coalescer = Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new());
-    let routed_write_coalescer =
-        Arc::new(crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new());
-    let open_txns = Arc::new(dashmap::DashMap::new());
-    let txn_id_gen = Arc::new(crate::server::txn::TxnIdGen);
-    let txn_ttl_secs = 300;
-    let txn_max_per_graph = 256;
-    let txn_max_per_agent = 256;
-    #[cfg(feature = "blob")]
-    let blob: Option<Arc<crate::server::blob::BlobCursors>> = None;
-    #[cfg(feature = "blob")]
-    let blob_cursor_ttl_secs = 300;
-    #[cfg(feature = "raft")]
-    let raft: Option<crate::raft::RaftHandle> = None;
-    #[cfg(feature = "raft")]
-    let multi_raft: Option<Arc<crate::raft::multi::MultiRaft>> = None;
-    #[cfg(feature = "tsdb")]
-    let tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>> = None;
+    let mut state = ServerState::new(auth_secret, isolation);
+    state.persist_dir = Some(dir.to_string());
+    state.persistence = Some(backend);
+    state.max_in_flight = Arc::new(tokio::sync::Semaphore::new(64));
+    state.read_admission = Arc::new(tokio::sync::Semaphore::new(64));
+    state.per_graph_inflight_limit = 16;
     #[cfg(feature = "streaming")]
-    let cdc: Option<Arc<crate::server::cdc::CdcHub>> = None;
-    #[cfg(feature = "wasm-udf")]
-    let udf_registry = Arc::<crate::server::udf_catalog::UdfCatalog>::default();
-    #[cfg(feature = "compute-dist")]
-    let matviews = Arc::new(parking_lot::Mutex::new(
-        crate::raft::pregel::MatViewStore::new(),
-    ));
-    #[cfg(feature = "federation")]
-    let foreign_sources = Arc::<crate::server::foreign_catalog::ForeignSourceCatalog>::default();
-    #[cfg(feature = "kv")]
-    let kv: Option<Arc<crate::server::kv::KvStore>> = None;
-    #[cfg(feature = "lake")]
-    let lake = Arc::new(crate::server::lake::LakeManager::new());
-
-    Arc::new(RwLock::new(ServerState {
-        #[cfg(feature = "redb")]
-        agent_library: None,
-        #[cfg(feature = "redb")]
-        cold_tracker,
-        registry,
-        isolation,
-        channels,
-        #[cfg(feature = "viz-static-export")]
-        viz_engine,
-        auth_secret,
-        persist_dir,
-        persistence,
-        max_in_flight,
-        read_admission,
-        per_graph_inflight,
-        per_graph_inflight_limit,
-        write_coalescer,
-        routed_write_coalescer,
-        open_txns,
-        txn_id_gen,
-        txn_ttl_secs,
-        txn_max_per_graph,
-        txn_max_per_agent,
-        #[cfg(feature = "blob")]
-        blob,
-        #[cfg(feature = "blob")]
-        blob_cursor_ttl_secs,
-        #[cfg(feature = "raft")]
-        raft,
-        #[cfg(feature = "raft")]
-        multi_raft,
-        #[cfg(feature = "tsdb")]
-        tsdb_store,
-        #[cfg(feature = "streaming")]
-        cdc,
-        #[cfg(feature = "wasm-udf")]
-        udf_registry,
-        #[cfg(feature = "compute-dist")]
-        matviews,
-        #[cfg(feature = "federation")]
-        foreign_sources,
-        #[cfg(feature = "kv")]
-        kv,
-        #[cfg(feature = "lake")]
-        lake,
-    }))
+    {
+        state.cdc = None;
+    }
+    Arc::new(RwLock::new(state))
 }
 
 /// Build the state shape used by tests that exercise the in-memory CDC side effect.

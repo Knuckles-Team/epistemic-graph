@@ -32,6 +32,7 @@ mod lifecycle;
 mod resource_cost;
 mod service_control;
 mod source_ingest;
+mod telemetry;
 
 use channels::dispatch_channel_methods;
 use control_plane::{
@@ -56,6 +57,7 @@ use lifecycle::{delete_graph, dispatch_get_identity, index_kind_label, index_val
 use resource_cost::dispatch_resource_cost_methods;
 use service_control::dispatch_service_control_methods;
 use source_ingest::dispatch_source_ingest_methods;
+use telemetry::dispatch_telemetry_methods;
 
 /// The request fields every dispatch group needs after `req.method` has been
 /// moved out of the `Request`. Keeping the field names (`id`, `graph`,
@@ -124,6 +126,7 @@ async fn dispatch_control_plane_methods(
 ) -> ControlFlow<Response, Method> {
     let method = dispatch_service_control_methods(ctx, method).await?;
     let method = dispatch_source_ingest_methods(ctx, method).await?;
+    let method = dispatch_telemetry_methods(ctx, method).await?;
     let method = dispatch_resource_cost_methods(ctx, method).await?;
     let method = dispatch_graph_lifecycle_methods(ctx, method).await?;
     let method = dispatch_agent_library_methods(ctx, method).await?;

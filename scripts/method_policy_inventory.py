@@ -83,7 +83,8 @@ class MethodPolicyRow:
 # `GapUpsert`, `GapTransition`, `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
 # 447 -> 449: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
 # 449 -> 451: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
-EXPECTED_METHOD_POLICY_ROWS = 451
+# 451 -> 452: EH-408/EH-409's served `TelemetryDerive`.
+EXPECTED_METHOD_POLICY_ROWS = 452
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
