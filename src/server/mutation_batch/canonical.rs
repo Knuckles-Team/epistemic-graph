@@ -523,6 +523,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::GetNeighborsBatch { .. }
         | Method::GetNodeProperties { .. }
         | Method::GetIdentity { .. }
+        | Method::CheckAccess { .. }
         | Method::TsListSeries
         | Method::UpdateDevelopmentLaneQuota { .. }
         | Method::Reconcile { .. }

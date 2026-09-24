@@ -34,6 +34,11 @@ pub(super) async fn dispatch_identity_and_access_methods(
         method @ Method::GetIdentity { .. } => {
             dispatch_identity_and_access_methods_arm_1(ctx, method).await
         }
+        // A principal's CURRENT access to the request graph, for an executor
+        // acting on that principal's behalf (gated `security:check`).
+        Method::CheckAccess { agent_id, access } => {
+            dispatch_boxed(dispatch_check_access(ctx, agent_id, access)).await
+        }
 
         // ── RBAC policy administration (CONCEPT:EG-KG.compute.feature) ──────────────────
         // Gated at the handler; a non-security build has no arm and falls to the
@@ -123,6 +128,51 @@ async fn dispatch_identity_and_access_methods_arm_0(
         }
         _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
+}
+
+/// `CheckAccess`: the caller must itself read the request graph; the answer
+/// is the engine's own admission decision for `agent_id` on that graph.
+async fn dispatch_check_access(
+    ctx: DispatchCtx<'_>,
+    agent_id: String,
+    access: eg_types::acl::AccessCheck,
+) -> Response {
+    let (req_id, graph) = (ctx.req.id, ctx.req.graph.clone());
+    let s = timed_read(ctx.state).await;
+    let Some(entry) = s.registry.get(&graph) else {
+        return Response::err(req_id, format!("Graph '{graph}' not found"));
+    };
+    let caller = Some(ctx.verified_context.agent_id());
+    let owner = entry.owner.as_deref();
+    if let Err(denied) = crate::server::access::check_graph_access(
+        &s.isolation,
+        caller,
+        &graph,
+        entry.graph_type,
+        owner,
+        crate::isolation::AccessLevel::Read,
+    ) {
+        return Response::err(req_id, denied);
+    }
+    let allowed = crate::server::access::principal_may_access(
+        &s.isolation,
+        &agent_id,
+        &graph,
+        entry.graph_type,
+        owner,
+        access,
+    );
+    drop(s);
+    let decision = eg_types::acl::AccessDecision {
+        agent_id,
+        graph,
+        access,
+        allowed,
+    };
+    Response::ok(
+        req_id,
+        ResultPayload::of::<eg_types::result_contract::security::CheckAccess>(decision),
+    )
 }
 
 struct IdentityRegistrationMode {

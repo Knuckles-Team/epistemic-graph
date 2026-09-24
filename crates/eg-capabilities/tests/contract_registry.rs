@@ -184,9 +184,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
     // 437 -> 438: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
     // 438 -> 439: `FinanceSignalModels`, fusion and the insider model (EH-423).
+    // 439 -> 440: `CheckAccess`, a principal's current access (EH-416).
     assert_eq!(
         variants.len(),
-        439,
+        440,
         "the wire method census changed; update this exact count deliberately"
     );
 }
