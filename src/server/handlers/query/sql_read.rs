@@ -6,6 +6,7 @@ struct SqlReadScope<'a> {
     state: &'a Arc<RwLock<ServerState>>,
     req_id: u64,
     core: &'a Arc<GraphCore>,
+    graph_name: &'a str,
     caller: &'a str,
     authority: &'a crate::server::access::CarrierAuthority,
     persist_dir: &'a std::path::Path,
@@ -93,12 +94,34 @@ pub(crate) fn sql_read_snapshot(
     }
 }
 
+/// The request graph's edge-index statuses join the served status relation
+/// (EH-352): the tenant's registered edge indexes are installed first, so an
+/// index is listed even before its first edge operation after a restart.
+#[cfg(feature = "query")]
+fn adopt_edge_index_status(
+    authority: &crate::server::access::CarrierAuthority,
+    persist_dir: &std::path::Path,
+    graph: &str,
+    core: &GraphCore,
+    authorized: &crate::server::sql_catalog_acl::AuthorizedReadStore,
+) -> Result<(), String> {
+    let tenant =
+        crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
+    eg_query::edge_index::install_edge_indexes(&tenant, graph, core)?;
+    authorized
+        .store()
+        .ann_authority()
+        .adopt_statuses(core.indexes().managed_statuses());
+    Ok(())
+}
+
 #[cfg(feature = "query")]
 async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     let SqlReadScope {
         state,
         req_id,
         core,
+        graph_name,
         caller,
         authority,
         persist_dir,
@@ -170,6 +193,7 @@ pub(crate) async fn handle_sql(
                 state: ctx.state,
                 req_id,
                 core: ctx.core,
+                graph_name: ctx.graph_name,
                 caller: ctx.caller,
                 authority,
                 persist_dir: persist_path,
