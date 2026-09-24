@@ -26,7 +26,7 @@
 //! participant commit/abort, and finalization commands; every participant command is
 //! replicated by the group that owns that graph.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
