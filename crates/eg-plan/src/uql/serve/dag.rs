@@ -17,7 +17,7 @@ use eg_types::wire::{Op, UqlResult, UqlStageReport};
 
 use super::{micros_since, record_channel, returned_channels, rows_of, stage_text, ChannelTable};
 use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
-use crate::exec::{apply, PlanCtx};
+use crate::exec::{apply_with_channels, PlanCtx};
 use crate::rowset::RowSet;
 use crate::uql::DagNode;
 
@@ -144,11 +144,11 @@ fn traced(nodes: &[DagNode], ctx: &PlanCtx) -> Result<Trace, String> {
     let mut stages = vec![(0, 0); nodes.len()];
     let rows = crate::dag_exec::execute_dag_with(&dag, ctx, |id, node, input| {
         let started = Instant::now();
-        let out = apply(&node.op, input.clone(), ctx)?;
+        let (out, extra) = apply_with_channels(&node.op, input.clone(), ctx)?;
         if let Some(slot) = stages.get_mut(id) {
             *slot = (out.len() as u64, micros_since(started));
         }
-        record_channel(&node.op, &out, &mut table);
+        record_channel(&node.op, &out, &extra, &mut table);
         Ok(Some(out))
     })?;
     ctx.budget.check_result(rows.len())?;

@@ -630,6 +630,18 @@ pub enum Op {
     /// built here (E2 scope is the wire+UQL plan surface). Gated by `epistemic`.
     #[cfg(feature = "epistemic")]
     ExplainBelief { node_id: String },
+    /// TRANSFORM (EH-523, UQL `ATTRIBUTE <agg> OF <input> <method>`) — contribution
+    /// attribution over the incoming rows as players: each row's value is `input`, a
+    /// coalition's value is the `value` aggregate of its members (`v(∅) = 0`), and every
+    /// row is re-scored with its contribution under `method` (linear split, exact or
+    /// sampled Shapley, Owen), ordered descending. Contributions sum to `v(all rows)`.
+    /// The executor is eg-numeric's attribution kernel (eg-plan `numeric`); a build
+    /// without it refuses the stage.
+    Attribute {
+        input: AttributionInput,
+        value: AttributionValue,
+        method: AttributionMethod,
+    },
     /// SOURCE (EH-066, UQL `DECISIONS [WHERE pred]`) — the record ids of the caller's
     /// VISIBLE decision log (the same rows the SQL `decisions` relation holds), kept when
     /// every relational predicate holds over the record's columns (`question_id`,

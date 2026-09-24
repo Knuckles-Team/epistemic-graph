@@ -7,10 +7,12 @@
 
 pub mod isotonic;
 pub mod metrics;
+pub mod proper;
 pub mod scaling;
 pub mod scores;
 
 pub use isotonic::{fit_isotonic, fit_isotonic_weighted, IsotonicFit};
 pub use metrics::{BinCount, CalibrationReport, ProbabilityFloor, ReliabilityBin};
+pub use proper::{binary_proper_scores, ProperScores};
 pub use scaling::{fit_scaling, FittedScaling, ScalingFamily, ScalingOptions};
 pub use scores::{LabelledScores, ProbabilityMatrix, ScoreMatrix};

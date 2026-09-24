@@ -209,6 +209,16 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
         OpKind::ExplainBelief => Op::ExplainBelief {
             node_id: "c1".into(),
         },
+        OpKind::Attribute => Op::Attribute {
+            input: AttributionInput::Property {
+                name: "p95 ms".into(),
+            },
+            value: AttributionValue::Percentile { p: 95 },
+            method: AttributionMethod::ShapleySampled {
+                samples: 4000,
+                seed: 7,
+            },
+        },
         OpKind::DecisionScan => Op::DecisionScan {
             preds: vec![uql_sample_pred(PredKind::In)],
         },

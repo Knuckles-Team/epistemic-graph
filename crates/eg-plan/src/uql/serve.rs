@@ -26,7 +26,7 @@ mod annotate;
 mod dag;
 mod proof;
 use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
-use crate::exec::{apply, plan_optimize, PlanCtx};
+use crate::exec::{apply, apply_with_channels, plan_optimize, PlanCtx, StageChannels};
 use crate::rowset::RowSet;
 
 // UQL-12, read-only by construction: the op dispatch every stage runs through takes the
@@ -139,9 +139,10 @@ fn traced(plan: &Plan, ctx: &PlanCtx) -> Result<Traced, String> {
     let mut stages = Vec::with_capacity(optimized.ops.len());
     for op in &optimized.ops {
         let started = Instant::now();
-        cur = apply(op, cur, ctx)?;
+        let (next, extra) = apply_with_channels(op, cur, ctx)?;
+        cur = next;
         let micros = micros_since(started);
-        record_channel(op, &cur, &mut table);
+        record_channel(op, &cur, &extra, &mut table);
         stages.push((op.clone(), cur.len() as u64, micros));
     }
     ctx.budget.check_result(cur.len())?;
@@ -152,21 +153,31 @@ fn traced(plan: &Plan, ctx: &PlanCtx) -> Result<Traced, String> {
     })
 }
 
-fn record_channel(op: &Op, rows: &RowSet, table: &mut ChannelTable) {
+/// Record a stage's per-row value channels (EH-521/522), its score under its
+/// channel, and its secondary channels (EH-523/525).
+fn record_channel(op: &Op, rows: &RowSet, extra: &StageChannels, table: &mut ChannelTable) {
     for (id, values) in rows.values() {
         let row = table.entry(id.clone()).or_default();
         row.extend(values.iter().map(|(name, &v)| (name.clone(), v)));
     }
-    let Some(channel) = op_kind(op).score_channel() else {
-        return;
-    };
-    for row in rows.rows() {
-        if let Some(score) = row.score {
-            table
-                .entry(row.id.clone())
-                .or_default()
-                .insert(channel.to_string(), f64::from(score));
-        }
+    if let Some(channel) = op_kind(op).score_channel() {
+        let scored = rows
+            .rows()
+            .iter()
+            .filter_map(|r| Some((r.id.clone(), r.score?)));
+        record(table, channel, scored);
+    }
+    for (channel, values) in extra {
+        record(table, channel, values.iter().cloned());
+    }
+}
+
+fn record(table: &mut ChannelTable, channel: &str, values: impl Iterator<Item = (String, f32)>) {
+    for (id, value) in values {
+        table
+            .entry(id)
+            .or_default()
+            .insert(channel.to_string(), f64::from(value));
     }
 }
 

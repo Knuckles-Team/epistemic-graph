@@ -62,6 +62,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         | Op::WindowAgg { .. }
         | Op::Foreign { .. }
         | Op::DecisionScan { .. }
+        | Op::Attribute { .. }
         | Op::Limit { .. } => apply_core_ops(op, input, ctx),
 
         // Each gate names only the variants its own feature compiles: an `owl` build
@@ -158,6 +159,71 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
     }
 }
 
+fn attribute_spec<'s>(
+    input: &'s eg_types::wire::AttributionInput,
+    value: eg_types::wire::AttributionValue,
+    method: &'s eg_types::wire::AttributionMethod,
+) -> super::attribution::AttributeSpec<'s> {
+    super::attribution::AttributeSpec {
+        input,
+        value,
+        method,
+    }
+}
+
+/// A stage's SECONDARY channels ([`eg_types::wire::OpKind::extra_channels`]): per channel,
+/// the `(row id, value)` pairs the stage wrote.
+pub(crate) type StageChannels = Vec<(&'static str, Vec<(String, f32)>)>;
+
+/// [`apply`], plus the secondary channels of the stages that write them: an
+/// `ATTRIBUTE`'s CI half-widths (EH-523) and a learned `SOURCE RELIABILITY`'s interval
+/// (EH-525). The traced UQL paths (`RETURN`, `PROFILE`) run every stage through here;
+/// every other stage is exactly `apply`.
+pub(crate) fn apply_with_channels(
+    op: &Op,
+    input: RowSet,
+    ctx: &PlanCtx,
+) -> Result<(RowSet, StageChannels), String> {
+    if let Op::Attribute {
+        input: players,
+        value,
+        method,
+    } = op
+    {
+        let attributed =
+            super::attribution::attribute(ctx, input, attribute_spec(players, *value, method))?;
+        let channels = vec![(
+            eg_types::wire::ATTRIBUTION_EXTRA_CHANNELS[0],
+            attributed.half_widths,
+        )];
+        return Ok((attributed.rows, channels));
+    }
+    #[cfg(feature = "epistemic")]
+    if let Op::SourceReliability { source_id } = op {
+        return reliability_with_channels(ctx, input, source_id);
+    }
+    Ok((apply(op, input, ctx)?, Vec::new()))
+}
+
+/// `SOURCE RELIABILITY` with its learned interval on every row (none when not learned).
+#[cfg(feature = "epistemic")]
+fn reliability_with_channels(
+    ctx: &PlanCtx,
+    input: RowSet,
+    source_id: &str,
+) -> Result<(RowSet, StageChannels), String> {
+    let reliability = super::reliability::reliability_of(ctx, source_id)?;
+    let rows = super::reliability::reweighted(&input, &reliability);
+    let Some((lower, upper)) = reliability.interval else {
+        return Ok((rows, Vec::new()));
+    };
+    let [lo, hi] = [lower as f32, upper as f32];
+    let per_row = |value: f32| rows.ids().into_iter().map(|id| (id, value)).collect();
+    let names = eg_types::wire::RELIABILITY_EXTRA_CHANNELS;
+    let channels = vec![(names[0], per_row(lo)), (names[1], per_row(hi))];
+    Ok((rows, channels))
+}
+
 /// SOURCE (`Scan`) and FILTER (`Filter`/`Traverse`), the RANK family, and TIME
 /// (`AsOf`/`Window`/`WindowAgg`) + FEDERATION marker (`Foreign`) + `Limit` — every
 /// always-on tier (none of the three groups carries any `#[cfg]` of its own; the
@@ -187,6 +253,12 @@ pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Ro
         // Channel selection is applied where the result is encoded; rows pass through.
         Op::Project { .. } => Ok(input),
         Op::DecisionScan { preds } => super::decisions::decision_scan(ctx, preds),
+        Op::Attribute {
+            input: players,
+            value,
+            method,
+        } => super::attribution::attribute(ctx, input, attribute_spec(players, *value, method))
+            .map(|attributed| attributed.rows),
         Op::Rank { .. }
         | Op::RankEmbed { .. }
         | Op::RankNodeDistance { .. }
@@ -337,7 +409,9 @@ pub(super) fn apply_epistemic(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<R
         Op::Contradicts { node_id } => Ok(contradicts_op(ctx.view, input, node_id)),
         Op::SupportedBy { node_id } => Ok(supported_by_op(ctx.view, input, node_id)),
         Op::BeliefAsOf { ts } => Ok(belief_as_of_op(ctx, input, *ts)),
-        Op::SourceReliability { source_id } => Ok(source_reliability_op(ctx, input, source_id)),
+        Op::SourceReliability { source_id } => {
+            super::reliability::source_reliability_op(ctx, input, source_id)
+        }
         Op::ConfidenceOp {} => Ok(confidence_op(ctx, input)),
         Op::ExplainBelief { node_id } => Ok(explain_belief_op(ctx, input, node_id)),
         _ => unreachable!("apply routed a non epistemic Op here"),
