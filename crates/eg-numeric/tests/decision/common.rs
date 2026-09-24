@@ -60,6 +60,7 @@ pub fn policy(cold_start: ColdStart) -> DecisionPolicy {
         a2a_requires_observation: true,
         cold_start,
         statistical: Some(statistical()),
+        topology: None,
     }
 }
 

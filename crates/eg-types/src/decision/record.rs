@@ -204,6 +204,9 @@ pub struct TemplateFacts {
     pub entry_revision: u64,
     pub definition_digest: String,
     pub shape: crate::agent_graph::AgentGraphShape,
+    /// The template's published topology facts, when it declares them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<super::topology::TopologyFacts>,
 }
 
 impl TemplateFacts {
@@ -234,6 +237,10 @@ pub struct DecisionInputs {
     /// Empty asks for a one-agent graph.
     #[serde(default)]
     pub templates: BoundedVec<TemplateFacts, 8>,
+    /// What a topology question read beside the library: the composed schema
+    /// digest, the entailed admissibility facts and the capacity headroom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<super::topology::TopologyInputs>,
 }
 
 /// One assembly decision, in full.
@@ -269,7 +276,7 @@ impl DecisionRecord {
     /// this returns it, so an unsupported version is a typed refusal instead
     /// of a digest mismatch nothing explains.
     pub fn checked(self) -> Result<Self, DecisionErrorCode> {
-        if self.schema_version != super::DECISION_RECORD_SCHEMA_VERSION {
+        if self.schema_version != schema_version_for(&self.inputs.request) {
             return Err(DecisionErrorCode::DecisionRecordVersionUnsupported);
         }
         if !matches!(self.question, DecisionQuestion::Assemble) {
@@ -278,8 +285,25 @@ impl DecisionRecord {
         Ok(self)
     }
 
+    /// The topology plan a solved topology record carries.
+    pub fn topology_plan(&self) -> Option<&super::topology::TopologyPlan> {
+        match &self.outcome {
+            DecisionOutcome::Solved { topology, .. } => topology.as_deref(),
+            DecisionOutcome::Abstained { .. } => None,
+        }
+    }
+
     /// Whether the outcome names an assembly.
     pub fn is_solved(&self) -> bool {
         matches!(self.outcome, DecisionOutcome::Solved { .. })
+    }
+}
+
+/// The record version an assembly over `request` is sealed with: v1 for a plain
+/// assembly, the topology version when the request asked a topology question.
+pub fn schema_version_for(request: &AssemblyRequest) -> u16 {
+    match request.requirements.topology {
+        Some(_) => super::TOPOLOGY_DECISION_RECORD_SCHEMA_VERSION,
+        None => super::DECISION_RECORD_SCHEMA_VERSION,
     }
 }

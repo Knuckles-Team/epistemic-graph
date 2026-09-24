@@ -112,6 +112,10 @@ pub struct AssemblyRequirements {
     /// Component ids that must not be selected.
     #[serde(default)]
     pub denies: BoundedVec<String, 64>,
+    /// A swarm-topology question over the request's templates. Absent from a
+    /// plain assembly, so a v1 request keeps its exact digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<super::topology::TopologyRequirements>,
 }
 
 /// Which slice of the agent library the candidates come from.

@@ -18,6 +18,7 @@ use eg_types::solve::ModelSpec;
 use super::eliminate::Screened;
 use super::model::Building;
 use super::search::{search, Answer, SolveContext};
+use super::topology::{self, Posed, Question};
 use super::{agent, eliminate, facts, model, template, why_not, AssembleError};
 use crate::solve::Verdict;
 
@@ -95,9 +96,12 @@ pub(super) fn decide_one(
 ) -> Result<Decided, AssembleError> {
     let inputs = ladder.inputs;
     let eliminated = ladder.screened.eliminated.clone();
-    let slots = template.map_or(1, |template| template.slot_nodes().len());
-    let legal = (ladder.screened.legal.as_slice(), slots);
-    let built = match model::build(inputs, &ladder.required, legal, ladder.currency.as_deref())? {
+    let question = match topology::pose(inputs, template) {
+        Posed::Plain => None,
+        Posed::Ask(question) => Some(question),
+        Posed::Refused(reasons) => return Ok(abstained(&ladder.required, eliminated, reasons)),
+    };
+    let built = match build(ladder, template, question.as_deref())? {
         Building::Ready(built) => built,
         Building::Abstain(reasons) => return Ok(abstained(&ladder.required, eliminated, reasons)),
     };
@@ -105,10 +109,41 @@ pub(super) fn decide_one(
     let validator = |chosen: &[(usize, &CandidateFacts)]| {
         agent::drafts(inputs, &context.inputs_digest, template, chosen)
     };
+    let question = question.as_deref();
     match search(&context, &validator)? {
-        Ok(answer) => Ok(solved(&context, &ladder.required, eliminated, answer)),
+        Ok(answer) => Ok(solved(
+            &context,
+            question,
+            &ladder.required,
+            eliminated,
+            answer,
+        )),
         Err(reasons) => Ok(abstained(&ladder.required, eliminated, reasons)),
     }
+}
+
+/// The template's programme: the assembly rows, then -- for a topology
+/// question -- its width/rounds variables and rows.
+fn build(
+    ladder: &Ladder<'_>,
+    template: Option<&TemplateFacts>,
+    question: Option<&Question<'_>>,
+) -> Result<Building, AssembleError> {
+    let slots = template.map_or(1, |template| template.slot_nodes().len());
+    let legal = (ladder.screened.legal.as_slice(), slots);
+    let currency = ladder.currency.as_deref();
+    let mut built = match model::build(ladder.inputs, &ladder.required, legal, currency)? {
+        Building::Ready(built) => built,
+        abstain @ Building::Abstain(_) => return Ok(abstain),
+    };
+    if let Some(reasons) = question
+        .map(|q| q.extend(&mut built))
+        .transpose()?
+        .flatten()
+    {
+        return Ok(Building::Abstain(reasons));
+    }
+    Ok(Building::Ready(built))
 }
 
 /// An external agent the request pinned but step 1b had to refuse is named as
@@ -178,6 +213,7 @@ fn distinct<'a>(chosen: &[(usize, &'a CandidateFacts)]) -> Vec<&'a CandidateFact
 
 fn solved(
     context: &SolveContext<'_>,
+    question: Option<&Question<'_>>,
     required: &[RequiredCapability],
     eliminated: Vec<Elimination>,
     answer: Answer,
@@ -199,6 +235,11 @@ fn solved(
             .iter()
             .flat_map(|candidate| candidate.fact_premises.iter().cloned()),
     );
+    premises.extend(question.map(Question::premises).unwrap_or_default());
+    let topology = question.map(|question| {
+        let offset = context.built.vars.len();
+        Box::new(question.plan(&context.built.shape, &answer.selected, offset))
+    });
     let edge_classes = derivations
         .iter()
         .flat_map(|d| d.chain.iter().map(|edge| edge.class));
@@ -226,6 +267,7 @@ fn solved(
             graph_digest: eg_types::agent_graph::draft_definition_digest(&graph),
             slots: BoundedVec::new(slots).expect("a selection fits the slot bound"),
             certificate: Box::new(answer.certificate),
+            topology,
         },
         why_not,
         model: Some(answer.spec),

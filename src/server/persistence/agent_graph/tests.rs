@@ -128,6 +128,7 @@ pub(super) fn draft(store: &AgentLibraryStore, tenant_id: &str, graph_id: &str) 
         purpose_id: "agent-graph:publish".to_string(),
         policy_digest: super::super::agent_library::current_agent_library_policy_digest().unwrap(),
         synthesis_evidence: None,
+        topology: None,
     }
 }
 
