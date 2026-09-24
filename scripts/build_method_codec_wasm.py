@@ -18,8 +18,11 @@ to one exact release by version AND archive sha256: the platform-neutral
 ``binaryen-<version>-node`` build (``wasm-opt`` itself compiled to WebAssembly),
 run under Node. Being WebAssembly, the optimizer is the same bytes on every host
 architecture, so the committed module stays byte-identical across hosts and CI.
-The archive is fetched once into ``<target-dir>/eg-tools`` and verified before
-every use; a mismatched archive is refused, never run. Needs ``node`` on PATH.
+The archive is fetched once into the tool cache (``$EG_TOOL_CACHE``, else
+``$XDG_CACHE_HOME/epistemic-graph/tools``) and verified before every use; a
+mismatched archive fails the build, never runs. ``$EG_BINARYEN_ARCHIVE`` names
+a local copy for offline builds (verified the same way; nothing is fetched).
+Needs ``node`` on PATH.
 The feature flags are exactly the wasm32-unknown-unknown target features rustc
 emits, so the optimizer can never introduce an instruction the hosts' runtimes
 (wazero, Node) were not already required to support.
@@ -111,16 +114,51 @@ def build(root: Path, target_dir: Path) -> bytes:
         TARGET,
     ]
     subprocess.run(command, cwd=root, env=env, check=True)
-    return optimize(target_dir / TARGET / PROFILE / MODULE, target_dir / "eg-tools")
+    return optimize(target_dir / TARGET / PROFILE / MODULE, tool_cache())
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def pinned_archive(tools: Path) -> Path:
-    """The pinned binaryen archive, downloaded once and verified on every use."""
+# Offline / air-gapped builds: point this at a local copy of the pinned archive;
+# it is verified like a download and nothing is fetched.
+ARCHIVE_OVERRIDE_ENV = "EG_BINARYEN_ARCHIVE"
+# Where the verified archive and the extracted optimizer are kept between builds.
+TOOL_CACHE_ENV = "EG_TOOL_CACHE"
 
+
+def tool_cache() -> Path:
+    """The stable tool cache: ``$EG_TOOL_CACHE``, else the user cache directory."""
+
+    configured = os.environ.get(TOOL_CACHE_ENV)
+    if configured:
+        return Path(configured)
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "epistemic-graph" / "tools"
+
+
+def _verified(archive: Path) -> Path:
+    actual = _sha256(archive.read_bytes())
+    if actual != BINARYEN_SHA256:
+        raise SystemExit(
+            f"REFUSED: {archive} sha256={actual}, pinned {BINARYEN_SHA256} "
+            f"({BINARYEN_ARCHIVE})"
+        )
+    return archive
+
+
+def pinned_archive(tools: Path) -> Path:
+    """The pinned binaryen archive, verified on every use.
+
+    ``$EG_BINARYEN_ARCHIVE`` names a local copy and disables any download;
+    otherwise the archive is fetched once into ``tools``. A checksum mismatch
+    fails the build either way.
+    """
+
+    override = os.environ.get(ARCHIVE_OVERRIDE_ENV)
+    if override:
+        return _verified(Path(override))
     archive = tools / BINARYEN_ARCHIVE
     if not archive.exists():
         tools.mkdir(parents=True, exist_ok=True)
@@ -128,13 +166,7 @@ def pinned_archive(tools: Path) -> Path:
         with urllib.request.urlopen(BINARYEN_URL, timeout=120) as response:
             partial.write_bytes(response.read())
         partial.replace(archive)
-    actual = _sha256(archive.read_bytes())
-    if actual != BINARYEN_SHA256:
-        raise SystemExit(
-            f"REFUSED: {archive} sha256={actual}, pinned {BINARYEN_SHA256}; "
-            "delete it to re-download"
-        )
-    return archive
+    return _verified(archive)
 
 
 def wasm_opt_dir(tools: Path) -> Path:
