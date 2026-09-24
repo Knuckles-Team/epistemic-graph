@@ -205,6 +205,44 @@ def test_get_outcome_returns_the_verified_provenance_view() -> None:
         )
 
 
+def _outcome_extension() -> dict[str, Any]:
+    """A minimal extension the strict ``TerminalOutcomeExtension`` model accepts."""
+    identity: dict[str, Any] = {
+        "capability_digest": "cap",
+        "catalog_digest": "cat",
+        "completeness": "complete",
+        "delegation_id": "d",
+        "delegator_id": "dr",
+        "event_sequence": 1,
+        "executor_lease_actor": "w",
+        "fence_token": 1,
+        "model_digest": "m",
+        "outbox_id": "o",
+        "outcome": "succeeded",
+        "policy_digest": "p",
+        "run_id": "r",
+        "schema_version": 1,
+        "selected_agent_id": "a",
+        "work_item_id": "wi-1",
+    }
+    return {
+        "outcome_bundle": {
+            **identity,
+            "outcome_ref": "ref",
+            "result_digest": None,
+            "trace_ref": "t",
+        },
+        "run_event": {
+            **identity,
+            "carrier_digest": "c",
+            "cursor_token": "cur",
+            "kind": "terminal",
+            "payload_digest": "pd",
+            "timestamp_ms": 5,
+        },
+    }
+
+
 def test_commit_result_carries_the_outcome_extension_only_when_given() -> None:
     engine = _Engine({"status": "succeeded"})
     common: dict[str, Any] = {
@@ -219,11 +257,14 @@ def test_commit_result_carries_the_outcome_extension_only_when_given() -> None:
     }
     asyncio.run(_work_items(engine).commit_result(**common))
     asyncio.run(
-        _work_items(engine).commit_result(**common, outcome_extension={"bundle": 1})
+        _work_items(engine).commit_result(
+            **common, outcome_extension=_outcome_extension()
+        )
     )
     first, second = (params for _, params in engine.sent)
     assert isinstance(first, dict) and "outcome_extension" not in first
-    assert isinstance(second, dict) and second["outcome_extension"] == {"bundle": 1}
+    assert isinstance(second, dict)
+    assert second["outcome_extension"] == _outcome_extension()
 
 
 def test_list_forwards_a_metadata_match_only_when_given() -> None:
