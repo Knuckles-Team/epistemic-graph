@@ -26,6 +26,7 @@ fn template_of(entry: AgentGraphEntry) -> TemplateFacts {
         entry_revision: entry.entry_revision,
         definition_digest: entry.definition_digest,
         shape: entry.shape,
+        topology: entry.topology,
     }
 }
 

@@ -11,7 +11,7 @@ use eg_types::contract::BoundedVec;
 use eg_types::decision::{
     digest, AbstainReason, CandidateSourceRecord, DecisionErrorCode, DecisionInputs,
     DecisionOutcome, DecisionQuestion, DecisionRecord, DerivationClass, TraceFidelity,
-    DECISION_RECORD_SCHEMA_VERSION, MAX_DECISION_RECORD_BYTES,
+    MAX_DECISION_RECORD_BYTES,
 };
 
 use super::conclude::Decided;
@@ -109,7 +109,7 @@ fn unsealed(
         classification_under: inputs.request.candidates.classification_under.clone(),
     };
     Ok(DecisionRecord {
-        schema_version: DECISION_RECORD_SCHEMA_VERSION,
+        schema_version: eg_types::decision::record::schema_version_for(&inputs.request),
         record_id: String::new(),
         tenant_id: identity.tenant_id,
         caller_principal: identity.caller_principal,

@@ -36,17 +36,28 @@ mod stat_replay;
 #[cfg(feature = "decide")]
 mod stat_resolve;
 #[cfg(feature = "decide")]
-mod stat_slate;
-#[cfg(all(feature = "decide", feature = "query"))]
-mod stat_view;
-#[cfg(feature = "decide")]
 mod stat_retention;
+#[cfg(feature = "decide")]
+mod stat_slate;
 #[cfg(feature = "decide")]
 mod stat_support;
 #[cfg(all(test, feature = "decide"))]
 mod stat_tests;
+#[cfg(all(feature = "decide", feature = "query"))]
+mod stat_view;
 #[cfg(feature = "decide")]
 mod telemetry;
+
+// Swarm topology through the assembly decision (SWARM-TOPOLOGY-DECIDE-DESIGN):
+// the schema entailments and capacity headroom a topology question reads, and
+// the publish-time topology shape check.
+#[cfg(feature = "decide")]
+mod capacity_premise;
+#[cfg(feature = "decide")]
+mod topology_read;
+#[cfg(feature = "decide")]
+mod topology_schema;
+pub(crate) mod topology_shape;
 
 pub(crate) use assemble::handle_agent_assemble;
 pub(crate) use commit::handle_decision_commit;
