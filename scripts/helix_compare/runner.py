@@ -172,6 +172,9 @@ class EnginePass:
         self.report["txn_batch"] = await self.transactions()
         self.sample_memory()
         self.report["storage_bytes_final"] = tree_bytes(self.engine.data_dir)
+        self.report["write_conflict_retries"] = getattr(
+            self.engine, "conflict_retries", 0
+        )
         await self.engine.stop()
         self.report["peak_rss_kb"] = self.peak_hwm_kb
         self.mark("end")
