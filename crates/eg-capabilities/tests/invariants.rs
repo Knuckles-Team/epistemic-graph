@@ -143,15 +143,17 @@ fn generated_protocol_policy_inventory_covers_every_primitive() {
         .filter(|row| row.primitive == "timeseries")
         .collect();
     // TsAppend/TsRange/TsAsofJoin/TsWindow/TsGapFill (5) plus the retention-
-    // reachability wiring's TsEvict/TsDeleteSeries/TsListSeries (3) = 8.
-    assert_eq!(ts.len(), 8);
+    // reachability wiring's TsEvict/TsDeleteSeries/TsListSeries (3) plus the
+    // EH-524 derived-series definition TsDefineSeries (1) = 9.
+    assert_eq!(ts.len(), 9);
     assert_eq!(
         ts.iter()
             .filter(|row| row.access == PolicyAccess::Write)
             .count(),
         // TsAppend, plus TsEvict/TsDeleteSeries (content-idempotent unlike
-        // TsAppend, but still series.redb WRITES -- see their MethodPolicy).
-        3
+        // TsAppend, but still series.redb WRITES -- see their MethodPolicy), plus
+        // TsDefineSeries.
+        4
     );
     assert_eq!(
         ts.iter()

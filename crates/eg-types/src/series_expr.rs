@@ -224,6 +224,28 @@ pub struct DeriveColumn {
     pub name: String,
 }
 
+/// What `TsDefineSeries` answers (EH-524): the definition, its lineage and provenance,
+/// and how far maintenance got.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DerivedSeriesReceipt {
+    pub series_id: String,
+    /// Lineage: the series this one is derived from (`:DerivedSeries derivedFrom :Series`).
+    pub derived_from: String,
+    /// The expression's canonical UQL spelling.
+    pub expr: String,
+    /// `sha256:` over the canonical spelling and the kernel generation.
+    pub digest: String,
+    pub kernel_version: String,
+    /// Derived points appended by this call.
+    pub appended: u64,
+    /// Whether every source point is reflected (`false`: the work budget stopped this
+    /// call; the next append or definition continues).
+    pub caught_up: bool,
+    /// The last source timestamp reflected.
+    pub last_ts: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -151,7 +151,10 @@ pub(super) fn graph_op_access_level(method: &Method) -> AccessLevel {
     if requires_write(method)
         || matches!(
             method,
-            Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. }
+            Method::TsAppend { .. }
+                | Method::TsEvict { .. }
+                | Method::TsDeleteSeries { .. }
+                | Method::TsDefineSeries { .. }
         )
     {
         AccessLevel::Write

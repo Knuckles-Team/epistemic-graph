@@ -100,6 +100,8 @@ macro_rules! native_method_catalog {
             record TsEvict => TimeSeries,
             #[cfg(feature = "tsdb")]
             record TsDeleteSeries => TimeSeries,
+            #[cfg(feature = "tsdb")]
+            record TsDefineSeries => TimeSeries,
 
             #[cfg(feature = "jobs")]
             record AnalyticsJob => AnalyticsJob,

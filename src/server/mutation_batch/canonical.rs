@@ -74,9 +74,10 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         // the variant and routes it to the "not built" catch-all downstream) --
         // this arm must be too, or a `tsdb`-off build leaves them with no arm at
         // all now that the match below is exhaustive.
-        Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. } => {
-            DurabilityDomain::TimeSeries
-        }
+        Method::TsAppend { .. }
+        | Method::TsEvict { .. }
+        | Method::TsDeleteSeries { .. }
+        | Method::TsDefineSeries { .. } => DurabilityDomain::TimeSeries,
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => DurabilityDomain::AnalyticsJob,
         _ => return service_owner_domain(method),
@@ -663,6 +664,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::TsAppend { .. }
         | Method::TsEvict { .. }
         | Method::TsDeleteSeries { .. }
+        | Method::TsDefineSeries { .. }
         | Method::KgDelegate { .. }
         | Method::SubmitWorkItem { .. }
         | Method::SubmitWorkItems { .. }

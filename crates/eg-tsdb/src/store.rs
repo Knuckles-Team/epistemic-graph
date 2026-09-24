@@ -504,6 +504,17 @@ pub struct SeriesMeta {
     /// decodes as `false` (not-held) rather than failing to decode.
     #[serde(default)]
     pub legal_hold: bool,
+    /// A materialised derived series' definition and incremental state (EH-524): the
+    /// MessagePack of `derive::maintain::DerivedState`, opaque to the store. Written in
+    /// the same transaction as the derived points it accounts for; `None` for an
+    /// ordinary series (and for metadata written before the field existed).
+    #[serde(default, with = "serde_bytes")]
+    pub derived: Option<Vec<u8>>,
+    /// Local ids of the derived series defined over this one (EH-524), so an append
+    /// finds what to maintain with one metadata read. Registered by the derived
+    /// series' own commit, in the same transaction.
+    #[serde(default)]
+    pub dependents: Vec<String>,
 }
 
 /// Canonical identity for a served time series. A raw `series_id` is never sufficient
@@ -784,6 +795,20 @@ pub struct ScopedAppendBatch<'a> {
     pub points: &'a [Point],
     pub batch: &'a MutationBatch,
     pub committed_at_ms: u64,
+    /// A derived series' new state and its registration on the source (EH-524),
+    /// committed with its points.
+    pub derived: Option<DerivedWrite<'a>>,
+}
+
+/// What a derived series' commit records besides its points (EH-524).
+#[derive(Clone, Copy, Debug)]
+pub struct DerivedWrite<'a> {
+    /// The MessagePack derived state for the series' metadata.
+    pub state: &'a [u8],
+    /// The source series' storage key, whose `dependents` get this series' local id.
+    pub source_key: &'a str,
+    /// This series' local id.
+    pub dependent: &'a str,
 }
 
 impl SeriesStore {
@@ -1016,12 +1041,10 @@ impl SeriesStore {
         request: ScopedAppendBatch<'_>,
     ) -> Result<u64> {
         let ScopedAppendBatch {
-            n_fields,
-            bucket_ns,
-            field_names,
             points,
             batch,
             committed_at_ms,
+            ..
         } = request;
         let storage_key = key.encode();
         // The batch's own scope is bound on first use here, so a caller no longer
@@ -1041,31 +1064,7 @@ impl SeriesStore {
             }
             Begin::Apply { source_version } => {
                 let owner_write = write.owner_rows(&owner, batch).map_err(redb_err)?;
-                let staged = (|| -> Result<()> {
-                    if points.is_empty() {
-                        return Ok(());
-                    }
-                    append_batch_in_wtx(
-                        &owner_write,
-                        &storage_key,
-                        n_fields,
-                        bucket_ns,
-                        field_names,
-                        points,
-                    )?;
-                    let meta = meta_in_wtx(&owner_write, &storage_key)?
-                        .ok_or_else(|| codec_err("scoped append produced no series metadata"))?;
-                    put_projection_in_wtx(
-                        &owner_write,
-                        &storage_key,
-                        &ProjectionHealth {
-                            status: ProjectionStatus::Ready,
-                            cursor: Some(ProjectionCursor::from(&meta)),
-                            updated_unix_ms: committed_at_ms,
-                            last_error: None,
-                        },
-                    )
-                })();
+                let staged = stage_scoped_append(&owner_write, &storage_key, &request);
                 // Always close the owner capability: dropping it unfinished poisons
                 // the write and would mask the staging error below.
                 owner_write.finish_owner().map_err(redb_err)?;
@@ -1360,6 +1359,88 @@ fn validate_append_dimensions(
     Ok(())
 }
 
+/// The rows one scoped append batch writes: its points, a derived series' state
+/// (EH-524), and the projection cursor — all in the caller's write transaction.
+fn stage_scoped_append<W: SeriesTableWriter>(
+    wtx: &W,
+    storage_key: &str,
+    request: &ScopedAppendBatch<'_>,
+) -> Result<()> {
+    if request.points.is_empty() && request.derived.is_none() {
+        return Ok(());
+    }
+    append_batch_in_wtx(
+        wtx,
+        storage_key,
+        request.n_fields,
+        request.bucket_ns,
+        request.field_names,
+        request.points,
+    )?;
+    if let Some(derived) = request.derived {
+        put_derived_in_wtx(wtx, storage_key, request, derived)?;
+    }
+    let meta = meta_in_wtx(wtx, storage_key)?
+        .ok_or_else(|| codec_err("scoped append produced no series metadata"))?;
+    put_projection_in_wtx(
+        wtx,
+        storage_key,
+        &ProjectionHealth {
+            status: ProjectionStatus::Ready,
+            cursor: Some(ProjectionCursor::from(&meta)),
+            updated_unix_ms: request.committed_at_ms,
+            last_error: None,
+        },
+    )
+}
+
+/// Record a derived series' state in its metadata (creating the metadata when the
+/// series has no points yet — a definition over an empty or warming source) and its
+/// id among the source's dependents.
+fn put_derived_in_wtx<W: SeriesTableWriter>(
+    wtx: &W,
+    storage_key: &str,
+    request: &ScopedAppendBatch<'_>,
+    derived: DerivedWrite<'_>,
+) -> Result<()> {
+    let mut meta_tab = wtx.open_series_table(SERIES_META)?;
+    let mut meta = load_append_meta(
+        &meta_tab,
+        storage_key,
+        request.n_fields,
+        request.bucket_ns,
+        request.field_names,
+    )?;
+    meta.derived = Some(derived.state.to_vec());
+    put_meta(&mut meta_tab, storage_key, &meta)?;
+    let mut source = meta_in_table(&meta_tab, derived.source_key)?
+        .ok_or_else(|| codec_err("a derived series' source has no metadata"))?;
+    if !source.dependents.iter().any(|d| d == derived.dependent) {
+        source.dependents.push(derived.dependent.to_string());
+        put_meta(&mut meta_tab, derived.source_key, &source)?;
+    }
+    Ok(())
+}
+
+fn meta_in_table(meta_tab: &Table<'_, &str, &[u8]>, series_id: &str) -> Result<Option<SeriesMeta>> {
+    match meta_tab.get(series_id).map_err(redb_err)? {
+        Some(g) => decode_meta(g.value()).map(Some),
+        None => Ok(None),
+    }
+}
+
+fn put_meta(
+    meta_tab: &mut Table<'_, &str, &[u8]>,
+    series_id: &str,
+    meta: &SeriesMeta,
+) -> Result<()> {
+    let blob = rmp_serde::to_vec(meta).map_err(codec_err)?;
+    meta_tab
+        .insert(series_id, blob.as_slice())
+        .map_err(redb_err)?;
+    Ok(())
+}
+
 fn load_append_meta(
     meta_tab: &Table<'_, &str, &[u8]>,
     series_id: &str,
@@ -1377,6 +1458,8 @@ fn load_append_meta(
             min_ts: Ts::MAX,
             max_ts: Ts::MIN,
             legal_hold: false,
+            derived: None,
+            dependents: Vec::new(),
         },
     };
     if meta.n_fields != n_fields {

@@ -15,6 +15,9 @@ use eg_numeric::series::{Arith, Map, PairStat, Rolling, Shift, Smoothing, Spec, 
 use eg_types::series_expr::{SeriesExpr, SeriesFunc};
 use serde::{Deserialize, Serialize};
 
+/// Materialised derived series: definition, checkpoints, advance and revision replay.
+pub mod maintain;
+
 /// The kernel generation a digest binds: bump when any kernel's output changes.
 pub const KERNEL_VERSION: &str = "eg-series-kernels/1";
 
