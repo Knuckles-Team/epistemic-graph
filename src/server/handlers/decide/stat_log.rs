@@ -93,7 +93,7 @@ fn executed_option(outcome: &StatisticalOutcome) -> Option<&str> {
     }
 }
 
-pub(super) fn visible_entries(
+fn visible_entries(
     store: &AgentLibraryStore,
     reader: &LogReader,
 ) -> Result<Vec<DecisionLogEntry>, String> {
@@ -117,7 +117,7 @@ pub(super) fn visible_entry(
     Ok(reader.sees(&entry).then_some(entry))
 }
 
-pub(super) fn evaluations_of(
+fn evaluations_of(
     store: &AgentLibraryStore,
     tenant_id: &str,
     record_id: &str,
@@ -419,21 +419,6 @@ pub(super) fn logged_dataset(
     })
 }
 
-/// EH-066: the read-only SQL view, served where the query engine is built.
-#[cfg(feature = "query")]
-fn view(ctx: &ExecutionContext, reader: &LogReader, sql: &str) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::DecisionLogQuery;
-    ResultPayload::of::<DecisionLogQuery>(super::stat_view::query_view(ctx, reader, sql)?)
-}
-
-#[cfg(not(feature = "query"))]
-fn view(_ctx: &ExecutionContext, _reader: &LogReader, _sql: &str) -> Result<ResultPayload, String> {
-    Err(refusal(
-        StatisticalErrorCode::ParameterInvalid,
-        "the decision view needs the query feature",
-    ))
-}
-
 fn dispatch(
     ctx: &ExecutionContext,
     reader: &LogReader,
@@ -462,7 +447,6 @@ fn dispatch(
         DecisionLogOp::Resolve { resolution, .. } => {
             ResultPayload::of::<DecisionLogResolve>(resolve(ctx, reader, resolution)?)
         }
-        DecisionLogOp::Query { sql, .. } => view(ctx, reader, &sql),
         DecisionLogOp::Verify { record_id, .. } => ResultPayload::of::<DecisionLogVerify>(verify(
             ctx,
             reader,
