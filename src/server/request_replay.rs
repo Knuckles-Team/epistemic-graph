@@ -364,7 +364,7 @@ mod durable_tests {
     }
 
     fn scope_version(ledger: &RedbReplayLedger) -> u64 {
-        eg_transaction::read::version(&ledger.durable.read().unwrap()).unwrap()
+        eg_transaction::version(&ledger.durable.read().unwrap()).unwrap()
     }
 
     #[test]
