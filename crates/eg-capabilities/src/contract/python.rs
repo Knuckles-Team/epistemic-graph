@@ -56,6 +56,20 @@ struct TypedOperationAdapter {
     result_is_union: bool,
 }
 
+/// `(method, params field)` pairs whose field the hand-written client may fill with
+/// its NATIVE-CHECKED bytes instead of the structured value:
+/// `SqlSourceBatchPreparation.canonical_batch`, which the client turns into the
+/// wire body itself (`client._NATIVE_METHOD_BODIES`). The generated send
+/// validates only the structured form of that field.
+const NATIVE_PREPARED_FIELDS: &[(&str, &str)] = &[("SqlSourceBatch", "batch")];
+
+fn native_prepared_field(id: &str) -> Option<&'static str> {
+    NATIVE_PREPARED_FIELDS
+        .iter()
+        .find(|(method, _)| *method == id)
+        .map(|(_, field)| *field)
+}
+
 const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
     TypedOperationAdapter {
         method: "AgentComponent",
@@ -511,7 +525,7 @@ fn push_send(
     push_error_bullets(out, d.error_set);
     let _ = writeln!(out, "    \"\"\"");
     match request_model {
-        Some(model) => push_lazy_request_validation(out, model),
+        Some(model) => push_lazy_request_validation(out, model, native_prepared_field(id)),
         None => push_send_request_validation(out, id, typed_request),
     }
     let _ = writeln!(out, "    payload = await client._send(");
@@ -537,9 +551,10 @@ fn push_send_request_validation(out: &mut String, id: &str, typed_request: Optio
     match typed_request {
         Some(model) => {
             let _ = writeln!(out, "    request = {model}.model_validate(request)");
-            let _ = writeln!(
-                out,
-                "    params = request.model_dump(mode=\"json\", by_alias=True, exclude_none=True)"
+            // Only what the caller set: the engine applies the same serde
+            // defaults to an absent field.
+            out.push_str(
+                "    params = request.model_dump(\n        mode=\"json\", by_alias=True, exclude_unset=True, exclude_none=True\n    )\n",
             );
         }
         None => {
@@ -638,17 +653,15 @@ fn push_typed_operation_adapter(out: &mut String, adapter: &TypedOperationAdapte
         );
     }
     if method == "AgentComponent" && operation == "current" {
-        let _ = writeln!(
-            out,
-            "    params = {{\"op\": request.model_dump(mode=\"json\", exclude_none=True)}}"
+        out.push_str(
+            "    params = {\n        \"op\": request.model_dump(mode=\"json\", exclude_unset=True, exclude_none=True)\n    }\n",
         );
     } else {
         let _ = writeln!(out, "    params = {{");
         let _ = writeln!(out, "        \"op\": {{");
         let _ = writeln!(out, "            \"op\": {operation:?},");
-        let _ = writeln!(
-            out,
-            "            \"request\": request.model_dump(mode=\"json\", exclude_none=True),"
+        out.push_str(
+            "            \"request\": request.model_dump(\n                mode=\"json\", exclude_unset=True, exclude_none=True\n            ),\n",
         );
         let _ = writeln!(out, "        }},");
         let _ = writeln!(out, "    }}");

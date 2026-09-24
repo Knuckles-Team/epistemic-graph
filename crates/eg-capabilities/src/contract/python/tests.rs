@@ -444,7 +444,9 @@ fn agent_component_current_uses_the_exact_flattened_operation_shape() {
         "async def send_agent_component_current(\n    client: Any,\n    request: AgentComponentOpCurrent,"
     ));
     assert!(
-        storage.contains("params = {\"op\": request.model_dump(mode=\"json\", exclude_none=True)}")
+        storage.contains(
+            "params = {\n        \"op\": request.model_dump(mode=\"json\", exclude_unset=True, exclude_none=True)\n    }"
+        )
     );
     assert!(
         storage.contains("return TypeAdapter(AgentComponentEntry | None).validate_python(payload)")
@@ -770,4 +772,20 @@ fn root_ref_as_method(mut value: serde_json::Value) -> serde_json::Value {
         _ => {}
     }
     value
+}
+
+/// The client's native-checked SQL source batch bytes pass the generated send; only
+/// the structured `batch` is validated against the strict params model.
+#[test]
+fn sql_source_batch_validates_only_the_structured_batch() {
+    let catalog = Catalog::collect();
+    let storage = artifacts(&catalog)
+        .into_iter()
+        .find(|artifact| artifact.path == "epistemic_graph/generated/storage.py")
+        .map(|artifact| String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"))
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "    if not isinstance((params or {}).get(\"batch\"), bytes):\n        \
+         models().MethodSqlSourceBatchParams.model_validate(params or {})\n"
+    ));
 }

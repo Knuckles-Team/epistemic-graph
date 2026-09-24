@@ -192,9 +192,27 @@ fn push_call(out: &mut String, indent: &str, callee: &str, arguments: &[&str]) {
 
 /// The lazy request validation a non-DTO send runs: the models module is imported
 /// on the first send, never when the domain module is.
-pub(super) fn push_lazy_request_validation(out: &mut String, model: &str) {
+///
+/// A `native_field` (see [`super::NATIVE_PREPARED_FIELDS`]) may instead carry the
+/// client's native-checked bytes for that field. The native codec already
+/// validated them, and the client builds the wire body from them, so the model
+/// check applies only to the structured form.
+pub(super) fn push_lazy_request_validation(
+    out: &mut String,
+    model: &str,
+    native_field: Option<&str>,
+) {
     let callee = format!("models().{model}.model_validate");
-    push_call(out, "    ", &callee, &["params or {}"]);
+    match native_field {
+        Some(field) => {
+            let _ = writeln!(
+                out,
+                "    if not isinstance((params or {{}}).get({field:?}), bytes):"
+            );
+            push_call(out, "        ", &callee, &["params or {}"]);
+        }
+        None => push_call(out, "    ", &callee, &["params or {}"]),
+    }
 }
 
 /// `decode_{name}(result)` validating an `OpaqueResult` against its declared model.
