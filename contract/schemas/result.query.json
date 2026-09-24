@@ -195,6 +195,75 @@
         }
       ]
     },
+    "AbstentionResolution": {
+      "additionalProperties": false,
+      "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+      "properties": {
+        "option_id": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "resolution_id": {
+          "type": "string"
+        },
+        "resolver": {
+          "$ref": "#/$defs/AbstentionResolver"
+        }
+      },
+      "required": [
+        "record_id",
+        "resolution_id",
+        "option_id",
+        "resolver"
+      ],
+      "type": "object"
+    },
+    "AbstentionResolver": {
+      "description": "Who resolved an abstention (EH-037, §6.4 \"abstentions as labels\").",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+          "properties": {
+            "resolver": {
+              "const": "human",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+          "properties": {
+            "producer": {
+              "type": "string"
+            },
+            "prompt_digest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resolver": {
+              "const": "model",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver",
+            "producer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AgentComponentContentRequest": {
       "additionalProperties": false,
       "description": "Read one component revision's bytes.",
@@ -2997,6 +3066,27 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_DeclaredNumber_32": {
+      "items": {
+        "$ref": "#/$defs/DeclaredNumber"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredOption_64": {
+      "items": {
+        "$ref": "#/$defs/DeclaredOption"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredText_8": {
+      "items": {
+        "$ref": "#/$defs/DeclaredText"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_DerivationEdge_16": {
       "items": {
         "$ref": "#/$defs/DerivationEdge"
@@ -3016,6 +3106,27 @@
         "$ref": "#/$defs/Elimination"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_IndexFileVersion_262144": {
+      "items": {
+        "$ref": "#/$defs/IndexFileVersion"
+      },
+      "maxItems": 262144,
+      "type": "array"
+    },
+    "BoundedVec_IndexRef_4096": {
+      "items": {
+        "$ref": "#/$defs/IndexRef"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_IndexTombstone_262144": {
+      "items": {
+        "$ref": "#/$defs/IndexTombstone"
+      },
+      "maxItems": 262144,
       "type": "array"
     },
     "BoundedVec_LabelledItem_4096": {
@@ -3431,6 +3542,24 @@
             "plan"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The caller's own options, each fact a claim the caller makes\n([`declared`]). Visible to the declaring principal only.",
+          "properties": {
+            "options": {
+              "$ref": "#/$defs/BoundedVec_DeclaredOption_64"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3477,6 +3606,24 @@
           "required": [
             "source",
             "plan_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Options the caller declared, pinned by the digest of the declaration.",
+          "properties": {
+            "options_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options_digest"
           ],
           "type": "object"
         }
@@ -4494,6 +4641,10 @@
             "$ref": "#/$defs/LineageRecord"
           },
           "type": "array"
+        },
+        "material_class": {
+          "$ref": "#/$defs/MaterialClass",
+          "description": "How inline material values are screened for host identity (EH-280).\nAbsent on the wire means `Attested`, so every existing envelope keeps\nits exact serialized form and digest."
         },
         "mutation": {
           "$ref": "#/$defs/MutationBatch"
@@ -6041,6 +6192,47 @@
       ],
       "type": "string"
     },
+    "DatasetSource": {
+      "description": "Where a job's labelled items come from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A submitted dataset, pinned by digest (gold sets, exported suites).",
+          "properties": {
+            "dataset": {
+              "$ref": "#/$defs/LabelledDataset"
+            },
+            "source": {
+              "const": "inline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "dataset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine's own decision log: every committed, executed record of\n`question_id` the caller may read, with its independent evaluations.\nBandit labels only.",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "source": {
+              "const": "logged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "question_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecideRequest": {
       "additionalProperties": false,
       "description": "One statistical decision request.\nNot `Eq`, for the same reason [`CandidateSource`] is not.",
@@ -6190,17 +6382,8 @@
       "additionalProperties": false,
       "description": "Evaluate a candidate head against recorded decisions.",
       "properties": {
-        "approved_commit_principals": {
-          "$ref": "#/$defs/BoundedVec_string_64",
-          "default": [],
-          "description": "Commit principals whose bandit records may be evaluated on."
-        },
         "candidate": {
           "$ref": "#/$defs/EvalCandidate"
-        },
-        "dataset": {
-          "$ref": "#/$defs/LabelledDataset",
-          "description": "The labelled items the candidate is evaluated on."
         },
         "estimators": {
           "$ref": "#/$defs/BoundedVec_OpeEstimatorKind_8"
@@ -6218,6 +6401,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items the candidate is evaluated on come from."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -6232,7 +6419,7 @@
         "policy",
         "estimators",
         "window",
-        "dataset"
+        "source"
       ],
       "type": "object"
     },
@@ -6281,15 +6468,6 @@
       "additionalProperties": false,
       "description": "Fit a decision head into a draft artifact.",
       "properties": {
-        "approved_commit_principals": {
-          "$ref": "#/$defs/BoundedVec_string_64",
-          "default": [],
-          "description": "Commit principals whose bandit records may train. Empty admits none."
-        },
-        "dataset": {
-          "$ref": "#/$defs/LabelledDataset",
-          "description": "The labelled items, pinned: a full-label regime's `gold_set_digest`\nmust equal this dataset's digest."
-        },
         "feature_schema": {
           "$ref": "#/$defs/ComponentDependency"
         },
@@ -6308,6 +6486,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items come from. A full-label regime's\n`gold_set_digest` must equal the inline dataset's digest."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -6324,7 +6506,7 @@
         "label_regime",
         "window",
         "optimiser",
-        "dataset"
+        "source"
       ],
       "type": "object"
     },
@@ -6388,6 +6570,163 @@
       ],
       "type": "object"
     },
+    "DecisionLogOp": {
+      "description": "One decision-log operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Make one statistical record durable, after verify-replay.",
+          "properties": {
+            "op": {
+              "const": "commit",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/StatisticalDecisionRecord"
+            }
+          },
+          "required": [
+            "op",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Join one independent evaluation to a committed record.",
+          "properties": {
+            "evaluation": {
+              "$ref": "#/$defs/DecisionOutcomeEvaluation"
+            },
+            "op": {
+              "const": "evaluate",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "evaluation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one committed record.",
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read the outcome aggregate.",
+          "properties": {
+            "op": {
+              "const": "aggregate",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/OutcomeAggregateRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Apply the policy's retention to at most `limit` entries: compact the\nones older than `compact_after_ms`, retire blobs older than\n`drop_blob_after_ms`. Idempotent.",
+          "properties": {
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "compact",
+              "type": "string"
+            },
+            "policy": {
+              "$ref": "#/$defs/DecisionPolicyRef"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "policy",
+            "limit"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Re-verify one logged record against its (possibly compacted) inputs.",
+          "properties": {
+            "op": {
+              "const": "verify",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Record how an escalation resolved one logged abstention (EH-037).",
+          "properties": {
+            "op": {
+              "const": "resolve",
+              "type": "string"
+            },
+            "resolution": {
+              "$ref": "#/$defs/AbstentionResolution"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "resolution"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecisionOutcome": {
       "description": "The conclusion of one assembly decision.",
       "oneOf": [
@@ -6436,6 +6775,48 @@
           "type": "object"
         }
       ]
+    },
+    "DecisionOutcomeEvaluation": {
+      "additionalProperties": false,
+      "description": "One independent evaluation of a committed record's executed option.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "evaluation_id": {
+          "type": "string"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/OutcomeFidelity"
+        },
+        "lease_holder": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "selected_agent": {
+          "description": "The agent the executed option ran as; the evaluator must not be it.",
+          "type": "string"
+        },
+        "success": {
+          "default": null,
+          "description": "`None`: censored, neither success nor failure.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "record_id",
+        "evaluation_id",
+        "class",
+        "selected_agent",
+        "lease_holder",
+        "fidelity"
+      ],
+      "type": "object"
     },
     "DecisionPolicy": {
       "additionalProperties": false,
@@ -6729,6 +7110,69 @@
       "required": [
         "p50_ms",
         "p95_ms"
+      ],
+      "type": "object"
+    },
+    "DeclaredNumber": {
+      "additionalProperties": false,
+      "description": "One named numeric fact of a declared option, already on the `Q32` scale.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "q32": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "q32"
+      ],
+      "type": "object"
+    },
+    "DeclaredOption": {
+      "additionalProperties": false,
+      "description": "One option a caller declares.",
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": [],
+          "description": "Native capability IRIs the option claims; read by `CoverageFraction`."
+        },
+        "numbers": {
+          "$ref": "#/$defs/BoundedVec_DeclaredNumber_32",
+          "default": [],
+          "description": "Sorted by key and unique."
+        },
+        "option_id": {
+          "type": "string"
+        },
+        "texts": {
+          "$ref": "#/$defs/BoundedVec_DeclaredText_8",
+          "default": [],
+          "description": "Sorted by key and unique."
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "type": "object"
+    },
+    "DeclaredText": {
+      "additionalProperties": false,
+      "description": "One named text field of a declared option.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "text"
       ],
       "type": "object"
     },
@@ -10175,7 +10619,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`\n(UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip — the cross-engine federation seam.",
+          "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `Uql` statement\n(UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip — the cross-engine federation seam.",
           "properties": {
             "RemoteEngine": {
               "properties": {
@@ -10729,6 +11173,113 @@
       "required": [
         "selected",
         "objective"
+      ],
+      "type": "object"
+    },
+    "IndexFileVersion": {
+      "description": "`ref_name` contains `path` bound to the blob whose content digest is\n`blob_digest` (`sha256:<hex>`). The blob may have been submitted in this\nbatch or in an earlier one: a `:FileVersion` needs only the digest.",
+      "properties": {
+        "blob_digest": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "ref_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_name",
+        "path",
+        "blob_digest"
+      ],
+      "type": "object"
+    },
+    "IndexRef": {
+      "description": "One branch/tag ref pinned to an immutable commit.",
+      "properties": {
+        "ref_name": {
+          "type": "string"
+        },
+        "revision_id": {
+          "description": "Lowercase 40- or 64-hex Git commit id, never a mutable ref name.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/IndexRefStatus"
+        }
+      },
+      "required": [
+        "ref_name",
+        "revision_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "IndexRefStatus": {
+      "description": "Whether a declared ref still exists at the indexed revision (EH-280).",
+      "oneOf": [
+        {
+          "const": "live",
+          "description": "The ref resolves to `revision_id`; its memberships ride in `file_versions`.",
+          "type": "string"
+        },
+        {
+          "const": "deleted",
+          "description": "The ref no longer exists; `revision_id` is the last admitted revision and\nevery prior membership arrives as a tombstone.",
+          "type": "string"
+        }
+      ]
+    },
+    "IndexRepositoryScope": {
+      "description": "Branch-aware, blob-deduplicated scope of one `IndexRepository` batch\n(EH-280). With a scope, each submitted file is ONE unique blob (named by\none of the paths it occurs at): the engine parses it exactly once, attaches\nits symbols to `:Blob`, and projects `:FileVersion` (path + blob) and\n`:Branch -> :FileVersion` membership for every ref in the batch.",
+      "properties": {
+        "file_versions": {
+          "$ref": "#/$defs/BoundedVec_IndexFileVersion_262144",
+          "default": []
+        },
+        "refs": {
+          "$ref": "#/$defs/BoundedVec_IndexRef_4096"
+        },
+        "repository_id": {
+          "type": "string"
+        },
+        "tombstones": {
+          "$ref": "#/$defs/BoundedVec_IndexTombstone_262144",
+          "default": []
+        }
+      },
+      "required": [
+        "repository_id",
+        "refs"
+      ],
+      "type": "object"
+    },
+    "IndexTombstone": {
+      "description": "`path` (bound to `prior_blob_digest`) left `ref_name` since the preceding\nadmitted revision; `successor_path` names the rename target when known.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "prior_blob_digest": {
+          "type": "string"
+        },
+        "ref_name": {
+          "type": "string"
+        },
+        "successor_path": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref_name",
+        "path",
+        "prior_blob_digest"
       ],
       "type": "object"
     },
@@ -12350,6 +12901,21 @@
         "maintenance_key"
       ],
       "type": "object"
+    },
+    "MaterialClass": {
+      "description": "How an envelope's inline material values are screened for host identity.",
+      "oneOf": [
+        {
+          "const": "attested",
+          "description": "Caller-attested material: every text value is screened strictly.",
+          "type": "string"
+        },
+        {
+          "const": "repository_snapshot",
+          "description": "Content of a repository snapshot, lowered by the engine's own\nrepository indexer. A caller cannot claim this class: the request\nboundary refuses it on the public envelope methods.",
+          "type": "string"
+        }
+      ]
     },
     "MaterialOperation": {
       "enum": [
@@ -18733,7 +19299,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Parse a batch AND resolve cross-file call/import edges in one round-trip\n(CONCEPT:EG-KG.compute.turn-each-project). The blob is the same MessagePack `Vec<(file_path,\nsource_bytes)>` as `ParseFiles`, but the batch is treated as one\nresolution scope (a repository, or a delta set): the response is a SINGLE\nresolved `IndexResult` whose `calls`/`depends_on` edges point at real node\nids, not bare names. Its ordered `file_outcomes` preserve success,\nunsupported, and error dispositions plus content/parser-capability\ndigests for every submitted file. Use this (not `ParseFiles`) to ingest a\nrepo's symbol graph; use `ParseFiles` only when per-file raw results are\nwanted.",
+          "description": "Parse a batch AND resolve cross-file call/import edges in one round-trip\n(CONCEPT:EG-KG.compute.turn-each-project). The blob is the same MessagePack `Vec<(file_path,\nsource_bytes)>` as `ParseFiles`, but the batch is treated as one\nresolution scope (a repository, or a delta set): the response is a SINGLE\nresolved `IndexResult` whose `calls`/`depends_on` edges point at real node\nids, not bare names. Its ordered `file_outcomes` preserve success,\nunsupported, and error dispositions plus content/parser-capability\ndigests for every submitted file. Use this (not `ParseFiles`) to ingest a\nrepo's symbol graph; use `ParseFiles` only when per-file raw results are\nwanted. With `scope` (EH-280) the batch is branch-aware and\nblob-deduplicated: every submitted file is one unique blob, parsed once,\nand the result also projects `:Blob`, `:FileVersion` and `:Branch`\nmembership (plus tombstones) for the declared refs.",
           "properties": {
             "method": {
               "const": "IndexRepository",
@@ -18750,6 +19316,17 @@
                     "type": "integer"
                   },
                   "type": "array"
+                },
+                "scope": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/IndexRepositoryScope"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 }
               },
               "required": [
@@ -23019,32 +23596,6 @@
           "additionalProperties": false,
           "properties": {
             "method": {
-              "const": "UnifiedQueryText",
-              "type": "string"
-            },
-            "params": {
-              "additionalProperties": false,
-              "properties": {
-                "text": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "text"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "method": {
               "const": "Uql",
               "type": "string"
             },
@@ -23546,7 +24097,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Natural-language → executable query → rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\n`UnifiedQueryText` pipeline (`eg_plan::uql::parse` → the fused executor) — NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` —\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all — so the wire stays compatible while the NL\nsurface is a build-tier choice.",
+          "description": "Natural-language → executable query → rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\nUQL pipeline (`eg_plan::uql::parse` → the fused executor) — NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` —\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all — so the wire stays compatible while the NL\nsurface is a build-tier choice.",
           "properties": {
             "method": {
               "const": "NlQuery",
@@ -24515,15 +25066,22 @@
         },
         {
           "additionalProperties": false,
-          "description": "In-txn unified query, TEXT surface — UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-\nwritable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the\nSAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same\n`query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.",
+          "description": "A UQL statement INSIDE a transaction (CONCEPT:EG-KG.query.txn-cross-modal-ryow,\nEH-434): exactly `Uql`'s statement — the same grammar, typed `$name` `params`,\n`EXPLAIN`/`PROFILE`, `LET` programs, `RETURN` channels and row annotations — run\nover the committed snapshot OVERLAID with this txn's staged write-set (read your\nown writes). Result: [`crate::wire::UqlResult`]. (Replaced the rows-only\n`TxnUnifiedQueryText`.)",
           "properties": {
             "method": {
-              "const": "TxnUnifiedQueryText",
+              "const": "TxnUql",
               "type": "string"
             },
             "params": {
               "additionalProperties": false,
               "properties": {
+                "params": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/UqlParam"
+                  },
+                  "default": {},
+                  "type": "object"
+                },
                 "text": {
                   "type": "string"
                 },
@@ -25544,6 +26102,11 @@
                   "description": "Projection base namespace IRI. Empty ⇒ identity projection.",
                   "type": "string"
                 },
+                "explain": {
+                  "default": false,
+                  "description": "When true, the result carries one witness proof per row\n(`SparqlResult::proofs`, EH-197): the ground triples that instantiate the\nquery's patterns under that row. Opt-in, because the witness search scans\nthe graph once per triple pattern.",
+                  "type": "boolean"
+                },
                 "query": {
                   "type": "string"
                 },
@@ -25761,6 +26324,11 @@
                 "derived_only": {
                   "default": false,
                   "description": "When true, return only the DERIVED facts (omit the asserted base).",
+                  "type": "boolean"
+                },
+                "explain": {
+                  "default": false,
+                  "description": "When true, every returned fact carries its proof tree (`RuleFact::proof`,\nEH-197): the rule and premises that set its confidence, down to asserted\nleaves. Opt-in, like `OwlExplain` beside `OwlReason`, because a proof per\nfact multiplies the response size.",
                   "type": "boolean"
                 },
                 "min_confidence": {
@@ -28342,6 +28910,33 @@
         },
         {
           "additionalProperties": false,
+          "description": "The statistical decision log: commit an acted-on record after\nverify-replay, join independent outcome evaluations, and read the\noutcome aggregate the log answers.",
+          "properties": {
+            "method": {
+              "const": "DecisionLog",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/DecisionLogOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "General bounded 0-1 integer programme with an independently verifiable\ncertificate. Pure compute: no store, no clock, no float.",
           "properties": {
             "method": {
@@ -29353,6 +29948,61 @@
       ],
       "type": "string"
     },
+    "NativeOutboxScope": {
+      "description": "Which ledger scope of a native store an operation names.\n\nThe Agent Library and the jobs store keep one outbox per tenant; a\nsemantic index keeps one per binding, and a SQL catalog one per resource\nscope. The selector names the scope the store actually keys its outbox by,\nso an operator can reach every outbox without the engine guessing.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The tenant's one scope (Agent Library, jobs).",
+          "properties": {
+            "scope": {
+              "const": "tenant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One semantic binding's serving scope.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "scope": {
+              "const": "semantic_binding",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "binding_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One resource scope of the tenant's shared SQL catalog.",
+          "properties": {
+            "resource": {
+              "type": "string"
+            },
+            "scope": {
+              "const": "sql_resource",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "resource"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "NativeOutboxStore": {
       "description": "Which native owner's outbox this is.\n\nClosed, and closed on purpose: an outbox nobody named is an outbox nobody\nmonitors, so a new durable owner has to be added here to be operable.",
       "enum": [
@@ -30016,7 +30666,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit\nSHACL focus node, against the ONE named `shape` of the `shapes` graph over the\nrequest graph's RDF projection, and keep the rows `keep` names. The UQL\n`VALIDATE SHAPE <shape> USING \"<turtle>\" [KEEP CONFORMING|VIOLATING]` stage lowers\nhere. A shape that is not declared in `shapes`, or a row whose id is not an RDF\nterm, is an error — never a vacuous pass. Gated by `owl-plan`, like the other\nsemantic plan ops.",
+          "description": "FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit\nSHACL focus node, against the ONE named `shape` of the `shapes` graph over the\nrequest graph's RDF projection, and keep the rows `keep` names. The UQL\n`VALIDATE SHAPE <shape> USING \"<turtle>\" [KEEP CONFORMING|VIOLATING]` stage lowers\nhere. A shape that is not declared in the shapes graph, or a row whose id is not\nan RDF term, is an error — never a vacuous pass. Gated by `owl-plan`, like the other\nsemantic plan ops.",
           "properties": {
             "ValidateShape": {
               "properties": {
@@ -30029,7 +30679,7 @@
                   "type": "string"
                 },
                 "shapes": {
-                  "description": "The shapes graph as a Turtle document (non-empty).",
+                  "description": "The shapes graph as a Turtle document; empty ⇒ the queried graph's\ncomposed GraphSchema shapes (bound by the served query path).",
                   "type": "string"
                 }
               },
@@ -30598,6 +31248,30 @@
         },
         {
           "additionalProperties": false,
+          "description": "SOURCE (EH-066, UQL `DECISIONS [WHERE pred]`) — the record ids of the caller's\nVISIBLE decision log (the same rows the SQL `decisions` relation holds), kept when\nevery relational predicate holds over the record's columns (`question_id`,\n`outcome`, `option_id`, `source`, `safety`, `committed_at_ms`, …). Unscored, in\nrecord-id order. The served path binds the caller's log; unbound it is a typed\nerror, never an empty set.",
+          "properties": {
+            "DecisionScan": {
+              "properties": {
+                "preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "DecisionScan"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "LIMIT — top-k, respecting the current order.",
           "properties": {
             "Limit": {
@@ -30813,6 +31487,12 @@
         {
           "additionalProperties": false,
           "properties": {
+            "scope": {
+              "$ref": "#/$defs/NativeOutboxScope",
+              "default": {
+                "scope": "tenant"
+              }
+            },
             "store": {
               "$ref": "#/$defs/NativeOutboxStore"
             },
@@ -30832,6 +31512,31 @@
           "type": "object"
         }
       ]
+    },
+    "OutcomeAggregateRequest": {
+      "additionalProperties": false,
+      "description": "Ask for the outcome aggregate.",
+      "properties": {
+        "question_id": {
+          "default": null,
+          "description": "`None` aggregates every question; rows then also carry the\ncross-question total per option.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/RecordWindow"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "window"
+      ],
+      "type": "object"
     },
     "OutcomeArtifactRef": {
       "additionalProperties": false,
@@ -31042,6 +31747,18 @@
             "string",
             "null"
           ]
+        },
+        "tool_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackToolMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the SDK exposes a tool's arguments: `condensed` for the single\n`action` + `params_json` shape, `verbose` otherwise. A declaration of\nthe pack builder, which has the schema; the engine never re-derives it.\nMeaningful on tools only."
         }
       },
       "type": "object"
@@ -31090,7 +31807,8 @@
             "read_only_hint": null,
             "required_scopes": [],
             "requires_capabilities": [],
-            "sdk_contract_pin": null
+            "sdk_contract_pin": null,
+            "tool_mode": null
           }
         },
         "body": {
@@ -31157,7 +31875,8 @@
         "shapes",
         "model_profile",
         "a2a_card",
-        "manifest"
+        "manifest",
+        "skill_file"
       ],
       "type": "string"
     },
@@ -31288,6 +32007,14 @@
         "sha256"
       ],
       "type": "object"
+    },
+    "PackToolMode": {
+      "description": "How an SDK tool presents its arguments.",
+      "enum": [
+        "condensed",
+        "verbose"
+      ],
+      "type": "string"
     },
     "PipelineSpec": {
       "description": "The full composable pipeline recipe: ordered feature steps → split → model. Stored\n(minus the split) inside the `:Model` artifact so eval/predict rebuild features\nIDENTICALLY from the same recipe without the caller re-specifying it.",
@@ -32546,6 +33273,45 @@
           "type": "object"
         }
       ]
+    },
+    "ProofNodeWire": {
+      "description": "One node of a reconstructed OWL proof tree (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — the wire\nprojection of `eg_rdf::owl::ProofNode`. `rule == \"asserted\"` marks a LEAF (a\nreflexive seed or a base fact with no recorded justification — the proof bottoms\nout there); any other `rule` is a completion rule name (`\"CR-sub\"`, `\"CR-some⁺\"`,\n`\"CR-instance\"`, …) that consumed `premises` (each itself a full sub-proof) plus the\ncited `axioms`. Recursive — `premises` nests to the tree's actual depth (never\nflattened), so a client walks it exactly like the reasoner derived it.",
+      "properties": {
+        "axioms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "premises": {
+          "items": {
+            "$ref": "#/$defs/ProofNodeWire"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "sub": {
+          "type": "string"
+        },
+        "sup": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sub",
+        "sup",
+        "rule",
+        "axioms",
+        "confidence",
+        "premises"
+      ],
+      "type": "object"
     },
     "PropensitySource": {
       "description": "Where a logged propensity came from.",
@@ -35477,7 +36243,7 @@
             },
             "queue_class": {
               "$ref": "#/$defs/SemanticQueueClass",
-              "description": "The tier this worker serves. Rows whose stage belongs to another\nclass are released back unexecuted rather than handed to a worker\nthat cannot do them -- tier selection is the whole point of a\ntiered queue, so it has to be expressible on the wire."
+              "description": "The tier this worker serves. Each class is its own topic and its\nown consumer (`<worker>#<class>`), so a claim can only ever lease\nrows of this class -- tier selection is the whole point of a\ntiered queue, so it has to be expressible on the wire."
             },
             "tenant_id": {
               "type": "string"
@@ -35526,7 +36292,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "The bounded queue's per-consumer liveness, capacity and in-flight count.",
+          "description": "The bounded queue's per-consumer liveness, capacity and in-flight count,\nfor this worker's consumer of one queue class.",
           "properties": {
             "binding_id": {
               "type": "string"
@@ -35538,6 +36304,9 @@
               "const": "stage_status",
               "type": "string"
             },
+            "queue_class": {
+              "$ref": "#/$defs/SemanticQueueClass"
+            },
             "tenant_id": {
               "type": "string"
             }
@@ -35546,7 +36315,8 @@
             "op",
             "tenant_id",
             "binding_id",
-            "consumer"
+            "consumer",
+            "queue_class"
           ],
           "type": "object"
         },
@@ -38128,6 +38898,79 @@
       ],
       "type": "object"
     },
+    "SparqlObjectKind": {
+      "description": "Whether a SPARQL witness term is a resource or a literal.",
+      "enum": [
+        "resource",
+        "literal"
+      ],
+      "type": "string"
+    },
+    "SparqlProofCoverage": {
+      "description": "Whether a SPARQL row proof certifies the row.",
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every required triple pattern is instantiated by a listed triple of the graph,\nand the binding satisfies every required-scope FILTER.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "The query uses algebra a witness does not certify (property paths, UNION,\nMINUS, aggregates, GRAPH, SERVICE, its own FROM dataset, a non-SELECT form), or\nthe witness search hit its step budget. The listed triples, if any, exist but\ndo not by themselves prove the row.",
+          "type": "string"
+        }
+      ]
+    },
+    "SparqlRowProof": {
+      "description": "The proof of one SPARQL SELECT row (EH-197): the ground triples that instantiate\nthe query's patterns under the row's bindings.",
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/SparqlProofCoverage"
+        },
+        "row": {
+          "description": "Index of the row in the result's `rows`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/SparqlWitnessTriple"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "row",
+        "witnesses",
+        "coverage"
+      ],
+      "type": "object"
+    },
+    "SparqlWitnessTriple": {
+      "description": "One ground triple of the queried graph that a SPARQL row's witness uses (EH-197).\nSubject and a resource object are in the evaluator's `<iri>` / `_:b` form; the\npredicate is a bare IRI; a literal object is its lexical value.",
+      "properties": {
+        "object": {
+          "type": "string"
+        },
+        "object_kind": {
+          "$ref": "#/$defs/SparqlObjectKind"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "predicate",
+        "object",
+        "object_kind"
+      ],
+      "type": "object"
+    },
     "SpatialOpKind": {
       "description": "SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-KG.ontology.concept-9).\nPure serde here (Pi-safe, no eg-geo dep); the executor maps it to eg-geo's `algebra`\nbehind eg-plan's `geo` gate. Unary ops (`Buffer`/`ConvexHull`/`Simplify`/`Centroid`)\nderive from the row geometry alone; binary ops (`Union`/`Intersection`/`Difference`)\ntake the second operand as a WKT literal.",
       "oneOf": [
@@ -38807,6 +39650,11 @@
         "inputs_digest": {
           "type": "string"
         },
+        "logging_propensities": {
+          "$ref": "#/$defs/BoundedVec_UnitRationalWire_64",
+          "default": [],
+          "description": "The executed policy's full distribution over the options, aligned with\nthe feature matrix's candidate order and conditional on an option being\nexecuted; empty when nothing was (advisory or abstained). Off-policy\nevaluation over the decision log reads it."
+        },
         "nl_binding": {
           "anyOf": [
             {
@@ -38878,6 +39726,14 @@
       "additionalProperties": false,
       "description": "The input set of one statistical decision.",
       "properties": {
+        "classification_rules": {
+          "default": null,
+          "description": "Identity of the rules (names, thresholds, ontology digest) the\ncandidates' derived classes came from (EH-200); a record replays only\nunder the same identity. `None` when no class was derived.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "exploration": {
           "anyOf": [
             {
@@ -38906,6 +39762,15 @@
           ],
           "default": null
         },
+        "params": {
+          "$ref": "#/$defs/BoundedVec_TypedParam_64",
+          "default": [],
+          "description": "The typed parameters the features and the keyed seed read."
+        },
+        "policy": {
+          "$ref": "#/$defs/DecisionPolicyRef",
+          "description": "The policy the decision resolved, so a replay reads the same body."
+        },
         "policy_digest": {
           "type": "string"
         },
@@ -38915,6 +39780,7 @@
       },
       "required": [
         "feature_schema",
+        "policy",
         "policy_digest",
         "feature_matrix",
         "shortlist"
@@ -39026,13 +39892,38 @@
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Miscoverage level of the prediction set."
         },
+        "approved_commit_principals": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Commit principals whose logged outcomes may train or evaluate a head\n(§4.3 log poisoning). Empty admits no bandit record at all."
+        },
         "audit_sample": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Share of decisions sampled into the audit stream."
         },
+        "compact_after_ms": {
+          "default": null,
+          "description": "Age after which a logged record's inputs move to Blob CAS (EH-060).\n`None` keeps them inline.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "delta": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Failure probability of that guarantee."
+        },
+        "drop_blob_after_ms": {
+          "default": null,
+          "description": "Age after which a compacted record's blob is released; verification\nthen answers `INPUTS_RETIRED`. `None` keeps the blob.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "epsilon": {
           "$ref": "#/$defs/UnitRationalWire",
@@ -40037,6 +40928,112 @@
         }
       ]
     },
+    "UqlKnowledge": {
+      "description": "A row's knowledge record (EH-450, UQL `WITH KNOWLEDGE [(col, …)]`) — the wire form of\neg-plan's `KnowledgeRow`, re-materialized from the SAME snapshot the query ran over.\nTimes are the node's own bitemporal window; the list fields are the epistemic\nneighbourhood (empty, never fabricated, when the row has none or `epistemic_resolved`\nis false because the build has no epistemic layer).",
+      "properties": {
+        "alternative_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "contradiction_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "epistemic_resolved": {
+          "type": "boolean"
+        },
+        "evidence_refs": {
+          "description": "Ids of the row's committed evidence loci.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "policy_labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "projection": {
+          "description": "The requested columns present on the row, as one JSON object; `None` when the\nstatement named no columns."
+        },
+        "proof_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "transformation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tx_from": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tx_until": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "valid_from": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "valid_until": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "confidence",
+        "epistemic_resolved",
+        "source_refs",
+        "evidence_refs",
+        "policy_labels",
+        "contradiction_ids",
+        "proof_ids",
+        "transformation_ids",
+        "alternative_ids"
+      ],
+      "type": "object"
+    },
     "UqlParam": {
       "description": "A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound\nvalues are substituted into the parsed plan as typed literals — never spliced into\nthe text — so a parameter can never change the query's structure.",
       "oneOf": [
@@ -40107,6 +41104,97 @@
           },
           "required": [
             "List"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UqlProofCoverage": {
+      "description": "Whether a `WITH PROOF` row proof certifies the row (EH-448).",
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every stage that admitted rows is proof-carrying and each of its proofs is\ncomplete; the remaining stages only order, score or cut rows.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "Some admitting stage carries no proof (see its `Unproved` step), or a\nproof-carrying stage's own proof is partial.",
+          "type": "string"
+        }
+      ]
+    },
+    "UqlProofStep": {
+      "description": "One stage's contribution to a row proof (EH-448). `stage` is the stage in canonical UQL.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A `SPARQL … VAR v` source: the witness of a solution binding `v` to the row — the\nground triples instantiating the query's patterns (EH-197).",
+          "properties": {
+            "Sparql": {
+              "properties": {
+                "proof": {
+                  "$ref": "#/$defs/SparqlRowProof"
+                },
+                "stage": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "stage",
+                "proof"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Sparql"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A `REASON` stage: the OWL proof that the row is a member of the target class — an\nasserted type fact plus the TBox subsumption chain (EH-197's OWL side).",
+          "properties": {
+            "Reason": {
+              "properties": {
+                "proof": {
+                  "$ref": "#/$defs/ProofNodeWire"
+                },
+                "stage": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "stage",
+                "proof"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A stage that admitted or produced rows without carrying a proof.",
+          "properties": {
+            "Unproved": {
+              "properties": {
+                "stage": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "stage"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Unproved"
           ],
           "type": "object"
         }
@@ -40263,6 +41351,30 @@
         "id": {
           "type": "string"
         },
+        "knowledge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UqlKnowledge"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`WITH KNOWLEDGE` (EH-450): the row's knowledge record; `None` without it."
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UqlRowProof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`WITH PROOF` (EH-448): why the row is in the result; `None` without it."
+        },
         "score": {
           "format": "float",
           "type": [
@@ -40274,6 +41386,25 @@
       "required": [
         "id",
         "channels"
+      ],
+      "type": "object"
+    },
+    "UqlRowProof": {
+      "description": "Why a row is in a `WITH PROOF` result (EH-448): one step per admitting stage, in\npipeline order, and whether together they certify the row.",
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/UqlProofCoverage"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/UqlProofStep"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "coverage",
+        "steps"
       ],
       "type": "object"
     },
@@ -41684,65 +42815,19 @@
       },
       "selected_by": null
     },
-    "TxnUnifiedQueryText": {
+    "TxnUql": {
       "bodies": {
         "result": {
           "dynamic": null,
           "encoding": "Raw",
           "schema": {
-            "items": {
-              "maxItems": 2,
-              "minItems": 2,
-              "prefixItems": [
-                {
-                  "type": "string"
-                },
-                {
-                  "format": "float",
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                }
-              ],
-              "type": "array"
-            },
-            "type": "array"
+            "$ref": "#/$defs/UqlResult"
           }
         }
       },
       "selected_by": null
     },
     "UnifiedQuery": {
-      "bodies": {
-        "result": {
-          "dynamic": null,
-          "encoding": "Raw",
-          "schema": {
-            "items": {
-              "maxItems": 2,
-              "minItems": 2,
-              "prefixItems": [
-                {
-                  "type": "string"
-                },
-                {
-                  "format": "float",
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                }
-              ],
-              "type": "array"
-            },
-            "type": "array"
-          }
-        }
-      },
-      "selected_by": null
-    },
-    "UnifiedQueryText": {
       "bodies": {
         "result": {
           "dynamic": null,

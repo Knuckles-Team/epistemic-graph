@@ -219,6 +219,75 @@
           }
         ]
       },
+      "ReqDef_AbstentionResolution": {
+        "additionalProperties": false,
+        "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+        "properties": {
+          "option_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "resolution_id": {
+            "type": "string"
+          },
+          "resolver": {
+            "$ref": "#/components/schemas/ReqDef_AbstentionResolver"
+          }
+        },
+        "required": [
+          "record_id",
+          "resolution_id",
+          "option_id",
+          "resolver"
+        ],
+        "type": "object"
+      },
+      "ReqDef_AbstentionResolver": {
+        "description": "Who resolved an abstention (EH-037, \u00a76.4 \"abstentions as labels\").",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+            "properties": {
+              "resolver": {
+                "const": "human",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolver"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+            "properties": {
+              "producer": {
+                "type": "string"
+              },
+              "prompt_digest": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolver": {
+                "const": "model",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolver",
+              "producer"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_AgentComponentContentRequest": {
         "additionalProperties": false,
         "description": "Read one component revision's bytes.",
@@ -2998,6 +3067,27 @@
         "maxItems": 32,
         "type": "array"
       },
+      "ReqDef_BoundedVec_DeclaredNumber_32": {
+        "items": {
+          "$ref": "#/components/schemas/ReqDef_DeclaredNumber"
+        },
+        "maxItems": 32,
+        "type": "array"
+      },
+      "ReqDef_BoundedVec_DeclaredOption_64": {
+        "items": {
+          "$ref": "#/components/schemas/ReqDef_DeclaredOption"
+        },
+        "maxItems": 64,
+        "type": "array"
+      },
+      "ReqDef_BoundedVec_DeclaredText_8": {
+        "items": {
+          "$ref": "#/components/schemas/ReqDef_DeclaredText"
+        },
+        "maxItems": 8,
+        "type": "array"
+      },
       "ReqDef_BoundedVec_DerivationEdge_16": {
         "items": {
           "$ref": "#/components/schemas/ReqDef_DerivationEdge"
@@ -3446,6 +3536,24 @@
               "plan"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The caller's own options, each fact a claim the caller makes\n([`declared`]). Visible to the declaring principal only.",
+            "properties": {
+              "options": {
+                "$ref": "#/components/schemas/ReqDef_BoundedVec_DeclaredOption_64"
+              },
+              "source": {
+                "const": "declared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "options"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -3492,6 +3600,24 @@
             "required": [
               "source",
               "plan_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Options the caller declared, pinned by the digest of the declaration.",
+            "properties": {
+              "options_digest": {
+                "type": "string"
+              },
+              "source": {
+                "const": "declared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "options_digest"
             ],
             "type": "object"
           }
@@ -4626,6 +4752,18 @@
           "hierarchical",
           "gmm",
           "kmedoids"
+        ],
+        "type": "string"
+      },
+      "ReqDef_CmpOp": {
+        "description": "A comparison operator of [`Pred::Cmp`] (UQL-01).",
+        "enum": [
+          "Eq",
+          "Ne",
+          "Gt",
+          "Ge",
+          "Lt",
+          "Le"
         ],
         "type": "string"
       },
@@ -6322,6 +6460,28 @@
               "record_id"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Record how an escalation resolved one logged abstention (EH-037).",
+            "properties": {
+              "op": {
+                "const": "resolve",
+                "type": "string"
+              },
+              "resolution": {
+                "$ref": "#/components/schemas/ReqDef_AbstentionResolution"
+              },
+              "tenant_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "tenant_id",
+              "resolution"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -6708,6 +6868,69 @@
         "required": [
           "p50_ms",
           "p95_ms"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DeclaredNumber": {
+        "additionalProperties": false,
+        "description": "One named numeric fact of a declared option, already on the `Q32` scale.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "q32": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "q32"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DeclaredOption": {
+        "additionalProperties": false,
+        "description": "One option a caller declares.",
+        "properties": {
+          "classification": {
+            "$ref": "#/components/schemas/ReqDef_BoundedVec_string_16",
+            "default": [],
+            "description": "Native capability IRIs the option claims; read by `CoverageFraction`."
+          },
+          "numbers": {
+            "$ref": "#/components/schemas/ReqDef_BoundedVec_DeclaredNumber_32",
+            "default": [],
+            "description": "Sorted by key and unique."
+          },
+          "option_id": {
+            "type": "string"
+          },
+          "texts": {
+            "$ref": "#/components/schemas/ReqDef_BoundedVec_DeclaredText_8",
+            "default": [],
+            "description": "Sorted by key and unique."
+          }
+        },
+        "required": [
+          "option_id"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DeclaredText": {
+        "additionalProperties": false,
+        "description": "One named text field of a declared option.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "text"
         ],
         "type": "object"
       },
@@ -7883,6 +8106,26 @@
           "control_plane"
         ],
         "type": "string"
+      },
+      "ReqDef_EdgeDir": {
+        "description": "Which way an [`Op::Expand`] follows edges (UQL-05).",
+        "oneOf": [
+          {
+            "const": "Out",
+            "description": "`-[..]->` \u2014 from the current rows along outgoing edges.",
+            "type": "string"
+          },
+          {
+            "const": "In",
+            "description": "`<-[..]-` \u2014 along incoming edges.",
+            "type": "string"
+          },
+          {
+            "const": "Both",
+            "description": "`-[..]-` \u2014 either direction.",
+            "type": "string"
+          }
+        ]
       },
       "ReqDef_EdgeSource": {
         "description": "Which side of a subsumption edge the engine got it from.",
@@ -9172,7 +9415,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`\n(UQL) \u2014 or, when `uql` is empty, a `CypherQuery` \u2014 against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip \u2014 the cross-engine federation seam.",
+            "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `Uql` statement\n(UQL) \u2014 or, when `uql` is empty, a `CypherQuery` \u2014 against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip \u2014 the cross-engine federation seam.",
             "properties": {
               "RemoteEngine": {
                 "properties": {
@@ -22063,12 +22306,19 @@
             "additionalProperties": false,
             "properties": {
               "method": {
-                "const": "UnifiedQueryText",
+                "const": "Uql",
                 "type": "string"
               },
               "params": {
                 "additionalProperties": false,
                 "properties": {
+                  "params": {
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/ReqDef_UqlParam"
+                    },
+                    "default": {},
+                    "type": "object"
+                  },
                   "text": {
                     "type": "string"
                   }
@@ -22557,7 +22807,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Natural-language \u2192 executable query \u2192 rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\n`UnifiedQueryText` pipeline (`eg_plan::uql::parse` \u2192 the fused executor) \u2014 NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` \u2014\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all \u2014 so the wire stays compatible while the NL\nsurface is a build-tier choice.",
+            "description": "Natural-language \u2192 executable query \u2192 rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\nUQL pipeline (`eg_plan::uql::parse` \u2192 the fused executor) \u2014 NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` \u2014\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all \u2014 so the wire stays compatible while the NL\nsurface is a build-tier choice.",
             "properties": {
               "method": {
                 "const": "NlQuery",
@@ -23526,15 +23776,22 @@
           },
           {
             "additionalProperties": false,
-            "description": "In-txn unified query, TEXT surface \u2014 UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-\nwritable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the\nSAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same\n`query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.",
+            "description": "A UQL statement INSIDE a transaction (CONCEPT:EG-KG.query.txn-cross-modal-ryow,\nEH-434): exactly `Uql`'s statement \u2014 the same grammar, typed `$name` `params`,\n`EXPLAIN`/`PROFILE`, `LET` programs, `RETURN` channels and row annotations \u2014 run\nover the committed snapshot OVERLAID with this txn's staged write-set (read your\nown writes). Result: [`crate::wire::UqlResult`]. (Replaced the rows-only\n`TxnUnifiedQueryText`.)",
             "properties": {
               "method": {
-                "const": "TxnUnifiedQueryText",
+                "const": "TxnUql",
                 "type": "string"
               },
               "params": {
                 "additionalProperties": false,
                 "properties": {
+                  "params": {
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/ReqDef_UqlParam"
+                    },
+                    "default": {},
+                    "type": "object"
+                  },
                   "text": {
                     "type": "string"
                   },
@@ -28761,6 +29018,19 @@
           },
           {
             "additionalProperties": false,
+            "description": "SOURCE \u2014 seed from EVERY node of the (RLS/lease-filtered) snapshot, in id order:\nUQL `MATCH ()` (UQL-03).",
+            "properties": {
+              "ScanAll": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "ScanAll"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "FILTER (relational) \u2014 keep rows matching ALL `preds`, via real DataFusion.",
             "properties": {
               "Filter": {
@@ -28813,6 +29083,52 @@
             },
             "required": [
               "Traverse"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "TRAVERSE, general form (UQL-05): follow edges in `dir`, restricted to relationship\n`rel` (`None` \u21d2 any relationship, UQL `*`) and to edges whose property blob\nsatisfies every `edge_preds` entry, `min..=max` hops. `Expand{Some(r), Out, [], ..}`\nis spelled [`Op::Traverse`] (one encoding; the UQL parser emits `Traverse` for it).",
+            "properties": {
+              "Expand": {
+                "properties": {
+                  "dir": {
+                    "$ref": "#/components/schemas/ReqDef_EdgeDir"
+                  },
+                  "edge_preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_Pred"
+                    },
+                    "type": "array"
+                  },
+                  "max": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "min": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "rel": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "dir",
+                  "min",
+                  "max",
+                  "edge_preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Expand"
             ],
             "type": "object"
           },
@@ -29615,6 +29931,30 @@
           },
           {
             "additionalProperties": false,
+            "description": "SOURCE (EH-066, UQL `DECISIONS [WHERE pred]`) \u2014 the record ids of the caller's\nVISIBLE decision log (the same rows the SQL `decisions` relation holds), kept when\nevery relational predicate holds over the record's columns (`question_id`,\n`outcome`, `option_id`, `source`, `safety`, `committed_at_ms`, \u2026). Unscored, in\nrecord-id order. The served path binds the caller's log; unbound it is a typed\nerror, never an empty set.",
+            "properties": {
+              "DecisionScan": {
+                "properties": {
+                  "preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_Pred"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DecisionScan"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "LIMIT \u2014 top-k, respecting the current order.",
             "properties": {
               "Limit": {
@@ -29633,6 +29973,30 @@
             },
             "required": [
               "Limit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "PROJECT (UQL `RETURN`, UQL-08) \u2014 name the score CHANNELS the result carries per\nrow, alongside `id` and the current `score`. Every scoring op records its score\nunder a fixed channel name (`similarity`, `text`, `belief`, `window`, \u2026; see\n`eg_plan::channels`) so results of several scoring stages coexist instead of the\nlast one overwriting the others. Rows pass through unchanged; a channel no op\nproduced for a row is `None`.",
+            "properties": {
+              "Project": {
+                "properties": {
+                  "channels": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "channels"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Project"
             ],
             "type": "object"
           }
@@ -30623,6 +30987,182 @@
           },
           {
             "additionalProperties": false,
+            "description": "`prop <op> value` over a TYPED scalar (UQL predicate algebra, UQL-01). The three\nlegacy forms above stay the canonical spelling of what they express \u2014\n`Cmp{Eq,Str}` \u2261 `Eq`, `Cmp{Gt,Num}` \u2261 `GtNum`, `Cmp{Lt,Num}` \u2261 `LtNum` (the UQL\nparser never emits those three `Cmp` shapes; `eg_plan::uql::canonicalize` rewrites\nthem) \u2014 so the wire keeps ONE encoding per meaning. A `Num` compares numerically\nand a `Bool` as a boolean, never as their JSON text.",
+            "properties": {
+              "Cmp": {
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ReqDef_CmpOp"
+                  },
+                  "prop": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "$ref": "#/components/schemas/ReqDef_PredLiteral"
+                  }
+                },
+                "required": [
+                  "prop",
+                  "op",
+                  "value"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Cmp"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`prop IN (v, \u2026)` \u2014 membership in a typed literal list (non-empty).",
+            "properties": {
+              "In": {
+                "properties": {
+                  "prop": {
+                    "type": "string"
+                  },
+                  "values": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_PredLiteral"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "prop",
+                  "values"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "In"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`prop BETWEEN lo AND hi` \u2014 inclusive on both ends (SQL semantics).",
+            "properties": {
+              "Between": {
+                "properties": {
+                  "hi": {
+                    "$ref": "#/components/schemas/ReqDef_PredLiteral"
+                  },
+                  "lo": {
+                    "$ref": "#/components/schemas/ReqDef_PredLiteral"
+                  },
+                  "prop": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prop",
+                  "lo",
+                  "hi"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Between"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`prop IS NULL` \u2014 the property is absent or JSON `null`. `IS NOT NULL` is\n`Not { IsNull }` (one encoding).",
+            "properties": {
+              "IsNull": {
+                "properties": {
+                  "prop": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prop"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "IsNull"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Conjunction of at least two predicates (a parenthesised `AND` group). A top-level\n`WHERE a AND b` stays the flat `Filter.preds` list; this node exists so a\nconjunction can sit under `Or`/`Not`.",
+            "properties": {
+              "And": {
+                "properties": {
+                  "preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_Pred"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "And"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Disjunction of at least two predicates.",
+            "properties": {
+              "Or": {
+                "properties": {
+                  "preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_Pred"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Or"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Negation.",
+            "properties": {
+              "Not": {
+                "properties": {
+                  "pred": {
+                    "$ref": "#/components/schemas/ReqDef_Pred"
+                  }
+                },
+                "required": [
+                  "pred"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Not"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "DOCUMENT/JSON \u2014 keep rows whose node property document satisfies a deep\nJSONPath predicate (CONCEPT:EG-KG.query.json-wire-roundtrip). `path` is a JSONPath (`$.a.b`, `$.a[0]`,\n`$.a[*]`, wildcard) evaluated against the row's decoded JSON; `op` is the\nexistence / equality / `@>`-containment test. This is the lowered form of the\nPostgres JSON operators (`->`, `->>`, `@>`, `jsonb_path_query`) and a Mongo-style\n`$match` \u2014 see `eg_query::sql::classify`. Like the spatial preds it is NOT lowered\nto SQL (DataFusion has no JSONPath): `eg-plan`'s FILTER leg splits it out and\napplies it per-row against the stored JSON, and the planner can consult eg-core's\ninverted path-index for candidate selectivity. PURE serde here (a string, a small\nenum, and a `serde_json::Value` literal \u2014 exactly as `CepAttrPredSpec` carries),\nso it is present whenever `query` is on and adds NO dependency.",
             "properties": {
               "JsonPath": {
@@ -30867,6 +31407,48 @@
             },
             "required": [
               "SpatialDisjoint"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_PredLiteral": {
+        "description": "A typed predicate literal (UQL-01): the value a [`Pred::Cmp`]/[`Pred::In`]/\n[`Pred::Between`] compares against. Typed so a number is compared as a number and a\nstring as a string \u2014 the literal's type, not its spelling, decides the comparison.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Str": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Str"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Num": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "Num"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Bool": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "Bool"
             ],
             "type": "object"
           }
@@ -38680,6 +39262,81 @@
             "const": "rank_below_known",
             "description": "An unknown cost ranks below every known one, and is never read as zero.",
             "type": "string"
+          }
+        ]
+      },
+      "ReqDef_UqlParam": {
+        "description": "A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound\nvalues are substituted into the parsed plan as typed literals \u2014 never spliced into\nthe text \u2014 so a parameter can never change the query's structure.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Str": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Str"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Num": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "Num"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Bool": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "Bool"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A query vector (`RANK BY ~$v`).",
+            "properties": {
+              "Vector": {
+                "items": {
+                  "format": "float",
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "Vector"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A literal list (`x IN $values`).",
+            "properties": {
+              "List": {
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_PredLiteral"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "List"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -50955,7 +51612,7 @@
       },
       "Req_NlQuery": {
         "additionalProperties": false,
-        "description": "Natural-language \u2192 executable query \u2192 rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\n`UnifiedQueryText` pipeline (`eg_plan::uql::parse` \u2192 the fused executor) \u2014 NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` \u2014\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all \u2014 so the wire stays compatible while the NL\nsurface is a build-tier choice.",
+        "description": "Natural-language \u2192 executable query \u2192 rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\nUQL pipeline (`eg_plan::uql::parse` \u2192 the fused executor) \u2014 NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` \u2014\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all \u2014 so the wire stays compatible while the NL\nsurface is a build-tier choice.",
         "properties": {
           "method": {
             "const": "NlQuery",
@@ -55456,17 +56113,24 @@
         ],
         "type": "object"
       },
-      "Req_TxnUnifiedQueryText": {
+      "Req_TxnUql": {
         "additionalProperties": false,
-        "description": "In-txn unified query, TEXT surface \u2014 UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-\nwritable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the\nSAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same\n`query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.",
+        "description": "A UQL statement INSIDE a transaction (CONCEPT:EG-KG.query.txn-cross-modal-ryow,\nEH-434): exactly `Uql`'s statement \u2014 the same grammar, typed `$name` `params`,\n`EXPLAIN`/`PROFILE`, `LET` programs, `RETURN` channels and row annotations \u2014 run\nover the committed snapshot OVERLAID with this txn's staged write-set (read your\nown writes). Result: [`crate::wire::UqlResult`]. (Replaced the rows-only\n`TxnUnifiedQueryText`.)",
         "properties": {
           "method": {
-            "const": "TxnUnifiedQueryText",
+            "const": "TxnUql",
             "type": "string"
           },
           "params": {
             "additionalProperties": false,
             "properties": {
+              "params": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ReqDef_UqlParam"
+                },
+                "default": {},
+                "type": "object"
+              },
               "text": {
                 "type": "string"
               },
@@ -55538,32 +56202,6 @@
             },
             "required": [
               "plan"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "method",
-          "params"
-        ],
-        "type": "object"
-      },
-      "Req_UnifiedQueryText": {
-        "additionalProperties": false,
-        "properties": {
-          "method": {
-            "const": "UnifiedQueryText",
-            "type": "string"
-          },
-          "params": {
-            "additionalProperties": false,
-            "properties": {
-              "text": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "text"
             ],
             "type": "object"
           }
@@ -55753,6 +56391,39 @@
             },
             "required": [
               "request"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_Uql": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "const": "Uql",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "params": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ReqDef_UqlParam"
+                },
+                "default": {},
+                "type": "object"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
             ],
             "type": "object"
           }
@@ -62100,6 +62771,75 @@
           }
         ]
       },
+      "ResDef_Coordination_AbstentionResolution": {
+        "additionalProperties": false,
+        "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+        "properties": {
+          "option_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "resolution_id": {
+            "type": "string"
+          },
+          "resolver": {
+            "$ref": "#/components/schemas/ResDef_Coordination_AbstentionResolver"
+          }
+        },
+        "required": [
+          "record_id",
+          "resolution_id",
+          "option_id",
+          "resolver"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_AbstentionResolver": {
+        "description": "Who resolved an abstention (EH-037, \u00a76.4 \"abstentions as labels\").",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+            "properties": {
+              "resolver": {
+                "const": "human",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolver"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+            "properties": {
+              "producer": {
+                "type": "string"
+              },
+              "prompt_digest": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolver": {
+                "const": "model",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolver",
+              "producer"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Coordination_AgentComponentKind": {
         "description": "What kind of part this is.\n\nClosed on purpose. Every kind is either referenced from an agent slot \u2014\n[`crate::agent_library::AgentLibraryEntry`],\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`] \u2014 or is catalog content an agent is VALIDATED or\nDECIDED against. Both belong to the same closed set for the same reason: a\npart nothing can name is a part nothing can reason about.",
         "oneOf": [
@@ -62622,6 +63362,24 @@
             "required": [
               "source",
               "plan_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Options the caller declared, pinned by the digest of the declaration.",
+            "properties": {
+              "options_digest": {
+                "type": "string"
+              },
+              "source": {
+                "const": "declared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "options_digest"
             ],
             "type": "object"
           }
@@ -69286,6 +70044,35 @@
         ],
         "type": "object"
       },
+      "ResDef_Coordination_StoredResolution": {
+        "additionalProperties": false,
+        "description": "A stored resolution, its evidence class and who recorded it.",
+        "properties": {
+          "class": {
+            "$ref": "#/components/schemas/ResDef_Coordination_EvidenceClass",
+            "description": "`Observation` for a human resolver, `Claim` for a model."
+          },
+          "producer": {
+            "description": "The verified principal that recorded it.",
+            "type": "string"
+          },
+          "recorded_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/ResDef_Coordination_AbstentionResolution"
+          }
+        },
+        "required": [
+          "resolution",
+          "class",
+          "producer",
+          "recorded_at_ms"
+        ],
+        "type": "object"
+      },
       "ResDef_Coordination_SubmitWorkItemResult": {
         "additionalProperties": false,
         "properties": {
@@ -74794,6 +75581,75 @@
           }
         ]
       },
+      "ResDef_Query_AbstentionResolution": {
+        "additionalProperties": false,
+        "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+        "properties": {
+          "option_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "resolution_id": {
+            "type": "string"
+          },
+          "resolver": {
+            "$ref": "#/components/schemas/ResDef_Query_AbstentionResolver"
+          }
+        },
+        "required": [
+          "record_id",
+          "resolution_id",
+          "option_id",
+          "resolver"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_AbstentionResolver": {
+        "description": "Who resolved an abstention (EH-037, \u00a76.4 \"abstentions as labels\").",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+            "properties": {
+              "resolver": {
+                "const": "human",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolver"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+            "properties": {
+              "producer": {
+                "type": "string"
+              },
+              "prompt_digest": {
+                "default": null,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolver": {
+                "const": "model",
+                "type": "string"
+              }
+            },
+            "required": [
+              "resolver",
+              "producer"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_AgentComponentContentRequest": {
         "additionalProperties": false,
         "description": "Read one component revision's bytes.",
@@ -77596,6 +78452,27 @@
         "maxItems": 32,
         "type": "array"
       },
+      "ResDef_Query_BoundedVec_DeclaredNumber_32": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Query_DeclaredNumber"
+        },
+        "maxItems": 32,
+        "type": "array"
+      },
+      "ResDef_Query_BoundedVec_DeclaredOption_64": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Query_DeclaredOption"
+        },
+        "maxItems": 64,
+        "type": "array"
+      },
+      "ResDef_Query_BoundedVec_DeclaredText_8": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Query_DeclaredText"
+        },
+        "maxItems": 8,
+        "type": "array"
+      },
       "ResDef_Query_BoundedVec_DerivationEdge_16": {
         "items": {
           "$ref": "#/components/schemas/ResDef_Query_DerivationEdge"
@@ -78051,6 +78928,24 @@
               "plan"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The caller's own options, each fact a claim the caller makes\n([`declared`]). Visible to the declaring principal only.",
+            "properties": {
+              "options": {
+                "$ref": "#/components/schemas/ResDef_Query_BoundedVec_DeclaredOption_64"
+              },
+              "source": {
+                "const": "declared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "options"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -78097,6 +78992,24 @@
             "required": [
               "source",
               "plan_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Options the caller declared, pinned by the digest of the declaration.",
+            "properties": {
+              "options_digest": {
+                "type": "string"
+              },
+              "source": {
+                "const": "declared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "options_digest"
             ],
             "type": "object"
           }
@@ -79386,6 +80299,18 @@
           "hierarchical",
           "gmm",
           "kmedoids"
+        ],
+        "type": "string"
+      },
+      "ResDef_Query_CmpOp": {
+        "description": "A comparison operator of [`Pred::Cmp`] (UQL-01).",
+        "enum": [
+          "Eq",
+          "Ne",
+          "Gt",
+          "Ge",
+          "Lt",
+          "Le"
         ],
         "type": "string"
       },
@@ -81163,6 +82088,28 @@
               "record_id"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Record how an escalation resolved one logged abstention (EH-037).",
+            "properties": {
+              "op": {
+                "const": "resolve",
+                "type": "string"
+              },
+              "resolution": {
+                "$ref": "#/components/schemas/ResDef_Query_AbstentionResolution"
+              },
+              "tenant_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "tenant_id",
+              "resolution"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -81549,6 +82496,69 @@
         "required": [
           "p50_ms",
           "p95_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DeclaredNumber": {
+        "additionalProperties": false,
+        "description": "One named numeric fact of a declared option, already on the `Q32` scale.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "q32": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "q32"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DeclaredOption": {
+        "additionalProperties": false,
+        "description": "One option a caller declares.",
+        "properties": {
+          "classification": {
+            "$ref": "#/components/schemas/ResDef_Query_BoundedVec_string_16",
+            "default": [],
+            "description": "Native capability IRIs the option claims; read by `CoverageFraction`."
+          },
+          "numbers": {
+            "$ref": "#/components/schemas/ResDef_Query_BoundedVec_DeclaredNumber_32",
+            "default": [],
+            "description": "Sorted by key and unique."
+          },
+          "option_id": {
+            "type": "string"
+          },
+          "texts": {
+            "$ref": "#/components/schemas/ResDef_Query_BoundedVec_DeclaredText_8",
+            "default": [],
+            "description": "Sorted by key and unique."
+          }
+        },
+        "required": [
+          "option_id"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DeclaredText": {
+        "additionalProperties": false,
+        "description": "One named text field of a declared option.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "text"
         ],
         "type": "object"
       },
@@ -82724,6 +83734,26 @@
           "control_plane"
         ],
         "type": "string"
+      },
+      "ResDef_Query_EdgeDir": {
+        "description": "Which way an [`Op::Expand`] follows edges (UQL-05).",
+        "oneOf": [
+          {
+            "const": "Out",
+            "description": "`-[..]->` \u2014 from the current rows along outgoing edges.",
+            "type": "string"
+          },
+          {
+            "const": "In",
+            "description": "`<-[..]-` \u2014 along incoming edges.",
+            "type": "string"
+          },
+          {
+            "const": "Both",
+            "description": "`-[..]-` \u2014 either direction.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Query_EdgeSource": {
         "description": "Which side of a subsumption edge the engine got it from.",
@@ -84975,7 +86005,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`\n(UQL) \u2014 or, when `uql` is empty, a `CypherQuery` \u2014 against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip \u2014 the cross-engine federation seam.",
+            "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `Uql` statement\n(UQL) \u2014 or, when `uql` is empty, a `CypherQuery` \u2014 against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip \u2014 the cross-engine federation seam.",
             "properties": {
               "RemoteEngine": {
                 "properties": {
@@ -97952,12 +98982,19 @@
             "additionalProperties": false,
             "properties": {
               "method": {
-                "const": "UnifiedQueryText",
+                "const": "Uql",
                 "type": "string"
               },
               "params": {
                 "additionalProperties": false,
                 "properties": {
+                  "params": {
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/ResDef_Query_UqlParam"
+                    },
+                    "default": {},
+                    "type": "object"
+                  },
                   "text": {
                     "type": "string"
                   }
@@ -98446,7 +99483,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Natural-language \u2192 executable query \u2192 rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\n`UnifiedQueryText` pipeline (`eg_plan::uql::parse` \u2192 the fused executor) \u2014 NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` \u2014\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all \u2014 so the wire stays compatible while the NL\nsurface is a build-tier choice.",
+            "description": "Natural-language \u2192 executable query \u2192 rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\nUQL pipeline (`eg_plan::uql::parse` \u2192 the fused executor) \u2014 NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` \u2014\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all \u2014 so the wire stays compatible while the NL\nsurface is a build-tier choice.",
             "properties": {
               "method": {
                 "const": "NlQuery",
@@ -99415,15 +100452,22 @@
           },
           {
             "additionalProperties": false,
-            "description": "In-txn unified query, TEXT surface \u2014 UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-\nwritable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the\nSAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same\n`query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.",
+            "description": "A UQL statement INSIDE a transaction (CONCEPT:EG-KG.query.txn-cross-modal-ryow,\nEH-434): exactly `Uql`'s statement \u2014 the same grammar, typed `$name` `params`,\n`EXPLAIN`/`PROFILE`, `LET` programs, `RETURN` channels and row annotations \u2014 run\nover the committed snapshot OVERLAID with this txn's staged write-set (read your\nown writes). Result: [`crate::wire::UqlResult`]. (Replaced the rows-only\n`TxnUnifiedQueryText`.)",
             "properties": {
               "method": {
-                "const": "TxnUnifiedQueryText",
+                "const": "TxnUql",
                 "type": "string"
               },
               "params": {
                 "additionalProperties": false,
                 "properties": {
+                  "params": {
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/ResDef_Query_UqlParam"
+                    },
+                    "default": {},
+                    "type": "object"
+                  },
                   "text": {
                     "type": "string"
                   },
@@ -104677,6 +105721,19 @@
           },
           {
             "additionalProperties": false,
+            "description": "SOURCE \u2014 seed from EVERY node of the (RLS/lease-filtered) snapshot, in id order:\nUQL `MATCH ()` (UQL-03).",
+            "properties": {
+              "ScanAll": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "ScanAll"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "FILTER (relational) \u2014 keep rows matching ALL `preds`, via real DataFusion.",
             "properties": {
               "Filter": {
@@ -104729,6 +105786,52 @@
             },
             "required": [
               "Traverse"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "TRAVERSE, general form (UQL-05): follow edges in `dir`, restricted to relationship\n`rel` (`None` \u21d2 any relationship, UQL `*`) and to edges whose property blob\nsatisfies every `edge_preds` entry, `min..=max` hops. `Expand{Some(r), Out, [], ..}`\nis spelled [`Op::Traverse`] (one encoding; the UQL parser emits `Traverse` for it).",
+            "properties": {
+              "Expand": {
+                "properties": {
+                  "dir": {
+                    "$ref": "#/components/schemas/ResDef_Query_EdgeDir"
+                  },
+                  "edge_preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_Pred"
+                    },
+                    "type": "array"
+                  },
+                  "max": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "min": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "rel": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "dir",
+                  "min",
+                  "max",
+                  "edge_preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Expand"
             ],
             "type": "object"
           },
@@ -105531,6 +106634,30 @@
           },
           {
             "additionalProperties": false,
+            "description": "SOURCE (EH-066, UQL `DECISIONS [WHERE pred]`) \u2014 the record ids of the caller's\nVISIBLE decision log (the same rows the SQL `decisions` relation holds), kept when\nevery relational predicate holds over the record's columns (`question_id`,\n`outcome`, `option_id`, `source`, `safety`, `committed_at_ms`, \u2026). Unscored, in\nrecord-id order. The served path binds the caller's log; unbound it is a typed\nerror, never an empty set.",
+            "properties": {
+              "DecisionScan": {
+                "properties": {
+                  "preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_Pred"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "DecisionScan"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "LIMIT \u2014 top-k, respecting the current order.",
             "properties": {
               "Limit": {
@@ -105549,6 +106676,30 @@
             },
             "required": [
               "Limit"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "PROJECT (UQL `RETURN`, UQL-08) \u2014 name the score CHANNELS the result carries per\nrow, alongside `id` and the current `score`. Every scoring op records its score\nunder a fixed channel name (`similarity`, `text`, `belief`, `window`, \u2026; see\n`eg_plan::channels`) so results of several scoring stages coexist instead of the\nlast one overwriting the others. Rows pass through unchanged; a channel no op\nproduced for a row is `None`.",
+            "properties": {
+              "Project": {
+                "properties": {
+                  "channels": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "channels"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Project"
             ],
             "type": "object"
           }
@@ -106539,6 +107690,182 @@
           },
           {
             "additionalProperties": false,
+            "description": "`prop <op> value` over a TYPED scalar (UQL predicate algebra, UQL-01). The three\nlegacy forms above stay the canonical spelling of what they express \u2014\n`Cmp{Eq,Str}` \u2261 `Eq`, `Cmp{Gt,Num}` \u2261 `GtNum`, `Cmp{Lt,Num}` \u2261 `LtNum` (the UQL\nparser never emits those three `Cmp` shapes; `eg_plan::uql::canonicalize` rewrites\nthem) \u2014 so the wire keeps ONE encoding per meaning. A `Num` compares numerically\nand a `Bool` as a boolean, never as their JSON text.",
+            "properties": {
+              "Cmp": {
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ResDef_Query_CmpOp"
+                  },
+                  "prop": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "$ref": "#/components/schemas/ResDef_Query_PredLiteral"
+                  }
+                },
+                "required": [
+                  "prop",
+                  "op",
+                  "value"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Cmp"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`prop IN (v, \u2026)` \u2014 membership in a typed literal list (non-empty).",
+            "properties": {
+              "In": {
+                "properties": {
+                  "prop": {
+                    "type": "string"
+                  },
+                  "values": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_PredLiteral"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "prop",
+                  "values"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "In"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`prop BETWEEN lo AND hi` \u2014 inclusive on both ends (SQL semantics).",
+            "properties": {
+              "Between": {
+                "properties": {
+                  "hi": {
+                    "$ref": "#/components/schemas/ResDef_Query_PredLiteral"
+                  },
+                  "lo": {
+                    "$ref": "#/components/schemas/ResDef_Query_PredLiteral"
+                  },
+                  "prop": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prop",
+                  "lo",
+                  "hi"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Between"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`prop IS NULL` \u2014 the property is absent or JSON `null`. `IS NOT NULL` is\n`Not { IsNull }` (one encoding).",
+            "properties": {
+              "IsNull": {
+                "properties": {
+                  "prop": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prop"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "IsNull"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Conjunction of at least two predicates (a parenthesised `AND` group). A top-level\n`WHERE a AND b` stays the flat `Filter.preds` list; this node exists so a\nconjunction can sit under `Or`/`Not`.",
+            "properties": {
+              "And": {
+                "properties": {
+                  "preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_Pred"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "And"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Disjunction of at least two predicates.",
+            "properties": {
+              "Or": {
+                "properties": {
+                  "preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_Pred"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "preds"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Or"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Negation.",
+            "properties": {
+              "Not": {
+                "properties": {
+                  "pred": {
+                    "$ref": "#/components/schemas/ResDef_Query_Pred"
+                  }
+                },
+                "required": [
+                  "pred"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Not"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "DOCUMENT/JSON \u2014 keep rows whose node property document satisfies a deep\nJSONPath predicate (CONCEPT:EG-KG.query.json-wire-roundtrip). `path` is a JSONPath (`$.a.b`, `$.a[0]`,\n`$.a[*]`, wildcard) evaluated against the row's decoded JSON; `op` is the\nexistence / equality / `@>`-containment test. This is the lowered form of the\nPostgres JSON operators (`->`, `->>`, `@>`, `jsonb_path_query`) and a Mongo-style\n`$match` \u2014 see `eg_query::sql::classify`. Like the spatial preds it is NOT lowered\nto SQL (DataFusion has no JSONPath): `eg-plan`'s FILTER leg splits it out and\napplies it per-row against the stored JSON, and the planner can consult eg-core's\ninverted path-index for candidate selectivity. PURE serde here (a string, a small\nenum, and a `serde_json::Value` literal \u2014 exactly as `CepAttrPredSpec` carries),\nso it is present whenever `query` is on and adds NO dependency.",
             "properties": {
               "JsonPath": {
@@ -106783,6 +108110,48 @@
             },
             "required": [
               "SpatialDisjoint"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_PredLiteral": {
+        "description": "A typed predicate literal (UQL-01): the value a [`Pred::Cmp`]/[`Pred::In`]/\n[`Pred::Between`] compares against. Typed so a number is compared as a number and a\nstring as a string \u2014 the literal's type, not its spelling, decides the comparison.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Str": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Str"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Num": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "Num"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Bool": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "Bool"
             ],
             "type": "object"
           }
@@ -107290,6 +108659,45 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Query_ProofNodeWire": {
+        "description": "One node of a reconstructed OWL proof tree (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) \u2014 the wire\nprojection of `eg_rdf::owl::ProofNode`. `rule == \"asserted\"` marks a LEAF (a\nreflexive seed or a base fact with no recorded justification \u2014 the proof bottoms\nout there); any other `rule` is a completion rule name (`\"CR-sub\"`, `\"CR-some\u207a\"`,\n`\"CR-instance\"`, \u2026) that consumed `premises` (each itself a full sub-proof) plus the\ncited `axioms`. Recursive \u2014 `premises` nests to the tree's actual depth (never\nflattened), so a client walks it exactly like the reasoner derived it.",
+        "properties": {
+          "axioms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "confidence": {
+            "format": "double",
+            "type": "number"
+          },
+          "premises": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_ProofNodeWire"
+            },
+            "type": "array"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "sup": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub",
+          "sup",
+          "rule",
+          "axioms",
+          "confidence",
+          "premises"
+        ],
+        "type": "object"
       },
       "ResDef_Query_PropensitySource": {
         "description": "Where a logged propensity came from.",
@@ -112876,6 +114284,79 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_SparqlObjectKind": {
+        "description": "Whether a SPARQL witness term is a resource or a literal.",
+        "enum": [
+          "resource",
+          "literal"
+        ],
+        "type": "string"
+      },
+      "ResDef_Query_SparqlProofCoverage": {
+        "description": "Whether a SPARQL row proof certifies the row.",
+        "oneOf": [
+          {
+            "const": "complete",
+            "description": "Every required triple pattern is instantiated by a listed triple of the graph,\nand the binding satisfies every required-scope FILTER.",
+            "type": "string"
+          },
+          {
+            "const": "partial",
+            "description": "The query uses algebra a witness does not certify (property paths, UNION,\nMINUS, aggregates, GRAPH, SERVICE, its own FROM dataset, a non-SELECT form), or\nthe witness search hit its step budget. The listed triples, if any, exist but\ndo not by themselves prove the row.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Query_SparqlRowProof": {
+        "description": "The proof of one SPARQL SELECT row (EH-197): the ground triples that instantiate\nthe query's patterns under the row's bindings.",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/ResDef_Query_SparqlProofCoverage"
+          },
+          "row": {
+            "description": "Index of the row in the result's `rows`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "witnesses": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_SparqlWitnessTriple"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "row",
+          "witnesses",
+          "coverage"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_SparqlWitnessTriple": {
+        "description": "One ground triple of the queried graph that a SPARQL row's witness uses (EH-197).\nSubject and a resource object are in the evaluator's `<iri>` / `_:b` form; the\npredicate is a bare IRI; a literal object is its lexical value.",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "object_kind": {
+            "$ref": "#/components/schemas/ResDef_Query_SparqlObjectKind"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "predicate",
+          "object",
+          "object_kind"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_SpatialOpKind": {
         "description": "SPATIAL \u2014 the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-KG.ontology.concept-9).\nPure serde here (Pi-safe, no eg-geo dep); the executor maps it to eg-geo's `algebra`\nbehind eg-plan's `geo` gate. Unary ops (`Buffer`/`ConvexHull`/`Simplify`/`Centroid`)\nderive from the row geometry alone; binary ops (`Union`/`Intersection`/`Difference`)\ntake the second operand as a WKT literal.",
         "oneOf": [
@@ -114832,6 +116313,523 @@
             "type": "string"
           }
         ]
+      },
+      "ResDef_Query_UqlKnowledge": {
+        "description": "A row's knowledge record (EH-450, UQL `WITH KNOWLEDGE [(col, \u2026)]`) \u2014 the wire form of\neg-plan's `KnowledgeRow`, re-materialized from the SAME snapshot the query ran over.\nTimes are the node's own bitemporal window; the list fields are the epistemic\nneighbourhood (empty, never fabricated, when the row has none or `epistemic_resolved`\nis false because the build has no epistemic layer).",
+        "properties": {
+          "alternative_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "confidence": {
+            "format": "double",
+            "type": "number"
+          },
+          "contradiction_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "epistemic_resolved": {
+            "type": "boolean"
+          },
+          "evidence_refs": {
+            "description": "Ids of the row's committed evidence loci.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "policy_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "projection": {
+            "description": "The requested columns present on the row, as one JSON object; `None` when the\nstatement named no columns."
+          },
+          "proof_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "transformation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tx_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tx_until": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "valid_from": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "valid_until": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "confidence",
+          "epistemic_resolved",
+          "source_refs",
+          "evidence_refs",
+          "policy_labels",
+          "contradiction_ids",
+          "proof_ids",
+          "transformation_ids",
+          "alternative_ids"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_UqlParam": {
+        "description": "A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound\nvalues are substituted into the parsed plan as typed literals \u2014 never spliced into\nthe text \u2014 so a parameter can never change the query's structure.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Str": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "Str"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Num": {
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "Num"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "Bool": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "Bool"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A query vector (`RANK BY ~$v`).",
+            "properties": {
+              "Vector": {
+                "items": {
+                  "format": "float",
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "Vector"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A literal list (`x IN $values`).",
+            "properties": {
+              "List": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Query_PredLiteral"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "List"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_UqlProofCoverage": {
+        "description": "Whether a `WITH PROOF` row proof certifies the row (EH-448).",
+        "oneOf": [
+          {
+            "const": "complete",
+            "description": "Every stage that admitted rows is proof-carrying and each of its proofs is\ncomplete; the remaining stages only order, score or cut rows.",
+            "type": "string"
+          },
+          {
+            "const": "partial",
+            "description": "Some admitting stage carries no proof (see its `Unproved` step), or a\nproof-carrying stage's own proof is partial.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Query_UqlProofStep": {
+        "description": "One stage's contribution to a row proof (EH-448). `stage` is the stage in canonical UQL.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A `SPARQL \u2026 VAR v` source: the witness of a solution binding `v` to the row \u2014 the\nground triples instantiating the query's patterns (EH-197).",
+            "properties": {
+              "Sparql": {
+                "properties": {
+                  "proof": {
+                    "$ref": "#/components/schemas/ResDef_Query_SparqlRowProof"
+                  },
+                  "stage": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stage",
+                  "proof"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Sparql"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A `REASON` stage: the OWL proof that the row is a member of the target class \u2014 an\nasserted type fact plus the TBox subsumption chain (EH-197's OWL side).",
+            "properties": {
+              "Reason": {
+                "properties": {
+                  "proof": {
+                    "$ref": "#/components/schemas/ResDef_Query_ProofNodeWire"
+                  },
+                  "stage": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stage",
+                  "proof"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Reason"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A stage that admitted or produced rows without carrying a proof.",
+            "properties": {
+              "Unproved": {
+                "properties": {
+                  "stage": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stage"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Unproved"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_UqlResult": {
+        "description": "The result of a `Method::Uql` statement (UQL-07/08/09).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Executed rows; `columns` are the `RETURN`ed score channels.",
+            "properties": {
+              "Rows": {
+                "properties": {
+                  "columns": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "rows": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_UqlRow"
+                    },
+                    "type": "array"
+                  },
+                  "warnings": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "columns",
+                  "rows",
+                  "warnings"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Rows"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`EXPLAIN`: the canonical and the optimized plan, per-stage estimates, and\nwhether the plan is incrementally maintainable (with the reason when not).",
+            "properties": {
+              "Explain": {
+                "properties": {
+                  "canonical": {
+                    "type": "string"
+                  },
+                  "incremental": {
+                    "type": "boolean"
+                  },
+                  "incremental_note": {
+                    "type": "string"
+                  },
+                  "optimized": {
+                    "type": "string"
+                  },
+                  "stages": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_UqlStageReport"
+                    },
+                    "type": "array"
+                  },
+                  "warnings": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "canonical",
+                  "optimized",
+                  "stages",
+                  "incremental",
+                  "incremental_note",
+                  "warnings"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Explain"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`PROFILE`: the rows plus per-stage actual rows and time.",
+            "properties": {
+              "Profile": {
+                "properties": {
+                  "columns": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "rows": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_UqlRow"
+                    },
+                    "type": "array"
+                  },
+                  "stages": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_UqlStageReport"
+                    },
+                    "type": "array"
+                  },
+                  "warnings": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "columns",
+                  "rows",
+                  "stages",
+                  "warnings"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Profile"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_UqlRow": {
+        "description": "One result row of a UQL statement (UQL-08): `id`, the final `score`, and the value of\neach requested score channel (aligned to [`UqlResult`]'s `columns`; `None` where no\nstage produced that channel for the row).",
+        "properties": {
+          "channels": {
+            "items": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "knowledge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_UqlKnowledge"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`WITH KNOWLEDGE` (EH-450): the row's knowledge record; `None` without it."
+          },
+          "proof": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_UqlRowProof"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`WITH PROOF` (EH-448): why the row is in the result; `None` without it."
+          },
+          "score": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "channels"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_UqlRowProof": {
+        "description": "Why a row is in a `WITH PROOF` result (EH-448): one step per admitting stage, in\npipeline order, and whether together they certify the row.",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/ResDef_Query_UqlProofCoverage"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_UqlProofStep"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "coverage",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_UqlStageReport": {
+        "description": "One pipeline stage in an `EXPLAIN` / `PROFILE` report (UQL-09).",
+        "properties": {
+          "estimated_rows": {
+            "description": "The cost model's estimated output rows.",
+            "format": "double",
+            "type": "number"
+          },
+          "micros": {
+            "description": "Wall time in microseconds (`PROFILE` only).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rows": {
+            "description": "Actual output rows (`PROFILE` only).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stage": {
+            "description": "The stage in canonical UQL.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "estimated_rows"
+        ],
+        "type": "object"
       },
       "ResDef_Query_VarId": {
         "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
@@ -119629,6 +121627,24 @@
             "required": [
               "source",
               "plan_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Options the caller declared, pinned by the digest of the declaration.",
+            "properties": {
+              "options_digest": {
+                "type": "string"
+              },
+              "source": {
+                "const": "declared",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "options_digest"
             ],
             "type": "object"
           }
@@ -125777,6 +127793,11 @@
             "x-encoding": "Raw"
           },
           {
+            "$ref": "#/components/schemas/ResDef_Coordination_StoredResolution",
+            "x-body": "resolve",
+            "x-encoding": "Raw"
+          },
+          {
             "$ref": "#/components/schemas/ResDef_Coordination_DecisionLogVerification",
             "x-body": "verify",
             "x-encoding": "Raw"
@@ -127158,25 +129179,8 @@
         "type": "array",
         "x-encoding": "Raw"
       },
-      "Res_query_TxnUnifiedQueryText": {
-        "items": {
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "string"
-            },
-            {
-              "format": "float",
-              "type": [
-                "number",
-                "null"
-              ]
-            }
-          ],
-          "type": "array"
-        },
-        "type": "array",
+      "Res_query_TxnUql": {
+        "$ref": "#/components/schemas/ResDef_Query_UqlResult",
         "x-encoding": "Raw"
       },
       "Res_query_UnifiedQuery": {
@@ -127200,25 +129204,8 @@
         "type": "array",
         "x-encoding": "Raw"
       },
-      "Res_query_UnifiedQueryText": {
-        "items": {
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
-            {
-              "type": "string"
-            },
-            {
-              "format": "float",
-              "type": [
-                "number",
-                "null"
-              ]
-            }
-          ],
-          "type": "array"
-        },
-        "type": "array",
+      "Res_query_Uql": {
+        "$ref": "#/components/schemas/ResDef_Query_UqlResult",
         "x-encoding": "Raw"
       },
       "Res_query_WhatChanged": {
@@ -148713,14 +150700,14 @@
         "x-txn-participation": "Saga"
       }
     },
-    "/rpc/query/TxnUnifiedQueryText": {
+    "/rpc/query/TxnUql": {
       "post": {
-        "operationId": "TxnUnifiedQueryText",
+        "operationId": "TxnUql",
         "requestBody": {
           "content": {
             "application/msgpack": {
               "schema": {
-                "$ref": "#/components/schemas/Req_TxnUnifiedQueryText"
+                "$ref": "#/components/schemas/Req_TxnUql"
               }
             }
           },
@@ -148731,11 +150718,11 @@
             "content": {
               "application/msgpack": {
                 "schema": {
-                  "$ref": "#/components/schemas/Res_query_TxnUnifiedQueryText"
+                  "$ref": "#/components/schemas/Res_query_TxnUql"
                 }
               }
             },
-            "description": "`TxnUnifiedQueryText` result."
+            "description": "`TxnUql` result."
           },
           "default": {
             "content": {
@@ -148748,7 +150735,7 @@
             "description": "Typed engine error (one of `x-error-set`)."
           }
         },
-        "summary": "TxnUnifiedQueryText",
+        "summary": "TxnUql",
         "tags": [
           "query"
         ],
@@ -148827,14 +150814,14 @@
         "x-txn-participation": "Snapshot"
       }
     },
-    "/rpc/query/UnifiedQueryText": {
+    "/rpc/query/Uql": {
       "post": {
-        "operationId": "UnifiedQueryText",
+        "operationId": "Uql",
         "requestBody": {
           "content": {
             "application/msgpack": {
               "schema": {
-                "$ref": "#/components/schemas/Req_UnifiedQueryText"
+                "$ref": "#/components/schemas/Req_Uql"
               }
             }
           },
@@ -148845,11 +150832,11 @@
             "content": {
               "application/msgpack": {
                 "schema": {
-                  "$ref": "#/components/schemas/Res_query_UnifiedQueryText"
+                  "$ref": "#/components/schemas/Res_query_Uql"
                 }
               }
             },
-            "description": "`UnifiedQueryText` result."
+            "description": "`Uql` result."
           },
           "default": {
             "content": {
@@ -148862,7 +150849,7 @@
             "description": "Typed engine error (one of `x-error-set`)."
           }
         },
-        "summary": "UnifiedQueryText",
+        "summary": "UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only",
         "tags": [
           "query"
         ],

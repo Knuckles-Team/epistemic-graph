@@ -364,8 +364,17 @@ class CandidateSourceRecordGraph(BaseModel):
     source: Literal["graph"]
 
 
+class CandidateSourceRecordDeclared(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    options_digest: str
+    source: Literal["declared"]
+
+
 CandidateSourceRecord = Annotated[
-    CandidateSourceRecordAgentLibrary | CandidateSourceRecordGraph,
+    CandidateSourceRecordAgentLibrary
+    | CandidateSourceRecordGraph
+    | CandidateSourceRecordDeclared,
     Field(discriminator="source"),
 ]
 
@@ -1294,6 +1303,8 @@ CandidateFacts.model_rebuild()
 CandidateSourceRecordAgentLibrary.model_rebuild()
 
 CandidateSourceRecordGraph.model_rebuild()
+
+CandidateSourceRecordDeclared.model_rebuild()
 
 Certificate.model_rebuild()
 

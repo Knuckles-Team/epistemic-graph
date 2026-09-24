@@ -6,29 +6,47 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
+    models,
 )
 
+if TYPE_CHECKING:
+    from . import models as _models
 
-class GetContextViewRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetContextView
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetContextView
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: str
-    max_tokens: int
+    GetContextViewRequest = _models.MethodGetContextViewParams
+    GetChangeEnvelopeRequest = _models.MethodGetChangeEnvelopeParams
+    GetContentVersionRequest = _models.MethodGetContentVersionParams
+    GetChangeCursorRequest = _models.MethodGetChangeCursorParams
+    SqlRequest = _models.MethodSqlParams
+    CypherQueryRequest = _models.MethodCypherQueryParams
+    GraphQlRequest = _models.MethodGraphQlParams
+    KnowledgeStreamRequest = _models.MethodKnowledgeStreamParams
+    UnifiedQueryRequest = _models.MethodUnifiedQueryParams
+    UqlRequest = _models.MethodUqlParams
+    ExplainPlanRequest = _models.MethodExplainPlanParams
+    ExplainProvenanceRequest = _models.MethodExplainProvenanceParams
+    ExplainProvenanceByIdsRequest = _models.MethodExplainProvenanceByIdsParams
+    ExplainPolicyRequest = _models.MethodExplainPolicyParams
+    ExplainBeliefRequest = _models.MethodExplainBeliefParams
+    EpistemicStatusRequest = _models.MethodEpistemicStatusParams
+    WhatChangedRequest = _models.MethodWhatChangedParams
+    RecomputeMaterializationRequest = _models.MethodRecomputeMaterializationParams
+    MaterializationStatusRequest = _models.MethodMaterializationStatusParams
+    ResolveConflictRequest = _models.MethodResolveConflictParams
+    ExplainEvidenceRequest = _models.MethodExplainEvidenceParams
+    CausalEstimateRequest = _models.MethodCausalEstimateParams
+    CausalCounterfactualRequest = _models.MethodCausalCounterfactualParams
+    RankByProvenanceRequest = _models.MethodRankByProvenanceParams
+    NlQueryRequest = _models.MethodNlQueryParams
+    TxnUnifiedQueryRequest = _models.MethodTxnUnifiedQueryParams
+    TxnUqlRequest = _models.MethodTxnUqlParams
+    DecideRequest = _models.MethodDecideParams
 
 
 async def send_get_context_view(
@@ -57,7 +75,7 @@ async def send_get_context_view(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetContextViewRequest.model_validate(params or {})
+    models().MethodGetContextViewParams.model_validate(params or {})
     payload = await client._send(
         "GetContextView",
         params,
@@ -67,20 +85,9 @@ async def send_get_context_view(
     return OpaqueResult("GetContextView", payload)
 
 
-class GetChangeEnvelopeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetChangeEnvelope
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetChangeEnvelope
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    envelope_id: str
-    tenant: str
+def decode_get_context_view(result: OpaqueResult) -> _models.ContextView:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetContextView", models().ContextView, result)
 
 
 async def send_get_change_envelope(
@@ -109,7 +116,7 @@ async def send_get_change_envelope(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetChangeEnvelopeRequest.model_validate(params or {})
+    models().MethodGetChangeEnvelopeParams.model_validate(params or {})
     payload = await client._send(
         "GetChangeEnvelope",
         params,
@@ -119,20 +126,9 @@ async def send_get_change_envelope(
     return OpaqueResult("GetChangeEnvelope", payload)
 
 
-class GetContentVersionRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetContentVersion
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetContentVersion
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    object_id: str
-    tenant: str
+def decode_get_change_envelope(result: OpaqueResult) -> _models.GetChangeEnvelopeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetChangeEnvelope", models().GetChangeEnvelopeResult, result)
 
 
 async def send_get_content_version(
@@ -161,7 +157,7 @@ async def send_get_content_version(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetContentVersionRequest.model_validate(params or {})
+    models().MethodGetContentVersionParams.model_validate(params or {})
     payload = await client._send(
         "GetContentVersion",
         params,
@@ -171,21 +167,9 @@ async def send_get_content_version(
     return OpaqueResult("GetContentVersion", payload)
 
 
-class GetChangeCursorRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetChangeCursor
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetChangeCursor
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    partition: str | None = None
-    source: str
-    tenant: str
+def decode_get_content_version(result: OpaqueResult) -> _models.GetContentVersionResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetContentVersion", models().GetContentVersionResult, result)
 
 
 async def send_get_change_cursor(
@@ -214,7 +198,7 @@ async def send_get_change_cursor(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetChangeCursorRequest.model_validate(params or {})
+    models().MethodGetChangeCursorParams.model_validate(params or {})
     payload = await client._send(
         "GetChangeCursor",
         params,
@@ -224,20 +208,9 @@ async def send_get_change_cursor(
     return OpaqueResult("GetChangeCursor", payload)
 
 
-class SqlRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Sql
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Sql
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    params_msgpack: bytes | None = None
-    query: str
+def decode_get_change_cursor(result: OpaqueResult) -> _models.GetChangeCursorResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetChangeCursor", models().GetChangeCursorResult, result)
 
 
 async def send_sql(
@@ -271,7 +244,7 @@ async def send_sql(
         - REDIRECTED
         - READ_ONLY
     """
-    SqlRequest.model_validate(params or {})
+    models().MethodSqlParams.model_validate(params or {})
     payload = await client._send(
         "Sql",
         params,
@@ -279,22 +252,6 @@ async def send_sql(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("Sql", payload)
-
-
-class CypherQueryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CypherQuery
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CypherQuery
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    mode: Any
-    query: str
 
 
 async def send_cypher_query(
@@ -328,7 +285,7 @@ async def send_cypher_query(
         - REDIRECTED
         - READ_ONLY
     """
-    CypherQueryRequest.model_validate(params or {})
+    models().MethodCypherQueryParams.model_validate(params or {})
     payload = await client._send(
         "CypherQuery",
         params,
@@ -336,22 +293,6 @@ async def send_cypher_query(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("CypherQuery", payload)
-
-
-class GraphQlRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GraphQl
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GraphQl
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: str
-    variables: Any | None = None
 
 
 async def send_graph_ql(
@@ -385,7 +326,7 @@ async def send_graph_ql(
         - REDIRECTED
         - READ_ONLY
     """
-    GraphQlRequest.model_validate(params or {})
+    models().MethodGraphQlParams.model_validate(params or {})
     payload = await client._send(
         "GraphQl",
         params,
@@ -393,21 +334,6 @@ async def send_graph_ql(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GraphQl", payload)
-
-
-class KnowledgeStreamRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        KnowledgeStream
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/KnowledgeStream
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
 
 
 async def send_knowledge_stream(
@@ -436,7 +362,7 @@ async def send_knowledge_stream(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    KnowledgeStreamRequest.model_validate(params or {})
+    models().MethodKnowledgeStreamParams.model_validate(params or {})
     payload = await client._send(
         "KnowledgeStream",
         params,
@@ -446,19 +372,9 @@ async def send_knowledge_stream(
     return OpaqueResult("KnowledgeStream", payload)
 
 
-class UnifiedQueryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UnifiedQuery
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UnifiedQuery
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    plan: Any
+def decode_knowledge_stream(result: OpaqueResult) -> _models.KnowledgeStreamBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result("KnowledgeStream", models().KnowledgeStreamBatch, result)
 
 
 async def send_unified_query(
@@ -487,7 +403,7 @@ async def send_unified_query(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    UnifiedQueryRequest.model_validate(params or {})
+    models().MethodUnifiedQueryParams.model_validate(params or {})
     payload = await client._send(
         "UnifiedQuery",
         params,
@@ -497,71 +413,9 @@ async def send_unified_query(
     return OpaqueResult("UnifiedQuery", payload)
 
 
-class UnifiedQueryTextRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UnifiedQueryText
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UnifiedQueryText
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    text: str
-
-
-async def send_unified_query_text(
-    client: Any,
-    params: dict[str, Any] | None = None,
-    graph: str | None = None,
-    *,
-    idempotency_key: str | None = None,
-) -> OpaqueResult:
-    """Send one engine-contract request.
-
-    Method:
-        UnifiedQueryText
-    Authorization:
-        query:unified
-    Durability:
-        None
-    Replay:
-        NotReplayable
-    Result:
-        ResultPayload::Raw
-    Result schema:
-        contract/schemas/result.query.json
-        #/methods/UnifiedQueryText
-    Errors:
-        - INVALID_ARGUMENT
-        - ACCESS_DENIED
-    """
-    UnifiedQueryTextRequest.model_validate(params or {})
-    payload = await client._send(
-        "UnifiedQueryText",
-        params,
-        graph,
-        idempotency_key=idempotency_key,
-    )
-    return OpaqueResult("UnifiedQueryText", payload)
-
-
-class UqlRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Uql
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Uql
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    params: dict[str, Any] | None = None
-    text: str
+def decode_unified_query(result: OpaqueResult) -> _models.UnifiedQueryResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("UnifiedQuery", models().UnifiedQueryResult, result)
 
 
 async def send_uql(
@@ -590,7 +444,7 @@ async def send_uql(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    UqlRequest.model_validate(params or {})
+    models().MethodUqlParams.model_validate(params or {})
     payload = await client._send(
         "Uql",
         params,
@@ -600,19 +454,9 @@ async def send_uql(
     return OpaqueResult("Uql", payload)
 
 
-class ExplainPlanRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ExplainPlan
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ExplainPlan
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    plan: Any
+def decode_uql(result: OpaqueResult) -> _models.UqlResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("Uql", models().UqlResult, result)
 
 
 async def send_explain_plan(
@@ -641,7 +485,7 @@ async def send_explain_plan(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ExplainPlanRequest.model_validate(params or {})
+    models().MethodExplainPlanParams.model_validate(params or {})
     payload = await client._send(
         "ExplainPlan",
         params,
@@ -651,19 +495,9 @@ async def send_explain_plan(
     return OpaqueResult("ExplainPlan", payload)
 
 
-class ExplainProvenanceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ExplainProvenance
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ExplainProvenance
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    plan: Any
+def decode_explain_plan(result: OpaqueResult) -> _models.ExplainPlanResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExplainPlan", models().ExplainPlanResult, result)
 
 
 async def send_explain_provenance(
@@ -692,7 +526,7 @@ async def send_explain_provenance(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ExplainProvenanceRequest.model_validate(params or {})
+    models().MethodExplainProvenanceParams.model_validate(params or {})
     payload = await client._send(
         "ExplainProvenance",
         params,
@@ -702,19 +536,9 @@ async def send_explain_provenance(
     return OpaqueResult("ExplainProvenance", payload)
 
 
-class ExplainProvenanceByIdsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ExplainProvenanceByIds
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ExplainProvenanceByIds
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ids: list[str]
+def decode_explain_provenance(result: OpaqueResult) -> _models.EvidenceBundle:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExplainProvenance", models().EvidenceBundle, result)
 
 
 async def send_explain_provenance_by_ids(
@@ -743,7 +567,7 @@ async def send_explain_provenance_by_ids(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ExplainProvenanceByIdsRequest.model_validate(params or {})
+    models().MethodExplainProvenanceByIdsParams.model_validate(params or {})
     payload = await client._send(
         "ExplainProvenanceByIds",
         params,
@@ -753,19 +577,9 @@ async def send_explain_provenance_by_ids(
     return OpaqueResult("ExplainProvenanceByIds", payload)
 
 
-class ExplainPolicyRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ExplainPolicy
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ExplainPolicy
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    plan: Any
+def decode_explain_provenance_by_ids(result: OpaqueResult) -> _models.EvidenceBundle:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExplainProvenanceByIds", models().EvidenceBundle, result)
 
 
 async def send_explain_policy(
@@ -794,7 +608,7 @@ async def send_explain_policy(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ExplainPolicyRequest.model_validate(params or {})
+    models().MethodExplainPolicyParams.model_validate(params or {})
     payload = await client._send(
         "ExplainPolicy",
         params,
@@ -804,20 +618,9 @@ async def send_explain_policy(
     return OpaqueResult("ExplainPolicy", payload)
 
 
-class ExplainBeliefRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ExplainBelief
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ExplainBelief
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    disclosure_level: Any | None = None
-    node_id: str
+def decode_explain_policy(result: OpaqueResult) -> _models.ExplainPolicyResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExplainPolicy", models().ExplainPolicyResult, result)
 
 
 async def send_explain_belief(
@@ -846,7 +649,7 @@ async def send_explain_belief(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ExplainBeliefRequest.model_validate(params or {})
+    models().MethodExplainBeliefParams.model_validate(params or {})
     payload = await client._send(
         "ExplainBelief",
         params,
@@ -856,19 +659,9 @@ async def send_explain_belief(
     return OpaqueResult("ExplainBelief", payload)
 
 
-class EpistemicStatusRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        EpistemicStatus
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/EpistemicStatus
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
+def decode_explain_belief(result: OpaqueResult) -> _models.ExplainBeliefResponse:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExplainBelief", models().ExplainBeliefResponse, result)
 
 
 async def send_epistemic_status(
@@ -897,7 +690,7 @@ async def send_epistemic_status(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    EpistemicStatusRequest.model_validate(params or {})
+    models().MethodEpistemicStatusParams.model_validate(params or {})
     payload = await client._send(
         "EpistemicStatus",
         params,
@@ -907,20 +700,9 @@ async def send_epistemic_status(
     return OpaqueResult("EpistemicStatus", payload)
 
 
-class WhatChangedRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        WhatChanged
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/WhatChanged
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    tx_from: int
-    tx_to: int
+def decode_epistemic_status(result: OpaqueResult) -> _models.EpistemicStatusResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("EpistemicStatus", models().EpistemicStatusResult, result)
 
 
 async def send_what_changed(
@@ -949,7 +731,7 @@ async def send_what_changed(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    WhatChangedRequest.model_validate(params or {})
+    models().MethodWhatChangedParams.model_validate(params or {})
     payload = await client._send(
         "WhatChanged",
         params,
@@ -959,20 +741,9 @@ async def send_what_changed(
     return OpaqueResult("WhatChanged", payload)
 
 
-class RecomputeMaterializationRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RecomputeMaterialization
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RecomputeMaterialization
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    derived_id: str
-    expected_source_graph_version: int
+def decode_what_changed(result: OpaqueResult) -> _models.WhatChangedResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("WhatChanged", models().WhatChangedResult, result)
 
 
 async def send_recompute_materialization(
@@ -1005,7 +776,7 @@ async def send_recompute_materialization(
         - REDIRECTED
         - READ_ONLY
     """
-    RecomputeMaterializationRequest.model_validate(params or {})
+    models().MethodRecomputeMaterializationParams.model_validate(params or {})
     payload = await client._send(
         "RecomputeMaterialization",
         params,
@@ -1015,19 +786,13 @@ async def send_recompute_materialization(
     return OpaqueResult("RecomputeMaterialization", payload)
 
 
-class MaterializationStatusRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MaterializationStatus
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MaterializationStatus
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
+def decode_recompute_materialization(
+    result: OpaqueResult,
+) -> _models.RecomputeMaterializationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "RecomputeMaterialization", models().RecomputeMaterializationResult, result
+    )
 
 
 async def send_materialization_status(
@@ -1056,7 +821,7 @@ async def send_materialization_status(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    MaterializationStatusRequest.model_validate(params or {})
+    models().MethodMaterializationStatusParams.model_validate(params or {})
     payload = await client._send(
         "MaterializationStatus",
         params,
@@ -1064,6 +829,15 @@ async def send_materialization_status(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("MaterializationStatus", payload)
+
+
+def decode_materialization_status(
+    result: OpaqueResult,
+) -> _models.MaterializationStatusResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MaterializationStatus", models().MaterializationStatusResult, result
+    )
 
 
 class StaleMaterializationsRequest(BaseModel):
@@ -1117,20 +891,13 @@ async def send_stale_materializations(
     return OpaqueResult("StaleMaterializations", payload)
 
 
-class ResolveConflictRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ResolveConflict
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ResolveConflict
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_ids: list[str]
-    semantics: str | None = None
+def decode_stale_materializations(
+    result: OpaqueResult,
+) -> _models.StaleMaterializationsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "StaleMaterializations", models().StaleMaterializationsResult, result
+    )
 
 
 async def send_resolve_conflict(
@@ -1159,7 +926,7 @@ async def send_resolve_conflict(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ResolveConflictRequest.model_validate(params or {})
+    models().MethodResolveConflictParams.model_validate(params or {})
     payload = await client._send(
         "ResolveConflict",
         params,
@@ -1169,19 +936,9 @@ async def send_resolve_conflict(
     return OpaqueResult("ResolveConflict", payload)
 
 
-class ExplainEvidenceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ExplainEvidence
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ExplainEvidence
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
+def decode_resolve_conflict(result: OpaqueResult) -> _models.ResolveConflictResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ResolveConflict", models().ResolveConflictResult, result)
 
 
 async def send_explain_evidence(
@@ -1210,7 +967,7 @@ async def send_explain_evidence(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ExplainEvidenceRequest.model_validate(params or {})
+    models().MethodExplainEvidenceParams.model_validate(params or {})
     payload = await client._send(
         "ExplainEvidence",
         params,
@@ -1220,21 +977,9 @@ async def send_explain_evidence(
     return OpaqueResult("ExplainEvidence", payload)
 
 
-class CausalEstimateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CausalEstimate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CausalEstimate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    do_values: dict[str, float]
-    mode: Any
-    variables: list[Any]
+def decode_explain_evidence(result: OpaqueResult) -> _models.ExplainEvidenceResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExplainEvidence", models().ExplainEvidenceResult, result)
 
 
 async def send_causal_estimate(
@@ -1263,7 +1008,7 @@ async def send_causal_estimate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CausalEstimateRequest.model_validate(params or {})
+    models().MethodCausalEstimateParams.model_validate(params or {})
     payload = await client._send(
         "CausalEstimate",
         params,
@@ -1273,21 +1018,9 @@ async def send_causal_estimate(
     return OpaqueResult("CausalEstimate", payload)
 
 
-class CausalCounterfactualRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CausalCounterfactual
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CausalCounterfactual
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    actual: dict[str, float]
-    do_values: dict[str, float]
-    variables: list[Any]
+def decode_causal_estimate(result: OpaqueResult) -> _models.CausalEstimateResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("CausalEstimate", models().CausalEstimateResult, result)
 
 
 async def send_causal_counterfactual(
@@ -1316,7 +1049,7 @@ async def send_causal_counterfactual(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CausalCounterfactualRequest.model_validate(params or {})
+    models().MethodCausalCounterfactualParams.model_validate(params or {})
     payload = await client._send(
         "CausalCounterfactual",
         params,
@@ -1326,20 +1059,13 @@ async def send_causal_counterfactual(
     return OpaqueResult("CausalCounterfactual", payload)
 
 
-class RankByProvenanceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RankByProvenance
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RankByProvenance
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    candidates: list[Any]
-    weights: Any | None = None
+def decode_causal_counterfactual(
+    result: OpaqueResult,
+) -> _models.CausalCounterfactualResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CausalCounterfactual", models().CausalCounterfactualResult, result
+    )
 
 
 async def send_rank_by_provenance(
@@ -1368,7 +1094,7 @@ async def send_rank_by_provenance(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    RankByProvenanceRequest.model_validate(params or {})
+    models().MethodRankByProvenanceParams.model_validate(params or {})
     payload = await client._send(
         "RankByProvenance",
         params,
@@ -1378,20 +1104,9 @@ async def send_rank_by_provenance(
     return OpaqueResult("RankByProvenance", payload)
 
 
-class NlQueryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        NlQuery
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/NlQuery
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    text: str
+def decode_rank_by_provenance(result: OpaqueResult) -> _models.RankByProvenanceResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("RankByProvenance", models().RankByProvenanceResult, result)
 
 
 async def send_nl_query(
@@ -1420,7 +1135,7 @@ async def send_nl_query(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    NlQueryRequest.model_validate(params or {})
+    models().MethodNlQueryParams.model_validate(params or {})
     payload = await client._send(
         "NlQuery",
         params,
@@ -1430,20 +1145,9 @@ async def send_nl_query(
     return OpaqueResult("NlQuery", payload)
 
 
-class TxnUnifiedQueryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnUnifiedQuery
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnUnifiedQuery
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    plan: Any
-    txn_id: str
+def decode_nl_query(result: OpaqueResult) -> _models.NlQueryResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("NlQuery", models().NlQueryResult, result)
 
 
 async def send_txn_unified_query(
@@ -1472,7 +1176,7 @@ async def send_txn_unified_query(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    TxnUnifiedQueryRequest.model_validate(params or {})
+    models().MethodTxnUnifiedQueryParams.model_validate(params or {})
     payload = await client._send(
         "TxnUnifiedQuery",
         params,
@@ -1482,23 +1186,12 @@ async def send_txn_unified_query(
     return OpaqueResult("TxnUnifiedQuery", payload)
 
 
-class TxnUnifiedQueryTextRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnUnifiedQueryText
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnUnifiedQueryText
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    text: str
-    txn_id: str
+def decode_txn_unified_query(result: OpaqueResult) -> _models.TxnUnifiedQueryResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TxnUnifiedQuery", models().TxnUnifiedQueryResult, result)
 
 
-async def send_txn_unified_query_text(
+async def send_txn_uql(
     client: Any,
     params: dict[str, Any] | None = None,
     graph: str | None = None,
@@ -1508,7 +1201,7 @@ async def send_txn_unified_query_text(
     """Send one engine-contract request.
 
     Method:
-        TxnUnifiedQueryText
+        TxnUql
     Authorization:
         txn:read
     Durability:
@@ -1519,34 +1212,24 @@ async def send_txn_unified_query_text(
         ResultPayload::Raw
     Result schema:
         contract/schemas/result.query.json
-        #/methods/TxnUnifiedQueryText
+        #/methods/TxnUql
     Errors:
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    TxnUnifiedQueryTextRequest.model_validate(params or {})
+    models().MethodTxnUqlParams.model_validate(params or {})
     payload = await client._send(
-        "TxnUnifiedQueryText",
+        "TxnUql",
         params,
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("TxnUnifiedQueryText", payload)
+    return OpaqueResult("TxnUql", payload)
 
 
-class DecideRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Decide
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Decide
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_txn_uql(result: OpaqueResult) -> _models.UqlResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TxnUql", models().UqlResult, result)
 
 
 async def send_decide(
@@ -1575,7 +1258,7 @@ async def send_decide(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DecideRequest.model_validate(params or {})
+    models().MethodDecideParams.model_validate(params or {})
     payload = await client._send(
         "Decide",
         params,
@@ -1583,3 +1266,51 @@ async def send_decide(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("Decide", payload)
+
+
+def decode_decide(result: OpaqueResult) -> _models.DecisionBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result("Decide", models().DecisionBatch, result)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "GetContextView",
+        "GetChangeEnvelope",
+        "GetContentVersion",
+        "GetChangeCursor",
+        "Sql",
+        "CypherQuery",
+        "GraphQl",
+        "KnowledgeStream",
+        "UnifiedQuery",
+        "Uql",
+        "ExplainPlan",
+        "ExplainProvenance",
+        "ExplainProvenanceByIds",
+        "ExplainPolicy",
+        "ExplainBelief",
+        "EpistemicStatus",
+        "WhatChanged",
+        "RecomputeMaterialization",
+        "MaterializationStatus",
+        "ResolveConflict",
+        "ExplainEvidence",
+        "CausalEstimate",
+        "CausalCounterfactual",
+        "RankByProvenance",
+        "NlQuery",
+        "TxnUnifiedQuery",
+        "TxnUql",
+        "Decide",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

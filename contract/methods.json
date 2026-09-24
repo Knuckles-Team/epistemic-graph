@@ -8754,6 +8754,10 @@
             "dynamic": null,
             "encoding": "Raw"
           },
+          "resolve": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "verify": {
             "dynamic": null,
             "encoding": "Raw"
@@ -14503,45 +14507,6 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
-      "id": "UnifiedQueryText",
-      "note": "",
-      "policy": {
-        "audited": false,
-        "authz_action": "query:unified",
-        "durability_domain": "None",
-        "emits_cdc": false,
-        "idempotent": true,
-        "mutates": false,
-        "txn_participation": "Snapshot"
-      },
-      "replay_class": "NotReplayable",
-      "request_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/UnifiedQueryText"
-      },
-      "result_schema": {
-        "bodies": {
-          "result": {
-            "dynamic": null,
-            "encoding": "Raw"
-          }
-        },
-        "kind": "declared",
-        "schema": "contract/schemas/result.query.json#/methods/UnifiedQueryText",
-        "selected_by": null
-      },
-      "stability": "stable"
-    },
-    {
-      "consumer_profiles": [
-        "python"
-      ],
-      "domain": "query",
-      "error_set": [
-        "INVALID_ARGUMENT",
-        "ACCESS_DENIED"
-      ],
-      "format_identities": [],
       "id": "Uql",
       "note": "UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only",
       "policy": {
@@ -15250,7 +15215,7 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
-      "id": "TxnUnifiedQueryText",
+      "id": "TxnUql",
       "note": "",
       "policy": {
         "audited": false,
@@ -15264,7 +15229,7 @@
       "replay_class": "NotReplayable",
       "request_schema": {
         "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/TxnUnifiedQueryText"
+        "schema": "contract/schemas/method.request.json#/methods/TxnUql"
       },
       "result_schema": {
         "bodies": {
@@ -15274,7 +15239,7 @@
           }
         },
         "kind": "declared",
-        "schema": "contract/schemas/result.query.json#/methods/TxnUnifiedQueryText",
+        "schema": "contract/schemas/result.query.json#/methods/TxnUql",
         "selected_by": null
       },
       "stability": "stable"

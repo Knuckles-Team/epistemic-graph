@@ -104,6 +104,35 @@ AbstainReason = Annotated[
 ]
 
 
+class AbstentionResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    option_id: str
+    record_id: str
+    resolution_id: str
+    resolver: AbstentionResolver
+
+
+class AbstentionResolverHuman(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    resolver: Literal["human"]
+
+
+class AbstentionResolverModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    producer: str
+    prompt_digest: str | None = None
+    resolver: Literal["model"]
+
+
+AbstentionResolver = Annotated[
+    AbstentionResolverHuman | AbstentionResolverModel,
+    Field(discriminator="resolver"),
+]
+
+
 class AdamResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1349,8 +1378,15 @@ class CandidateSourceGraph(BaseModel):
     source: Literal["graph"]
 
 
+class CandidateSourceDeclared(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    options: BoundedVec_DeclaredOption_64
+    source: Literal["declared"]
+
+
 CandidateSource = Annotated[
-    CandidateSourceAgentLibrary | CandidateSourceGraph,
+    CandidateSourceAgentLibrary | CandidateSourceGraph | CandidateSourceDeclared,
     Field(discriminator="source"),
 ]
 
@@ -1370,8 +1406,17 @@ class CandidateSourceRecordGraph(BaseModel):
     source: Literal["graph"]
 
 
+class CandidateSourceRecordDeclared(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    options_digest: str
+    source: Literal["declared"]
+
+
 CandidateSourceRecord = Annotated[
-    CandidateSourceRecordAgentLibrary | CandidateSourceRecordGraph,
+    CandidateSourceRecordAgentLibrary
+    | CandidateSourceRecordGraph
+    | CandidateSourceRecordDeclared,
     Field(discriminator="source"),
 ]
 
@@ -2272,6 +2317,15 @@ class ClusterSummary(BaseModel):
     label: str
     node_count: Annotated[int, Field(ge=0)]
     top_node_types: list[ClusterSummaryTopNodeTypesItem]
+
+
+class CmpOp(str, Enum):
+    EQ = "Eq"
+    NE = "Ne"
+    GT = "Gt"
+    GE = "Ge"
+    LT = "Lt"
+    LE = "Le"
 
 
 class CoefficientKnown(BaseModel):
@@ -3265,13 +3319,22 @@ class DecisionLogOpVerify(BaseModel):
     tenant_id: str
 
 
+class DecisionLogOpResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["resolve"]
+    resolution: AbstentionResolution
+    tenant_id: str
+
+
 DecisionLogOp = Annotated[
     DecisionLogOpCommit
     | DecisionLogOpEvaluate
     | DecisionLogOpGet
     | DecisionLogOpAggregate
     | DecisionLogOpCompact
-    | DecisionLogOpVerify,
+    | DecisionLogOpVerify
+    | DecisionLogOpResolve,
     Field(discriminator="op"),
 ]
 
@@ -3415,6 +3478,29 @@ class DeclaredLatency(BaseModel):
 
     p50_ms: Annotated[int, Field(ge=0)]
     p95_ms: Annotated[int, Field(ge=0)]
+
+
+class DeclaredNumber(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key: str
+    q32: int
+
+
+class DeclaredOption(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    classification: BoundedVec_string_16 = Field(default_factory=list)
+    numbers: BoundedVec_DeclaredNumber_32 = Field(default_factory=list)
+    option_id: str
+    texts: BoundedVec_DeclaredText_8 = Field(default_factory=list)
+
+
+class DeclaredText(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key: str
+    text: str
 
 
 class DelegationTargetAgent(BaseModel):
@@ -4247,6 +4333,12 @@ class DurabilityDomain(str, Enum):
     MULTI_GRAPH = "multi_graph"
     LIFECYCLE = "lifecycle"
     CONTROL_PLANE = "control_plane"
+
+
+class EdgeDir(str, Enum):
+    OUT = "Out"
+    IN = "In"
+    BOTH = "Both"
 
 
 class EdgeFunctionRow(BaseModel):
@@ -8825,11 +8917,11 @@ class MethodUnifiedQuery(BaseModel):
     params: MethodUnifiedQueryParams
 
 
-class MethodUnifiedQueryText(BaseModel):
+class MethodUql(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    method: Literal["UnifiedQueryText"]
-    params: MethodUnifiedQueryTextParams
+    method: Literal["Uql"]
+    params: MethodUqlParams
 
 
 class MethodExplainPlan(BaseModel):
@@ -9118,11 +9210,11 @@ class MethodTxnUnifiedQuery(BaseModel):
     params: MethodTxnUnifiedQueryParams
 
 
-class MethodTxnUnifiedQueryText(BaseModel):
+class MethodTxnUql(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    method: Literal["TxnUnifiedQueryText"]
-    params: MethodTxnUnifiedQueryTextParams
+    method: Literal["TxnUql"]
+    params: MethodTxnUqlParams
 
 
 class MethodCommit(BaseModel):
@@ -10097,7 +10189,7 @@ Method = Annotated[
     | MethodGraphQl
     | MethodKnowledgeStream
     | MethodUnifiedQuery
-    | MethodUnifiedQueryText
+    | MethodUql
     | MethodExplainPlan
     | MethodExplainProvenance
     | MethodExplainProvenanceByIds
@@ -10139,7 +10231,7 @@ Method = Annotated[
     | MethodTxnPlanWriteback
     | MethodTxnMaterializeBelief
     | MethodTxnUnifiedQuery
-    | MethodTxnUnifiedQueryText
+    | MethodTxnUql
     | MethodCommit
     | MethodRollback
     | MethodTsAppend
@@ -13265,9 +13357,10 @@ class MethodTxnUnifiedQueryParams(BaseModel):
     txn_id: str
 
 
-class MethodTxnUnifiedQueryTextParams(BaseModel):
+class MethodTxnUqlParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    params: dict[str, UqlParam] | None = None
     text: str
     txn_id: str
 
@@ -13284,12 +13377,6 @@ class MethodUnifiedQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     plan: Plan
-
-
-class MethodUnifiedQueryTextParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    text: str
 
 
 class MethodUnionGetNeighborsParams(BaseModel):
@@ -13330,6 +13417,13 @@ class MethodUpdateResourceHostParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: ResourceHostUpdateRequest
+
+
+class MethodUqlParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    params: dict[str, UqlParam] | None = None
+    text: str
 
 
 class MethodVerifyWorkItemClaimCapabilityParams(BaseModel):
@@ -13853,6 +13947,18 @@ class OpContradictsBody(BaseModel):
     node_id: str
 
 
+class OpDecisionScan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    DecisionScan: OpDecisionScanBody
+
+
+class OpDecisionScanBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    preds: list[Pred]
+
+
 class OpEvidenceFor(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13863,6 +13969,22 @@ class OpEvidenceForBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     claim_id: str
+
+
+class OpExpand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Expand: OpExpandBody
+
+
+class OpExpandBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    dir: EdgeDir
+    edge_preds: list[Pred]
+    max: Annotated[int, Field(ge=0)]
+    min: Annotated[int, Field(ge=0)]
+    rel: str | None = None
 
 
 class OpExplainBelief(BaseModel):
@@ -13949,6 +14071,18 @@ class OpProbabilisticBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     query: ProbQuery
+
+
+class OpProject(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Project: OpProjectBody
+
+
+class OpProjectBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    channels: list[str]
 
 
 class OpRank(BaseModel):
@@ -14048,6 +14182,12 @@ class OpScan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     Scan: OpScanBody
+
+
+class OpScanAll(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ScanAll: dict[str, Any]
 
 
 class OpScanBody(BaseModel):
@@ -15056,6 +15196,46 @@ class PosteriorCredibleInterval(BaseModel):
     upper: float
 
 
+class PredAnd(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    And: PredAndBody
+
+
+class PredAndBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    preds: list[Pred]
+
+
+class PredBetween(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Between: PredBetweenBody
+
+
+class PredBetweenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    hi: PredLiteral
+    lo: PredLiteral
+    prop: str
+
+
+class PredCmp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Cmp: PredCmpBody
+
+
+class PredCmpBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: CmpOp
+    prop: str
+    value: PredLiteral
+
+
 class PredEq(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15082,6 +15262,31 @@ class PredGtNumBody(BaseModel):
     prop: str
 
 
+class PredIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    In: PredInBody
+
+
+class PredInBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    prop: str
+    values: list[PredLiteral]
+
+
+class PredIsNull(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    IsNull: PredIsNullBody
+
+
+class PredIsNullBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    prop: str
+
+
 class PredJsonPath(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15095,6 +15300,24 @@ class PredJsonPathBody(BaseModel):
     path: str
 
 
+class PredLiteralBool(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Bool: bool
+
+
+class PredLiteralNum(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Num: float
+
+
+class PredLiteralStr(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Str: str
+
+
 class PredLtNum(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15106,6 +15329,30 @@ class PredLtNumBody(BaseModel):
 
     n: float
     prop: str
+
+
+class PredNot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Not: PredNotBody
+
+
+class PredNotBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    pred: Pred
+
+
+class PredOr(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Or: PredOrBody
+
+
+class PredOrBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    preds: list[Pred]
 
 
 class PredSpatialContains(BaseModel):
@@ -19184,6 +19431,15 @@ class StoredEvaluation(BaseModel):
     recorded_at_ms: Annotated[int, Field(ge=0)]
 
 
+class StoredResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    class_: EvidenceClass = Field(..., alias="class")
+    producer: str
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+    resolution: AbstentionResolution
+
+
 class StructuralEquationWire(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19643,6 +19899,171 @@ class UnitRationalWire(BaseModel):
 class UnknownCostRule(str, Enum):
     EXCLUDE_WHEN_STRICT = "exclude_when_strict"
     RANK_BELOW_KNOWN = "rank_below_known"
+
+
+class UqlKnowledge(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    alternative_ids: list[str]
+    confidence: float
+    contradiction_ids: list[str]
+    epistemic_resolved: bool
+    evidence_refs: list[str]
+    kind: str
+    policy_labels: list[str]
+    projection: Any | None = None
+    proof_ids: list[str]
+    source_refs: list[str]
+    transformation_ids: list[str]
+    tx_from: Annotated[int, Field(ge=0)] | None = None
+    tx_until: Annotated[int, Field(ge=0)] | None = None
+    valid_from: Annotated[int, Field(ge=0)] | None = None
+    valid_until: Annotated[int, Field(ge=0)] | None = None
+
+
+class UqlParamBool(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Bool: bool
+
+
+class UqlParamList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    List: list[PredLiteral]
+
+
+class UqlParamNum(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Num: float
+
+
+class UqlParamStr(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Str: str
+
+
+class UqlParamVector(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Vector: list[float]
+
+
+class UqlProofCoverage(str, Enum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+
+
+class UqlProofStepReason(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Reason: UqlProofStepReasonBody
+
+
+class UqlProofStepReasonBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    proof: ProofNodeWire
+    stage: str
+
+
+class UqlProofStepSparql(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Sparql: UqlProofStepSparqlBody
+
+
+class UqlProofStepSparqlBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    proof: SparqlRowProof
+    stage: str
+
+
+class UqlProofStepUnproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Unproved: UqlProofStepUnprovedBody
+
+
+class UqlProofStepUnprovedBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    stage: str
+
+
+class UqlResultExplain(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Explain: UqlResultExplainBody
+
+
+class UqlResultExplainBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical: str
+    incremental: bool
+    incremental_note: str
+    optimized: str
+    stages: list[UqlStageReport]
+    warnings: list[str]
+
+
+class UqlResultProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Profile: UqlResultProfileBody
+
+
+class UqlResultProfileBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: list[str]
+    rows: list[UqlRow]
+    stages: list[UqlStageReport]
+    warnings: list[str]
+
+
+class UqlResultRows(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Rows: UqlResultRowsBody
+
+
+class UqlResultRowsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: list[str]
+    rows: list[UqlRow]
+    warnings: list[str]
+
+
+class UqlRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    channels: list[float | None]
+    id: str
+    knowledge: UqlKnowledge | None = None
+    proof: UqlRowProof | None = None
+    score: float | None = None
+
+
+class UqlRowProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    coverage: UqlProofCoverage
+    steps: list[UqlProofStep]
+
+
+class UqlStageReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    estimated_rows: float
+    micros: Annotated[int, Field(ge=0)] | None = None
+    rows: Annotated[int, Field(ge=0)] | None = None
+    stage: str
 
 
 class VectorSource(BaseModel):
@@ -20445,6 +20866,15 @@ BoundedVec_CoverageDerivation_32 = Annotated[
         max_length=32,
     ),
 ]
+
+
+BoundedVec_DeclaredNumber_32 = Annotated[list[DeclaredNumber], Field(max_length=32)]
+
+
+BoundedVec_DeclaredOption_64 = Annotated[list[DeclaredOption], Field(max_length=64)]
+
+
+BoundedVec_DeclaredText_8 = Annotated[list[DeclaredText], Field(max_length=8)]
 
 
 BoundedVec_DerivationEdge_16 = Annotated[list[DerivationEdge], Field(max_length=16)]
@@ -21445,8 +21875,10 @@ Nonce = Annotated[str, Field(pattern="^[0-9a-f]{64}$", min_length=64, max_length
 
 Op = (
     OpScan
+    | OpScanAll
     | OpFilter
     | OpTraverse
+    | OpExpand
     | OpRank
     | OpRankEmbed
     | OpRankNodeDistance
@@ -21480,7 +21912,9 @@ Op = (
     | OpSourceReliability
     | OpConfidenceOp
     | OpExplainBelief
+    | OpDecisionScan
     | OpLimit
+    | OpProject
 )
 
 
@@ -21566,6 +22000,13 @@ Pred = (
     PredEq
     | PredGtNum
     | PredLtNum
+    | PredCmp
+    | PredIn
+    | PredBetween
+    | PredIsNull
+    | PredAnd
+    | PredOr
+    | PredNot
     | PredJsonPath
     | PredSpatialWithin
     | PredSpatialDWithin
@@ -21577,6 +22018,9 @@ Pred = (
     | PredSpatialEquals
     | PredSpatialDisjoint
 )
+
+
+PredLiteral = PredLiteralStr | PredLiteralNum | PredLiteralBool
 
 
 ProofNode = ProofNodeBranch | ProofNodeForced | ProofNodeLeaf
@@ -21920,21 +22364,6 @@ TxnUnifiedQueryResultValueItem = Annotated[
 TxnUnifiedQueryResult = list[TxnUnifiedQueryResultValueItem]
 
 
-TxnUnifiedQueryTextResultValueItemItem1 = float | None
-
-
-TxnUnifiedQueryTextResultValueItem = Annotated[
-    tuple[str, TxnUnifiedQueryTextResultValueItemItem1],
-    Field(
-        min_length=2,
-        max_length=2,
-    ),
-]
-
-
-TxnUnifiedQueryTextResult = list[TxnUnifiedQueryTextResultValueItem]
-
-
 UnifiedQueryResultValueItemItem1 = float | None
 
 
@@ -21950,19 +22379,13 @@ UnifiedQueryResultValueItem = Annotated[
 UnifiedQueryResult = list[UnifiedQueryResultValueItem]
 
 
-UnifiedQueryTextResultValueItemItem1 = float | None
+UqlParam = UqlParamStr | UqlParamNum | UqlParamBool | UqlParamVector | UqlParamList
 
 
-UnifiedQueryTextResultValueItem = Annotated[
-    tuple[str, UnifiedQueryTextResultValueItemItem1],
-    Field(
-        min_length=2,
-        max_length=2,
-    ),
-]
+UqlProofStep = UqlProofStepSparql | UqlProofStepReason | UqlProofStepUnproved
 
 
-UnifiedQueryTextResult = list[UnifiedQueryTextResultValueItem]
+UqlResult = UqlResultRows | UqlResultExplain | UqlResultProfile
 
 
 VarId = Annotated[int, Field(ge=0)]

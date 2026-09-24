@@ -47,12 +47,15 @@ regenerate it in place with `cargo run -q -p eg-plan --example uql_grammar -- wr
 
 <!-- BEGIN GENERATED: uql-grammar -->
 ```text
-statement          = [ "UQL" int ";" ] [ "EXPLAIN" | "PROFILE" ] { binding } pipeline ;
+statement          = [ "UQL" int ";" ] [ "EXPLAIN" | "PROFILE" ] { binding } pipeline [ annotations ] ;
+annotations        = "WITH" annotation { "," annotation } ;
+annotation         = "PROOF" | "KNOWLEDGE" [ "(" name { "," name } ")" ] ;
 binding            = "LET" name "=" pipeline ";" ;
 pipeline           = head { "|>" stage } ;
 head               = source | stage | "FROM" name | "JOIN" name "," name { "," name } ;
 match              = "MATCH" "(" [ ":" name ] ")" [ "WHERE" pred ] ;
 foreign            = "FOREIGN" id | "FOREIGN" "SCAN" string [ "JOIN" ] | "FOREIGN" "HTTP" string [ "PATH" string ] "ID" string [ "SCORE" string ] [ "JOIN" ] ;
+decisions          = "DECISIONS" [ "WHERE" pred ] ;
 sparql             = "SPARQL" string "VAR" string ;   (* feature `owl` *)
 tsscan             = "TSSCAN" string_list "FROM" num "TO" num ;   (* feature `timeseries` *)
 sensor             = "SENSOR" "FUSE" string_list "TOLERANCE" int | "SENSOR" "ALIGN" "[" string interp { "," string interp } "]" "CLOCK" clock [ "TOLERANCE" int ] ;   (* feature `timeseries` *)
@@ -434,6 +437,14 @@ source), the same structured errors, and a grammar table
 
 <!-- BEGIN GENERATED: decide-text-grammar -->
 ```text
+decide_text     = candidates { "|>" clause } ;
+candidates      = "CANDIDATES" ( "AGENT" "LIBRARY" "KINDS" "[" name { "," name } "]" [ "UNDER" ( iri | string ) ] | "GRAPH" string "QUERY" "{" uql "}" ) ;
+covers          = "COVERS" param ;
+validate_policy = "VALIDATE" "POLICY" ( "DEFAULT" | pin ) ;
+decide          = "DECIDE" name "QUESTION" string [ "SAFETY" name ] "FEATURES" pin [ "HEAD" pin ] [ "MAX" int ] ;
+assemble        = "ASSEMBLE" [ "MAX" "COMPONENTS" int ] ;
+pin             = string "AT" string ;
+param           = "$" name ;
 ```
 <!-- END GENERATED: decide-text-grammar -->
 
