@@ -617,7 +617,7 @@ stream = ["query", "dep:eg-plan", "eg-plan/stream", "eg-types/stream", "dep:eg-s
 # (`eg_plan::NlPlanner` + the LLM-optional `Option<&dyn NlPlanner>` entry point) and the
 # concrete standalone `UreqNlPlanner`, plus the facade wiring — the `Method::NlQuery`
 # handler + the `/nl` HTTP route. NL is turned into a UQL query STRING by a pluggable
-# planner, then run through the IDENTICAL deterministic `UnifiedQueryText` pipeline, so
+# planner, then run through the IDENTICAL deterministic UQL pipeline, so
 # the engine core stays pure-Rust + LLM-optional. Pulls eg-plan's `nl-query` (the SAME
 # pure-Rust rustls `ureq` client the federation sources use — NO new HTTP dep, NO
 # openssl), which IMPLIES `query`. Needs `server` (the handler + route live in the

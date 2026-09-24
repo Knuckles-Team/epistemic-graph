@@ -34,7 +34,7 @@ pub(crate) async fn handle_txn_unified_query_text(
 #[cfg(feature = "nl-query")]
 /// The NL → executable-UQL-plan resolution of [`handle_nl_query`]: resolve the
 /// configured/injected `NlPlanner`, turn `text` into a UQL query STRING, then
-/// parse it into the SAME `wire::Plan` `UnifiedQueryText` carries. NO LLM in the
+/// parse it into the SAME `wire::Plan` a UQL pipeline parses to. NO LLM in the
 /// engine core and NO new execution path — the produced query rides the
 /// deterministic pipeline.
 #[cfg(feature = "nl-query")]
@@ -81,7 +81,7 @@ pub(crate) async fn handle_nl_query(
     let rls = ctx.rls;
     // CONCEPT:EG-KG.query.core-query-input/EG-080 — natural-language → executable query → rows. Resolve
     // the configured/injected `NlPlanner`, turn the NL into a UQL query STRING,
-    // then run it through the IDENTICAL `UnifiedQueryText` pipeline
+    // then run it through the IDENTICAL UQL pipeline
     // (`eg_plan::uql::parse` + `run_unified`). NO LLM in the engine core and NO
     // new execution path — the produced query rides the deterministic pipeline.
     // The graph was already used for routing; the handler runs against `core`.
@@ -98,14 +98,14 @@ pub(crate) async fn handle_nl_query(
         Ok(legs) => legs,
         Err(denied) => return Ok(Response::err(req_id, denied)),
     };
-    // RLS-filtered off-lock snapshot, exactly like the Sql/UnifiedQueryText reads.
+    // RLS-filtered off-lock snapshot, exactly like the Sql/Uql reads.
     // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
     // NL text would risk serving a stale/foreign result.
     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
     let mut snap = core.analysis_snapshot();
     #[cfg(feature = "security")]
     rls.filter_view(caller, &mut snap);
-    // The same off-lock run as `UnifiedQueryText`: persistent vector/lexical/spatial/
+    // The same off-lock run as `Uql`: persistent vector/lexical/spatial/
     // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
     let resp = match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),

@@ -91,7 +91,8 @@ pub struct Production {
     pub example: &'static str,
 }
 
-const fn p(
+/// One production row (the constructor both grammar tables use).
+pub(crate) const fn p(
     name: &'static str,
     role: Role,
     lead: &'static [&'static str],
@@ -295,9 +296,14 @@ pub const PRODUCTIONS: &[Production] = &[
 
 /// The reference EBNF, one production per line (what `docs/uql.md` embeds).
 pub fn ebnf() -> String {
-    let width = PRODUCTIONS.iter().map(|p| p.name.len()).max().unwrap_or(0);
+    ebnf_of(PRODUCTIONS)
+}
+
+/// The EBNF of any production table (UQL's, DecideText's), one production per line.
+pub fn ebnf_of(productions: &[Production]) -> String {
+    let width = productions.iter().map(|p| p.name.len()).max().unwrap_or(0);
     let mut out = String::new();
-    for prod in PRODUCTIONS {
+    for prod in productions {
         let feature = prod.feature.map_or(String::new(), |f| {
             format!("   (* feature `{}` *)", f.name())
         });

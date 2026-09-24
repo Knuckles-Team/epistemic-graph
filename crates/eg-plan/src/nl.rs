@@ -13,7 +13,7 @@
 //!    a `None` planner is a **no-op** (`Ok(None)`), so a build/deployment that never
 //!    configures a planner still compiles and runs, it just has no NL surface.
 //!  * a `Some(planner)` produces a UQL string that is parsed + executed EXACTLY like a
-//!    hand-written `UnifiedQueryText` — the query language target is UQL (the engine's
+//!    hand-written `Uql` statement — the query language target is UQL (the engine's
 //!    text front-end), so the whole downstream is the audited, deterministic path.
 //!
 //! ## The standalone planner (CONCEPT:EG-KG.query.fence-stripper)

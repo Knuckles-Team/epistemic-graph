@@ -86,23 +86,33 @@ fn docs(name: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-const GRAMMAR_BEGIN: &str = "<!-- BEGIN GENERATED: uql-grammar -->\n```text\n";
-const GRAMMAR_END: &str = "```\n<!-- END GENERATED: uql-grammar -->";
+/// The body of `docs/uql.md`'s `name` generated block.
+fn generated_block(doc: &str, name: &str) -> String {
+    let begin = format!("<!-- BEGIN GENERATED: {name} -->\n```text\n");
+    let end = format!("```\n<!-- END GENERATED: {name} -->");
+    let start = doc
+        .find(&begin)
+        .unwrap_or_else(|| panic!("docs/uql.md lacks the generated `{name}` block"));
+    let body = &doc[start + begin.len()..];
+    let stop = body
+        .find(&end)
+        .unwrap_or_else(|| panic!("unterminated generated `{name}` block"));
+    body[..stop].to_string()
+}
 
 #[test]
-fn docs_embed_the_generated_grammar() {
+fn docs_embed_the_generated_grammars() {
     let doc = docs("uql.md");
-    let start = doc
-        .find(GRAMMAR_BEGIN)
-        .expect("docs/uql.md lacks the generated grammar block");
-    let body = &doc[start + GRAMMAR_BEGIN.len()..];
-    let end = body
-        .find(GRAMMAR_END)
-        .expect("unterminated generated grammar block");
+    let regen = "run `cargo run -q -p eg-plan --example uql_grammar -- write-docs`";
     assert_eq!(
-        &body[..end],
+        generated_block(&doc, "uql-grammar"),
         grammar::ebnf(),
-        "docs/uql.md grammar drifted; run `cargo run -q -p eg-plan --example uql_grammar -- write-docs`"
+        "docs/uql.md grammar drifted; {regen}"
+    );
+    assert_eq!(
+        generated_block(&doc, "decide-text-grammar"),
+        crate::decide_text::grammar::ebnf(),
+        "docs/uql.md DecideText grammar drifted; {regen}"
     );
 }
 

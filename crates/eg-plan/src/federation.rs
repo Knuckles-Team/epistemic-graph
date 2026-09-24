@@ -15,7 +15,7 @@
 //!    protocol (a blocking TCP client; the executor already runs on the blocking pool).
 //!    Direct routable plaintext endpoints are rejected because request authentication
 //!    alone does not provide query/result confidentiality. It sends a UQL
-//!    `UnifiedQueryText` (or a `CypherQuery` when no UQL is given) and projects the
+//!    UQL statement (`Uql`, or a `CypherQuery` when no UQL is given) and projects the
 //!    remote rows into a local RowSet. This composes the engine with ANOTHER engine
 //!    with NO Python round-trip — the cross-engine federation seam.
 //!  * [`HttpJsonSource`] — a GENERIC HTTP/JSON API: GET `url`, walk to the JSON array
@@ -483,15 +483,17 @@ impl RemoteEngineSource<'_> {
         read_remote_response(&mut stream)
     }
 
-    /// UQL path: the remote runs the query through its own unified planner and returns
-    /// `[id, score?]` rows directly — the SAME shape this engine's `UnifiedQuery`
-    /// yields, so the projection is the identity.
+    /// UQL path: the remote runs the statement through its own `Method::Uql` (the one
+    /// query-text surface, EH-434) and returns its rows; each row's `(id, score)` is the
+    /// SAME currency this engine's plans speak, so the projection is the identity. A
+    /// statement that answers no rows (`EXPLAIN`) is refused — a foreign source is rows.
     fn fetch_uql(&self) -> Result<RowSet, String> {
-        let request = self.signed_request(eg_types::protocol::Method::UnifiedQueryText {
+        let request = self.signed_request(eg_types::protocol::Method::Uql {
             text: self.uql.to_string(),
+            params: std::collections::BTreeMap::new(),
         })?;
         let raw = self.round_trip(&request)?;
-        let rows: Vec<(String, Option<f32>)> = eg_types::msgpack::decode_bounded(
+        let result: eg_types::wire::UqlResult = eg_types::msgpack::decode_bounded(
             &raw,
             eg_types::msgpack::MsgpackLimits::new(
                 MAX_REMOTE_ENGINE_FRAME_BYTES,
@@ -499,8 +501,19 @@ impl RemoteEngineSource<'_> {
                 eg_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
-        .map_err(|_| "federation: invalid unified rows".to_string())?;
-        Ok(RowSet::from_rows(rows))
+        .map_err(|_| "federation: invalid UQL result".to_string())?;
+        let rows = match result {
+            eg_types::wire::UqlResult::Rows { rows, .. }
+            | eg_types::wire::UqlResult::Profile { rows, .. } => rows,
+            eg_types::wire::UqlResult::Explain { .. } => {
+                return Err(
+                    "federation: the remote UQL statement answered no rows (EXPLAIN)".into(),
+                )
+            }
+        };
+        Ok(RowSet::from_rows(
+            rows.into_iter().map(|row| (row.id, row.score)),
+        ))
     }
 
     /// Cypher path: the remote returns a `QueryResult { columns, rows }`; pick the

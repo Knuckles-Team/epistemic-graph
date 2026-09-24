@@ -479,6 +479,21 @@ pub fn unified_ids(response: &Response) -> Vec<String> {
     epistemic_graph::server::decode_unified_ids(response)
 }
 
+/// The row ids of a `Method::Uql` response (EH-434).
+#[cfg(feature = "query")]
+pub fn uql_ids(response: &Response) -> Vec<String> {
+    epistemic_graph::server::decode_uql_ids(response)
+}
+
+/// A parameterless UQL statement.
+#[cfg(feature = "query")]
+pub fn uql(text: &str) -> Method {
+    Method::Uql {
+        text: text.into(),
+        params: Default::default(),
+    }
+}
+
 pub async fn unified_query(
     state: &SharedState,
     auth_secret: &str,

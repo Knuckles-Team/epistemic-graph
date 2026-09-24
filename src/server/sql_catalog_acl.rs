@@ -62,6 +62,9 @@ use crate::server::sql_tables;
 // row-level security applied inside the probe.
 mod ann_projection;
 pub(crate) use ann_projection::authorized_read_store_for_query;
+// EH-066: read-only relations (the decision record views) beside the caller's tables.
+pub(crate) mod relations;
+pub(crate) use relations::{wants_read_only_relations, ReadOnlyRelations, SharedRelations};
 
 /// The one denial string for EVERY authorization failure in this module —
 /// nonexistent table, unowned/ungranted table, unauthorized grant/revoke/RLS
@@ -2080,7 +2083,7 @@ pub(crate) fn authorized_read_store(
     authority: &CarrierAuthority,
     persist_dir: &Path,
 ) -> Result<AuthorizedReadStore, String> {
-    project_read_store(authority, persist_dir, None)
+    project_read_store(authority, persist_dir, None, None)
 }
 
 /// [`authorized_read_store`], with the one table a maintained-ANN read narrows
@@ -2089,6 +2092,7 @@ fn project_read_store(
     authority: &CarrierAuthority,
     persist_dir: &Path,
     narrowing: Option<&eg_query::UserAnnPushdown>,
+    read_only: Option<&dyn ReadOnlyRelations>,
 ) -> Result<AuthorizedReadStore, String> {
     let names = selectable_tables(authority, persist_dir)?;
     let property_graphs = authorized_property_graph_records(authority, persist_dir)?;
@@ -2130,6 +2134,9 @@ fn project_read_store(
             &definition,
             record.owner.value(),
         )?;
+    }
+    if let Some(read_only) = read_only {
+        relations::add_relations(projection.store(), read_only.materialize()?)?;
     }
     Ok(projection)
 }
