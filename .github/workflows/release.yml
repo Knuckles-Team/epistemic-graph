@@ -125,25 +125,6 @@ jobs:
 
       - name: Test (lower crates, all features)
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
-      # eg-numeric's statistical kernels (calibration, conformal, risk control,
-      # off-policy evaluation, the deterministic kernels and the crate clippy-policy
-      # self-check) and its decision layer are integration-test targets of their
-      # own crate, which no other step selects (EH-265). Every feature except
-      # `python` is named: `python` turns on pyo3's `extension-module`, which is a
-      # wheel-build shape whose test binaries cannot link without a host Python,
-      # and its boundary is exercised by the wheel parity steps instead.
-      - name: Test (eg-numeric statistical kernels and decision layer)
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric --features analytics,contract,complex,decision --no-fail-fast
-      # M4/LTTB decimation dispatches to AVX2 or scalar by RUNTIME detection. The
-      # dispatch-vs-scalar properties run on whatever CPU executes them, so on an
-      # AVX2 runner they exercise the AVX2 kernels and on a pre-AVX2 host the
-      # scalar path; neither outcome is asserted as a hardware fact (EH-171/172).
-      # The detected capability is printed so the log records which path ran.
-      - name: Test (eg-viz-kernels runtime-dispatched SIMD parity)
-        run: |
-          set -euo pipefail
-          if grep -qw avx2 /proc/cpuinfo; then echo "runner CPU reports avx2: dispatch exercises the AVX2 kernels"; else echo "runner CPU has no avx2: dispatch exercises the scalar kernels"; fi
-          python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-viz-kernels --all-features --no-fail-fast
       # The checked ledger is the canonical all-Method projection. The ordinary
       # feature-selected registry is intentionally smaller, so this named profile
       # is the only meaningful exact generated-artifact comparison. This step is
@@ -416,7 +397,7 @@ jobs:
       - name: Test (every other workspace crate, all features)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
       - name: Test (pyo3 crates, every feature except python)
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
 
   # ── eg-tts-piper synthesis against a REAL onnxruntime.
   #
