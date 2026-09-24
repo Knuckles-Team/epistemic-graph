@@ -8,6 +8,8 @@ use crate::compute_result::datascience;
 use crate::compute_result::distributed;
 #[cfg(feature = "finance")]
 use crate::compute_result::finance;
+#[cfg(feature = "finance")]
+use crate::compute_result::market;
 #[cfg(feature = "graphlearn")]
 use crate::compute_result::graphlearn;
 #[cfg(feature = "mining")]
@@ -234,4 +236,25 @@ method_results! {
     #[cfg(feature = "ml-pipeline")]
     MiningPipelineCompare(MiningPipelineCompare) => Json<pipeline::PipelineComparison>;
     Solve(Solve) => Raw<SolveResult>;
+    // ── market bars and trend signals (EH-413..EH-418) ──
+    #[cfg(feature = "finance")]
+    FinanceMarketEncodePoints(FinanceMarket / "encode_points") => Raw<Vec<market::SeriesPoint>>;
+    #[cfg(feature = "finance")]
+    FinanceMarketDecodePoints(FinanceMarket / "decode_points") => Raw<Vec<market::BarRecord>>;
+    #[cfg(feature = "finance")]
+    FinanceMarketResolve(FinanceMarket / "resolve") => Raw<Vec<market::BarRecord>>;
+    #[cfg(feature = "finance")]
+    FinanceMarketRollup(FinanceMarket / "rollup") => Raw<Vec<market::BarRecord>>;
+    #[cfg(feature = "finance")]
+    FinanceMarketIndicators(FinanceMarket / "indicators") => Raw<Vec<market::IndicatorPoint>>;
+    #[cfg(feature = "finance")]
+    FinanceMarketSignalReplay(FinanceMarket / "signal_replay") => Raw<market::SignalReplay>;
+    #[cfg(feature = "finance")]
+    FinanceMarketSignalAdvance(FinanceMarket / "signal_advance") => Raw<market::SignalAdvanced>;
+    #[cfg(feature = "finance")]
+    FinanceMarketSignalScan(FinanceMarket / "signal_scan") => Raw<market::ScanPage>;
+    #[cfg(feature = "finance")]
+    FinanceMarketFlipConfidence(FinanceMarket / "flip_confidence") => Raw<market::FlipConfidence>;
+    #[cfg(feature = "finance")]
+    FinanceMarketBacktestRun(FinanceMarket / "backtest_run") => Raw<market::BacktestRun>;
 }

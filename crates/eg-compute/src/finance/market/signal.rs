@@ -18,13 +18,16 @@ use super::supertrend::{step as trail_step, TrailParams};
 use super::{
     BarRecord, BarStatus, DataStatus, FlipRecord, FlipRecordStatus, IndicatorSpec, MarketError,
     MarketResult, SeriesIdentity, SignalKey, SignalReplay, SignalReplayRequest, SignalState,
-    SuperTrendCheckpoint, TrendFlip, INVALID_BAR, REVISION_NEEDS_REPLAY,
+    SuperTrendCheckpoint, TrendFlip, INVALID_BAR, INVALID_REQUEST, REVISION_NEEDS_REPLAY,
 };
 
 const KEY_DOMAIN: &str = "eg/finance/signal-key/v1";
 const EVENT_DOMAIN: &str = "eg/finance/flip-event/v1";
 const RECORD_DOMAIN: &str = "eg/finance/flip-record/v1";
 const SOURCE_DOMAIN: &str = "eg/finance/source-revision/v1";
+/// Bar steps one replay may spend on recomputations after revisions: each
+/// revision re-folds the whole history, so this bounds a revision storm.
+pub const MAX_REPLAY_WORK: usize = 20_000_000;
 
 /// The signal key of a trailing-trend spec over a series.
 pub fn signal_key(series: &SeriesIdentity, spec: &IndicatorSpec) -> MarketResult<SignalKey> {
@@ -187,6 +190,8 @@ struct Projection {
     /// Standing (emitted, not retracted) records by event id.
     standing: BTreeMap<String, FlipRecord>,
     records: Vec<FlipRecord>,
+    /// Bar steps spent on recomputations so far.
+    work: usize,
 }
 
 impl Projection {
@@ -200,6 +205,7 @@ impl Projection {
             versions: BTreeMap::new(),
             standing: BTreeMap::new(),
             records: Vec::new(),
+            work: 0,
         })
     }
 
@@ -242,6 +248,13 @@ impl Projection {
 
     fn recompute(&mut self, recorded_at: i64) -> MarketResult<()> {
         let bars: Vec<BarRecord> = self.final_bars().cloned().collect();
+        self.work = self.work.saturating_add(bars.len());
+        if self.work > MAX_REPLAY_WORK {
+            return Err(MarketError::new(
+                INVALID_REQUEST,
+                format!("replay recomputation exceeds {MAX_REPLAY_WORK} bar steps; replay a shorter window"),
+            ));
+        }
         let (state, flips) = advance(&initial_state(self.key.clone(), self.spec), &bars)?;
         self.state = state;
         let mut fresh: BTreeMap<String, TrendFlip> = flips

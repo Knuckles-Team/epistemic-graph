@@ -249,3 +249,12 @@ pub struct SignalReplay {
     pub records: Vec<FlipRecord>,
     pub current: Vec<TrendFlip>,
 }
+
+/// A state advanced by new final bars, and the flips those bars produced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SignalAdvanced {
+    pub state: SignalState,
+    pub flips: Vec<TrendFlip>,
+}

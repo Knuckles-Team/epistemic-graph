@@ -5,8 +5,9 @@
 //!   resolution, trading calendars and bar-to-bar rollup (EH-413).
 //! * [`kernels`], [`supertrend`], [`indicators`] — incremental integer kernels,
 //!   one step per closed bar (EH-414).
-//! * [`signal`], [`scan`] — per-bar signal advance, bitemporal replay with flip
-//!   revisions, and the latest-state scanner (EH-415).
+//! * [`signal`], [`scan`], [`events`] — per-bar signal advance, bitemporal replay
+//!   with flip revisions, the latest-state scanner, and flips as CEP events
+//!   (multi-timeframe agreement through eg-stream's NFA) (EH-415).
 //! * [`confidence`] — Decide-calibrated flip confidence with abstention (EH-417).
 //! * [`backtest_run`] — the backtest-run provenance record (EH-418).
 //!
@@ -19,6 +20,7 @@ pub mod calendar;
 pub mod codec;
 pub mod confidence;
 pub mod digest;
+pub mod events;
 pub mod fixed;
 pub mod indicators;
 pub mod kernels;

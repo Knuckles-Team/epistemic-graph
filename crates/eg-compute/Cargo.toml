@@ -17,8 +17,9 @@ name = "eg_compute"
 # DTOs they re-export (`eg_types::wire::{Order, FittedModel, ...}`) exist.
 # The market-signal layer (`finance::market`) calibrates flip confidence with the
 # Decide layer's conformal kernels, so finance links eg-numeric (always-built
-# conformal/risk modules; no `decision` feature needed).
-finance = ["dep:nalgebra", "eg-types/finance", "dep:eg-numeric"]
+# conformal/risk modules; no `decision` feature needed), and turns trend flips
+# into CEP events for eg-stream's NFA (its runtime-free batch core; no tokio).
+finance = ["dep:nalgebra", "eg-types/finance", "dep:eg-numeric", "dep:eg-stream"]
 datascience = ["dep:rand_chacha", "eg-types/datascience"]
 # Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): pure-Rust,
 # dependency-light frequent-itemset + association-rule mining. No heavy dep — only
@@ -121,6 +122,8 @@ eg-geo = { path = "../eg-geo", default-features = false, optional = true }
 # (calibration, conformal prediction, off-policy estimators). Optional so a
 # build without `decide-stats` links none of it.
 eg-numeric = { path = "../eg-numeric", optional = true }
+# The CEP engine trend-flip events run through (finance::market::events).
+eg-stream = { path = "../eg-stream", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"

@@ -52,21 +52,3 @@ pub enum FinanceMarketOp {
     /// Validate a backtest run and seal it as a content-addressed record.
     BacktestRun { draft: BacktestRunDraft },
 }
-
-impl FinanceMarketOp {
-    /// The op tag, as the wire names it.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::EncodePoints { .. } => "encode_points",
-            Self::DecodePoints { .. } => "decode_points",
-            Self::Resolve { .. } => "resolve",
-            Self::Rollup { .. } => "rollup",
-            Self::Indicators { .. } => "indicators",
-            Self::SignalReplay { .. } => "signal_replay",
-            Self::SignalAdvance { .. } => "signal_advance",
-            Self::SignalScan { .. } => "signal_scan",
-            Self::FlipConfidence { .. } => "flip_confidence",
-            Self::BacktestRun { .. } => "backtest_run",
-        }
-    }
-}

@@ -27,8 +27,8 @@ pub use op::FinanceMarketOp;
 pub use scan::{ScanCounts, ScanFilter, ScanPage, ScanRequest, ScanRow};
 pub use signal::{
     CandleBasis, DataStatus, Direction, FlipRecord, FlipRecordStatus, IndicatorKind,
-    IndicatorPoint, IndicatorSpec, IndicatorValue, SeriesIdentity, SignalKey, SignalReplay,
-    SignalReplayRequest, SignalState, SuperTrendCheckpoint, TrendFlip,
+    IndicatorPoint, IndicatorSpec, IndicatorValue, SeriesIdentity, SignalAdvanced, SignalKey,
+    SignalReplay, SignalReplayRequest, SignalState, SuperTrendCheckpoint, TrendFlip,
 };
 
 /// Indicator values are integer milli-ticks: one price tick is this many units.
