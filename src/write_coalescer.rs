@@ -620,6 +620,8 @@ fn apply_batch(
         } else {
             change.record_add_node(node_id.clone());
         }
+        // EH-393: capture the image an upsert replaces (see `ChangeSet::replaced_node_props`).
+        txn.record_replaced_image(change, &node_id);
         txn.add_node(node_id, properties_msgpack);
         let _ = reply.send(WriteOutcome::Ok);
     }
@@ -637,7 +639,11 @@ fn apply_batch(
         // exactly the label/key dimensions it touched, instead of a coarse drop/floor. The
         // node is gone from the property store the instant `txn.remove_node` runs.
         match txn.get_node_properties(&node_id) {
-            Some(props) => change.record_remove_node_with_properties(node_id.clone(), props),
+            Some(props) => change.record_remove_node_captured(
+                node_id.clone(),
+                props,
+                txn.incident_edge_rels(&node_id),
+            ),
             None => change.record_remove_node(node_id.clone()),
         }
         txn.remove_node(node_id.clone());
@@ -675,7 +681,8 @@ fn apply_batch(
         target_id: String,
         reply: oneshot::Sender<WriteOutcome>,
     ) {
-        change.record_remove_edge(source_id.clone(), target_id.clone());
+        let rels = txn.edge_rels(&source_id, &target_id);
+        change.record_remove_edge_captured(source_id.clone(), target_id.clone(), rels);
         txn.remove_edge(source_id, target_id);
         let _ = reply.send(WriteOutcome::Ok);
     }

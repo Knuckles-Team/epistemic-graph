@@ -228,6 +228,7 @@ pub(crate) fn served_cache_hash(
     #[cfg(not(feature = "security"))]
     let _ = ctx;
     legs.salt_cache_key(&mut payload);
+    legs.salt_watermarks(&mut payload);
     rls_cache_hash(
         kind,
         &payload,
@@ -248,7 +249,7 @@ pub(crate) fn cached_payload(
     dep: &Option<eg_core::dep_scope::DepSet>,
 ) -> Option<Vec<u8>> {
     match dep {
-        Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+        Some(_) => core.result_cache().get_dep(hash, 0, core.dep_probe()),
         None => core.result_cache().get(hash, core.version()),
     }
 }
@@ -302,16 +303,23 @@ pub(crate) async fn handle_unified_query(
     // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot, run on the
     // blocking pool. Version-keyed, RLS-aware result cache
     // (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) keyed on the
-    // plan bytes + the verified legs; a plan reducible to a bounded node read
-    // (Scan/Filter/Limit) is cached in the dependency-scoped namespace
+    // plan bytes + the verified legs; a plan whose reads reduce to a dependency set (labels,
+    // edge types, row visibility, the embedding generation — EH-393) is cached in the
+    // dependency-scoped namespace
     // (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7) so it
-    // survives writes disjoint from its labels. A plan whose legs read state outside the
-    // graph version (the decision log) is never cached.
+    // survives writes disjoint from it. A plan whose legs read state outside the graph
+    // version (the decision log, a foreign source without a fresh watermark — EH-400) is
+    // never cached; a fresh foreign source's watermark joins the key.
     #[cfg(feature = "result-cache")]
-    let key = match legs.cacheable().then(|| msgpack_bytes(&plan)).transpose() {
+    let key = match legs
+        .cache_admissible()
+        .then(|| msgpack_bytes(&plan))
+        .transpose()
+    {
         Ok(bytes) => bytes.map(|bytes| {
             let hash = served_cache_hash(ctx, "unified", bytes, &legs);
-            (hash, plan_dependency_set(&plan))
+            let stamp = core.dep_probe().embedding_generation();
+            (hash, plan_dependency_set(&plan, stamp))
         }),
         Err(error) => return Ok(Response::err(req_id, error)),
     };

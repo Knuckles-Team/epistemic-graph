@@ -20,6 +20,51 @@ mod backend;
 
 pub use backend::SemanticStore;
 
+/// The content stamp of one [`SemanticStore`] (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
+/// EH-393 — the `EmbeddingGeneration` dependency dimension). Every constructor, content mutation
+/// (add / remove / space declaration) and ANN-generation adoption draws a fresh value from one
+/// process-wide counter, so a stamp is never reused: two equal stamps mean the same vectors. A
+/// clone keeps its source's stamp because it holds its source's content; its next mutation draws
+/// a new one. Rebuilding or warming an index over UNCHANGED vectors does not restamp.
+#[derive(Debug)]
+pub struct GenerationStamp(std::sync::atomic::AtomicU64);
+
+static NEXT_EMBEDDING_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
+impl GenerationStamp {
+    /// A stamp no other store state has carried.
+    pub fn fresh() -> Self {
+        Self(std::sync::atomic::AtomicU64::new(
+            next_embedding_generation(),
+        ))
+    }
+
+    /// The current stamp.
+    pub fn get(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// A stamp for a copy of the store: the copy holds the same content, so it carries the same
+    /// value (its next mutation draws a new one).
+    pub fn carry(&self) -> Self {
+        Self(std::sync::atomic::AtomicU64::new(self.get()))
+    }
+
+    /// Restamp after a content change. Called while the store is being mutated (under its
+    /// write lock), so a reader that starts after the mutation completes sees the new stamp.
+    pub fn bump(&self) {
+        self.0.store(
+            next_embedding_generation(),
+            std::sync::atomic::Ordering::Release,
+        );
+    }
+}
+
+fn next_embedding_generation() -> u64 {
+    NEXT_EMBEDDING_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The durable image of one IVF-PQ index generation. Only the `ann` backend
 /// maintains a persisted artifact; the default HNSW backend rebuilds from raw
 /// vectors and has none.
