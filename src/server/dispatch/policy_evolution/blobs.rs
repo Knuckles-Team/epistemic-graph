@@ -45,19 +45,28 @@ pub(super) async fn verify_held_blobs(
         .as_ref()
         .map(|cursors| Arc::clone(&cursors.store))
         .ok_or_else(|| blob_missing(&blobs[0]))?;
-    tokio::task::spawn_blocking(move || {
-        blobs.iter().try_for_each(|blob| {
-            let manifest = store
-                .get_manifest(&blob.digest.to_hex())
-                .map_err(|_| blob_missing(blob))?;
-            let held = manifest.is_some_and(|manifest| {
-                manifest.owner_scope == owner_scope && manifest.len == blob.length
-            });
-            held.then_some(()).ok_or_else(|| blob_missing(blob))
-        })
+    tokio::task::spawn_blocking(move || check_held(store.as_ref(), &owner_scope, &blobs))
+        .await
+        .map_err(|error| PolicyRefusal::InvalidRecord(format!("blob check failed: {error}")))?
+}
+
+/// Every reference must name a committed manifest the caller owns, of exactly
+/// the declared length.
+#[cfg(feature = "blob")]
+fn check_held(
+    store: &dyn crate::server::blob::ChunkStore,
+    owner_scope: &str,
+    blobs: &[HeldBlobRef],
+) -> Result<(), PolicyRefusal> {
+    blobs.iter().try_for_each(|blob| {
+        let manifest = store
+            .get_manifest(&blob.digest.to_hex())
+            .map_err(|_| blob_missing(blob))?;
+        let held = manifest.is_some_and(|manifest| {
+            manifest.owner_scope == owner_scope && manifest.len == blob.length
+        });
+        held.then_some(()).ok_or_else(|| blob_missing(blob))
     })
-    .await
-    .map_err(|error| PolicyRefusal::InvalidRecord(format!("blob check failed: {error}")))?
 }
 
 /// Without the blob store no reference can be held: refuse any record that
@@ -73,3 +82,6 @@ pub(super) async fn verify_held_blobs(
         None => Ok(()),
     }
 }
+
+#[cfg(all(test, feature = "blob"))]
+mod tests;
