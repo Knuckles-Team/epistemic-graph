@@ -22,6 +22,7 @@
 //! float transcendentals crate-wide), reductions are serial and ordered, and
 //! digests are taken over quantised integers.
 
+pub mod attribution;
 pub mod cluster;
 pub mod elementwise;
 pub mod error;
