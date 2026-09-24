@@ -122,7 +122,10 @@ async fn serve_import(
     }
     #[cfg(all(feature = "redb", feature = "blob"))]
     {
-        let _tenant_pack_guard = tenant_pack_lock(verified.tenant()).await;
+        let tenant_pack_guard = match tenant_pack_lock(verified.tenant()).await {
+            Ok(guard) => guard,
+            Err(cancelled) => return Response::err(req_id, cancelled),
+        };
         let request = match bind_import_context(state, req_id, verified, request).await {
             Ok(request) => request,
             Err(error) => return Response::err(req_id, error),
@@ -135,7 +138,17 @@ async fn serve_import(
                 store,
                 blob,
                 archive,
-            }) => import::validate_and_commit(store, blob, verified, *request, archive).await,
+            }) => {
+                import::validate_and_commit(
+                    store,
+                    blob,
+                    verified,
+                    *request,
+                    archive,
+                    tenant_pack_guard,
+                )
+                .await
+            }
             Err(error) => Err(error),
         };
         match outcome.or_else(|error| rejection_for(pack_digest, error)) {
@@ -184,15 +197,24 @@ fn rejection_for(
 /// Every pack write takes it -- import, bind, unbind, retire and the body
 /// reconciler -- so no two of them interleave between a planning snapshot and
 /// the commit that relies on it.
+///
+/// A waiter whose request is cancelled (EH-536: client gone, deadline expired)
+/// stops queueing and gets the `CANCELLED` error instead of the lock.
 #[cfg(feature = "redb")]
-async fn tenant_pack_lock(tenant_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+async fn tenant_pack_lock(tenant_id: &str) -> Result<tokio::sync::OwnedMutexGuard<()>, String> {
     static LOCKS: OnceLock<Vec<Arc<tokio::sync::Mutex<()>>>> = OnceLock::new();
     let locks = LOCKS.get_or_init(|| {
         (0..PACK_STRIPES)
             .map(|_| Arc::new(tokio::sync::Mutex::new(())))
             .collect()
     });
-    locks[tenant_stripe(tenant_id)].clone().lock_owned().await
+    let stripe = locks[tenant_stripe(tenant_id)].clone();
+    let cancel = crate::server::request_scope::current();
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Err(crate::server::request_scope::CANCELLED.to_string()),
+        guard = stripe.lock_owned() => Ok(guard),
+    }
 }
 
 /// How many stripes the per-tenant pack state is spread over.

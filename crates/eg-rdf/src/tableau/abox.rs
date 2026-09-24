@@ -42,7 +42,9 @@ impl SearchBudget {
 
     /// Charge one search step; `false` once the budget is spent.
     pub(super) fn charge(&self) -> bool {
-        if self.limit.is_some_and(|limit| self.used.get() >= limit) {
+        if self.limit.is_some_and(|limit| self.used.get() >= limit)
+            || eg_core::interrupt::due(self.used.get())
+        {
             self.exhausted.set(true);
             return false;
         }

@@ -9,6 +9,7 @@ pub(crate) mod access;
 pub(crate) mod auth;
 pub(crate) mod authority_context;
 pub(crate) mod request_replay;
+pub(crate) mod request_scope;
 #[cfg(any(feature = "mysql-wire", feature = "pgwire"))]
 pub(crate) mod sql_wire_auth;
 

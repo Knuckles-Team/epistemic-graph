@@ -54,6 +54,9 @@ pub mod dep_scope;
 pub mod durable_apply;
 pub mod graph;
 pub mod index;
+/// EH-536 — cooperative interruption of long CPU-bound work on behalf of a
+/// served request whose client has gone.
+pub mod interrupt;
 pub mod isolation;
 /// CONCEPT:EG-KG.compute.jsonpath-evaluator — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
 pub mod jsonpath;
