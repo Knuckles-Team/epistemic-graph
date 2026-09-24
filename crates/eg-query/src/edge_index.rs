@@ -44,7 +44,9 @@ pub use durable::{
     create_durable_edge_index, drop_durable_edge_index, install_edge_indexes,
     refresh_durable_edge_index,
 };
-pub use serve::{EdgeFallbackReason, EdgeHit, EdgeQuery, EdgeSearchAnswer, EdgeSearchRequest};
+pub use serve::{
+    EdgeFallbackReason, EdgeHit, EdgeQuery, EdgeSearchAnswer, EdgeSearchRequest, EdgeVisibility,
+};
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};

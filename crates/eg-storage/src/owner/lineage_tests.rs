@@ -168,7 +168,11 @@ fn the_named_manifest_refusal_wins_over_a_table_census_mismatch() {
     {
         let database = redb::Database::open(&path).unwrap();
         let write = database.begin_write().unwrap();
-        write.open_table(STRAY).unwrap().insert("planted", &b"x"[..]).unwrap();
+        write
+            .open_table(STRAY)
+            .unwrap()
+            .insert("planted", &b"x"[..])
+            .unwrap();
         write.commit().unwrap();
     }
     let census = {

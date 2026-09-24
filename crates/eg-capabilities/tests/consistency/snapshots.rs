@@ -262,6 +262,9 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     // applier or native command; this inventory records that adapter lowering.
     "SourceIngest",
     "Sql",
+    // EH-351: create/refresh/drop commit the edge-index registration and its
+    // generations in the tenant SQL catalog natively, as `Sql` DDL does.
+    "EdgeIndex",
     "TouchNodes",
     "UpdateResourceHost",
     "MintWorkItemClaimCapability",

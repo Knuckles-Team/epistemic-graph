@@ -43,7 +43,9 @@ fn required_sql_authority(
 }
 
 #[cfg(feature = "query")]
-async fn sql_persist_dir(state: &Arc<RwLock<ServerState>>) -> Result<std::path::PathBuf, String> {
+pub(crate) async fn sql_persist_dir(
+    state: &Arc<RwLock<ServerState>>,
+) -> Result<std::path::PathBuf, String> {
     state
         .read()
         .await
