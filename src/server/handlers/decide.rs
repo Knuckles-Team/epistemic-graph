@@ -28,6 +28,10 @@ mod stat_executor;
 #[cfg(feature = "decide")]
 mod stat_jobs;
 #[cfg(feature = "decide")]
+mod stat_adapter;
+#[cfg(feature = "decide")]
+mod stat_learning;
+#[cfg(feature = "decide")]
 mod stat_log;
 #[cfg(feature = "decide")]
 mod stat_nl;
@@ -41,6 +45,11 @@ mod stat_slate;
 mod stat_view;
 #[cfg(feature = "decide")]
 mod stat_retention;
+#[cfg(feature = "decide")]
+mod stat_retrieval;
+// EH-396: the query adapter on the served read paths.
+#[cfg(feature = "decide")]
+pub(crate) mod served_adapter;
 #[cfg(feature = "decide")]
 mod stat_support;
 #[cfg(all(test, feature = "decide"))]

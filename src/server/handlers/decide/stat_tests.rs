@@ -720,4 +720,6 @@ mod classes_tests;
 
 mod consumer_tests;
 
+mod retrieval_tests;
+
 mod nl_tests;

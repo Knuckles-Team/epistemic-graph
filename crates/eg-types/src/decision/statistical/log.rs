@@ -305,11 +305,21 @@ pub enum DecisionLogOp {
     /// One read-only SQL statement over the caller's visible log (EH-066,
     /// [`super::log_view`]).
     Query { tenant_id: String, sql: String },
+    /// Retrieval learning over the log: outcomes, hard negatives, usage,
+    /// proven paths and the query adapter (EH-394..EH-396,
+    /// [`super::retrieval`]).
+    Retrieval {
+        tenant_id: String,
+        retrieval: super::retrieval::RetrievalOp,
+    },
 }
 
 impl DecisionLogOp {
     /// Whether this operation commits durable state; the one classifier.
     pub fn is_mutation(&self) -> bool {
+        if let Self::Retrieval { retrieval, .. } = self {
+            return retrieval.is_mutation();
+        }
         matches!(
             self,
             Self::Commit { .. }
@@ -329,6 +339,7 @@ impl DecisionLogOp {
             | Self::Aggregate { .. }
             | Self::Verify { .. }
             | Self::Query { .. } => "agent:decision-read",
+            Self::Retrieval { retrieval, .. } => retrieval.authz_action(),
         }
     }
 
@@ -341,7 +352,8 @@ impl DecisionLogOp {
             | Self::Compact { tenant_id, .. }
             | Self::Verify { tenant_id, .. }
             | Self::Resolve { tenant_id, .. }
-            | Self::Query { tenant_id, .. } => tenant_id,
+            | Self::Query { tenant_id, .. }
+            | Self::Retrieval { tenant_id, .. } => tenant_id,
             Self::Aggregate { request } => &request.tenant_id,
         }
     }

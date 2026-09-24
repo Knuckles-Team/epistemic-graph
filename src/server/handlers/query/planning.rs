@@ -593,6 +593,9 @@ pub(crate) struct ServedPlanLegs {
     pub(crate) tsdb_scope: Option<(String, String)>,
     #[cfg(feature = "federation")]
     pub(crate) foreign: Option<crate::server::foreign_catalog::OwnedForeignRegistry>,
+    /// The tenant's active query adapter for the graph's embedding space (EH-396).
+    #[cfg(feature = "decide")]
+    pub(crate) adapter: Option<Arc<crate::server::handlers::decide::served_adapter::ServedAdapter>>,
 }
 
 #[cfg(feature = "query")]
@@ -604,17 +607,20 @@ impl ServedPlanLegs {
         read_authority: Option<&GraphReadAuthority>,
         plan: &eg_plan::Plan,
     ) -> Result<Self, String> {
-        #[cfg(not(feature = "tsdb"))]
-        let _ = graph_name;
-        #[cfg(not(feature = "federation"))]
-        let _ = state;
-        #[cfg(not(any(feature = "tsdb", feature = "federation")))]
-        let _ = (read_authority, plan);
+        let _ = (state, graph_name, read_authority, plan);
         Ok(Self {
             #[cfg(feature = "tsdb")]
             tsdb_scope: served_tsdb_scope(plan, graph_name, read_authority)?,
             #[cfg(feature = "federation")]
             foreign: served_foreign_leg(state, plan, read_authority).await?,
+            #[cfg(feature = "decide")]
+            adapter: crate::server::handlers::decide::served_adapter::served_plan_adapter(
+                state,
+                graph_name,
+                read_authority,
+                plan,
+            )
+            .await,
         })
     }
 
@@ -633,7 +639,10 @@ impl ServedPlanLegs {
         if let Some(foreign) = self.foreign.as_ref() {
             payload.extend_from_slice(foreign.cache_salt().as_bytes());
         }
-        #[cfg(not(any(feature = "tsdb", feature = "federation")))]
+        #[cfg(feature = "decide")]
+        if let Some(adapter) = self.adapter.as_ref() {
+            payload.extend_from_slice(adapter.digest().as_bytes());
+        }
         let _ = payload;
     }
 }
@@ -680,7 +689,9 @@ pub(crate) async fn run_unified_off_lock(
     let tsdb_scope = legs.tsdb_scope;
     #[cfg(feature = "federation")]
     let foreign = legs.foreign;
-    #[cfg(not(any(feature = "tsdb", feature = "federation")))]
+    #[cfg(feature = "decide")]
+    let adapter = legs.adapter;
+    #[cfg(not(any(feature = "tsdb", feature = "federation", feature = "decide")))]
     let ServedPlanLegs {} = legs;
     #[cfg(feature = "tsdb")]
     let tsdb = if tsdb_scope.is_some() {
@@ -696,6 +707,9 @@ pub(crate) async fn run_unified_off_lock(
     #[cfg(not(feature = "tsdb"))]
     let _ = state;
     compute_off_lock(req_id, move || {
+        // EH-396: the tenant's adapter re-aims every vector rank of the plan.
+        #[cfg(feature = "decide")]
+        let plan = crate::server::handlers::decide::served_adapter::adapt_plan(plan, adapter);
         run_unified_with_staged(
             plan,
             &snap,

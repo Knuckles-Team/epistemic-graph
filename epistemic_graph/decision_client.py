@@ -155,6 +155,52 @@ def query_op(tenant_id: str, sql: str) -> dict[str, Any]:
     return {"op": "query", "tenant_id": tenant_id, "sql": sql}
 
 
+def retrieval_op(tenant_id: str, action: str, **fields: Any) -> dict[str, Any]:
+    """One ``DecisionLog.retrieval`` op (EH-394..EH-396): ``record_outcome``,
+    ``hard_negatives``, ``usage``, ``paths``, ``fit_adapter``,
+    ``activate_adapter``, ``rollback_adapter`` or ``adapter_status``."""
+    return {
+        "op": "retrieval",
+        "tenant_id": tenant_id,
+        "retrieval": {"action": action, **fields},
+    }
+
+
+def window_of(window: tuple[int, int]) -> dict[str, int]:
+    return {"from_ms": window[0], "to_ms": window[1]}
+
+
+def record_outcome_op(
+    tenant_id: str,
+    record_id: str,
+    returned: Iterable[tuple[str, str | None]],
+    cited: Iterable[str],
+    *,
+    query: Mapping[str, Any] | None = None,
+    path: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Attest what a committed retrieval-plan run returned (``(id, content
+    class)`` in rank order) and which of those units the answer cited."""
+    outcome = {
+        "record_id": record_id,
+        "returned": [
+            {"evidence_id": evidence_id, "content_class": content_class}
+            for evidence_id, content_class in returned
+        ],
+        "cited": list(cited),
+        "query": None if query is None else dict(query),
+        "path": None if path is None else dict(path),
+    }
+    return retrieval_op(tenant_id, "record_outcome", outcome=outcome)
+
+
+def hard_negatives_op(
+    tenant_id: str, window: tuple[int, int], limit: int, question_id: str | None = None
+) -> dict[str, Any]:
+    request = {"question_id": question_id, "window": window_of(window), "limit": limit}
+    return retrieval_op(tenant_id, "hard_negatives", request=request)
+
+
 def _payload(result: Any) -> Any:
     return getattr(result, "payload", result)
 
@@ -194,9 +240,13 @@ __all__ = [
     "declared",
     "evaluate_op",
     "get_op",
+    "hard_negatives_op",
     "library",
     "param",
     "q32_of",
     "query_op",
+    "record_outcome_op",
     "resolve_op",
+    "retrieval_op",
+    "window_of",
 ]

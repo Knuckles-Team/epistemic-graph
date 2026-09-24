@@ -101,6 +101,12 @@ def test_every_log_op_matches_the_contract() -> None:
         dc.resolve_op("tenant-a", "decision:abc", "r-2", "plan-deep", producer="llm"),
         dc.aggregate_op("tenant-a", (0, 10), "au.retrieval.plan"),
         dc.query_op("tenant-a", "SELECT count(*) FROM decisions"),
+        dc.record_outcome_op(
+            "tenant-a", "decision:abc", [("n1", "doc"), ("p1", None)], ["p1"]
+        ),
+        dc.hard_negatives_op("tenant-a", (0, 10), 50),
+        dc.retrieval_op("tenant-a", "usage", window=dc.window_of((0, 10))),
+        dc.retrieval_op("tenant-a", "adapter_status", space_digest="sha256:s"),
     ]
     for op in ops:
         assert valid(DEFS["DecisionLogOp"], op), op
