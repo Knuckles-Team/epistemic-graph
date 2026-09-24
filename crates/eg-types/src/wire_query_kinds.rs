@@ -188,3 +188,67 @@ pub fn pred_kind(pred: &Pred) -> PredKind {
         Pred::SpatialDisjoint { .. } => PredKind::SpatialDisjoint,
     }
 }
+
+impl OpKind {
+    /// The named score channel a stage of this kind writes (UQL-08): scoring stages record
+    /// their score under a fixed name so several coexist in one result (`RETURN
+    /// similarity, belief`); `None` for stages that do not score.
+    pub fn score_channel(self) -> Option<&'static str> {
+        match self {
+            OpKind::Rank | OpKind::RankEmbed => Some("similarity"),
+            OpKind::RankNodeDistance => Some("node_distance"),
+            OpKind::RankMentions => Some("mentions"),
+            OpKind::RankMmr => Some("mmr"),
+            #[cfg(feature = "text")]
+            OpKind::RankText => Some("text"),
+            #[cfg(feature = "text")]
+            OpKind::FuseRrf => Some("fused"),
+            #[cfg(feature = "owl-plan")]
+            OpKind::Reason => Some("reason"),
+            OpKind::Window | OpKind::WindowAgg => Some("window"),
+            #[cfg(feature = "timeseries")]
+            OpKind::TsScan | OpKind::SensorFuse | OpKind::SensorAlign => Some("value"),
+            #[cfg(feature = "probabilistic")]
+            OpKind::Probabilistic => Some("probability"),
+            #[cfg(feature = "epistemic")]
+            OpKind::BeliefAsOf
+            | OpKind::SourceReliability
+            | OpKind::ConfidenceOp
+            | OpKind::ExplainBelief => Some("belief"),
+            OpKind::Scan
+            | OpKind::ScanAll
+            | OpKind::Filter
+            | OpKind::Traverse
+            | OpKind::Expand
+            | OpKind::AsOf
+            | OpKind::Foreign
+            | OpKind::Limit
+            | OpKind::Project => None,
+            #[cfg(feature = "owl-plan")]
+            OpKind::SparqlBgp | OpKind::ValidateShape => None,
+            #[cfg(feature = "wasm-udf")]
+            OpKind::Udf => None,
+            #[cfg(feature = "federation")]
+            OpKind::ForeignScan => None,
+            #[cfg(feature = "geo")]
+            OpKind::SpatialScan | OpKind::Reproject | OpKind::SpatialOp => None,
+            #[cfg(feature = "tensor")]
+            OpKind::TensorScan | OpKind::TensorOp => None,
+            #[cfg(feature = "stream")]
+            OpKind::Cep => None,
+            #[cfg(feature = "epistemic")]
+            OpKind::EvidenceFor | OpKind::Contradicts | OpKind::SupportedBy => None,
+        }
+    }
+
+    /// Every score channel name this build can produce, sorted and de-duplicated.
+    pub fn score_channels() -> Vec<&'static str> {
+        let mut names: Vec<&'static str> = OpKind::all()
+            .into_iter()
+            .filter_map(OpKind::score_channel)
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+}

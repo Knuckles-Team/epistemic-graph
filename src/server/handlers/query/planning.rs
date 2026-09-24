@@ -273,6 +273,44 @@ pub(crate) fn run_unified(
     served: ServedIndexes<'_>,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    run_unified_with(
+        plan,
+        view,
+        semantic,
+        served,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+        execute_rows,
+    )
+}
+
+/// The plain row finisher: execute and project `[id, score|nil]`.
+#[cfg(feature = "query")]
+fn execute_rows(
+    plan: &eg_plan::Plan,
+    ctx: &eg_plan::PlanCtx,
+) -> Result<Vec<(String, Option<f32>)>, String> {
+    let result = eg_plan::execute(plan, ctx)?;
+    Ok(result
+        .rows()
+        .iter()
+        .map(|r| (r.id.clone(), r.score))
+        .collect())
+}
+
+/// [`run_unified`]'s leg binding with a caller-chosen `finish` over the fully bound
+/// `PlanCtx` — `UnifiedQuery`/`UnifiedQueryText` execute and project rows; `Method::Uql`
+/// runs a whole statement (EXPLAIN/PROFILE/channels/DAG) over the SAME bindings
+/// (UQL-07/08/09). `plan` decides which legs are bound (every op of the statement).
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with<T>(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+    served: ServedIndexes<'_>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+) -> Result<T, String> {
     #[cfg(feature = "tsdb")]
     let TsdbLegBind {
         tsdb,
@@ -372,12 +410,7 @@ pub(crate) fn run_unified(
     // documented-but-unreachable "TensorOp requires a bound tensor store" error.
     #[cfg(feature = "tensor")]
     let ctx = run_unified_bind_tensor(ctx);
-    let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
-    Ok(result
-        .rows()
-        .iter()
-        .map(|r| (r.id.clone(), r.score))
-        .collect())
+    finish(&eg_plan::Plan::new(ops), &ctx)
 }
 
 /// The `Op::Foreign`/`Op::ForeignScan` leg-resolution decision of [`run_unified`]:
@@ -503,6 +536,34 @@ pub(crate) async fn run_unified_off_lock(
     plan: eg_plan::Plan,
     #[cfg(feature = "tsdb")] tsdb_scope: Option<(String, String)>,
 ) -> UnifiedRunOutcome {
+    run_unified_off_lock_with(
+        state,
+        req_id,
+        core,
+        snap,
+        plan,
+        #[cfg(feature = "tsdb")]
+        tsdb_scope,
+        execute_rows,
+    )
+    .await
+}
+
+/// [`run_unified_off_lock`] with a caller-chosen finisher (see [`run_unified_with`]).
+#[cfg(feature = "query")]
+pub(crate) async fn run_unified_off_lock_with<T, F>(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    snap: Arc<crate::graph::GraphView>,
+    plan: eg_plan::Plan,
+    #[cfg(feature = "tsdb")] tsdb_scope: Option<(String, String)>,
+    finish: F,
+) -> Result<Result<T, String>, Response>
+where
+    T: Send + 'static,
+    F: FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> + Send + 'static,
+{
     let core_for_ctx = core.clone();
     #[cfg(feature = "tsdb")]
     let tsdb = if tsdb_scope.is_some() {
@@ -527,7 +588,7 @@ pub(crate) async fn run_unified_off_lock(
         let served_spatial =
             crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
         let semantic_guard = core_for_ctx.semantic_store.read();
-        run_unified(
+        run_unified_with(
             plan,
             &snap,
             &semantic_guard,
@@ -549,6 +610,7 @@ pub(crate) async fn run_unified_off_lock(
                 // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                 staged_series: None,
             },
+            finish,
         )
     })
     .await

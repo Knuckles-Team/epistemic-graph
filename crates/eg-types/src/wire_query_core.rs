@@ -634,3 +634,60 @@ impl Plan {
         Self { ops }
     }
 }
+
+/// One result row of a UQL statement (UQL-08): `id`, the final `score`, and the value of
+/// each requested score channel (aligned to [`UqlResult`]'s `columns`; `None` where no
+/// stage produced that channel for the row).
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct UqlRow {
+    pub id: String,
+    pub score: Option<f32>,
+    pub channels: Vec<Option<f32>>,
+}
+
+/// One pipeline stage in an `EXPLAIN` / `PROFILE` report (UQL-09).
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct UqlStageReport {
+    /// The stage in canonical UQL.
+    pub stage: String,
+    /// The cost model's estimated output rows.
+    pub estimated_rows: f64,
+    /// Actual output rows (`PROFILE` only).
+    pub rows: Option<u64>,
+    /// Wall time in microseconds (`PROFILE` only).
+    pub micros: Option<u64>,
+}
+
+/// The result of a `Method::Uql` statement (UQL-07/08/09).
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum UqlResult {
+    /// Executed rows; `columns` are the `RETURN`ed score channels.
+    Rows {
+        columns: Vec<String>,
+        rows: Vec<UqlRow>,
+        warnings: Vec<String>,
+    },
+    /// `EXPLAIN`: the canonical and the optimized plan, per-stage estimates, and
+    /// whether the plan is incrementally maintainable (with the reason when not).
+    Explain {
+        canonical: String,
+        optimized: String,
+        stages: Vec<UqlStageReport>,
+        incremental: bool,
+        incremental_note: String,
+        warnings: Vec<String>,
+    },
+    /// `PROFILE`: the rows plus per-stage actual rows and time.
+    Profile {
+        columns: Vec<String>,
+        rows: Vec<UqlRow>,
+        stages: Vec<UqlStageReport>,
+        warnings: Vec<String>,
+    },
+}

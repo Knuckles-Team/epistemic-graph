@@ -144,7 +144,13 @@ fn op() -> impl Strategy<Value = Op> {
             }),
         text().prop_map(|name| Op::Foreign { name }),
         any::<usize>().prop_map(|k| Op::Limit { k }),
-        prop::collection::vec(text(), 1..3).prop_map(|channels| Op::Project { channels }),
+        prop::collection::vec(
+            prop::sample::select(eg_types::wire::OpKind::score_channels()),
+            1..3
+        )
+        .prop_map(|c| Op::Project {
+            channels: c.into_iter().map(String::from).collect()
+        }),
     ]
 }
 

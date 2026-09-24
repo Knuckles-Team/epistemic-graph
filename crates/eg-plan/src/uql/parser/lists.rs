@@ -37,6 +37,10 @@ impl<'a> Parser<'a> {
         }
         match self.param(Want::Vector)? {
             Some(UqlParam::Vector(v)) => Ok(v),
+            // A JSON client sends every list the same way; an all-number list binds a vector.
+            Some(UqlParam::List(items)) => numbers_of(&items)
+                .map(|v| v.into_iter().map(|n| n as f32).collect())
+                .ok_or_else(|| self.param_type_error(Want::Vector)),
             Some(_) => Err(self.param_type_error(Want::Vector)),
             None => Err(self.err_here("expected a vector (`[…]` or `$param`)")),
         }
@@ -100,4 +104,15 @@ impl<'a> Parser<'a> {
             PredLiteral::Bool(b) => serde_json::Value::Bool(b),
         })
     }
+}
+
+/// The numbers of an all-number literal list (`None` if any item is not a number).
+fn numbers_of(items: &[PredLiteral]) -> Option<Vec<f64>> {
+    items
+        .iter()
+        .map(|item| match item {
+            PredLiteral::Num(n) => Some(*n),
+            PredLiteral::Str(_) | PredLiteral::Bool(_) => None,
+        })
+        .collect()
 }

@@ -9,3 +9,5 @@ mod params;
 mod predicates;
 mod program;
 mod roundtrip;
+#[cfg(feature = "query")]
+mod serve;

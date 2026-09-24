@@ -198,7 +198,7 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
         },
         OpKind::Limit => Op::Limit { k: 10 },
         OpKind::Project => Op::Project {
-            channels: vec!["similarity".into(), "belief".into()],
+            channels: vec!["similarity".into(), "window".into()],
         },
     }
 }

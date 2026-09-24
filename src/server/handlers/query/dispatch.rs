@@ -87,7 +87,10 @@ async fn try_handle_inner(
 fn is_sql_query_method(method: &Method) -> bool {
     matches!(
         method,
-        Method::Sql { .. } | Method::UnifiedQuery { .. } | Method::UnifiedQueryText { .. }
+        Method::Sql { .. }
+            | Method::UnifiedQuery { .. }
+            | Method::UnifiedQueryText { .. }
+            | Method::Uql { .. }
     )
 }
 
@@ -100,6 +103,7 @@ async fn dispatch_sql_query(ctx: &QueryHandlerCtx<'_>, method: Method) -> Result
         } => handle_sql(ctx, query, params_msgpack).await,
         Method::UnifiedQuery { plan } => handle_unified_query(ctx, plan).await,
         Method::UnifiedQueryText { text } => handle_unified_query_text(ctx, text).await,
+        Method::Uql { text, params } => handle_uql(ctx, text, params).await,
         other => Err(other),
     }
 }

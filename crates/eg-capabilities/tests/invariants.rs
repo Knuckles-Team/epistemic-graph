@@ -483,3 +483,28 @@ fn decide_governance_kinds_publish_under_admin_actions() {
         );
     }
 }
+
+/// UQL-12: every UQL/unified-query surface is READ-ONLY by policy — no mutation, no
+/// durable domain, idempotent, snapshot-isolated. (The executor is read-only by
+/// construction too: `eg_plan`'s op dispatch takes the snapshot by shared reference.)
+#[test]
+fn uql_surfaces_are_read_only() {
+    let surfaces = ["UnifiedQuery", "UnifiedQueryText", "Uql"];
+    for (name, policy, _note) in method_policy_entries() {
+        if !surfaces.contains(&name) {
+            continue;
+        }
+        assert!(!policy.mutates, "{name} must not mutate");
+        assert!(policy.idempotent, "{name} must be idempotent");
+        assert_eq!(policy.durability_domain, DurabilityDomain::None, "{name}");
+        assert_eq!(
+            policy.txn_participation,
+            TxnParticipation::Snapshot,
+            "{name}"
+        );
+    }
+    let found = method_policy_entries()
+        .filter(|(name, _, _)| surfaces.contains(name))
+        .count();
+    assert_eq!(found, surfaces.len(), "every UQL surface has a policy row");
+}

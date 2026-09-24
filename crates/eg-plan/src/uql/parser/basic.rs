@@ -133,13 +133,28 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// `RETURN name {, name}`.
+    /// `RETURN name {, name}` — each name a score channel this build produces.
     pub(super) fn return_stage(&mut self) -> Result<Op, UqlError> {
-        let mut channels = vec![self.name("a score channel")?];
+        let mut channels = vec![self.channel()?];
         while self.eat(&Tok::Comma) {
-            channels.push(self.name("a score channel")?);
+            channels.push(self.channel()?);
         }
         Ok(Op::Project { channels })
+    }
+
+    fn channel(&mut self) -> Result<String, UqlError> {
+        let span = self.cur_span();
+        let name = self.name("a score channel")?;
+        let known = eg_types::wire::OpKind::score_channels();
+        if known.contains(&name.as_str()) {
+            return Ok(name);
+        }
+        Err(UqlError::new(
+            UqlCode::UnknownChannel,
+            format!("`{name}` is not a score channel in this build"),
+            span,
+        )
+        .expecting(known.iter().map(|c| format!("`{c}`")).collect()))
     }
 
     /// `FOREIGN id` | `FOREIGN SCAN …` | `FOREIGN HTTP …` (federation).
