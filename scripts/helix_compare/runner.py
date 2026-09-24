@@ -17,7 +17,15 @@ from typing import Any, Protocol
 
 from .dataset import Dataset, Doc
 from .measure import ProcSample, loadavg, timed, tree_bytes
-from .oracle import Oracle, check_point_get, check_ranked, check_set, check_text
+from .oracle import (
+    RECALL_FLOOR,
+    Oracle,
+    check_point_get,
+    check_ranked,
+    check_set,
+    check_text,
+    recall_at_k,
+)
 from .queries import QuerySet
 
 READS = (
@@ -54,40 +62,68 @@ class Plan:
     concurrency: tuple[int, ...]
 
 
-Check = Callable[[Any, Any], "str | None"]
+# A check answers (hard violation or None, recall for a ranked answer or None).
+Verdict = tuple["str | None", "float | None"]
+Check = Callable[[Any, Any], Verdict]
+
+
+def _exact(problem: str | None) -> Verdict:
+    return problem, None
+
+
+def _ranked(oracle: Oracle, candidates: Sequence[str], item: Any, got: Any) -> Verdict:
+    _, vector, k = item
+    problem = check_ranked(candidates, k, got)
+    return problem, recall_at_k(oracle, candidates, vector, k, got)
 
 
 def checks(oracle: Oracle) -> dict[str, Check]:
     return {
-        "point_get": lambda item, got: check_point_get(oracle, item, got),
-        "one_hop": lambda item, got: check_set(item, oracle.one_hop(item), got),
-        "filtered_hop": lambda item, got: check_set(
-            item[0], oracle.filtered_hop(*item), got
+        "point_get": lambda item, got: _exact(check_point_get(oracle, item, got)),
+        "one_hop": lambda item, got: _exact(check_set(item, oracle.one_hop(item), got)),
+        "filtered_hop": lambda item, got: _exact(
+            check_set(item[0], oracle.filtered_hop(*item), got)
         ),
-        "text_prefilter": lambda item, got: check_text(oracle, item, got),
-        "vector_prefilter": lambda item, got: check_ranked(
-            oracle, oracle.by_category[item[0]], item[1], item[2], got
+        "text_prefilter": lambda item, got: _exact(check_text(oracle, item, got)),
+        "vector_prefilter": lambda item, got: _ranked(
+            oracle, oracle.by_category[item[0]], item, got
         ),
-        "mixed": lambda item, got: check_ranked(
-            oracle, sorted(oracle.reach(item[0], 2)), item[1], item[2], got
+        "mixed": lambda item, got: _ranked(
+            oracle, sorted(oracle.reach(item[0], 2)), item, got
         ),
     }
+
+
+def _gate_report(
+    checked: int, failures: list[str], recalls: list[float]
+) -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "checked": checked,
+        "failed": len(failures),
+        "failure_samples": failures[:MAX_FAILURE_SAMPLES],
+        "passed": not failures,
+    }
+    if recalls:
+        mean = sum(recalls) / len(recalls)
+        report["recall_mean"] = round(mean, 4)
+        report["recall_min"] = round(min(recalls), 4)
+        report["passed"] = not failures and mean >= RECALL_FLOOR
+    return report
 
 
 async def gate(call: Any, items: Sequence[Any], check: Check) -> dict[str, Any]:
     failures: list[str] = []
+    recalls: list[float] = []
     for item in items:
         try:
-            problem = check(item, await call(item))
+            problem, recall = check(item, await call(item))
         except Exception as error:  # a refused query fails the gate, with its reason
-            problem = f"{type(error).__name__}: {error}"[:400]
+            problem, recall = f"{type(error).__name__}: {error}"[:400], None
         if problem is not None:
             failures.append(problem)
-    return {
-        "checked": len(items),
-        "failed": len(failures),
-        "failure_samples": failures[:MAX_FAILURE_SAMPLES],
-    }
+        if recall is not None:
+            recalls.append(recall)
+    return _gate_report(len(items), failures, recalls)
 
 
 async def gate_txn(
@@ -105,7 +141,7 @@ async def gate_txn(
                 return problem
         return None
 
-    return await gate(apply_and_read_back, batches, lambda _item, got: got)
+    return await gate(apply_and_read_back, batches, lambda _item, got: (got, None))
 
 
 async def timed_with_cpu(
@@ -163,6 +199,7 @@ class EnginePass:
     async def run(self) -> dict[str, Any]:
         self.mark("start")
         await self.engine.start()
+        self.report["ready_empty_s"] = getattr(self.engine, "ready_s", None)
         self.report["idle_rss_kb"] = ProcSample.of(self.engine.pid).rss_kb
         await self.load()
         read_ok = await self.gate_reads()
@@ -211,7 +248,7 @@ class EnginePass:
             for name in READS
         }
         self.mark("gated")
-        return {name for name in READS if self.report["gate"][name]["failed"] == 0}
+        return {name for name in READS if self.report["gate"][name]["passed"]}
 
     async def warm_reads(self, passed: set[str]) -> dict[str, Any]:
         results: dict[str, Any] = {
@@ -235,6 +272,10 @@ class EnginePass:
     async def restart(self) -> None:
         await self.engine.stop()
         await self.engine.start()
+        self.report["ready_after_restart_s"] = getattr(self.engine, "ready_s", None)
+        self.report["materialization_after_restart"] = getattr(
+            self.engine, "materialization", []
+        )
         self.mark("restarted")
 
     async def cold_reads(self, passed: set[str]) -> dict[str, Any]:
@@ -255,7 +296,7 @@ class EnginePass:
         report: dict[str, Any] = {
             "gate": await gate_txn(self.engine, self.oracle, batches[:gate_size])
         }
-        if report["gate"]["failed"] == 0:
+        if report["gate"]["passed"]:
             rest = batches[gate_size:]
             share = len(rest) // len(self.plan.concurrency)
             for index, level in enumerate(self.plan.concurrency):
