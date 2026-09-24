@@ -11,10 +11,10 @@
 use std::collections::BTreeMap;
 
 use eg_types::wire::{
-    uql_op, CmpOp, EdgeDir, Op, Plan, Pred, PredLiteral, UqlPrintCode, UqlPrintError,
+    uql_ident, uql_op, CmpOp, EdgeDir, Op, Plan, Pred, PredLiteral, UqlPrintCode, UqlPrintError,
 };
 
-use super::{parse_statement, Body, DagNode, Mode, Params, Statement};
+use super::{parse_statement, Annotations, Body, DagNode, Mode, Params, Statement};
 
 /// The canonical form of `plan`: the encoding the parser produces for its meaning.
 pub fn canonicalize(plan: &Plan) -> Plan {
@@ -24,6 +24,9 @@ pub fn canonicalize(plan: &Plan) -> Plan {
 fn canonical_op(op: &Op) -> Op {
     match op {
         Op::Filter { preds } => Op::Filter {
+            preds: preds.iter().map(canonical_pred).collect(),
+        },
+        Op::DecisionScan { preds } => Op::DecisionScan {
             preds: preds.iter().map(canonical_pred).collect(),
         },
         Op::Expand {
@@ -104,11 +107,32 @@ pub fn statement_to_uql(stmt: &Statement) -> Result<String, UqlPrintError> {
         Body::Pipeline(plan) => plan.to_uql()?,
         Body::Dag(nodes) => dag_to_uql(nodes)?,
     };
+    let body = format!("{body}{}", annotations_to_uql(&stmt.annotations));
     Ok(match stmt.mode {
         Mode::Run => body,
         Mode::Explain => format!("EXPLAIN {body}"),
         Mode::Profile => format!("PROFILE {body}"),
     })
+}
+
+/// ` WITH PROOF, KNOWLEDGE (a, b)` — empty when the statement has no annotation.
+fn annotations_to_uql(annotations: &Annotations) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if annotations.proof {
+        parts.push("PROOF".into());
+    }
+    match annotations.knowledge.as_deref() {
+        Some([]) => parts.push("KNOWLEDGE".into()),
+        Some(columns) => {
+            let columns: Vec<String> = columns.iter().map(|c| uql_ident(c)).collect();
+            parts.push(format!("KNOWLEDGE ({})", columns.join(", ")));
+        }
+        None => {}
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!(" WITH {}", parts.join(", "))
 }
 
 /// A `LET … ; FROM/JOIN …` program for a DAG. Chains of single-input, single-consumer

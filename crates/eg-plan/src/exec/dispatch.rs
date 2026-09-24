@@ -61,6 +61,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         | Op::Window { .. }
         | Op::WindowAgg { .. }
         | Op::Foreign { .. }
+        | Op::DecisionScan { .. }
         | Op::Limit { .. } => apply_core_ops(op, input, ctx),
 
         // Each gate names only the variants its own feature compiles: an `owl` build
@@ -183,6 +184,7 @@ pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Ro
         }
         // Channel selection is applied where the result is encoded; rows pass through.
         Op::Project { .. } => Ok(input),
+        Op::DecisionScan { preds } => super::decisions::decision_scan(ctx, preds),
         Op::Rank { .. }
         | Op::RankEmbed { .. }
         | Op::RankNodeDistance { .. }

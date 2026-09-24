@@ -559,3 +559,10 @@ required-features = ["query"]
 name = "plan_snapshots"
 path = "tests/plan_snapshots.rs"
 required-features = ["query"]
+
+# EH-450 — epistemic + FUSE + AS OF through UQL text (with `WITH KNOWLEDGE`), the
+# structured plan, and the separate single-modality surfaces fused by the caller.
+[[test]]
+name = "knowledge_oracle"
+path = "tests/knowledge_oracle.rs"
+required-features = ["epistemic", "text"]

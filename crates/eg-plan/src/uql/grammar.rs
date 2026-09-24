@@ -118,8 +118,14 @@ use Role::*;
 pub const PRODUCTIONS: &[Production] = &[
     // ── statements ──
     p("statement", Aux, &[], None,
-      "[ \"UQL\" int \";\" ] [ \"EXPLAIN\" | \"PROFILE\" ] { binding } pipeline",
-      "Statement { mode, body }", ""),
+      "[ \"UQL\" int \";\" ] [ \"EXPLAIN\" | \"PROFILE\" ] { binding } pipeline [ annotations ]",
+      "Statement { mode, body, annotations }", ""),
+    p("annotations", Aux, &["WITH"], None, "\"WITH\" annotation { \",\" annotation }",
+      "Annotations { proof, knowledge } (row annotations)", ""),
+    p("annotation", Aux, &[], None,
+      "\"PROOF\" | \"KNOWLEDGE\" [ \"(\" name { \",\" name } \")\" ]",
+      "WITH PROOF: per-row proof (EH-448); WITH KNOWLEDGE: per-row KnowledgeSet record (EH-450)",
+      ""),
     p("binding", Aux, &["LET"], None, "\"LET\" name \"=\" pipeline \";\"",
       "a named sub-plan (PlanDag node)", ""),
     p("pipeline", Aux, &[], None, "head { \"|>\" stage }", "Plan / PlanDag chain", ""),
@@ -134,6 +140,9 @@ pub const PRODUCTIONS: &[Production] = &[
       "\"FOREIGN\" id | \"FOREIGN\" \"SCAN\" string [ \"JOIN\" ] | \"FOREIGN\" \"HTTP\" string \
        [ \"PATH\" string ] \"ID\" string [ \"SCORE\" string ] [ \"JOIN\" ]",
       "Foreign{name} / ForeignScan{Named|HttpJson, join} (federation)", "FOREIGN 'peer-east'"),
+    p("decisions", Source, &["DECISIONS"], None, "\"DECISIONS\" [ \"WHERE\" pred ]",
+      "DecisionScan{preds} (the caller's visible decision log, EH-066)",
+      "DECISIONS WHERE outcome = 'acted' AND committed_at_ms >= 1700000000000 |> LIMIT 20"),
     p("sparql", Source, &["SPARQL"], Some(Owl), "\"SPARQL\" string \"VAR\" string",
       "SparqlBgp{query, var}", "SPARQL 'SELECT ?x WHERE { ?x a <http://ex/T> }' VAR 'x'"),
     p("tsscan", Source, &["TSSCAN"], Some(Timeseries),

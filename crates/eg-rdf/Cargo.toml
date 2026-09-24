@@ -29,7 +29,7 @@ sparql = ["rdf", "dep:spargebra", "dep:regex"]
 # Parses OWL axioms from the SAME oxttl-parsed RDF as `rdf`, so it adds NO dep beyond
 # the RDF stack: implies `rdf`, links ZERO native/C crate (pure Rust — no horned-owl,
 # no whelk-rs). Safe to fold into pi/node/full alongside rdf/sparql.
-owl = ["rdf"]
+owl = ["rdf", "eg-types/owl"]
 # W5 — OWL-DL tableau reasoner (CONCEPT:EG-059): a description-logic tableau
 # (ALCQO + role hierarchy) that DECIDES the constructs the EL⁺/RL `owl` path cannot —
 # full cardinality (≥n/≤n, qualified), complementOf/negation (NNF), oneOf/hasValue

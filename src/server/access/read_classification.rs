@@ -167,7 +167,6 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "TxnUnifiedQuery",
     "TxnUnifiedQueryText",
     "UnifiedQuery",
-    "UnifiedQueryText",
     "UnionGetNeighbors",
     "UnionGetNodeProperties",
     "UnionGetNodesByLabel",
