@@ -98,24 +98,6 @@ pub struct RootCauseMiningResult {
     pub written_back: usize,
 }
 
-/// One node's propagated risk.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct RiskScoreRow {
-    pub node: String,
-    pub score: f64,
-}
-
-/// `MineRiskPropagation`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct RiskPropagationMiningResult {
-    pub scores: Vec<RiskScoreRow>,
-    pub iterations: usize,
-    pub converged: bool,
-    pub written_back: usize,
-}
-
 /// One ontology gap.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
