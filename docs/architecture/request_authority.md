@@ -78,7 +78,7 @@ two-person elevation flow owns, such as `rbac.elevation`.
 `agent_id`:
 
 ```json
-{"service:graph-os": ["finance.order-proposal"]}
+{"service:graph-os": ["action.approval", "finance.order-proposal"]}
 ```
 
 The policy works as follows:
