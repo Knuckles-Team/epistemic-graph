@@ -129,8 +129,12 @@ fn certifying(op: &Op, ctx: &PlanCtx) -> Result<Prover, String> {
             target_class,
             ontology,
         } => {
-            let membership =
-                crate::exec::reason::ReasonMembership::of(ctx.view, ctx.decay, target_class, ontology)?;
+            let membership = crate::exec::reason::ReasonMembership::of(
+                ctx.view,
+                ctx.decay,
+                target_class,
+                ontology,
+            )?;
             Ok(Prover::Reason(Box::new(membership)))
         }
         _ => Ok(Prover::Unproved),

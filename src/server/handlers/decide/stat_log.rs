@@ -93,7 +93,7 @@ fn executed_option(outcome: &StatisticalOutcome) -> Option<&str> {
     }
 }
 
-fn visible_entries(
+pub(super) fn visible_entries(
     store: &AgentLibraryStore,
     reader: &LogReader,
 ) -> Result<Vec<DecisionLogEntry>, String> {
@@ -117,7 +117,7 @@ pub(super) fn visible_entry(
     Ok(reader.sees(&entry).then_some(entry))
 }
 
-fn evaluations_of(
+pub(super) fn evaluations_of(
     store: &AgentLibraryStore,
     tenant_id: &str,
     record_id: &str,

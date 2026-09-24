@@ -65,13 +65,11 @@ async fn hybrid_read(state: &test_support::SharedState, id: u64) -> Vec<String> 
         test_support::commons_request(
             SECRET,
             id,
-            Method::UnifiedQueryText {
-                text: "MATCH (:Sensor) |> RANK BY ~[1.0,0.0] |> LIMIT 10".into(),
-            },
+            test_support::uql("MATCH (:Sensor) |> RANK BY ~[1.0,0.0] |> LIMIT 10"),
         ),
     ))
     .await;
-    test_support::unified_ids(&r)
+    test_support::uql_ids(&r)
 }
 
 /// SHACL shapes: a `Sensor` MUST carry a `unit` (minCount 1).

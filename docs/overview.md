@@ -124,7 +124,7 @@ agent-memory/scene/trajectory primitives over the wire (EG-KG.memory.eg-batch-de
 ## The unified `RowSet` planner
 
 The heart of the "master-of-all" claim is a single closed algebra. A `Method::UnifiedQuery` (or its
-text front-end `UnifiedQueryText` / UQL) carries a `Plan` — a list of `Op`s that each transform a
+text front-end `Uql` / UQL) carries a `Plan` — a list of `Op`s that each transform a
 `RowSet` (a candidate set of `(id, score)`), composing graph, vector, SQL, OWL, SPARQL, text, time, and
 federation in **one** execution pipeline.
 

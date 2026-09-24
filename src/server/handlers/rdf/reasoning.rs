@@ -474,7 +474,8 @@ fn owl_explain(
     let sub = canon(sub);
     let sup = canon(sup);
 
-    let tree = cls.explain(&sub, &sup)
+    let tree = cls
+        .explain(&sub, &sup)
         .map(eg_rdf::owl_wire::proof_node_to_wire);
     Ok(crate::protocol::OwlExplainResult {
         schema_digests: vec![view.schema_sources.composed_digest().to_hex()],

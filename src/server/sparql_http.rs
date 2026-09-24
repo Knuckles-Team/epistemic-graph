@@ -229,7 +229,7 @@ async fn handle(
 /// `{"text": "...", "graph": "..."}` (graph optional — defaults to the SPARQL default
 /// graph), builds an AUTHENTICATED in-process `Method::NlQuery` request, and runs it
 /// through the FULL dispatch path (the planner + RLS + the deterministic
-/// `UnifiedQueryText` pipeline) — so the HTTP route and the wire method share ONE code
+/// UQL pipeline) — so the HTTP route and the wire method share ONE code
 /// path. The executed `[id, score]` rows are returned as JSON.
 #[cfg(feature = "nl-query")]
 async fn handle_nl(

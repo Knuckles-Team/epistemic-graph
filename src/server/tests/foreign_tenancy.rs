@@ -8,7 +8,7 @@
 //! tests register as one principal (`worker1`) and query as another (`worker2`) in the
 //! same tenant, both with R/W on `__commons__`, over every served name-resolving
 //! surface: a `Named` `Op::ForeignScan` (`UnifiedQuery`), the UQL `FOREIGN "<name>"`
-//! marker (`UnifiedQueryText`), and an NL-planned query (`NlQuery`).
+//! marker (`Uql`), and an NL-planned query (`NlQuery`).
 
 use super::*;
 
@@ -75,6 +75,21 @@ fn sorted_ids(resp: &crate::protocol::Response) -> Vec<String> {
     ids
 }
 
+/// [`sorted_ids`] of a `Method::Uql` response.
+fn sorted_uql_ids(resp: &crate::protocol::Response) -> Vec<String> {
+    let mut ids = crate::server::decode_uql_ids(resp);
+    ids.sort();
+    ids
+}
+
+/// A parameterless UQL statement.
+fn uql(text: impl Into<String>) -> Method {
+    Method::Uql {
+        text: text.into(),
+        params: Default::default(),
+    }
+}
+
 /// Principal B naming principal A's source is refused exactly like an unregistered
 /// name: the error lists only B's own (empty) registrations. It must be the foreign
 /// not-found — never `ACCESS_DENIED` (an existence oracle) and never the envelope's
@@ -116,12 +131,10 @@ async fn foreign_source_resolves_only_for_the_registering_principal() {
     let b = dispatch_as(&local, 902, OTHER_B, named_scan_plan()).await;
     assert_not_registered_for_caller(&b, "Named ForeignScan");
 
-    let text = || Method::UnifiedQueryText {
-        text: FOREIGN_UQL.into(),
-    };
+    let text = || uql(FOREIGN_UQL);
     let a = dispatch_as(&local, 903, OWNER_A, text()).await;
     assert_ok(&a);
-    assert_eq!(sorted_ids(&a), vec!["d2", "d3", "d4"]);
+    assert_eq!(sorted_uql_ids(&a), vec!["d2", "d3", "d4"]);
     let b = dispatch_as(&local, 904, OTHER_B, text()).await;
     assert_not_registered_for_caller(&b, "UQL FOREIGN marker");
 }
@@ -144,13 +157,11 @@ async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
     };
     register_in(&local, 911, OTHER_B, b_spec).await;
 
-    let text = || Method::UnifiedQueryText {
-        text: FOREIGN_UQL.into(),
-    };
+    let text = || uql(FOREIGN_UQL);
     let a = dispatch_as(&local, 912, OWNER_A, text()).await;
     assert_ok(&a);
     assert_eq!(
-        sorted_ids(&a),
+        sorted_uql_ids(&a),
         vec!["d2", "d3", "d4"],
         "principal B registering the same name must not overwrite principal A's source"
     );
@@ -192,8 +203,10 @@ async fn shared_source_needs_an_explicit_grant() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let (_remote, local) = registered_by_owner_a(940).await;
     let qualified = crate::server::foreign_share::shared_name(OWNER_A, "remote_docs");
-    let text = || Method::UnifiedQueryText {
-        text: format!("MATCH (:Doc) |> FOREIGN \"{qualified}\" |> LIMIT 10"),
+    let text = || {
+        uql(format!(
+            "MATCH (:Doc) |> FOREIGN \"{qualified}\" |> LIMIT 10"
+        ))
     };
     let not_found =
         format!("no foreign source registered under name '{qualified}' (registered: [])");
@@ -238,7 +251,7 @@ async fn shared_source_needs_an_explicit_grant() {
     let used = dispatch_as(&local, 942, OTHER_B, text()).await;
     assert_ok(&used);
     assert_eq!(
-        sorted_ids(&used),
+        sorted_uql_ids(&used),
         vec!["d2", "d3", "d4"],
         "grantee uses the source"
     );

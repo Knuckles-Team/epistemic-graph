@@ -291,7 +291,7 @@ pub struct CepPatternSpec {
 pub enum ForeignSourceSpec {
     /// A REMOTE epistemic-graph engine, reached over the SAME length-prefixed
     /// MessagePack + HMAC transport this engine speaks. The federation client
-    /// connects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`
+    /// connects to `endpoint` (a `host:port` TCP address), sends a `Uql` statement
     /// (UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,
     /// and projects the result rows into a local RowSet. Every request is an `eg2.`
     /// verified-context envelope; an empty secret or incomplete context fails before

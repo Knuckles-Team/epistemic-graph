@@ -173,8 +173,13 @@ fn a_program_explains_node_by_node() {
     let names: Vec<&str> = stages.iter().map(|s| s.stage.as_str()).collect();
     assert_eq!(names.len(), 4, "{names:?}");
     assert!(names[0].starts_with("#0 MATCH (:Doc)"), "{names:?}");
-    assert!(names[2].starts_with("#2 <- #0,#1 RERANK MENTIONS"), "{names:?}");
-    assert!(stages.iter().all(|s| s.rows.is_none() && s.micros.is_none()));
+    assert!(
+        names[2].starts_with("#2 <- #0,#1 RERANK MENTIONS"),
+        "{names:?}"
+    );
+    assert!(stages
+        .iter()
+        .all(|s| s.rows.is_none() && s.micros.is_none()));
     assert!(!incremental && incremental_note.contains("LET"));
 }
 
@@ -200,7 +205,13 @@ fn a_program_profiles_and_returns_channels() {
         UqlResult::Rows { rows, .. } => rows,
         other => panic!("rows expected, got {other:?}"),
     };
-    assert_eq!(run_rows, rows, "RETURN channels are the same with and without PROFILE");
+    assert_eq!(
+        run_rows, rows,
+        "RETURN channels are the same with and without PROFILE"
+    );
     // d2 and d3 are each cited once — the most any row is — so both score 1.0.
-    assert!(rows.iter().all(|r| r.channels == vec![Some(1.0)]), "{rows:?}");
+    assert!(
+        rows.iter().all(|r| r.channels == vec![Some(1.0)]),
+        "{rows:?}"
+    );
 }
