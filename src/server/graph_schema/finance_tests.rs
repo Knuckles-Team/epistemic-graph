@@ -41,6 +41,7 @@ ex:state :signalOf ex:btcDaily ; :signalSpec ex:atrTrail .
 ex:flip2 :flipOf ex:state ; :revisesFlip ex:flip1 .
 ex:fomc :policyAction "hold" .
 ex:wti a :Commodity .
+ex:shared :analysisOf ex:btcusdt ; :analysisDigest "sha256:00" .
 "#;
 
 fn kg(local: &str) -> String {
@@ -135,7 +136,7 @@ fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
         })
         .filter_map(subject_iri)
         .collect();
-    assert_eq!(declared.len(), 9);
+    assert_eq!(declared.len(), 10);
     let mapped: BTreeSet<&str> = triples
         .iter()
         .filter(|triple| SKOS_MAPPINGS.contains(&triple.predicate.as_str()))
@@ -174,6 +175,7 @@ fn listing_signal_and_flip_wiring_entails_their_types() {
     assert!(holds("Event", "flip2"));
     assert!(holds("MacroEvent", "fomc"));
     assert!(holds("FinancialInstrument", "wti"));
+    assert!(holds("AnalysisSnapshot", "shared"));
 }
 
 /// A flip is an occurrent and an instrument a continuant: typing one individual as
@@ -198,12 +200,14 @@ fn finance_shapes_are_their_own_document() {
         .filter_map(object_iri)
         .collect();
     let expected: BTreeSet<String> = [
+        "FinancialInstrument",
         "Listing",
         "BarSeries",
         "IndicatorSpec",
         "SignalState",
         "TrendFlip",
         "MacroEvent",
+        "AnalysisSnapshot",
     ]
     .iter()
     .map(|local| format!("{KG}{local}"))
@@ -231,16 +235,19 @@ mod shapes {
     #[test]
     fn well_formed_finance_records_conform() {
         let data = format!(
-            "ex:l a :Listing ; :listedInstrument ex:btc ; :quoteInstrument ex:usd ; \
+            "ex:btc a :FinancialInstrument ; :assetClass \"crypto\" .\n\
+             ex:l a :Listing ; :listedInstrument ex:btc ; :quoteInstrument ex:usd ; \
                :listedOn ex:v ; :listingType \"spot\" .\n\
              ex:s a :BarSeries ; :barSeriesOf ex:l ; :barTimeframe \"4h\" ; \
-               :tradingCalendar \"utc-24x7\" ; :priceBasis \"trade\" ; :tsdbSeriesId \"bars/btc\" .\n\
+               :tradingCalendar \"utc-24x7\" ; :priceBasis \"trade\" ; :tsdbSeriesId \"bars/btc\" ; \
+               :tickSize \"0.01\"^^xsd:decimal ; :volumeStep \"0.0001\"^^xsd:decimal .\n\
              ex:i a :IndicatorSpec ; :indicatorVersion \"atr-trail@1\" ; :parameterHash \"{HASH}\" .\n\
              ex:st a :SignalState ; :signalOf ex:s ; :signalSpec ex:i ; :dataStatus \"warming\" .\n\
              ex:f a :TrendFlip ; :flipOf ex:st ; :flipFrom \"bearish\" ; :flipTo \"bullish\" ; \
                :flipEffectiveAt \"2026-09-24T00:00:00Z\"^^xsd:dateTime ; :flipEventId \"{HASH}\" .\n\
              ex:m a :MacroEvent ; :policyAction \"hold\" ; \
-               :announcedAt \"2026-09-17T18:00:00Z\"^^xsd:dateTime ."
+               :announcedAt \"2026-09-17T18:00:00Z\"^^xsd:dateTime .\n\
+             ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"{HASH}\" ."
         );
         assert!(conforms(&data));
     }
@@ -257,6 +264,11 @@ mod shapes {
             "ex:st a :SignalState ; :signalOf ex:s ; :signalSpec ex:i .",
             "ex:i a :IndicatorSpec ; :indicatorVersion \"v\" ; :parameterHash \"md5:00\" .",
             "ex:m a :MacroEvent ; :policyAction \"hold\" .",
+            "ex:s a :BarSeries ; :barSeriesOf ex:l ; :barTimeframe \"1D\" ; \
+               :tradingCalendar \"utc-24x7\" ; :priceBasis \"trade\" ; :tsdbSeriesId \"b\" .",
+            "ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"sha1:00\" .",
+            "ex:btc a :FinancialInstrument ; :assetClass \"crypto-ish\" .",
+            "ex:a a :AnalysisSnapshot ; :analysisDigest \"sha256:0000000000000000000000000000000000000000000000000000000000000000\" .",
         ];
         for data in refused {
             assert!(!conforms(data), "{data}");
