@@ -6,7 +6,7 @@
 //! typed refusal rendered `"CODE: detail"`.
 
 use eg_compute::finance::market::{
-    backtest_run, codec, confidence, indicators, resolve, rollup, scan, signal, FinanceMarketOp,
+    backtest_run, codec, confidence, indicators, rollup, scan, signal, FinanceMarketOp,
     MarketResult,
 };
 use eg_types::result_contract::compute as results;
@@ -34,7 +34,7 @@ fn handle(req_id: u64, op: FinanceMarketOp) -> Response {
             finality,
         } => answer::<results::FinanceMarketResolve>(
             req_id,
-            resolve::resolve_with_points(records, &points, as_of, finality),
+            codec::resolve_with_points(records, &points, as_of, finality),
         ),
         FinanceMarketOp::Rollup {
             bars,

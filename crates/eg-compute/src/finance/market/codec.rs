@@ -8,8 +8,10 @@
 //! appends, [`super::resolve`] picks the version a view needs.
 
 use super::fixed::{exact_f64, exact_i64};
-use super::resolve::validate_record;
-use super::{BarRecord, BarStatus, MarketError, MarketResult, SeriesPoint, INVALID_BAR};
+use super::resolve::{resolve, validate_record};
+use super::{
+    BarRecord, BarStatus, FinalityFilter, MarketError, MarketResult, SeriesPoint, INVALID_BAR,
+};
 
 /// Field names, in point order: the series schema `TsAppend` records.
 pub const BAR_FIELDS: [&str; 11] = [
@@ -114,6 +116,18 @@ pub fn decode(point: &SeriesPoint) -> MarketResult<BarRecord> {
     };
     validate_record(&record)?;
     Ok(record)
+}
+
+/// The as-of view ([`resolve`]) over `records` together with store `points`
+/// decoded in the bar layout.
+pub fn resolve_with_points(
+    mut records: Vec<BarRecord>,
+    points: &[SeriesPoint],
+    as_of: Option<i64>,
+    finality: FinalityFilter,
+) -> MarketResult<Vec<BarRecord>> {
+    records.extend(decode_all(points)?);
+    resolve(&records, as_of, finality)
 }
 
 /// Encode many records, stopping at the first invalid one.
