@@ -177,8 +177,12 @@ fn eval_term_additive(
         Expression::Subtract(left, right) => (left, right, -1.0),
         _ => return Err("sh:sparql: invalid additive dispatch".to_string()),
     };
-    let left = eval_term(ctx, left, solution)?.as_ref().and_then(numeric_of);
-    let right = eval_term(ctx, right, solution)?.as_ref().and_then(numeric_of);
+    let left = eval_term(ctx, left, solution)?
+        .as_ref()
+        .and_then(numeric_of);
+    let right = eval_term(ctx, right, solution)?
+        .as_ref()
+        .and_then(numeric_of);
     Ok(left.zip(right).map(|(left, right)| {
         Term::Literal(Literal::new_typed_literal(
             (left + sign * right).to_string(),

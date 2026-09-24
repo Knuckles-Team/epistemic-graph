@@ -160,6 +160,10 @@ fn every_core_shape_target_validates_without_error() {
             _ => false,
         };
     }
-    assert!(data.len() > 40, "expected a focus node per core target, got {}", data.len());
+    assert!(
+        data.len() > 40,
+        "expected a focus node per core target, got {}",
+        data.len()
+    );
     eg_shacl::validate(&composed.shapes, &data).unwrap();
 }

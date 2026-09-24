@@ -145,7 +145,10 @@ fn inspection_of(inspected: Inspected) -> OntologyInspection {
         composed_digest: inspected.composed_digest,
         triple_count: lines.len() as u64,
         canonical_digest: canonical_digest(&inspected.triples, &lines),
-        ontologies: facts.typed(OWL_ONTOLOGY).map(|(iri, _)| iri.clone()).collect(),
+        ontologies: facts
+            .typed(OWL_ONTOLOGY)
+            .map(|(iri, _)| iri.clone())
+            .collect(),
         classes: facts.classes(),
         object_properties: facts.properties(OWL_OBJECT_PROPERTY),
         datatype_properties: facts.properties(OWL_DATATYPE_PROPERTY),

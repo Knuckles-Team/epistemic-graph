@@ -26,7 +26,10 @@ fn kg(local: &str) -> String {
 }
 
 fn inline(documents: &[&str]) -> Result<OntologyInspection, String> {
-    let documents: Vec<String> = documents.iter().map(|document| document.to_string()).collect();
+    let documents: Vec<String> = documents
+        .iter()
+        .map(|document| document.to_string())
+        .collect();
     inspect(&GraphCore::new(), &documents, &[])
 }
 
@@ -38,14 +41,22 @@ fn a_compiled_connector_manifest_keeps_its_pinned_canonical_digest() {
     assert_eq!(view.schema_digests.len(), 1);
     assert_eq!(view.composed_digest, None);
     assert_eq!(view.ontologies, ["http://knuckles.team/kg/arr"]);
-    let album = view.classes.iter().find(|class| class.iri == kg("Album")).unwrap();
+    let album = view
+        .classes
+        .iter()
+        .find(|class| class.iri == kg("Album"))
+        .unwrap();
     assert_eq!(album.label.as_deref(), Some("Album"));
 }
 
 #[test]
 fn the_vocabulary_view_names_classes_properties_and_targets() {
     let view = inline(&[VOCABULARY]).unwrap();
-    let classes: Vec<&str> = view.classes.iter().map(|class| class.iri.as_str()).collect();
+    let classes: Vec<&str> = view
+        .classes
+        .iter()
+        .map(|class| class.iri.as_str())
+        .collect();
     assert_eq!(classes, [kg("Agent"), kg("Planner")]);
     assert_eq!(view.classes[0].comment.as_deref(), Some("An actor."));
     assert_eq!(view.classes[1].parents, [kg("Agent")]);
@@ -53,7 +64,10 @@ fn the_vocabulary_view_names_classes_properties_and_targets() {
     let peer = &view.object_properties[0];
     assert_eq!(peer.iri, kg("peerOf"));
     assert_eq!(peer.label.as_deref(), Some("peer of"));
-    assert_eq!((peer.domains.clone(), peer.ranges.clone()), (vec![kg("Agent")], vec![kg("Agent")]));
+    assert_eq!(
+        (peer.domains.clone(), peer.ranges.clone()),
+        (vec![kg("Agent")], vec![kg("Agent")])
+    );
     assert!(peer.symmetric);
 
     let name = &view.datatype_properties[0];
@@ -76,7 +90,10 @@ fn the_canonical_digest_ignores_serialization_and_tracks_content() {
     assert_eq!(turtle.canonical_digest, ntriples.canonical_digest);
     assert_eq!(turtle.triple_count, ntriples.triple_count);
     let grown = format!("{VOCABULARY}:Gamma a owl:Class .\n");
-    assert_ne!(inline(&[&grown]).unwrap().canonical_digest, turtle.canonical_digest);
+    assert_ne!(
+        inline(&[&grown]).unwrap().canonical_digest,
+        turtle.canonical_digest
+    );
 }
 
 #[test]
@@ -94,16 +111,26 @@ fn the_composed_schema_carries_the_agent_orchestration_shapes() {
     let core = GraphCore::new();
     let all = inspect(&core, &[], &[]).unwrap();
     assert!(all.composed_digest.is_some());
-    for target in ["HarnessEdit", "WorkflowDefinition", "TemporalFact", "Recommendation"] {
+    for target in [
+        "HarnessEdit",
+        "WorkflowDefinition",
+        "TemporalFact",
+        "Recommendation",
+    ] {
         assert!(all.shape_target_classes.contains(&kg(target)), "{target}");
     }
     assert!(all.classes.iter().any(|class| class.iri == kg("Agent")));
 
     let harness = inspect(&core, &[], &["core:harness-shapes@1".to_string()]).unwrap();
-    let targets: Vec<String> = ["HarnessDimension", "HarnessEdit", "HarnessVariant", "Processor"]
-        .iter()
-        .map(|local| kg(local))
-        .collect();
+    let targets: Vec<String> = [
+        "HarnessDimension",
+        "HarnessEdit",
+        "HarnessVariant",
+        "Processor",
+    ]
+    .iter()
+    .map(|local| kg(local))
+    .collect();
     assert_eq!(harness.shape_target_classes, targets);
     assert_eq!(
         harness.schema_digests,
@@ -114,10 +141,18 @@ fn the_composed_schema_carries_the_agent_orchestration_shapes() {
 #[test]
 fn ambiguous_unknown_and_malformed_requests_are_refused() {
     let core = GraphCore::new();
-    let both = inspect(&core, &[VOCABULARY.to_string()], &["core:catalog@1".to_string()]);
+    let both = inspect(
+        &core,
+        &[VOCABULARY.to_string()],
+        &["core:catalog@1".to_string()],
+    );
     assert!(both.unwrap_err().contains("not both"));
     let unknown = inspect(&core, &[], &["core:no-such@1".to_string()]);
-    assert!(unknown.unwrap_err().contains("unknown GraphSchema source 'core:no-such@1'"));
+    assert!(unknown
+        .unwrap_err()
+        .contains("unknown GraphSchema source 'core:no-such@1'"));
     let malformed = inline(&["this is not turtle ."]);
-    assert!(malformed.unwrap_err().starts_with("documents[0] is not Turtle"));
+    assert!(malformed
+        .unwrap_err()
+        .starts_with("documents[0] is not Turtle"));
 }
