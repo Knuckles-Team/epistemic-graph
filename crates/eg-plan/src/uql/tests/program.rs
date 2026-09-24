@@ -101,3 +101,29 @@ fn a_transform_at_the_head_warns() {
     assert_eq!(s.warnings.len(), 1);
     assert!(stmt("MATCH () |> LIMIT 5").warnings.is_empty());
 }
+
+/// `WITH PROOF` / `WITH KNOWLEDGE` (EH-448/EH-450): parsed once each, printed back
+/// canonically, and never a plain pipeline.
+#[test]
+fn row_annotations_parse_print_and_are_not_plain_pipelines() {
+    let s = stmt("MATCH (:Doc) |> LIMIT 3 WITH PROOF, KNOWLEDGE (year, `node type`)");
+    assert!(s.annotations.proof);
+    assert_eq!(
+        s.annotations.knowledge,
+        Some(vec!["year".to_string(), "node type".to_string()])
+    );
+    let printed = statement_to_uql(&s).unwrap();
+    assert_eq!(stmt(&printed), s, "{printed}");
+    assert_eq!(
+        stmt("MATCH () WITH KNOWLEDGE").annotations.knowledge,
+        Some(vec![])
+    );
+    assert_eq!(
+        parse("MATCH () WITH PROOF").unwrap_err().code,
+        UqlCode::StatementNotPipeline
+    );
+    let twice = parse_statement("MATCH () WITH PROOF, PROOF", &Params::new()).unwrap_err();
+    assert!(twice.msg.contains("already"), "{}", twice.msg);
+    let unknown = parse_statement("MATCH () WITH NOTHING", &Params::new()).unwrap_err();
+    assert!(unknown.expected.contains(&"`PROOF`".to_string()));
+}
