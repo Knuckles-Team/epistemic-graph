@@ -64,6 +64,19 @@ fn obs_validator() -> Option<&'static crate::server::oidc::JwtValidator> {
         .as_ref()
 }
 
+/// Whether collector ingest can be authenticated at all (a writer validator
+/// is configured). The listener may leave loopback only when this holds.
+#[cfg(feature = "oidc")]
+pub fn writer_auth_configured() -> bool {
+    obs_validator().is_some()
+}
+
+/// Without the `oidc` feature no collector credential can be verified.
+#[cfg(not(feature = "oidc"))]
+pub fn writer_auth_configured() -> bool {
+    false
+}
+
 /// The writer this request proves, if any.
 #[cfg(feature = "oidc")]
 pub(crate) fn request_writer(authorization: &str) -> Option<TelemetryWriter> {
