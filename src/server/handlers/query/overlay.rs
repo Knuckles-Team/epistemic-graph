@@ -264,7 +264,7 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
 }
 
 /// Run `plan` over `view` with `core`'s maintained indexes bound (and the
-/// caller's tenant-scoped foreign registry, EH-373, when bound), against `core`'s
+/// caller's owner-scoped foreign registry, EH-373, when bound), against `core`'s
 /// semantic store with `staged` embeddings overlaid (read-your-own-writes). No
 /// staged embedding ⇒ the COMMITTED store is searched through a guard -- no
 /// clone, no forced HNSW rebuild (CONCEPT:EG-KG.query.served-vector-index-

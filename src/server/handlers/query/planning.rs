@@ -253,7 +253,7 @@ impl<'c> CoreIndexes<'c> {
         }
     }
 
-    /// These indexes as `run_unified` takes them, with the caller's tenant-scoped
+    /// These indexes as `run_unified` takes them, with the caller's owner-scoped
     /// foreign registry (EH-373) when the plan names a foreign source.
     pub(crate) fn served<'a>(
         &'a self,
