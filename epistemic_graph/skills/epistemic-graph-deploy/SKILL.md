@@ -25,8 +25,9 @@ authoritative redb data lives on the deployment-owned durable volume. There is n
 host-path binary hot-swap and no second standalone engine to scale up: an engine change is
 an image change followed by a digest-pinned Kubernetes rollout.
 
-The serving-plane source may be mounted from the canonical `agent-utilities` checkout.
-That means an AU-only change can ship by restarting the Deployment, but it does not replace
+graph-os owns the serving process; its Python serving-plane source (graph-os and the
+`agent-utilities` orchestration code it imports) may be mounted from the canonical
+checkouts. That means a Python-only change can ship by restarting the Deployment, but it does not replace
 the engine artifact in the image. Keep the engine image and the mounted AU revision as one
 tested release pair. Full artifact details and rationale: `docs/deploy/binary_promotion.md`.
 

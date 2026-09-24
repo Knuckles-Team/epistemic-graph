@@ -43,8 +43,8 @@ load_tools(tools=["engine_consensus", "engine_resharding", "engine_tenants",
 or the REST twins graph-os exposes for these engine domains.
 
 ## Admin tier (scope-gated)
-All five domains above are classified **ADMIN** (`agent_utilities.mcp.tools.engine_tools.
-ADMIN_DOMAINS`): every action they expose is denied fail-closed to an acting identity
+All five domains above are classified **ADMIN** by the graph-os-served engine verbs
+(`ADMIN_DOMAINS`): every action they expose is denied fail-closed to an acting identity
 that lacks the `kg:admin` scope/role (`_enforce_action_scope`), never merely hidden.
 `engine_rbac`/`engine_admin` complete that ADMIN set — RBAC policy administration
 (roles + resource/action grants) and the ops backup/restore surface — so use this

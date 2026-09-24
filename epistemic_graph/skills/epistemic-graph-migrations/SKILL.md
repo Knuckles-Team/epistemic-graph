@@ -56,7 +56,10 @@ the shim is a migration aid, not a permanent alias.
 - **Breaking format change** → add a one-time read-old/write-new pass keyed off the first
   authoritative boot hook, then remove the old-format reader (no permanent dual reader).
 - **Ontology / SHACL evolution** (KG-2.252 temporal facts, etc.) is additive in the
-  canonical `ontology.ttl` + `shapes/*.ttl`; validated by `check_ontology`.
+  engine-owned core schema sources: `crates/eg-core/ontology/<module>-v<N>.ttl`,
+  registered in `crates/eg-core/src/graph/schema_sources.rs::core_specs()` as
+  `core:<module>@<N>`. An incompatible change is a new `<N>`, never an in-place
+  edit. Connector vocabulary evolves in its `ConnectorPack`, not here.
 
 ## Pre-flight & verify checklist
 1. Back up: the binary (`.bak-<ts>`, automatic) and, for risky data migrations, snapshot the

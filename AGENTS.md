@@ -2,14 +2,15 @@
 
 `epistemic-graph` is a standalone Rust database and compute engine for connected
 knowledge, evidence, and multimodal data. Applications can use it directly; it
-can also serve as the storage and reasoning engine beneath agent-utilities.
-Agent orchestration, connectors, and governed ingestion belong to that optional
-application layer, not to this database.
+is also the storage, semantics and reasoning engine of the GraphOS platform.
+Agent orchestration (agent-utilities), connectors (agent-connector-sdk), and the
+served runtime (graph-os) are optional layers above this database.
 
 ## What this repository owns
 
 This repository owns the durable graph database, query and compute engine,
-service protocol, and Python client. Application-level orchestration,
+service protocol, and Python client, and all knowledge semantics: the ontology
+lifecycle, SHACL, RDF, OWL, reasoning, and the Decide layer. Application-level orchestration,
 connectors, and governed ingestion are optional integrations owned elsewhere.
 
 ## Architecture and module map
@@ -62,6 +63,19 @@ Hosted CI remains the exhaustive publication gate. Keep generated documentation,
 contract surfaces, lockfiles, and Rust formatting in sync with their sources.
 
 ## Development rules
+
+### Developing here
+
+The development workflow lives in skills; load them before editing:
+
+- `graphos-ecosystem-development` — architecture boundaries, the lane protocol,
+  build hosts (`eg-lane-run`; never cargo on a workstation shared by lanes),
+  gate caps, contract regeneration, and landing with `eg-land-gate --fanout`
+  (the default; `--serial` only as an escape hatch, `--jobs` for a delta re-gate).
+- `epistemic-graph-development` — guardrails, the authorization model, the crate
+  layer model, gates, MutationBatch rules, and build/test commands.
+
+### Rules
 
 Do not hand-edit generated API bindings or generated documentation; update their
 authoritative inputs and use the repository's generator. Preserve wire protocol
