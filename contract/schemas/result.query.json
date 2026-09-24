@@ -28684,6 +28684,50 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The request graph's per-class invalidation events with `version >\nafter_version` (at most `limit`; 0 = the default page), its\n`eg:volatilityClass` policy when that changed since `policy_after`\n(`None` = always include it), and the watermark freshness of every foreign\nsource the graph holds a watermark for. A caller that sees `gap`, or an\n`epoch` different from the one it last saw, must drop everything it cached\nfor the graph. See [`crate::freshness`].",
+          "properties": {
+            "method": {
+              "const": "FreshnessFeed",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "after_version": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "limit": {
+                  "default": 0,
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "policy_after": {
+                  "default": null,
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "after_version"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },

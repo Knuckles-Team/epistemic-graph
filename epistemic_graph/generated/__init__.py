@@ -274,6 +274,7 @@ SEND_BY_METHOD = {
     "FiredTriggers": messaging.send_fired_triggers,
     "FleetCatalog": cluster.send_fleet_catalog,
     "Fork": graph.send_fork,
+    "FreshnessFeed": messaging.send_freshness_feed,
     "FromMsgpack": storage.send_from_msgpack,
     "GetBlastRadius": compute.send_get_blast_radius,
     "GetChangeCursor": query.send_get_change_cursor,

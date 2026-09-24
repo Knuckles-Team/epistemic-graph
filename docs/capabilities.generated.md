@@ -338,6 +338,7 @@
 | `RegisterTrigger` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `DropTrigger` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `ListTriggers` | false | None | `cdc:read` | true | false | false | Snapshot |  |
+| `FreshnessFeed` | false | None | `cdc:read` | true | false | false | Snapshot |  |
 | `FiredTriggers` | false | None | `cdc:read` | true | false | false | Snapshot |  |
 | `CepSubscribe` | true | ControlRedb | `cep:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `CepPoll` | false | None | `cep:read` | true | false | false | Snapshot |  |

@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 436,
+  "method_count": 437,
   "methods": [
     {
       "consumer_profiles": [
@@ -13870,6 +13870,45 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.messaging.json#/methods/ListTriggers",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "messaging",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "FreshnessFeed",
+      "note": "",
+      "policy": {
+        "audited": false,
+        "authz_action": "cdc:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/FreshnessFeed"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/FreshnessFeed",
         "selected_by": null
       },
       "stability": "stable"

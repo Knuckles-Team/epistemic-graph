@@ -2152,6 +2152,59 @@ async def send_list_triggers(
     return OpaqueResult("ListTriggers", payload)
 
 
+class FreshnessFeedRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        FreshnessFeed
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/FreshnessFeed
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    after_version: int
+    limit: int | None = None
+    policy_after: int | None = None
+
+
+async def send_freshness_feed(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FreshnessFeed
+    Authorization:
+        cdc:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.messaging.json
+        #/methods/FreshnessFeed
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    FreshnessFeedRequest.model_validate(params or {})
+    payload = await client._send(
+        "FreshnessFeed",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FreshnessFeed", payload)
+
+
 class FiredTriggersRequest(BaseModel):
     """Validate one engine-contract request body.
 
