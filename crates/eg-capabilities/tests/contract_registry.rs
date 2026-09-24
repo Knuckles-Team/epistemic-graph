@@ -183,9 +183,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // `GetControlLease`.
     // 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
     // 437 -> 438: EH-408/EH-409's served `TelemetryDerive`.
+    // 438 -> 440: EH-346/EH-347 `PolicyEvolution` + engine-internal `PolicyEvolutionStore`.
     assert_eq!(
         variants.len(),
-        438,
+        440,
         "the wire method census changed; update this exact count deliberately"
     );
 }

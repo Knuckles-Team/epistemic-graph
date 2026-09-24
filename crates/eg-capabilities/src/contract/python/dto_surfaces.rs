@@ -159,7 +159,7 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         method: "IndexRepository",
         module: "index_repository",
         result_domain: "ingestion",
-        roots: &["IndexResult"],
+        roots: &["IndexRepositoryScope", "IndexResult"],
         result_model: Some("IndexResult"),
         required: true,
         constants: &[],
