@@ -2146,6 +2146,14 @@ class ClaimedTaskMapping(BaseModel):
     text_digest: str
 
 
+class ClassVolatility(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    class_: str = Field(..., alias="class")
+    max_staleness_ms: Annotated[int, Field(ge=0)] | None = None
+    volatility: VolatilityClass
+
+
 class ClassificationMiningResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5442,6 +5450,16 @@ class ForecastMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class ForeignSourceFreshness(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    age_ms: Annotated[int, Field(ge=0)] | None = None
+    max_staleness_ms: Annotated[int, Field(ge=0)] | None = None
+    name: str
+    stale: bool
+    watermark: str | None = None
+
+
 class ForeignSourceSpecHttpJson(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5510,6 +5528,19 @@ class ForensicReport(BaseModel):
     m_score: float
     verdict: str
     z_score: float
+
+
+class FreshnessFeed(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    epoch: Annotated[int, Field(ge=0)]
+    events: list[InvalidationEvent]
+    foreign: list[ForeignSourceFreshness] = Field(default_factory=list)
+    gap: bool
+    head_version: Annotated[int, Field(ge=0)]
+    policy: list[ClassVolatility] | None = None
+    policy_diagnostics: list[str] = Field(default_factory=list)
+    policy_version: Annotated[int, Field(ge=0)]
 
 
 class FullLabelMetrics(BaseModel):
@@ -5965,6 +5996,20 @@ class InterClusterEdge(BaseModel):
     dst_idx: Annotated[int, Field(ge=0)]
     src_idx: Annotated[int, Field(ge=0)]
     weight: float
+
+
+class InvalidationEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    classes: list[str] = Field(default_factory=list)
+    edge_types: list[str] = Field(default_factory=list)
+    scope: InvalidationScope
+    version: Annotated[int, Field(ge=0)]
+
+
+class InvalidationScope(str, Enum):
+    CLASSES = "classes"
+    ALL = "all"
 
 
 class IssueControlLeaseRequest(BaseModel):
@@ -9891,6 +9936,13 @@ class MethodGetControlLease(BaseModel):
     params: MethodGetControlLeaseParams
 
 
+class MethodFreshnessFeed(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FreshnessFeed"]
+    params: MethodFreshnessFeedParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -10328,7 +10380,8 @@ Method = Annotated[
     | MethodGetWorkItemOutcome
     | MethodIssueControlLease
     | MethodTransitionControlLease
-    | MethodGetControlLease,
+    | MethodGetControlLease
+    | MethodFreshnessFeed,
     Field(discriminator="method"),
 ]
 
@@ -11789,6 +11842,14 @@ class MethodFleetCatalogParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: FleetCatalogOp
+
+
+class MethodFreshnessFeedParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after_version: Annotated[int, Field(ge=0)]
+    limit: Annotated[int, Field(ge=0)] | None = None
+    policy_after: Annotated[int, Field(ge=0)] | None = None
 
 
 class MethodFromMsgpackParams(BaseModel):
@@ -20349,6 +20410,13 @@ class VizViewResult(BaseModel):
     row_count: Annotated[int, Field(ge=0)]
     seed: Annotated[int, Field(ge=0)] | None = None
     wall_time_ms: Annotated[int, Field(ge=0)]
+
+
+class VolatilityClass(str, Enum):
+    IMMUTABLE = "immutable"
+    SLOW = "slow"
+    FAST = "fast"
+    LIVE = "live"
 
 
 class WatchBatch(BaseModel):

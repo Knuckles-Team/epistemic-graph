@@ -319,6 +319,7 @@ METHOD_IDS = frozenset(
         "RegisterTrigger",
         "DropTrigger",
         "ListTriggers",
+        "FreshnessFeed",
         "FiredTriggers",
         "CepSubscribe",
         "CepPoll",

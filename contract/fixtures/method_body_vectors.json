@@ -1640,6 +1640,14 @@
       "request_msgpack": "81a66d6574686f64a4466f726b"
     },
     {
+      "canonical_len": 66,
+      "canonical_sha256": "da0abe00f3f15bce9c8c14432a41a2d84df96442379b14ff78b95c0c89d972fa",
+      "label": "FreshnessFeed",
+      "mac": "85b54fbe6869b3276bc03e1c89506673327c2f9bb311d4d5ab4c5e49dbc2f8d2",
+      "method": "FreshnessFeed",
+      "request_msgpack": "82a66d6574686f64ad46726573686e65737346656564a6706172616d7382ad61667465725f76657273696f6e01ac706f6c6963795f6166746572c0"
+    },
+    {
       "canonical_len": 38,
       "canonical_sha256": "60aa4bc96814e2e7dfbd29f6cbc1fc2046d6030a698aaaedbb08fe4e1105e644",
       "label": "FromMsgpack",
