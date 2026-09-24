@@ -62,7 +62,7 @@ def _footprint_row(engine: dict[str, Any]) -> str:
         f"| {engine['engine']} | {load.get('seconds')} | {load.get('docs_per_s')} "
         f"| {load.get('storage_bytes')} | {load.get('storage_amplification')} "
         f"| {engine.get('storage_bytes_final')} | {engine.get('idle_rss_kb')} "
-        f"| {engine.get('peak_rss_kb')} |"
+        f"| {engine.get('peak_rss_kb')} | {engine.get('write_conflict_retries')} |"
     )
 
 
@@ -78,8 +78,8 @@ def render(report: dict[str, Any]) -> str:
         "\n### Process-cold (first queries after restart, c=1)\n\n" + HEADER,
         *[line for engine in engines for line in _timed_rows(engine, "cold")],
         "\n### Load and footprint\n\n| engine | load s | docs/s | storage B "
-        "| amplification | storage B (final) | idle RSS kB | peak RSS kB |"
-        "\n|---|--:|--:|--:|--:|--:|--:|--:|",
+        "| amplification | storage B (final) | idle RSS kB | peak RSS kB "
+        "| write conflict retries |\n|---|--:|--:|--:|--:|--:|--:|--:|--:|",
         *[_footprint_row(engine) for engine in engines],
     ]
     return "\n".join(sections) + "\n"
