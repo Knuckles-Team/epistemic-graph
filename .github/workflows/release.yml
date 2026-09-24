@@ -509,6 +509,8 @@ jobs:
         run: python3 scripts/check_exact_release_campaigns.py
       - name: Canonical structural property schema
         run: python3 scripts/check_canonical_property_schema.py
+      - name: Behavior-preserving dispatch module decomposition gate
+        run: python3 scripts/check_dispatch_decomposition.py
 
   # ── Documentation freshness is useful feedback, but generated counts and
   # MkDocs prose do not change whether the engine or wheel is correct.

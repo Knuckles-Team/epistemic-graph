@@ -438,6 +438,21 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # EH-430: same failure shape as BUG-CX-112 above -- check_dispatch_decomposition.py
+  # existed only as a manually-invoked pytest module (tests/test_dispatch_decomposition.py),
+  # wired into neither pre-commit nor release.yml, and drifted ~100 functions out of
+  # date (its pins hadn't moved since a4804f87c, 2026-09-17) before anyone noticed. Re-pinned
+  # 2026-09-24 against this tree (see the dated comments in the script for the verified
+  # diff) and wired here, plus an explicit step in release.yml's lint-and-architecture job
+  # so hosted CI and eg-land-gate enforce it too, not only a locally-installed hook.
+  # Pure stdlib text/AST scan over the compiler-declared module tree, no cargo/build
+  # (~19s), safe for the commit stage.
+  - id: dispatch-decomposition
+    name: Behavior-preserving dispatch module decomposition gate
+    entry: python3 scripts/check_dispatch_decomposition.py
+    language: system
+    pass_filenames: false
+    always_run: true
   # GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening (`MintAuthorization`,
   # crates/eg-core/src/isolation.rs): keeps `mint_policy_decision_lease` to its one
   # traced production call site (src/server/dispatch.rs) so a second caller can
