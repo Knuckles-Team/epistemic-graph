@@ -201,7 +201,8 @@ fn finish(
     }
 }
 
-/// The 95% Wilson score interval of `k` successes in `n` trials.
+/// The 95% Wilson score interval of `k` successes in `n` trials (it always
+/// contains `k / n`).
 pub(crate) fn wilson(k: u64, n: u32) -> (f64, f64) {
     let n = f64::from(n);
     let p = k as f64 / n;
@@ -209,5 +210,7 @@ pub(crate) fn wilson(k: u64, n: u32) -> (f64, f64) {
     let denominator = 1.0 + z2 / n;
     let centre = (p + z2 / (2.0 * n)) / denominator;
     let half = Z95 * (p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt() / denominator;
-    ((centre - half).max(0.0), (centre + half).min(1.0))
+    // At k = 0 or k = n the closed form equals p only up to rounding; the
+    // interval always contains the point estimate.
+    ((centre - half).clamp(0.0, p), (centre + half).clamp(p, 1.0))
 }
