@@ -20,6 +20,40 @@ class DatalogReasoningResult(BaseModel):
     schema_digests: list[str]
 
 
+class OntologyClassView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    comment: str | None = None
+    iri: str
+    label: str | None = None
+    parents: list[str]
+
+
+class OntologyInspection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    canonical_digest: str | None = None
+    classes: list[OntologyClassView]
+    composed_digest: str | None = None
+    datatype_properties: list[OntologyPropertyView]
+    object_properties: list[OntologyPropertyView]
+    ontologies: list[str]
+    schema_digests: list[str]
+    shape_target_classes: list[str]
+    triple_count: Annotated[int, Field(ge=0)]
+
+
+class OntologyPropertyView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    comment: str | None = None
+    domains: list[str]
+    iri: str
+    label: str | None = None
+    ranges: list[str]
+    symmetric: bool
+
+
 class OwlExplainResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -95,6 +129,12 @@ class ShaclValidationResult(BaseModel):
 
 
 DatalogReasoningResult.model_rebuild()
+
+OntologyClassView.model_rebuild()
+
+OntologyInspection.model_rebuild()
+
+OntologyPropertyView.model_rebuild()
 
 OwlExplainResult.model_rebuild()
 

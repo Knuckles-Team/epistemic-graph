@@ -9387,6 +9387,13 @@ class MethodShaclValidate(BaseModel):
     params: MethodShaclValidateParams
 
 
+class MethodOntologyInspect(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["OntologyInspect"]
+    params: MethodOntologyInspectParams
+
+
 class MethodIcvConfigure(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10178,6 +10185,7 @@ Method = Annotated[
     | MethodOwlExplain
     | MethodRunRules
     | MethodShaclValidate
+    | MethodOntologyInspect
     | MethodIcvConfigure
     | MethodShexValidate
     | MethodCdcRead
@@ -12394,6 +12402,13 @@ class MethodObserveScreenParams(BaseModel):
     obs_msgpack: bytes
 
 
+class MethodOntologyInspectParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    documents: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+
 class MethodOutDegreeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12919,6 +12934,7 @@ class MethodShaclValidateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     data_graph: str | None = None
+    data_triples: list[RdfTriple] | None = None
     shapes: str | None = None
 
 
@@ -13771,6 +13787,15 @@ class ObservationRef(BaseModel):
     evaluation_id: str
 
 
+class OntologyClassView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    comment: str | None = None
+    iri: str
+    label: str | None = None
+    parents: list[str]
+
+
 class OntologyGapMiningResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13788,6 +13813,20 @@ class OntologyGapRow(BaseModel):
     severity: float
 
 
+class OntologyInspection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical_digest: str | None = None
+    classes: list[OntologyClassView]
+    composed_digest: str | None = None
+    datatype_properties: list[OntologyPropertyView]
+    object_properties: list[OntologyPropertyView]
+    ontologies: list[str]
+    schema_digests: list[str]
+    shape_target_classes: list[str]
+    triple_count: Annotated[int, Field(ge=0)]
+
+
 class OntologyMatch(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13796,6 +13835,17 @@ class OntologyMatch(BaseModel):
     node_type: str
     score: float
     term: str
+
+
+class OntologyPropertyView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    comment: str | None = None
+    domains: list[str]
+    iri: str
+    label: str | None = None
+    ranges: list[str]
+    symmetric: bool
 
 
 class OpAsOf(BaseModel):
@@ -15766,6 +15816,36 @@ class RbacPolicyListing(BaseModel):
 
     grants: list[Grant]
     roles: list[Role]
+
+
+class RdfObjectIri(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    iri: str
+    kind: Literal["iri"]
+
+
+class RdfObjectLiteral(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    datatype: str | None = None
+    kind: Literal["literal"]
+    language: str | None = None
+    lexical: str
+
+
+RdfObject = Annotated[
+    RdfObjectIri | RdfObjectLiteral,
+    Field(discriminator="kind"),
+]
+
+
+class RdfTriple(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    object: RdfObject
+    predicate: str
+    subject: str
 
 
 class RebalanceExecution(BaseModel):

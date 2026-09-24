@@ -364,6 +364,7 @@ SEND_BY_METHOD = {
     "NodeIds": graph.send_node_ids,
     "ObserveDevelopmentLane": coordination.send_observe_development_lane,
     "ObserveScreen": ingestion.send_observe_screen,
+    "OntologyInspect": reasoning.send_ontology_inspect,
     "OutDegree": graph.send_out_degree,
     "OwlExplain": reasoning.send_owl_explain,
     "OwlReason": reasoning.send_owl_reason,
