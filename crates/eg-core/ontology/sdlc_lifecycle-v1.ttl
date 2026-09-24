@@ -178,6 +178,11 @@ an operator drives it via graph_loops/WorkflowRunner when autonomy is turned on.
     rdfs:comment "One CI pipeline execution (GitLab pipeline / GitHub Actions workflow run) — carries a status (success/failed/running). The KG representation of CI state (design §1.1, G8)." ;
     rdfs:subClassOf bfo:0000015 .
 
+:PipelineRunEvent a owl:Class ;
+    rdfs:label "Pipeline Run Event" ;
+    rdfs:comment "One observed status transition of a :PipelineRun (queued, running, success, failed, cancelled) at the time the CI system reported it -- the event stream CI/CD delivers, as opposed to the latest-state snapshot on the run itself (EH-410; GitHub by polling, GitLab by signed webhook with a polling fallback)." ;
+    rdfs:subClassOf bfo:0000015 .
+
 :Spec a owl:Class ;
     rdfs:label "Spec" ;
     rdfs:comment "A specification of an intended code change — the graph-native, approval-gated :SpecProposal generalizes to this supertype (design §1.1)." ;
