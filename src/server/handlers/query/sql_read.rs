@@ -94,27 +94,6 @@ pub(crate) fn sql_read_snapshot(
     }
 }
 
-/// The request graph's edge-index statuses join the served status relation
-/// (EH-352): the tenant's registered edge indexes are installed first, so an
-/// index is listed even before its first edge operation after a restart.
-#[cfg(feature = "query")]
-fn adopt_edge_index_status(
-    authority: &crate::server::access::CarrierAuthority,
-    persist_dir: &std::path::Path,
-    graph: &str,
-    core: &GraphCore,
-    authorized: &crate::server::sql_catalog_acl::AuthorizedReadStore,
-) -> Result<(), String> {
-    let tenant =
-        crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
-    eg_query::edge_index::install_edge_indexes(&tenant, graph, core)?;
-    authorized
-        .store()
-        .ann_authority()
-        .adopt_statuses(core.indexes().managed_statuses());
-    Ok(())
-}
-
 #[cfg(feature = "query")]
 async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     let SqlReadScope {
@@ -135,6 +114,10 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
         #[cfg(feature = "security")]
         rls,
     );
+    let graph = crate::server::sql_catalog_acl::RequestGraph {
+        name: graph_name.to_string(),
+        core: Arc::clone(core),
+    };
     catalog_sql_response(
         state,
         req_id,
@@ -142,6 +125,7 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
         authority.clone(),
         persist_dir.to_path_buf(),
         query,
+        graph,
     )
     .await
 }
@@ -394,6 +378,7 @@ pub(super) async fn catalog_sql_response(
     authority: crate::server::access::CarrierAuthority,
     persist_dir: std::path::PathBuf,
     query: String,
+    graph: crate::server::sql_catalog_acl::RequestGraph,
 ) -> Response {
     let read_only =
         crate::server::handlers::decide::read_only_relations(state, &authority, &query).await;
@@ -407,6 +392,7 @@ pub(super) async fn catalog_sql_response(
             &persist_dir,
             &query,
             read_only.as_deref(),
+            &graph,
         )?;
         eg_query::exec_sql_typed_with_tables_cancellable(
             &snap,
