@@ -38,12 +38,22 @@ pub(super) async fn sql(h: &Harness, who: &str, query: &str) -> Vec<Vec<Value>> 
     let authority = CarrierAuthority::from_verified(&verified).unwrap();
     let persist_dir = std::path::PathBuf::from(h.state.read().await.persist_dir.clone().unwrap());
     let views = super::super::stat_view::DecisionViews::of(h.store.clone(), &authority);
-    let projection =
-        authorized_read_store_for_query(&authority, &persist_dir, query, Some(&views)).unwrap();
     let graph = crate::graph::GraphCore::new().analysis_snapshot();
-    eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query)
-        .unwrap()
-        .rows
+    // The SQL leg drives its own runtime (as on the blocking pool in
+    // production), so it runs on a plain thread outside the test's runtime.
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let projection =
+                    authorized_read_store_for_query(&authority, &persist_dir, query, Some(&views))
+                        .unwrap();
+                eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query)
+                    .unwrap()
+                    .rows
+            })
+            .join()
+            .unwrap()
+    })
 }
 
 /// A committed retrieval-plan record that EXECUTED `plan-hyde`, cloned under
@@ -61,8 +71,21 @@ pub(super) async fn executed_template(h: &Harness) -> DecisionLogEntry {
 }
 
 pub(super) fn clone_executed(h: &Harness, template: &DecisionLogEntry, record_id: &str) {
+    // Tenant-visible, as a library-sourced record is: a declared record is its
+    // declarer's alone, so no independent evaluator could join it (WRAPUP).
+    let tenant = eg_types::decision::statistical::log::RecordVisibility::Tenant;
+    clone_visible(h, template, record_id, tenant);
+}
+
+fn clone_visible(
+    h: &Harness,
+    template: &DecisionLogEntry,
+    record_id: &str,
+    visibility: eg_types::decision::statistical::log::RecordVisibility,
+) {
     let mut entry = template.clone();
     entry.record.record_id = record_id.to_string();
+    entry.visibility = visibility;
     entry.record.outcome = StatisticalOutcome::Explored {
         option_id: "plan-hyde".to_string(),
         propensity: rational(1, 1),
@@ -72,6 +95,18 @@ pub(super) fn clone_executed(h: &Harness, template: &DecisionLogEntry, record_id
     h.store
         .put_decision_artifacts(TENANT, &[(key, bytes)])
         .unwrap();
+}
+
+fn returned_unclassed(ids: &[&str]) -> BoundedVec<ReturnedEvidence, 256> {
+    BoundedVec::new(
+        ids.iter()
+            .map(|id| ReturnedEvidence {
+                evidence_id: id.to_string(),
+                content_class: None,
+            })
+            .collect(),
+    )
+    .unwrap()
 }
 
 fn returned(ids: &[&str], class: &str) -> BoundedVec<ReturnedEvidence, 256> {
@@ -141,7 +176,21 @@ async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
     attested.path = Some(template("sha256:schema-a"));
 
     let foreign = learn(&h, "stranger", attest(attested.clone())).await;
-    assert!(foreign.unwrap_err().starts_with("PARAMETER_INVALID"));
+    assert!(
+        foreign.unwrap_err().starts_with("ACCESS_DENIED"),
+        "only the committer attests its run"
+    );
+    // A record only its committer may see: nothing learned from it reaches
+    // anyone else.
+    clone_visible(
+        &h,
+        &template_entry,
+        "rec-private",
+        template_entry.visibility.clone(),
+    );
+    let mut private = outcome("rec-private", &["x"], &[]);
+    private.returned = returned_unclassed(&["x"]);
+    assert!(learn(&h, "decider", attest(private)).await.is_ok());
     let mut bogus = attested.clone();
     bogus.cited = BoundedVec::new(vec!["zz".to_string()]).unwrap();
     assert!(learn(&h, "decider", attest(bogus)).await.is_err());
@@ -155,7 +204,8 @@ async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
     assert!(conflict.unwrap_err().starts_with("IDEMPOTENCY_CONFLICT"));
 
     let negatives = "SELECT evidence_id, rank FROM decision_hard_negatives ORDER BY rank";
-    let verdicts = "SELECT DISTINCT verdict FROM decision_retrieval_outcomes";
+    let verdicts =
+        "SELECT DISTINCT verdict FROM decision_retrieval_outcomes WHERE record_id = 'rec-1'";
     assert_eq!(
         sql(&h, "decider", verdicts).await,
         vec![vec![json!("unjudged")]]
@@ -173,18 +223,14 @@ async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
         .map(|i| vec![json!(format!("e{i}")), json!(i + 1)])
         .collect();
     assert_eq!(rows, expected);
-    for table in [
-        "decision_retrieval_outcomes",
-        "decision_hard_negatives",
-        "decision_proven_paths",
-    ] {
-        let theirs = sql(&h, "stranger", &format!("SELECT count(*) FROM {table}")).await;
-        assert_eq!(
-            theirs,
-            vec![vec![json!(0)]],
-            "{table}: invisible record, nothing learned"
-        );
-    }
+    let private =
+        "SELECT count(*) FROM decision_retrieval_outcomes WHERE record_id = 'rec-private'";
+    assert_eq!(sql(&h, "decider", private).await, vec![vec![json!(1)]]);
+    assert_eq!(
+        sql(&h, "stranger", private).await,
+        vec![vec![json!(0)]],
+        "another principal's record is not even counted"
+    );
     paths_and_usage_follow_the_verdict(&h).await;
 }
 
