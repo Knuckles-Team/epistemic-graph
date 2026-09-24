@@ -16,7 +16,8 @@ use super::LegacyIntegrityPolicy;
 /// Closed upper bound for one binary's immutable catalog.  The current catalog
 /// contains the aggregate document, foundation, 31 domain TBoxes (the world model
 /// as its life, environment and nutrition modules), the core governance-shape
-/// slice and the world-model shapes (35 artifacts, EH-364).  It is deliberately independent of the dynamic
+/// slice and the world-model shapes (35 artifacts, EH-364), plus the finance module and its
+/// shapes (37 artifacts, EH-411).  It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
 pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
@@ -746,6 +747,18 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: None,
         },
         CoreSpec {
+            module: "finance",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/finance-v1.ttl")),
+        },
+        CoreSpec {
+            module: "finance-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/finance-v1.shapes.ttl")),
+            ontology: None,
+        },
+        CoreSpec {
             module: "worldview",
             version: 1,
             shapes: None,
@@ -821,7 +834,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 35);
+        assert_eq!(sources.core.len(), 37);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }

@@ -15,7 +15,10 @@ name = "eg_compute"
 # links neither their code nor their deps. Mirrors the facade feature names 1:1.
 # finance/datascience also turn on the matching eg-types feature so the wire
 # DTOs they re-export (`eg_types::wire::{Order, FittedModel, ...}`) exist.
-finance = ["dep:nalgebra", "eg-types/finance"]
+# The market-signal layer (`finance::market`) calibrates flip confidence with the
+# Decide layer's conformal kernels, so finance links eg-numeric (always-built
+# conformal/risk modules; no `decision` feature needed).
+finance = ["dep:nalgebra", "eg-types/finance", "dep:eg-numeric"]
 datascience = ["dep:rand_chacha", "eg-types/datascience"]
 # Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): pure-Rust,
 # dependency-light frequent-itemset + association-rule mining. No heavy dep — only

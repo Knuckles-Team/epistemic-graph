@@ -694,8 +694,9 @@ ex:parent a owl:AsymmetricProperty .
         // +8: BFO realizable entity and disposition, declared for `:Skill`.
         // +1: BFO `Continuant owl:disjointWith Occurrent`. +471: the world model — the
         // life, environment and nutrition modules (145 + 71 + 114), their catalog imports
-        // (3) and the foundation's world-model vocabulary (138).
-        assert_eq!(composed.ontology.len(), 13_169);
+        // (3) and the foundation's world-model vocabulary (138). +183: the finance module
+        // (182, EH-411) and its catalog import (1).
+        assert_eq!(composed.ontology.len(), 13_352);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -725,9 +726,9 @@ ex:parent a owl:AsymmetricProperty .
         // `/core` foundation and generated aggregate catalog. Every domain
         // axiom remains in the immutable catalog; only those 71 document-level
         // authority triples change.
-        assert_eq!(ontology_subjects.len(), 33);
-        assert_eq!(imports, 67);
-        assert_eq!(semantic_axioms, 12_997);
+        assert_eq!(ontology_subjects.len(), 34);
+        assert_eq!(imports, 69);
+        assert_eq!(semantic_axioms, 13_175);
 
         let count_type = |object: &str| {
             composed
@@ -776,7 +777,7 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            412
+            421
         );
     }
 
