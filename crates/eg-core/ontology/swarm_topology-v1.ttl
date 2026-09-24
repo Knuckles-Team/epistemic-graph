@@ -4,12 +4,12 @@
 # owned by EG like every agent-orchestration schema) reasoned IN EG (OWL 2 EL/RL
 # with proofs); the solver holds no topology term list.
 # EG knows exactly two anchors in its own namespace:
-#   eg:admitsTopology        -- `swarm:admits` is a sub-property of it;
-#   eg:NeedsIndependentCheck -- a task class under it needs a verifier slot.
+#   egowl:admitsTopology        -- `swarm:admits` is a sub-property of it;
+#   egowl:NeedsIndependentCheck -- a task class under it needs a verifier slot.
 # A tenant extends this vocabulary under its own GraphSchema key.
 
 @prefix swarm: <http://knuckles.team/kg/swarm#> .
-@prefix eg:    <http://epistemic-graph/owl#> .
+@prefix egowl: <http://epistemic-graph/owl#> .
 @prefix owl:   <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
@@ -22,7 +22,7 @@
 # --- Properties -------------------------------------------------------------
 
 swarm:admits a owl:ObjectProperty ;
-    rdfs:subPropertyOf eg:admitsTopology ;
+    rdfs:subPropertyOf egowl:admitsTopology ;
     rdfs:comment "A task shape admits a topology class (and, through subsumption, its subclasses)." .
 swarm:class a owl:ObjectProperty ;
     rdfs:comment "The one topology class a template is." .
@@ -101,5 +101,5 @@ swarm:NeedsNegotiation a owl:Class ;
 
 swarm:NeedsIndependentCheck a owl:Class ;
     rdfs:comment "Every admitted topology must carry a verifier slot (enforced as the `verify` row)." ;
-    rdfs:subClassOf swarm:TaskShape , eg:NeedsIndependentCheck ,
+    rdfs:subClassOf swarm:TaskShape , egowl:NeedsIndependentCheck ,
         [ a owl:Restriction ; owl:onProperty swarm:admits ; owl:someValuesFrom swarm:CritiqueLoop ] .
