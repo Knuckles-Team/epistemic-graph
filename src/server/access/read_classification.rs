@@ -83,6 +83,9 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "Discover",
     "DistributedCompute",
     "EdgeCount",
+    // EH-351: searches the caller's `filter_view` view; each edge's own
+    // visibility is checked inside the index walk (`can_see_blob`).
+    "EdgeSearch",
     "EpistemicStatus",
     "ExplainBelief",
     "ExplainEvidence",

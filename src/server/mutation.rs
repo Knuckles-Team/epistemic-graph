@@ -1936,6 +1936,7 @@ mod tests {
         ("DecisionFit", "native MutationBatch in jobs.redb: decision job row and receipt; the draft artifact is an engine-held Blob CAS body; local-only authority"),
         ("DecisionEval", "native MutationBatch in jobs.redb: evaluation job row and receipt; local-only authority"),
         ("MutationOutbox", "owner-local outbox ledger rewind: bounded eg-transaction transactions with a durable control cursor; local-only authority"),
+        ("EdgeIndex", "tenant SQL owner maintenance writes: edge-index registration, generation parts and fenced drop, one WTX each; local-only authority"),
         ("ClaimWorkItem", "dedicated engine-native MutationBatch lease transition in mutation_batch.rs/redb_store.rs"),
         ("KgDelegate", "authenticated Agent Library admission lowers to the native WorkItem command-log transaction"),
         ("SubmitWorkItem", "dedicated engine-native atomic WorkItem command-log admission in mutation_batch.rs/redb_store.rs"),

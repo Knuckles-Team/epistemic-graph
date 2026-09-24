@@ -16,10 +16,12 @@ use crate::sql::AnnIndexPlan;
 use crate::tables::TableStore;
 
 impl UserAnnAuthority {
-    /// Serve `statuses` — another store's rows, already filtered to what the
-    /// reader may see — alongside this store's own indexes.
+    /// Serve `statuses` — rows another authority vouched for, already filtered
+    /// to what the reader may see — alongside this store's own indexes. Adopted
+    /// rows accumulate: the tenant's table indexes and the request graph's edge
+    /// indexes each adopt theirs.
     pub fn adopt_statuses(&self, statuses: Vec<ManagedIndexStatus>) {
-        *write(&self.adopted) = statuses;
+        write(&self.adopted).extend(statuses);
     }
 }
 

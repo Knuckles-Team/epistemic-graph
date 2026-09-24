@@ -630,7 +630,11 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::WriteBack { .. }
         | Method::GraphSchema { .. }
         | Method::GraphSchemaList
-        | Method::MutationOutbox { .. } => default_mutation_domain(surface),
+        | Method::MutationOutbox { .. }
+        // EH-351/EH-352: edge-index maintenance writes the tenant SQL owner
+        // file through its own maintenance writes; a search commits nothing.
+        | Method::EdgeIndex { .. }
+        | Method::EdgeSearch { .. } => default_mutation_domain(surface),
         // `DecisionFit`/`DecisionEval` are NOT surface-keyed: both commit a native
         // MutationBatch in jobs.redb -- the same job-plane store `AnalyticsJob`
         // owns -- so they carry its domain. They cannot join that arm directly
