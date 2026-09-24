@@ -17,7 +17,7 @@ import time
 
 import msgpack
 import pytest
-from conftest import request_context
+from conftest import WRITE_SEQUENCE, request_context
 
 from epistemic_graph.pool import ConnectionPool, ShardRouter, _auto_pool_size
 
@@ -135,7 +135,7 @@ async def test_map_concurrent_parallelizes_the_wire():
         )
 
         async def op(client):
-            return await client._send("Op")
+            return await client._send("Ping")
 
         t0 = time.perf_counter()
         results = await pool.map_concurrent([op] * n)
@@ -174,7 +174,7 @@ async def test_sequential_awaits_are_the_baseline():
         async with pool.connection() as client:
             t0 = time.perf_counter()
             for _ in range(n):
-                assert await client._send("Op") == "pong"
+                assert await client._send("Ping") == "pong"
             elapsed = time.perf_counter() - t0
 
         assert server.max_inflight == 1, "sequential awaits must not overlap"
@@ -200,7 +200,7 @@ async def test_pool_respects_cap_under_concurrency():
         )
 
         async def op(client):
-            return await client._send("Op")
+            return await client._send("Ping")
 
         results = await pool.map_concurrent([op] * 4)
         assert results == ["pong"] * 4
@@ -230,7 +230,7 @@ async def test_pool_reuses_warm_connections():
         )
         async with pool.connection() as c1:
             first = c1
-            assert await c1._send("Op") == "pong"
+            assert await c1._send("Ping") == "pong"
         async with pool.connection() as c2:
             assert c2 is first, "warm connection should be reused"
         assert pool._active_connections == 1
@@ -252,9 +252,8 @@ async def test_ordering_preserved_within_one_caller():
             max_size=4,
         )
         async with pool.connection() as client:
-            await client._send("AddNode")
-            await client._send("AddEdge")
-            await client._send("Commit")
+            for method, params in WRITE_SEQUENCE:
+                await client._send(method, params)
         assert server.received == ["AddNode", "AddEdge", "Commit"]
         await pool.close_all()
     finally:
@@ -278,7 +277,7 @@ async def test_shard_router_map_concurrent_parallelizes_one_graph():
 
         async def op(client):
             assert client._graph_name == "g:alpha"
-            return await client._send("Op")
+            return await client._send("Ping")
 
         t0 = time.perf_counter()
         results = await router.map_concurrent("g:alpha", [op] * n)

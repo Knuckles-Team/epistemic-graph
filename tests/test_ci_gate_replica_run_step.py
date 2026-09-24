@@ -213,3 +213,44 @@ def test_plan_rows_carry_the_workflow_working_directory(module):
         "clients/js"
     )
     assert rows["Verify scanner versions"]["working_directory"] == ""
+
+
+# ── AF_UNIX: pytest's temp stays short enough for the engine socket. ──
+
+
+def test_run_step_leads_pytest_addopts_with_a_short_basetemp(module):
+    status, _ = module._run_step(
+        'case "$PYTEST_ADDOPTS" in "--basetemp=/"*" -q") exit 0;; esac; exit 1',
+        job_env={"PYTEST_ADDOPTS": "-q"},
+        cargo_build_jobs=1,
+    )
+    assert status == 0
+
+
+def test_the_deepest_engine_socket_under_the_short_basetemp_binds(tmp_path):
+    import socket
+
+    sys.path.insert(0, str(SCRIPT_PATH.parent))
+    from ci_replica import pytest_temp
+
+    basetemp = pytest_temp.short_basetemp()
+    assert pytest_temp.fits_socket_limit(basetemp)
+    target = Path(str(basetemp) + pytest_temp.SOCKET_TAIL)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with socket.socket(socket.AF_UNIX) as server:
+        server.bind(str(target))
+    target.unlink()
+
+
+def test_the_limit_check_agrees_with_the_kernel_on_a_long_base(tmp_path):
+    import socket
+
+    sys.path.insert(0, str(SCRIPT_PATH.parent))
+    from ci_replica import pytest_temp
+
+    long_base = tmp_path / ("x" * 60)
+    assert not pytest_temp.fits_socket_limit(long_base)
+    target = Path(str(long_base) + pytest_temp.SOCKET_TAIL)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with socket.socket(socket.AF_UNIX) as server, pytest.raises(OSError):
+        server.bind(str(target))

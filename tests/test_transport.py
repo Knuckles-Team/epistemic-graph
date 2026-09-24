@@ -125,6 +125,10 @@ async def test_rpc_timeout_is_bounded_and_connection_fatal():
             await reader.read()  # drain forever; never write a reply
         except Exception:
             pass
+        finally:
+            # Python >= 3.12.1: Server.wait_closed() waits for every server-side
+            # transport, so a handler must close its writer or teardown hangs.
+            writer.close()
 
     # Port `0` binds an OS-assigned ephemeral port instead of a fixed one -- a
     # hardcoded port is a structural collision hazard against any co-resident
@@ -170,10 +174,11 @@ async def test_send_reconnects_after_connection_drop():
                 writer.write(resp_bytes)
                 await writer.drain()
                 if drop_after_one:
-                    writer.close()  # engine drops this connection after one reply
-                    return
+                    return  # engine drops this connection after one reply
         except (asyncio.IncompleteReadError, ConnectionResetError):
             pass
+        finally:
+            writer.close()  # see silent_handler: teardown waits for this
 
     # Port `0` binds an OS-assigned ephemeral port instead of a fixed one -- a
     # hardcoded port is a structural collision hazard against any co-resident

@@ -31,7 +31,7 @@ from collections import Counter
 from pathlib import Path
 from typing import NoReturn
 
-from rust_exhaustive_match import dispatch_shape
+from rust_exhaustive_match import dispatch_shape, full_build_cyclomatic
 from scanner_contract import (
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
@@ -44,6 +44,7 @@ ROOT = Path(__file__).resolve().parent.parent
 #: reason the terms of acceptance give for it. Order is report order.
 DISPOSITIONS = (
     ("accepted", "exhaustive dispatch, residual within cap -- ACCEPTED BY RULE"),
+    ("full_build", "within cap as the full build compiles it -- ACCEPTED BY RULE"),
     ("catch_all", "has a catch-all arm, so the match is NOT exhaustive"),
     ("no_match", "no `match` in the body: branching that is not dispatch"),
     ("residual", "dispatch discounted, the rest still exceeds the cap"),
@@ -88,6 +89,9 @@ def classify(
     shape = dispatch_shape(source, line)
     if shape is None:
         return "unreadable"
+    cyclomatic = full_build_cyclomatic(shape, cyclomatic)
+    if cyclomatic <= max_cyc:
+        return "full_build"
     if shape.arms == 0:
         return "no_match"
     if shape.catch_alls:
@@ -103,7 +107,7 @@ def _document(path: Path) -> ValidatedReport:
 
 
 def _print_report(measured: int, over: int, cognitive: int, tally: Counter) -> int:
-    accepted = tally["accepted"]
+    accepted = tally["accepted"] + tally["full_build"]
     backlog = over - accepted
     print(
         f"complexity terms: {measured} function(s) measured, "

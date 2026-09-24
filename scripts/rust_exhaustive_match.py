@@ -62,6 +62,24 @@ A Rust function may exceed the cyclomatic cap ONLY IF all four hold:
      gate.  A dispatcher that also carries ten other decision points is not
      exempt because of the dispatch.
 
+THE BUILD THAT IS MEASURED
+--------------------------
+cccc reads source text, so it charges every arm, including an arm the build
+never compiles.  The census measures the code the FULL (release) build
+compiles: an arm whose `#[cfg(..)]` is definitely false when every feature is
+enabled -- typically `#[cfg(not(all(feature = "a", ..)))]`, the "not built in
+this configuration" fallback of a feature-gated dispatcher -- is ABSENT.  It is
+not counted as an arm, cannot be a catch-all, and is subtracted from the
+measured cyclomatic complexity (cccc charged it one decision point).  A
+function whose full-build cyclomatic complexity is within the cap is within the
+cap.  The predicate is parsed and combined by the shared `rust_lexer` cfg
+evaluator, three-valued: `feature = ".."` is true, `test` is false (a release
+build), and every other key (`unix`, `target_os`, ...) is UNKNOWN, which keeps
+the arm.  Only a provably-false predicate removes
+an arm, so a real extra arm, or a catch-all gated on an enabled feature, still
+counts.  This is a rule about the build, recomputed from the source every run;
+no function is named anywhere.
+
 Everything the rule cannot prove is NOT exempt.  Non-Rust source, a body whose
 braces do not balance, a function whose start line carries no body, and an arm
 count that exceeds the measured cyclomatic complexity (which means the arm
@@ -83,7 +101,12 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
-from rust_lexer import _balanced_span_from, _rust_code_mask
+from rust_lexer import (
+    _CFG_EVALUATORS,
+    _balanced_span_from,
+    _parse_cfg_expression,
+    _rust_code_mask,
+)
 
 #: An arm pattern that binds instead of discriminating. `_`, a bare lowercase
 #: binding, and an `ident @ _` binding all match every remaining value, so the
@@ -104,10 +127,45 @@ class DispatchShape(NamedTuple):
 
     ``arms`` counts every arm of every ``match`` inside the function body,
     nested matches included, because cccc charges every one of them.
+    ``absent`` counts the arms the full build does not compile (see THE BUILD
+    THAT IS MEASURED); they are in neither ``arms`` nor ``catch_alls``.
     """
 
     arms: int
     catch_alls: int
+    absent: int = 0
+
+
+_CFG_ATTRIBUTE = re.compile(r"#\s*\[\s*cfg\s*\((.*)\)\s*\]\Z", re.S)
+
+
+def _full_build_atom(atom: str) -> bool | None:
+    """``feature = ".."`` is on, ``test`` is off, anything else is unknown."""
+    if atom.startswith("feature="):
+        return True
+    return False if atom == "test" else None
+
+
+def _full_build(tree: tuple) -> bool | None:
+    kind, payload = tree
+    if kind == "atom":
+        return _full_build_atom(payload)
+    return _CFG_EVALUATORS[kind]([_full_build(child) for child in payload])
+
+
+def full_build_value(predicate: str) -> bool | None:
+    """Truth of a ``cfg`` predicate in the full release build; None = unknown
+    (including a predicate the shared cfg parser cannot read)."""
+    try:
+        return _full_build(_parse_cfg_expression(predicate))
+    except SystemExit:
+        return None
+
+
+def _absent_in_full_build(attribute: str) -> bool:
+    """True only for a ``#[cfg(..)]`` attribute that is provably false."""
+    cfg = _CFG_ATTRIBUTE.match(attribute.strip())
+    return cfg is not None and full_build_value(cfg.group(1)) is False
 
 
 def _skip_space(mask: str, index: int, end: int) -> int:
@@ -188,28 +246,41 @@ def _match_blocks(mask: str, start: int, end: int) -> list[tuple[int, int]]:
     return blocks
 
 
-def _arm_patterns(mask: str, opening: int, closing: int) -> list[str]:
-    """Every arm pattern text in one match block, in source order."""
-    patterns: list[str] = []
+def _skip_attributes(
+    source: str, mask: str, index: int, closing: int
+) -> tuple[int, bool] | None:
+    """Index past an arm's outer attributes, and whether one removes the arm."""
+    absent = False
+    while index < closing and mask[index] == "#":
+        bracket = mask.find("[", index, closing)
+        if bracket < 0:
+            return None
+        end = _balanced_span_from(mask, bracket, "[", "]") + 1
+        absent = absent or _absent_in_full_build(source[index:end])
+        index = _skip_space(mask, end, closing)
+    return index, absent
+
+
+def _arm_patterns(
+    source: str, mask: str, opening: int, closing: int
+) -> list[tuple[str, bool]]:
+    """Every arm of one match block, in source order: (pattern, absent)."""
+    arms: list[tuple[str, bool]] = []
     index = opening + 1
     while True:
-        index = _skip_space(mask, index, closing)
-        while index < closing and mask[index] == "#":
-            bracket = mask.find("[", index, closing)
-            if bracket < 0:
-                return patterns
-            index = _skip_space(
-                mask, _balanced_span_from(mask, bracket, "[", "]") + 1, closing
-            )
-        if index >= closing:
-            return patterns
+        skipped = _skip_attributes(
+            source, mask, _skip_space(mask, index, closing), closing
+        )
+        if skipped is None or skipped[0] >= closing:
+            return arms
+        index, absent = skipped
         arrow = _pattern_end(mask, index, closing)
         if arrow is None:
-            return patterns
-        patterns.append(mask[index:arrow])
+            return arms
+        arms.append((mask[index:arrow], absent))
         following = _arm_body_end(mask, arrow + 2, closing)
         if following is None or following <= arrow:
-            return patterns
+            return arms
         index = following
 
 
@@ -274,14 +345,33 @@ def dispatch_shape(source: str, line: int) -> DispatchShape | None:
         if opening < 0:
             return None
         closing = _balanced_span_from(mask, opening, "{", "}")
-        arms = catch_alls = 0
-        for block_open, block_close in _match_blocks(mask, opening, closing):
-            for pattern in _arm_patterns(mask, block_open, block_close):
-                arms += 1
-                catch_alls += _is_catch_all(pattern)
+        arms = [
+            arm
+            for block_open, block_close in _match_blocks(mask, opening, closing)
+            for arm in _arm_patterns(source, mask, block_open, block_close)
+        ]
     except (SystemExit, ValueError, IndexError, RecursionError):
         return None
-    return DispatchShape(arms=arms, catch_alls=catch_alls)
+    present = [pattern for pattern, absent in arms if not absent]
+    return DispatchShape(
+        arms=len(present),
+        catch_alls=sum(_is_catch_all(pattern) for pattern in present),
+        absent=len(arms) - len(present),
+    )
+
+
+def full_build_cyclomatic(shape: DispatchShape, cyclomatic: int) -> int:
+    """Measured cyclomatic complexity minus the arms the full build omits."""
+    return cyclomatic - shape.absent
+
+
+def effective_cyclomatic(
+    shape: DispatchShape, cyclomatic: int, max_cyclomatic: int
+) -> int:
+    """The value the cap applies to: the full-build cyclomatic complexity when
+    it is within the cap, otherwise the residual after exhaustive dispatch."""
+    full = full_build_cyclomatic(shape, cyclomatic)
+    return full if full <= max_cyclomatic else full - shape.arms
 
 
 def exhaustive_dispatch_exempt(
@@ -301,7 +391,11 @@ def exhaustive_dispatch_exempt(
     if source is None or cognitive > max_cognitive or cyclomatic <= max_cyclomatic:
         return False
     shape = dispatch_shape(source, line)
-    if shape is None or shape.arms == 0 or shape.catch_alls:
+    if shape is None:
         return False
-    residual = cyclomatic - shape.arms
+    if full_build_cyclomatic(shape, cyclomatic) <= max_cyclomatic:
+        return True
+    if shape.arms == 0 or shape.catch_alls:
+        return False
+    residual = effective_cyclomatic(shape, cyclomatic, max_cyclomatic)
     return 1 <= residual <= max_cyclomatic

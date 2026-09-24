@@ -41,6 +41,16 @@ TEST_POLICY_VERSION = "policy:test"
 TEST_SIGNER_ALLOWED_ROLES = ["commons-access", "worker1-access"]
 
 
+#: A node -> edge -> commit write as real, engine-decodable requests. Mock
+#: transports use it where they need a named sequence: the client signs the
+#: body the engine re-derives, so it refuses an undecodable request locally.
+WRITE_SEQUENCE: tuple[tuple[str, dict[str, object]], ...] = (
+    ("AddNode", {"node_id": "n1", "properties_msgpack": b"\x80"}),
+    ("AddEdge", {"source_id": "n1", "target_id": "n2", "properties_msgpack": b"\x80"}),
+    ("Commit", {"txn_id": "t1", "idempotency_key": None}),
+)
+
+
 def request_context(
     *,
     agent_id: str = TEST_AGENT_ID,
