@@ -39,7 +39,7 @@ use crate::protocol::{
     build_context_operation_signature_bytes, build_envelope_v2_bytes, Method, Request,
 };
 pub(crate) use crate::server::authority_context::VerifiedRequestContext;
-use crate::server::request_replay::{durable_replay_ledger, ReplayLedger};
+use crate::server::request_replay::{durable_replay_ledger, PresentedNonce, ReplayLedger};
 use eg_types::contract::Nonce;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -1086,9 +1086,13 @@ fn verify_envelope_v2_with(
     // replay ledger would reject legitimate retries before the authoritative
     // scope ledger can resolve operation replay, so it remains read-only
     // protection for non-mutating requests only.
-    if !eg_capabilities::policy(&req.method).mutates
-        && !replay.check_and_record(&envelope.nonce, now, skew)?
-    {
+    let presented = PresentedNonce {
+        nonce: &envelope.nonce,
+        timestamp: envelope.timestamp,
+        now,
+        window: skew,
+    };
+    if !eg_capabilities::policy(&req.method).mutates && !replay.check_and_record(presented)? {
         return Err("nonce already used (replay rejected)".to_string());
     }
 
@@ -1826,9 +1830,7 @@ mod tests {
     }
 
     fn memory_replay() -> crate::server::request_replay::ReplayCache {
-        crate::server::request_replay::ReplayCache {
-            seen: std::sync::Mutex::new(HashMap::new()),
-        }
+        crate::server::request_replay::ReplayCache::new()
     }
 
     fn signed_v2_with_claims(id: u64, nonce: &str, claims: RequestContextClaims) -> Request {
