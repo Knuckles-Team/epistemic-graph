@@ -264,6 +264,66 @@
         }
       ]
     },
+    "AdapterFitRequest": {
+      "additionalProperties": false,
+      "description": "Fit an adapter from the judged retrieval outcomes of one space.",
+      "properties": {
+        "graph": {
+          "description": "The graph whose stored vectors score the judged units. The caller's\ngraph ACL and row-level security apply: an invisible unit is never read.",
+          "type": "string"
+        },
+        "holdout_per_mille": {
+          "description": "Share of judged items held out for evaluation, per mille (`100..=500`).",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_gain_q16": {
+          "description": "Largest `|g_i|` on `Q16`, at most one half.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "min_eval_items": {
+          "description": "Fewest held-out items a passing receipt needs.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "question_id": {
+          "default": null,
+          "description": "`None`: every retrieval question.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rank": {
+          "description": "Directions to fit, `1..=8`.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "space_digest": {
+          "description": "The embedding model identity the graph's vectors and the judged\nqueries were produced in. When the graph's store declares a space it\nmust be this one.",
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/RecordWindow"
+        }
+      },
+      "required": [
+        "graph",
+        "space_digest",
+        "window",
+        "rank",
+        "max_gain_q16",
+        "holdout_per_mille",
+        "min_eval_items"
+      ],
+      "type": "object"
+    },
     "AgentComponentContentRequest": {
       "additionalProperties": false,
       "description": "Read one component revision's bytes.",
@@ -3108,6 +3168,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_GenerationEvalItem_1024": {
+      "items": {
+        "$ref": "#/$defs/GenerationEvalItem"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
     "BoundedVec_IndexFileVersion_262144": {
       "items": {
         "$ref": "#/$defs/IndexFileVersion"
@@ -3164,6 +3231,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_PathEdge_8": {
+      "items": {
+        "$ref": "#/$defs/PathEdge"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_PremiseRef_1024": {
       "items": {
         "$ref": "#/$defs/PremiseRef"
@@ -3185,6 +3259,13 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_ReturnedEvidence_256": {
+      "items": {
+        "$ref": "#/$defs/ReturnedEvidence"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "BoundedVec_ScoredOption_64": {
       "items": {
         "$ref": "#/$defs/ScoredOption"
@@ -3197,6 +3278,13 @@
         "$ref": "#/$defs/SlotAssignment"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_SlotType_8": {
+      "items": {
+        "$ref": "#/$defs/SlotType"
+      },
+      "maxItems": 8,
       "type": "array"
     },
     "BoundedVec_SourceEntityRef_16384": {
@@ -3287,6 +3375,14 @@
       "items": {
         "format": "float",
         "type": "number"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_int32_4096": {
+      "items": {
+        "format": "int32",
+        "type": "integer"
       },
       "maxItems": 4096,
       "type": "array"
@@ -6575,8 +6671,19 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "Make one statistical record durable, after verify-replay.",
+          "description": "Make one statistical record durable, after verify-replay. The\ncommitter may name the one principal allowed to evaluate it\n([`NamedEvaluator`]).",
           "properties": {
+            "evaluator": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/NamedEvaluator"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "op": {
               "const": "commit",
               "type": "string"
@@ -6722,6 +6829,28 @@
             "op",
             "tenant_id",
             "resolution"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Record retrieval-learning evidence (EH-394..EH-397,\n[`super::retrieval::LearningWrite`]).",
+          "properties": {
+            "op": {
+              "const": "learn",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            },
+            "write": {
+              "$ref": "#/$defs/LearningWrite"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "write"
           ],
           "type": "object"
         }
@@ -10872,6 +11001,83 @@
       ],
       "type": "object"
     },
+    "GenerationEvalItem": {
+      "additionalProperties": false,
+      "description": "One judged run, its query embedded in both spaces (`q16`, `x / 2^16`).",
+      "properties": {
+        "active_q16": {
+          "$ref": "#/$defs/BoundedVec_int32_4096"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "shadow_q16": {
+          "$ref": "#/$defs/BoundedVec_int32_4096"
+        }
+      },
+      "required": [
+        "record_id",
+        "active_q16",
+        "shadow_q16"
+      ],
+      "type": "object"
+    },
+    "GenerationEvalRequest": {
+      "additionalProperties": false,
+      "description": "Evaluate a shadow generation against the active one.",
+      "properties": {
+        "active_graph": {
+          "description": "The generation the logical graph resolves to now.",
+          "type": "string"
+        },
+        "active_space": {
+          "description": "The embedding model identity of the active generation.",
+          "type": "string"
+        },
+        "items": {
+          "$ref": "#/$defs/BoundedVec_GenerationEvalItem_1024"
+        },
+        "logical": {
+          "description": "The logical graph callers name.",
+          "type": "string"
+        },
+        "max_score_psi_q16": {
+          "description": "Largest admissible top-1 score PSI, on `Q16` (0.25 = 16384).",
+          "format": "int64",
+          "type": "integer"
+        },
+        "min_eval_items": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shadow_graph": {
+          "type": "string"
+        },
+        "shadow_space": {
+          "description": "The (new) embedding model identity of the shadow generation.",
+          "type": "string"
+        },
+        "top_k": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "logical",
+        "active_graph",
+        "active_space",
+        "shadow_graph",
+        "shadow_space",
+        "items",
+        "top_k",
+        "min_eval_items",
+        "max_score_psi_q16"
+      ],
+      "type": "object"
+    },
     "Grant": {
       "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
       "properties": {
@@ -12749,6 +12955,87 @@
           },
           "required": [
             "infeasible"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LearningWrite": {
+      "description": "The one retrieval-learning WRITE (`DecisionLog.learn`): each variant\nrecords new decision or evaluation evidence -- an attested run outcome, a\nfitted adapter with its held-out receipt, a generation receipt, an audited\npointer move. Every READ of what was learned is a reserved SQL relation of\nthe decision views (`decision_retrieval_outcomes`,\n`decision_hard_negatives`, `decision_class_usage`, `decision_proven_paths`,\n`decision_pointers`), never an op.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Attest what a committed retrieval run returned and cited.",
+          "properties": {
+            "outcome": {
+              "$ref": "#/$defs/RetrievalOutcome"
+            },
+            "write": {
+              "const": "record_outcome",
+              "type": "string"
+            }
+          },
+          "required": [
+            "write",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Fit a query-side adapter and receipt it on a held-out split.",
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/AdapterFitRequest"
+            },
+            "write": {
+              "const": "fit_adapter",
+              "type": "string"
+            }
+          },
+          "required": [
+            "write",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Dual-serve judged runs against a shadow generation and receipt it.",
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/GenerationEvalRequest"
+            },
+            "write": {
+              "const": "evaluate_generation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "write",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Move a governed pointer.",
+          "properties": {
+            "movement": {
+              "$ref": "#/$defs/PointerMovement"
+            },
+            "pointer": {
+              "$ref": "#/$defs/PointerRef"
+            },
+            "write": {
+              "const": "move_pointer",
+              "type": "string"
+            }
+          },
+          "required": [
+            "write",
+            "pointer",
+            "movement"
           ],
           "type": "object"
         }
@@ -29942,6 +30229,27 @@
       ],
       "type": "string"
     },
+    "NamedEvaluator": {
+      "additionalProperties": false,
+      "description": "The one principal a committer names to evaluate its record (EH-395).\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal join evaluations to exactly this\nrecord until it expires: it cannot read, list or count the record, and\nnothing else widens. The evaluator is never the committer.",
+      "properties": {
+        "expires_at_ms": {
+          "description": "When the grant lapses; at most the control-lease span after commit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "principal": {
+          "description": "The evaluator's persistence id (`principal:sha256:<hex>` of its\nverified principal).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
     "NativeControlSchemaVersion": {
       "enum": [
         "1"
@@ -32016,6 +32324,58 @@
       ],
       "type": "string"
     },
+    "PathEdge": {
+      "additionalProperties": false,
+      "description": "One hop sequence of a path template.",
+      "properties": {
+        "max_hops": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_hops": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relationship": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "relationship",
+        "min_hops",
+        "max_hops"
+      ],
+      "type": "object"
+    },
+    "PathRank": {
+      "description": "How a path template orders what it reached.",
+      "oneOf": [
+        {
+          "const": "unranked",
+          "description": "Topology order only.",
+          "type": "string"
+        },
+        {
+          "const": "vector",
+          "description": "Vector similarity to the bound query.",
+          "type": "string"
+        },
+        {
+          "const": "text",
+          "description": "BM25 over the bound query text.",
+          "type": "string"
+        },
+        {
+          "const": "fuse_rrf",
+          "description": "Reciprocal-rank fusion of the vector and text legs.",
+          "type": "string"
+        }
+      ]
+    },
     "PipelineSpec": {
       "description": "The full composable pipeline recipe: ordered feature steps → split → model. Stored\n(minus the split) inside the `:Model` artifact so eval/predict rebuild features\nIDENTICALLY from the same recipe without the caller re-specifying it.",
       "properties": {
@@ -32177,6 +32537,88 @@
         "ops"
       ],
       "type": "object"
+    },
+    "PointerMovement": {
+      "description": "How a pointer moves.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "To `target` (an adapter digest, a shadow graph), with the passing\nreceipt that qualified exactly it.",
+          "properties": {
+            "movement": {
+              "const": "activate",
+              "type": "string"
+            },
+            "receipt_digest": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "movement",
+            "target",
+            "receipt_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Back to the target active before the current one.",
+          "properties": {
+            "movement": {
+              "const": "rollback",
+              "type": "string"
+            }
+          },
+          "required": [
+            "movement"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PointerRef": {
+      "description": "Which governed pointer a move names.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The query adapter a graph serves (EH-396).",
+          "properties": {
+            "graph": {
+              "type": "string"
+            },
+            "pointer": {
+              "const": "adapter",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pointer",
+            "graph"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The embedding generation a logical graph resolves to (EH-397).",
+          "properties": {
+            "logical": {
+              "type": "string"
+            },
+            "pointer": {
+              "const": "generation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pointer",
+            "logical"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PolicyRecord": {
       "description": "Policy rows carry an opaque subject-set digest, never raw principals.",
@@ -33561,6 +34003,23 @@
       ],
       "type": "object"
     },
+    "QueryVector": {
+      "additionalProperties": false,
+      "description": "A fixed-point query vector: component `i` is `q16[i] / 2^16`, in the\nembedding space whose `EmbeddingSpaceRef::digest` is `space_digest`.",
+      "properties": {
+        "q16": {
+          "$ref": "#/$defs/BoundedVec_int32_4096"
+        },
+        "space_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "space_digest",
+        "q16"
+      ],
+      "type": "object"
+    },
     "QuestionKind": {
       "description": "What class of question this is. The kind selects the executor; it never\nselects the guarantee.",
       "enum": [
@@ -34863,6 +35322,101 @@
       ],
       "type": "object"
     },
+    "RetrievalOutcome": {
+      "additionalProperties": false,
+      "description": "What one retrieval run returned and cited, attested by the principal that\ncommitted its plan decision.",
+      "properties": {
+        "cited": {
+          "$ref": "#/$defs/BoundedVec_string_256",
+          "default": [],
+          "description": "The returned units the answer used; a subset of `returned`."
+        },
+        "path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrievalPathTemplate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The plan template the run executed, when it was a typed path."
+        },
+        "query": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QueryVector"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The query vector the run ranked with, for adapter fitting (EH-396)."
+        },
+        "record_id": {
+          "description": "The committed retrieval-plan record this run executed.",
+          "type": "string"
+        },
+        "returned": {
+          "$ref": "#/$defs/BoundedVec_ReturnedEvidence_256",
+          "default": []
+        }
+      },
+      "required": [
+        "record_id"
+      ],
+      "type": "object"
+    },
+    "RetrievalPathTemplate": {
+      "additionalProperties": false,
+      "description": "A typed, parameterised, data-independent retrieval plan (EH-394). It names\nschema terms and slot types only -- never a row -- so it stays valid for as\nlong as the composed schema it was proven under (`composed_digest`).",
+      "properties": {
+        "anchor_class": {
+          "type": "string"
+        },
+        "composed_digest": {
+          "description": "The composed GraphSchema identity the plan's terms resolve under.",
+          "type": "string"
+        },
+        "edges": {
+          "$ref": "#/$defs/BoundedVec_PathEdge_8",
+          "default": []
+        },
+        "policy_version": {
+          "description": "The retrieval policy version the run used.",
+          "type": "string"
+        },
+        "rank": {
+          "$ref": "#/$defs/PathRank"
+        },
+        "skill_ref": {
+          "default": null,
+          "description": "The skill component the run executed with (topology -> skill, read by\nAU's `graph.assemble()`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "slots": {
+          "$ref": "#/$defs/BoundedVec_SlotType_8",
+          "default": []
+        },
+        "task_class": {
+          "description": "The task class the run served (an IRI).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_class",
+        "composed_digest",
+        "policy_version",
+        "anchor_class",
+        "rank"
+      ],
+      "type": "object"
+    },
     "RetrievalTraceSpec": {
       "description": "One stored retrieval trace for `MineRetrievalQuality` (CONCEPT:EG-KG.mining.retrieval-quality):\nwhat a query actually retrieved (ranked) vs. what was actually relevant.",
       "properties": {
@@ -34884,6 +35438,27 @@
       "required": [
         "retrieved",
         "relevant"
+      ],
+      "type": "object"
+    },
+    "ReturnedEvidence": {
+      "additionalProperties": false,
+      "description": "One evidence unit a retrieval returned, in rank order (index 0 = rank 1).",
+      "properties": {
+        "content_class": {
+          "default": null,
+          "description": "The ingestion content class of the unit (AU's admission table), when\nknown; read by the per-class usage aggregate.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id"
       ],
       "type": "object"
     },
@@ -38275,6 +38850,16 @@
         "component"
       ],
       "type": "object"
+    },
+    "SlotType": {
+      "description": "The type of one slot a template binds at run time.",
+      "enum": [
+        "query_text",
+        "query_vector",
+        "anchor_id",
+        "class_iri"
+      ],
+      "type": "string"
     },
     "SolveModelSpec": {
       "additionalProperties": false,
