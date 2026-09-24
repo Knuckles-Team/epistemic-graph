@@ -160,18 +160,25 @@ fn a_forced_change_opens_no_session_until_a_new_password_is_supplied() {
 }
 
 fn totp_session(store: &mut IdentityStore, alice: &str) {
-    let mut enroll = IdentityStamp::for_actor(actor(alice, &[IDENTITY_SELF_SCOPE]));
+    open_session(store, "alice", alice, "enrol-session");
+    let mut enroll = broker();
+    enroll.token_hashes = vec!["enrol-session".to_string()];
     enroll.sealed_secret = Some("sealed".to_string());
     let op = IdentityOp::Mfa(MfaOp::EnrollTotp {
         request: TotpEnroll {
+            session_token: Secret::default(),
             secret_base32: Secret::default(),
         },
     });
     apply_kept(store, &op, &enroll, NOW).unwrap();
-    let mut confirm = IdentityStamp::for_actor(actor(alice, &[IDENTITY_SELF_SCOPE]));
+    let mut confirm = broker();
+    confirm.token_hashes = vec!["enrol-session".to_string()];
     confirm.totp_step = Some(100);
     let op = IdentityOp::Mfa(MfaOp::ConfirmTotp {
-        request: TotpCode { code: Secret::default() },
+        request: SessionTouch {
+            session_token: Secret::default(),
+            code: Secret::default(),
+        },
     });
     apply_kept(store, &op, &confirm, NOW).unwrap();
 }

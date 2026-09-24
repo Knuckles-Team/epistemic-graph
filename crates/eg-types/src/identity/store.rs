@@ -160,6 +160,18 @@ impl IdentityStore {
         (principal, hash)
     }
 
+    /// One principal's record.
+    pub fn user(&self, principal_id: &str) -> Option<&super::model::UserRecord> {
+        self.users.get(principal_id)
+    }
+
+    /// The principal an outstanding one-time token names.
+    pub fn one_time_principal(&self, token_hash: &str) -> Option<&str> {
+        self.one_time
+            .get(token_hash)
+            .and_then(|token| token.principal_id.as_deref())
+    }
+
     /// The stored password hash and history of one principal.
     pub fn credential_of(&self, principal_id: &str) -> Option<&PasswordCredential> {
         self.passwords.get(principal_id)
@@ -212,7 +224,10 @@ impl IdentityStore {
         Ok(reply)
     }
 
-    fn authorize(&self, op: &IdentityOp, stamp: &IdentityStamp) -> Result<(), IdentityRefusal> {
+    /// Whether the stamped actor holds the exact authority `op` needs. The
+    /// boundary calls this BEFORE deriving (argon2id, unsealing), so an
+    /// unauthorized caller never makes the engine do that work.
+    pub fn authorize(&self, op: &IdentityOp, stamp: &IdentityStamp) -> Result<(), IdentityRefusal> {
         let actor = &stamp.actor;
         let allowed = match op.meta().authority {
             OpAuthority::Admin => actor.holds(IDENTITY_ADMIN_SCOPE) && !actor.delegated,

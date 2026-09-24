@@ -3,10 +3,11 @@
 use super::*;
 
 fn issue(purpose: TokenPurpose, principal: Option<&str>, hash: &str) -> (IdentityOp, IdentityStamp) {
-    let mut stamp = admin();
-    stamp.token_hashes = vec![hash.to_string()];
+    let mut stamp = broker();
+    stamp.token_hashes = vec![ADMIN_SESSION.to_string(), hash.to_string()];
     let op = IdentityOp::Token(TokenOp::IssueOneTime {
         request: OneTimeTokenIssue {
+            session_token: Secret::default(),
             purpose,
             principal_id: principal.map(str::to_string),
             token: Secret::default(),
@@ -34,6 +35,7 @@ fn redeem(purpose: TokenPurpose, hash: &str) -> (IdentityOp, IdentityStamp) {
 #[test]
 fn a_one_time_token_is_spent_once_for_its_own_purpose_only() {
     let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
     let (op, stamp) = issue(TokenPurpose::AdminReset, Some(&alice), "t1");
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
@@ -53,8 +55,38 @@ fn a_one_time_token_is_spent_once_for_its_own_purpose_only() {
 }
 
 #[test]
+fn issuing_a_token_needs_a_live_administrator_session() {
+    let mut store = store_in(AuthMode::Local);
+    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
+    let (op, stamp) = issue(TokenPurpose::AdminReset, Some(&alice), "t0");
+    assert_eq!(
+        apply_kept(&mut store, &op, &stamp, NOW),
+        Err(IdentityRefusal::NotAuthorized),
+        "no administrator session exists yet"
+    );
+    let mut direct = admin();
+    direct.token_hashes = stamp.token_hashes.clone();
+    with_admin_session(&mut store);
+    assert_eq!(
+        apply_kept(&mut store, &op, &direct, NOW),
+        Err(IdentityRefusal::NotAuthorized),
+        "only the broker submits a caller-generated token"
+    );
+    assert!(apply_kept(&mut store, &op, &stamp, NOW).is_ok());
+    open_session(&mut store, "alice", &alice, "alice-session");
+    let mut as_alice = stamp.clone();
+    as_alice.token_hashes = vec!["alice-session".to_string(), "t9".to_string()];
+    assert_eq!(
+        apply_kept(&mut store, &op, &as_alice, NOW),
+        Err(IdentityRefusal::NotAuthorized),
+        "a non-administrator's session cannot issue one"
+    );
+}
+
+#[test]
 fn an_expired_token_is_spent() {
     let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
     let (op, stamp) = issue(TokenPurpose::PasswordReset, Some(&alice), "t2");
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
@@ -67,10 +99,11 @@ fn an_expired_token_is_spent() {
 }
 
 fn api_key(principal: &str, key_id: &str, scopes: &[&str]) -> (IdentityOp, IdentityStamp) {
-    let mut stamp = admin();
-    stamp.token_hashes = vec![format!("{key_id}-secret")];
+    let mut stamp = broker();
+    stamp.token_hashes = vec![ADMIN_SESSION.to_string(), format!("{key_id}-secret")];
     let op = IdentityOp::Token(TokenOp::IssueApiKey {
         request: ApiKeyIssue {
+            session_token: Secret::default(),
             principal_id: principal.to_string(),
             key_id: key_id.to_string(),
             secret: Secret::default(),
@@ -96,6 +129,7 @@ fn verify_key(key_id: &str, secret_hash: &str) -> (IdentityOp, IdentityStamp) {
 #[test]
 fn an_api_key_carries_only_scopes_its_owner_holds_and_narrows_with_the_owner() {
     let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
     let (op, stamp) = api_key(&alice, "k1", &["kg:write"]);
     assert_eq!(
@@ -135,6 +169,7 @@ fn an_api_key_carries_only_scopes_its_owner_holds_and_narrows_with_the_owner() {
 #[test]
 fn a_revoked_key_is_refused() {
     let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
     let (op, stamp) = api_key(&alice, "k4", &["kg:read"]);
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();

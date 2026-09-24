@@ -110,6 +110,39 @@ pub(super) fn create(store: &mut IdentityStore, username: &str, kind: UserKind) 
     }
 }
 
+/// Open a live session `session` for the principal of `username` (its
+/// password verdict is stamped as matched).
+pub(super) fn open_session(store: &mut IdentityStore, username: &str, principal: &str, session: &str) {
+    let mut stamp = broker();
+    stamp.password_check = Some(PasswordCheck {
+        principal_id: Some(principal.to_string()),
+        matched: true,
+        rehash: None,
+    });
+    stamp.token_hashes = vec![session.to_string()];
+    let op = IdentityOp::Credential(CredentialOp::Authenticate {
+        request: AuthenticateRequest {
+            username: username.to_string(),
+            password: Secret::default(),
+            session_token: Secret::default(),
+            ip_prefix: None,
+            new_password: Secret::default(),
+        },
+    });
+    let reply = apply_kept(store, &op, &stamp, NOW).expect("sign-in");
+    assert!(
+        matches!(reply, IdentityReply::Authenticate(ref result) if result.outcome == AuthenticateOutcome::Ok),
+        "{reply:?}"
+    );
+}
+
+/// The bootstrap administrator's live session in a local-mode store.
+pub(super) const ADMIN_SESSION: &str = "admin-session";
+
+pub(super) fn with_admin_session(store: &mut IdentityStore) {
+    open_session(store, "root-admin", BOOTSTRAP_PRINCIPAL, ADMIN_SESSION);
+}
+
 /// Apply on a clone and keep it only on success -- the engine's discipline.
 pub(super) fn apply_kept(
     store: &mut IdentityStore,

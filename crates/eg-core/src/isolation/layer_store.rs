@@ -38,9 +38,7 @@ impl IsolationLayer {
         let store = crate::rbac_persist::RbacStore::open(dir, verifier, principal, proof)?;
         let (rbac, identities, identity_bootstrap) = store.load()?;
         if identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
-            && (!identities.is_empty()
-                || rbac.roles().next().is_some()
-                || !rbac.grants().is_empty())
+            && !holds_only_identity_store_state(&rbac, &identities)
         {
             return Err(crate::rbac_persist::RbacPersistError::IncompleteState(
                 "pending identity bootstrap requires an empty policy and identity map",
@@ -77,4 +75,19 @@ impl IsolationLayer {
             .save(&self.rbac, &identities, self.identity_bootstrap)
             .map_err(|error| format!("identity/RBAC policy save failed: {error}"))
     }
+}
+
+/// Whether a policy image still pending its System bootstrap holds nothing but
+/// what the identity store projects (its `idm:` roles and grants and the
+/// principals it manages). Anything else before bootstrap is corruption.
+#[cfg(feature = "security")]
+pub(super) fn holds_only_identity_store_state(
+    rbac: &crate::rbac::RbacPolicy,
+    identities: &std::collections::BTreeMap<String, AgentIdentity>,
+) -> bool {
+    let owned = |name: &str| name.starts_with(eg_types::identity::RBAC_ROLE_PREFIX);
+    let store = rbac.identity_store();
+    identities.keys().all(|principal| store.manages(principal))
+        && rbac.roles().all(|role| owned(&role.name))
+        && rbac.grants().iter().all(|grant| owned(&grant.role))
 }

@@ -11,6 +11,14 @@ use super::super::views::{IdentityReply, SessionView};
 use super::super::{IdentityRefusal, MAX_SESSIONS_PER_USER};
 use super::{ApplyContext, IdentityStore};
 
+/// Whether a session still owing its second factor may act.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PendingSession {
+    Refuse,
+    /// Only to enrol a first factor (the principal has none confirmed yet).
+    AllowEnrollment,
+}
+
 /// How a new session starts.
 pub(crate) struct SessionOpen<'a> {
     pub(crate) session_hash: &'a str,
@@ -45,6 +53,46 @@ impl IdentityStore {
                     .map(SessionView::of)
                     .collect(),
             )),
+        }
+    }
+
+    /// The principal a broker op acts for: the owner of the live session
+    /// whose hash is the op's FIRST token hash. A person is proven by a
+    /// session in this store, never by a claim the broker forwards.
+    pub(crate) fn session_subject(
+        &self,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+        pending: PendingSession,
+    ) -> Result<String, IdentityRefusal> {
+        let session = self
+            .sessions
+            .get(stamp.token_hash(0)?)
+            .filter(|session| session.is_live(now_ms))
+            .ok_or(IdentityRefusal::NotAuthorized)?;
+        let principal = session.principal_id.clone();
+        let pending_ok = match pending {
+            PendingSession::Refuse => false,
+            PendingSession::AllowEnrollment => !self.mfa_enrolled(&principal),
+        };
+        if (session.mfa_pending && !pending_ok) || !self.is_active(&principal) {
+            return Err(IdentityRefusal::NotAuthorized);
+        }
+        Ok(principal)
+    }
+
+    /// The session subject, required to be an administrator.
+    pub(crate) fn admin_subject(
+        &self,
+        stamp: &IdentityStamp,
+        ctx: &ApplyContext<'_>,
+    ) -> Result<String, IdentityRefusal> {
+        let principal = self.session_subject(stamp, ctx.now_ms, PendingSession::Refuse)?;
+        let scopes = self.resolve(&principal, ctx.classifier)?.scopes;
+        if scopes.contains(super::super::ops::IDENTITY_ADMIN_SCOPE) {
+            Ok(principal)
+        } else {
+            Err(IdentityRefusal::NotAuthorized)
         }
     }
 

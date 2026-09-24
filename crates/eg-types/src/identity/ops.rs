@@ -14,8 +14,7 @@ use super::config::ModeTransition;
 use super::requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
     InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordSet,
-    RecoveryCodesSet, SessionTouch, TokenRedeem, TotpCode, TotpEnroll, UserStatusChange,
-    UserUpdate,
+    RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange, UserUpdate,
 };
 use super::requests_admin::{
     GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, RoleUpsert,
@@ -34,6 +33,13 @@ pub const IDENTITY_SELF_SCOPE: &str = "identity:self";
 pub const IDENTITY_PROVISION_SCOPE: &str = "identity:provision";
 
 /// Which exact scope an op needs.
+///
+/// Every op that carries a caller-generated high-entropy secret (a session
+/// id, a one-time token, an API-key secret, a TOTP secret, recovery codes)
+/// is a BROKER op: only `identity:authenticate` (service-only) may submit
+/// one, and the engine enforces the entropy floor on it. When such an op acts
+/// for a person (issuing a reset token, enrolling a factor) the person is
+/// proven by a live session in this store, not by a claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpAuthority {
     /// `identity:admin`, direct (undelegated) actor.
@@ -148,7 +154,7 @@ pub enum TokenOp {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MfaOp {
     EnrollTotp { request: TotpEnroll },
-    ConfirmTotp { request: TotpCode },
+    ConfirmTotp { request: SessionTouch },
     VerifyTotp { request: SessionTouch },
     SetRecoveryCodes { request: RecoveryCodesSet },
     ConsumeRecoveryCode { request: SessionTouch },
@@ -281,11 +287,13 @@ impl SessionOp {
 impl TokenOp {
     fn meta(&self) -> OpMeta {
         match self {
-            Self::IssueOneTime { .. } => meta("issue_one_time_token", true, OpAuthority::Admin),
+            Self::IssueOneTime { .. } => {
+                meta("issue_one_time_token", true, OpAuthority::Broker)
+            }
             Self::RedeemOneTime { .. } => {
                 meta("redeem_one_time_token", true, OpAuthority::Broker)
             }
-            Self::IssueApiKey { .. } => meta("issue_api_key", true, OpAuthority::Admin),
+            Self::IssueApiKey { .. } => meta("issue_api_key", true, OpAuthority::Broker),
             Self::VerifyApiKey { .. } => meta("verify_api_key", true, OpAuthority::Broker),
             Self::RevokeApiKey { .. } => meta("revoke_api_key", true, OpAuthority::Admin),
         }
@@ -295,11 +303,11 @@ impl TokenOp {
 impl MfaOp {
     fn meta(&self) -> OpMeta {
         match self {
-            Self::EnrollTotp { .. } => meta("enroll_totp", true, OpAuthority::SelfService),
-            Self::ConfirmTotp { .. } => meta("confirm_totp", true, OpAuthority::SelfService),
+            Self::EnrollTotp { .. } => meta("enroll_totp", true, OpAuthority::Broker),
+            Self::ConfirmTotp { .. } => meta("confirm_totp", true, OpAuthority::Broker),
             Self::VerifyTotp { .. } => meta("verify_totp", true, OpAuthority::Broker),
             Self::SetRecoveryCodes { .. } => {
-                meta("set_recovery_codes", true, OpAuthority::SelfService)
+                meta("set_recovery_codes", true, OpAuthority::Broker)
             }
             Self::ConsumeRecoveryCode { .. } => {
                 meta("consume_recovery_code", true, OpAuthority::Broker)

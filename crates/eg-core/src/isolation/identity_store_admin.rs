@@ -65,12 +65,14 @@ impl IsolationLayer {
         if &next == self.rbac.identity_store() {
             return Ok(reply);
         }
-        let previous = (self.rbac.clone(), self.agents.clone(), self.identity_bootstrap);
+        // The one-time System bootstrap is NOT consumed here: the identity
+        // store owns only its own principals, and the engine's System
+        // identity is still registered through the dedicated bootstrap path.
+        let previous = (self.rbac.clone(), self.agents.clone());
         *self.rbac.identity_store_mut() = next;
         self.project_identity_store();
-        self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Consumed;
         if let Err(error) = self.persist_state() {
-            (self.rbac, self.agents, self.identity_bootstrap) = previous;
+            (self.rbac, self.agents) = previous;
             return Err(IdentityStoreError::Persist(error));
         }
         Ok(reply)

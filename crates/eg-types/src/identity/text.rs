@@ -75,6 +75,40 @@ pub(crate) fn high_entropy_token(value: &str) -> Result<(), IdentityRefusal> {
     }
 }
 
+/// The engine's entropy floor for a caller-generated token (public: the
+/// request boundary enforces it before hashing).
+pub fn check_token(value: &str) -> Result<(), IdentityRefusal> {
+    high_entropy_token(value)
+}
+
+/// Shortest recovery code: 16 characters of `[A-Za-z0-9-]` (≥ 80 bits from
+/// a uniform generator), short enough to type from paper.
+pub const MIN_RECOVERY_CODE_CHARS: usize = 16;
+/// Shortest TOTP secret: 32 base32 characters (160 bits, RFC 4226 §4).
+pub const MIN_TOTP_SECRET_CHARS: usize = 32;
+
+/// The floor for one recovery code.
+pub fn check_recovery_code(value: &str) -> Result<(), IdentityRefusal> {
+    let allowed = |c: char| c.is_ascii_alphanumeric() || c == '-';
+    let length_ok = (MIN_RECOVERY_CODE_CHARS..=MAX_TOKEN_CHARS).contains(&value.len());
+    if length_ok && value.chars().all(allowed) {
+        Ok(())
+    } else {
+        Err(IdentityRefusal::InvalidRequest)
+    }
+}
+
+/// The floor for a base32 TOTP secret.
+pub fn check_totp_secret(value: &str) -> Result<(), IdentityRefusal> {
+    let allowed = |c: char| c.is_ascii_uppercase() || ('2'..='7').contains(&c);
+    let length_ok = (MIN_TOTP_SECRET_CHARS..=MAX_TOKEN_CHARS).contains(&value.len());
+    if length_ok && value.chars().all(allowed) {
+        Ok(())
+    } else {
+        Err(IdentityRefusal::InvalidRequest)
+    }
+}
+
 /// A minimal e-mail shape check: one `@`, non-empty local part and domain.
 pub(crate) fn email(value: &str) -> Result<(), IdentityRefusal> {
     bounded(value, MAX_EMAIL_BYTES)?;

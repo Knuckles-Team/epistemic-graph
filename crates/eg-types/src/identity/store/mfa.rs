@@ -8,6 +8,7 @@ use super::super::ops::MfaOp;
 use super::super::stamp::IdentityStamp;
 use super::super::views::{AuthenticateOutcome, AuthenticateResult, IdentityReply};
 use super::super::{IdentityRefusal, RECOVERY_CODES_PER_SET};
+use super::sessions::PendingSession;
 use super::throttle::account_key;
 use super::{ApplyContext, IdentityStore, RecoveryCode};
 
@@ -38,7 +39,7 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        let principal = stamp.actor.principal_id.clone();
+        let principal = self.session_subject(stamp, now_ms, PendingSession::AllowEnrollment)?;
         let sealed = stamp.sealed_secret.clone().ok_or(IdentityRefusal::Unstamped)?;
         if self.mfa_enrolled(&principal) {
             return Err(IdentityRefusal::Collision);
@@ -70,7 +71,7 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        let principal = stamp.actor.principal_id.clone();
+        let principal = self.session_subject(stamp, now_ms, PendingSession::AllowEnrollment)?;
         let step = stamp.totp_step.ok_or(IdentityRefusal::BadCredential)?;
         self.accept_step(&principal, step)?;
         if let Some(record) = self.totp.get_mut(&principal) {
@@ -154,13 +155,14 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        if stamp.token_hashes.len() != RECOVERY_CODES_PER_SET {
+        if stamp.token_hashes.len() != RECOVERY_CODES_PER_SET + 1 {
             return Err(IdentityRefusal::InvalidRequest);
         }
-        let principal = stamp.actor.principal_id.clone();
+        let principal = self.session_subject(stamp, now_ms, PendingSession::AllowEnrollment)?;
         let codes = stamp
             .token_hashes
             .iter()
+            .skip(1)
             .map(|hash| RecoveryCode {
                 code_hash: hash.clone(),
                 used_at_ms: None,

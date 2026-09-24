@@ -303,6 +303,22 @@ async fn dispatch_preamble_checks(
     )
     .await?;
 
+    // IDM-01: after the ledger's scope check, before consensus routing --
+    // stamp the actor, check the op's exact identity authority, derive every
+    // hash/verdict/sealed value and clear every plaintext secret, so the
+    // replicated command never carries one.
+    #[cfg(feature = "security")]
+    if let Err(error) = super::identity_store::stamp_identity(
+        state,
+        &mut req.method,
+        verified_context,
+        super::elevation::ElevationStampAuthority::of(state_machine_authorized),
+    )
+    .await
+    {
+        return Err(Response::err(req.id, error));
+    }
+
     if let Err(error) = preflight_request_msgpack(&req.method) {
         return Err(Response::err(req.id, error));
     }

@@ -62,6 +62,20 @@ pub(super) async fn dispatch_identity_and_access_methods(
             )
             .await
         }
+        // ── The identity store (IDM-01..04) ───────────────────────────────
+        #[cfg(feature = "security")]
+        Method::Identity { op, stamp } => {
+            crate::server::dispatch::identity_store::dispatch_identity(
+                state,
+                req.id,
+                verified_context,
+                crate::server::dispatch::elevation::ElevationStampAuthority::of(
+                    state_machine_authorized,
+                ),
+                (op, stamp),
+            )
+            .await
+        }
         other => return ControlFlow::Continue(other),
     })
 }
@@ -122,6 +136,7 @@ async fn dispatch_identity_and_access_methods_arm_0(
                         IdentityRegistrationMode {
                             bootstrap: identity_bootstrap,
                             state_machine_authorized,
+                            actor: verified_context.principal(),
                         },
                     ) {
                         return Response::err(req_id, message);
@@ -141,21 +156,34 @@ async fn dispatch_identity_and_access_methods_arm_0(
     }
 }
 
-struct IdentityRegistrationMode {
+struct IdentityRegistrationMode<'a> {
     bootstrap: bool,
     state_machine_authorized: bool,
+    /// Who registered, for the identity audit entry (IDM-03).
+    actor: &'a str,
 }
 
 fn register_identity(
     state: &mut ServerState,
     identity: crate::isolation::AgentIdentity,
-    mode: IdentityRegistrationMode,
+    mode: IdentityRegistrationMode<'_>,
 ) -> Result<(), String> {
     if mode.bootstrap
         || (mode.state_machine_authorized && replicated_identity_bootstrap_authorized())
     {
-        state.isolation.try_bootstrap_system_identity(identity)
-    } else {
+        return state.isolation.try_bootstrap_system_identity(identity);
+    }
+    #[cfg(feature = "security")]
+    {
+        let actor = crate::isolation::AuditActor {
+            principal: mode.actor,
+            now_ms: authoritative_now_ms(),
+        };
+        state.isolation.try_register_agent_audited(identity, actor)
+    }
+    #[cfg(not(feature = "security"))]
+    {
+        let _ = mode.actor;
         state.isolation.try_register_agent_from_request(identity)
     }
 }
@@ -194,7 +222,10 @@ async fn dispatch_identity_and_access_methods_arm_2(
         identity_bootstrap,
     } = ctx;
     match method {
-        Method::RbacAdmin { op } => dispatch_boxed(apply_rbac_admin(state, req.id, op)).await,
+        Method::RbacAdmin { op } => {
+            let actor = verified_context.principal();
+            dispatch_boxed(apply_rbac_admin(state, req.id, op, actor)).await
+        }
         _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }

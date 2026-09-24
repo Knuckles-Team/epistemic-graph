@@ -253,3 +253,26 @@ fn a_denial_sample_lands_in_the_trail() {
     assert_eq!(denied.len(), 2);
     assert_eq!(denied[1].detail, "dropped=2");
 }
+
+#[test]
+fn initializing_the_store_leaves_the_system_bootstrap_open() {
+    let layer = seeded();
+    assert!(
+        layer.identity_bootstrap_pending(),
+        "the engine's System identity still registers through its own bootstrap"
+    );
+    let mut foreign = BTreeMap::new();
+    foreign.insert("agent:x".to_string(), agent("agent:x"));
+    assert!(super::layer_store::holds_only_identity_store_state(
+        layer.rbac(),
+        &layer
+            .agents
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
+    ));
+    assert!(
+        !super::layer_store::holds_only_identity_store_state(layer.rbac(), &foreign),
+        "a non-store identity before bootstrap is still corruption"
+    );
+}

@@ -1,0 +1,200 @@
+//! IDM-01 through the real request boundary: the actor is stamped from the
+//! verified context, exact identity scopes are required, every secret is
+//! hashed and cleared before apply, and the floors refuse weak secrets.
+
+use super::*;
+use crate::acl::RequestContextClaims;
+use crate::isolation::IsolationLayer;
+use crate::protocol::Request;
+use eg_types::identity::*;
+
+const PASSWORD: &str = "correct horse battery staple";
+const SESSION: &str = "sess-0123456789abcdefghijklmnopqrstuv";
+
+fn state() -> Arc<RwLock<ServerState>> {
+    Arc::new(RwLock::new(ServerState::new_for_test(
+        "identity-test-secret",
+        IsolationLayer::new(),
+    )))
+}
+
+fn context(principal: &str, scopes: &[&str]) -> VerifiedRequestContext {
+    static KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let key = KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    VerifiedRequestContext::from_verified_claims(
+        RequestContextClaims {
+            principal: principal.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: principal.to_string(),
+            roles: Vec::new(),
+            scopes: scopes.iter().map(|scope| scope.to_string()).collect(),
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+            node: None,
+            priority: None,
+        },
+        format!("identity-test-{key}"),
+    )
+}
+
+fn broker() -> VerifiedRequestContext {
+    context("svc:graph-os", &[IDENTITY_AUTHENTICATE_SCOPE])
+}
+
+async fn send_stamped(
+    state: &Arc<RwLock<ServerState>>,
+    context: VerifiedRequestContext,
+    op: IdentityOp,
+    forged: Option<IdentityStamp>,
+) -> Response {
+    let request = Request {
+        id: 11,
+        graph: "__commons__".to_string(),
+        auth_token: String::new(),
+        agent_id: Some(context.agent_id().to_string()),
+        method: Method::Identity { op, stamp: forged },
+    };
+    Box::pin(super::super::request_boundary::dispatch_with_context(
+        state,
+        request,
+        Some(context),
+    ))
+    .await
+}
+
+async fn send(state: &Arc<RwLock<ServerState>>, context: VerifiedRequestContext, op: IdentityOp) -> Response {
+    send_stamped(state, context, op, None).await
+}
+
+fn initialize(password: &str) -> IdentityOp {
+    IdentityOp::Config(ConfigOp::Initialize {
+        request: InitializeRequest {
+            mode: AuthMode::Local,
+            admin_username: Some("root".to_string()),
+            admin_password: Secret::new(password),
+        },
+    })
+}
+
+fn sign_in(password: &str, session: &str) -> IdentityOp {
+    IdentityOp::Credential(CredentialOp::Authenticate {
+        request: AuthenticateRequest {
+            username: "root".to_string(),
+            password: Secret::new(password),
+            session_token: Secret::new(session),
+            ip_prefix: None,
+            new_password: Secret::default(),
+        },
+    })
+}
+
+fn authenticate_outcome(response: &Response) -> AuthenticateOutcome {
+    let reply: IdentityReply = match response.result.as_ref() {
+        Some(ResultPayload::Json(value)) => serde_json::from_value(value.clone()).expect("reply"),
+        other => panic!("expected a JSON identity reply, got {other:?}"),
+    };
+    match reply {
+        IdentityReply::Authenticate(result) => result.outcome,
+        other => panic!("expected an authenticate reply, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_password_is_hashed_at_the_boundary_and_signs_in() {
+    let state = state();
+    let response = send(&state, broker(), initialize(PASSWORD)).await;
+    assert!(response.error.is_none(), "{:?}", response.error);
+    let stored = state
+        .read()
+        .await
+        .isolation
+        .rbac()
+        .identity_store()
+        .credential_of(BOOTSTRAP_PRINCIPAL)
+        .map(|credential| credential.hash.clone())
+        .expect("a credential");
+    assert!(stored.starts_with("$argon2id$"));
+    assert!(!stored.contains(PASSWORD));
+    let image = serde_json::to_string(state.read().await.isolation.rbac()).unwrap();
+    assert!(!image.contains(PASSWORD), "no plaintext in the durable image");
+    assert!(!image.contains(SESSION));
+    let bad = send(&state, broker(), sign_in("wrong horse battery staple", SESSION)).await;
+    assert_eq!(authenticate_outcome(&bad), AuthenticateOutcome::Bad);
+    let good = send(&state, broker(), sign_in(PASSWORD, SESSION)).await;
+    assert_eq!(authenticate_outcome(&good), AuthenticateOutcome::Ok);
+}
+
+#[tokio::test]
+async fn weak_passwords_and_short_tokens_are_refused_at_the_boundary() {
+    let state = state();
+    let weak = send(&state, broker(), initialize("short")).await;
+    assert!(weak.error.as_deref().unwrap_or("").contains("IDENTITY_WEAK_PASSWORD"));
+    let ok = send(&state, broker(), initialize(PASSWORD)).await;
+    assert!(ok.error.is_none(), "{:?}", ok.error);
+    let short = send(&state, broker(), sign_in(PASSWORD, "tiny")).await;
+    assert!(short.error.as_deref().unwrap_or("").contains("IDENTITY_INVALID"));
+}
+
+#[tokio::test]
+async fn identity_authority_is_exact_and_never_implied_by_kg_admin() {
+    let state = state();
+    let as_kg_admin = send(&state, context("usr:ops", &["kg:admin"]), initialize(PASSWORD)).await;
+    assert!(
+        as_kg_admin.error.as_deref().unwrap_or("").contains("IDENTITY_NOT_AUTHORIZED"),
+        "{:?}",
+        as_kg_admin.error
+    );
+    let wildcard = send(&state, context("usr:ops", &["identity:*"]), initialize(PASSWORD)).await;
+    assert!(wildcard.error.as_deref().unwrap_or("").contains("IDENTITY_NOT_AUTHORIZED"));
+    let broker_ok = send(&state, broker(), initialize(PASSWORD)).await;
+    assert!(broker_ok.error.is_none());
+}
+
+#[tokio::test]
+async fn a_forged_stamp_in_the_body_is_overwritten() {
+    let state = state();
+    let forged = IdentityStamp::for_actor(IdentityActor {
+        principal_id: "usr:ops".to_string(),
+        delegated: false,
+        scopes: [IDENTITY_AUTHENTICATE_SCOPE.to_string()].into(),
+    });
+    let mut forged_with_hash = forged.clone();
+    forged_with_hash.password_hash = Some("$argon2id$attacker".to_string());
+    let response = send_stamped(
+        &state,
+        context("usr:ops", &["kg:admin"]),
+        initialize(PASSWORD),
+        Some(forged_with_hash),
+    )
+    .await;
+    assert!(response.error.as_deref().unwrap_or("").contains("IDENTITY_NOT_AUTHORIZED"));
+    assert!(state.read().await.isolation.rbac().identity_store().config().is_none());
+}
+
+#[tokio::test]
+async fn stamping_clears_every_secret_from_the_op() {
+    let state = state();
+    let mut method = Method::Identity {
+        op: initialize(PASSWORD),
+        stamp: None,
+    };
+    stamp_identity(&state, &mut method, &broker(), ElevationStampAuthority::External)
+        .await
+        .unwrap();
+    let Method::Identity { op, stamp } = method else {
+        unreachable!("the method stays an identity op")
+    };
+    let IdentityOp::Config(ConfigOp::Initialize { request }) = op else {
+        unreachable!("the op is unchanged")
+    };
+    assert!(request.admin_password.is_empty());
+    let stamp = stamp.expect("stamped");
+    assert!(stamp.password_hash.unwrap().starts_with("$argon2id$"));
+    let replicated = serde_json::to_string(&Method::Identity {
+        op: IdentityOp::Config(ConfigOp::Initialize { request }),
+        stamp: None,
+    })
+    .unwrap();
+    assert!(!replicated.contains(PASSWORD));
+}

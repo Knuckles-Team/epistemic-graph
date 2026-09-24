@@ -126,12 +126,15 @@ pub struct SessionTouch {
     pub code: Secret,
 }
 
-/// `issue_one_time_token`: the caller generates the token; only its hash
-/// is stored. `ttl_ms` is capped at one day.
+/// `issue_one_time_token`: the broker generates the token for an
+/// administrator's live session; only its hash is stored. `ttl_ms` is capped
+/// at one day.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct OneTimeTokenIssue {
+    /// The issuing administrator's live session (the broker acts for it).
+    pub session_token: Secret,
     pub purpose: TokenPurpose,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub principal_id: Option<String>,
@@ -171,6 +174,8 @@ pub struct LinkRequest {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ApiKeyIssue {
+    /// The issuing administrator's live session (the broker acts for it).
+    pub session_token: Secret,
     pub principal_id: String,
     pub key_id: String,
     pub secret: Secret,
@@ -187,28 +192,24 @@ pub struct ApiKeyUse {
     pub secret: Secret,
 }
 
-/// `enroll_totp` (self): the caller generates the base32 secret, shows it to
-/// the user once, and sends it here to be sealed.
+/// `enroll_totp`: the broker generates the base32 secret for the principal
+/// of `session_token`, shows it to the user once, and sends it here to be
+/// sealed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct TotpEnroll {
+    pub session_token: Secret,
     pub secret_base32: Secret,
 }
 
-/// `confirm_totp` (self) / the code half of a second-factor op.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct TotpCode {
-    pub code: Secret,
-}
-
-/// `set_recovery_codes` (self): replaces the whole set.
+/// `set_recovery_codes`: the broker generates a new set for the principal
+/// of `session_token`; it replaces the whole set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RecoveryCodesSet {
+    pub session_token: Secret,
     pub codes: Vec<Secret>,
 }
 

@@ -36,7 +36,7 @@ impl IdentityStore {
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
         match op {
-            TokenOp::IssueOneTime { request } => self.issue_one_time(request, stamp, ctx.now_ms),
+            TokenOp::IssueOneTime { request } => self.issue_one_time(request, stamp, ctx),
             TokenOp::RedeemOneTime { request } => self.redeem_one_time(request, stamp, ctx.now_ms),
             TokenOp::IssueApiKey { request } => self.issue_api_key(request, stamp, ctx),
             TokenOp::VerifyApiKey { request } => {
@@ -53,12 +53,16 @@ impl IdentityStore {
         }
     }
 
+    /// Issue a token for an administrator's live session. Token hash 0 is
+    /// the session; hash 1 is the new token.
     fn issue_one_time(
         &mut self,
         request: &OneTimeTokenIssue,
         stamp: &IdentityStamp,
-        now_ms: u64,
+        ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
+        let issuer = self.admin_subject(stamp, ctx)?;
+        let now_ms = ctx.now_ms;
         let lifetime_ok = (1..=MAX_ONE_TIME_TOKEN_LIFETIME_MS).contains(&request.ttl_ms);
         if !lifetime_ok || purpose_names_principal(request.purpose) != request.principal_id.is_some() {
             return Err(IdentityRefusal::InvalidRequest);
@@ -66,7 +70,7 @@ impl IdentityStore {
         if let Some(principal) = &request.principal_id {
             self.users.get(principal).ok_or(IdentityRefusal::NotFound)?;
         }
-        let hash = stamp.token_hash(0)?.to_string();
+        let hash = stamp.token_hash(1)?.to_string();
         self.one_time
             .retain(|_, token| token.used_at_ms.is_none() && token.expires_at_ms > now_ms);
         if self.one_time.len() >= MAX_ONE_TIME_TOKENS {
@@ -83,7 +87,7 @@ impl IdentityStore {
                 principal_id: request.principal_id.clone(),
                 expires_at_ms: now_ms.saturating_add(request.ttl_ms),
                 used_at_ms: None,
-                created_by: stamp.actor.principal_id.clone(),
+                created_by: issuer,
             },
         );
         self.audit_event(stamp, now_ms, IdentityEvent::TokenIssued, request.principal_id.as_deref());
@@ -145,6 +149,7 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
+        self.admin_subject(stamp, ctx)?;
         identifier(&request.key_id)?;
         let lifetime_ok = (1..=MAX_API_KEY_LIFETIME_MS).contains(&request.ttl_ms);
         if !lifetime_ok || request.scopes.is_empty() {
@@ -170,7 +175,7 @@ impl IdentityStore {
             ApiKeyRecord {
                 key_id: request.key_id.clone(),
                 principal_id: request.principal_id.clone(),
-                secret_hash: stamp.token_hash(0)?.to_string(),
+                secret_hash: stamp.token_hash(1)?.to_string(),
                 scopes: request.scopes.clone(),
                 created_at_ms: ctx.now_ms,
                 expires_at_ms: ctx.now_ms.saturating_add(request.ttl_ms),

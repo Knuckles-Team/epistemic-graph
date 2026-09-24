@@ -253,6 +253,8 @@ pub(crate) async fn check_scope_and_admin_authority(
         && !verified_context.allows_method(action, mutates)
     {
         crate::metrics::access_denied();
+        #[cfg(feature = "security")]
+        crate::server::denial_sample::offer(verified_context.principal(), action, "SCOPE_DENIED");
         return Err(Response::err(
             req.id,
             format!("ACCESS_DENIED: verified request context lacks required scope '{action}'"),
