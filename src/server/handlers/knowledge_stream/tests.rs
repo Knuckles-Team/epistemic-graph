@@ -322,9 +322,25 @@ fn cursor_replay_is_idempotent_but_policy_replacement_is_denied() {
     .is_err());
 }
 
+/// A durable RBAC image granting `agent` read on `graph`, reopened as the
+/// isolation layer a lease is minted from, and the minted read lease — the
+/// fixture every lease-bound served-path test starts from.
 #[cfg(all(feature = "security", feature = "redb"))]
-#[test]
-fn durable_lease_revocation_rejects_resume_before_any_cursor_metadata() {
+pub(super) struct DurableReadLease {
+    pub(super) directory: std::path::PathBuf,
+    pub(super) policy: eg_core::rbac::RbacPolicy,
+    pub(super) identities: std::collections::BTreeMap<String, eg_types::acl::AgentIdentity>,
+    pub(super) grant: eg_types::acl::Grant,
+    pub(super) isolation: crate::isolation::IsolationLayer,
+    pub(super) claims: RequestContextClaims,
+    pub(super) carrier: CarrierAuthority,
+    pub(super) verified_context: crate::server::auth::VerifiedRequestContext,
+    pub(super) lease: std::sync::Arc<crate::isolation::PolicyDecisionLease>,
+    pub(super) policy_store: std::sync::Arc<dyn eg_core::rbac_persist::RbacPolicyStore>,
+}
+
+#[cfg(all(feature = "security", feature = "redb"))]
+pub(super) fn durable_read_lease(graph: &str, agent: &str) -> DurableReadLease {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
@@ -347,16 +363,16 @@ fn durable_lease_revocation_rejects_resume_before_any_cursor_metadata() {
     policy.add_role(Role::new("reader"));
     let grant = Grant {
         role: "reader".to_string(),
-        resource: ResourceSelector::Graph("tenant-graph".to_string()),
+        resource: ResourceSelector::Graph(graph.to_string()),
         action: RbacAction::Read,
         effect: GrantEffect::Allow,
     };
     policy.add_grant(grant.clone());
     let mut identities = BTreeMap::new();
     identities.insert(
-        "alice".to_string(),
+        agent.to_string(),
         AgentIdentity {
-            agent_id: "alice".to_string(),
+            agent_id: agent.to_string(),
             role: AgentRole::Agent,
             teams: Vec::new(),
             roles: vec!["reader".to_string()],
@@ -395,7 +411,7 @@ fn durable_lease_revocation_rejects_resume_before_any_cursor_metadata() {
     )
     .expect("reopen isolation layer over durable store");
     let verified_context =
-        crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant("alice", "tenant");
+        crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(agent, "tenant");
     let claims = verified_context.claims().clone();
     let carrier = CarrierAuthority::from_verified(&verified_context)
         .expect("derive carrier from verified context");
@@ -408,16 +424,104 @@ fn durable_lease_revocation_rejects_resume_before_any_cursor_metadata() {
     let mint_auth = crate::isolation::MintAuthorization::new("server-secret", &claims, &mint_mac)
         .expect("construct mint authorization");
     let lease = isolation
-        .mint_policy_decision_lease(
-            &mint_auth,
-            "tenant-graph",
-            crate::isolation::AccessLevel::Read,
-        )
+        .mint_policy_decision_lease(&mint_auth, graph, crate::isolation::AccessLevel::Read)
         .expect("mint policy decision lease");
     let lease = Arc::new(lease);
     let policy_store = isolation
         .policy_store()
         .expect("durable policy store bound");
+    DurableReadLease {
+        directory,
+        policy,
+        identities,
+        grant,
+        isolation,
+        claims,
+        carrier,
+        verified_context,
+        lease,
+        policy_store,
+    }
+}
+
+/// EH-352: the KnowledgeStream SQL read lists the request graph's edge indexes
+/// in `information_schema.eg_index_status` exactly as Method::Sql and pgwire
+/// do (one shared projection builder), installing the tenant's registered edge
+/// indexes into the served graph first.
+#[cfg(all(
+    feature = "security",
+    feature = "redb",
+    feature = "query",
+    feature = "knowledge-batch"
+))]
+#[tokio::test]
+async fn knowledge_stream_sql_lists_the_request_graph_edge_indexes() {
+    use crate::server::handlers::query::current_auth_test_support::{
+        edge_status_row, register_detached_edge_index, sql_rows, EDGE_STATUS_SQL,
+    };
+    use crate::server::handlers::query::{try_handle_with_policy, PolicyAwareQuery};
+    use crate::server::handlers::TryHandleContext;
+
+    let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+    let fixture = durable_read_lease("tenant-graph", "alice");
+    let state = crate::server::test_state_with_services(
+        "ks-edge-status-secret",
+        fixture.isolation.clone(),
+        "eg-ks-edge-status-test",
+        "eg-ks-edge-status-tsdb-test",
+    );
+    let persist_dir = std::path::PathBuf::from(state.read().await.persist_dir.clone().unwrap());
+    let tenant = fixture.carrier.tenant_scope();
+    let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir).unwrap();
+    register_detached_edge_index(&store, "tenant-graph", tenant);
+    let read_authority = crate::server::access::GraphReadAuthority::from_verified(
+        &fixture.verified_context,
+        &fixture.isolation,
+    )
+    .unwrap();
+    let rls = std::sync::Arc::new(fixture.isolation.clone());
+
+    let response = try_handle_with_policy(
+        &state,
+        TryHandleContext {
+            req_id: 7,
+            graph_name: "tenant-graph",
+            read_authority: Some(&read_authority),
+            caller: "alice",
+        },
+        std::sync::Arc::new(crate::graph::GraphCore::new()),
+        PolicyAwareQuery::Sql {
+            query: EDGE_STATUS_SQL.to_string(),
+            params_msgpack: Vec::new(),
+        },
+        &fixture.lease,
+        &rls,
+    )
+    .await
+    .unwrap();
+
+    assert!(response.error.is_none(), "{:?}", response.error);
+    assert_eq!(sql_rows(&response), vec![edge_status_row()]);
+    let _ = std::fs::remove_dir_all(&fixture.directory);
+}
+
+#[cfg(all(feature = "security", feature = "redb"))]
+#[test]
+fn durable_lease_revocation_rejects_resume_before_any_cursor_metadata() {
+    use eg_core::rbac_persist::IdentityBootstrapState;
+
+    let DurableReadLease {
+        directory,
+        mut policy,
+        identities,
+        grant,
+        isolation,
+        claims,
+        carrier,
+        lease,
+        policy_store,
+        ..
+    } = durable_read_lease("tenant-graph", "alice");
 
     let mut wrong_principal = claims.clone();
     wrong_principal.principal = "different-originating-principal".to_string();

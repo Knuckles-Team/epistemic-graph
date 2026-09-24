@@ -515,6 +515,10 @@ async fn handle_sql_with_lease(
         "SQL error: tenant SQL catalog requires the configured persistence directory".to_string()
     })?;
     let (snap, _graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
+    let graph = crate::server::sql_catalog_acl::RequestGraph {
+        name: ctx.graph_name.to_string(),
+        core: Arc::clone(core),
+    };
     Ok(super::sql_read::catalog_sql_response(
         state,
         req_id,
@@ -522,6 +526,7 @@ async fn handle_sql_with_lease(
         authority.clone(),
         std::path::PathBuf::from(persist_dir),
         query,
+        graph,
     )
     .await)
 }
