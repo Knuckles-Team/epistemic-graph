@@ -6,8 +6,8 @@ name: Release
 # freshness, lint, scanner/census analysis, optional feature builds, and
 # benchmarks remain visible but advisory; they do not delay publication.
 #
-# Blocking path: {gates, security, lint-and-architecture, tts-piper-inference}
-# -> build -> {docker-image, publish-pypi} -> publish-image.
+# Blocking path: {gates, python-suite, security, lint-and-architecture,
+# tts-piper-inference} -> build -> {docker-image, publish-pypi} -> publish-image.
 # Quality and documentation jobs run independently. `pages` is a separate
 # deploy concern and carries no dependency edge into the release path.
 #
@@ -398,6 +398,106 @@ jobs:
         run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
       - name: Test (pyo3 crates, every feature except python)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+
+  # ── EH-468: the root Python suite (`tests/*.py`, 2,800+ cases) previously had
+  # NO release step at all. `gates` above only runs `crates/eg-numeric/tests/*`
+  # (a developer-only NumPy-parity/boundary gate) and `scanner-quality` only runs
+  # `tests/test_dupehound_census.py` (a scanner-adapter unit test run with
+  # `--noconftest`, deliberately bypassing this suite's real fixtures) — so every
+  # client/contract/connector-pack regression in the rest of `tests/` reached
+  # `main` unexecuted (found at train-3 landing). This job builds the numeric
+  # kernel and the `full`-featured engine binary ONCE, then runs the whole
+  # `tests/` suite under pytest-xdist with a bounded worker count and a
+  # per-test timeout, exactly the shape validated end to end by the train-3
+  # integrator's manual full-suite run (2,792 passed / 52 failed / 22 skipped
+  # in ~98 minutes on a 4-core host) before this job existed.
+  #
+  # Environment prerequisites that manual run needed and a bare checkout does
+  # not otherwise provide — each satisfied HERE, not by skipping the tests that
+  # need them:
+  #   * distribution metadata — `epistemic_graph/client_capabilities.py` calls
+  #     `importlib.metadata.version("epistemic-graph")`, which
+  #     `PackageNotFoundError`s against an uninstalled source checkout. Rather
+  #     than a real (and, for this `bindings = "bin"` project, ~minutes-long)
+  #     wheel/editable build, `maturin pep517 write-dist-info` alone produces
+  #     the real dist-info from `pyproject.toml`/`Cargo.toml` with NO cargo
+  #     invocation and no compile — verified empirically (`maturin --version`
+  #     1.13.3): it shells out to `cargo --version` only to confirm a Rust
+  #     toolchain exists, then writes `METADATA`/`WHEEL`/`entry_points.txt`
+  #     straight from project metadata.
+  #   * `rg` (ripgrep) on PATH — `scripts/check_current_only_architecture.py`
+  #     (exercised only via `tests/test_current_only_architecture.py`) shells
+  #     out to `rg` directly; no other job installs it.
+  #   * a real `.git` — `tests/test_kiss_hook_context.py` and
+  #     `tests/test_push_gate_evidence*.py` read this checkout's own
+  #     `GIT_DIR`/`GIT_COMMON_DIR`. `actions/checkout` already gives every job
+  #     a real one, so this needs no extra step here — it only bit the
+  #     integrator's OWN ad hoc rsync'd (`.git`-less) copy of the tree, a tool
+  #     outside this repository, not a gap in the workflow itself.
+  #   * `.security/` tracked at the path the suite expects —
+  #     `tests/test_repository_fuzz.py` pointed at a stale pre-root-hygiene
+  #     path (`.security/repository_fuzz.py`); the fixture actually lives at
+  #     `.config/security/repository_fuzz.py` since root-hygiene's `c65a2566a`.
+  #     Fixed in the test itself (not skipped) in the same change that adds
+  #     this job.
+  #
+  # KNOWN GAP, deliberately out of this row's scope (tracked for a follow-up
+  # row rather than silently masked): `tests/parity/` additionally needs the
+  # in-process `epistemic_graph.engine` pyo3 extension
+  # (`crates/eg-pyengine --features python`) built into the tree — see that
+  # test module's own docstring ("NOT expected to pass in this session"). No
+  # release step builds that extension yet, the same way
+  # `scripts/build_numeric_kernel.py` builds the numeric one below; until a
+  # follow-up row adds it, its 3 tests are expected to fail here, visibly,
+  # rather than being hidden by a skip.
+  python-suite:
+    name: Python suite (tests/)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - *eg-gates-checkout
+
+      - *eg-gates-python
+
+      - *eg-gates-pydeps
+
+      - name: Install pytest, its plugins, PyYAML, and maturin (metadata only — see below)
+        run: python -m pip install --disable-pip-version-check pytest pytest-xdist pytest-timeout pytest-asyncio pyyaml 'maturin>=1,<2'
+
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+
+      - name: Install ripgrep (scripts/check_current_only_architecture.py)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep
+
+      - name: Build the numeric kernel into the working tree (mounted/editable path)
+        run: python3 scripts/build_numeric_kernel.py
+
+      - name: Build the full-featured engine binary once
+        run: cargo build --locked --features full --bin epistemic-graph-server
+
+      - name: Generate installed-distribution metadata (maturin write-dist-info — no compile)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eg-dist-info"
+          maturin pep517 write-dist-info --metadata-directory "$RUNNER_TEMP/eg-dist-info" --interpreter "$(command -v python3)"
+          echo "EG_DIST_INFO_DIR=$RUNNER_TEMP/eg-dist-info" >> "$GITHUB_ENV"
+
+      - name: Test (root Python suite — pytest-xdist, per-test timeout, the pre-built engine binary)
+        run: |
+          W=$(( $(nproc) - 2 )); [ "$W" -gt 6 ] && W=6; [ "$W" -lt 1 ] && W=1
+          BT="/var/tmp/eg-pytest-$$"
+          rm -rf "$BT"
+          echo "pytest-xdist workers: $W (nproc $(nproc)); basetemp $BT"
+          EPISTEMIC_GRAPH_TEST_BINARY="$PWD/target-isolated/debug/epistemic-graph-server" \
+            PYTHONPATH="$EG_DIST_INFO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+            python3 -m pytest tests/ -p no:cacheprovider -n "$W" --timeout=900 --basetemp="$BT" -q -rfEs
+          rc=$?
+          rm -rf "$BT"
+          exit $rc
 
   # ── eg-tts-piper synthesis against a REAL onnxruntime.
   #
@@ -790,7 +890,7 @@ jobs:
   # product tests and installed-wheel smoke in `gates`.
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-facade, gates-variants, gates-crates, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
