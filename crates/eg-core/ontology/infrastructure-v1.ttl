@@ -402,6 +402,12 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
     rdfs:domain :ProxyRoute ;
     rdfs:range au:PlatformService .
 
+:scheduledBy a owl:ObjectProperty ;
+    rdfs:label "scheduled by" ;
+    rdfs:comment "Links a :Pod to the :Workload whose controller scheduled it. A Pod is not a Workload; this relation is how a Pod's observed behaviour also rolls up to its Workload (EH-408)." ;
+    rdfs:domain :Pod ;
+    rdfs:range :Workload .
+
 :runsOn a owl:ObjectProperty ;
     rdfs:label "runs on" ;
     rdfs:comment "Links a container or service to its host hardware." ;
