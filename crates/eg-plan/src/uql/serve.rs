@@ -167,8 +167,8 @@ fn record_channel(op: &Op, rows: &RowSet, extra: &StageChannels, table: &mut Cha
             .filter_map(|r| Some((r.id.clone(), r.score?)));
         record(table, channel, scored);
     }
-    for (channel, values) in extra {
-        record(table, *channel, values.iter().cloned());
+    for &(channel, ref values) in extra {
+        record(table, channel, values.iter().cloned());
     }
 }
 

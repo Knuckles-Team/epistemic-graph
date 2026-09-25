@@ -1,6 +1,6 @@
 //! Statements (UQL-11): version pragma, EXPLAIN/PROFILE, LET/FROM/JOIN DAGs.
 
-use crate::uql::print::{dag_to_uql, statement_to_uql};
+use crate::uql::print::dag_to_uql;
 use crate::uql::{parse, parse_statement, Body, DagNode, Mode, Params, UqlCode};
 use eg_types::wire::Op;
 
@@ -90,7 +90,7 @@ fn fuse_inlines_named_bindings_as_branches() {
         }
     );
     assert_eq!(
-        statement_to_uql(&s).map(|t| stmt(&t).body),
+        crate::uql::print::statement_to_uql(&s).map(|t| stmt(&t).body),
         Ok(s.body.clone())
     );
 }
