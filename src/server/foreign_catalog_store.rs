@@ -25,7 +25,7 @@ const TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("foreign_source
 const MAX_ROWS: usize = 16_384;
 const MAX_SEALED_BYTES: usize = 256 * 1024;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct StoredSource {
     pub(super) owner_scope: String,
     pub(super) name: String,
@@ -73,7 +73,7 @@ impl ForeignCatalogStore {
         let mutations = MutationKernel::new(write_authority);
         let authority = crate::store_authority::process_authority();
         let grant = kernel.authenticate_scope::<eg_storage::ForeignCatalogOwner>(
-            authority,
+            authority.as_ref(),
             identity,
             authority.principal().to_string(),
             &authority.proof(),
