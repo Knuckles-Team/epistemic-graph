@@ -1936,7 +1936,10 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
     let sealed_policy = epistemic_graph::server::sealed_retention::configured_policy();
     if !sealed_policy.is_empty() {
         let interval = epistemic_graph::server::sealed_retention::sweep_interval_secs();
-        info!("Sealed records: expiring by retention policy every {}s (EH-558)", interval);
+        info!(
+            "Sealed records: expiring by retention policy every {}s (EH-558)",
+            interval
+        );
         let retention_state = state.clone();
         spawn_periodic_sweep(interval, "sealed_record_expiry", move || {
             server_startup::sealed_expiry_tick(retention_state.clone(), sealed_policy.clone())

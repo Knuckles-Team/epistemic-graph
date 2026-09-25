@@ -322,9 +322,10 @@ pub(super) fn anomaly_algo(
         },
         // `sample_size` doubles as the subsequence length `m` (EH-529) — see the
         // variant's own doc for why this reuses an existing field rather than adding one.
-        AnomalyAlgorithm::MatrixProfileDiscord => {
-            anomaly::Algorithm::MatrixProfileDiscord { m: sample_size.max(2), seed }
-        }
+        AnomalyAlgorithm::MatrixProfileDiscord => anomaly::Algorithm::MatrixProfileDiscord {
+            m: sample_size.max(2),
+            seed,
+        },
     }
 }
 

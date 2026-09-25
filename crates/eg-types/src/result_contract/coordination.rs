@@ -17,7 +17,6 @@ pub use work_items::*;
 use crate::control_lease::{
     ControlLeaseIssued, ControlLeasePage, ControlLeaseTransition, ControlLeaseView,
 };
-use crate::sealed_record::SealedRecordRetirement;
 use crate::decision::statistical::log::{
     DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification,
     OutcomeAggregate, StoredEvaluation, StoredResolution,
@@ -36,6 +35,7 @@ use crate::native_control::{
     CapacityAcquireResult, CapacityCellUpdateResult, CapacityMutationResult, CapacityReclaimResult,
     CapacityStatusResult, SubmitWorkItemResult, SubmitWorkItemsResult,
 };
+use crate::sealed_record::SealedRecordRetirement;
 use crate::work_item_read::{WorkItemOutcomeView, WorkItemPage, WorkItemView};
 use crate::work_market::{
     GapPage, GapSettled, GapTransitioned, GapUpserted, GapView, WorkOfferRecorded,

@@ -61,7 +61,12 @@ mod tests {
             ("svc@20", vec![("spike", 0.0), ("v0", 1.0)]),
         ]
         .into_iter()
-        .map(|(id, m)| (id.to_string(), m.into_iter().map(|(k, v)| (k.to_string(), v)).collect()))
+        .map(|(id, m)| {
+            (
+                id.to_string(),
+                m.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
+            )
+        })
         .collect();
         RowSet::from_ids(["svc@10".into(), "svc@20".into()]).with_values(values)
     }

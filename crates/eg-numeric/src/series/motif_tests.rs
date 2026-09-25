@@ -38,7 +38,11 @@ fn naive_distance(a: &[f64], b: &[f64]) -> f64 {
         w.iter().map(|x| (x - mean) / sd).collect::<Vec<f64>>()
     };
     let (za, zb) = (z(a), z(b));
-    za.iter().zip(&zb).map(|(x, y)| (x - y) * (x - y)).sum::<f64>().sqrt()
+    za.iter()
+        .zip(&zb)
+        .map(|(x, y)| (x - y) * (x - y))
+        .sum::<f64>()
+        .sqrt()
 }
 
 fn brute_profile(xs: &[f64], m: usize) -> Vec<(f64, usize)> {
@@ -120,8 +124,14 @@ fn a_planted_motif_is_the_top_motif_and_query_match() {
         }
     }
     let top = motifs(&full(&xs, m, 0), 1)[0];
-    let pair = (top.start.min(top.neighbor.unwrap()), top.start.max(top.neighbor.unwrap()));
-    assert!(overlaps(pair.0, 100, m) && overlaps(pair.1, 400, m), "{top:?}");
+    let pair = (
+        top.start.min(top.neighbor.unwrap()),
+        top.start.max(top.neighbor.unwrap()),
+    );
+    assert!(
+        overlaps(pair.0, 100, m) && overlaps(pair.1, 400, m),
+        "{top:?}"
+    );
 
     let profile = mass(&pattern(m), &xs).unwrap();
     let mut best = super::matrix_profile::select(
@@ -132,7 +142,10 @@ fn a_planted_motif_is_the_top_motif_and_query_match() {
         &|_| None,
     );
     best.sort_unstable();
-    assert!(overlaps(best[0], 100, m) && overlaps(best[1], 400, m), "{best:?}");
+    assert!(
+        overlaps(best[0], 100, m) && overlaps(best[1], 400, m),
+        "{best:?}"
+    );
 }
 
 #[test]
@@ -166,7 +179,10 @@ fn a_cut_profile_is_an_upper_bound_flagged_approximate() {
         assert!(*c >= *e - 1e-9, "a cut value is never below the exact one");
     }
     let finite = cut.distance.iter().filter(|d| d.is_finite()).count();
-    assert!(finite * 10 >= cut.distance.len() * 9, "PreSCRIMP reaches most subsequences");
+    assert!(
+        finite * 10 >= cut.distance.len() * 9,
+        "PreSCRIMP reaches most subsequences"
+    );
 }
 
 #[test]

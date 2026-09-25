@@ -569,9 +569,16 @@ fn normalize_to_unit_sum(alpha: &mut [f64], upper: f64) {
 fn matrix_profile_discord(points: &[Point], m: usize, seed: u64) -> Vec<f64> {
     use eg_numeric::series::matrix_profile::{matrix_profile, ProfileOptions};
 
-    let xs: Vec<f64> = points.iter().map(|p| p.first().copied().unwrap_or(0.0)).collect();
+    let xs: Vec<f64> = points
+        .iter()
+        .map(|p| p.first().copied().unwrap_or(0.0))
+        .collect();
     let mut scores = vec![0.0; xs.len()];
-    let options = ProfileOptions { m, max_work: u64::MAX, seed };
+    let options = ProfileOptions {
+        m,
+        max_work: u64::MAX,
+        seed,
+    };
     if let Ok(profile) = matrix_profile(&xs, options) {
         for (score, &distance) in scores.iter_mut().zip(&profile.distance) {
             if distance.is_finite() {
@@ -777,7 +784,11 @@ mod tests {
             }
         }
         let points: Vec<Point> = xs.iter().map(|&x| vec![x]).collect();
-        let out = detect(&points, Algorithm::MatrixProfileDiscord { m: 4, seed: 1 }, None);
+        let out = detect(
+            &points,
+            Algorithm::MatrixProfileDiscord { m: 4, seed: 1 },
+            None,
+        );
         assert_eq!(out.scores.len(), points.len());
 
         // Every window overlapping the planted period (starts 13..=19) vs. every
@@ -808,7 +819,11 @@ mod tests {
     #[test]
     fn matrix_profile_discord_on_a_too_short_series_scores_zero_not_panic() {
         let points: Vec<Point> = vec![vec![1.0], vec![2.0]];
-        let out = detect(&points, Algorithm::MatrixProfileDiscord { m: 5, seed: 0 }, None);
+        let out = detect(
+            &points,
+            Algorithm::MatrixProfileDiscord { m: 5, seed: 0 },
+            None,
+        );
         assert_eq!(out.scores, vec![0.0, 0.0]);
         assert!(out.is_anomaly.iter().all(|&f| !f));
     }
