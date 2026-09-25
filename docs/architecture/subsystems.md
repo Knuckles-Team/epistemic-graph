@@ -207,6 +207,9 @@ dependency-light graph primitives. Current `Method`s
 (CreateSummary/Consolidate/Maintain/SceneObject/Trajectory operations), dispatch handlers, and redb persistence
 let AU/MCP drive summary/consolidation/decay, scene-object, and trajectory operations remotely
 (EG-KG.memory.eg-batch-decay-caller).
+The Python graph client exposes typed `create_summary_node`, `consolidate_memories`, and
+`maintain_memories` calls. It encodes property maps as nested MessagePack and returns the
+declared method results; callers supply the agent-generated summary text and bounded IDs.
 
 ---
 

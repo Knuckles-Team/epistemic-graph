@@ -34,13 +34,13 @@ import msgpack
 from . import generated as _gen
 from .connector_pack import ConnectorPackClient
 from .fleet_catalog import FleetCatalogClient
-from .policy_evolution import PolicyEvolutionClient
 from .generated.server_registry import (
     RegisteredServerCursor,
     RegisteredServerListPage,
     RegisteredServerListRequest,
     RegisteredServerView,
 )
+from .policy_evolution import PolicyEvolutionClient
 from .work_market import GapClient, WorkMarketClient
 
 if TYPE_CHECKING:
@@ -6287,6 +6287,61 @@ class GraphOperationsClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
+    async def create_summary_node(
+        self, *, child_ids: list[str], summary_text: str, metadata: dict[str, Any]
+    ) -> str:
+        """Store an agent-produced summary through EG's memory authority."""
+        props = {**metadata, "content": summary_text, "memory_type": "semantic"}
+        return await _gen.graph.send_create_summary_node(
+            self._client,
+            {
+                "child_ids": child_ids,
+                "level": 1,
+                "props_msgpack": msgpack.packb(props, use_bin_type=True),
+            },
+        )
+
+    async def consolidate_memories(
+        self, *, episodic_ids: list[str], summary_id: str, summary_text: str
+    ) -> str:
+        """Promote an episodic cluster with its EG-owned summary reference."""
+        return await _gen.graph.send_consolidate(
+            self._client,
+            {
+                "episodic_ids": episodic_ids,
+                "semantic_props_msgpack": msgpack.packb(
+                    {
+                        "content": summary_text,
+                        "memory_type": "semantic",
+                        "summary_id": summary_id,
+                    },
+                    use_bin_type=True,
+                ),
+            },
+        )
+
+    async def maintain_memories(
+        self,
+        *,
+        ids: list[str],
+        now_ms: int,
+        half_life_ms: int,
+        evict_threshold: float,
+        delete: bool = False,
+    ) -> tuple[int, list[str]]:
+        """Run bounded native decay and eviction over the selected memory IDs."""
+        result = await _gen.graph.send_maintain(
+            self._client,
+            {
+                "ids": ids,
+                "now_ms": now_ms,
+                "half_life_ms": half_life_ms,
+                "evict_threshold": evict_threshold,
+                "delete": delete,
+            },
+        )
+        return _gen.graph.decode_maintain(result)
+
     async def service_child_reserve(
         self, binding: dict[str, str], *, audit_ref: str
     ) -> dict[str, Any]:
@@ -12384,7 +12439,9 @@ class TimeSeriesClient:
         rows = (await _gen.storage.send_ts_list_series(self._client, {})).payload
         return [str(s) for s in (rows or [])]
 
-    async def define_series(self, series_id: str, source: str, expr: str) -> dict[str, Any]:
+    async def define_series(
+        self, series_id: str, source: str, expr: str
+    ) -> dict[str, Any]:
         """EH-524 — define ``series_id`` as a MATERIALISED DERIVED series of
         ``source`` (a series in the caller's own scope) by ``expr``, a UQL ``DERIVE``
         series expression over the source's fields ``v0..vk`` (for example
