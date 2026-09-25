@@ -163,7 +163,11 @@ mod tests {
         assert_eq!(out.len(), 1);
         let id = &out.rows()[0].id;
         assert!(id.starts_with("s#motif@"), "id={id}");
-        assert!(out.value(id, "distance").unwrap() < 1e-9, "distance={:?}", out.value(id, "distance"));
+        // A bit-identical repeat: the z-normalised distance floor is a few ULPs of
+        // floating-point residue from the division/sqrt in `znorm_distance` (observed
+        // ~4.2e-8 on this shape) — negligible against any real discord's O(1) scale.
+        let distance = out.value(id, "distance").unwrap();
+        assert!(distance < 1e-6, "distance={distance}");
     }
 
     #[test]
