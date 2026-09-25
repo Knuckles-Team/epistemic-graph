@@ -39,6 +39,16 @@ fn hnsw_l2() -> AnnIndexPlan {
     plan(AnnMethod::Hnsw, VectorMetric::L2)
 }
 
+fn every_method() -> [AnnIndexPlan; 5] {
+    [
+        hnsw_l2(),
+        plan(AnnMethod::Hnsw, VectorMetric::Cosine),
+        plan(AnnMethod::IvfFlat, VectorMetric::L2),
+        plan(AnnMethod::IvfFlat, VectorMetric::Cosine),
+        plan(AnnMethod::IvfFlat, VectorMetric::InnerProduct),
+    ]
+}
+
 /// SplitMix64 (eg-compute's one implementation): a deterministic stream of
 /// `f32`s in `[-1, 1)`.
 fn stream(seed: u64) -> impl FnMut() -> f32 {
@@ -101,28 +111,37 @@ fn owner_of(id: i64) -> Value {
 
 fn open_docs(rows: &[Vec<f32>], index: &AnnIndexPlan) -> (TableStore, PathBuf) {
     let (store, path) = TableStore::open_temp().unwrap();
-    let schema = TableSchema::new(
-        "docs",
-        vec![
-            Column::new("id", ColumnType::BigInt, false, true),
-            Column::new("owner", ColumnType::Text, true, false),
-            Column::new("emb", ColumnType::Vector(Some(DIM)), true, false),
-        ],
-    );
-    store.create_table(&schema, false).unwrap();
+    store
+        .create_table(&vector_table_schema("docs"), false)
+        .unwrap();
     insert(&store, 0, rows);
     store.put_ann_index(index).unwrap();
     (store, path)
 }
 
+fn vector_table_schema(name: &str) -> TableSchema {
+    TableSchema::new(
+        name,
+        vec![
+            Column::new("id", ColumnType::BigInt, false, true),
+            Column::new("owner", ColumnType::Text, true, false),
+            Column::new("emb", ColumnType::Vector(Some(DIM)), true, false),
+        ],
+    )
+}
+
 fn insert(store: &TableStore, first_id: i64, rows: &[Vec<f32>]) {
+    insert_into(store, "docs", first_id, rows);
+}
+
+fn insert_into(store: &TableStore, table: &str, first_id: i64, rows: &[Vec<f32>]) {
     let columns = vec!["id".to_string(), "owner".to_string(), "emb".to_string()];
     let values: Vec<Vec<Value>> = rows
         .iter()
         .zip(first_id..)
         .map(|(vector, id)| vec![json!(id), owner_of(id), json!(vector)])
         .collect();
-    store.insert_rows("docs", &columns, &values).unwrap();
+    store.insert_rows(table, &columns, &values).unwrap();
 }
 
 fn owned_by(owner: &str) -> RowPredicate {
@@ -213,6 +232,18 @@ fn recall(got: &[i64], want: &[i64]) -> f64 {
     hits as f64 / want.len().max(1) as f64
 }
 
+fn observed_recall(
+    store: &TableStore,
+    index: &AnnIndexPlan,
+    query: &[f32],
+    answer: &AnnTopK,
+) -> f64 {
+    recall(
+        &ids(&answer.rows),
+        &exact_ids(store, index, query, 10, None),
+    )
+}
+
 #[test]
 fn a_query_never_builds_a_generation() {
     let index = hnsw_l2();
@@ -267,13 +298,7 @@ fn the_worker_activates_and_the_probe_serves_the_maintained_generation() {
 /// Every registration method/metric over `rows`: the maintained probe's rows are
 /// exactly ranked, and mean recall@10 against the exact top-10 is at least 0.9.
 fn assert_recall(rows: &[Vec<f32>], queries: &[Vec<f32>]) {
-    for index in [
-        plan(AnnMethod::Hnsw, VectorMetric::L2),
-        plan(AnnMethod::Hnsw, VectorMetric::Cosine),
-        plan(AnnMethod::IvfFlat, VectorMetric::L2),
-        plan(AnnMethod::IvfFlat, VectorMetric::Cosine),
-        plan(AnnMethod::IvfFlat, VectorMetric::InnerProduct),
-    ] {
+    for index in every_method() {
         let (store, _path) = open_docs(rows, &index);
         refresh(&store);
         let metric = metric_to_ann(index.metric);
@@ -293,10 +318,7 @@ fn assert_recall(rows: &[Vec<f32>], queries: &[Vec<f32>]) {
                 distances.windows(2).all(|pair| pair[0] <= pair[1]),
                 "{index:?}: returned rows must be exactly ranked"
             );
-            total += recall(
-                &ids(&answer.rows),
-                &exact_ids(&store, &index, query, 10, None),
-            );
+            total += observed_recall(&store, &index, query, &answer);
         }
         let mean = total / queries.len() as f64;
         assert!(mean >= 0.9, "{index:?}: mean recall@10 {mean} < 0.9");

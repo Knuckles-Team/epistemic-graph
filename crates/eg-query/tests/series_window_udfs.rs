@@ -4,10 +4,14 @@
 #![cfg(feature = "numeric")]
 
 use eg_core::graph::GraphCore;
-use eg_query::{exec_sql, CancellationToken, QueryResult};
+use eg_query::{exec_sql, CancellationToken};
 use eg_tsdb::derive::Program;
 use eg_types::series_expr::{SeriesExpr, SeriesFunc};
 use serde_json::json;
+
+#[path = "common/query_rows.rs"]
+mod query_rows;
+use query_rows::rows;
 
 /// Two series `a`/`b` of 24 points each, inserted out of timestamp order.
 fn graph() -> (GraphCore, Vec<f64>, Vec<f64>) {
@@ -26,13 +30,6 @@ fn graph() -> (GraphCore, Vec<f64>, Vec<f64>) {
         }
     }
     (core, a, b)
-}
-
-fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
-    r.rows
-        .iter()
-        .map(|b| rmp_serde::from_slice::<Vec<serde_json::Value>>(b).unwrap())
-        .collect()
 }
 
 /// `column` of series `series`, ordered by ts, from `SELECT series, ts, <cols…>`.
