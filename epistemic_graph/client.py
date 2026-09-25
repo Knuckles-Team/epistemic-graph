@@ -2900,11 +2900,11 @@ class NodeClient:
         """Return one deterministic keyset page of matching nodes.
 
         ``after`` is an exclusive node-id cursor. Advance it to the last id in
-        each non-empty page. ``limit=0`` is uncapped and intended only for small
-        graphs.
+        each non-empty page. The default and ``limit=0`` request 500 rows;
+        direct wire calls require a positive limit within the server cap.
         """
         return await _gen.graph.send_get_nodes_by_label(
-            self._client, {"label": label, "after": after, "limit": int(limit)}
+            self._client, {"label": label, "after": after, "limit": int(limit or 500)}
         )
 
     async def properties(self, node_id: str) -> dict[str, Any] | None:
@@ -3020,11 +3020,12 @@ class NodeClient:
     ) -> builtins.list[tuple[str, Any]]:
         """Scan a label across ``graphs``.
 
-        Results are deduplicated by ID; ``limit=0`` means no cap.
+        Results are deduplicated by ID. The default and ``limit=0`` request
+        500 rows; direct wire calls require a positive limit within the server cap.
         """
         return await _gen.graph.send_union_get_nodes_by_label(
             self._client,
-            {"graphs": list(graphs), "label": label, "limit": int(limit)},
+            {"graphs": list(graphs), "label": label, "limit": int(limit or 500)},
         )
 
     async def neighbors_union(

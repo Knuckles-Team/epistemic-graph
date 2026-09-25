@@ -33,7 +33,8 @@ macro_rules! __eg_method_chunk_0 {
     /// Labeled + keyset-bounded node fetch: return at most `limit` nodes whose
     /// `type`/`label`/`labels` matches `label`, ordered by node id. `after` is an
     /// exclusive node-id cursor (`None` starts at the first id); callers advance
-    /// it to the last id returned. `limit == 0` means no cap. Unlike
+    /// it to the last id returned. Served calls require a positive `limit`
+    /// no greater than the configured response cap. Unlike
     /// `GetNodes` (which materializes the WHOLE graph), this bounds the wire
     /// payload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every
     /// node's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)

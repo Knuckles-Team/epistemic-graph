@@ -50,7 +50,8 @@ $($variants)*
         node_id: String,
     },
 
-    /// Label scan unioned + deduped by node id across `graphs` (limit 0 ⇒ no cap).
+    /// Label scan unioned + deduped by node id across `graphs` (positive,
+    /// response-capped limit required by the served handler).
     UnionGetNodesByLabel {
         graphs: Vec<String>,
         label: String,
