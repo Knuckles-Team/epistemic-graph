@@ -111,7 +111,7 @@ fn dirty_journal_store_requires_inspected_generation_upgrade() {
 }
 
 #[test]
-fn pre_generation_digest_probe() {
+fn pre_generation_digest_is_pinned() {
     let contracts: Vec<_> = super::super::contract::expected_table_contracts(OwnerLayout::Sql)
         .into_iter()
         .filter(|contract| contract.table_id != SQL_ANN_GENERATIONS.name())
