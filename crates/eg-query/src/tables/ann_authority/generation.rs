@@ -181,6 +181,7 @@ impl AnnGeneration {
                     if index.len() != rows
                         || index.dim != width
                         || index.metric != metric_to_ann(metric)
+                        || eg_ann::hnsw_artifact::max_external_id(&index) > max_rowid
                     {
                         return Err("HNSW generation does not match its manifest".to_string());
                     }

@@ -53,6 +53,9 @@ impl TableStore {
     /// Answer `request` from the maintained generation, or from the bounded
     /// exact scan when no generation can serve it. Never builds an index.
     pub fn ann_top_k(&self, request: &AnnTopKRequest<'_>) -> Result<AnnTopK, String> {
+        if !self.list_ann_indexes()?.contains(request.index) {
+            return Err("ANN index registration is no longer current".to_string());
+        }
         let index = TableStore::ann_index_key(request.index);
         let authority = self.ann_authority();
         let servable = authority.servable(&index, request.index.method);

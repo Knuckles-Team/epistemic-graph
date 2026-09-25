@@ -291,11 +291,14 @@ impl TableStore {
                     .map_err(|error| format!("encode ANN generation pointer: {error}"))?;
                 let table = write.open_table(SQL_ANN_GENERATIONS)?;
                 if let Some(existing) = table.get((key.as_str(), 0, LIVE)).map_err(map_err)? {
-                    let old = decode_pointer(existing.value())?;
-                    if old.generation >= metadata.generation {
-                        return Err(
-                            "ANN generation was superseded by an existing live pointer".to_string()
-                        );
+                    // A corrupt or incomplete prior artifact can be rebuilt
+                    // from authoritative rows. A strictly newer source epoch
+                    // must still win across concurrent store instances.
+                    if let Ok(old) = decode_pointer(existing.value()) {
+                        if old.built_epoch > metadata.built_epoch {
+                            return Err("ANN generation was superseded by a newer source snapshot"
+                                .to_string());
+                        }
                     }
                 }
                 drop(table);

@@ -17,17 +17,18 @@
 //!   snapshot, checked against the caller's visibility predicate INSIDE the
 //!   graph walk, dropped when deleted (a tombstone), and re-scored on its current
 //!   vector. Rows inserted after the build (row ids above the generation's high
-//!   water) are scored exactly. Updates are eventually consistent: an updated row
-//!   is re-scored whenever it is a candidate, and the lag is visible in the status.
+//!   water) and dirty pre-generation rows are scored exactly. The source epoch
+//!   and lag remain visible in status.
 //! * **Bounded fallback.** With no servable generation (building, failed,
 //!   dimension mismatch, too many rows since the build, or a filter so selective
 //!   the walk exceeds its budget) the query takes an exact scan bounded by
 //!   [`AnnLimits::exact_rows`]; past that bound it fails with the typed reason
 //!   instead of scanning unboundedly or answering wrong.
 //!
-//! Generations live in memory. After a restart every index reports
-//! [`AnnGenerationState::Building`] until the worker rebuilds it from the
-//! durable rows.
+//! The worker persists a complete generation and its live pointer in one SQL
+//! owner mutation before activation. Reopen verifies its artifacts against the
+//! registration, schema, source identity and epoch. An absent or invalid graph
+//! takes the bounded exact path until maintenance repairs it.
 //!
 //! [`TableStore::refresh_ann_generations`]: crate::tables::TableStore::refresh_ann_generations
 

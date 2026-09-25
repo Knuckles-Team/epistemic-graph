@@ -59,6 +59,7 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
             | "semantic_lexical_manifests"
             | "semantic_ann_manifests"
             | "semantic_vectors"
+            | "__sql_ann_generations__"
     ) || (owner == Some(OwnerLayout::GraphShard)
         && graph_shard::is_derived_index(name));
     let shared = matches!(name, "cas_chunks" | "cas_refcount");

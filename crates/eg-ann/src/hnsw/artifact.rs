@@ -16,6 +16,11 @@ pub const MAX_EF_CONSTRUCTION: usize = 4096;
 const MAX_COORDINATE: f32 = 1.0e15;
 const NO_ENTRY: u32 = u32::MAX;
 
+/// Highest source-row id carried by a validated generation.
+pub fn max_external_id(index: &HnswIndex) -> Option<u64> {
+    index.nodes.iter().map(|node| node.id).max()
+}
+
 fn invalid(message: &'static str) -> Error {
     Error::new(ErrorKind::InvalidData, message)
 }

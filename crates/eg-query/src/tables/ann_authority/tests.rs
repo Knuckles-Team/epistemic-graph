@@ -423,7 +423,7 @@ fn rows_inserted_after_the_build_are_served_before_any_rebuild() {
 fn updated_pre_generation_row_is_scored_exactly_without_rebuild() {
     let index = hnsw_l2();
     let rows = vectors(180, 84);
-    let (store, _path) = open_docs(&rows, &index);
+    let (store, path) = open_docs(&rows, &index);
     refresh(&store);
     let query = rows[117].clone();
     let update = json!({"emb": query}).as_object().unwrap().clone();
@@ -448,10 +448,19 @@ fn updated_pre_generation_row_is_scored_exactly_without_rebuild() {
         ids(&answer.rows),
         exact_ids(&store, &index, &rows[117], 3, None)
     );
-    let source_epoch = store.ann_source_epoch().unwrap();
-    refresh(&store);
+    drop(store);
+    let reopened = TableStore::open(&path, dev_verifier(), DEV_PRINCIPAL, DEV_PROOF).unwrap();
+    let reopened_answer = top(&reopened, &index, &rows[117], 3, None);
+    assert_eq!(reopened_answer.receipt.path, maintained(1));
+    assert_eq!(ids(&reopened_answer.rows)[0], 0);
     assert_eq!(
-        store.ann_source_epoch().unwrap(),
+        ids(&reopened_answer.rows),
+        exact_ids(&reopened, &index, &rows[117], 3, None)
+    );
+    let source_epoch = reopened.ann_source_epoch().unwrap();
+    refresh(&reopened);
+    assert_eq!(
+        reopened.ann_source_epoch().unwrap(),
         source_epoch,
         "retiring covered dirty rows cannot stale the new generation"
     );
