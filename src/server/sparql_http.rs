@@ -517,12 +517,12 @@ impl eg_rdf::sparql::RemoteSparql for ServiceClient {
             .set("Content-Type", "application/sparql-query")
             .set("Accept", "application/sparql-results+json")
             .send_string(query)
-            .map_err(|e| format!("POST {endpoint} failed: {e}"))?;
+            .map_err(|_| "SPARQL SERVICE request failed".to_string())?;
         let mut body = String::new();
         resp.into_reader()
             .take(Self::MAX_RESPONSE_BYTES)
             .read_to_string(&mut body)
-            .map_err(|e| format!("reading {endpoint} response: {e}"))?;
+            .map_err(|_| "SPARQL SERVICE response read failed".to_string())?;
         parse_results_json(&body)
     }
 }

@@ -1150,15 +1150,13 @@ fn eval_service(
         Some(c) => c,
         // Fail-closed: no client bound (feature off / allowlist empty) ⇒ SERVICE is disabled.
         None => {
-            return hushed(format!(
-                "eg-rdf SPARQL: SERVICE <{endpoint}> requires a remote client (feature `sparql-service`); none bound"
-            ));
+            return hushed("eg-rdf SPARQL: SERVICE requires a remote client; none bound".into());
         }
     };
     let remote_query = build_service_query(inner);
     match client.select(endpoint, &remote_query) {
         Ok(res) => Ok(res.solutions),
-        Err(e) => hushed(format!("eg-rdf SPARQL: SERVICE <{endpoint}> failed: {e}")),
+        Err(e) => hushed(format!("eg-rdf SPARQL: SERVICE failed: {e}")),
     }
 }
 
