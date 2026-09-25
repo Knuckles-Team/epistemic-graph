@@ -90,14 +90,17 @@ impl Iterator for CountingRows {
         let index = self.next;
         self.next += 1;
         self.pulled.set(self.next);
-        // Keep each generated row ephemeral; the memory oracle exercises a
-        // producer that constructs and releases rows as the stream advances.
-        let mut row = KnowledgeBatchRow::default();
-        row.id = format!("eg:node:{index:016x}");
-        row.kind = "result".into();
-        row.scores.push(("score".into(), Some(index as f32 / 10.0)));
-        row.confidence = 0.9;
-        Some(row)
+        // Build each row from this producer's index without retaining prior
+        // rows; the allocation oracle measures streaming residency.
+        let node_id = format!("eg:node:{index:016x}");
+        let score = Some(index as f32 / 10.0);
+        Some(KnowledgeBatchRow {
+            kind: String::from("result"),
+            confidence: 0.9,
+            id: node_id,
+            scores: vec![(String::from("score"), score)],
+            ..KnowledgeBatchRow::default()
+        })
     }
 }
 
