@@ -46,7 +46,7 @@ mod served {
 
     fn channel(rows: &[UqlRow], index: usize) -> Vec<f64> {
         rows.iter()
-            .map(|r| f64::from(r.channels[index].expect("channel written")))
+            .map(|r| r.channels[index].expect("channel written"))
             .collect()
     }
 

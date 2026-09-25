@@ -11,7 +11,9 @@
 //! free, so this only shapes the in-process runner.
 
 use std::cell::RefCell;
-use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
+use std::sync::{Condvar, Mutex, OnceLock};
+
+use crate::lock_recovery::LockRecovery;
 
 /// Concurrent cluster tests per process: a quarter of the cores' worth of
 /// three-node clusters, never fewer than two.
@@ -41,7 +43,7 @@ struct Held;
 impl Drop for Held {
     fn drop(&mut self) {
         let slots = slots();
-        let mut used = slots.used.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut used = slots.used.lock_recovering("raft harness cluster slots");
         *used = used.saturating_sub(1);
         slots.freed.notify_one();
     }
@@ -58,12 +60,12 @@ pub(crate) fn claim() {
         return;
     }
     let slots = slots();
-    let mut used = slots.used.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut used = slots.used.lock_recovering("raft harness cluster slots");
     while *used >= slots.capacity {
         used = slots
             .freed
             .wait(used)
-            .unwrap_or_else(PoisonError::into_inner);
+            .unwrap_or_else(|_| panic!("raft harness cluster slots: a holder panicked mid-count"));
     }
     *used += 1;
     drop(used);
@@ -76,14 +78,15 @@ mod tests {
 
     #[test]
     fn a_thread_holds_one_slot_until_it_ends() {
-        let used = || *slots().used.lock().unwrap_or_else(PoisonError::into_inner);
+        let used = || *slots().used.lock_recovering("raft harness cluster slots");
         let inner = std::thread::spawn(move || {
             claim();
             let after_first = used();
             claim();
             (after_first, used())
         });
-        let (after_first, after_second) = inner.join().unwrap();
+        let (after_first, after_second) =
+            crate::test_rendezvous::join_bounded(inner, "cluster slot claim thread");
         assert_eq!(
             after_first, after_second,
             "a second claim on one thread is free"
