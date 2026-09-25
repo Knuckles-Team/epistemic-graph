@@ -1,8 +1,10 @@
 //! Shared ontology fixtures for the finance and world-model contract tests.
 
+use std::collections::BTreeSet;
+
 use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
 
-use super::compose::scope_blank_nodes;
+use super::compose::{scope_blank_nodes, validate_and_compose};
 use crate::graph::GraphSchemaSources;
 
 pub(super) const KG: &str = "http://knuckles.team/kg#";
@@ -45,4 +47,47 @@ pub(super) fn object_iri(triple: &Triple) -> Option<&str> {
         Term::NamedNode(node) => Some(node.as_str()),
         _ => None,
     }
+}
+
+pub(super) fn coherent_core_modules(modules: &[&str]) -> eg_rdf::owl::Classification {
+    let sources = GraphSchemaSources::default();
+    for module in modules {
+        assert!(
+            sources.core.contains_key(&format!("core:{module}@1")),
+            "{module}"
+        );
+    }
+    assert!(sources.core.len() <= crate::graph::MAX_CORE_SCHEMA_SOURCES);
+    let composed = validate_and_compose(&sources).unwrap();
+    let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
+    assert!(classification.consistent);
+    assert!(
+        classification.unsatisfiable.is_empty(),
+        "{:?}",
+        classification.unsatisfiable
+    );
+    classification
+}
+
+pub(super) fn declared_classes(triples: &[Triple]) -> BTreeSet<&str> {
+    triples
+        .iter()
+        .filter(|triple| {
+            triple.predicate.as_str() == RDF_TYPE && object_iri(triple) == Some(OWL_CLASS)
+        })
+        .filter_map(subject_iri)
+        .collect()
+}
+
+pub(super) fn shacl_targets(triples: &[Triple]) -> BTreeSet<String> {
+    triples
+        .iter()
+        .filter(|triple| triple.predicate.as_str() == "http://www.w3.org/ns/shacl#targetClass")
+        .filter_map(object_iri)
+        .map(str::to_string)
+        .collect()
+}
+
+pub(super) fn kg_iris(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|local| format!("{KG}{local}")).collect()
 }

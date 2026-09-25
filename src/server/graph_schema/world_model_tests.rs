@@ -10,9 +10,8 @@ use std::time::Instant;
 use eg_rdf::oxrdf::Triple;
 
 use super::compose::validate_and_compose;
-use super::test_support::{
-    kg, object_iri, parse_scoped, subject_iri, wired_with_fixture, KG, OWL_CLASS, RDF_TYPE,
-};
+use super::test_support as fixture;
+use super::test_support::KG;
 use crate::graph::GraphSchemaSources;
 
 const FOX: &str = "<http://example.org/world#fox>";
@@ -99,29 +98,14 @@ ex:flu a :ClinicalCondition .
 /// OWL 2 RL materialization (subclass, sub-property, domain/range, inverse, chains) of
 /// the wired modules plus the fixture.
 fn materialized() -> eg_rdf::rules::RuleReasonResult {
-    let triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
+    let triples = fixture::wired_with_fixture(WIRED_MODULES, FIXTURE);
     let ontology = eg_rdf::owl::parse_ontology(&triples);
     eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default())
 }
 
 #[test]
 fn world_model_modules_are_core_modules_within_the_catalog_bound() {
-    let sources = GraphSchemaSources::default();
-    for module in ["life", "environment", "nutrition", "world-model-shapes"] {
-        assert!(
-            sources.core.contains_key(&format!("core:{module}@1")),
-            "{module}"
-        );
-    }
-    assert!(sources.core.len() <= crate::graph::MAX_CORE_SCHEMA_SOURCES);
-    let composed = validate_and_compose(&sources).unwrap();
-    let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
-    assert!(classification.consistent);
-    assert!(
-        classification.unsatisfiable.is_empty(),
-        "{:?}",
-        classification.unsatisfiable
-    );
+    fixture::coherent_core_modules(&["life", "environment", "nutrition", "world-model-shapes"]);
 }
 
 /// EH-355 budgets with the world model in the corpus: the restore-path terminology
@@ -166,47 +150,48 @@ fn world_model_classes_sit_under_the_bfo_categories() {
         ("NutrientReferenceIntake", "0000031"),
     ];
     for (class, category) in placed {
-        let subsumers = &classification.subsumers[&kg(class)];
+        let subsumers = &classification.subsumers[&fixture::kg(class)];
         assert!(
             subsumers.contains(&bfo(category)),
             "{class} ⋢ BFO_{category}"
         );
     }
-    let taxon = &classification.subsumers[&kg("Taxon")];
+    let taxon = &classification.subsumers[&fixture::kg("Taxon")];
     assert!(
         !taxon.contains(&bfo("0000004")),
         "a taxon is not a material thing"
     );
     for place in ["Region", "Country", "Habitat", "WeatherSystem"] {
-        assert!(classification.subsumers[&kg(place)].contains(&kg("Place")));
+        assert!(classification.subsumers[&fixture::kg(place)].contains(&fixture::kg("Place")));
     }
 }
 
 #[test]
 fn an_organism_with_a_habitat_is_located_in_the_habitats_region() {
     let result = materialized();
-    assert!(result.holds(&kg("locatedIn"), &[FOX, WOODLAND]));
-    assert!(result.holds(&kg("locatedIn"), &[FOX, BAVARIA]));
-    assert!(result.holds(&kg("contains"), &[BAVARIA, FOX]));
-    assert!(result.holds(&kg("habitatOf"), &[WOODLAND, FOX]));
-    assert!(result.holds(&kg("Organism"), &[FOX]));
-    assert!(result.holds(&kg("Habitat"), &[WOODLAND]));
-    assert!(result.holds(&kg("Place"), &[BAVARIA]));
-    assert!(result.holds(&kg("classifiedAs"), &[FOX, VULPES]));
-    assert!(result.holds(&kg("classifiedAs"), &[WOODLAND, FOREST]));
+    assert!(result.holds(&fixture::kg("locatedIn"), &[FOX, WOODLAND]));
+    assert!(result.holds(&fixture::kg("locatedIn"), &[FOX, BAVARIA]));
+    assert!(result.holds(&fixture::kg("contains"), &[BAVARIA, FOX]));
+    assert!(result.holds(&fixture::kg("habitatOf"), &[WOODLAND, FOX]));
+    assert!(result.holds(&fixture::kg("Organism"), &[FOX]));
+    assert!(result.holds(&fixture::kg("Habitat"), &[WOODLAND]));
+    assert!(result.holds(&fixture::kg("Place"), &[BAVARIA]));
+    assert!(result.holds(&fixture::kg("classifiedAs"), &[FOX, VULPES]));
+    assert!(result.holds(&fixture::kg("classifiedAs"), &[WOODLAND, FOREST]));
 }
 
 #[test]
 fn a_nutritional_requirement_is_borne_by_an_organism_that_requires_its_nutrient() {
     let result = materialized();
-    assert!(result.holds(&kg("inheresIn"), &[NEED_C, FOX]));
-    assert!(result.holds(&kg("bearerOf"), &[FOX, NEED_C]));
-    assert!(result.holds(&kg("requiresNutrient"), &[FOX, VITAMIN_C]));
-    assert!(result.holds(&kg("ChemicalEntityTerm"), &[VITAMIN_C]));
+    assert!(result.holds(&fixture::kg("inheresIn"), &[NEED_C, FOX]));
+    assert!(result.holds(&fixture::kg("bearerOf"), &[FOX, NEED_C]));
+    assert!(result.holds(&fixture::kg("requiresNutrient"), &[FOX, VITAMIN_C]));
+    assert!(result.holds(&fixture::kg("ChemicalEntityTerm"), &[VITAMIN_C]));
 
     // A requirement (or a clinical condition) nobody named a bearer for is still
     // borne by SOME organism.
-    let dl = eg_rdf::tableau::parse_dl_ontology(&wired_with_fixture(WIRED_MODULES, FIXTURE));
+    let dl =
+        eg_rdf::tableau::parse_dl_ontology(&fixture::wired_with_fixture(WIRED_MODULES, FIXTURE));
     for unbound in ["bareNeed", "flu"] {
         let individual = format!("<http://example.org/world#{unbound}>");
         assert!(eg_rdf::tableau::is_instance(
@@ -219,10 +204,11 @@ fn a_nutritional_requirement_is_borne_by_an_organism_that_requires_its_nutrient(
 
 #[test]
 fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
-    let dl = eg_rdf::tableau::parse_dl_ontology(&wired_with_fixture(WIRED_MODULES, FIXTURE));
+    let dl =
+        eg_rdf::tableau::parse_dl_ontology(&fixture::wired_with_fixture(WIRED_MODULES, FIXTURE));
     assert!(eg_rdf::tableau::is_instance(&dl, STORM, IN_WEATHER_SYSTEM));
     assert!(eg_rdf::tableau::is_instance(&dl, STORM, BFO_PROCESS));
-    assert!(materialized().holds(&kg("occursIn"), &[STORM, BAVARIA]));
+    assert!(materialized().holds(&fixture::kg("occursIn"), &[STORM, BAVARIA]));
 }
 
 /// A taxon (a GDC) can never be an organism (an IC): the core
@@ -231,16 +217,16 @@ fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
 /// intersection unsatisfiable (EL⁺/RL).
 #[test]
 fn a_taxon_is_never_an_organism() {
-    let mut triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
-    triples.extend(parse_scoped(
+    let mut triples = fixture::wired_with_fixture(WIRED_MODULES, FIXTURE);
+    triples.extend(fixture::parse_scoped(
         "@prefix : <http://knuckles.team/kg#> . <http://example.org/world#vulpes> a :Organism .",
         "clash",
     ));
     let dl = eg_rdf::tableau::parse_dl_ontology(&triples);
     assert!(!eg_rdf::tableau::is_consistent(&dl));
 
-    let mut triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
-    triples.extend(parse_scoped(
+    let mut triples = fixture::wired_with_fixture(WIRED_MODULES, FIXTURE);
+    triples.extend(fixture::parse_scoped(
         "@prefix : <http://knuckles.team/kg#> . \
          @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . \
          <http://example.org/world#TaxonOrganism> rdfs:subClassOf :Taxon, :Organism .",
@@ -250,22 +236,18 @@ fn a_taxon_is_never_an_organism() {
     assert!(classification
         .unsatisfiable
         .contains("<http://example.org/world#TaxonOrganism>"));
-    assert!(!classification.unsatisfiable.contains(&kg("Taxon")));
-    assert!(!classification.unsatisfiable.contains(&kg("Organism")));
+    assert!(!classification.unsatisfiable.contains(&fixture::kg("Taxon")));
+    assert!(!classification
+        .unsatisfiable
+        .contains(&fixture::kg("Organism")));
 }
 
 fn unmapped_classes(triples: &[Triple]) -> Vec<&str> {
-    let declared: BTreeSet<&str> = triples
-        .iter()
-        .filter(|triple| {
-            triple.predicate.as_str() == RDF_TYPE && object_iri(triple) == Some(OWL_CLASS)
-        })
-        .filter_map(subject_iri)
-        .collect();
+    let declared = fixture::declared_classes(&triples);
     let mapped: BTreeSet<&str> = triples
         .iter()
         .filter(|triple| SKOS_MAPPINGS.contains(&triple.predicate.as_str()))
-        .filter_map(subject_iri)
+        .filter_map(fixture::subject_iri)
         .collect();
     declared
         .into_iter()
@@ -288,7 +270,7 @@ fn every_world_model_class_is_mapped_and_nothing_external_is_imported() {
         let imports: BTreeSet<&str> = triples
             .iter()
             .filter(|triple| triple.predicate.as_str() == OWL_IMPORTS)
-            .filter_map(object_iri)
+            .filter_map(fixture::object_iri)
             .collect();
         let expected: BTreeSet<&str> = expected_imports.iter().copied().collect();
         assert_eq!(imports, expected, "{module}");
@@ -302,22 +284,14 @@ fn world_model_shapes_are_their_own_document() {
     let document = include_str!("../../../crates/eg-core/ontology/world_model-v1.shapes.ttl");
     let triples = eg_rdf::mapping::parse_turtle(document).unwrap();
     assert_eq!(triples.len(), 123);
-    let targets: BTreeSet<&str> = triples
-        .iter()
-        .filter(|triple| triple.predicate.as_str() == "http://www.w3.org/ns/shacl#targetClass")
-        .filter_map(object_iri)
-        .collect();
-    let expected: BTreeSet<String> = [
+    let targets = fixture::shacl_targets(&triples);
+    let expected = fixture::kg_iris(&[
         "Taxon",
         "OrganismObservation",
         "WeatherObservation",
         "FoodCompositionRecord",
         "NutrientAmount",
-    ]
-    .iter()
-    .map(|local| format!("{KG}{local}"))
-    .collect();
-    let expected: BTreeSet<&str> = expected.iter().map(String::as_str).collect();
+    ]);
     assert_eq!(targets, expected);
 }
 
@@ -340,7 +314,7 @@ fn no_core_class_specialises_a_reference_term_kind() {
     for (source_id, document) in sources.ontologies() {
         for triple in eg_rdf::mapping::parse_turtle(document).unwrap() {
             let specialises = triple.predicate.as_str() == RDFS_SUBCLASS_OF
-                && object_iri(&triple)
+                && fixture::object_iri(&triple)
                     .is_some_and(|object| reference_kinds.iter().any(|kind| kind == object));
             assert!(!specialises, "{source_id}: {triple}");
         }
@@ -372,9 +346,9 @@ fn foundation_with(documents: &[&str]) -> Vec<Triple> {
         .find(|(source_id, _)| *source_id == "core:foundation@1")
         .map(|(_, document)| document)
         .unwrap();
-    let mut triples = parse_scoped(foundation, "foundation");
+    let mut triples = fixture::parse_scoped(foundation, "foundation");
     for (index, document) in documents.iter().enumerate() {
-        triples.extend(parse_scoped(document, &format!("d{index}")));
+        triples.extend(fixture::parse_scoped(document, &format!("d{index}")));
     }
     triples
 }

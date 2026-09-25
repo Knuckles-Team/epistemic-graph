@@ -9,9 +9,8 @@ use std::collections::BTreeSet;
 use eg_rdf::oxrdf::Triple;
 
 use super::compose::validate_and_compose;
-use super::test_support::{
-    kg, object_iri, parse_scoped, subject_iri, wired_with_fixture, KG, OWL_CLASS, RDF_TYPE,
-};
+use super::test_support as fixture;
+use super::test_support::KG;
 use crate::graph::GraphSchemaSources;
 
 const FINANCE: &str = include_str!("../../../crates/eg-core/ontology/finance-v1.ttl");
@@ -50,22 +49,7 @@ fn ex(local: &str) -> String {
 
 #[test]
 fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_coherent() {
-    let sources = GraphSchemaSources::default();
-    for module in ["finance", "finance-shapes"] {
-        assert!(
-            sources.core.contains_key(&format!("core:{module}@1")),
-            "{module}"
-        );
-    }
-    assert!(sources.core.len() <= crate::graph::MAX_CORE_SCHEMA_SOURCES);
-    let composed = validate_and_compose(&sources).unwrap();
-    let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
-    assert!(classification.consistent);
-    assert!(
-        classification.unsatisfiable.is_empty(),
-        "{:?}",
-        classification.unsatisfiable
-    );
+    let classification = fixture::coherent_core_modules(&["finance", "finance-shapes"]);
     let bfo = |id: &str| format!("<http://purl.obolibrary.org/obo/BFO_{id}>");
     let placed = [
         ("FinancialInstrument", "0000031"),
@@ -89,7 +73,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
     ];
     for (class, category) in placed {
         assert!(
-            classification.subsumers[&kg(class)].contains(&bfo(category)),
+            classification.subsumers[&fixture::kg(class)].contains(&bfo(category)),
             "{class} ⋢ BFO_{category}"
         );
     }
@@ -99,25 +83,19 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 #[test]
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
-    let declared: BTreeSet<&str> = triples
-        .iter()
-        .filter(|triple| {
-            triple.predicate.as_str() == RDF_TYPE && object_iri(triple) == Some(OWL_CLASS)
-        })
-        .filter_map(subject_iri)
-        .collect();
+    let declared = fixture::declared_classes(&triples);
     assert_eq!(declared.len(), 18);
     let mapped: BTreeSet<&str> = triples
         .iter()
         .filter(|triple| SKOS_MAPPINGS.contains(&triple.predicate.as_str()))
-        .filter_map(subject_iri)
+        .filter_map(fixture::subject_iri)
         .collect();
     let unmapped: Vec<&&str> = declared.iter().filter(|c| !mapped.contains(*c)).collect();
     assert!(unmapped.is_empty(), "unmapped classes {unmapped:?}");
     let imports: BTreeSet<&str> = triples
         .iter()
         .filter(|triple| triple.predicate.as_str() == OWL_IMPORTS)
-        .filter_map(object_iri)
+        .filter_map(fixture::object_iri)
         .collect();
     assert_eq!(imports, BTreeSet::from(["http://knuckles.team/kg/core"]));
 }
@@ -126,11 +104,12 @@ fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
 /// commodity is an instrument, a revised flip is still a flip and an event.
 #[test]
 fn listing_signal_and_flip_wiring_entails_their_types() {
-    let triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
+    let triples = fixture::wired_with_fixture(WIRED_MODULES, FIXTURE);
     let ontology = eg_rdf::owl::parse_ontology(&triples);
     let result = eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default());
-    let holds =
-        |class: &str, individual: &str| result.holds(&kg(class), &[ex(individual).as_str()]);
+    let holds = |class: &str, individual: &str| {
+        result.holds(&fixture::kg(class), &[ex(individual).as_str()])
+    };
     assert!(holds("Listing", "btcusdt"));
     assert!(holds("FinancialInstrument", "btc"));
     assert!(holds("FinancialInstrument", "usdt"));
@@ -152,8 +131,8 @@ fn listing_signal_and_flip_wiring_entails_their_types() {
 /// both is inconsistent under the core BFO disjointness.
 #[test]
 fn a_trend_flip_is_never_an_instrument() {
-    let mut triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
-    triples.extend(parse_scoped(
+    let mut triples = fixture::wired_with_fixture(WIRED_MODULES, FIXTURE);
+    triples.extend(fixture::parse_scoped(
         "@prefix : <http://knuckles.team/kg#> . <http://example.org/markets#flip2> a :FinancialInstrument .",
         "clash",
     ));
@@ -180,8 +159,11 @@ fn the_trading_classes_are_folded_out_of_company_infra() {
         eg_rdf::mapping::parse_turtle(document)
             .unwrap()
             .iter()
-            .filter(|t| t.predicate.as_str() == RDF_TYPE && object_iri(t) == Some(OWL_CLASS))
-            .filter_map(subject_iri)
+            .filter(|t| {
+                t.predicate.as_str() == fixture::RDF_TYPE
+                    && fixture::object_iri(t) == Some(fixture::OWL_CLASS)
+            })
+            .filter_map(fixture::subject_iri)
             .map(str::to_string)
             .collect()
     };
@@ -199,7 +181,7 @@ fn the_trading_classes_are_folded_out_of_company_infra() {
 fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
     let sources = GraphSchemaSources::default();
     let mut triples: Vec<Triple> = validate_and_compose(&sources).unwrap().ontology.to_vec();
-    triples.extend(parse_scoped(
+    triples.extend(fixture::parse_scoped(
         "@prefix : <http://knuckles.team/kg#> .\n\
          @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
          :BacktestResult rdfs:subClassOf :OutcomeEvaluation .",
@@ -208,7 +190,9 @@ fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
     let classification = eg_rdf::owl::Reasoner::from_triples(&triples).classify();
     assert!(classification.consistent);
     assert!(
-        !classification.unsatisfiable.contains(&kg("BacktestResult")),
+        !classification
+            .unsatisfiable
+            .contains(&fixture::kg("BacktestResult")),
         "{:?}",
         classification.unsatisfiable
     );
@@ -217,12 +201,8 @@ fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
 #[test]
 fn finance_shapes_are_their_own_document() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE_SHAPES).unwrap();
-    let targets: BTreeSet<&str> = triples
-        .iter()
-        .filter(|triple| triple.predicate.as_str() == "http://www.w3.org/ns/shacl#targetClass")
-        .filter_map(object_iri)
-        .collect();
-    let expected: BTreeSet<String> = [
+    let targets = fixture::shacl_targets(&triples);
+    let expected = fixture::kg_iris(&[
         "FinancialInstrument",
         "Listing",
         "BarSeries",
@@ -231,11 +211,7 @@ fn finance_shapes_are_their_own_document() {
         "TrendFlip",
         "MacroEvent",
         "AnalysisSnapshot",
-    ]
-    .iter()
-    .map(|local| format!("{KG}{local}"))
-    .collect();
-    let expected: BTreeSet<&str> = expected.iter().map(String::as_str).collect();
+    ]);
     assert_eq!(targets, expected);
 }
 
