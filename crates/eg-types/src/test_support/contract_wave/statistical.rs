@@ -289,6 +289,7 @@ fn replay_request() -> DecisionEvalRequest {
         },
         mode: EvalMode::Replay {
             spec: Box::new(ReplaySpec {
+                graph: "graph-a".to_string(),
                 folds: WalkForward {
                     train: 252,
                     test: 21,
