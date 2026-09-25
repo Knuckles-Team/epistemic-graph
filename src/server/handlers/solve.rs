@@ -125,6 +125,10 @@ mod tests {
         )
         .await;
         let error = response.error.expect("refused");
-        assert!(error.starts_with("SOLVE_MODEL_INVALID: "), "{error}");
+        assert_eq!(error, "SOLVE_MODEL_INVALID");
+        assert!(response
+            .error_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("model")));
     }
 }

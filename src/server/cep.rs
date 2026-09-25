@@ -688,7 +688,8 @@ mod tests {
         };
         let admin = authority(&["kg:admin"]);
         let state = shared_state();
-        let error_of = |outcome: Result<Response, Method>| outcome.expect("CEP method").error;
+        let error_of =
+            |outcome: Result<Response, Method>| outcome.expect("CEP method").error_detail;
         let unsubscribe = |sub_id| Method::CepUnsubscribe { sub_id };
 
         let denied = try_handle(&state, 1, &authority(&["kg:read"]), unsubscribe(1)).await;

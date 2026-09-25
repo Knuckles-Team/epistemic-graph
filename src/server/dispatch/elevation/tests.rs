@@ -111,10 +111,7 @@ async fn alice_writes(state: &Arc<RwLock<super::super::ServerState>>) -> bool {
 }
 
 fn refused_with(response: &Response, code: &str) -> bool {
-    response
-        .error
-        .as_deref()
-        .is_some_and(|error| error.contains(code))
+    response.error.as_deref().is_some_and(|error| error == code)
 }
 
 #[test]

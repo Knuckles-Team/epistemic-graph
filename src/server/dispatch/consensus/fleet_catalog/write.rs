@@ -350,8 +350,8 @@ mod tests {
             .unwrap_err()
             .starts_with("FLEET_REVISION_CONFLICT"));
         assert_eq!(
-            applied(Response::err(1, "denied"), "srvobs:x"),
-            Err("denied".into())
+            applied(Response::err(1, "ACCESS_DENIED: denied"), "srvobs:x"),
+            Err("ACCESS_DENIED".into())
         );
     }
 }

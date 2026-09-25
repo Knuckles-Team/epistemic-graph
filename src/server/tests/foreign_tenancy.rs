@@ -96,7 +96,7 @@ fn uql(text: impl Into<String>) -> Method {
 /// tenant-binding refusal (which would mean the request never reached the plan).
 fn assert_not_registered_for_caller(resp: &crate::protocol::Response, surface: &str) {
     let err = resp
-        .error
+        .error_detail
         .as_deref()
         .unwrap_or_else(|| panic!("{surface}: principal B must not resolve principal A's source"));
     assert!(
@@ -212,7 +212,7 @@ async fn shared_source_needs_an_explicit_grant() {
         format!("no foreign source registered under name '{qualified}' (registered: [])");
     let assert_refused = |resp: &crate::protocol::Response, stage: &str| {
         let err = resp
-            .error
+            .error_detail
             .as_deref()
             .unwrap_or_else(|| panic!("{stage}: must be refused"));
         assert!(

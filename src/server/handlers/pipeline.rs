@@ -1032,14 +1032,14 @@ mod tests {
             })),
         );
         let response = handle_predict(1, &core, "broken".into(), 1, None, vec![vec![1.0]], false);
-        let error = response.error.expect("invalid model blob must fail");
+        let error = response.error_detail.expect("invalid model blob must fail");
         assert!(
             error.starts_with("pipeline: invalid classify blob:"),
             "{error}"
         );
         let response =
             handle_evaluate(2, &core, "broken".into(), 1, None, vec![vec![1.0]], vec![0]);
-        let error = response.error.expect("invalid model blob must fail");
+        let error = response.error_detail.expect("invalid model blob must fail");
         assert!(error.starts_with("pipeline: invalid blob:"), "{error}");
     }
 
@@ -1355,7 +1355,7 @@ mod tests {
         );
         let err = match resp.result {
             Some(_) => panic!("alice must not resolve bob's private v1 model"),
-            None => resp.error.unwrap(),
+            None => resp.error_detail.unwrap(),
         };
         assert!(
             err.contains("model") && err.contains("not found"),

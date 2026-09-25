@@ -463,7 +463,7 @@ mod tests {
             .expect("panic must be converted to a response");
         assert_eq!(panic_response.id, 11);
         assert!(panic_response
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("crashed")));
         assert_eq!(next_rx.await.unwrap().id, 12);

@@ -69,7 +69,7 @@ async fn only_the_bound_importer_may_import() {
             )
             .await,
     );
-    assert!(error.starts_with("CONNECTOR_PACK_UNBOUND:"), "{error}");
+    assert_eq!(error, "CONNECTOR_PACK_UNBOUND");
 }
 
 #[tokio::test]

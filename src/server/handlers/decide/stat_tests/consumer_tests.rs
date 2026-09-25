@@ -199,9 +199,13 @@ async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
             success: Some(true),
         },
     };
-    let refused = decode::<StoredEvaluation>(log_op(&h, "decider", evaluation).await);
+    let refused = log_op(&h, "decider", evaluation).await;
+    assert!(refused.result.is_none());
     assert!(
-        refused.unwrap_err().contains("executed no option"),
+        refused
+            .error_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("executed no option")),
         "an abstention executed nothing an outcome could evaluate"
     );
 }

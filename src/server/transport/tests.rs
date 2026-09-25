@@ -134,7 +134,11 @@ async fn qos_verification_rejects_unsigned_agent_before_admission() {
         Ok(_) => panic!("an unsigned agent assertion must never enter QoS accounting"),
     };
     assert_eq!(response.id, 81);
-    assert_eq!(response.error.as_deref(), Some("Authentication failed"));
+    assert_eq!(response.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(
+        response.error_detail.as_deref(),
+        Some("Authentication failed")
+    );
     assert_eq!(scheduler.stats().in_flight, 0);
 }
 
@@ -481,7 +485,11 @@ async fn a_closed_peer_cancels_its_in_flight_dispatch() {
         peer_gone.cancel();
     };
     let (resp, ()) = tokio::join!(pending, trip);
-    assert_eq!(resp.error.as_deref(), Some("observed the cancellation"));
+    assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(
+        resp.error_detail.as_deref(),
+        Some("observed the cancellation")
+    );
 }
 
 /// EH-536: the dispatch deadline trips the request's cancellation before the

@@ -186,7 +186,8 @@ async fn kv_dispatch_put_get_scan_delete_cas() {
     );
     bad.auth_token = "bogus".into();
     let r = dispatch_on_heap(&state, bad).await;
-    assert_eq!(r.error.as_deref(), Some("Authentication failed"));
+    assert_eq!(r.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(r.error_detail.as_deref(), Some("Authentication failed"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
