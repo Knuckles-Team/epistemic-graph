@@ -6,196 +6,171 @@
 
 from __future__ import annotations
 
-from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from ._shared import (
+    Algorithm,
+    BoundProof,
+    BoundProofRoot,
+    BoundProofRootBody,
+    BoundProofTree,
+    BoundProofTreeBody,
+    Certificate,
+    Coefficient,
+    CoefficientKnown,
+    ConstraintBody,
+    ConstraintBodyAtLeast,
+    ConstraintBodyAtLeastBody,
+    ConstraintBodyAtMost,
+    ConstraintBodyAtMostBody,
+    ConstraintBodyExactlyOne,
+    ConstraintBodyExactlyOneBody,
+    ConstraintBodyFix,
+    ConstraintBodyFixBody,
+    ConstraintBodyImplication,
+    ConstraintBodyImplicationBody,
+    ConstraintBodyImpliesAny,
+    ConstraintBodyImpliesAnyBody,
+    ConstraintBodyLinear,
+    ConstraintBodyLinearBody,
+    ConstraintSpec,
+    DualEntry,
+    Incumbent,
+    LagrangeDual,
+    LeafProof,
+    LeafProofBound,
+    LeafProofBoundBody,
+    LeafProofInfeasible,
+    LeafProofInfeasibleBody,
+    LevelValue,
+    ObjectiveLevelSpec,
+    ObjectiveTerm,
+    ObjectiveValue,
+    ProofNode,
+    ProofNodeBranch,
+    ProofNodeBranchBody,
+    ProofNodeForced,
+    ProofNodeForcedBody,
+    ProofNodeLeaf,
+    ProofNodeLeafBody,
+    Relation,
+    RowId,
+    Scalar,
+    Sha256Digest,
+    SolveModelSpec,
+    SolverConfig,
+    SolveStatus,
+    SolveStatusFeasibleWithGap,
+    SolveStatusFeasibleWithGapBody,
+    SolveStatusInfeasible,
+    SolveStatusInfeasibleBody,
+    SolveStatusInfeasibleByDeterministicSearch,
+    SolveStatusInfeasibleByDeterministicSearchBody,
+    SolveStatusOptimalByDeterministicSearch,
+    SolveStatusOptimalByDeterministicSearchBody,
+    Term,
+    VarId,
+)
 
 SOLVE_RESULT_SCHEMA_VERSION = 1
 
 
-class Algorithm(str, Enum):
-    DEPTH_FIRST_DUAL_ASCENT = "depth_first_dual_ascent"
-
-
-class Certificate(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    algorithm: Algorithm
-    config: SolverConfig
-    incumbent: Incumbent | None = None
-    lower_bound: Scalar | None = None
-    model_digest: Sha256Digest
-    nodes_expanded: Annotated[int, Field(ge=0)]
-    proof: BoundProof
-    status: SolveStatus
-
-
-class ConstraintSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    body: ConstraintBody
-    label: str
-
-
-class DualEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    numerator: Scalar
-    row: RowId
-
-
-class Incumbent(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    objective: ObjectiveValue
-    selected: list[bool]
-
-
-class LagrangeDual(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    denominator: Annotated[int, Field(ge=0)]
-    entries: list[DualEntry]
-
-
-class LevelValue(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    known: Scalar
-    unknown_selected: Annotated[int, Field(ge=0)]
-
-
-class ObjectiveLevelSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    label: str
-    terms: list[ObjectiveTerm]
-
-
-class ObjectiveTerm(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    coefficient: Coefficient
-    var: VarId
-
-
-class ObjectiveValue(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    levels: list[LevelValue]
-    scalar: Scalar
-
-
-class Relation(str, Enum):
-    LESS_EQUAL = "less_equal"
-    GREATER_EQUAL = "greater_equal"
-    EQUAL = "equal"
-
-
-class SolveModelSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    constraints: list[ConstraintSpec]
-    objective: list[ObjectiveLevelSpec]
-    variables: list[str]
-
-
 class SolveRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     config: SolverConfigSpec | None = None
     model: SolveModelSpec
 
 
 class SolveResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     certificate: Certificate
     certificate_digest: Sha256Digest
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
 
-class SolverConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    accepted_gap: Scalar
-    bound_denominator: Annotated[int, Field(ge=0)]
-    max_certificate_leaves: Annotated[int, Field(ge=0)]
-    node_budget: Annotated[int, Field(ge=0)]
-
-
 class SolverConfigSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     accepted_gap: Scalar
     bound_denominator: Annotated[int, Field(ge=0)]
     max_certificate_leaves: Annotated[int, Field(ge=0)]
     node_budget: Annotated[int, Field(ge=0)]
 
-
-class Term(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    coefficient: int
-    var: VarId
-
-
-Coefficient = str | dict[str, Any]
-
-
-RowId = Annotated[int, Field(ge=0)]
-
-
-Scalar = str
-
-
-Sha256Digest = str
-
-
-VarId = Annotated[int, Field(ge=0)]
-
-
-BoundProof = dict[str, Any]
-
-
-ConstraintBody = dict[str, Any]
-
-
-LeafProof = dict[str, Any]
-
-
-ProofNode = dict[str, Any]
-
-
-SolveStatus = Literal["optimal"] | dict[str, Any] | Literal["budget_exhausted"]
-
-Certificate.model_rebuild()
-
-ConstraintSpec.model_rebuild()
-
-DualEntry.model_rebuild()
-
-Incumbent.model_rebuild()
-
-LagrangeDual.model_rebuild()
-
-LevelValue.model_rebuild()
-
-ObjectiveLevelSpec.model_rebuild()
-
-ObjectiveTerm.model_rebuild()
-
-ObjectiveValue.model_rebuild()
-
-SolveModelSpec.model_rebuild()
 
 SolveRequest.model_rebuild()
 
 SolveResult.model_rebuild()
 
-SolverConfig.model_rebuild()
-
 SolverConfigSpec.model_rebuild()
 
-Term.model_rebuild()
+
+__all__ = [
+    "Algorithm",
+    "BoundProof",
+    "BoundProofRoot",
+    "BoundProofRootBody",
+    "BoundProofTree",
+    "BoundProofTreeBody",
+    "Certificate",
+    "Coefficient",
+    "CoefficientKnown",
+    "ConstraintBody",
+    "ConstraintBodyAtLeast",
+    "ConstraintBodyAtLeastBody",
+    "ConstraintBodyAtMost",
+    "ConstraintBodyAtMostBody",
+    "ConstraintBodyExactlyOne",
+    "ConstraintBodyExactlyOneBody",
+    "ConstraintBodyFix",
+    "ConstraintBodyFixBody",
+    "ConstraintBodyImplication",
+    "ConstraintBodyImplicationBody",
+    "ConstraintBodyImpliesAny",
+    "ConstraintBodyImpliesAnyBody",
+    "ConstraintBodyLinear",
+    "ConstraintBodyLinearBody",
+    "ConstraintSpec",
+    "DualEntry",
+    "Incumbent",
+    "LagrangeDual",
+    "LeafProof",
+    "LeafProofBound",
+    "LeafProofBoundBody",
+    "LeafProofInfeasible",
+    "LeafProofInfeasibleBody",
+    "LevelValue",
+    "ObjectiveLevelSpec",
+    "ObjectiveTerm",
+    "ObjectiveValue",
+    "ProofNode",
+    "ProofNodeBranch",
+    "ProofNodeBranchBody",
+    "ProofNodeForced",
+    "ProofNodeForcedBody",
+    "ProofNodeLeaf",
+    "ProofNodeLeafBody",
+    "Relation",
+    "RowId",
+    "Scalar",
+    "Sha256Digest",
+    "SolveModelSpec",
+    "SolveRequest",
+    "SolveResult",
+    "SolveStatus",
+    "SolveStatusFeasibleWithGap",
+    "SolveStatusFeasibleWithGapBody",
+    "SolveStatusInfeasible",
+    "SolveStatusInfeasibleBody",
+    "SolveStatusInfeasibleByDeterministicSearch",
+    "SolveStatusInfeasibleByDeterministicSearchBody",
+    "SolveStatusOptimalByDeterministicSearch",
+    "SolveStatusOptimalByDeterministicSearchBody",
+    "SolverConfig",
+    "SolverConfigSpec",
+    "Term",
+    "VarId",
+]

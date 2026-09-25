@@ -11,6 +11,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._shared import (
+    Digest256,
+)
 from .digest import (
     canonical_msgpack,
     framed_named_msgpack_digest,
@@ -19,7 +22,7 @@ from .digest import (
 
 
 class ReconciliationObservation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     change_set_digest: Digest256
     change_set_id: str
@@ -34,7 +37,7 @@ class ReconciliationObservation(BaseModel):
 
 
 class ReconciliationReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     actor: str
     authorization: WriteBackAuthorizationDecision
@@ -129,7 +132,7 @@ class SourceChangeSet(BaseModel):
 
 
 class WriteBackAttempt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     applied_field_digest: Digest256
     change_set_digest: Digest256
@@ -153,7 +156,7 @@ class WriteBackAttemptKind(str, Enum):
 
 
 class WriteBackAuthorizationDecision(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     authorization_ref: str
     authorized: bool
@@ -176,14 +179,14 @@ class WriteBackEffectStatus(str, Enum):
 
 
 class WriteBackOpCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     change_set: SourceChangeSet
     op: Literal["create"]
 
 
 class WriteBackOpGet(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     change_set_id: str
     op: Literal["get"]
@@ -191,21 +194,21 @@ class WriteBackOpGet(BaseModel):
 
 
 class WriteBackOpRecordAttempt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     attempt: WriteBackAttempt
     op: Literal["record_attempt"]
 
 
 class WriteBackOpRecordReconciliation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     observation: ReconciliationObservation
     op: Literal["record_reconciliation"]
 
 
 class WriteBackOpReceipts(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     after_sequence: Annotated[int, Field(ge=0)] | None = None
     change_set_id: str
@@ -233,7 +236,7 @@ class WriteBackOutcome(str, Enum):
 
 
 class WriteBackReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     actor: str
     applied_field_digest: Digest256
@@ -259,21 +262,21 @@ class WriteBackReceipt(BaseModel):
 
 
 class WriteBackReceiptPage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     next_sequence: Annotated[int, Field(ge=0)] | None = None
     receipts: list[WriteBackReceiptRecord]
 
 
 class WriteBackReceiptRecordAttempt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     receipt: WriteBackReceipt
     receipt_kind: Literal["attempt"]
 
 
 class WriteBackReceiptRecordReconciliation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     receipt: ReconciliationReceipt
     receipt_kind: Literal["reconciliation"]
@@ -282,16 +285,6 @@ class WriteBackReceiptRecordReconciliation(BaseModel):
 WriteBackReceiptRecord = Annotated[
     WriteBackReceiptRecordAttempt | WriteBackReceiptRecordReconciliation,
     Field(discriminator="receipt_kind"),
-]
-
-
-Digest256 = Annotated[
-    str,
-    Field(
-        pattern="^[0-9a-f]{64}$",
-        min_length=64,
-        max_length=64,
-    ),
 ]
 
 ReconciliationObservation.model_rebuild()
@@ -321,3 +314,21 @@ WriteBackReceiptPage.model_rebuild()
 WriteBackReceiptRecordAttempt.model_rebuild()
 
 WriteBackReceiptRecordReconciliation.model_rebuild()
+
+
+__all__ = [
+    "Digest256",
+    "ReconciliationObservation",
+    "ReconciliationReceipt",
+    "SourceChangeSet",
+    "WriteBackAttempt",
+    "WriteBackAttemptKind",
+    "WriteBackAuthorizationDecision",
+    "WriteBackAuthorizationMode",
+    "WriteBackEffectStatus",
+    "WriteBackOp",
+    "WriteBackOutcome",
+    "WriteBackReceipt",
+    "WriteBackReceiptPage",
+    "WriteBackReceiptRecord",
+]

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     AuditProveInclusionRequest = _models.MethodAuditProveInclusionParams
     RegisterIdentityRequest = _models.MethodRegisterIdentityParams
     RbacAdminRequest = _models.MethodRbacAdminParams
+    RbacElevationRequest = _models.MethodRbacElevationParams
     GetIdentityRequest = _models.MethodGetIdentityParams
 
 
@@ -259,6 +260,46 @@ async def send_rbac_admin(
     return OpaqueResult("RbacAdmin", payload)
 
 
+async def send_rbac_elevation(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        RbacElevation
+    Authorization:
+        rbac:elevation
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.security.json
+        #/methods/RbacElevation
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodRbacElevationParams.model_validate(params or {})
+    payload = await client._send(
+        "RbacElevation",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("RbacElevation", payload)
+
+
 async def send_get_identity(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -306,6 +347,7 @@ _REQUEST_METHODS = frozenset(
         "AuditProveInclusion",
         "RegisterIdentity",
         "RbacAdmin",
+        "RbacElevation",
         "GetIdentity",
     }
 )

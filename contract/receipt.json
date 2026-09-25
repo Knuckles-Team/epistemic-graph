@@ -2,55 +2,58 @@
   "artifact_digests": {
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
-    "contract/fixtures/method_body_vectors.json": "168d3bb3d28f5918b19b30ff69c64e56c28bd1a819f1cd210b57403fe51ba117",
-    "contract/methods.json": "a933253355332f7eda6b2caad76df4f558b342229e4090888bfe5d2227f21c4e",
-    "contract/schemas/method.request.json": "a2c4170805e798cc9562a244c0c8e0393d2f47f901e7b1015d68f3127099d2cd",
-    "contract/schemas/result.cluster.json": "0aac12793ab69a65c1326ba4471c48bfa4a87596be9eb7972eaa09fe65608c42",
-    "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
-    "contract/schemas/result.coordination.json": "c3863706aa6f7fabc596421ff33073c469faabffdd858623adb2b9993323e4ae",
-    "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
-    "contract/schemas/result.ingestion.json": "746d7ad20ae4a2554e4fc56ec4ea10a0c486c1f471a233333792152b2d2007ea",
-    "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
+    "contract/fixtures/method_body_vectors.json": "374c9d5d0d175877501fecd4b37c37cdf0040bbac898bb857ee5ad5e93f608ac",
+    "contract/methods.json": "1045c4800efdfdd621e6308e296ff07d3ddeb757c8af2db0d3d7debc1cfa314d",
+    "contract/schemas/method.request.json": "f49dc2a8e65ba053977b71138e02bf65e8f0c424e87c57a5fc63149ba1c6f0e2",
+    "contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
+    "contract/schemas/result.compute.json": "751a49420ed4c09bbe0b3e0252d78ae872a9cf45e9ce42747cb04a2f046edb24",
+    "contract/schemas/result.coordination.json": "c669f3fd45bb100f1792d7e20309a08bb9084dd3e599c73f4234257672bc4c5a",
+    "contract/schemas/result.graph.json": "74462242f194cb0294b3ffc92a1b2c55f8c8bc9863a77d3c1d1af9d26a87bf3c",
+    "contract/schemas/result.ingestion.json": "7aa7afe3ab77594625ba2703273fe453d8e1db7c77ef50df945aac5d475d48fb",
+    "contract/schemas/result.messaging.json": "b5798d40e87de71ec35952a00f10cbd89b2b7fb6b1094122b8f244787b5e83b1",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "e776ddcabae3abeb4a3618ff98fa59dc30878570d752ca8caed0453267e5d376",
-    "contract/schemas/result.reasoning.json": "9cbf90b03971898c92e4f960f6fe80030bb13857bf5b7a894227a3aa0896a74c",
-    "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
-    "contract/schemas/result.storage.json": "ae1cbce4612b388120ef6130017cd7c6deecfa9425952b2d966fff39b8584a78",
+    "contract/schemas/result.query.json": "cd4f407106c8de32423057c0da03e87c9d41a621e60d1e18a81f39513e0b399c",
+    "contract/schemas/result.reasoning.json": "ab1821fc6a34cc047fcd3c11c57e6777f9268aec89148d27acb4ca715425152a",
+    "contract/schemas/result.security.json": "56aeebcf853d4d832ef810aa03a58928205110ce3d0fb803e9ad74f107e17894",
+    "contract/schemas/result.storage.json": "ece25d2ee546e6f0857d05484a3fb0072dfdde9d1226cdcf46f2aa75a35764a8",
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
-    "crates/eg-capabilities/generated/method_catalog.rs": "b493a33db044792bbd24df8554ca22394681ff218b42e92f3a01d300428b8842",
-    "docs/capabilities.generated.md": "ca94347c69b6d2f2d8f4b85bcd92fcb99626d86ccb705acf644aaeeb8f4e3f0a",
+    "crates/eg-capabilities/generated/method_catalog.rs": "71ac6220cff35a3e51bf3c07c6a81f7b87dd09d38c8ad21240d522d1f037a483",
+    "docs/capabilities.generated.md": "421e08206a09128a3cdfdd1d02fae1329c32de96a9d16a9f407a177f8a86354f",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
-    "epistemic_graph/generated/__init__.py": "6c9feecf6a8d103acbeec68255f8cb6666ea88a34fe50c858c3237d9c20dc09b",
-    "epistemic_graph/generated/_ids.py": "cbb7f2e08725e077b6cdc9ff9cda9edf4c1ae59c0ff54e382040f7c3c3548c94",
+    "epistemic_graph/generated/__init__.py": "717cb3af72f01b5b505e9a30d8443f10a467e75f0596642f64a72d6ce02e2744",
+    "epistemic_graph/generated/_ids.py": "8232d33edf5b5e245667c2f3d9d76adfc49bc5e30b81218736705848b315e383",
     "epistemic_graph/generated/_runtime.py": "7f2d7ced6799e3c52df4719f8dc1079f55faa5c0cf248d6e8d07114ef385da8e",
-    "epistemic_graph/generated/agent_component.py": "0c4248e668c3c4a77d9f9a01ed58974c8f3bf8a7d27f75f4f0c04c51aa082569",
+    "epistemic_graph/generated/_shared.py": "d7ff5af46edbfc2c36bf3224a7a7971834d62224ec9e89ccf8e88f0d628d84e9",
+    "epistemic_graph/generated/agent_component.py": "e4de01d21b8fdb7276817bd8dca3a554a49fcef145e8b482c3ab7101caa20db2",
     "epistemic_graph/generated/cluster.py": "ec7bfc2c7fda847312bd18c4fda706c9a7984ebaf94cc9639085672ff65974b2",
-    "epistemic_graph/generated/compute.py": "779b6f843b91b43f0a1e69eee141c89efdf37c01162d503cc27aefe13bdb863d",
-    "epistemic_graph/generated/connector_pack.py": "f59c068b3974ec45b10146b6e61a262d9b788ce7dca89697f52507fa73b96e81",
-    "epistemic_graph/generated/coordination.py": "eacfae22d9a9473d66fbe65761b479cccbdd3f1bddc14ee2b5c23f84aa80c1e0",
-    "epistemic_graph/generated/decision.py": "98b3990100a213cad079eceab37c7e482f46010cfb4a37f71eb039c7cf233708",
-    "epistemic_graph/generated/decision_commit.py": "6a605134593b0963295d294f94a0755ca4050b4a70816640acbce0e07e59886e",
+    "epistemic_graph/generated/compute.py": "1f77d50abbd3f84e1cb4a5a4f6d178a7104bd01e7f11a6ea432247decad4c7f5",
+    "epistemic_graph/generated/connector_pack.py": "b2de483c5b66dfc712be1c7f0e6b05f80ac9663d4faa4e74616d2ecf04010f7a",
+    "epistemic_graph/generated/coordination.py": "b7b48c3d3fbd368dbe73a804b0ec402d2c5fc9e39e4ff6fcfda2115735706db9",
+    "epistemic_graph/generated/decision.py": "806ca7ce82238a0cecaecd62054388c4b6a83a59c918bf77b52e7ed97783247d",
+    "epistemic_graph/generated/decision_commit.py": "45dc8f5e00f56638dc4b0fc6261b488560dda363ce5ed8a598a07fce71611582",
     "epistemic_graph/generated/digest.py": "9bed03c1dea1300e68e962f517b67abf42881ae32f2208e254ac42ffac928290",
-    "epistemic_graph/generated/fleet_catalog.py": "fc881981a3f7be641f7737694062d1fd6cc9b0d938c36ee5e6b4ac61b108c0c1",
-    "epistemic_graph/generated/graph.py": "e55173203b61ce380fcbd2419a7910fdfd1cf7b3beea8757cce3b148874d2f73",
-    "epistemic_graph/generated/graph_schema.py": "a7b48e527d7ea322a85e938fb323811c2e341703801fbb28c040b0403f415e0e",
-    "epistemic_graph/generated/index_repository.py": "1d51a13637634de0daa57cabf5a0864e0ac3f6f014133c36d644996b79f79f01",
-    "epistemic_graph/generated/ingestion.py": "20660b4e8f91ffe0b9310269986f8111499b79f1aef9abfe2995d634ad209476",
-    "epistemic_graph/generated/messaging.py": "7a527ee235a6e81e907a4125dfcb85efca33af3ecc46bf82613beadadbe52a7a",
-    "epistemic_graph/generated/models.py": "82461a9fde443822e207e3e0bfa99ccd5c3bbdae154bd73fad8982f0da2bb35c",
-    "epistemic_graph/generated/query.py": "d18728c198ecdd11ce19a2fa4219b8bf106e6637f4f1e416b01abc4e42aae21d",
-    "epistemic_graph/generated/rdf_report.py": "8025614a9bb3abcce9b28efe2db743ed9742c002e4120931f55d16ea3085d817",
-    "epistemic_graph/generated/reasoning.py": "8c718d214faff483f6094dfdf0afec64d81b18883a74ecc3b85c2fb0ddec857d",
-    "epistemic_graph/generated/security.py": "30d5d3d73a59afebcff23333f6d19eeeda872b4bf750a5076979fd60e1602419",
-    "epistemic_graph/generated/server_registry.py": "558c5520b4a3161861985d668e72b93d435f019deb8915c13bd74f89cfb92ee6",
-    "epistemic_graph/generated/solve.py": "8ed5b17a6a7e9485205b11daff778458515afb83315b8f632aca5208c5d714e5",
-    "epistemic_graph/generated/source_ingestion.py": "d512881aeaff6bccf354da51e434af015cbb42e1723b592beefa652464b58c54",
+    "epistemic_graph/generated/fleet_catalog.py": "be3c10ea5a92876ea4ce6dd87a8943ddb0eb2889b9b9686c626f3396cac88f90",
+    "epistemic_graph/generated/graph.py": "ea29cc67ab0c03ae6037cb99bd4dacd536bd115544af6e943958d534e2b5e739",
+    "epistemic_graph/generated/graph_schema.py": "e79c44c7a8a861e72c25dccb30f5d516e2ec4c4cbfa406d56601ff79994a6f71",
+    "epistemic_graph/generated/index_repository.py": "36ff64751585785d047e7160c0fba692ddfb31ba292dbe352a3638345988d0f3",
+    "epistemic_graph/generated/ingestion.py": "2735ad462eb460209318ecd6e898b2e1de81cc92388ac37f27fb149afacfbc5f",
+    "epistemic_graph/generated/managed_index.py": "fe27acc6b80eb7d751d2d0de1e9404697ae7ab99174d39dc81c0242e97585fcd",
+    "epistemic_graph/generated/messaging.py": "0c00d8d93ed7fba40eeeb572c14c7354eaa33693e8acda369942ee9598907e1f",
+    "epistemic_graph/generated/models.py": "06c6b5914e6923edae9ccec2e8c9e789fb29b65731e18702b32271598bc1b518",
+    "epistemic_graph/generated/policy_evolution.py": "34092aa49b5230b1fa7d5f7a69d874c35c052ea1e7f8322fa45292b7bb902039",
+    "epistemic_graph/generated/query.py": "85db01171e8f4278b841872939cbed7d47d76415b5516b67dd83eaa8e16b3201",
+    "epistemic_graph/generated/rdf_report.py": "bc08753b679e92d53723a14e6c0d2c3237431299dd765a0097f5a273606e35a5",
+    "epistemic_graph/generated/reasoning.py": "c16f8587601307e96184b5b28184f326ef05157d9b793079931ece9245667988",
+    "epistemic_graph/generated/security.py": "5dc8ec244df44327934052646d6b40c1a45f8eede2c3773387742f4d16ea35fe",
+    "epistemic_graph/generated/server_registry.py": "ab1cc35e21e7d5b0886cd0bdfba7a4fb594aa06fa25e440168f22cc1658588af",
+    "epistemic_graph/generated/solve.py": "d897567307fc31e83a806c4ac54baff5723e9d9cba667bb54673ea16fcd6b50b",
+    "epistemic_graph/generated/source_ingestion.py": "22ed0e2d96ea00dd555f0756a8e8afd751b1a6886764ce44c68e8fb6fc49b17b",
     "epistemic_graph/generated/storage.py": "1b67e90f299d9edca1eb1036bad8d20622d034d3272565fc8fe5535c517e1a9a",
     "epistemic_graph/generated/transactions.py": "f4f7307094f8915f8672a2546d66981b36477e6182d9aec7a2293bf3cb951f71",
-    "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
+    "epistemic_graph/generated/write_back.py": "8c39b40365788eecdfd77c43059f6d0b271655344d76f618de7a4dd511da8414"
   },
-  "cargo_lock_sha256": "1030719187eddcb2c392dc6cd857d890e43996d4c16f2126f458234796b840d8",
-  "contract_digest": "d257b4ea480330fe362b8b4ef20c61f247107e8dad371f527884af2469c379c3",
+  "cargo_lock_sha256": "8044b3441862280168f5d80c8ed6aca2ccfa3c71e3a8d9e1fb411617e07a485d",
+  "contract_digest": "89912f94215a5999fb5351b8e43429634e0bcad51fdbcd15a7bdf397d5a4e4fd",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -296,6 +299,13 @@
         "value": "1"
       }
     ],
+    "GENERATION_RECEIPT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision/statistical/retrieval_generation.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "GRAPH_COMMAND_SCHEMA_VERSION": [
       {
         "file": "src/raft/command/native/sealed.rs",
@@ -415,6 +425,13 @@
         "value": "\"policy-bundle-v1\""
       }
     ],
+    "POLICY_EVOLUTION_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/policy_evolution.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "PROGRAM_SCHEMA_VERSION": [
       {
         "file": "crates/eg-program/src/contracts.rs",
@@ -441,6 +458,13 @@
         "file": "src/server/viz_provenance.rs",
         "scope": "",
         "value": "\"viz-provenance:v1\""
+      }
+    ],
+    "QUERY_ADAPTER_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision/statistical/retrieval_adapter.rs",
+        "scope": "",
+        "value": "1"
       }
     ],
     "RAFT_RESPONSE_SCHEMA_VERSION": [
@@ -490,6 +514,13 @@
         "file": "src/server/request_replay.rs",
         "scope": "",
         "value": "\"request-replay:v1\""
+      }
+    ],
+    "RETRIEVAL_LEARNING_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision/statistical/retrieval.rs",
+        "scope": "",
+        "value": "1"
       }
     ],
     "SCHEMA_MIGRATION_FORMAT_VERSION": [
@@ -569,6 +600,13 @@
         "value": "2"
       }
     ],
+    "TOPOLOGY_DECISION_RECORD_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision.rs",
+        "scope": "",
+        "value": "3"
+      }
+    ],
     "WIRE_VERSION": [
       {
         "file": "crates/eg-viz-graph-tiles/src/wire.rs",
@@ -585,14 +623,14 @@
     ]
   },
   "generator": "eg-capabilities/gen_contract",
-  "internal_only_methods": 19,
-  "method_count": 437,
-  "python_client_methods": 418,
+  "internal_only_methods": 20,
+  "method_count": 454,
+  "python_client_methods": 434,
   "result_classification": {
     "declared_dynamic": 12,
     "mixed": 1,
-    "schematized": 424,
+    "schematized": 441,
     "unclassified": 0
   },
-  "source_tree_oid": "6e8b5c8f783bf0de9d347b3931178ac8ff750f9c26a03df783670ed88109a9a1"
+  "source_tree_oid": "ad66a7730c2d40693180f2287dd5b9d0a9a8e20cd40580a19df5d41ea9d0632d"
 }

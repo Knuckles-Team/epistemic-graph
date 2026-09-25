@@ -107,6 +107,7 @@ if TYPE_CHECKING:
     )
     FinanceDieboldMarianoRequest = _models.MethodFinanceDieboldMarianoParams
     FinanceForensicReportRequest = _models.MethodFinanceForensicReportParams
+    FinanceMarketRequest = _models.MethodFinanceMarketParams
     FinanceKalmanFilter1dRequest = _models.MethodFinanceKalmanFilter1dParams
     FinanceKalmanBetaRequest = _models.MethodFinanceKalmanBetaParams
     FinanceKalmanVolatilityRequest = _models.MethodFinanceKalmanVolatilityParams
@@ -3768,6 +3769,42 @@ def decode_finance_forensic_report(result: OpaqueResult) -> _models.ForensicRepo
     return decode_result("FinanceForensicReport", models().ForensicReport, result)
 
 
+async def send_finance_market(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceMarket
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceMarket
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceMarketParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceMarket",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceMarket", payload)
+
+
 async def send_finance_kalman_filter1d(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -5847,6 +5884,7 @@ _REQUEST_METHODS = frozenset(
         "FinanceProbabilityBacktestOverfit",
         "FinanceDieboldMariano",
         "FinanceForensicReport",
+        "FinanceMarket",
         "FinanceKalmanFilter1d",
         "FinanceKalmanBeta",
         "FinanceKalmanVolatility",

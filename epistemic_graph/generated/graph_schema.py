@@ -6,13 +6,32 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class FieldContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    required: bool
+    types: list[JsonType]
+
+
+class GraphSchemaClassesView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    composed_digest: str
+    graph: str
+    next_cursor: str | None = None
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    terms: BoundedVec_GraphSchemaTermView_1000
+    total_terms: Annotated[int, Field(ge=0)]
+
+
 class GraphSchemaCommitted(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     changed: bool
     composed_digest: str
@@ -22,7 +41,7 @@ class GraphSchemaCommitted(BaseModel):
 
 
 class GraphSchemaOpAttach(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     if_composed_digest: str | None = None
     ontology_ttl: str | None = None
@@ -32,7 +51,7 @@ class GraphSchemaOpAttach(BaseModel):
 
 
 class GraphSchemaOpAttachPack(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     if_composed_digest: str | None = None
@@ -40,21 +59,44 @@ class GraphSchemaOpAttachPack(BaseModel):
 
 
 class GraphSchemaOpDetach(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     if_composed_digest: str | None = None
     op: Literal["detach"]
     source_id: str
 
 
+class GraphSchemaOpAttachApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval_lease_id: str
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["attach_approved"]
+    source_id: str
+
+
+class GraphSchemaOpValidateRepair(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["validate_repair"]
+    source_id: str
+
+
 GraphSchemaOp = Annotated[
-    GraphSchemaOpAttach | GraphSchemaOpAttachPack | GraphSchemaOpDetach,
+    GraphSchemaOpAttach
+    | GraphSchemaOpAttachPack
+    | GraphSchemaOpDetach
+    | GraphSchemaOpAttachApproved
+    | GraphSchemaOpValidateRepair,
     Field(discriminator="op"),
 ]
 
 
 class GraphSchemaSourceView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     attached_at_ms: Annotated[int, Field(ge=0)]
     ontology_bytes: Annotated[int, Field(ge=0)]
@@ -66,7 +108,7 @@ class GraphSchemaSourceView(BaseModel):
 
 
 class GraphSchemaSourcesView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     composed_digest: str
     core_catalog_digest: str
@@ -76,8 +118,41 @@ class GraphSchemaSourcesView(BaseModel):
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
 
+class GraphSchemaTermKind(str, Enum):
+    CLASS = "class"
+    OBJECT_PROPERTY = "object_property"
+    DATATYPE_PROPERTY = "datatype_property"
+    ANNOTATION_PROPERTY = "annotation_property"
+    PROPERTY = "property"
+
+
+class GraphSchemaTermView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    iri: str
+    kind: GraphSchemaTermKind
+    local_name: str
+    source_id: str
+
+
+class JsonType(str, Enum):
+    NULL = "null"
+    BOOLEAN = "boolean"
+    INTEGER = "integer"
+    NUMBER = "number"
+    STRING = "string"
+    ARRAY = "array"
+    OBJECT = "object"
+
+
+class RecordContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fields_: dict[str, FieldContract] = Field(..., alias="fields")
+
+
 class SchemaSourceOriginViewCore(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     module: str
     origin: Literal["core"]
@@ -86,20 +161,20 @@ class SchemaSourceOriginViewCore(BaseModel):
 
 
 class SchemaSourceOriginViewOperator(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     origin: Literal["operator"]
 
 
 class SchemaSourceOriginViewAdmin(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     name: str
     origin: Literal["admin"]
 
 
 class SchemaSourceOriginViewPack(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     origin: Literal["pack"]
@@ -107,11 +182,19 @@ class SchemaSourceOriginViewPack(BaseModel):
 
 
 class SchemaSourceOriginViewIngestion(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     mapping: str
     origin: Literal["ingestion"]
     revision: Annotated[int, Field(ge=0)]
+
+
+class SchemaSourceOriginViewApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval_lease_id: str
+    name: str
+    origin: Literal["approved"]
 
 
 SchemaSourceOriginView = Annotated[
@@ -119,7 +202,8 @@ SchemaSourceOriginView = Annotated[
     | SchemaSourceOriginViewOperator
     | SchemaSourceOriginViewAdmin
     | SchemaSourceOriginViewPack
-    | SchemaSourceOriginViewIngestion,
+    | SchemaSourceOriginViewIngestion
+    | SchemaSourceOriginViewApproved,
     Field(discriminator="origin"),
 ]
 
@@ -139,6 +223,18 @@ BoundedVec_GraphSchemaSourceView_64 = Annotated[
     ),
 ]
 
+
+BoundedVec_GraphSchemaTermView_1000 = Annotated[
+    list[GraphSchemaTermView],
+    Field(
+        max_length=1000,
+    ),
+]
+
+FieldContract.model_rebuild()
+
+GraphSchemaClassesView.model_rebuild()
+
 GraphSchemaCommitted.model_rebuild()
 
 GraphSchemaOpAttach.model_rebuild()
@@ -147,9 +243,17 @@ GraphSchemaOpAttachPack.model_rebuild()
 
 GraphSchemaOpDetach.model_rebuild()
 
+GraphSchemaOpAttachApproved.model_rebuild()
+
+GraphSchemaOpValidateRepair.model_rebuild()
+
 GraphSchemaSourceView.model_rebuild()
 
 GraphSchemaSourcesView.model_rebuild()
+
+GraphSchemaTermView.model_rebuild()
+
+RecordContract.model_rebuild()
 
 SchemaSourceOriginViewCore.model_rebuild()
 
@@ -160,3 +264,23 @@ SchemaSourceOriginViewAdmin.model_rebuild()
 SchemaSourceOriginViewPack.model_rebuild()
 
 SchemaSourceOriginViewIngestion.model_rebuild()
+
+SchemaSourceOriginViewApproved.model_rebuild()
+
+
+__all__ = [
+    "BoundedVec_GraphSchemaSourceView_32",
+    "BoundedVec_GraphSchemaSourceView_64",
+    "BoundedVec_GraphSchemaTermView_1000",
+    "FieldContract",
+    "GraphSchemaClassesView",
+    "GraphSchemaCommitted",
+    "GraphSchemaOp",
+    "GraphSchemaSourceView",
+    "GraphSchemaSourcesView",
+    "GraphSchemaTermKind",
+    "GraphSchemaTermView",
+    "JsonType",
+    "RecordContract",
+    "SchemaSourceOriginView",
+]

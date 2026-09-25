@@ -11,23 +11,17 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._shared import (
+    Digest256,
+    McpCatalogSnapshotBinding,
+)
 from .digest import (
     framed_named_msgpack_digest,
 )
 
 
-class McpCatalogSnapshotBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    authorization_scope_digest: Digest256
-    catalog_generation: Annotated[int, Field(ge=0)]
-    child_connection_generation: Annotated[int, Field(ge=0)]
-    configuration_revision: Annotated[int, Field(ge=0)]
-    snapshot_digest: Digest256
-
-
 class RawAdmissionReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     deduplicated: bool
     raw_digest: Digest256
@@ -36,7 +30,7 @@ class RawAdmissionReceipt(BaseModel):
 
 
 class RawRelationshipAdmissionReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     deduplicated: bool
     raw_digest: Digest256
@@ -44,7 +38,7 @@ class RawRelationshipAdmissionReceipt(BaseModel):
 
 
 class SourceCheckpoint(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     content_hash: Digest256 | None = None
     pending_watermark: str | None = None
@@ -54,14 +48,14 @@ class SourceCheckpoint(BaseModel):
 
 
 class SourceEntityRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     record_id: str
     stream: str
 
 
 class SourceIngestStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     accepted_checkpoint: SourceCheckpoint | None = None
     accepted_checkpoint_digest: Digest256 | None = None
@@ -76,7 +70,7 @@ class SourceIngestStatus(BaseModel):
 
 
 class SourceIngestionBatch(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     authoritative_live_ids: BoundedVec_SourceEntityRef_16384 | None = None
     connector: str
@@ -102,7 +96,7 @@ class SourceIngestionMode(str, Enum):
 
 
 class SourceIngestionReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     accepted_checkpoint: SourceCheckpoint
     accepted_checkpoint_digest: Digest256
@@ -132,7 +126,7 @@ class SourceMappingKind(str, Enum):
 
 
 class SourceMappingReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     catalog: McpCatalogSnapshotBinding
     connector_pack_digest: Digest256
@@ -142,7 +136,7 @@ class SourceMappingReceipt(BaseModel):
 
 
 class SourceRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     mapping_reference: str
     payload: SourceJson
@@ -153,7 +147,7 @@ class SourceRecord(BaseModel):
 
 
 class SourceRecordProvenance(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     adapter_kind: str
     connector: str
@@ -164,7 +158,7 @@ class SourceRecordProvenance(BaseModel):
 
 
 class SourceRelationship(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     properties: SourceJson | None = None
     provenance: SourceRecordProvenance
@@ -174,7 +168,7 @@ class SourceRelationship(BaseModel):
 
 
 class SourceRelationshipTombstoneReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     reason: str
     relationship_id: str
@@ -183,7 +177,7 @@ class SourceRelationshipTombstoneReceipt(BaseModel):
 
 
 class SourceTombstoneReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     entity: SourceEntityRef
     node_id: str
@@ -191,10 +185,77 @@ class SourceTombstoneReceipt(BaseModel):
 
 
 class SourceWithdrawal(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     entity: SourceEntityRef
     reason: str
+
+
+BoundedVec_RawAdmissionReceipt_1024 = Annotated[
+    list[RawAdmissionReceipt],
+    Field(
+        max_length=1024,
+    ),
+]
+
+
+BoundedVec_RawRelationshipAdmissionReceipt_4096 = Annotated[
+    list[RawRelationshipAdmissionReceipt],
+    Field(
+        max_length=4096,
+    ),
+]
+
+
+BoundedVec_SourceEntityRef_16384 = Annotated[
+    list[SourceEntityRef],
+    Field(
+        max_length=16384,
+    ),
+]
+
+
+BoundedVec_SourceMappingReceipt_5120 = Annotated[
+    list[SourceMappingReceipt],
+    Field(
+        max_length=5120,
+    ),
+]
+
+
+BoundedVec_SourceRecord_1024 = Annotated[list[SourceRecord], Field(max_length=1024)]
+
+
+BoundedVec_SourceRelationshipTombstoneReceipt_4096 = Annotated[
+    list[SourceRelationshipTombstoneReceipt],
+    Field(
+        max_length=4096,
+    ),
+]
+
+
+BoundedVec_SourceRelationship_4096 = Annotated[
+    list[SourceRelationship],
+    Field(
+        max_length=4096,
+    ),
+]
+
+
+BoundedVec_SourceTombstoneReceipt_16384 = Annotated[
+    list[SourceTombstoneReceipt],
+    Field(
+        max_length=16384,
+    ),
+]
+
+
+BoundedVec_SourceWithdrawal_1024 = Annotated[
+    list[SourceWithdrawal],
+    Field(
+        max_length=1024,
+    ),
+]
 
 
 class SourceIngestionRequest(SourceIngestionBatch):
@@ -301,86 +362,7 @@ class SourceIngestionRequest(SourceIngestionBatch):
         )
 
 
-Digest256 = Annotated[
-    str,
-    Field(
-        pattern="^[0-9a-f]{64}$",
-        min_length=64,
-        max_length=64,
-    ),
-]
-
-
 SourceJson = Any
-
-
-BoundedVec_RawAdmissionReceipt_1024 = Annotated[
-    list[RawAdmissionReceipt],
-    Field(
-        max_length=1024,
-    ),
-]
-
-
-BoundedVec_RawRelationshipAdmissionReceipt_4096 = Annotated[
-    list[RawRelationshipAdmissionReceipt],
-    Field(
-        max_length=4096,
-    ),
-]
-
-
-BoundedVec_SourceEntityRef_16384 = Annotated[
-    list[SourceEntityRef],
-    Field(
-        max_length=16384,
-    ),
-]
-
-
-BoundedVec_SourceMappingReceipt_5120 = Annotated[
-    list[SourceMappingReceipt],
-    Field(
-        max_length=5120,
-    ),
-]
-
-
-BoundedVec_SourceRecord_1024 = Annotated[list[SourceRecord], Field(max_length=1024)]
-
-
-BoundedVec_SourceRelationshipTombstoneReceipt_4096 = Annotated[
-    list[SourceRelationshipTombstoneReceipt],
-    Field(
-        max_length=4096,
-    ),
-]
-
-
-BoundedVec_SourceRelationship_4096 = Annotated[
-    list[SourceRelationship],
-    Field(
-        max_length=4096,
-    ),
-]
-
-
-BoundedVec_SourceTombstoneReceipt_16384 = Annotated[
-    list[SourceTombstoneReceipt],
-    Field(
-        max_length=16384,
-    ),
-]
-
-
-BoundedVec_SourceWithdrawal_1024 = Annotated[
-    list[SourceWithdrawal],
-    Field(
-        max_length=1024,
-    ),
-]
-
-McpCatalogSnapshotBinding.model_rebuild()
 
 RawAdmissionReceipt.model_rebuild()
 
@@ -410,4 +392,36 @@ SourceTombstoneReceipt.model_rebuild()
 
 SourceWithdrawal.model_rebuild()
 
-SourceIngestionRequest.model_rebuild()
+
+__all__ = [
+    "BoundedVec_RawAdmissionReceipt_1024",
+    "BoundedVec_RawRelationshipAdmissionReceipt_4096",
+    "BoundedVec_SourceEntityRef_16384",
+    "BoundedVec_SourceMappingReceipt_5120",
+    "BoundedVec_SourceRecord_1024",
+    "BoundedVec_SourceRelationshipTombstoneReceipt_4096",
+    "BoundedVec_SourceRelationship_4096",
+    "BoundedVec_SourceTombstoneReceipt_16384",
+    "BoundedVec_SourceWithdrawal_1024",
+    "Digest256",
+    "McpCatalogSnapshotBinding",
+    "RawAdmissionReceipt",
+    "RawRelationshipAdmissionReceipt",
+    "SourceCheckpoint",
+    "SourceEntityRef",
+    "SourceIngestStatus",
+    "SourceIngestionBatch",
+    "SourceIngestionDisposition",
+    "SourceIngestionMode",
+    "SourceIngestionReceipt",
+    "SourceIngestionRequest",
+    "SourceJson",
+    "SourceMappingKind",
+    "SourceMappingReceipt",
+    "SourceRecord",
+    "SourceRecordProvenance",
+    "SourceRelationship",
+    "SourceRelationshipTombstoneReceipt",
+    "SourceTombstoneReceipt",
+    "SourceWithdrawal",
+]

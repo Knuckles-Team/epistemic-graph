@@ -3254,6 +3254,87 @@
       ],
       "type": "object"
     },
+    "TelemetryDeriveReceipt": {
+      "additionalProperties": false,
+      "description": "What one derivation read, derived and wrote.",
+      "properties": {
+        "anomalies": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges_written": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fact_ids": {
+          "description": "The id of every fact node written, in write order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ignored_metric_samples": {
+          "description": "Metric samples of an undeclared metric, or non-finite.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "incidents": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "invalid_declarations": {
+          "description": "Individuals whose declared resolution keys or declared health did not\nparse; they were skipped, not guessed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes_written": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observations": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signals_read": {
+          "description": "Stored log records, metric samples and spans read in the caller's scope.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unresolved": {
+          "description": "Signals that bound to no single declared individual.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "violations": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "signals_read",
+        "observations",
+        "anomalies",
+        "incidents",
+        "violations",
+        "unresolved",
+        "ignored_metric_samples",
+        "invalid_declarations",
+        "nodes_written",
+        "edges_written",
+        "fact_ids"
+      ],
+      "type": "object"
+    },
     "TimeSeriesWindowRef": {
       "additionalProperties": false,
       "properties": {
@@ -3968,6 +4049,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/SourceIngestStatus"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TelemetryDerive": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/TelemetryDeriveReceipt"
           }
         }
       },

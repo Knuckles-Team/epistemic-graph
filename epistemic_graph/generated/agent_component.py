@@ -6,14 +6,33 @@
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._shared import (
+    AgentComponentEntry,
+    AgentComponentFacts,
+    AgentComponentKind,
+    AgentLibraryLifecycle,
+    AgentLibraryMutationContext,
+    ComponentDependency,
+    ComponentProvenance,
+    CostFacts,
+    DeclaredLatency,
+    FactQuality,
+    ModalityFacts,
+    Nonce,
+    ObservationRef,
+    PriceSource,
+    PromptMode,
+    ToolEffect,
+    ToolsetTransport,
+)
+
 
 class AgentComponentContentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component_id: str
     entry_revision: Annotated[int, Field(ge=0)] | None = None
@@ -21,7 +40,7 @@ class AgentComponentContentRequest(BaseModel):
 
 
 class AgentComponentContentResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     body: bytes
     component_id: str
@@ -33,7 +52,7 @@ class AgentComponentContentResult(BaseModel):
 
 
 class AgentComponentDraft(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     actor_scope: str
     attributes: dict[str, str] | None = None
@@ -55,144 +74,24 @@ class AgentComponentDraft(BaseModel):
     summary: str
     tenant_id: str
     version: str
-
-
-class AgentComponentEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    actor_scope: str
-    attributes: dict[str, str] | None = None
-    classification: list[str] = Field(default_factory=list)
-    component_id: str
-    content_digest: str
-    content_ref: str | None = None
-    created_at_ms: Annotated[int, Field(ge=0)]
-    declared_capabilities: list[str] = Field(default_factory=list)
-    declared_required_capabilities: list[str] = Field(default_factory=list)
-    definition_digest: str
-    entry_revision: Annotated[int, Field(ge=0)]
-    facts: AgentComponentFacts
-    kind: AgentComponentKind
-    lifecycle: AgentLibraryLifecycle
-    policy_digest: str
-    provenance: ComponentProvenance
-    purpose_id: str
-    required_capabilities: list[str] = Field(default_factory=list)
-    requires: list[ComponentDependency] = Field(default_factory=list)
-    schema_version: Annotated[int, Field(ge=0, le=65535)]
-    source_revision: str
-    source_revision_digest: str
-    summary: str
-    tenant_id: str
-    updated_at_ms: Annotated[int, Field(ge=0)]
-    version: str
-
-
-class AgentComponentFactsModelProfile(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    context_window_tokens: Annotated[int, Field(ge=0)]
-    cost: CostFacts | None = None
-    facts: Literal["model_profile"]
-    latency_declared: DeclaredLatency | None = None
-    latency_observed_ref: ObservationRef | None = None
-    max_output_tokens: Annotated[int, Field(ge=0)]
-    modalities: ModalityFacts | None = None
-    model_identity: str
-    provider: str
-    supports_structured_output: bool
-    supports_tools: bool
-    supports_vision: bool
-
-
-class AgentComponentFactsSystemPrompt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    facts: Literal["system_prompt"]
-    prompt_mode: PromptMode
-    token_estimate: Annotated[int, Field(ge=0)]
-    variables: list[str]
-
-
-class AgentComponentFactsTool(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    cost: CostFacts | None = None
-    destructive_hint: bool | None = None
-    effect: ToolEffect
-    facts: Literal["tool"]
-    idempotent_hint: bool | None = None
-    input_schema_digest: str | None = None
-    latency_declared: DeclaredLatency | None = None
-    modalities: ModalityFacts | None = None
-    open_world_hint: bool | None = None
-    output_schema_digest: str | None = None
-    read_only_hint: bool | None = None
-    required_scopes: list[str]
-
-
-class AgentComponentFactsToolset(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    facts: Literal["toolset"]
-    transport: ToolsetTransport
-
-
-class AgentComponentFactsOpaque(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    facts: Literal["opaque"]
-
-
-AgentComponentFacts = Annotated[
-    AgentComponentFactsModelProfile
-    | AgentComponentFactsSystemPrompt
-    | AgentComponentFactsTool
-    | AgentComponentFactsToolset
-    | AgentComponentFactsOpaque,
-    Field(discriminator="facts"),
-]
-
-
-class AgentComponentKind(str, Enum):
-    MODEL_PROFILE = "model_profile"
-    SYSTEM_PROMPT = "system_prompt"
-    TOOL = "tool"
-    TOOLSET = "toolset"
-    MCP_SERVER = "mcp_server"
-    MCP_PROMPT = "mcp_prompt"
-    MCP_RESOURCE = "mcp_resource"
-    SKILL = "skill"
-    ONTOLOGY = "ontology"
-    SCHEMA = "schema"
-    OUTPUT_VALIDATOR = "output_validator"
-    PREDICATE = "predicate"
-    SHAPES = "shapes"
-    A2A_AGENT_CARD = "a2a_agent_card"
-    DECISION_RECORD = "decision_record"
-    DECISION_POLICY = "decision_policy"
-    DECISION_HEAD = "decision_head"
-    FEATURE_SCHEMA = "feature_schema"
-    RUBRIC = "rubric"
-    NL_TEMPLATE = "nl_template"
 
 
 class AgentComponentOpPublish(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["publish"]
     request: AgentComponentPublishRequest
 
 
 class AgentComponentOpRetire(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["retire"]
     request: AgentComponentRetireRequest
 
 
 class AgentComponentOpCurrent(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component_id: str
     op: Literal["current"]
@@ -200,7 +99,7 @@ class AgentComponentOpCurrent(BaseModel):
 
 
 class AgentComponentOpHistory(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component_id: str
     op: Literal["history"]
@@ -208,21 +107,21 @@ class AgentComponentOpHistory(BaseModel):
 
 
 class AgentComponentOpStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["status"]
     request: AgentComponentStatusRequest
 
 
 class AgentComponentOpSearch(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["search"]
     request: AgentComponentSearchRequest
 
 
 class AgentComponentOpContent(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["content"]
     request: AgentComponentContentRequest
@@ -241,7 +140,7 @@ AgentComponentOp = Annotated[
 
 
 class AgentComponentPublishRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component: AgentComponentDraft
     context: AgentLibraryMutationContext
@@ -249,21 +148,21 @@ class AgentComponentPublishRequest(BaseModel):
 
 
 class AgentComponentRetireRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component_id: str
     context: AgentLibraryMutationContext
 
 
 class AgentComponentSearchPage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     entries: list[AgentComponentEntry]
     next_cursor: str | None = None
 
 
 class AgentComponentSearchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     capabilities: list[str] = Field(default_factory=list)
     cursor: str | None = None
@@ -275,180 +174,20 @@ class AgentComponentSearchRequest(BaseModel):
 
 
 class AgentComponentStatusRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component_id: str
     context: AgentLibraryMutationContext
     kind: AgentComponentMutationKind
 
 
-class AgentLibraryLifecycle(str, Enum):
-    PUBLISHED = "published"
-    RETIRED = "retired"
-    WITHDRAWN = "withdrawn"
-
-
-class AgentLibraryMutationContext(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    actor_scope: str
-    attempt_nonce: Nonce
-    caller_principal: str
-    created_at_ms: Annotated[int, Field(ge=0)]
-    expected_revision: Annotated[int, Field(ge=0)] | None = None
-    idempotency_key: str
-    policy_decision_id: str
-    policy_digest: str
-    policy_revision: str
-    principal: str
-    purpose_id: str
-    request_id: Annotated[int, Field(ge=0)]
-    tenant_id: str
-    trace_id: str | None = None
-
-
-class ComponentDependency(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    component_id: str
-    definition_digest: str
-    kind: AgentComponentKind
-
-
-class ComponentProvenanceNative(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    origin: Literal["native"]
-
-
-class ComponentProvenanceSourcePackage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    origin: Literal["source_package"]
-    package_id: str
-    package_version: str
-
-
-class ComponentProvenanceMcpServer(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    origin: Literal["mcp_server"]
-    server: ComponentDependency
-    upstream_name: str
-
-
-ComponentProvenance = Annotated[
-    ComponentProvenanceNative
-    | ComponentProvenanceSourcePackage
-    | ComponentProvenanceMcpServer,
-    Field(discriminator="origin"),
-]
-
-
-class CostFacts(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    currency: str
-    input_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
-    output_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
-    per_call_micros: Annotated[int, Field(ge=0)] | None = None
-    price_source: PriceSource
-    quality: FactQuality
-
-
-class DeclaredLatency(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    p50_ms: Annotated[int, Field(ge=0)]
-    p95_ms: Annotated[int, Field(ge=0)]
-
-
-class FactQuality(str, Enum):
-    MEASURED = "measured"
-    ESTIMATED = "estimated"
-    DECLARED = "declared"
-    UNAVAILABLE = "unavailable"
-
-
-class ModalityFacts(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    input: list[str] = Field(default_factory=list)
-    output: list[str] = Field(default_factory=list)
-
-
-class ObservationRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    digest: str
-    evaluation_id: str
-
-
-class PriceSourcePublisher(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source: Literal["publisher"]
-
-
-class PriceSourceConnectorPack(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    connector: str
-    entry_digest: str
-    source: Literal["connector_pack"]
-
-
-class PriceSourceOperator(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    reference: str
-    source: Literal["operator"]
-
-
-PriceSource = Annotated[
-    PriceSourcePublisher | PriceSourceConnectorPack | PriceSourceOperator,
-    Field(discriminator="source"),
-]
-
-
-class PromptMode(str, Enum):
-    STATIC = "static"
-    DYNAMIC = "dynamic"
-
-
-class ToolEffect(str, Enum):
-    READ = "read"
-    WRITE = "write"
-
-
-class ToolsetTransport(str, Enum):
-    MCP = "mcp"
-    FUNCTION = "function"
-    SKILL = "skill"
-
-
 AgentComponentMutationKind = str | Literal["withdraw"] | Literal["republish"]
-
-
-Nonce = Annotated[str, Field(pattern="^[0-9a-f]{64}$", min_length=64, max_length=64)]
 
 AgentComponentContentRequest.model_rebuild()
 
 AgentComponentContentResult.model_rebuild()
 
 AgentComponentDraft.model_rebuild()
-
-AgentComponentEntry.model_rebuild()
-
-AgentComponentFactsModelProfile.model_rebuild()
-
-AgentComponentFactsSystemPrompt.model_rebuild()
-
-AgentComponentFactsTool.model_rebuild()
-
-AgentComponentFactsToolset.model_rebuild()
-
-AgentComponentFactsOpaque.model_rebuild()
 
 AgentComponentOpPublish.model_rebuild()
 
@@ -474,26 +213,33 @@ AgentComponentSearchRequest.model_rebuild()
 
 AgentComponentStatusRequest.model_rebuild()
 
-AgentLibraryMutationContext.model_rebuild()
 
-ComponentDependency.model_rebuild()
-
-ComponentProvenanceNative.model_rebuild()
-
-ComponentProvenanceSourcePackage.model_rebuild()
-
-ComponentProvenanceMcpServer.model_rebuild()
-
-CostFacts.model_rebuild()
-
-DeclaredLatency.model_rebuild()
-
-ModalityFacts.model_rebuild()
-
-ObservationRef.model_rebuild()
-
-PriceSourcePublisher.model_rebuild()
-
-PriceSourceConnectorPack.model_rebuild()
-
-PriceSourceOperator.model_rebuild()
+__all__ = [
+    "AgentComponentContentRequest",
+    "AgentComponentContentResult",
+    "AgentComponentDraft",
+    "AgentComponentEntry",
+    "AgentComponentFacts",
+    "AgentComponentKind",
+    "AgentComponentMutationKind",
+    "AgentComponentOp",
+    "AgentComponentPublishRequest",
+    "AgentComponentRetireRequest",
+    "AgentComponentSearchPage",
+    "AgentComponentSearchRequest",
+    "AgentComponentStatusRequest",
+    "AgentLibraryLifecycle",
+    "AgentLibraryMutationContext",
+    "ComponentDependency",
+    "ComponentProvenance",
+    "CostFacts",
+    "DeclaredLatency",
+    "FactQuality",
+    "ModalityFacts",
+    "Nonce",
+    "ObservationRef",
+    "PriceSource",
+    "PromptMode",
+    "ToolEffect",
+    "ToolsetTransport",
+]
