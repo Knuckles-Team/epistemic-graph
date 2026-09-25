@@ -1,8 +1,6 @@
 //! Graph-scoped payload replacement under the admitted graft reservation.
 
 use super::MigrationReport;
-#[cfg(feature = "security")]
-use crate::redb_store::{AUDIT_REQUESTS, PROVENANCE_ANCHOR_MEMBERS};
 use crate::redb_store::{capacity_lease, development_lane, work_item_capability};
 use crate::redb_store::{
     AUDIT, CHANGE_BLOBS, CHANGE_CURSORS, CHANGE_ENVELOPES, CHANGE_EVIDENCE, CHANGE_FEATURES,
@@ -11,6 +9,8 @@ use crate::redb_store::{
     RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
     RESOURCE_RESERVATION_TENANT_INDEX, SEMANTIC, WORK_ITEM_COMMAND_SEQUENCE,
 };
+#[cfg(feature = "security")]
+use crate::redb_store::{AUDIT_REQUESTS, PROVENANCE_ANCHOR_MEMBERS};
 use eg_storage::{GraphShardOwner, OwnerRowScope, OwnerRowScopeStart, ScopedRead};
 use eg_transaction::{GraftOwnerWrite, OwnerPayloadTransfer, OwnerPayloadWrite};
 use redb::TableDefinition;

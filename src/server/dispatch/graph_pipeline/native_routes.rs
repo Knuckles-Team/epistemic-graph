@@ -591,21 +591,39 @@ async fn route_graph_audit_and_modality(
     let method = match method {
         Method::AuditReadEvent { seq } => {
             return Ok(dispatch_op_audit_read_event(
-                ctx.req_id, ctx.graph_name, ctx.verified_context.tenant(),
-                ctx.persistence.clone(), seq,
-            ).await);
+                ctx.req_id,
+                ctx.graph_name,
+                ctx.verified_context.tenant(),
+                ctx.persistence.clone(),
+                seq,
+            )
+            .await);
         }
         Method::AuditAppend {
-            op, surface, params_sha256, status, request_id, identity_chain,
+            op,
+            surface,
+            params_sha256,
+            status,
+            request_id,
+            identity_chain,
         } => {
             let event = crate::redb_store::OperationAuditEvent {
                 tenant: ctx.verified_context.tenant().to_string(),
                 principal: ctx.verified_context.principal_persistence_id(),
-                op, surface, params_sha256, status, request_id, identity_chain,
+                op,
+                surface,
+                params_sha256,
+                status,
+                request_id,
+                identity_chain,
             };
             return Ok(dispatch_op_audit_append(
-                ctx.req_id, ctx.graph_name, ctx.persistence.clone(), event,
-            ).await);
+                ctx.req_id,
+                ctx.graph_name,
+                ctx.persistence.clone(),
+                event,
+            )
+            .await);
         }
         method => method,
     };
