@@ -22247,6 +22247,7 @@ IdentityEvent = (
     | Literal["user_provisioned"]
     | Literal["mfa_removed"]
     | Literal["password_reset_requested"]
+    | Literal["system_identity_repaired"]
 )
 
 

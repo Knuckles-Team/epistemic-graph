@@ -11899,6 +11899,23 @@
                 "request"
               ],
               "type": "object"
+            },
+            {
+              "description": "Register or repair the engine's System identity AFTER the one-time\nSystem bootstrap (recovery: the System identity lost or replaced).\nExact direct `identity:admin`; the engine sets the named agent's role\nto System and keeps its teams and roles -- nothing else is replaced.",
+              "properties": {
+                "op": {
+                  "const": "repair_system_identity",
+                  "type": "string"
+                },
+                "request": {
+                  "$ref": "#/$defs/ObjectRef"
+                }
+              },
+              "required": [
+                "op",
+                "request"
+              ],
+              "type": "object"
             }
           ],
           "properties": {

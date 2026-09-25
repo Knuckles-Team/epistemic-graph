@@ -10695,6 +10695,23 @@
                   "request"
                 ],
                 "type": "object"
+              },
+              {
+                "description": "Register or repair the engine's System identity AFTER the one-time\nSystem bootstrap (recovery: the System identity lost or replaced).\nExact direct `identity:admin`; the engine sets the named agent's role\nto System and keeps its teams and roles -- nothing else is replaced.",
+                "properties": {
+                  "op": {
+                    "const": "repair_system_identity",
+                    "type": "string"
+                  },
+                  "request": {
+                    "$ref": "#/components/schemas/ReqDef_ObjectRef"
+                  }
+                },
+                "required": [
+                  "op",
+                  "request"
+                ],
+                "type": "object"
               }
             ],
             "properties": {
@@ -89968,6 +89985,23 @@
                   "request"
                 ],
                 "type": "object"
+              },
+              {
+                "description": "Register or repair the engine's System identity AFTER the one-time\nSystem bootstrap (recovery: the System identity lost or replaced).\nExact direct `identity:admin`; the engine sets the named agent's role\nto System and keeps its teams and roles -- nothing else is replaced.",
+                "properties": {
+                  "op": {
+                    "const": "repair_system_identity",
+                    "type": "string"
+                  },
+                  "request": {
+                    "$ref": "#/components/schemas/ResDef_Query_ObjectRef"
+                  }
+                },
+                "required": [
+                  "op",
+                  "request"
+                ],
+                "type": "object"
               }
             ],
             "properties": {
@@ -124094,6 +124128,11 @@
           {
             "const": "password_reset_requested",
             "description": "A signed-out user asked for a password reset (issued or not).",
+            "type": "string"
+          },
+          {
+            "const": "system_identity_repaired",
+            "description": "An administrator registered or repaired the engine's System identity.",
             "type": "string"
           }
         ]

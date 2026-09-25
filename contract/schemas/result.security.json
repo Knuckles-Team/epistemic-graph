@@ -758,6 +758,11 @@
           "const": "password_reset_requested",
           "description": "A signed-out user asked for a password reset (issued or not).",
           "type": "string"
+        },
+        {
+          "const": "system_identity_repaired",
+          "description": "An administrator registered or repaired the engine's System identity.",
+          "type": "string"
         }
       ]
     },
