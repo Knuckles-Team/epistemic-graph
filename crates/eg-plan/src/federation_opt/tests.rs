@@ -11,9 +11,7 @@ use std::time::Duration;
 
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
-use super::capability::{
-    FullFetch, KeyLookup, LimitPushdown, Paging, RemoteRequest, SourceCapabilities,
-};
+use super::capability::{KeyLookup, LimitPushdown, RemoteRequest, SourceCapabilities};
 use super::remote::{Identity, RemoteFetch};
 use super::run::Fragment;
 use super::stats::fingerprint;
@@ -349,12 +347,10 @@ impl Scripted {
 
 impl RemoteFetch for Scripted {
     fn capabilities(&self) -> SourceCapabilities {
-        SourceCapabilities {
-            key_lookup: KeyLookup::Batched { max_keys: 1000 },
-            limit: LimitPushdown::Unsupported,
-            paging: Paging::Single,
-            full_fetch: FullFetch::Allowed,
-        }
+        SourceCapabilities::single_full_fetch(
+            KeyLookup::Batched { max_keys: 1000 },
+            LimitPushdown::Unsupported,
+        )
     }
     fn identity(&self) -> &Identity {
         &self.identity

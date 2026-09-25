@@ -12,9 +12,7 @@
 
 use eg_types::wire::ForeignSourceSpec;
 
-use super::capability::{
-    FullFetch, KeyLookup, LimitPushdown, Paging, RemoteRequest, SourceCapabilities,
-};
+use super::capability::{KeyLookup, LimitPushdown, RemoteRequest, SourceCapabilities};
 use super::remote::{Identity, RemoteFetch};
 use crate::rowset::RowSet;
 use crate::sql_text::{quote_identifier, render_literal, validate_identifier, SqlDialect};
@@ -93,12 +91,7 @@ impl RemoteFetch for SqlRemote<'_> {
             Some(_) => LimitPushdown::Native,
             None => LimitPushdown::Unsupported,
         };
-        SourceCapabilities {
-            key_lookup,
-            limit,
-            paging: Paging::Single,
-            full_fetch: FullFetch::Allowed,
-        }
+        SourceCapabilities::single_full_fetch(key_lookup, limit)
     }
 
     fn identity(&self) -> &Identity {

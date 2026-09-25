@@ -51,15 +51,20 @@ pub struct SourceCapabilities {
 }
 
 impl SourceCapabilities {
-    /// A source that can only be fetched whole (a remote engine today, a registry-only
-    /// table/closure source): every request is answered by the full result.
-    pub const fn fetch_only() -> Self {
+    /// A non-paged source that permits a full read but may also push keys or a limit.
+    pub const fn single_full_fetch(key_lookup: KeyLookup, limit: LimitPushdown) -> Self {
         Self {
-            key_lookup: KeyLookup::Unsupported,
-            limit: LimitPushdown::Unsupported,
+            key_lookup,
+            limit,
             paging: Paging::Single,
             full_fetch: FullFetch::Allowed,
         }
+    }
+
+    /// A source that can only be fetched whole (a remote engine today, a registry-only
+    /// table/closure source): every request is answered by the full result.
+    pub const fn fetch_only() -> Self {
+        Self::single_full_fetch(KeyLookup::Unsupported, LimitPushdown::Unsupported)
     }
 
     /// The keys one request may carry, if key lookup is supported.
