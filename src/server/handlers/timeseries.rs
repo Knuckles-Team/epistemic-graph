@@ -152,7 +152,10 @@ async fn store_of(
     let s = state.read().await;
     match &s.tsdb_store {
         Some(store) => Ok(store.clone()),
-        None => Err(Response::err(req_id, "time-series store not configured")),
+        None => Err(Response::err(
+            req_id,
+            "ENGINE_UNAVAILABLE: time-series store not configured",
+        )),
     }
 }
 

@@ -95,6 +95,12 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    ("CreateGraph", &["REPLAY_NONCE_CONSUMED"]),
+    ("AddNode", &["REPLAY_NONCE_CONSUMED"]),
+    ("CypherQuery", &["REPLAY_NONCE_CONSUMED"]),
+    ("SubmitWorkItem", &["REPLAY_NONCE_CONSUMED"]),
+    ("ClaimWorkItem", &["REPLAY_NONCE_CONSUMED"]),
+    ("TsListSeries", &["REPLAY_NONCE_CONSUMED"]),
     ("ApplyChangeEnvelopes", &["ABORTED_ATOMIC_GRAPH_BATCH"]),
     (
         "RegisterForeignSource",
@@ -253,5 +259,16 @@ mod tests {
         assert!(method_allows_error("CreateGraph", "OPERATION_REDIRECTED"));
         assert!(!method_allows_error("CreateGraph", "UNSUPPORTED_COALITION"));
         assert!(!method_allows_error("NotADeclaredMethod", "ACCESS_DENIED"));
+        for method in [
+            "CreateGraph",
+            "AddNode",
+            "CypherQuery",
+            "SubmitWorkItem",
+            "ClaimWorkItem",
+            "TsListSeries",
+        ] {
+            assert!(method_allows_error(method, "REPLAY_NONCE_CONSUMED"), "{method}");
+        }
+        assert!(!method_allows_error("TsListSeries", "UNSUPPORTED_COALITION"));
     }
 }
