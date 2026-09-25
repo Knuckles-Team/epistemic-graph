@@ -170,22 +170,11 @@ fn is_work_item_row(row: &NodeMap) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_shard::{open, with_nodes, GRAPH};
+    use super::super::test_shard::{check_guard as check, open, with_nodes, GRAPH};
     use super::*;
 
     fn msgpack(value: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&value).unwrap()
-    }
-
-    fn check(shard: &Shard, tag: &str, method: Method) -> Result<(), String> {
-        with_nodes(shard, tag, |nodes| {
-            Ok(refuse_generic_native_row_write(
-                GRAPH,
-                &method,
-                nodes,
-                DurableCrypto::none(),
-            ))
-        })
     }
 
     #[test]

@@ -114,16 +114,12 @@ macro_rules! persistence_native {
         graph_fname: &str,
         request: &eg_types::native_control::CapacityStatusRequest,
     ) -> Result<eg_types::native_control::CapacityStatusResult, String> {
-        let writer = self.shard_for(graph_fname);
-        let shard = writer
-            .shard
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        crate::redb_store::capacity_lease::read(&shard, graph_fname, request, crypto)
+        let graph = graph_fname.to_owned();
+        let request = request.clone();
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::capacity_lease::read(shard, &graph, &request, crypto)
+        })
+        .await
     }
 
     /// Per-cell headroom at one priority (ST-8), same MVCC posture as
@@ -134,16 +130,12 @@ macro_rules! persistence_native {
         cells: &[String],
         priority: eg_types::capacity_lease::LeasePriority,
     ) -> Result<Vec<eg_types::decision::CapacityHeadroom>, String> {
-        let writer = self.shard_for(graph_fname);
-        let shard = writer
-            .shard
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        crate::redb_store::capacity_lease::headroom(&shard, graph_fname, cells, priority, crypto)
+        let graph = graph_fname.to_owned();
+        let cells = cells.to_vec();
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::capacity_lease::headroom(shard, &graph, &cells, priority, crypto)
+        })
+        .await
     }
 
     /// Exact authenticated native development-lane hold/tombstone read (RMDD-28).
@@ -156,22 +148,14 @@ macro_rules! persistence_native {
         request: &crate::epistemic_operations::DevelopmentLaneQueryRequest,
         now_ms: u64,
     ) -> Result<crate::epistemic_operations::DevelopmentLaneQueryResult, String> {
-        let writer = self.shard_for(graph_fname);
-        let shard = writer
-            .shard
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        crate::redb_store::development_lane::read_development_lane(
-            &shard,
-            graph_fname,
-            request,
-            now_ms,
-            crypto,
-        )
+        let graph = graph_fname.to_owned();
+        let request = request.clone();
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::development_lane::read_development_lane(
+                shard, &graph, &request, now_ms, crypto,
+            )
+        })
+        .await
     }
 
     /// Bounded native development-lane tenant status page (RMDD-28). An MVCC
@@ -182,22 +166,14 @@ macro_rules! persistence_native {
         request: &crate::epistemic_operations::DevelopmentLaneStatusRequest,
         now_ms: u64,
     ) -> Result<crate::epistemic_operations::DevelopmentLaneStatusResult, String> {
-        let writer = self.shard_for(graph_fname);
-        let shard = writer
-            .shard
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
-        #[cfg(not(feature = "security"))]
-        let crypto = crate::redb_store::DurableCrypto::none();
-        crate::redb_store::development_lane::read_development_lane_status(
-            &shard,
-            graph_fname,
-            request,
-            now_ms,
-            crypto,
-        )
+        let graph = graph_fname.to_owned();
+        let request = request.clone();
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::development_lane::read_development_lane_status(
+                shard, &graph, &request, now_ms, crypto,
+            )
+        })
+        .await
     }
 
     /// **Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land graph + vectors + blob-refs for ONE

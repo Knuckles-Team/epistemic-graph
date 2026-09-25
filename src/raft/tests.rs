@@ -2667,6 +2667,14 @@ mod dist_compute {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "N", "id": n})).unwrap()
     }
 
+    fn placed_in_first_shard(node: &str, first_shard_nodes: &[&str]) -> &'static str {
+        if first_shard_nodes.contains(&node) {
+            "shA"
+        } else {
+            "shB"
+        }
+    }
+
     /// Build a state with two shard graphs `shA`/`shB`, the union's nodes partitioned
     /// across them (a node lives in the shard named in `placement`), and EVERY edge
     /// added to the shard that owns its SOURCE. Returns the state + a single-graph
@@ -2744,6 +2752,20 @@ mod dist_compute {
         GraphReadAuthority::from_verified(&context, &state.isolation).unwrap()
     }
 
+    async fn distributed_components(
+        state: &Arc<RwLock<ServerState>>,
+        graphs: &[String],
+        authority: &GraphReadAuthority,
+    ) -> Vec<(String, i64)> {
+        let result = pregel::run_distributed(state, graphs, &DistAlgo::ConnectedComponents, authority)
+            .await
+            .unwrap();
+        match result {
+            DistResult::Labels(labels) => labels,
+            _ => panic!("expected connected-component labels"),
+        }
+    }
+
     /// Round a score map for tolerant float comparison.
     fn score_map(rows: &[(String, f64)]) -> std::collections::BTreeMap<String, i64> {
         rows.iter()
@@ -2769,13 +2791,7 @@ mod dist_compute {
             ("e", "f"),
             ("f", "d"),
         ];
-        let place = |n: &str| -> &'static str {
-            if matches!(n, "a" | "b" | "c") {
-                "shA"
-            } else {
-                "shB"
-            }
-        };
+        let place = |n: &str| placed_in_first_shard(n, &["a", "b", "c"]);
         let (state, union) = two_shard_state(&nodes, &edges, &place).await;
         let authority = read_authority(&state).await;
 
@@ -2812,27 +2828,12 @@ mod dist_compute {
         // component. Distributed CC must produce the SAME partition as single-graph CC.
         let nodes = ["a", "b", "c", "d", "e"];
         let edges = [("a", "b"), ("b", "c"), ("d", "e")];
-        let place = |n: &str| -> &'static str {
-            if matches!(n, "a" | "b" | "d") {
-                "shA"
-            } else {
-                "shB"
-            }
-        };
+        let place = |n: &str| placed_in_first_shard(n, &["a", "b", "d"]);
         let (state, union) = two_shard_state(&nodes, &edges, &place).await;
         let authority = read_authority(&state).await;
 
-        let dist = pregel::run_distributed(
-            &state,
-            &["shA".into(), "shB".into()],
-            &DistAlgo::ConnectedComponents,
-            &authority,
-        )
-        .await
-        .unwrap();
-        let DistResult::Labels(dist_labels) = dist else {
-            panic!("expected labels")
-        };
+        let dist_labels =
+            distributed_components(&state, &["shA".into(), "shB".into()], &authority).await;
 
         // Reference: single-graph CC partition. Compare as "same-component" equivalence
         // (the label VALUE differs by indexing, so compare which nodes share a label).
@@ -2870,29 +2871,12 @@ mod dist_compute {
         // re-propagating only the affected region) must equal a from-scratch CC.
         let nodes = ["a", "b", "c", "d"];
         let edges = [("a", "b"), ("c", "d")]; // two components {a,b}, {c,d}
-        let place = |n: &str| -> &'static str {
-            if matches!(n, "a" | "c") {
-                "shA"
-            } else {
-                "shB"
-            }
-        };
+        let place = |n: &str| placed_in_first_shard(n, &["a", "c"]);
         let (state, _union) = two_shard_state(&nodes, &edges, &place).await;
         let authority = read_authority(&state).await;
 
         let graphs = ["shA".to_string(), "shB".to_string()];
-        let prior = match pregel::run_distributed(
-            &state,
-            &graphs,
-            &DistAlgo::ConnectedComponents,
-            &authority,
-        )
-        .await
-        .unwrap()
-        {
-            DistResult::Labels(l) => l,
-            _ => panic!("labels"),
-        };
+        let prior = distributed_components(&state, &graphs, &authority).await;
 
         // DELTA: add edge b→c, merging the two components. b lives in shB; add there.
         {
@@ -2918,18 +2902,7 @@ mod dist_compute {
         .unwrap();
 
         // From scratch over the same (post-delta) graphs.
-        let scratch = match pregel::run_distributed(
-            &state,
-            &graphs,
-            &DistAlgo::ConnectedComponents,
-            &authority,
-        )
-        .await
-        .unwrap()
-        {
-            DistResult::Labels(l) => l,
-            _ => panic!("labels"),
-        };
+        let scratch = distributed_components(&state, &graphs, &authority).await;
 
         // Compare partitions (same-component equivalence — label values are stable here
         // because both seed from the same vertex indexing, but compare structurally to
