@@ -403,7 +403,8 @@ fn failing_key_lookups_fall_back_to_the_naive_fetch() {
         RowSet::from_ids(catalog(50)),
         "(E) the naive rows"
     );
-    let learned = super::stats::lookup(&source.fp).expect("the failure is remembered");
+    let learned =
+        super::stats::lookup(&source.identity.fingerprint).expect("the failure is remembered");
     assert_eq!(learned.key_lookup_failures, 1);
     assert_eq!(learned.full_samples, 1);
 }
@@ -411,7 +412,7 @@ fn failing_key_lookups_fall_back_to_the_naive_fetch() {
 #[test]
 fn a_small_learned_source_is_fetched_whole_next_time() {
     let source = Scripted::new("learned-small-test", catalog(20), 1000);
-    super::stats::observe_full_fetch(&source.fp, 20);
+    super::stats::observe_full_fetch(&source.identity.fingerprint, 20);
     let session = FederationSession::from_env();
     let read = Fragment::new(&source, &session).join(&local(300)).unwrap();
     assert_eq!(
