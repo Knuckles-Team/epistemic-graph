@@ -43,7 +43,31 @@ pub(crate) async fn try_handle(
             ) {
                 return Ok(Response::err(req_id, error));
             }
+            #[cfg(feature = "federation-sql")]
+            let probe_spec = source.clone();
             s.foreign_sources.register(&owner, name.clone(), source);
+            // Advisory and bounded: registration succeeds even if the catalog is
+            // unavailable, and no probe can hold the ServerState write lock.
+            #[cfg(feature = "federation-sql")]
+            {
+                drop(s);
+                static SLOTS: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+                    std::sync::OnceLock::new();
+                let slots =
+                    SLOTS.get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(4)));
+                if let Ok(permit) = slots.clone().try_acquire_owned() {
+                    tokio::spawn(async move {
+                        let _permit = permit;
+                        if let Some(rows) =
+                            eg_plan::federation_opt::probe_postgres_rows(&probe_spec).await
+                        {
+                            let fingerprint =
+                                eg_plan::federation_opt::source_fingerprint(&probe_spec);
+                            eg_plan::federation_opt::observe_catalog_estimate(fingerprint, rows);
+                        }
+                    });
+                }
+            }
             Ok(Response::ok(
                 req_id,
                 ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterForeignSource>(

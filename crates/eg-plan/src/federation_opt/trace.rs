@@ -28,6 +28,9 @@ pub enum EstimateProvenance {
     Default,
     /// Learned from `samples` past full fetches averaging `rows` rows.
     Learned { samples: u64, rows: f64 },
+    /// Bounded registration-time source catalog estimate; less trusted than a
+    /// learned full-fetch observation and used only for plan costing.
+    Catalog { rows: f64 },
 }
 
 /// One remote fragment of one query. Never carries a URL, DSN, credential or key value —

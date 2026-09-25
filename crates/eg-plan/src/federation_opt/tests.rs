@@ -22,6 +22,24 @@ use crate::federation_tests::MockHttpAllowGuard;
 use crate::rowset::RowSet;
 use crate::Plan;
 
+#[test]
+fn legacy_foreign_join_reseed_makes_reordering_unsafe() {
+    // FO-10 must not sort existing ForeignScan(join=true) ops by estimates:
+    // their empty-input behavior re-seeds from the next foreign source.
+    let seed = RowSet::from_ids(["seed".to_string()]);
+    let disjoint = RowSet::from_ids(["left".to_string()]);
+    let other = RowSet::from_ids(["right".to_string()]);
+    let first = super::fuse_foreign(
+        super::fuse_foreign(seed.clone(), disjoint.clone(), true),
+        other.clone(),
+        true,
+    );
+    let reversed = super::fuse_foreign(super::fuse_foreign(seed, other, true), disjoint, true);
+    assert_ne!(first, reversed);
+    assert_eq!(first, RowSet::from_ids(["right".to_string()]));
+    assert_eq!(reversed, RowSet::from_ids(["left".to_string()]));
+}
+
 // ── a recording JSON API ─────────────────────────────────────────────────────────
 
 /// What the mock API has served.

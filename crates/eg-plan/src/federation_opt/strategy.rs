@@ -73,12 +73,17 @@ fn bind_is_cheaper(inputs: &JoinInputs<'_>) -> bool {
     if stats.key_lookup_failures >= MAX_BATCH_FAILURES {
         return false;
     }
-    if stats.full_samples == 0 {
+    let estimate = if stats.full_samples > 0 {
+        Some(stats.ewma_full_rows)
+    } else {
+        stats.catalog_rows
+    };
+    let Some(estimate) = estimate else {
         return true;
-    }
+    };
     let max_keys = inputs.caps.max_keys().unwrap_or(1) as f64;
     let requests = (inputs.keys as f64 / max_keys).ceil();
-    (inputs.keys as f64) + requests * REQUEST_COST_ROWS < stats.ewma_full_rows
+    (inputs.keys as f64) + requests * REQUEST_COST_ROWS < estimate
 }
 
 fn provenance(stats: Option<SourceStats>) -> EstimateProvenance {
@@ -86,6 +91,9 @@ fn provenance(stats: Option<SourceStats>) -> EstimateProvenance {
         Some(s) if s.full_samples > 0 => EstimateProvenance::Learned {
             samples: s.full_samples,
             rows: s.ewma_full_rows,
+        },
+        Some(s) if s.catalog_rows.is_some() => EstimateProvenance::Catalog {
+            rows: s.catalog_rows.unwrap_or_default(),
         },
         _ => EstimateProvenance::Default,
     }
@@ -201,6 +209,32 @@ mod tests {
         assert!(
             matches!(over, JoinStrategy::Refuse(ref e) if e.contains("bind_keys")),
             "{over:?}"
+        );
+    }
+
+    #[test]
+    fn catalog_probe_is_used_until_full_fetch_observation_exists() {
+        let c = caps(FullFetch::Allowed);
+        let catalog = SourceStats {
+            catalog_rows: Some(20.0),
+            ..SourceStats::default()
+        };
+        let (choice, provenance) = choose_join(&inputs(&c, 10, Some(catalog)));
+        assert_eq!(choice, JoinStrategy::FullFetch);
+        assert_eq!(provenance, EstimateProvenance::Catalog { rows: 20.0 });
+        let learned = SourceStats {
+            ewma_full_rows: 100_000.0,
+            full_samples: 1,
+            ..catalog
+        };
+        let (choice, provenance) = choose_join(&inputs(&c, 10, Some(learned)));
+        assert_eq!(choice, JoinStrategy::BindJoin);
+        assert_eq!(
+            provenance,
+            EstimateProvenance::Learned {
+                samples: 1,
+                rows: 100_000.0
+            }
         );
     }
 

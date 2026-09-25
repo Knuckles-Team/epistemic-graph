@@ -28,6 +28,7 @@ mod engine;
 mod http;
 mod limiter;
 pub(crate) mod oq2;
+mod order;
 mod remote;
 mod run;
 mod session;
@@ -52,8 +53,14 @@ pub use columns::{
     PushdownSupport,
 };
 pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
+pub use order::{intersect_in_order, order_intersection_sources, IntersectionSource};
 pub use session::FederationSession;
-pub use stats::{stats_snapshot, SourceStats};
+#[cfg(feature = "federation-sql")]
+pub use stats::probe_postgres_rows;
+pub use stats::{
+    observe_catalog_estimate, restore_statistics_fact, source_fingerprint, statistics_fact,
+    stats_snapshot, SourceStatisticsFact, SourceStats,
+};
 pub use trace::{render_trace, EstimateProvenance, FetchStrategy, FragmentTrace};
 
 pub(crate) use run::{foreign_named, foreign_scan};
