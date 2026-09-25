@@ -41,6 +41,149 @@ use super::shard::{Shard, ShardWrite};
 #[cfg(feature = "security")]
 pub(crate) type AuditTailCache = std::collections::HashMap<String, (u64, crate::audit::Hash)>;
 
+/// Validated, privacy-safe fields for a served operation outcome. Tenant and
+/// principal are derived from the verified carrier, not from method params.
+#[cfg(feature = "security")]
+#[derive(Clone, Debug)]
+pub(crate) struct OperationAuditEvent {
+    pub tenant: String,
+    pub principal: String,
+    pub op: String,
+    pub surface: String,
+    pub params_sha256: String,
+    pub status: String,
+    pub request_id: String,
+    pub identity_chain: bool,
+}
+
+#[cfg(feature = "security")]
+impl OperationAuditEvent {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        fn token(value: &str, max: usize) -> bool {
+            !value.is_empty()
+                && value.len() <= max
+                && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-/".contains(&b))
+        }
+        if !token(&self.tenant, 128)
+            || !token(&self.principal, 256)
+            || !token(&self.op, 128)
+            || !token(&self.surface, 32)
+            || !token(&self.request_id, 128)
+            || !matches!(self.status.as_str(), "ok" | "error" | "denied")
+            || self.params_sha256.len() != 64
+            || !self.params_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err("invalid privacy-safe audit event fields".to_string());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "security")]
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AuditRequestRecord {
+    fingerprint: crate::audit::Hash,
+    seq: u64,
+    entry_hash: crate::audit::Hash,
+}
+
+/// Append the event and its replay index in one admitted graph group. A retry
+/// with the same request identity and payload returns its original receipt;
+/// changed payload under that identity fails closed.
+#[cfg(feature = "security")]
+pub(crate) fn operation_audit_append(
+    shard: &Shard,
+    tail: &mut AuditTailCache,
+    graph: &str,
+    event: &OperationAuditEvent,
+) -> Result<crate::protocol::AuditAppendReceipt, String> {
+    use sha2::{Digest, Sha256};
+    event.validate()?;
+    let key = hex::encode(Sha256::digest(format!(
+        "{}\0{}\0{}\0{}",
+        event.tenant, event.principal, event.request_id, event.op
+    )));
+    let line = format!(
+        "OP_AUDIT|v1|tenant={}|principal={}|op={}|surface={}|params_sha256={}|status={}|request_id={}|identity={}",
+        event.tenant,
+        event.principal,
+        event.op,
+        event.surface,
+        event.params_sha256,
+        event.status,
+        event.request_id,
+        u8::from(event.identity_chain),
+    );
+    let fingerprint: crate::audit::Hash = Sha256::digest(line.as_bytes()).into();
+    let mut staged_tail = tail.clone();
+    let members = shard.graph_members(&[graph])?;
+    let op_id = anchor_op_id(graph);
+    let (group, batches) = shard.admit_maintenance(&members, &op_id)?;
+    let write = ShardWrite::open(shard, &group, &members, &batches)?;
+    let applied = (|| {
+        let mut requests = write.graph(graph)?.open_scoped_table(AUDIT_REQUESTS)?;
+        if let Some(row) = requests.get((graph, key.as_str()))? {
+            let record: AuditRequestRecord =
+                rmp_serde::from_slice(row.value()).map_err(|e| e.to_string())?;
+            if record.fingerprint != fingerprint {
+                return Err("AUDIT_IDEMPOTENCY_CONFLICT".to_string());
+            }
+            return Ok((record.seq, record.entry_hash, true));
+        }
+        let mut audit = write.graph(graph)?.open_scoped_table(AUDIT)?;
+        let (seq, entry_hash) =
+            append_audit_entry_with_line(&mut audit, &mut staged_tail, graph, line.as_bytes())?;
+        let record = AuditRequestRecord { fingerprint, seq, entry_hash };
+        let encoded = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
+        requests.insert((graph, key.as_str()), encoded.as_slice())?;
+        Ok((seq, entry_hash, false))
+    })();
+    let (seq, hash, replayed) = match (applied, write.finish()) {
+        (Ok(value), Ok(())) => value,
+        (Err(error), _) | (_, Err(error)) => {
+            shard.mutations().abort_group(group)?;
+            return Err(error);
+        }
+    };
+    shard.commit_drain(group, &batches, 0)?;
+    *tail = staged_tail;
+    Ok(crate::protocol::AuditAppendReceipt {
+        graph: graph.to_string(), seq, entry_sha256: hex::encode(hash), replayed,
+    })
+}
+
+#[cfg(all(test, feature = "security"))]
+mod operation_event_tests {
+    use super::OperationAuditEvent;
+
+    fn valid() -> OperationAuditEvent {
+        OperationAuditEvent {
+            tenant: "tenant-1".into(),
+            principal: "svc:graph-os".into(),
+            op: "graph.nodes.write".into(),
+            surface: "http".into(),
+            params_sha256: "a".repeat(64),
+            status: "ok".into(),
+            request_id: "req-1".into(),
+            identity_chain: false,
+        }
+    }
+
+    #[test]
+    fn operation_audit_accepts_only_bounded_privacy_safe_fields() {
+        assert!(valid().validate().is_ok());
+        let mut event = valid();
+        event.op = "graph.nodes.write|params=secret".into();
+        assert!(event.validate().is_err());
+        let mut event = valid();
+        event.params_sha256 = "raw params".into();
+        assert!(event.validate().is_err());
+        let mut event = valid();
+        event.request_id = "x".repeat(129);
+        assert!(event.validate().is_err());
+    }
+}
+
 /// Append ONE tamper-evident audit-chain entry for a durable mutation, inside the
 /// caller's open admitted write (CONCEPT:EG-KG.sharding.row-level-security; O(1) via CONCEPT:EG-KG.storage.embedded-store). Uses the
 /// cached per-graph chain tail (`last seq` + its hash) to get `prev_hash` + next `seq`,

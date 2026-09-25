@@ -588,6 +588,30 @@ async fn route_graph_audit_and_modality(
     method: Method,
 ) -> Result<Response, Method> {
     #[cfg(feature = "security")]
+    let method = match method {
+        Method::AuditAppend {
+            op, surface, params_sha256, status, request_id, identity_chain,
+        } => {
+            // This writer command is local to one redb shard. It cannot claim
+            // replicated durability until the Raft audit command exists.
+            #[cfg(feature = "raft")]
+            if ctx.routed_raft.is_some() {
+                return Ok(Response::err(
+                    ctx.req_id, "AuditAppend requires a replicated audit writer in clustered mode",
+                ));
+            }
+            let event = crate::redb_store::OperationAuditEvent {
+                tenant: ctx.verified_context.tenant().to_string(),
+                principal: ctx.verified_context.principal_persistence_id(),
+                op, surface, params_sha256, status, request_id, identity_chain,
+            };
+            return Ok(dispatch_op_audit_append(
+                ctx.req_id, ctx.graph_name, ctx.persistence.clone(), event,
+            ).await);
+        }
+        method => method,
+    };
+    #[cfg(feature = "security")]
     if matches!(method, Method::AuditVerify) {
         return Ok(
             dispatch_op_audit_verify(ctx.req_id, ctx.graph_name, ctx.persistence.clone()).await,

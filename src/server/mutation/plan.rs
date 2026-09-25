@@ -543,6 +543,7 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     native_local_only_method_name,
     native_local_only_decision_method_name,
     write_back_method_name,
+    operation_audit_method_name,
 ];
 
 /// Extract a `Method` variant's name as a `&'static str`, covering exactly
@@ -649,7 +650,16 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "MutationOutbox",
     "EdgeIndex",
     "SqlSourceBatch",
+    "AuditAppend",
 ];
+
+fn operation_audit_method_name(m: &Method) -> Option<&'static str> {
+    #[cfg(feature = "security")]
+    if matches!(m, Method::AuditAppend { .. }) {
+        return Some("AuditAppend");
+    }
+    None
+}
 
 /// The local-only names that are NOT gateway-routed.
 ///

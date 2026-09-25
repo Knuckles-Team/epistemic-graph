@@ -343,6 +343,10 @@ fn requires_write_learning_surface(method: &Method) -> Option<bool> {
 /// the current/history/status read sub-operations. Pure-compute methods
 /// (finance, datascience, parse) never touch graph state and classify as Read.
 pub(crate) fn requires_write(method: &Method) -> bool {
+    #[cfg(feature = "security")]
+    if matches!(method, Method::AuditAppend { .. }) {
+        return true;
+    }
     /// The runtime-conditional classifiers, in resolution order. A table rather
     /// than a chain of `if let`s so a sixth surface is one entry rather than
     /// one more branch in this function.

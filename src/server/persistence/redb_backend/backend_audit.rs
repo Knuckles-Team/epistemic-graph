@@ -2,6 +2,21 @@ use super::*;
 use crate::server::persistence::writer_reply::await_writer_reply;
 
 impl RedbBackend {
+    #[cfg(feature = "security")]
+    pub fn audit_append_blocking(
+        &self,
+        graph_fname: &str,
+        event: crate::redb_store::OperationAuditEvent,
+    ) -> Result<crate::protocol::AuditAppendReceipt, String> {
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
+        self.shard_for(graph_fname)
+            .tx
+            .send(Cmd::AuditAppend {
+                graph: graph_fname.to_string(), event, reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        await_writer_reply(&rx, "audit_append")?
+    }
     /// TEST-ONLY: flip a byte in the stored audit entry `(graph, seq)` to simulate
     /// tampering, so the verify path can prove detection. Routed through the owner
     /// thread (exclusive file lock).
