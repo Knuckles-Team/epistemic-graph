@@ -339,8 +339,9 @@ def selection_needs_engine(items) -> bool:
 
 @pytest.fixture(scope="session", autouse=True)
 def start_epistemic_graph_server(request, tmp_path_factory):
-    # When no selected test needs the shared engine, never start (or
-    # implicitly Cargo-build) it.
+    # When no selected test needs the shared engine (see
+    # `selection_needs_engine`: exact_artifact / no_engine only), never
+    # start (or implicitly Cargo-build) the shared engine.
     if not selection_needs_engine(getattr(request.session, "items", ())):
         yield None
         return
