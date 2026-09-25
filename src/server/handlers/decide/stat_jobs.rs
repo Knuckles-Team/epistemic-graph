@@ -19,7 +19,9 @@ use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::agent_component::AgentComponentKind;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{DatasetSource, LabelRegime};
-use eg_types::decision::replay::{EvalMode, EvaluationRun, ReplaySpec};
+#[cfg(feature = "jobs")]
+use eg_types::decision::replay::EvaluationRun;
+use eg_types::decision::replay::{EvalMode, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
 use eg_types::decision::statistical::dataset::LabelledDataset;
 use eg_types::decision::statistical::features::FeatureSchemaBody;
@@ -341,6 +343,7 @@ fn eval_inputs_with_dataset(
 
 /// Immutable, tenant-scoped Agent Library key for the worker's pinned replay
 /// request. No labelled data is copied into the analytics-job control row.
+#[cfg(feature = "jobs")]
 pub(crate) fn replay_request_ref(request: &DecisionEvalRequest) -> String {
     let digest = digest_text("eg/decision/replay-request/v1", request);
     format!("replay-request:{}", digest.trim_start_matches("sha256:"))
@@ -348,6 +351,7 @@ pub(crate) fn replay_request_ref(request: &DecisionEvalRequest) -> String {
 
 /// Persist the complete replay request in the Agent Library before queuing a
 /// worker. Repeated identical submissions converge on the same artifact.
+#[cfg(feature = "jobs")]
 pub(crate) fn persist_replay_request(
     store: &AgentLibraryStore,
     request: &DecisionEvalRequest,
@@ -377,6 +381,7 @@ pub(crate) fn persist_replay_request(
 /// The worker validates the request reference, tenant and job lineage before
 /// entering here. The sealed run is idempotently written to Agent Library;
 /// its typed job result is staged separately under the worker's fenced lease.
+#[cfg(feature = "jobs")]
 pub(crate) fn run_replay_job(
     store: &AgentLibraryStore,
     jobs: &eg_jobs::JobStore,
