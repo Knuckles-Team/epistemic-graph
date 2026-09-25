@@ -26,7 +26,7 @@ use super::stat_executor::ExecutionContext;
 use super::stat_log::LogReader;
 use super::stat_pointer::Qualified;
 use super::stat_retrieval::{judged_outcomes, Scope};
-use super::stat_support::refusal;
+use super::stat_support::{invalid_parameter as invalid, refusal};
 use super::stat_vectors::GraphVectors;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::encode_artifact;
@@ -34,10 +34,6 @@ use crate::server::persistence::decision_jobs::encode_artifact;
 const TRAINING_DOMAIN: &str = "eg/adapter-training/v1";
 const HOLDOUT_DOMAIN: &str = "eg/adapter-holdout/v1";
 const Q16: f64 = 65_536.0;
-
-fn invalid(detail: impl std::fmt::Display) -> String {
-    refusal(StatisticalErrorCode::ParameterInvalid, detail)
-}
 
 fn check_fit_request(request: &AdapterFitRequest) -> Result<(), String> {
     let rank_ok = (1..=MAX_ADAPTER_RANK).contains(&usize::from(request.rank));

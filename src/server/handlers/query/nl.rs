@@ -7,14 +7,13 @@ pub(crate) async fn handle_txn_uql(
     ctx: &QueryHandlerCtx<'_>,
     txn_id: String,
     text: String,
-    params: std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
+    params: UqlParams,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
-    let stmt = match parse_served_statement(req_id, &text, &params) {
-        Ok(stmt) => stmt,
+    let (stmt, binding) = match bind_served_statement(req_id, &text, &params) {
+        Ok(bound) => bound,
         Err(response) => return Ok(response),
     };
-    let binding = eg_plan::uql::serve::binding_plan(&stmt);
     let txn = OverlaidTxn {
         state: ctx.state,
         req_id,

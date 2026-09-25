@@ -23,18 +23,13 @@ use super::stat_executor::ExecutionContext;
 use super::stat_log::LogReader;
 use super::stat_pointer::{read_pointer, Qualified};
 use super::stat_retrieval::{judged_outcomes, Scope};
-use super::stat_support::refusal;
-use super::stat_vectors::GraphVectors;
+use super::stat_support::{invalid_parameter as invalid, refusal};
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::{decode_artifact, encode_artifact};
 
 const Q16: f64 = 65_536.0;
 /// Bins of the top-1 score PSI.
 const PSI_BINS: usize = 10;
-
-fn invalid(detail: impl std::fmt::Display) -> String {
-    refusal(StatisticalErrorCode::ParameterInvalid, detail)
-}
 
 /// The pointer key of a logical graph's generation.
 pub(super) fn generation_pointer(logical: &str) -> String {
@@ -47,8 +42,8 @@ fn receipt_key(receipt_digest: &str) -> String {
 
 /// The active and shadow generations an evaluation probes.
 pub(super) struct Generations<'a> {
-    pub(super) active: &'a GraphVectors,
-    pub(super) shadow: &'a GraphVectors,
+    pub(super) active: &'a super::stat_vectors::GraphVectors,
+    pub(super) shadow: &'a super::stat_vectors::GraphVectors,
 }
 
 /// Per-generation tallies of one evaluation.

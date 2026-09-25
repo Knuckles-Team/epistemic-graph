@@ -46,6 +46,9 @@ use eg_types::result_contract::EncodeRef;
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 use eg_types::result_contract::{encoding, query as query_results, Dynamic, MethodResult};
 
+#[cfg(feature = "query")]
+pub(crate) type UqlParams = std::collections::BTreeMap<String, eg_types::wire::UqlParam>;
+
 /// MessagePack bytes of a value that is not itself a result: a result-cache key, or one
 /// row of a SQL result.
 #[cfg(feature = "query")]
@@ -54,13 +57,29 @@ fn msgpack_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Str
 }
 
 #[cfg(feature = "query")]
-fn parse_served_statement(
+fn bind_served_statement(
     req_id: u64,
     text: &str,
-    params: &std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
-) -> Result<eg_plan::uql::Statement, Response> {
-    eg_plan::uql::parse_statement(text, params)
-        .map_err(|error| Response::err(req_id, error.render(text)))
+    params: &UqlParams,
+) -> Result<(eg_plan::uql::Statement, eg_plan::Plan), Response> {
+    let statement = eg_plan::uql::parse_statement(text, params)
+        .map_err(|error| Response::err(req_id, error.render(text)))?;
+    let binding = eg_plan::uql::serve::binding_plan(&statement);
+    Ok((statement, binding))
+}
+
+#[cfg(all(feature = "query", feature = "result-cache"))]
+fn cached_served_response<M>(
+    req_id: u64,
+    core: &GraphCore,
+    key: &Option<(u128, Option<eg_core::dep_scope::DepSet>)>,
+) -> Option<Response>
+where
+    M: MethodResult<Encoding = encoding::Raw>,
+{
+    key.as_ref()
+        .and_then(|(hash, dep)| cached_payload(core, *hash, dep))
+        .map(|bytes| Response::ok(req_id, ResultPayload::of_cache_hit::<M>(bytes)))
 }
 
 /// Encode a [`eg_query::TypedQueryResult`] as the wire `Sql` response:

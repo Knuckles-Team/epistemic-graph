@@ -17,14 +17,13 @@ use super::*;
 pub(crate) async fn handle_uql(
     ctx: &QueryHandlerCtx<'_>,
     text: String,
-    params: std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
+    params: UqlParams,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
-    let stmt = match parse_served_statement(req_id, &text, &params) {
-        Ok(stmt) => stmt,
+    let (stmt, binding) = match bind_served_statement(req_id, &text, &params) {
+        Ok(bound) => bound,
         Err(response) => return Ok(response),
     };
-    let binding = eg_plan::uql::serve::binding_plan(&stmt);
     let legs = match ctx.served_legs(&binding).await {
         Ok(legs) => legs,
         Err(resp) => return Ok(resp),
@@ -35,14 +34,8 @@ pub(crate) async fn handle_uql(
         Err(error) => return Ok(Response::err(req_id, error)),
     };
     #[cfg(feature = "result-cache")]
-    if let Some(bytes) = key
-        .as_ref()
-        .and_then(|(hash, dep)| cached_payload(ctx.core, *hash, dep))
-    {
-        return Ok(Response::ok(
-            req_id,
-            ResultPayload::of_cache_hit::<query_results::Uql>(bytes),
-        ));
+    if let Some(response) = cached_served_response::<query_results::Uql>(req_id, ctx.core, &key) {
+        return Ok(response);
     }
     let (snap, version) = sql_read_snapshot(
         ctx.core,
