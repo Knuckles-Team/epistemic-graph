@@ -564,10 +564,11 @@ fn raw_result_serialization_failure_is_an_error_response() {
     assert!(ResultPayload::raw(&RejectSerialization).is_err());
     let response = Response::ok(11, ResultPayload::raw(&RejectSerialization));
     assert!(response.result.is_none());
+    assert_eq!(response.error.as_deref(), Some("INTERNAL"));
     assert!(response
-        .error
+        .error_detail
         .as_deref()
-        .is_some_and(|error| error.contains("result serialization failed")));
+        .is_some_and(|detail| detail.contains("result serialization failed")));
 }
 
 #[test]
