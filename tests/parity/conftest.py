@@ -145,6 +145,9 @@ def pair_factory(embedded_persist_dir):
                 persist_dir=embedded_persist_dir,
                 agent_id=None,
             )
+            # Mirror the socket fixture's explicit, one-time System identity
+            # bootstrap. Merely asserting OWNER_AGENT_ID must confer no grant.
+            shared._engine.bootstrap_system_identity(OWNER_AGENT_ID)
             shared_embedded[embedded_persist_dir] = shared
         embedded = BoundEmbeddedTransport(shared, agent_id, graph_name)
         return TransportPair(socket=socket_client, embedded=embedded)

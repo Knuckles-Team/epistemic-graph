@@ -51,7 +51,8 @@
 
 use std::sync::Arc;
 
-use eg_core::isolation::IsolationLayer;
+use eg_core::isolation::{AccessLevel, AgentIdentity, AgentRole, IsolationLayer};
+use eg_core::protocol::GraphType;
 
 /// The one RLS contract every domain module threads through: an asserted
 /// caller identity plus the SAME `IsolationLayer` the wire dispatch consults.
@@ -77,6 +78,48 @@ pub(crate) struct EmbeddedAuthority {
 }
 
 impl EmbeddedAuthority {
+    /// Explicit first-run provisioning for an in-process System caller. The
+    /// caller controls this engine instance; an asserted identity alone must
+    /// never acquire System privileges implicitly.
+    pub(crate) fn bootstrap_system_identity(&mut self, agent_id: String) -> Result<(), String> {
+        let isolation = Arc::get_mut(&mut self.isolation).ok_or_else(|| {
+            "ACCESS_DENIED: identity bootstrap requires an idle engine".to_string()
+        })?;
+        isolation.try_bootstrap_system_identity(AgentIdentity {
+            agent_id,
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        })
+    }
+
+    /// Apply the same eg-core graph ACL decision as the socket read path
+    /// before a point lookup. An unset identity is the documented trusted
+    /// in-process caller; every asserted identity must be provisioned.
+    pub(crate) fn require_graph_read(
+        &self,
+        agent_id_override: Option<&str>,
+        graph_name: &str,
+        graph_type: GraphType,
+        graph_owner: Option<&str>,
+    ) -> Result<(), String> {
+        let Some(agent_id) = agent_id_override.or(self.agent_id.as_deref()) else {
+            return Ok(());
+        };
+        if self.isolation.check_access(
+            agent_id,
+            graph_name,
+            graph_type,
+            graph_owner,
+            AccessLevel::Read,
+        ) {
+            Ok(())
+        } else {
+            Err(format!(
+                "ACCESS_DENIED: verified principal lacks Read access to graph '{graph_name}'"
+            ))
+        }
+    }
     /// Construct the trusted-caller-default authority (`agent_id: None`) with
     /// no RBAC roles/grants provisioned — matches `IsolationLayer::new()`'s
     /// own empty, default-deny-once-active posture.
@@ -215,6 +258,43 @@ impl EmbeddedAuthority {
 #[cfg(all(test, feature = "security"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graph_read_requires_explicit_bootstrap_and_denies_unregistered_peer() {
+        let mut authority = EmbeddedAuthority::new(None, None);
+        assert!(authority
+            .require_graph_read(
+                Some("service:owner"),
+                "agent:secret",
+                GraphType::Global,
+                None
+            )
+            .unwrap_err()
+            .starts_with("ACCESS_DENIED:"));
+        authority
+            .bootstrap_system_identity("service:owner".to_string())
+            .unwrap();
+        assert!(authority
+            .require_graph_read(
+                Some("service:owner"),
+                "agent:secret",
+                GraphType::Global,
+                None
+            )
+            .is_ok());
+        assert!(authority
+            .require_graph_read(
+                Some("service:other"),
+                "agent:secret",
+                GraphType::Global,
+                None
+            )
+            .unwrap_err()
+            .starts_with("ACCESS_DENIED:"));
+        assert!(authority
+            .bootstrap_system_identity("service:other".to_string())
+            .is_err());
+    }
 
     #[test]
     fn trusted_caller_default_sees_everything() {

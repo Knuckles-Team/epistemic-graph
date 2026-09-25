@@ -295,6 +295,15 @@ mod py {
 
     #[pymethods]
     impl PyEngine {
+        /// First-run, explicit System identity provisioning for an embedded
+        /// deployment. The in-process owner must call this before serving
+        /// asserted identities; construction never grants System implicitly.
+        fn bootstrap_system_identity(&mut self, agent_id: String) -> PyResult<()> {
+            self.authority
+                .bootstrap_system_identity(agent_id)
+                .map_err(map_engine_error)
+        }
+
         /// Open a fresh in-memory engine, optionally binding a caller identity
         /// (`agent_id`/`tenant` — design doc §7: a deployment-identity
         /// assertion, bound once, at construction time, not re-verified per
@@ -412,7 +421,21 @@ mod py {
             let registry = self.registry.clone();
             let authority = self.authority.clone();
             let raw = py.detach(move || -> PyResult<Option<Vec<u8>>> {
-                let core = resolve_core(&registry, &graph).map_err(map_engine_error)?;
+                let core = {
+                    let guard = registry.read();
+                    let entry = guard
+                        .get(&graph)
+                        .ok_or_else(|| map_engine_error(format!("graph '{graph}' not found")))?;
+                    authority
+                        .require_graph_read(
+                            agent_id.as_deref(),
+                            &graph,
+                            entry.graph_type,
+                            entry.owner.as_deref(),
+                        )
+                        .map_err(map_engine_error)?;
+                    entry.core.clone()
+                };
                 let props = core.get_node_properties(&node_id);
                 if !authority.can_see_properties(agent_id.as_deref(), props.as_deref()) {
                     return Ok(None);
@@ -435,20 +458,32 @@ mod py {
             graph: String,
             node_id: String,
             agent_id: Option<String>,
-        ) -> bool {
+        ) -> PyResult<bool> {
             let registry = self.registry.clone();
             let authority = self.authority.clone();
-            py.detach(move || {
-                let Some(core) = registry.read().get(&graph).map(|entry| entry.core.clone()) else {
-                    return false;
+            py.detach(move || -> PyResult<bool> {
+                let core = {
+                    let guard = registry.read();
+                    let Some(entry) = guard.get(&graph) else {
+                        return Ok(false);
+                    };
+                    authority
+                        .require_graph_read(
+                            agent_id.as_deref(),
+                            &graph,
+                            entry.graph_type,
+                            entry.owner.as_deref(),
+                        )
+                        .map_err(map_engine_error)?;
+                    entry.core.clone()
                 };
                 if !core.has_node(&node_id) {
-                    return false;
+                    return Ok(false);
                 }
-                authority.can_see_properties(
+                Ok(authority.can_see_properties(
                     agent_id.as_deref(),
                     core.get_node_properties(&node_id).as_deref(),
-                )
+                ))
             })
         }
 
