@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
 
 import pytest
 
-from epistemic_graph.usage_facts import UsageEventFact, UsageFactStore
+from epistemic_graph.usage_facts import (
+    UsageEventFact,
+    UsageFactStore,
+    _carrier_tenant_scope,
+)
 
 KEY = b"stable-test-usage-identity-key-00000000"
 
@@ -96,3 +101,29 @@ def test_rejects_plaintext_ids_negative_tokens_and_content_timestamp() -> None:
     ):
         with pytest.raises(ValueError):
             UsageEventFact(**(base | updates))
+
+
+def test_tenant_scope_matches_verified_carrier_digest() -> None:
+    digest = hashlib.sha256(b"carrier-tenant\x00verified\x00tenant-a").hexdigest()
+    assert _carrier_tenant_scope("tenant-a") == f"carrier-tenant:{digest}"
+    assert (
+        _carrier_tenant_scope(f"carrier-tenant:{digest}") == f"carrier-tenant:{digest}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bounded_native_read_page_has_no_caller_tenant() -> None:
+    sent = []
+
+    async def send(method, params):
+        sent.append((method, params))
+        return {"events": [], "totals": {"event_count": 0}, "has_more": False}
+
+    client = _client(FakeNodes())
+    client._send = send
+    page = await UsageFactStore(client).read_page(mode="summary", limit=12)
+    assert page["totals"]["event_count"] == 0
+    assert sent[0][0] == "UsageFacts"
+    assert "tenant" not in sent[0][1]
+    with pytest.raises(ValueError, match="limit"):
+        await UsageFactStore(client).read_page(limit=201)

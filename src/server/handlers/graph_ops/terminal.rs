@@ -108,6 +108,9 @@ pub(crate) async fn try_handle(
     // `filter_view` applies per node, so this short-circuit cannot answer
     // differently from the projection it skips.
     match &method {
+        Method::UsageFacts { .. } => {
+            return super::usage_facts::handle(req_id, &core, read_authority, method);
+        }
         Method::HasNode { node_id } => {
             return Response::ok(
                 req_id,

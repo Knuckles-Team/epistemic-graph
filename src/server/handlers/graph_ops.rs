@@ -41,6 +41,7 @@ mod semantic;
 mod subgraph;
 mod terminal;
 mod union;
+mod usage_facts;
 
 pub(crate) use gateway::try_handle_gateway;
 pub(crate) use terminal::try_handle;
