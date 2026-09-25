@@ -135,12 +135,22 @@ def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
         raise ConnectionError("engine unavailable")
 
     monkeypatch.setattr(EpistemicGraphClient, "connect", fail_connect)
-    baseline = _resources()
+    original_stop = SyncEpistemicGraphClient._stop_loop
+    stopped: list[tuple[asyncio.AbstractEventLoop, threading.Thread]] = []
 
-    for _ in range(32):
+    def track_stop(loop: asyncio.AbstractEventLoop, thread: threading.Thread) -> None:
+        original_stop(loop, thread)
+        stopped.append((loop, thread))
+
+    monkeypatch.setattr(SyncEpistemicGraphClient, "_stop_loop", staticmethod(track_stop))
+
+    for attempt in range(32):
         with pytest.raises(ConnectionError, match="engine unavailable"):
             SyncEpistemicGraphClient.connect(verified_context={})
-        assert _resources() == baseline
+        assert len(stopped) == attempt + 1, "failed dial skipped owned-loop teardown"
+        loop, thread = stopped[-1]
+        assert loop.is_closed(), "selector FD remains open"
+        assert not thread.is_alive(), "owned loop thread remains alive"
 
 
 @pytest.mark.skipif(
