@@ -18,10 +18,16 @@ struct PendingFlush {
     callback: IOFlushed<TypeConfig>,
 }
 
+/// Appends whose durability callback may be pending at once. Far above the
+/// Raft core's in-flight append window; reaching it means the redb writer has
+/// stalled, and the append fails with a named error instead of queueing
+/// without bound.
+const MAX_PENDING_FLUSHES: usize = 65_536;
+
 /// Delivers each append's durability callback, in order, from its own task.
 #[derive(Default)]
 pub(super) struct FlushNotifier {
-    queue: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<PendingFlush>>,
+    queue: std::sync::OnceLock<tokio::sync::mpsc::Sender<PendingFlush>>,
 }
 
 impl FlushNotifier {
@@ -33,23 +39,31 @@ impl FlushNotifier {
         callback: IOFlushed<TypeConfig>,
     ) {
         let queue = self.queue.get_or_init(|| {
-            let (queue, pending) = tokio::sync::mpsc::unbounded_channel();
+            let (queue, pending) = tokio::sync::mpsc::channel(MAX_PENDING_FLUSHES);
             tokio::spawn(deliver(pending));
             queue
         });
-        if let Err(unsent) = queue.send(PendingFlush {
+        if let Err(unsent) = queue.try_send(PendingFlush {
             completion,
             callback,
         }) {
+            let reason = match &unsent {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                    "raft log flush queue is full: the redb writer has stalled"
+                }
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                    "raft log flush notifier stopped"
+                }
+            };
             unsent
-                .0
+                .into_inner()
                 .callback
-                .io_completed(Err(ioerr("raft log flush notifier stopped")));
+                .io_completed(Err(ioerr(reason)));
         }
     }
 }
 
-async fn deliver(mut pending: tokio::sync::mpsc::UnboundedReceiver<PendingFlush>) {
+async fn deliver(mut pending: tokio::sync::mpsc::Receiver<PendingFlush>) {
     while let Some(flush) = pending.recv().await {
         let flushed = match flush.completion.await {
             Ok(result) => result.map_err(ioerr),
