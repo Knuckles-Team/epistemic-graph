@@ -281,10 +281,7 @@ async fn a_graph_cannot_take_a_reserved_foreign_source_resource_name() {
     let err = refused
         .error
         .expect("a reserved RBAC-resource name must not become a graph");
-    assert!(
-        err.starts_with("RESERVED_GRAPH_NAME"),
-        "typed refusal, got: {err}"
-    );
+    assert!(err == "RESERVED_GRAPH_NAME", "typed refusal, got: {err}");
     assert!(
         !local.read().await.registry.exists(&reserved),
         "nothing was registered"
