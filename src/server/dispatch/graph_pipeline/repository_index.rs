@@ -70,37 +70,7 @@ async fn already_committed(ctx: &GraphOpRouting<'_>, envelope_id: &str) -> Resul
         .map_err(|error| Response::err(ctx.req_id, error))
 }
 
-/// Commit one write-set envelope unless it is already durable.
-async fn commit_write_set(
-    ctx: GraphOpRouting<'_>,
-    write_set: handlers::repository_index::IndexWriteSet,
-    placement_epoch: u64,
-    fencing_token: Option<u64>,
-) -> Result<(), Response> {
-    if already_committed(&ctx, &write_set.envelope_id).await? {
-        return Ok(());
-    }
-    let commit_ctx = handlers::repository_index::IndexCommitContext {
-        request_id: ctx.req_id,
-        graph_name: ctx.graph_name,
-        tenant_scope: ctx.tenant_scope,
-        verified: ctx.verified_context,
-        graph_version: ctx.core.version(),
-        placement_epoch,
-        fencing_token,
-    };
-    let envelope = handlers::repository_index::build_envelope(&commit_ctx, write_set)
-        .map_err(|error| Response::err(ctx.req_id, error))?;
-    let commit =
-        crate::server::dispatch::change_envelope::apply_one_change_envelope(ctx, envelope).await;
-    match commit.error {
-        Some(error) => Err(Response::err(commit.id, error)),
-        None => Ok(()),
-    }
-}
-
-/// Parse, project and durably commit one scoped `IndexRepository` batch, as
-/// one envelope or, past `MAX_ENVELOPE_OPERATIONS`, consecutive ones.
+/// Parse, project and durably commit one scoped `IndexRepository` batch.
 pub(super) async fn route_repository_index(
     ctx: GraphOpRouting<'_>,
     files_msgpack: Vec<u8>,
@@ -112,21 +82,31 @@ pub(super) async fn route_repository_index(
         Ok(result) => result,
         Err(response) => return response,
     };
-    let limit = handlers::repository_index::MAX_ENVELOPE_OPERATIONS;
-    let write_sets = match handlers::repository_index::lower(&result)
-        .and_then(|write_set| write_set.into_chunks(limit))
-    {
-        Ok(write_sets) => write_sets,
+    let write_set = match handlers::repository_index::lower(&result) {
+        Ok(write_set) => write_set,
         Err(error) => return Response::err(ctx.req_id, error),
     };
-    for write_set in write_sets {
-        if let Err(response) =
-            commit_write_set(ctx, write_set, placement_epoch, fencing_token).await
-        {
-            return response;
-        }
+    match already_committed(&ctx, &write_set.envelope_id).await {
+        Ok(true) => return handlers::repository_index::respond(ctx.req_id, result),
+        Ok(false) => {}
+        Err(response) => return response,
     }
-    handlers::repository_index::respond(ctx.req_id, result)
+    let commit_ctx = handlers::repository_index::IndexCommitContext {
+        request_id: ctx.req_id,
+        graph_name: ctx.graph_name,
+        tenant_scope: ctx.tenant_scope,
+        verified: ctx.verified_context,
+        graph_version: ctx.core.version(),
+        placement_epoch,
+        fencing_token,
+    };
+    let envelope = match handlers::repository_index::build_envelope(&commit_ctx, write_set) {
+        Ok(envelope) => envelope,
+        Err(error) => return Response::err(ctx.req_id, error),
+    };
+    let commit =
+        crate::server::dispatch::change_envelope::apply_one_change_envelope(ctx, envelope).await;
+    handlers::repository_index::finish(result, commit)
 }
 
 #[cfg(test)]
