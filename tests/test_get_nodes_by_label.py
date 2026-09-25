@@ -43,13 +43,18 @@ async def test_list_by_label_sends_bounded_rpc() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_by_label_default_limit_zero() -> None:
+async def test_list_by_label_default_is_bounded() -> None:
     fake = _FakeClient()
     nc = NodeClient(fake)
     await nc.list_by_label("Concept")
     assert fake.sent == [
-        ("GetNodesByLabel", {"label": "Concept", "after": None, "limit": 0})
+        ("GetNodesByLabel", {"label": "Concept", "after": None, "limit": 500})
     ]
+
+    await nc.list_by_label("Concept", 0)
+    assert fake.sent[-1] == (
+        "GetNodesByLabel", {"label": "Concept", "after": None, "limit": 500}
+    )
 
 
 @pytest.mark.asyncio

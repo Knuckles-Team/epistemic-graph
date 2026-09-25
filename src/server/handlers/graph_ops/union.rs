@@ -119,6 +119,9 @@ async fn handle_union_get_nodes_by_label(
     label: String,
     limit: usize,
 ) -> Response {
+    if let Some(msg) = super::nodes::bounded_page_error(limit, max_response_nodes()) {
+        return Response::err(req_id, msg);
+    }
     let cores = match resolve_union_cores(state, read_authority, &graphs).await {
         Ok(c) => c,
         Err(denied) => return Response::err(req_id, denied),
