@@ -417,6 +417,15 @@ fn declared_response_error_separates_code_and_detail() {
     let code_only = Response::err(5, "ACCESS_DENIED");
     assert_eq!(code_only.error.as_deref(), Some("ACCESS_DENIED"));
     assert!(code_only.error_detail.is_none());
+    let repository_limit = Response::err(6, "REPOSITORY_BATCH_TOO_LARGE: split the batch");
+    assert_eq!(
+        repository_limit.error.as_deref(),
+        Some("REPOSITORY_BATCH_TOO_LARGE")
+    );
+    assert_eq!(
+        repository_limit.error_detail.as_deref(),
+        Some("split the batch")
+    );
 }
 
 #[test]

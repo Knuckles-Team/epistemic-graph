@@ -44,6 +44,19 @@ mod tests {
             Some("method response code is not declared for this operation")
         );
         assert_eq!(denied.id, 2);
+
+        let repository_limit = enforce(
+            "IndexRepository",
+            Response::err(5, "REPOSITORY_BATCH_TOO_LARGE: split the batch"),
+        );
+        assert_eq!(
+            repository_limit.error.as_deref(),
+            Some("REPOSITORY_BATCH_TOO_LARGE")
+        );
+        assert_eq!(
+            repository_limit.error_detail.as_deref(),
+            Some("split the batch")
+        );
     }
 
     #[test]

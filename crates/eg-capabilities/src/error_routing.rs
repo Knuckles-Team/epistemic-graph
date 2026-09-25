@@ -96,6 +96,7 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("ApplyChangeEnvelopes", &["ABORTED_ATOMIC_GRAPH_BATCH"]),
+    ("IndexRepository", &["REPOSITORY_BATCH_TOO_LARGE"]),
     (
         "RegisterForeignSource",
         &["FOREIGN_SOURCE_POLICY_UNBOOTSTRAPPED"],
@@ -253,5 +254,13 @@ mod tests {
         assert!(method_allows_error("CreateGraph", "OPERATION_REDIRECTED"));
         assert!(!method_allows_error("CreateGraph", "UNSUPPORTED_COALITION"));
         assert!(!method_allows_error("NotADeclaredMethod", "ACCESS_DENIED"));
+        assert!(method_allows_error(
+            "IndexRepository",
+            "REPOSITORY_BATCH_TOO_LARGE"
+        ));
+        assert!(!method_allows_error(
+            "CreateGraph",
+            "REPOSITORY_BATCH_TOO_LARGE"
+        ));
     }
 }
