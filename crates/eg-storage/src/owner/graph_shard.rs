@@ -50,6 +50,8 @@ pub(crate) const SEMANTIC_STORE: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("semantic_store");
 pub(crate) const AUDIT_CHAIN: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("audit_chain");
+pub(crate) const AUDIT_REQUESTS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("audit_requests");
 pub(crate) const PROVENANCE_ANCHOR_MEMBERS: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("provenance_anchor_members");
 pub(crate) const GRAPH_META: TableDefinition<'static, &str, &[u8]> =
@@ -194,6 +196,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::LEDGER);
         $visit!(shard::SEMANTIC_STORE);
         $visit!(shard::AUDIT_CHAIN);
+        $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::PROVENANCE_ANCHOR_MEMBERS);
         $visit!(shard::GRAPH_META);
         $visit!(shard::WORK_ITEM_COMMAND_SEQUENCE);
@@ -254,6 +257,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
     "ledger",
     "semantic_store",
     "audit_chain",
+    "audit_requests",
     "provenance_anchor_members",
     "graph_meta",
     "work_item_command_sequence",
@@ -381,6 +385,7 @@ fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
         | "development_lane_repository_branch_index"
         | "development_lane_invocations" => Some("(&str,&str,&str)"),
         "nodes"
+        | "audit_requests"
         | "resource_reservations"
         | "resource_hosts"
         | "resource_exclusivity"

@@ -114,8 +114,9 @@ pub(crate) mod work_item;
 // durable machinery through `crate::redb_store`, never through a second store.
 #[cfg(feature = "security")]
 pub(crate) use audit::{
-    append_audit_entry, prove_inclusion, provenance_anchor_commit, provenance_leaf_hashes,
-    verify_audit, AuditTailCache, ProvenanceAnchorCache,
+    append_audit_entry, operation_audit_append, prove_inclusion, provenance_anchor_commit,
+    provenance_leaf_hashes, verify_audit, AuditTailCache, OperationAuditEvent,
+    ProvenanceAnchorCache,
 };
 #[cfg(any(test, feature = "embedded"))]
 pub(crate) use checkpoint::apply_checkpoint;
