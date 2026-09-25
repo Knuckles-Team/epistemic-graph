@@ -404,6 +404,7 @@ fn fixed(text: &str) -> Printed {
 }
 
 /// `PREFIX<number>`.
+#[cfg(feature = "epistemic")]
 fn prefixed_num(prefix: &str, n: f64) -> Printed {
     Ok(format!("{prefix}{}", uql_num(n)?))
 }

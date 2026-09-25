@@ -472,8 +472,8 @@ fn identifiers(expression: &str) -> Vec<&str> {
     let mut start = None;
     let mut quotes = QuoteState::default();
     for (index, character) in expression.char_indices() {
-        let part = quotes.outside(character)
-            && (character.is_ascii_alphanumeric() || character == '_');
+        let part =
+            quotes.outside(character) && (character.is_ascii_alphanumeric() || character == '_');
         match (part, start) {
             (true, None) => start = Some(index),
             (false, Some(begin)) => {
