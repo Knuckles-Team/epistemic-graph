@@ -10,10 +10,6 @@ pub(crate) async fn handle_txn_uql(
     params: UqlParams,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
-    let (stmt, binding) = match bind_served_statement(req_id, &text, &params) {
-        Ok(bound) => bound,
-        Err(response) => return Ok(response),
-    };
     let txn = OverlaidTxn {
         state: ctx.state,
         req_id,
@@ -22,6 +18,10 @@ pub(crate) async fn handle_txn_uql(
         caller: ctx.caller,
         #[cfg(feature = "security")]
         rls: ctx.rls,
+    };
+    let (stmt, binding) = match bind_served_statement(req_id, &text, &params) {
+        Ok(bound) => bound,
+        Err(response) => return Ok(response),
     };
     let result = run_unified_overlaid_with(txn, binding, move |_plan, plan_ctx| {
         eg_plan::uql::serve::run_statement(&stmt, plan_ctx)
