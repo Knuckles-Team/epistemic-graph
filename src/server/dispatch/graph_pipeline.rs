@@ -549,6 +549,20 @@ mod eg318_dispatch_tests {
         }
     }
 
+    #[cfg(feature = "tsdb")]
+    fn ts_tenant_request(id: u64, graph: &str, agent: &str, method: Method) -> Request {
+        sign_current_test_request(
+            SECRET,
+            Request {
+                id,
+                graph: graph.into(),
+                auth_token: String::new(),
+                agent_id: Some(agent.into()),
+                method,
+            },
+        )
+    }
+
     fn req(id: u64, method: Method) -> Request {
         build_shared_test_request(SECRET, id, "__commons__", "system", method)
     }
@@ -815,18 +829,7 @@ mod eg318_dispatch_tests {
             // their own private graph, or every Ts* call below default-denies.
             register_ts_tenants(&mut s);
         }
-        let request = |id: u64, graph: &str, agent: &str, method: Method| {
-            sign_current_test_request(
-                SECRET,
-                Request {
-                    id,
-                    graph: graph.into(),
-                    auth_token: String::new(),
-                    agent_id: Some(agent.into()),
-                    method,
-                },
-            )
-        };
+        let request = ts_tenant_request;
         let append = |value: f64| Method::TsAppend {
             series_id: "cpu".into(),
             n_fields: 1,
@@ -916,18 +919,7 @@ mod eg318_dispatch_tests {
             let mut s = state.write().await;
             register_ts_tenants(&mut s);
         }
-        let request = |id: u64, graph: &str, agent: &str, method: Method| {
-            sign_current_test_request(
-                SECRET,
-                Request {
-                    id,
-                    graph: graph.into(),
-                    auth_token: String::new(),
-                    agent_id: Some(agent.into()),
-                    method,
-                },
-            )
-        };
+        let request = ts_tenant_request;
         // Two points a full bucket apart (bucket_ns = 1_000) so evicting one leaves
         // the other in a surviving bucket rather than trimming inside a shared one.
         let append = Method::TsAppend {
