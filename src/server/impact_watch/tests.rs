@@ -158,10 +158,26 @@ fn an_unwatched_graph_leaves_no_state_and_labels_filter_once_loaded() {
 
 const SECRET: &str = "impact-watch-test-secret";
 
+#[cfg(feature = "redb")]
+/// A served state with a real persistence backend: the watch's writeback is an
+/// authoritative MutationBatch commit, which a backendless state refuses.
+fn persisted_state() -> Arc<RwLock<ServerState>> {
+    use crate::server::persistence::redb_backend::RedbBackend;
+    let dir = crate::server::sql_tables::test_persist_dir()
+        .to_string_lossy()
+        .into_owned();
+    std::fs::create_dir_all(&dir).expect("create test persist dir");
+    let backend = RedbBackend::open(dir.clone(), 4096).expect("open test redb backend");
+    let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation("system"));
+    state.persist_dir = Some(dir);
+    state.persistence = Some(Arc::new(backend));
+    Arc::new(RwLock::new(state))
+}
+
+#[cfg(feature = "redb")]
 #[tokio::test]
 async fn a_noticed_incident_writes_assessments_through_the_served_path() {
-    let isolation = ServerState::test_isolation("system");
-    let state = Arc::new(RwLock::new(ServerState::new_for_test(SECRET, isolation)));
+    let state = persisted_state();
     let core = {
         let mut guard = state.write().await;
         guard
@@ -174,7 +190,12 @@ async fn a_noticed_incident_writes_assessments_through_the_served_path() {
     let hub = ImpactWatchHub::new(["ops".to_string()].into(), Duration::ZERO);
     hub.note("ops", WATCH_LABEL, "watch-1");
     let report = hub.sweep_due(&state).await;
-    assert_eq!(report.runs, 1, "one watch run committed: {:?}", report.refusals);
+    assert_eq!(
+        report.runs,
+        1,
+        "one watch run committed: {:?}",
+        report.refusals
+    );
     core.mark_dirty();
     let assessed: BTreeMap<String, serde_json::Value> = core
         .get_nodes_by_label("ImpactAssessment", 0)
