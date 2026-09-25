@@ -102,6 +102,10 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("SubmitWorkItem", &["REPLAY_NONCE_CONSUMED"]),
     ("ClaimWorkItem", &["REPLAY_NONCE_CONSUMED"]),
     ("TsListSeries", &["REPLAY_NONCE_CONSUMED"]),
+    (
+        "KgDelegate",
+        &["CLUSTER_CONFIGURATION_INVALID", "REPLAY_NONCE_CONSUMED"],
+    ),
     ("ApplyChangeEnvelopes", &["ABORTED_ATOMIC_GRAPH_BATCH"]),
     (
         "RegisterForeignSource",
@@ -277,6 +281,15 @@ mod tests {
         assert!(!method_allows_error(
             "TsListSeries",
             "UNSUPPORTED_COALITION"
+        ));
+        assert!(method_allows_error(
+            "KgDelegate",
+            "CLUSTER_CONFIGURATION_INVALID"
+        ));
+        assert!(method_allows_error("KgDelegate", "REPLAY_NONCE_CONSUMED"));
+        assert!(!method_allows_error(
+            "SubmitWorkItem",
+            "CLUSTER_CONFIGURATION_INVALID"
         ));
     }
 }
