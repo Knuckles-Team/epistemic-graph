@@ -226,7 +226,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "343ebe5be22fa54dfe5eb8284dd8bdee371ae57b346ade11a76e4cd83e0c842d"
+            "52baf0c2e74db6447b85fcdd7fb2c406d559adee3c5957aa66a378cdc1f5cd59"
         }
         OwnerLayout::AgentLibrary => {
             "7ea9bcde54e8961cedaa586b3520f890100c5f53f9f5f9574a30dea02c882445"
