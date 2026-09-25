@@ -431,6 +431,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         source: DatasetSource::Inline {
             dataset: Box::new(data),
         },
+        feature_skill: None,
     };
     let job: DecisionJobRecord = decode(
         super::jobs::handle_decision_eval(

@@ -118,6 +118,55 @@ pub struct DecisionEvalRequest {
     pub window: RecordWindow,
     /// Where the labelled items the candidate is evaluated on come from.
     pub source: DatasetSource,
+    /// Optional predictive-skill report over admitted full-label records.
+    #[serde(default)]
+    pub feature_skill: Option<FeatureSkillRequest>,
+}
+
+/// An explicit, reproducible feature/outcome pairing for predictive skill.
+/// The outcome is later acceptability of this same candidate; bandit labels
+/// cannot support this report because unexecuted outcomes are unobserved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct FeatureSkillRequest {
+    pub feature_name: String,
+    pub candidate_id: String,
+    /// Forward offsets in successive admitted observations of this candidate.
+    pub horizons: BoundedVec<u16, 8>,
+    pub window: u16,
+    pub bootstrap_resamples: u16,
+    pub seed: u64,
+}
+
+/// Skill at one forward horizon, quantised before it enters a receipt digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct HorizonSkillView {
+    pub horizon: u16,
+    pub n_windows: u64,
+    pub mean_ic: QuantisedValue,
+    pub ic_std: QuantisedValue,
+    pub icir: QuantisedValue,
+    pub ci_lo: QuantisedValue,
+    pub ci_hi: QuantisedValue,
+}
+
+/// Candidate-local predictive power over a fully observed labelled sequence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct FeatureSkillView {
+    pub feature_name: String,
+    pub candidate_id: String,
+    pub n_items: u64,
+    pub window: u16,
+    pub bootstrap_resamples: u16,
+    pub seed: u64,
+    pub horizons: BoundedVec<HorizonSkillView, 8>,
+    pub effective_independent_n: QuantisedValue,
+    pub information_ratio: QuantisedValue,
 }
 
 /// Ask after one submitted job.
@@ -211,6 +260,8 @@ pub struct DecisionEvalReceipt {
     pub calibration: Option<CalibrationStatement>,
     #[serde(default)]
     pub metrics: Option<FullLabelMetrics>,
+    #[serde(default)]
+    pub feature_skill: Option<FeatureSkillView>,
     pub exclusions: LabelExclusions,
     /// Bandit regime only: pooled per-option success rates at min support.
     #[serde(default)]

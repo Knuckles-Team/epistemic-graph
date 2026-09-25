@@ -9,7 +9,7 @@
 
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{
-    DecisionEvalReceipt, FullLabelMetrics, LabelExclusions, OpeEstimatorKind,
+    DecisionEvalReceipt, FeatureSkillRequest, FullLabelMetrics, LabelExclusions, OpeEstimatorKind,
 };
 use eg_types::decision::statistical::dataset::{ItemLabel, LabelledDataset, LabelledItem};
 use eg_types::decision::statistical::head::DecisionHeadBody;
@@ -44,6 +44,7 @@ pub struct EvalSpec<'a> {
     /// `sha256:<hex>` of the head body evaluated.
     pub head_digest: &'a str,
     pub policy_digest: &'a str,
+    pub feature_skill: Option<&'a FeatureSkillRequest>,
 }
 
 /// One item read by the head: probabilities, or `None` out of distribution.
@@ -258,6 +259,12 @@ pub fn evaluate(
     if items.is_empty() {
         failed.push("no_admitted_items".to_string());
     }
+    let feature_skill = spec
+        .feature_skill
+        .map(|request| {
+            super::feature_skill::evaluate_feature_skill(dataset, items, spec.regime, request)
+        })
+        .transpose()?;
     let mut receipt = DecisionEvalReceipt {
         receipt_digest: String::new(),
         head_digest: spec.head_digest.to_string(),
@@ -266,6 +273,7 @@ pub fn evaluate(
         estimates: bounded(report.estimates)?,
         calibration: calibration_statement(head),
         metrics: metrics_value,
+        feature_skill,
         exclusions,
         pooled: bounded(report.pooled)?,
         failed_gates: bounded(failed.clone())?,

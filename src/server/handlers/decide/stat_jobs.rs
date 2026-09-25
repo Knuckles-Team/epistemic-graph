@@ -306,6 +306,7 @@ fn run_eval(
         estimators: request.estimators.as_slice(),
         head_digest: &head_digest,
         policy_digest: &policy.digest,
+        feature_skill: request.feature_skill.as_ref(),
     };
     let receipt = evaluate(&head, &dataset, &admitted.items, admitted.exclusions, &spec)
         .map_err(|r| r.render())?;

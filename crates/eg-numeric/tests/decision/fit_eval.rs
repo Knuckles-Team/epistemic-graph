@@ -3,15 +3,81 @@
 
 use eg_numeric::decision::admission::{admit, AdmissionRules, Regime};
 use eg_numeric::decision::evaluate::{evaluate, EvalSpec};
+use eg_numeric::decision::feature_skill::evaluate_feature_skill;
 use eg_numeric::decision::fit::{fit, FitSpec};
-use eg_types::decision::jobs::{OpeEstimatorKind, OptimiserSpec};
+use eg_types::decision::jobs::{FeatureSkillRequest, OpeEstimatorKind, OptimiserSpec};
 use eg_types::decision::statistical::dataset::LabelledDataset;
 use eg_types::decision::statistical::head::{DecisionHeadBody, HeadKind};
 use eg_types::decision::{QuantScaleTag, QuantisedValue, TraceFidelityLevel};
 
 use super::common::{
-    approved, dataset, gold_dataset, logged_item, statistical, window, SCHEMA_DIGEST,
+    approved, bounded, dataset, gold_dataset, logged_item, statistical, window, SCHEMA_DIGEST,
 };
+
+fn skill_request() -> FeatureSkillRequest {
+    FeatureSkillRequest {
+        feature_name: "quality".to_string(),
+        candidate_id: "option-0".to_string(),
+        horizons: bounded(vec![1, 2]),
+        window: 12,
+        bootstrap_resamples: 64,
+        seed: 27,
+    }
+}
+
+#[test]
+fn full_label_feature_skill_is_order_independent_and_sealed_in_receipt() {
+    let data = gold_dataset(200, 0);
+    let head = fitted(HeadKind::ListwiseLogistic, &data);
+    let stat = statistical();
+    let admitted = admit(&data, &rules(Regime::FullLabel, &[]));
+    let request = skill_request();
+    let mut reversed = admitted.items.clone();
+    reversed.reverse();
+    let report = evaluate_feature_skill(&data, &admitted.items, Regime::FullLabel, &request)
+        .expect("full labels support skill");
+    let again = evaluate_feature_skill(&data, &reversed, Regime::FullLabel, &request)
+        .expect("order does not change skill");
+    assert_eq!(report, again);
+    assert_eq!(report.n_items, 200);
+    assert_eq!(report.horizons.len(), 2);
+    let base = EvalSpec {
+        regime: Regime::FullLabel,
+        statistical: &stat,
+        estimators: &[],
+        head_digest: "sha256:head",
+        policy_digest: "sha256:policy",
+        feature_skill: None,
+    };
+    let without = evaluate(&head, &data, &admitted.items, admitted.exclusions, &base)
+        .expect("baseline evaluation");
+    let with = evaluate(
+        &head,
+        &data,
+        &admitted.items,
+        admitted.exclusions,
+        &EvalSpec {
+            feature_skill: Some(&request),
+            ..base
+        },
+    )
+    .expect("feature evaluation");
+    assert_eq!(with.feature_skill, Some(report));
+    assert_ne!(with.receipt_digest, without.receipt_digest);
+}
+
+#[test]
+fn feature_skill_refuses_bandit_labels_and_missing_history() {
+    let request = skill_request();
+    let logs = dataset((0..40).map(logged_item).collect());
+    let admitted = admit(&logs, &rules(Regime::BanditLabel, &approved()));
+    let refusal = evaluate_feature_skill(&logs, &admitted.items, Regime::BanditLabel, &request)
+        .expect_err("bandit outcomes are selection-biased");
+    assert_eq!(refusal.code, "DATASET_INVALID");
+    let tiny = gold_dataset(12, 0);
+    let admitted = admit(&tiny, &rules(Regime::FullLabel, &[]));
+    assert!(evaluate_feature_skill(&tiny, &admitted.items, Regime::FullLabel, &request).is_err());
+}
 
 fn optimiser() -> OptimiserSpec {
     OptimiserSpec {
@@ -89,6 +155,7 @@ fn the_receipt_passes_on_held_out_gold_and_names_failed_gates_otherwise() {
         estimators: &[],
         head_digest: "sha256:head",
         policy_digest: "sha256:policy",
+        feature_skill: None,
     };
     let receipt =
         evaluate(&head, &holdout, &admitted.items, admitted.exclusions, &spec).expect("evaluates");
@@ -133,6 +200,7 @@ fn off_policy_evaluation_reports_support_and_ess() {
         estimators: &estimators,
         head_digest: "sha256:head",
         policy_digest: "sha256:policy",
+        feature_skill: None,
     };
     let receipt =
         evaluate(&head, &logs, &admitted.items, admitted.exclusions, &spec).expect("evaluates");
@@ -178,6 +246,7 @@ fn an_off_policy_estimate_on_unsupported_actions_blocks_promotion() {
         estimators: &[OpeEstimatorKind::Ips],
         head_digest: "sha256:head",
         policy_digest: "sha256:policy",
+        feature_skill: None,
     };
     let receipt =
         evaluate(&head, &logs, &admitted.items, admitted.exclusions, &spec).expect("evaluates");

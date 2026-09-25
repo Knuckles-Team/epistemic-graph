@@ -239,6 +239,7 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
                     source: DatasetSource::Logged {
                         question_id: "route.ingestion".to_string(),
                     },
+                    feature_skill: None,
                 }),
             },
         ),
