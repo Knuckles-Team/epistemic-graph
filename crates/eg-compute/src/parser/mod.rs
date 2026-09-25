@@ -18,3 +18,5 @@ pub mod branch_index;
 mod branch_projection;
 #[cfg(feature = "ast")]
 mod branch_scope;
+#[cfg(feature = "ast")]
+pub mod enrichment_admission;
