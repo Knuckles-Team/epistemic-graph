@@ -35,8 +35,13 @@
 pub mod grammar;
 mod lexer;
 mod parser;
+mod replay;
+#[cfg(test)]
+mod replay_tests;
 #[cfg(test)]
 mod tests;
+
+pub use replay::{parse_replay, ReplayBindings};
 
 use std::collections::BTreeMap;
 

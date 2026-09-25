@@ -8,6 +8,19 @@ use crate::uql::grammar::{p, Production, Role::*};
 /// The whole DecideText grammar, in reference order.
 pub const PRODUCTIONS: &[Production] = &[
     p(
+        "replay_text",
+        Aux,
+        &["CANDIDATES"],
+        None,
+        "\"CANDIDATES\" param \"|>\" \"DECIDE\" \"USING\" param \"|>\" \
+         \"REPLAY\" \"WALK\" \"FORWARD\" \"TRAIN\" int \"TEST\" int \
+         \"STEP\" int \"PURGE\" int \"EMBARGO\" int \"FROM\" param \
+         \"TO\" param \"BUDGET\" decimal",
+        "DecisionEvalRequest (EvalMode::Replay; typed candidate/policy/time bindings)",
+        "CANDIDATES $c |> DECIDE USING $policy |> REPLAY WALK FORWARD \
+         TRAIN 252 TEST 21 STEP 21 PURGE 5 EMBARGO 5 FROM $t0 TO $t1 BUDGET 1.0",
+    ),
+    p(
         "decide_text",
         Aux,
         &[],
