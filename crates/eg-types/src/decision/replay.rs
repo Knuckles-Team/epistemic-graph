@@ -194,3 +194,18 @@ pub struct EvaluationRun {
     pub validation: ReplayValidation,
     pub synthetic: bool,
 }
+
+impl EvaluationRun {
+    /// Recompute the content address with its own digest field cleared. A
+    /// stored run is evidence only when this matches its storage key.
+    pub fn sealed_digest(&self) -> String {
+        let mut subject = self.clone();
+        subject.run_digest.clear();
+        super::digest::digest_text("eg/decision/evaluation-run/v1", &subject)
+    }
+
+    /// Verify a stored or received run before using it as `supersedes` evidence.
+    pub fn verify(&self) -> bool {
+        self.run_digest == self.sealed_digest()
+    }
+}
