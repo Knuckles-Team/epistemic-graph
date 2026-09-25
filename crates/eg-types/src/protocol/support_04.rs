@@ -113,9 +113,12 @@ pub struct Response {
     /// Result payload on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<ResultPayload>,
-    /// Stable error code on failure; structured detail is carried by OperationResult.
+    /// Stable error code on failure. Legacy free-text refusals remain until migrated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Human-readable detail for a declared error code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_detail: Option<String>,
 }
 
 impl Response {
@@ -126,6 +129,7 @@ impl Response {
                 id,
                 result: Some(result),
                 error: None,
+                error_detail: None,
             },
             Err(error) => Response::err(id, error),
         }
@@ -133,10 +137,18 @@ impl Response {
 
     /// Create an error response.
     pub fn err(id: u64, error: impl Into<String>) -> Self {
+        let text = error.into();
+        let (error, error_detail) = match text.split_once(": ") {
+            Some((code, detail)) if crate::contract::declared_error_code(code) => {
+                (code.to_string(), Some(detail.to_string()))
+            }
+            _ => (text, None),
+        };
         Response {
             id,
             result: None,
-            error: Some(error.into()),
+            error: Some(error),
+            error_detail,
         }
     }
 
@@ -176,6 +188,7 @@ impl Response {
                 id,
                 result: Some(result),
                 error: Some("OPERATION_REDIRECTED".to_string()),
+                error_detail: None,
             },
             Err(error) => Response::err(id, error),
         }

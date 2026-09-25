@@ -42,3 +42,33 @@ macro_rules! closed_error_codes {
 }
 
 pub(crate) use closed_error_codes;
+
+/// Whether a response prefix is one of the engine's published refusal codes.
+/// The enums remain the single source of truth for the generated catalog.
+pub fn declared_error_code(code: &str) -> bool {
+    [
+        super::EngineErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
+        super::ServerErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
+        crate::decision::DecisionErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
+        crate::decision::statistical::StatisticalErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
+        crate::graph_schema::GraphSchemaErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
+        crate::connector_pack::result::PackWriteErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
+        crate::solve::SolveErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
+    ]
+    .into_iter()
+    .any(|known| known)
+}

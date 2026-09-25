@@ -10468,14 +10468,20 @@ def _raise_send_error(resp: dict[str, Any]) -> NoReturn:
     detail = _send_error_detail(resp.get("result"), err_msg)
     if isinstance(detail, dict) and detail.get("status") == "redirected":
         _raise_placement_redirect(detail)
+    error_detail = resp.get("error_detail")
+    display = (
+        f"{err_msg}: {error_detail}"
+        if isinstance(err_msg, str) and isinstance(error_detail, str) and error_detail
+        else err_msg
+    )
     # The engine's overload backstop
     # (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) returns a typed
     # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
     # a dedicated, catchable exception (still a RuntimeError subclass) so a
     # caller can fall back to a bounded query without string-matching.
     if isinstance(err_msg, str) and err_msg.startswith("RESULT_TOO_LARGE"):
-        raise ResultTooLargeError(err_msg)
-    raise RuntimeError(err_msg)
+        raise ResultTooLargeError(display)
+    raise RuntimeError(display)
 
 
 def _tls_env(name: str) -> str:

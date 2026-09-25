@@ -60,6 +60,7 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("ENGINE_RESOURCE_EXHAUSTED", "capacity"),
     ("UQL_BUDGET_EXCEEDED", "capacity"),
     ("REDIRECTED", "availability"),
+    ("OPERATION_REDIRECTED", "availability"),
     ("ENGINE_UNAVAILABLE", "availability"),
     ("ENGINE_DEADLINE_EXCEEDED", "availability"),
     ("CANCELLED", "availability"),
@@ -107,6 +108,7 @@ fn retryable(code: &str) -> bool {
             | "CAPACITY_DENIED"
             | "READ_ONLY"
             | "BUSY"
+            | "OPERATION_REDIRECTED"
     )
 }
 
@@ -118,6 +120,7 @@ const HTTP_HINTS: &[(&str, u16)] = &[
     ("ACCESS_DENIED", 403),
     ("POLICY_NATIVE_AUTHORITY_REQUIRED", 403),
     ("REDIRECTED", 307),
+    ("OPERATION_REDIRECTED", 307),
     ("ENGINE_UNAVAILABLE", 503),
     ("READ_ONLY", 503),
     ("ENGINE_DEADLINE_EXCEEDED", 504),
@@ -181,6 +184,7 @@ const SHARED_ENGINE_ERRORS: &[&str] = &[
     "ENGINE_UNAVAILABLE",
     "ENGINE_RESOURCE_EXHAUSTED",
     "ENGINE_DEADLINE_EXCEEDED",
+    "OPERATION_REDIRECTED",
 ];
 const SHARED_SERVER_ERRORS: &[&str] = &[
     "AUTHENTICATION_REQUIRED",
