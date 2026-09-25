@@ -22,6 +22,9 @@ dependencies = [
     # `import epistemic_graph` fails without it. v2 is what agent-utilities already
     # standardises on, so a consumer resolves one model layer, not two.
     "pydantic>=2,<3",
+    # The public generic method invoker validates decoded engine results against
+    # the exact JSON schemas shipped with this wheel.
+    "jsonschema>=4,<5",
     # numeric is a NATIVE core primitive, NOT an extra (CONCEPT:EG-346): the compiled
     # pure-Rust faer/ndarray kernel ships as always-bundled package data
     # (`epistemic_graph/numeric.abi3.so`). It has no Python package dependency; the
@@ -240,10 +243,16 @@ strip = true
 # Never carry interpreter caches from a reused checkout into a wheel or sdist.
 # These are source-level Maturin globs, so the checkout itself remains untouched.
 exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
-# The shipped engine-contract receipt (RF-RULING-003): the digest agent-utilities pins.
-# `python-source` already copies the package tree, but this makes the data file an
-# explicit, reviewable part of the wheel contract rather than an implicit glob.
-include = ["epistemic_graph/contract/receipt.json"]
+# Ship the complete generated engine contract for downstream API bindings. The
+# generator writes these files alongside the root contract; explicit globs keep
+# wheel and sdist packaging aligned as the schema documents evolve.
+include = [
+    "epistemic_graph/contract/receipt.json",
+    "epistemic_graph/contract/methods.json",
+    "epistemic_graph/contract/errors.json",
+    "epistemic_graph/contract/scopes.json",
+    "epistemic_graph/contract/schemas/*.json",
+]
 # THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-371 — tiers
 # collapsed). `full` = every MAIN feature that builds without an external GPU/robotics
 # toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql
