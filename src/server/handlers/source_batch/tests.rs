@@ -185,7 +185,9 @@ async fn cancelling_publication_waiter_does_not_cancel_owned_commit() {
     let (done_tx, done_rx) = tokio::sync::oneshot::channel();
     let waiter = tokio::spawn(run_publication_job(move || {
         let _ = started_tx.send(());
-        release_rx.recv().map_err(|_| "publication release dropped")?;
+        release_rx
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .map_err(|_| "publication release timed out or dropped")?;
         let result = publish(
             10,
             &carrier,
