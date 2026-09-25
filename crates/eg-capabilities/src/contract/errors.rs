@@ -10,7 +10,8 @@ use eg_types::decision::DecisionErrorCode;
 use eg_types::graph_schema::GraphSchemaErrorCode;
 use eg_types::solve::SolveErrorCode;
 
-use crate::error_routing::{method_error_set, typed_codes};
+pub(super) use crate::error_routing::method_error_set;
+use crate::error_routing::typed_codes;
 
 fn families() -> [(&'static str, Vec<&'static str>); 7] {
     [
