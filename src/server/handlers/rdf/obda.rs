@@ -283,6 +283,92 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
         let sql = render_obda_select(&self.table, needed, filters, self.dialect)?;
         self.executor.run_select(&sql)
     }
+
+    fn direct_select(
+        &self,
+        query: &eg_rdf::obda::DirectSelect,
+    ) -> Result<Option<Vec<eg_rdf::obda::ForeignRow>>, String> {
+        let sql = render_obda_direct_select(&self.table, query, self.dialect)?;
+        self.executor.run_select(&sql).map(Some)
+    }
+}
+
+/// The exact one-table SELECT used by FO-08. SQL performs duplicate elimination
+/// and guards missing RDF terms before ORDER/LIMIT; moving either step after LIMIT
+/// would change the SPARQL answer. Every identifier and literal uses the shared
+/// renderer and the executor validates the final statement as read-only.
+#[cfg(feature = "obda")]
+pub(super) fn render_obda_direct_select(
+    table: &str,
+    query: &eg_rdf::obda::DirectSelect,
+    dialect: ObdaSqlDialect,
+) -> Result<String, String> {
+    if query.columns.is_empty() || query.nonempty.iter().any(|c| !query.columns.contains(c)) {
+        return Err("obda: invalid direct projection".into());
+    }
+    let selected = query
+        .columns
+        .iter()
+        .map(|c| render_select_item(c, dialect))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    let raw = query
+        .columns
+        .iter()
+        .map(|c| quote(c, dialect))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    // Deduplicate native values before the slice. The outer cast produces the
+    // lexical row contract without changing numeric ORDER BY into text ordering.
+    let mut inner = format!("SELECT DISTINCT {raw} FROM {}", quote(table, dialect)?);
+    if !query.nonempty.is_empty() {
+        inner.push_str(" WHERE ");
+        inner.push_str(
+            &query
+                .nonempty
+                .iter()
+                .map(|c| {
+                    let q = quote(c, dialect)?;
+                    let lexical = match dialect {
+                        ObdaSqlDialect::Postgres => format!("{q}::text"),
+                        ObdaSqlDialect::MySql => format!("CAST({q} AS CHAR)"),
+                    };
+                    Ok::<_, String>(format!("{q} IS NOT NULL AND {lexical} <> ''"))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(" AND "),
+        );
+    }
+    if let Some((column, desc)) = &query.order {
+        if !query.columns.contains(column) {
+            return Err("obda: direct ORDER column is not projected".into());
+        }
+        inner.push_str(&format!(
+            " ORDER BY {} {}",
+            quote(column, dialect)?,
+            if *desc { "DESC" } else { "ASC" }
+        ));
+    }
+    if let Some(limit) = query.limit {
+        inner.push_str(&format!(" LIMIT {limit}"));
+    }
+    if query.offset > 0 {
+        if query.limit.is_none() && matches!(dialect, ObdaSqlDialect::MySql) {
+            // MySQL requires LIMIT to express OFFSET. A maximal bound is valid for
+            // BIGINT-backed LIMIT and keeps the statement read-only.
+            inner.push_str(" LIMIT 18446744073709551615");
+        }
+        inner.push_str(&format!(" OFFSET {}", query.offset));
+    }
+    let mut sql = format!("SELECT {selected} FROM ({inner}) AS eg_obda_rows");
+    if let Some((column, desc)) = &query.order {
+        sql.push_str(&format!(
+            " ORDER BY eg_obda_rows.{} {}",
+            quote(column, dialect)?,
+            if *desc { "DESC" } else { "ASC" }
+        ));
+    }
+    Ok(sql)
 }
 
 /// CONCEPT:EG-KG.query.obda-predicate-pushdown — render the read-only `SELECT` a [`SqlObdaSource`]
@@ -382,6 +468,42 @@ fn quote(ident: &str, dialect: ObdaSqlDialect) -> Result<String, String> {
 #[cfg(feature = "obda")]
 fn literal(value: &str, numeric: bool, dialect: ObdaSqlDialect) -> Result<String, String> {
     eg_plan::sql_text::render_literal(value, numeric, dialect).map_err(|e| format!("obda: {e}"))
+}
+
+#[cfg(all(test, feature = "obda"))]
+mod direct_tests {
+    use super::*;
+
+    #[test]
+    fn distinct_and_nonempty_precede_order_and_limit() {
+        let query = eg_rdf::obda::DirectSelect {
+            columns: ["id".into(), "age".into()].into(),
+            nonempty: ["id".into(), "age".into()].into(),
+            order: Some(("age".into(), true)),
+            limit: Some(5),
+            offset: 2,
+        };
+        let sql = render_obda_direct_select("people", &query, ObdaSqlDialect::Postgres).unwrap();
+        assert!(sql.contains("FROM (SELECT DISTINCT"), "{sql}");
+        assert!(sql.contains("\"age\"::text <> ''"), "{sql}");
+        assert!(
+            sql.contains("ORDER BY \"age\" DESC LIMIT 5 OFFSET 2"),
+            "{sql}"
+        );
+        assert!(sql.contains("ORDER BY eg_obda_rows.\"age\" DESC"), "{sql}");
+    }
+
+    #[test]
+    fn direct_sql_rejects_unprojected_order_column() {
+        let query = eg_rdf::obda::DirectSelect {
+            columns: ["id".into()].into(),
+            nonempty: ["id".into()].into(),
+            order: Some(("age".into(), false)),
+            limit: Some(1),
+            offset: 0,
+        };
+        assert!(render_obda_direct_select("people", &query, ObdaSqlDialect::Postgres).is_err());
+    }
 }
 
 /// Build the LIVE `federation-sql` executor for `dsn`, or a clean "rebuild with federation-sql"

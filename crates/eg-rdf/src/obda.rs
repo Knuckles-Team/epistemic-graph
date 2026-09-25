@@ -54,9 +54,11 @@
 //! the RDF, then interprets the `rr:` vocabulary over the parsed triples — so typed/lang
 //! object literals now materialize as `xsd:`-typed / language-tagged terms.
 //!
-//! SPARQL→SQL pushdown (issuing a filtered SQL query to the source rather than scanning +
-//! filtering locally), `rr:sqlQuery` logical views, `rr:joinCondition` referencing object
-//! maps, and dynamic (`rr:template`) predicate maps remain documented follow-ups.
+//! A narrow, exact single-pattern SELECT can use [`ObdaSource::direct_select`] to
+//! push DISTINCT, nonempty guards, numeric ORDER, and LIMIT/OFFSET to SQL and return
+//! solutions without a transient graph. Complex algebra, `rr:sqlQuery` logical views,
+//! `rr:joinCondition` referencing object maps, and dynamic (`rr:template`) predicate
+//! maps still use the general path or remain follow-ups.
 //!
 //! [`ForeignSource`]: ../../eg_plan/federation/trait.ForeignSource.html
 
@@ -68,6 +70,7 @@ use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term, Triple};
 use crate::sparql::{Projection, QueryOutcome, SparqlResult};
 
 // EH-563 FO-04 — pattern-aware scan groups, key lookups and semi-join reduction.
+mod direct;
 mod pushdown;
 
 /// The `rdf:type` predicate IRI (bare — used to emit `subject rdf:type <class>`).
@@ -181,6 +184,26 @@ pub trait ObdaSource: Send + Sync {
         needed: &BTreeSet<String>,
         filters: &[ObdaFilter],
     ) -> Result<Vec<ForeignRow>, String>;
+
+    /// Execute a source-native, bounded SELECT. Return `None` when the source does not
+    /// implement this optimization; the caller then uses the ordinary virtual graph.
+    /// An implementation returning `Some` must apply DISTINCT, nonempty-column guards,
+    /// ordering and slicing before returning rows. This contract prevents a local slice
+    /// from silently changing SPARQL answers when source rows contain nulls or duplicates.
+    fn direct_select(&self, _query: &DirectSelect) -> Result<Option<Vec<ForeignRow>>, String> {
+        Ok(None)
+    }
+}
+
+/// The subset of a SPARQL SELECT that can be executed exactly over one OBDA table.
+/// All columns are identifiers; SQL adapters validate and quote them before execution.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectSelect {
+    pub columns: BTreeSet<String>,
+    pub nonempty: BTreeSet<String>,
+    pub order: Option<(String, bool)>,
+    pub limit: Option<usize>,
+    pub offset: usize,
 }
 
 /// A boxed, thread-safe [`ObdaSource`] stored by name in an [`ObdaSourceRegistry`].
@@ -729,6 +752,12 @@ pub fn run_outcome_virtual(
                  CONCEPT:EG-KG.query.obda-query-rewrite"
             ));
         }
+    }
+
+    // FO-08: a proved one-table SELECT can return bound solutions directly. The source
+    // applies SQL DISTINCT/ORDER/LIMIT and no transient GraphView is constructed.
+    if let Some(result) = direct::run(vg, reg, &query)? {
+        return Ok(QueryOutcome::Solutions(result));
     }
 
     // (2)+(3) scan the backing source(s) on demand for only the needed columns, applying
@@ -1647,6 +1676,57 @@ fn parse_object_map(index: &R2rmlDoc, om_key: &str) -> Option<ObjectMap> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A source-native SELECT fixture: if the planner's query is unsound the
+    /// recorded plan/result comparison against the ordinary graph path fails.
+    struct DirectFixture {
+        seen: std::sync::Mutex<Vec<DirectSelect>>,
+    }
+
+    impl ObdaSource for DirectFixture {
+        fn scan(&self, _: &BTreeSet<String>, _: &[ObdaFilter]) -> Result<Vec<ForeignRow>, String> {
+            panic!("a provable direct SELECT must not materialize a graph")
+        }
+
+        fn direct_select(&self, query: &DirectSelect) -> Result<Option<Vec<ForeignRow>>, String> {
+            self.seen.lock().unwrap().push(query.clone());
+            // The fixture represents the result AFTER source-side distinct,
+            // nonempty checks, numeric ordering and slicing.
+            Ok(Some(vec![ForeignRow::from([
+                ("id".into(), "3".into()),
+                ("age".into(), "40".into()),
+            ])]))
+        }
+    }
+
+    #[test]
+    fn fo08_direct_select_avoids_transient_graph_and_pushes_slice_order() {
+        let src = Arc::new(DirectFixture {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", src.clone());
+        let vg = people_typed_vgraph();
+        let result = run_virtual(&vg, &reg,
+            "PREFIX ex: <http://example.org/> SELECT ?p ?age WHERE { ?p ex:age ?age } ORDER BY DESC(?age) LIMIT 1")
+            .unwrap();
+        assert_eq!(result.vars, vec!["p", "age"]);
+        assert_eq!(
+            result.solutions[0]["p"].as_str(),
+            "<http://example.org/person/3>"
+        );
+        assert_eq!(result.solutions[0]["age"].as_str(), "40");
+        assert_eq!(
+            *src.seen.lock().unwrap(),
+            vec![DirectSelect {
+                columns: BTreeSet::from(["id".into(), "age".into()]),
+                nonempty: BTreeSet::from(["id".into(), "age".into()]),
+                order: Some(("age".into(), true)),
+                limit: Some(1),
+                offset: 0,
+            }]
+        );
+    }
 
     /// A `people` source: id, name, age, plus a `friend_id` reference column.
     fn people_registry() -> ObdaSourceRegistry {
