@@ -158,7 +158,7 @@ impl<'a> Parser<'a> {
                     if hint.requests == Some(0) {
                         return Err(UqlError::new(
                             UqlCode::InvalidRange,
-                            "REQUESTS must be positive".into(),
+                            "REQUESTS must be positive",
                             span,
                         ));
                     }
@@ -168,7 +168,7 @@ impl<'a> Parser<'a> {
                     if hint.rows == Some(0) {
                         return Err(UqlError::new(
                             UqlCode::InvalidRange,
-                            "ROWS must be positive".into(),
+                            "ROWS must be positive",
                             span,
                         ));
                     }
@@ -178,7 +178,7 @@ impl<'a> Parser<'a> {
                     if hint.bind_keys == Some(0) {
                         return Err(UqlError::new(
                             UqlCode::InvalidRange,
-                            "BIND_KEYS must be positive".into(),
+                            "BIND_KEYS must be positive",
                             span,
                         ));
                     }
@@ -188,7 +188,7 @@ impl<'a> Parser<'a> {
                     if hint.wall_ms == Some(0) {
                         return Err(UqlError::new(
                             UqlCode::InvalidRange,
-                            "WALL_MS must be positive".into(),
+                            "WALL_MS must be positive",
                             span,
                         ));
                     }
