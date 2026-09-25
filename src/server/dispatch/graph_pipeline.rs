@@ -484,6 +484,23 @@ mod eg318_dispatch_tests {
         }
     }
 
+    #[cfg(feature = "tsdb")]
+    async fn ts_test_state(prefix: &str) -> (DurableTestState, PathBuf) {
+        let state = state_min();
+        let path = std::env::temp_dir().join(format!(
+            "{prefix}-{}-{}.redb",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        state.write().await.tsdb_store = Some(
+            crate::server::handlers::timeseries::open_test_series_store(&path),
+        );
+        (state, path)
+    }
+
     fn req(id: u64, method: Method) -> Request {
         build_shared_test_request(SECRET, id, "__commons__", "system", method)
     }
@@ -739,20 +756,9 @@ mod eg318_dispatch_tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let state = state_min();
-        let path = std::env::temp_dir().join(format!(
-            "eg-ts-policy-{}-{}.redb",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (state, path) = ts_test_state("eg-ts-policy").await;
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(crate::server::handlers::timeseries::open_test_series_store(
-                &path,
-            ));
             // RBAC (`feature = "security"`) is the mandatory current access decision
             // for a non-System identity — `check_access` ignores `graph_owner`
             // entirely under this feature and evaluates ONLY `identity.roles`
@@ -902,20 +908,9 @@ mod eg318_dispatch_tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let state = state_min();
-        let path = std::env::temp_dir().join(format!(
-            "eg-ts-retention-{}-{}.redb",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (state, path) = ts_test_state("eg-ts-retention").await;
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(crate::server::handlers::timeseries::open_test_series_store(
-                &path,
-            ));
             #[cfg(feature = "security")]
             {
                 use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
@@ -1144,20 +1139,9 @@ mod eg318_dispatch_tests {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
 
-        let state = state_min();
-        let path = std::env::temp_dir().join(format!(
-            "eg-ts-retention-acl-{}-{}.redb",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (state, path) = ts_test_state("eg-ts-retention-acl").await;
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(crate::server::handlers::timeseries::open_test_series_store(
-                &path,
-            ));
             s.isolation.add_role(Role::new("reader-acme-private"));
             s.isolation.add_grant(Grant {
                 role: "reader-acme-private".to_string(),
