@@ -106,6 +106,8 @@ pub(crate) mod control;
 pub(crate) mod crossmodal;
 pub(crate) mod dump;
 pub(crate) mod resource;
+#[cfg(feature = "security")]
+pub(crate) mod service_child;
 pub(crate) mod work_item;
 
 // The decomposition keeps the physical file as one `redb_store` API surface.
@@ -644,6 +646,124 @@ mod security_tests {
                 .unwrap_err()
                 .contains("AUDIT_RESERVATION_REQUIRED")
         );
+    }
+
+    #[cfg(feature = "security")]
+    #[test]
+    fn service_child_reservation_cas_and_restart() {
+        use crate::redb_store::service_child::{
+            service_child_finish, service_child_get, service_child_reserve, ServiceChildBinding,
+            ServiceChildOutcome,
+        };
+        use sha2::{Digest, Sha256};
+
+        let dir = tempdir();
+        let db = open_db(&dir);
+        let mut tail = AuditTailCache::new();
+        let mut ops = vec![(
+            "g".to_string(),
+            add_node_method("seed", serde_json::json!({})),
+        )];
+        commit_ops(
+            &db,
+            &mut ops,
+            &mut Vec::new(),
+            &next_drain_id("child-seed"),
+            0,
+            DurableCrypto::none(),
+            &mut tail,
+        )
+        .unwrap();
+        let owner = "alice";
+        let digest = "a".repeat(64);
+        operation_audit_append(
+            &db,
+            &mut tail,
+            "g",
+            &OperationAuditEvent {
+                tenant: "tenant-a".into(),
+                principal: owner.into(),
+                op: "fleet.call".into(),
+                surface: "http".into(),
+                params_sha256: digest.clone(),
+                status: "reserved".into(),
+                request_id: "request-a".into(),
+                identity_chain: false,
+            },
+        )
+        .unwrap();
+        let binding = ServiceChildBinding {
+            tenant: "tenant-a".into(),
+            owner_principal: owner.into(),
+            owner_ref: format!(
+                "principal:sha256:{}",
+                hex::encode(Sha256::digest(owner.as_bytes()))
+            ),
+            server: "server-a".into(),
+            tool: "write".into(),
+            subject_id: "subject-a".into(),
+            argument_sha256: "b".repeat(64),
+            audit_params_sha256: digest,
+            request_id: "request-a".into(),
+            policy_revision: "policy-1".into(),
+            registry_revision: "registry-1".into(),
+            scopes_sha256: "c".repeat(64),
+        };
+        let created =
+            service_child_reserve(&db, "g", binding.clone(), "tenant-a", owner, "request-a")
+                .unwrap();
+        assert!(created.created);
+        let record_id = created.record.record_id;
+        assert!(
+            !service_child_reserve(&db, "g", binding.clone(), "tenant-a", owner, "request-a")
+                .unwrap()
+                .created
+        );
+        let mut changed = binding.clone();
+        changed.tool = "delete".into();
+        assert!(
+            service_child_reserve(&db, "g", changed, "tenant-a", owner, "request-a")
+                .unwrap_err()
+                .contains("CONFLICT")
+        );
+        let terminal = service_child_finish(
+            &db,
+            "g",
+            &record_id,
+            "tenant-a",
+            owner,
+            ServiceChildOutcome::Succeeded {
+                result_sha256: "d".repeat(64),
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            terminal.outcome,
+            ServiceChildOutcome::Succeeded { .. }
+        ));
+        assert!(service_child_finish(
+            &db,
+            "g",
+            &record_id,
+            "tenant-a",
+            owner,
+            ServiceChildOutcome::OutcomeUnknown {
+                reason_code: "late".into()
+            }
+        )
+        .unwrap_err()
+        .contains("CONFLICT"));
+        assert!(
+            service_child_get(&db, "g", &record_id, "tenant-a", "mallory")
+                .unwrap()
+                .is_none()
+        );
+        drop(db);
+        let reopened = open_db(&dir);
+        let recovered = service_child_get(&reopened, "g", &record_id, "tenant-a", owner)
+            .unwrap()
+            .unwrap();
+        assert_eq!(recovered, terminal);
     }
 
     /// CONCEPT:EG-KG.storage.embedded-store — the O(1) tail-cache append produces an IDENTICAL, verifiable

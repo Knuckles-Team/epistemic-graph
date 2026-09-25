@@ -83,11 +83,11 @@ impl OperationAuditEvent {
 
 #[cfg(feature = "security")]
 #[derive(serde::Serialize, serde::Deserialize)]
-struct AuditRequestRecord {
-    fingerprint: crate::audit::Hash,
-    context_fingerprint: crate::audit::Hash,
-    seq: u64,
-    entry_hash: crate::audit::Hash,
+pub(super) struct AuditRequestRecord {
+    pub(super) fingerprint: crate::audit::Hash,
+    pub(super) context_fingerprint: crate::audit::Hash,
+    pub(super) seq: u64,
+    pub(super) entry_hash: crate::audit::Hash,
 }
 
 /// Append the event and its replay index in one admitted graph group. A retry
