@@ -775,14 +775,8 @@ mod tests {
         // different one (a square wave, not a one-high-one-low zigzag) — nothing else
         // in the series matches.
         let period = [0.0, 1.0, 0.0, -1.0];
-        let mut xs = Vec::new();
-        for i in 0..8 {
-            if i == 4 {
-                xs.extend_from_slice(&[5.0, -5.0, 5.0, -5.0]);
-            } else {
-                xs.extend_from_slice(&period);
-            }
-        }
+        let mut xs = period.repeat(8);
+        xs[16..20].copy_from_slice(&[5.0, -5.0, 5.0, -5.0]);
         let points: Vec<Point> = xs.iter().map(|&x| vec![x]).collect();
         let out = detect(
             &points,
