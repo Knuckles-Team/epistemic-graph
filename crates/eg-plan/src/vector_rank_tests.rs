@@ -103,9 +103,10 @@ fn traversal_then_rank_returns_the_exact_top_k() {
             },
             Op::Limit { k: 10 },
         ]);
-        let reached: HashSet<String> = bfs_reached(&view, &[key.clone()], "CITES", 1, 2)
-            .into_iter()
-            .collect();
+        let reached: HashSet<String> =
+            bfs_reached(&view, std::slice::from_ref(&key), "CITES", 1, 2)
+                .into_iter()
+                .collect();
         let got = ids(&plan, &ctx);
         assert_eq!(got.len(), reached.len().min(10), "seed {key}: no shortfall");
         assert_eq!(got, oracle(&semantic, &query, &reached, 10), "seed {key}");

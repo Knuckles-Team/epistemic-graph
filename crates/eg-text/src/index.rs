@@ -417,16 +417,26 @@ mod tests {
             .collect()
     }
 
-    /// Same ids in the same order, and the same BM25 scores up to float summation order
-    /// (a multi-term query's per-term scores are summed in a different order when the
-    /// candidate conjunct joins the scorer tree).
-    fn assert_same_ranking(got: &[TextHit], want: &[TextHit], label: &str) {
-        let ids = |hits: &[TextHit]| hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>();
-        assert_eq!(ids(got), ids(want), "{label}");
+    /// Scores equal up to float summation order (a multi-term query's per-term scores
+    /// are summed in a different order when the candidate conjunct joins the scorer tree).
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() <= 1e-5 * b.abs().max(1.0)
+    }
+
+    /// The same ranking up to float-noise ties: the same score at every position, and
+    /// every returned id is a distinct candidate whose own restricted-oracle score is the
+    /// score it was returned with. Two candidates whose scores differ only by summation
+    /// order may swap places (or trade the last slot at `k`); nothing else may differ.
+    fn assert_same_ranking(got: &[TextHit], want: &[TextHit], all: &[TextHit], label: &str) {
+        assert_eq!(got.len(), want.len(), "{label}: length");
+        let mut seen = std::collections::HashSet::new();
         for (g, w) in got.iter().zip(want) {
+            assert!(close(g.score, w.score), "{label}: {g:?} vs {w:?}");
+            assert!(seen.insert(g.id.as_str()), "{label}: duplicate {g:?}");
+            let own = all.iter().find(|hit| hit.id == g.id);
             assert!(
-                (g.score - w.score).abs() <= 1e-5 * w.score.abs().max(1.0),
-                "{label}: {g:?} vs {w:?}"
+                own.is_some_and(|hit| close(g.score, hit.score)),
+                "{label}: {g:?} is not a candidate at that score ({own:?})"
             );
         }
     }
@@ -443,8 +453,14 @@ mod tests {
             for query in ["graph", "ledger proof", "tensor lease shard"] {
                 for k in [1usize, 10, allowed.len()] {
                     let got = ix.search_within(query, &allowed, k);
-                    let want = restricted_oracle(&ix, query, &allowed, k);
-                    assert_same_ranking(&got, &want, &format!("stride {stride} {query:?} k {k}"));
+                    let all = restricted_oracle(&ix, query, &allowed, allowed.len());
+                    let want = &all[..k.min(all.len())];
+                    assert_same_ranking(
+                        &got,
+                        want,
+                        &all,
+                        &format!("stride {stride} {query:?} k {k}"),
+                    );
                 }
             }
         }
