@@ -370,7 +370,8 @@ fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
 /// EH-517: the sealed record of the fixed draft, pinned. The validation outputs
 /// run on the pinned soft-float kernel, so this digest is the same on every build
 /// host; the lane's runs pass this test unchanged on two hosts.
-const PINNED_RUN_DIGEST: &str = "sha256:pending";
+const PINNED_RUN_DIGEST: &str =
+    "sha256:08d90ab65c990d406f33b68528968d8b9c853824ae6dcbc2cdc0b928d895b542";
 
 #[test]
 fn a_sealed_backtest_run_digest_is_pinned_across_hosts() {
