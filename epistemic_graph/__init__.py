@@ -76,6 +76,7 @@ from .generated.server_registry import (
     RegisteredServerListRequest,
     RegisteredServerView,
 )
+from .interface_pack import compile_interface_implementers, compile_interface_shape
 from .ontology_pack import compile_ontology_pack, compile_ontology_proposal
 from .parser import RustASTParser
 from .policy_evolution import PolicyEvolutionClient, PolicyEvolutionRefused
@@ -112,6 +113,8 @@ __all__ = [
     "EpistemicGraphClient",
     "compile_ontology_pack",
     "compile_ontology_proposal",
+    "compile_interface_shape",
+    "compile_interface_implementers",
     "VALUE_TYPE_PREFIXES",
     "compile_value_type_owl",
     "compile_value_type_shape",
