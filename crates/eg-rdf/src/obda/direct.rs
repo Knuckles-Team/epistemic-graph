@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use oxrdf::NamedNode;
 use spargebra::algebra::{AggregateExpression, Expression, GraphPattern, OrderExpression};
 use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::Query;
@@ -129,6 +130,11 @@ pub(super) fn run(
     let (ObjectMap::Column(object_column) | ObjectMap::TypedColumn(object_column, _)) = obj else {
         return Ok(None);
     };
+    if let ObjectMap::TypedColumn(_, datatype) = obj {
+        if NamedNode::new(datatype.as_str()).is_err() {
+            return Ok(None);
+        }
+    }
     let Some(key_column) = single_column_template(&map.subject_template) else {
         return Ok(None);
     };
@@ -203,8 +209,11 @@ pub(super) fn run(
         // A source promising `direct_select` must have applied the guards. Validate
         // again at this boundary so a misbehaving adapter cannot invent RDF terms.
         let Some(iri) = expand_template(&map.subject_template, &row) else {
-            return Err("obda: direct source returned an empty subject key".into());
+            return Ok(None);
         };
+        if NamedNode::new(iri.clone()).is_err() {
+            return Ok(None);
+        }
         let Some(value) = row.get(object_column).filter(|v| !v.is_empty()) else {
             return Err("obda: direct source returned an empty object value".into());
         };
@@ -282,6 +291,13 @@ fn run_join(
     let (ObjectMap::Column(c1) | ObjectMap::TypedColumn(c1, _)) = obj1 else {
         return Ok(None);
     };
+    for object in [*obj0, *obj1] {
+        if let ObjectMap::TypedColumn(_, datatype) = object {
+            if NamedNode::new(datatype.as_str()).is_err() {
+                return Ok(None);
+            }
+        }
+    }
     let Some(key) = single_column_template(&map0.subject_template) else {
         return Ok(None);
     };
@@ -319,8 +335,11 @@ fn run_join(
         }
         let source_row = super::ForeignRow::from([(key.to_owned(), key_value.clone())]);
         let Some(iri) = expand_template(&map0.subject_template, &source_row) else {
-            return Err("obda: direct join returned an invalid subject key".into());
+            return Ok(None);
         };
+        if NamedNode::new(iri.clone()).is_err() {
+            return Ok(None);
+        }
         let mut sol = crate::sparql::Solution::new();
         if projected.iter().any(|v| v == s0.as_str()) {
             sol.insert(s0.as_str().into(), Binding::Node(format!("<{iri}>")));

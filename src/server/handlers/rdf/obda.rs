@@ -289,10 +289,10 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
         query: &eg_rdf::obda::DirectSelect,
     ) -> Result<Option<Vec<eg_rdf::obda::ForeignRow>>, String> {
         // R2RML's numeric datatype does not prove the SQL column has a numeric
-        // physical type. Ordering a text column in SQL can disagree with the
-        // SPARQL evaluator's numeric comparison, so keep that query on the
-        // existing evaluator until the source can prove its physical type.
-        if query.order.is_some() {
+        // physical type. A scalar COUNT also cannot prove how many source keys
+        // would form valid RDF IRIs; those rows must be checked before counting.
+        // Keep both shapes on the existing evaluator until these facts are proven.
+        if query.order.is_some() || query.count {
             return Ok(None);
         }
         let sql = render_obda_direct_select(&self.table, query, self.dialect)?;
@@ -556,7 +556,7 @@ mod direct_tests {
     struct RejectQuery;
     impl ObdaSqlExecutor for RejectQuery {
         fn run_select(&self, _: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
-            panic!("ordered query must stay on the SPARQL evaluator")
+            panic!("unproven query must stay on the SPARQL evaluator")
         }
     }
 
@@ -627,6 +627,14 @@ mod direct_tests {
             count: false,
         };
         assert!(eg_rdf::obda::ObdaSource::direct_select(&source, &query)
+            .unwrap()
+            .is_none());
+        let count = eg_rdf::obda::DirectSelect {
+            order: None,
+            count: true,
+            ..query
+        };
+        assert!(eg_rdf::obda::ObdaSource::direct_select(&source, &count)
             .unwrap()
             .is_none());
     }

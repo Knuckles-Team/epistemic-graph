@@ -1823,6 +1823,37 @@ mod tests {
         );
     }
 
+    struct InvalidIriSource(TableSource);
+    impl ObdaSource for InvalidIriSource {
+        fn scan(
+            &self,
+            needed: &BTreeSet<String>,
+            filters: &[ObdaFilter],
+        ) -> Result<Vec<ForeignRow>, String> {
+            self.0.scan(needed, filters)
+        }
+        fn direct_select(&self, _: &DirectSelect) -> Result<Option<Vec<ForeignRow>>, String> {
+            Ok(Some(vec![ForeignRow::from([
+                ("id".into(), "bad iri".into()),
+                ("name".into(), "not a triple".into()),
+            ])]))
+        }
+    }
+
+    #[test]
+    fn fo08_invalid_source_iri_falls_back_to_graph_evaluator() {
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", Arc::new(InvalidIriSource(people_table())));
+        let result = run_virtual(
+            &people_typed_vgraph(),
+            &reg,
+            "PREFIX ex: <http://example.org/> SELECT ?name WHERE { ?p ex:name ?name } LIMIT 1",
+        )
+        .unwrap();
+        assert_eq!(result.solutions.len(), 1);
+        assert_ne!(result.solutions[0]["name"].as_str(), "not a triple");
+    }
+
     /// A `people` source: id, name, age, plus a `friend_id` reference column.
     fn people_registry() -> ObdaSourceRegistry {
         let table = TableSource::from_records(
