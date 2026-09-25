@@ -22,6 +22,11 @@ pub(crate) trait RemoteFetch {
         self.identity().fingerprint
     }
     fn fetch(&self, request: &RemoteRequest) -> Result<RowSet, String>;
+    /// A source safe to call on several threads. Opaque registered closures remain
+    /// sequential because the registry's trait does not promise thread safety.
+    fn parallel_safe(&self) -> Option<&(dyn RemoteFetch + Sync)> {
+        None
+    }
     /// How many of `keys` (a prefix) fit in one request; at least 1 when `keys` is non-empty.
     fn fit_keys(&self, keys: &[String]) -> usize {
         keys.len()
