@@ -407,3 +407,50 @@ impl TableStore {
         .map(Some)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest() -> GenerationManifest {
+        GenerationManifest {
+            version: FORMAT_VERSION,
+            index_key: "docs.emb.L2".to_string(),
+            table: "docs".to_string(),
+            column: "emb".to_string(),
+            method: AnnMethod::Hnsw,
+            metric: VectorMetric::L2,
+            schema_digest: "a".repeat(64),
+            source_authority_digest: [1; 32],
+            generation: 1,
+            dim: Some(8),
+            built_epoch: 3,
+            max_rowid: Some(4),
+            rows: 5,
+            parts: vec![PartManifest {
+                name: "hnsw".to_string(),
+                bytes: 17,
+                chunks: 1,
+                sha256: [2; 32],
+            }],
+        }
+    }
+
+    #[test]
+    fn pointer_digest_and_part_shape_fail_closed() {
+        let valid = pointer(manifest()).unwrap();
+        let encoded = rmp_serde::to_vec_named(&valid).unwrap();
+        assert!(decode_pointer(&encoded).is_ok());
+
+        let mut altered = valid;
+        altered.manifest.parts[0].bytes = PART_CHUNK_BYTES + 1;
+        let encoded = rmp_serde::to_vec_named(&altered).unwrap();
+        assert!(decode_pointer(&encoded).is_err(), "stale manifest digest");
+
+        altered = pointer(manifest()).unwrap();
+        altered.manifest.parts[0].name = "unexpected".to_string();
+        altered = pointer(altered.manifest).unwrap();
+        let encoded = rmp_serde::to_vec_named(&altered).unwrap();
+        assert!(decode_pointer(&encoded).is_err(), "undeclared part");
+    }
+}
