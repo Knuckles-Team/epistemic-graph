@@ -28,6 +28,22 @@ pub enum CmpOp {
     Ge,
 }
 
+// The relational UQL predicate uses a separate wire enum, but both predicate
+// families apply the same six ordering operators to a decoded row.
+#[cfg(feature = "query")]
+impl From<crate::wire::CmpOp> for CmpOp {
+    fn from(op: crate::wire::CmpOp) -> Self {
+        match op {
+            crate::wire::CmpOp::Eq => Self::Eq,
+            crate::wire::CmpOp::Ne => Self::Ne,
+            crate::wire::CmpOp::Lt => Self::Lt,
+            crate::wire::CmpOp::Le => Self::Le,
+            crate::wire::CmpOp::Gt => Self::Gt,
+            crate::wire::CmpOp::Ge => Self::Ge,
+        }
+    }
+}
+
 /// A serializable compound row predicate (CONCEPT:EG-KG.query.compound-predicate-decode). Decoded from a SQL
 /// `WHERE` by `eg-query` and evaluated against a single decoded row (`col -> value`)
 /// by `eg-core` under the write guard.
@@ -91,7 +107,7 @@ fn eval_cmp(row: &serde_json::Map<String, Value>, col: &str, op: CmpOp, value: &
 /// Whether `ord` (the comparison of the row's current value against the predicate's
 /// value) satisfies `op`. Kept as an exhaustive match over the owned [`CmpOp`] enum —
 /// a new operator must fail to compile here, not silently fall through.
-fn cmp_op_matches(op: CmpOp, ord: Ordering) -> bool {
+pub fn cmp_op_matches(op: CmpOp, ord: Ordering) -> bool {
     match op {
         CmpOp::Eq => ord == Ordering::Equal,
         CmpOp::Ne => ord != Ordering::Equal,
