@@ -74,7 +74,7 @@ pub(crate) fn set_shared(
     } else {
         identity.roles.retain(|existing| existing != &role);
     }
-    isolation.try_register_agent(identity)?;
+    isolation.try_register_agent_from_request(identity)?;
     Ok(true)
 }
 

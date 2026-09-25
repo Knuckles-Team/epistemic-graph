@@ -290,3 +290,65 @@ async fn a_graph_cannot_take_a_reserved_foreign_source_resource_name() {
         "nothing was registered"
     );
 }
+
+#[tokio::test]
+async fn control_reads_never_disclose_another_owners_source_or_endpoint() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let (_remote, local) = registered_by_owner_a(960).await;
+    let owner_list = dispatch_as(
+        &local,
+        961,
+        OWNER_A,
+        Method::ListForeignSources {
+            after: None,
+            limit: 10,
+        },
+    )
+    .await;
+    assert_ok(&owner_list);
+    let Some(ResultPayload::Raw(bytes)) = owner_list.result else {
+        panic!("list must return its declared raw page");
+    };
+    let page: eg_types::wire::ForeignSourcePage = rmp_serde::from_slice(&bytes).unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].name, "remote_docs");
+    let foreign_get = dispatch_as(
+        &local,
+        962,
+        OTHER_B,
+        Method::GetForeignSource {
+            name: "remote_docs".into(),
+        },
+    )
+    .await;
+    assert_eq!(
+        foreign_get.error.as_deref(),
+        Some("FOREIGN_SOURCE_NOT_FOUND")
+    );
+    let absent_get = dispatch_as(
+        &local,
+        963,
+        OTHER_B,
+        Method::GetForeignSource {
+            name: "never-created".into(),
+        },
+    )
+    .await;
+    assert_eq!(foreign_get.error, absent_get.error);
+    let foreign_list = dispatch_as(
+        &local,
+        964,
+        OTHER_B,
+        Method::ListForeignSources {
+            after: None,
+            limit: 10,
+        },
+    )
+    .await;
+    assert_ok(&foreign_list);
+    let Some(ResultPayload::Raw(bytes)) = foreign_list.result else {
+        panic!("list must return its declared raw page");
+    };
+    let page: eg_types::wire::ForeignSourcePage = rmp_serde::from_slice(&bytes).unwrap();
+    assert!(page.items.is_empty());
+}

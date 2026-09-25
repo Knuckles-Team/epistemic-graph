@@ -52,10 +52,12 @@ pub(crate) async fn try_handle(
                 Ok(owner) => owner,
                 Err(refusal) => return Ok(refusal),
             };
-            if !(1..=100).contains(&limit) {
+            if !(1..=100).contains(&limit)
+                || after.as_ref().is_some_and(|cursor| cursor.len() > 4096)
+            {
                 return Ok(Response::err(
                     req_id,
-                    "INVALID_ARGUMENT: limit must be 1..100",
+                    "INVALID_ARGUMENT: invalid foreign source page request",
                 ));
             }
             let s = call.state.read().await;
