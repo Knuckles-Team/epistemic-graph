@@ -401,33 +401,8 @@ pub(crate) struct TsdbLegBind<'a> {
     pub staged_series: Option<&'a eg_plan::StagedSeries>,
 }
 
-/// Execute a unified cross-modal plan (CONCEPT:AU-KG.compute.vector/209) over one off-lock
-/// snapshot and return the result rows as `[id, score|nil]`. The plan is routed through the
-/// full cost optimizer by `eg_plan::execute` (CONCEPT:EG-KG.query.served-plan-optimize-routing); a
-/// lexical `Op::RankText`/`Op::FuseRrf` leg is served over the MAINTAINED persistent BM25
-/// index when one is registered, falling back to a snapshot-derived index otherwise
-/// (CONCEPT:EG-KG.query.served-text-index-binding). Synchronous — runs on the blocking pool via
-/// `compute_off_lock`, like the SQL/Cypher legs.
-#[cfg(feature = "query")]
-pub(crate) fn run_unified(
-    plan: eg_plan::Plan,
-    view: &crate::graph::GraphView,
-    semantic: &eg_core::compute::semantic::SemanticStore,
-    served: ServedIndexes<'_>,
-    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
-) -> Result<Vec<(String, Option<f32>)>, String> {
-    run_unified_with(
-        plan,
-        view,
-        semantic,
-        served,
-        #[cfg(feature = "tsdb")]
-        tsdb_ctx,
-        execute_rows,
-    )
-}
-
-/// The plain row finisher: execute and project `[id, score|nil]`.
+/// Execute a unified cross-modal plan (CONCEPT:AU-KG.compute.vector/209) over
+/// the bound context and project its rows as `[id, score|nil]`.
 #[cfg(feature = "query")]
 pub(crate) fn execute_rows(
     plan: &eg_plan::Plan,
@@ -441,7 +416,7 @@ pub(crate) fn execute_rows(
         .collect())
 }
 
-/// [`run_unified`]'s leg binding with a caller-chosen `finish` over the fully bound
+/// Leg binding with a caller-chosen `finish` over the fully bound
 /// `PlanCtx` — `UnifiedQuery` executes and projects rows; `Method::Uql` runs a whole
 /// statement (EXPLAIN/PROFILE/channels/DAG) over the SAME bindings (UQL-07/08/09).
 /// `plan` decides which legs are bound (every op of the statement).
@@ -562,7 +537,7 @@ pub(crate) fn run_unified_with<T>(
     result
 }
 
-/// The `Op::SpatialScan` leg-binding of [`run_unified`] (CONCEPT:EG-KG.storage.incremental-spatial, L37): bind a
+/// The `Op::SpatialScan` leg-binding of [`run_unified_with`] (CONCEPT:EG-KG.storage.incremental-spatial, L37): bind a
 /// persistent spatial index into the served `PlanCtx` only when the plan needs one
 /// and a live, available index was supplied — otherwise keep `spatial_scan`'s
 /// prior ephemeral-build fallback, byte-for-byte the old behavior.
@@ -605,7 +580,7 @@ fn log_federation_trace(session: Option<&eg_plan::federation_opt::FederationSess
     );
 }
 
-/// The `Op::Foreign`/`Op::ForeignScan` leg-binding of [`run_unified`]
+/// The `Op::Foreign`/`Op::ForeignScan` leg-binding of [`run_unified_with`]
 /// (CONCEPT:EG-KG.query.closure-backed-source): attach the caller's owner-scoped registry and
 /// the query's federation-optimizer session (EH-563), each if any.
 #[cfg(feature = "federation")]
@@ -624,7 +599,7 @@ pub(crate) fn run_unified_bind_foreign<'a>(
     }
 }
 
-/// The `Op::RankEmbed` leg-binding of [`run_unified`] (CONCEPT:EG-KG.query.bind-server-side-text): attach the
+/// The `Op::RankEmbed` leg-binding of [`run_unified_with`] (CONCEPT:EG-KG.query.bind-server-side-text): attach the
 /// server-side text→vector embedder, if one is bound (`EG_UQL_TEXT_EMBEDDER=hash`
 /// for the deterministic offline fallback; otherwise absent, and `Op::RankEmbed` is
 /// a clean typed error).
@@ -636,7 +611,7 @@ pub(crate) fn run_unified_bind_embedder(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::P
     }
 }
 
-/// The `Op::TsScan` leg-binding of [`run_unified`] (CONCEPT:EG-KG.query.native-time-series): attach the committed
+/// The `Op::TsScan` leg-binding of [`run_unified_with`] (CONCEPT:EG-KG.query.native-time-series): attach the committed
 /// store and its ownership scope atomically (a partial/missing scope never leaves
 /// a raw store reachable through `TsScan`), then the txn's staged-series overlay
 /// (CONCEPT:EG-KG.query.txn-tsdb-read-your) so an in-txn `TsScan` reads its own uncommitted points.
@@ -660,7 +635,7 @@ pub(crate) fn run_unified_bind_tsdb<'a>(
     }
 }
 
-/// The `Op::TensorOp` leg-binding of [`run_unified`] (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink): bind the
+/// The `Op::TensorOp` leg-binding of [`run_unified_with`] (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink): bind the
 /// tensor CAS write-back sink so a served `Op::TensorOp` actually runs instead of
 /// its documented-but-unreachable "TensorOp requires a bound tensor store" error.
 /// `Op::TensorScan`/`Op::TensorOp` read their INPUT tensor directly off the
@@ -1023,7 +998,7 @@ mod tensor_served_round_trip_tests {
     fn call_run_unified(plan: eg_plan::Plan) -> Result<Vec<(String, Option<f32>)>, String> {
         let view = frames_view();
         let semantic = SemanticStore::new();
-        run_unified(
+        run_unified_with(
             plan,
             &view,
             &semantic,
@@ -1035,6 +1010,7 @@ mod tensor_served_round_trip_tests {
                 tsdb_graph: None,
                 staged_series: None,
             },
+            execute_rows,
         )
     }
 

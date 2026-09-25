@@ -209,7 +209,7 @@ pub(super) fn gather_plan_rows(
         );
     }
     let store = core.semantic_store.read();
-    let rows = match crate::server::handlers::query::run_unified(
+    let rows = match crate::server::handlers::query::run_unified_with(
         plan.clone(),
         &snap,
         &store,
@@ -235,6 +235,7 @@ pub(super) fn gather_plan_rows(
                 staged_series: None,
             },
         },
+        crate::server::handlers::query::execute_rows,
     ) {
         Ok(rows) => rows,
         Err(_) => return Ok((Vec::new(), Vec::new())),
@@ -279,7 +280,7 @@ pub(super) fn gather_plan_rows_snapshot(
 ) -> (Vec<Vec<f64>>, Vec<String>) {
     let snap = core.analysis_snapshot();
     let store = core.semantic_store.read();
-    let rows = match crate::server::handlers::query::run_unified(
+    let rows = match crate::server::handlers::query::run_unified_with(
         plan.clone(),
         &snap,
         &store,
@@ -291,6 +292,7 @@ pub(super) fn gather_plan_rows_snapshot(
             tsdb_graph: None,
             staged_series: None,
         },
+        crate::server::handlers::query::execute_rows,
     ) {
         Ok(rows) => rows,
         Err(_) => return (Vec::new(), Vec::new()),
