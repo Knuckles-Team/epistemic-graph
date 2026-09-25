@@ -48,7 +48,7 @@ fn quantised(value: f64) -> Result<QuantisedValue, String> {
 }
 
 /// The assumptions replay rests on, checked before anything is read.
-fn check_spec(spec: &ReplaySpec, regime: Regime) -> Result<(), String> {
+pub(super) fn check_spec(spec: &ReplaySpec, regime: Regime) -> Result<(), String> {
     if spec.graph.is_empty()
         || spec.graph.len() > 256
         || spec.graph.trim() != spec.graph
