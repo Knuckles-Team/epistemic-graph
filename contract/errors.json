@@ -584,6 +584,12 @@
       "retryable": false
     },
     {
+      "class": "availability",
+      "code": "OPERATION_REDIRECTED",
+      "http_status_hint": 307,
+      "retryable": true
+    },
+    {
       "class": "server",
       "code": "OUTBOX_OWNER_UNAVAILABLE",
       "http_status_hint": 400,

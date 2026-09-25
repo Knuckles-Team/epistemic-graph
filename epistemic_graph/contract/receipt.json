@@ -1,10 +1,10 @@
 {
   "artifact_digests": {
-    "contract/errors.json": "ffc83239aba07c110b658809cdd1bf171ed0777e66e8fba9e37c3a059daa4f1b",
+    "contract/errors.json": "60308c4135089be7c4e688d43f0e31bc7df0bc95b12163a846b8dcfd1cab1741",
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/fixtures/method_body_vectors.json": "faa60b34b097814e9d6df5c5783e4fb7c732763d059bc43ad5dc1f4b0ff47e01",
-    "contract/methods.json": "19bfbcf9bf42f946a3d4c2413f6b4df06b1ac0ffa3f067ad258d620ab88ecb46",
+    "contract/methods.json": "9e12633e1ebfbb67f94c79e983f3459ff13a2eb8c0e7f85d5f86673a218a34d6",
     "contract/schemas/method.request.json": "7f48c234c548952dead40f6f43d68466ea0afc926ddbb91fc9cd04c8203329c6",
     "contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "contract/schemas/result.compute.json": "7efab38024b5f7bcc9839cbf0c61ec664e044f74074f69c514b8cf613642e30f",
@@ -54,7 +54,7 @@
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
   "cargo_lock_sha256": "dc2edc2f85045a51b06a50177055fc5049663be4d3aa63e40ab463b265f1fc36",
-  "contract_digest": "312f486fe268566c869bf66c5750162d63f98873433c75d7e627b2d91a7d6a14",
+  "contract_digest": "d1be7b7c5ba470dd1f21886eb90cb465c67bd20e53fc6943387f1ee207e9a253",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -633,5 +633,5 @@
     "schematized": 443,
     "unclassified": 0
   },
-  "source_tree_oid": "9674304520ba53a394e91c1abbd4056898f5a0ed5c0d0423d4e3c5d6eb06662a"
+  "source_tree_oid": "9f7e4eff9beece8da1c219cfa3d930a05c709c5fa2b70475ce1ac4eceedfd1b9"
 }
