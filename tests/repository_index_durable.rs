@@ -190,6 +190,11 @@ fn one_path_with_diverged_blobs_commits_in_one_batch() {
     on_engine(one_path_diverged_across_refs);
 }
 
+#[test]
+fn an_empty_source_file_commits() {
+    on_engine(empty_source_file);
+}
+
 /// A fresh durable engine directory with the test graph created in it.
 async fn durable_graph(
     prefix: &str,
@@ -355,6 +360,32 @@ async fn one_path_diverged_across_refs() {
     assert!(has_edge(&state, 4, &feature, &feature_app).await);
     assert!(!has_edge(&state, 5, &main, &feature_app).await);
     assert!(!has_edge(&state, 6, &feature, &main_app).await);
+
+    backend.shutdown();
+    state.write().await.persistence = None;
+    drop(state);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A 0-byte `pkg/__init__.py` (every Python package has one) is valid input:
+/// it parses to no symbols but still projects its `:Blob` and `:FileVersion`,
+/// and the batch commits durably.
+async fn empty_source_file() {
+    let (dir, _, backend, state) = durable_graph("eg-repoindex-empty").await;
+    let with_empty = scope(
+        vec![
+            member("main", "pkg/__init__.py", b""),
+            member("main", "pkg/util.py", UTIL),
+        ],
+        Vec::new(),
+    );
+    let blobs: [(&str, &[u8]); 2] = [("pkg/__init__.py", b""), ("pkg/util.py", UTIL)];
+    let result = index(&state, 2, &blobs, with_empty).await;
+    let main = node_id(&result, "Branch", "ref_name", "main");
+    let init = file_version(&result, "pkg/__init__.py", b"");
+    let empty_blob = format!("blob:{}", digest(b""));
+    assert!(has_edge(&state, 3, &main, &init).await);
+    assert!(has_edge(&state, 4, &init, &empty_blob).await);
 
     backend.shutdown();
     state.write().await.persistence = None;
