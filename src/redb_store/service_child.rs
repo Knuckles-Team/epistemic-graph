@@ -57,8 +57,16 @@ impl ServiceChildBinding {
         {
             return Err("SERVICE_CHILD_INVALID_BINDING".into());
         }
-        let owner_hash = hex::encode(Sha256::digest(self.owner_principal.as_bytes()));
-        if self.owner_ref != format!("principal:sha256:{owner_hash}") {
+        // AuditAppend and the served carrier both expose the same opaque
+        // actor_scope. Hashing that scope again would sever the caller audit
+        // binding and silently create a second identity.
+        let Some(owner_hash) = self.owner_principal.strip_prefix("principal:sha256:") else {
+            return Err("SERVICE_CHILD_OWNER_MISMATCH".into());
+        };
+        if self.owner_ref != self.owner_principal
+            || owner_hash.len() != 64
+            || !owner_hash.bytes().all(|b| b.is_ascii_hexdigit())
+        {
             return Err("SERVICE_CHILD_OWNER_MISMATCH".into());
         }
         Ok(())

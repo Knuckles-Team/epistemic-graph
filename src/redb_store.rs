@@ -674,7 +674,7 @@ mod security_tests {
             &mut tail,
         )
         .unwrap();
-        let owner = "alice";
+        let owner = format!("principal:sha256:{}", hex::encode(Sha256::digest(b"alice")));
         let digest = "a".repeat(64);
         operation_audit_append(
             &db,
@@ -682,7 +682,7 @@ mod security_tests {
             "g",
             &OperationAuditEvent {
                 tenant: "tenant-a".into(),
-                principal: owner.into(),
+                principal: owner.clone(),
                 op: "fleet.call".into(),
                 surface: "http".into(),
                 params_sha256: digest.clone(),
@@ -694,11 +694,8 @@ mod security_tests {
         .unwrap();
         let binding = ServiceChildBinding {
             tenant: "tenant-a".into(),
-            owner_principal: owner.into(),
-            owner_ref: format!(
-                "principal:sha256:{}",
-                hex::encode(Sha256::digest(owner.as_bytes()))
-            ),
+            owner_principal: owner.clone(),
+            owner_ref: owner.clone(),
             server: "server-a".into(),
             tool: "write".into(),
             subject_id: "subject-a".into(),
@@ -710,19 +707,19 @@ mod security_tests {
             scopes_sha256: "c".repeat(64),
         };
         let created =
-            service_child_reserve(&db, "g", binding.clone(), "tenant-a", owner, "request-a")
+            service_child_reserve(&db, "g", binding.clone(), "tenant-a", &owner, "request-a")
                 .unwrap();
         assert!(created.created);
         let record_id = created.record.record_id;
         assert!(
-            !service_child_reserve(&db, "g", binding.clone(), "tenant-a", owner, "request-a")
+            !service_child_reserve(&db, "g", binding.clone(), "tenant-a", &owner, "request-a")
                 .unwrap()
                 .created
         );
         let mut changed = binding.clone();
         changed.tool = "delete".into();
         assert!(
-            service_child_reserve(&db, "g", changed, "tenant-a", owner, "request-a")
+            service_child_reserve(&db, "g", changed, "tenant-a", &owner, "request-a")
                 .unwrap_err()
                 .contains("CONFLICT")
         );
@@ -731,7 +728,7 @@ mod security_tests {
             "g",
             &record_id,
             "tenant-a",
-            owner,
+            &owner,
             ServiceChildOutcome::Succeeded {
                 result_sha256: "d".repeat(64),
             },
@@ -746,7 +743,7 @@ mod security_tests {
             "g",
             &record_id,
             "tenant-a",
-            owner,
+            &owner,
             ServiceChildOutcome::OutcomeUnknown {
                 reason_code: "late".into()
             }
@@ -760,7 +757,7 @@ mod security_tests {
         );
         drop(db);
         let reopened = open_db(&dir);
-        let recovered = service_child_get(&reopened, "g", &record_id, "tenant-a", owner)
+        let recovered = service_child_get(&reopened, "g", &record_id, "tenant-a", &owner)
             .unwrap()
             .unwrap();
         assert_eq!(recovered, terminal);
