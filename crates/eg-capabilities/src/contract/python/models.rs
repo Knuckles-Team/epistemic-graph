@@ -27,7 +27,7 @@ use super::{definition_origin, error_code_definitions};
 mod hoist;
 mod render;
 
-pub(super) use render::render_owned;
+pub(super) use render::{member_classes, render_owned};
 
 /// The module attribute a domain module binds the models module to.
 pub(super) const MODELS_ALIAS: &str = "_models";

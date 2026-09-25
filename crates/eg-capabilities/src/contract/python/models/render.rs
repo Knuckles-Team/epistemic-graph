@@ -58,6 +58,30 @@ pub(in super::super) fn render_owned(
     ordered_body(&blocks)
 }
 
+/// The variant classes the renderer emits for definition `name` (a tagged union's
+/// member classes), in declaration order; empty for every other definition. A module
+/// that re-exports the union alias re-exports these too, so callers can construct and
+/// `isinstance`-check a variant from the module they import the union from.
+pub(in super::super) fn member_classes(name: &str, node: &Value) -> Vec<String> {
+    if JSON_VALUE_TYPES.contains(&name) || has_digest_methods(name) || enum_values(node).is_some() {
+        return Vec::new();
+    }
+    tagged_variants(node)
+        .map(|(tag, variants)| variant_classes(name, tag, &variants))
+        .unwrap_or_default()
+}
+
+/// `{Union}{PascalTag}` for each variant of a tagged union.
+fn variant_classes(name: &str, tag: &str, variants: &[&Value]) -> Vec<String> {
+    variants
+        .iter()
+        .map(|variant| {
+            let value = variant_tag(variant, tag).expect("tagged variant has a tag");
+            format!("{name}{}", pascal_case(value))
+        })
+        .collect()
+}
+
 impl Renderer<'_> {
     fn definition(&mut self, name: &str, node: &Value) -> Vec<Block> {
         if JSON_VALUE_TYPES.contains(&name) {
@@ -100,12 +124,9 @@ impl Renderer<'_> {
 
     fn tagged_union(&mut self, name: &str, tag: &str, variants: &[&Value]) -> String {
         let mut text = String::new();
-        let mut names = Vec::new();
-        for variant in variants {
-            let value = variant_tag(variant, tag).expect("tagged variant has a tag");
-            let class = format!("{name}{}", pascal_case(value));
-            text.push_str(&self.object_class(&class, variant));
-            names.push(class);
+        let names = variant_classes(name, tag, variants);
+        for (class, variant) in names.iter().zip(variants) {
+            text.push_str(&self.object_class(class, variant));
         }
         let (discriminator, _) = field_identifier(tag);
         push_union_alias(&mut text, name, &discriminator, &names);

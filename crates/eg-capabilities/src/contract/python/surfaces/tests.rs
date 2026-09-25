@@ -108,3 +108,32 @@ fn surface_modules_complete_their_classes_and_models_stays_lazy() {
     assert!(surfaces.shared_module().contains(".model_rebuild()\n"));
     assert!(!surfaces.models_module().contains(".model_rebuild()"));
 }
+
+/// A module that re-exports a shared tagged union re-exports its variant classes
+/// too, and `models.py` exposes them: consumers construct and `isinstance`-check
+/// `ComponentProvenanceMcpServer` from `agent_component` (graph-os) and the decision
+/// variants from `decision` (AU), as they could before EH-377 moved the union.
+#[test]
+fn a_reexported_union_carries_its_variant_classes() {
+    let space = space();
+    let surfaces = Surfaces::new(&space.definitions);
+    let module = |name: &str| {
+        let surface = DTO_SURFACES
+            .iter()
+            .find(|surface| surface.module == name)
+            .unwrap_or_else(|| panic!("{name} surface"));
+        surfaces.dto_module(surface)
+    };
+    let models = surfaces.models_module();
+    for (surface, class) in [
+        ("agent_component", "ComponentProvenanceMcpServer"),
+        ("decision", "AbstainReasonInsufficientConfidence"),
+        ("decision", "CandidateSourceRecordAgentLibrary"),
+        ("decision", "DecisionOutcomeAbstained"),
+    ] {
+        let text = module(surface);
+        let listed = format!("\n    \"{class}\",\n");
+        assert!(text.contains(&listed), "{surface} does not export {class}");
+        assert!(models.contains(&listed), "models does not export {class}");
+    }
+}
