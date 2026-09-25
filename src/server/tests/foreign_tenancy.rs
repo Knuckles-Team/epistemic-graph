@@ -15,6 +15,43 @@ use super::*;
 const OWNER_A: &str = "worker1";
 const OTHER_B: &str = "worker2";
 
+/// The served column method first resolves the verified caller's registry and
+/// mapping. Neither an unmapped projection nor another owner's source reaches
+/// the SQL connector, even when a registration carries a valid-looking DSN.
+#[tokio::test]
+async fn foreign_column_query_requires_owner_and_exposed_column() {
+    let state = multi_tenant_state().await;
+    let source = eg_types::wire::ForeignSourceSpec::Sql {
+        dsn: "postgres://example.invalid/db".into(),
+        query: "SELECT id, public FROM rows".into(),
+        id_field: "id".into(),
+        score_field: None,
+        columns: vec!["public".into()],
+    };
+    register_in(&state, 700, OWNER_A, source).await;
+    let query = || Method::QueryForeignColumns {
+        name: "remote_docs".into(),
+        columns: vec!["secret".into()],
+        predicates: vec![],
+    };
+    let owner_response = dispatch_as(&state, 701, OWNER_A, query()).await;
+    assert!(
+        owner_response
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("not exposed")),
+        "unmapped column must fail before connecting: {owner_response:?}"
+    );
+    let other_response = dispatch_as(&state, 702, OTHER_B, query()).await;
+    assert!(
+        other_response
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("requires a registered source")),
+        "another principal must not resolve the registration: {other_response:?}"
+    );
+}
+
 /// Echoes the NL text back as the UQL to run, so an `NlQuery` exercises the NL handler's
 /// own foreign binding with a deterministic plan.
 struct EchoPlanner;

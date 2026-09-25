@@ -12,6 +12,22 @@ pub use topology::*;
 
 use super::Dynamic;
 
+/// One registered foreign SQL row after the exact local column residual.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignColumnRow {
+    pub id: String,
+    pub score: Option<f32>,
+    pub columns: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+/// The bounded per-request result of `QueryForeignColumns`.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignColumnRows {
+    pub rows: Vec<ForeignColumnRow>,
+}
+
 method_results! {
     visit_cluster;
     CreateGraph(CreateGraph) => Json<GraphCreated>;
@@ -44,6 +60,7 @@ method_results! {
     Shutdown(Shutdown) => Text<String>;
     CancelRequest(CancelRequest) => Bool<bool>;
     RegisterForeignSource(RegisterForeignSource) => Text<String>;
+    QueryForeignColumns(QueryForeignColumns) => Raw<ForeignColumnRows>;
     RegisterUdf(RegisterUdf) => Text<String>;
     CreateMatView(CreateMatView) => Count<u64>;
     #[cfg(feature = "compute-dist")]
