@@ -1,7 +1,7 @@
 //! Published engine error vocabulary. The typed enum families are the source
 //! of the codes; this module supplies transport metadata and method routing.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use eg_types::connector_pack::result::PackWriteErrorCode;
 use eg_types::contract::{EngineErrorCode, ServerErrorCode};
@@ -172,6 +172,7 @@ pub(super) fn catalog_json() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::path::Path;
 
     fn server_sources(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
