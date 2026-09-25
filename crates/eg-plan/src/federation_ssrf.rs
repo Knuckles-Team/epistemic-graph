@@ -336,7 +336,18 @@ fn sql_default_port(dsn: &str) -> Option<u16> {
 /// A DSN with no host (a local socket default) or a `host=`/`hostaddr=` override is refused.
 #[cfg(feature = "federation-sql")]
 pub(crate) fn check_sql_dsn(dsn: &str) -> Result<(), String> {
+    validate_sql_dsn_addresses(dsn).map(|_| ())
+}
+
+/// Return the exact vetted addresses for a no-row SQL reachability probe. The
+/// SQL driver still has its documented re-resolution limit; the probe itself
+/// connects only to these pinned addresses.
+#[cfg(feature = "federation-sql")]
+pub fn validate_sql_dsn_addresses(dsn: &str) -> Result<Vec<std::net::SocketAddr>, String> {
     const REFUSED: &str = "federation: SQL destination is not allowed";
+    if dsn.len() > 4096 {
+        return Err(REFUSED.to_string());
+    }
     let port = sql_default_port(dsn).ok_or_else(|| REFUSED.to_string())?;
     let rest = dsn
         .split_once("://")
@@ -348,15 +359,20 @@ pub(crate) fn check_sql_dsn(dsn: &str) -> Result<(), String> {
     if hosts.is_empty() || overrides {
         return Err(REFUSED.to_string());
     }
-    hosts
-        .split(',')
-        .try_for_each(|host| check_sql_host(host, port))
-        .map_err(|_| REFUSED.to_string())
+    let parts: Vec<_> = hosts.split(',').collect();
+    if parts.len() > 8 {
+        return Err(REFUSED.to_string());
+    }
+    let mut addresses = Vec::new();
+    for host in parts {
+        addresses.extend(check_sql_host(host, port).map_err(|_| REFUSED.to_string())?);
+    }
+    Ok(addresses)
 }
 
 /// One `host[:port]` of a SQL DSN through the shared resolve + sensitive-range + allow-list gate.
 #[cfg(feature = "federation-sql")]
-fn check_sql_host(host_port: &str, default_port: u16) -> Result<(), String> {
+fn check_sql_host(host_port: &str, default_port: u16) -> Result<Vec<std::net::SocketAddr>, String> {
     let (host, port) = parse_http_authority(host_port, default_port)?;
     let host = normalize_http_host(host)?;
     let allowlisted = http_json_target_allowlisted(&host, port, true)
@@ -366,7 +382,7 @@ fn check_sql_host(host_port: &str, default_port: u16) -> Result<(), String> {
     if sensitive && !allowlisted {
         return Err("federation: SQL destination is not allowed".to_string());
     }
-    Ok(())
+    Ok(addresses)
 }
 
 #[cfg(test)]

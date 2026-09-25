@@ -28,11 +28,8 @@ pub fn probe_source(spec: &ForeignSourceSpec) -> ProbeOutcome {
     match spec {
         ForeignSourceSpec::HttpJson { url, .. } => probe_http(url),
         ForeignSourceSpec::RemoteEngine { endpoint, .. } => probe_remote(endpoint),
-        // SQL drivers currently re-resolve after validation and cannot pin the
-        // selected address. Refuse a probe rather than open that SSRF window.
-        ForeignSourceSpec::Sql { .. } | ForeignSourceSpec::Named { .. } => {
-            outcome(false, "PROBE_UNSUPPORTED")
-        }
+        ForeignSourceSpec::Sql { dsn, .. } => probe_sql(dsn),
+        ForeignSourceSpec::Named { .. } => outcome(false, "PROBE_UNSUPPORTED"),
     }
 }
 
@@ -66,6 +63,19 @@ fn probe_remote(endpoint: &str) -> ProbeOutcome {
         return outcome(false, "TARGET_REFUSED");
     }
     connect(&addresses)
+}
+
+#[cfg(feature = "federation-sql")]
+fn probe_sql(dsn: &str) -> ProbeOutcome {
+    match crate::federation_ssrf::validate_sql_dsn_addresses(dsn) {
+        Ok(addresses) => connect(&addresses),
+        Err(_) => outcome(false, "TARGET_REFUSED"),
+    }
+}
+
+#[cfg(not(feature = "federation-sql"))]
+fn probe_sql(_dsn: &str) -> ProbeOutcome {
+    outcome(false, "PROBE_UNSUPPORTED")
 }
 
 fn connect(addresses: &[SocketAddr]) -> ProbeOutcome {
@@ -107,5 +117,13 @@ mod tests {
         let outcome = probe_http("http://user:secret@127.0.0.1/private");
         assert!(!outcome.reachable);
         assert_eq!(outcome.code, "TARGET_REFUSED");
+    }
+
+    #[cfg(feature = "federation-sql")]
+    #[test]
+    fn sql_probe_rejects_host_override_without_a_dial() {
+        let result = probe_sql("postgres://user:secret@example.org/db?hostaddr=127.0.0.1");
+        assert!(!result.reachable);
+        assert_eq!(result.code, "TARGET_REFUSED");
     }
 }
