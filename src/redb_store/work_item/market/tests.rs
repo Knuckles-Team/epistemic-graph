@@ -15,7 +15,7 @@ use eg_types::work_market::{
     WorkOfferRecorded,
 };
 
-use super::super::test_shard::{open, GRAPH};
+use super::super::test_shard::{open, with_write, GRAPH};
 use super::*;
 use crate::protocol::ResultPayload;
 use crate::redb_store::store_rows::GraphRowTables;
@@ -26,11 +26,8 @@ const GAP: &str = "gap:failure:timeout";
 /// Apply one WorkItem-family method in its own committed transaction, exactly
 /// as the kernel does; an error aborts the transaction (nothing is written).
 fn apply(shard: &Shard, tag: &str, method: Method, now_ms: u64) -> Result<ResultPayload, String> {
-    let members = shard.graph_members(&[GRAPH]).unwrap();
     let op_id = format!("work-market-test/{tag}");
-    let (group, batches) = shard.admit_maintenance(&members, &op_id).unwrap();
-    let admitted = ShardWrite::open(shard, &group, &members, &batches).unwrap();
-    let outcome = {
+    with_write(shard, &op_id, now_ms, |admitted| {
         let member = admitted.graph(GRAPH).unwrap();
         let mut graph = GraphRowTables::open(member).unwrap();
         let (mut holds, index, mut counters, mut pressure, policies) =
@@ -51,11 +48,8 @@ fn apply(shard: &Shard, tag: &str, method: Method, now_ms: u64) -> Result<Result
             committed_at_ms: now_ms,
             crypto: DurableCrypto::none(),
         })
-    };
-    let payload = outcome?.expect("a WorkItem-family write always answers");
-    admitted.finish().unwrap();
-    shard.commit_drain(group, &batches, now_ms).unwrap();
-    Ok(payload)
+        .map(|result| result.expect("a WorkItem-family write always answers"))
+    })
 }
 
 fn json<T: serde::de::DeserializeOwned>(payload: ResultPayload) -> T {

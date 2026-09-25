@@ -191,7 +191,7 @@ pub enum ControlLeaseIssueOutcome {
     Collision,
 }
 
-/// How a transition resolved.
+/// Outcome of a tenant-scoped control lease transition at an expected revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -417,13 +417,7 @@ impl KeysetListing for ListControlLeasesRequest {
     type Item = ControlLeaseView;
     const CURSOR: CursorFamily = CONTROL_LEASE_LIST_CURSOR;
 
-    fn tenant(&self) -> &str {
-        &self.tenant
-    }
-
-    fn limit(&self) -> usize {
-        self.limit as usize
-    }
+    crate::keyset_page::keyset_tenant_limit_methods!(self);
 
     fn select(
         &self,

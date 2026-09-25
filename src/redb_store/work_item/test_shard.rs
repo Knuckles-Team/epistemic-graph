@@ -23,6 +23,21 @@ pub(super) fn open(tag: &str) -> TempShard {
     TempShard { path, shard }
 }
 
+pub(super) fn with_write<R>(
+    shard: &Shard,
+    op_id: &str,
+    now_ms: u64,
+    write: impl FnOnce(&ShardWrite<'_>) -> Result<R, String>,
+) -> Result<R, String> {
+    let members = shard.graph_members(&[GRAPH]).unwrap();
+    let (group, batches) = shard.admit_maintenance(&members, op_id).unwrap();
+    let admitted = ShardWrite::open(shard, &group, &members, &batches).unwrap();
+    let outcome = write(&admitted)?;
+    admitted.finish().unwrap();
+    shard.commit_drain(group, &batches, now_ms).unwrap();
+    Ok(outcome)
+}
+
 /// Run `write` against `GRAPH`'s node table in one committed transaction.
 pub(super) fn with_nodes<R>(
     shard: &Shard,
@@ -31,18 +46,13 @@ pub(super) fn with_nodes<R>(
         &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
     ) -> Result<R, String>,
 ) -> R {
-    let members = shard.graph_members(&[GRAPH]).unwrap();
     let op_id = format!("work-item-rows-test/{tag}");
-    let (group, batches) = shard.admit_maintenance(&members, &op_id).unwrap();
-    let admitted = ShardWrite::open(shard, &group, &members, &batches).unwrap();
-    let outcome = {
+    with_write(shard, &op_id, 0, |admitted| {
         let member = admitted.graph(GRAPH).unwrap();
         let mut nodes = member.open_scoped_table(NODES).unwrap();
-        write(&mut nodes).unwrap()
-    };
-    admitted.finish().unwrap();
-    shard.commit_drain(group, &batches, 0).unwrap();
-    outcome
+        write(&mut nodes)
+    })
+    .unwrap()
 }
 
 pub(super) fn check_guard(shard: &Shard, tag: &str, method: Method) -> Result<(), String> {

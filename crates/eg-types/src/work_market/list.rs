@@ -79,13 +79,7 @@ impl KeysetListing for GapListRequest {
     type Item = GapView;
     const CURSOR: CursorFamily = GAP_LIST_CURSOR;
 
-    fn tenant(&self) -> &str {
-        &self.tenant
-    }
-
-    fn limit(&self) -> usize {
-        self.limit as usize
-    }
+    crate::keyset_page::keyset_tenant_limit_methods!(self);
 
     fn select(&self, _row_id: &str, row: &Map<String, Value>) -> Result<Option<GapView>, String> {
         if !is_tenant_gap(row, &self.tenant) {
