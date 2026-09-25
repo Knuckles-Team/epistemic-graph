@@ -10,7 +10,7 @@ use eg_types::decision::DecisionErrorCode;
 use eg_types::graph_schema::GraphSchemaErrorCode;
 use eg_types::solve::SolveErrorCode;
 
-use crate::MethodDescriptor;
+use crate::{MethodDescriptor, Stability};
 
 fn typed_codes<T: Copy>(variants: &[T], code: impl Fn(T) -> &'static str) -> Vec<&'static str> {
     variants.iter().copied().map(code).collect()
@@ -166,11 +166,14 @@ pub(super) fn method_error_set(d: &MethodDescriptor) -> Vec<&'static str> {
         &[
             "PACK_",
             "CONNECTOR_PACK_",
+            "CONNECTOR_RELATIONSHIP_",
             "ARCHIVE_",
             "MALFORMED_",
             "IMPORTER_",
             "INVALID_IMPORTER",
             "INVALID_RETIREMENT",
+            "INVALID_FACTS",
+            "UNKNOWN_PACK_ENTRY",
             "CORRUPT_CONNECTOR_",
             "COMPONENT_BODY_",
         ]
@@ -200,6 +203,43 @@ pub(super) fn method_error_set(d: &MethodDescriptor) -> Vec<&'static str> {
         ) || routed.iter().any(|prefix| token.starts_with(prefix))
         {
             codes.insert(token);
+        }
+    }
+    // These codes arise after routing, so their owning method or durability
+    // domain is more precise than the family prefixes above.
+    if d.policy.is_durable() {
+        codes.insert("CORRUPT_MUTATION_LEDGER");
+    }
+    if d.stability == Stability::Internal {
+        codes.insert("METHOD_NOT_YET_SERVED");
+    }
+    if d.domain == "security" {
+        codes.insert("POLICY_NATIVE_AUTHORITY_REQUIRED");
+    }
+    if id.starts_with("Blob") {
+        codes.insert("BODY_DIGEST_MISMATCH");
+    }
+    for (method, extras) in [
+        ("ApplyChangeEnvelopes", &["ABORTED_ATOMIC_GRAPH_BATCH"][..]),
+        (
+            "RegisterForeignSource",
+            &["FOREIGN_SOURCE_POLICY_UNBOOTSTRAPPED"][..],
+        ),
+        (
+            "MutationOutbox",
+            &[
+                "CORRUPT_OUTBOX",
+                "OUTBOX_OWNER_UNAVAILABLE",
+                "OUTBOX_OWNER_UNKNOWN",
+                "OUTBOX_SCOPE_MISMATCH",
+            ][..],
+        ),
+        ("AgentLibrary", &["STALE_AGENT_LIBRARY_REVISION"][..]),
+        ("WriteBack", &["CORRUPT_WRITE_BACK"][..]),
+        ("TxnPlanWriteback", &["CORRUPT_WRITE_BACK"][..]),
+    ] {
+        if id == method {
+            codes.extend(extras.iter().copied());
         }
     }
     if id.starts_with("Decision") || id.starts_with("Decide") {
@@ -270,11 +310,14 @@ mod tests {
             .iter()
             .map(|row| row["code"].as_str().unwrap())
             .collect();
+        let mut routed = BTreeSet::new();
         for method in crate::method_descriptors() {
             for code in method_error_set(&method) {
                 assert!(codes.contains(code), "{}: {code}", method.id.as_str());
+                routed.insert(code);
             }
         }
+        assert_eq!(routed, codes, "every published error needs a method route");
         assert!(codes.contains("AUTH_TENANT_MISMATCH"));
         assert!(codes.contains("AUTH_AUDIENCE_MISMATCH"));
         assert!(codes.contains("AUTH_POLICY_VERSION_MISMATCH"));
