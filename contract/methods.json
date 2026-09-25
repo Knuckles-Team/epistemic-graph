@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 437,
+  "method_count": 441,
   "methods": [
     {
       "consumer_profiles": [
@@ -7128,6 +7128,53 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/UpdateCapacityCell",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "ThrottleCapacityCell",
+      "note": "EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell)",
+      "policy": {
+        "audited": true,
+        "authz_action": "capacity:throttle",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ThrottleCapacityCell"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ThrottleCapacityCell",
         "selected_by": null
       },
       "stability": "stable"
@@ -15941,9 +15988,9 @@
         "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "RegisterIdentity",
-      "note": "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX",
+      "note": "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX; IDM-03: each registration appends a hash-chained identity-audit entry in that same WTX, and a principal owned by the identity store is refused",
       "policy": {
-        "audited": false,
+        "audited": true,
         "authz_action": "security:admin",
         "durability_domain": "ControlRedb",
         "emits_cdc": false,
@@ -15987,9 +16034,9 @@
         "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "RbacAdmin",
-      "note": "runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata",
+      "note": "runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata; IDM-03: each write appends a hash-chained identity-audit entry in that WTX, and the identity store's idm: namespace is refused",
       "policy": {
-        "audited": false,
+        "audited": true,
         "authz_action": "security:admin",
         "durability_domain": "ControlRedb",
         "emits_cdc": false,
@@ -16027,6 +16074,172 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.security.json#/methods/RbacAdmin",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "RbacElevation",
+      "note": "EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX",
+      "policy": {
+        "audited": true,
+        "authz_action": "rbac:elevation",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/RbacElevation"
+      },
+      "result_schema": {
+        "bodies": {
+          "approve": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "list": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "request": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "revoke": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/RbacElevation",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "Identity",
+      "note": "IDM-01..04 engine-owned identity store, runtime-conditional: reads are identity:read/identity:authenticate; writes need the op's EXACT identity:* scope (never implied by kg:admin or *) from the boundary-stamped actor; every secret is hashed, verified or sealed at the request boundary and cleared before replication; the store and its full RBAC projection share one rbac.redb WTX with a hash-chained identity audit trail",
+      "policy": {
+        "audited": true,
+        "authz_action": "identity:admin",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/Identity"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/Identity",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "GovernedChange",
+      "note": "EH-560 governed changes, runtime-conditional: get/list are reads (governance:read); propose needs the kind's EXACT proposer scope, approve the kind's EXACT approver scope from a direct principal sharing no identity with the proposer, bound to the exact candidate digest; consumption is engine-internal and single-use; every transition is hash-chain audited in the ledger that shares the rbac.redb policy WTX; generic IssueControlLease refuses the governed. prefix",
+      "policy": {
+        "audited": true,
+        "authz_action": "governance:propose",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GovernedChange"
+      },
+      "result_schema": {
+        "bodies": {
+          "approve": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "get": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "list": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "propose": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "revoke": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/GovernedChange",
         "selected_by": "op"
       },
       "stability": "stable"

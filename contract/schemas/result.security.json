@@ -106,6 +106,126 @@
       ],
       "type": "object"
     },
+    "AuthMode": {
+      "description": "How graph-os establishes who a human caller is.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Demo mode: the authenticator always answers the bootstrap principal.",
+          "type": "string"
+        },
+        {
+          "const": "local",
+          "description": "Local accounts in this store.",
+          "type": "string"
+        },
+        {
+          "const": "external",
+          "description": "External identity providers (with an optional local fallback).",
+          "type": "string"
+        }
+      ]
+    },
+    "AuthenticateOutcome": {
+      "description": "How a sign-in resolved. Unknown user, wrong password and disabled\naccount all answer `bad`: a caller cannot enumerate accounts.",
+      "oneOf": [
+        {
+          "enum": [
+            "bad"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "ok",
+          "description": "A live session was opened.",
+          "type": "string"
+        },
+        {
+          "const": "throttled",
+          "description": "Too many recent failures; retry after `retry_after_ms`.",
+          "type": "string"
+        },
+        {
+          "const": "mfa_required",
+          "description": "A second factor is owed; the session is open but `mfa_pending`.",
+          "type": "string"
+        },
+        {
+          "const": "mfa_enrollment_required",
+          "description": "A group requires MFA and none is enrolled; no session was opened.",
+          "type": "string"
+        },
+        {
+          "const": "password_change_required",
+          "description": "The password must be changed first; no session was opened.",
+          "type": "string"
+        }
+      ]
+    },
+    "AuthenticateResult": {
+      "additionalProperties": false,
+      "description": "The answer to `authenticate` / `external_login` / a second factor.",
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/AuthenticateOutcome"
+        },
+        "principal_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry_after_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "DirectoryGroup": {
+      "additionalProperties": false,
+      "description": "A directory group (SCIM `Groups`, an LDAP group). Its membership is\nauthoritative: an upsert replaces it.",
+      "properties": {
+        "display_name": {
+          "type": "string"
+        },
+        "external_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_id": {
+          "description": "Caller-generated, unique per IdP.",
+          "type": "string"
+        },
+        "idp_id": {
+          "type": "string"
+        },
+        "members": {
+          "default": [],
+          "description": "Principal ids; each must be linked to this IdP.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "idp_id",
+        "group_id",
+        "display_name"
+      ],
+      "type": "object"
+    },
     "ElevationAction": {
       "description": "The graph action an elevation may grant. Deliberately NOT\n`crate::acl::RbacAction`: `Admin` is unrepresentable here.",
       "enum": [
@@ -257,6 +377,103 @@
         }
       ]
     },
+    "GovernedChange": {
+      "additionalProperties": false,
+      "description": "One governed change.",
+      "properties": {
+        "approved_until_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "approver": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "change_id": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "ended_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "justification": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "proposal_expires_at_ms": {
+          "description": "A proposal not approved by then expires unapproved.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proposed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proposer": {
+          "type": "string"
+        },
+        "proposer_parties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/GovernedStatus"
+        },
+        "target": {
+          "type": "string"
+        },
+        "window_ms": {
+          "description": "The approved window's length, fixed at proposal.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "change_id",
+        "kind",
+        "target",
+        "digest",
+        "justification",
+        "proposer",
+        "proposer_parties",
+        "status",
+        "proposed_at_ms",
+        "proposal_expires_at_ms",
+        "window_ms"
+      ],
+      "type": "object"
+    },
+    "GovernedStatus": {
+      "description": "Where a change is in its one-way lifecycle.",
+      "enum": [
+        "proposed",
+        "approved",
+        "consumed",
+        "revoked",
+        "expired"
+      ],
+      "type": "string"
+    },
     "Grant": {
       "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
       "properties": {
@@ -289,6 +506,692 @@
       ],
       "type": "string"
     },
+    "GroupRecord": {
+      "additionalProperties": false,
+      "description": "A group: members plus the roles every member holds.",
+      "properties": {
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        },
+        "group_id": {
+          "type": "string"
+        },
+        "members": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "principal id → membership source (`local` or `<idp_id>`); an\nIdP-sourced membership is recomputed at every login/sync.",
+          "type": "object"
+        },
+        "mfa_required": {
+          "default": false,
+          "description": "Operator ruling 2026-09-24: MFA is optional for everyone, and an\nadministrator may require it per group. A member of a group with this\nset cannot complete a sign-in without a confirmed second factor.",
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "roles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source": {
+          "description": "`local`, `ldap:<idp>`, `scim:<idp>`, `oidc:<idp>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "group_id",
+        "name",
+        "source"
+      ],
+      "type": "object"
+    },
+    "IdentityAuditEntry": {
+      "additionalProperties": false,
+      "description": "One tamper-evident entry.",
+      "properties": {
+        "actor": {
+          "description": "The acting principal (or `engine` for a store-internal event).",
+          "type": "string"
+        },
+        "at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chain": {
+          "description": "sha256 over `prev` and every other field of this entry.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "A short, secret-free detail (an op name, a reason code).",
+          "type": "string"
+        },
+        "event": {
+          "$ref": "#/$defs/IdentityEvent"
+        },
+        "ip_prefix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prev": {
+          "description": "`chain` of the previous entry (empty for the first ever).",
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "seq",
+        "at_ms",
+        "actor",
+        "event",
+        "prev",
+        "chain"
+      ],
+      "type": "object"
+    },
+    "IdentityConfig": {
+      "additionalProperties": false,
+      "description": "The singleton. `epoch` increments on every accepted change.",
+      "properties": {
+        "absolute_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idle_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "initialized_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issuer_kid_current": {
+          "description": "The local issuer's current signing key id, recorded at each\ntransition so every mode change is tied to a key rotation.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "local_fallback": {
+          "$ref": "#/$defs/LocalFallback"
+        },
+        "mode": {
+          "$ref": "#/$defs/AuthMode"
+        },
+        "password_min_chars": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "privileged_absolute_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "privileged_idle_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "registration_policy": {
+          "$ref": "#/$defs/RegistrationPolicy"
+        }
+      },
+      "required": [
+        "mode",
+        "local_fallback",
+        "registration_policy",
+        "password_min_chars",
+        "idle_ms",
+        "absolute_ms",
+        "privileged_idle_ms",
+        "privileged_absolute_ms",
+        "epoch",
+        "initialized_at_ms"
+      ],
+      "type": "object"
+    },
+    "IdentityEvent": {
+      "description": "What an entry records.",
+      "oneOf": [
+        {
+          "enum": [
+            "initialized",
+            "mode_transition",
+            "policy_updated",
+            "user_created",
+            "user_updated",
+            "user_status_changed",
+            "user_unlocked",
+            "password_set",
+            "password_changed",
+            "login_succeeded",
+            "login_failed",
+            "login_throttled",
+            "session_revoked",
+            "token_issued",
+            "token_redeemed",
+            "api_key_issued",
+            "api_key_used",
+            "api_key_revoked",
+            "mfa_enrolled",
+            "mfa_verified",
+            "mfa_failed",
+            "recovery_codes_set",
+            "role_changed",
+            "group_changed",
+            "idp_changed",
+            "identity_linked",
+            "identity_unlinked",
+            "change_approved",
+            "change_revoked",
+            "change_consumed",
+            "user_deprovisioned",
+            "directory_group_changed"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "rbac_identity_registered",
+          "description": "A `RegisterIdentity` outside the store (IDM-03).",
+          "type": "string"
+        },
+        {
+          "const": "rbac_policy_changed",
+          "description": "An `RbacAdmin` role or grant change (IDM-03).",
+          "type": "string"
+        },
+        {
+          "const": "access_denied",
+          "description": "A sampled authorization denial (IDM-03 durable denial sample).",
+          "type": "string"
+        },
+        {
+          "const": "imported",
+          "description": "An administrator's SQL dump was merged.",
+          "type": "string"
+        },
+        {
+          "const": "change_proposed",
+          "description": "EH-560 governed changes.",
+          "type": "string"
+        },
+        {
+          "const": "user_provisioned",
+          "description": "Directory provisioning (SCIM / LDAP sync).",
+          "type": "string"
+        },
+        {
+          "const": "mfa_removed",
+          "description": "A second factor was removed (WebAuthn credential).",
+          "type": "string"
+        },
+        {
+          "const": "password_reset_requested",
+          "description": "A signed-out user asked for a password reset (issued or not).",
+          "type": "string"
+        }
+      ]
+    },
+    "IdentityReply": {
+      "description": "Every identity op's answer.",
+      "oneOf": [
+        {
+          "description": "A write that answers nothing but whether it changed state.",
+          "properties": {
+            "kind": {
+              "const": "done",
+              "type": "string"
+            },
+            "value": {
+              "properties": {
+                "changed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "changed"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "config",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/IdentityConfig"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "principal",
+              "type": "string"
+            },
+            "value": {
+              "properties": {
+                "principal_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "principal_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "user",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/UserView"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "users",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/UserView"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "resolution",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/PrincipalResolution"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "authenticate",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/AuthenticateResult"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "sessions",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/SessionView"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "roles",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/RoleRecord"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "groups",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/GroupRecord"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "idps",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/IdpConfig"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "audit",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/IdentityAuditEntry"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`export_sql`: the dump text.",
+          "properties": {
+            "kind": {
+              "const": "sql",
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`list_provisioned`.",
+          "properties": {
+            "kind": {
+              "const": "provisioned",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/ProvisionedUser"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "directory_group",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/DirectoryGroup"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "directory_groups",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/DirectoryGroup"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`webauthn_credentials`.",
+          "properties": {
+            "kind": {
+              "const": "webauthn_credentials",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "$ref": "#/$defs/WebauthnCredentialView"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`issue_password_reset`.",
+          "properties": {
+            "kind": {
+              "const": "reset_delivery",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/ResetDelivery"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "IdpConfig": {
+      "additionalProperties": false,
+      "description": "An identity-provider configuration. `secret_ref` names a secret in the\nsecrets backend; a secret value is never stored here.",
+      "properties": {
+        "config_json": {
+          "description": "Protocol configuration (issuer, endpoints, metadata) as a JSON object.",
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "email_domains": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "idp_id": {
+          "type": "string"
+        },
+        "jit_policy": {
+          "$ref": "#/$defs/JitPolicy"
+        },
+        "kind": {
+          "$ref": "#/$defs/IdpKind"
+        },
+        "order": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rules": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MappingRule"
+          },
+          "type": "array"
+        },
+        "secret_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "idp_id",
+        "kind",
+        "display_name",
+        "enabled",
+        "config_json",
+        "jit_policy"
+      ],
+      "type": "object"
+    },
+    "IdpKind": {
+      "description": "Which protocol an identity provider speaks.",
+      "enum": [
+        "oidc",
+        "saml",
+        "ldap",
+        "scim"
+      ],
+      "type": "string"
+    },
+    "JitPolicy": {
+      "description": "What happens on the first sign-in of an unlinked subject.",
+      "oneOf": [
+        {
+          "const": "deny",
+          "description": "Refuse: users are pre-provisioned by an admin, SCIM or LDAP sync.",
+          "type": "string"
+        },
+        {
+          "const": "create",
+          "description": "Create a new principal on first sign-in.",
+          "type": "string"
+        },
+        {
+          "const": "link_by_verified_email",
+          "description": "Link to an existing principal with the same VERIFIED e-mail. Off by\ndefault: cross-IdP e-mail linking is an account-takeover vector.",
+          "type": "string"
+        }
+      ]
+    },
     "LedgerReadResult": {
       "description": "Materialized result of a `Method::GetLedger` call (BUG A1, 2026-08-12: `GetLedger`\nreturned an empty list even after real mutations had committed). The prior wire\nshape was a bare `Vec<String>`, which made \"the ledger is genuinely empty\" and\n\"the ledger could not be read for this request's scope\" indistinguishable — both\nserialized to `[]`, so a caller (e.g. `agent_utilities.workflows.epistemic_sync`'s\n`flush_ledger_to_backend`, a real production sync path) could not tell \"nothing to\nsync\" from \"I silently read nothing\". Root cause: the terminal handler\nunconditionally reads through the row-level-security PROJECTED core (built by\n`GraphReadAuthority::project_core` / `build_projection`, which constructs its\ndetached copy via `add_node_no_ledger`/`add_edge_no_ledger` and therefore never\ncarries a ledger — see that function's own doc), even though `GetLedger` is\nauthorized by its own dedicated `ledger:read` RBAC action (`eg_capabilities`)\nenforced upstream in `dispatch.rs` before any handler runs at all — the row\nprojection was a redundant SECOND gate that, instead of narrowing visibility,\ndestroyed the data outright. Because `security` (and therefore\n`GraphReadAuthority::is_active()`) is compiled into the default `full` build,\nthis fired on every request in production, unconditionally.\n\n`populated: true` means `entries` reflects the graph's REAL, authoritative\nledger (however many entries — legitimately empty when nothing has mutated\nsince the last flush/clear: that is a genuine `[]`, not a lie). `populated:\nfalse` means the ledger could not be read for this request's scope; `entries`\nis always empty in that case and callers MUST NOT treat it as \"nothing to\nsync\". Any future call site that cannot certify it is reading the\nauthoritative (non-projected) core must answer `not_populated_for_scope()`\nexplicitly rather than silently returning a `populated: true` empty list —\nthat explicit branch is what stops this exact regression from shipping silent\na second time.",
       "properties": {
@@ -312,6 +1215,57 @@
         "populated",
         "entries",
         "watermark"
+      ],
+      "type": "object"
+    },
+    "LocalFallback": {
+      "description": "Which local credentials still sign in while the mode is `external`.",
+      "oneOf": [
+        {
+          "enum": [
+            "off",
+            "full"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "break_glass",
+          "description": "Administrators only (the break-glass account).",
+          "type": "string"
+        }
+      ]
+    },
+    "MappingRule": {
+      "additionalProperties": false,
+      "description": "One ordered claim → role/group mapping rule. The target is `role:<id>` or\n`group:<id>`; a rule reaching an approver- or admin-class scope must be\nmarked `privileged`.",
+      "properties": {
+        "claim_path": {
+          "type": "string"
+        },
+        "match_kind": {
+          "description": "`equals`, `prefix` or `regex`.",
+          "type": "string"
+        },
+        "privileged": {
+          "default": false,
+          "type": "boolean"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "claim_path",
+        "match_kind",
+        "value",
+        "target"
       ],
       "type": "object"
     },
@@ -394,6 +1348,91 @@
       ],
       "type": "string"
     },
+    "PrincipalResolution": {
+      "additionalProperties": false,
+      "description": "What the local issuer puts in a principal's token.",
+      "properties": {
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "is_bootstrap": {
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/UserKind"
+        },
+        "mfa_enrolled": {
+          "type": "boolean"
+        },
+        "mfa_required": {
+          "description": "A group this principal belongs to requires a second factor.",
+          "type": "boolean"
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "scopes": {
+          "description": "Registered scopes only; an unregistered scope on a role is dropped.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "session_mfa_pending": {
+          "default": false,
+          "description": "Set by `resolve_session`: the session still owes its second factor.",
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/UserStatus"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal_id",
+        "username",
+        "kind",
+        "status",
+        "is_bootstrap",
+        "roles",
+        "groups",
+        "scopes",
+        "mfa_required",
+        "mfa_enrolled"
+      ],
+      "type": "object"
+    },
+    "ProvisionedUser": {
+      "additionalProperties": false,
+      "description": "One linked subject and its principal.",
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "user": {
+          "$ref": "#/$defs/UserView"
+        }
+      },
+      "required": [
+        "subject",
+        "user"
+      ],
+      "type": "object"
+    },
     "RbacAction": {
       "description": "An action a grant permits or denies over a resource (CONCEPT:EG-KG.compute.feature).",
       "enum": [
@@ -435,6 +1474,37 @@
         "roles",
         "grants"
       ],
+      "type": "object"
+    },
+    "RegistrationPolicy": {
+      "description": "Who may create an account.",
+      "oneOf": [
+        {
+          "enum": [
+            "open",
+            "invite",
+            "disabled"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "admin_only",
+          "description": "Operator ruling 2026-09-24: the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "ResetDelivery": {
+      "additionalProperties": false,
+      "description": "Where a self-service reset link goes (`None`: nowhere, uniformly).",
+      "properties": {
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "ResourceSelector": {
@@ -504,6 +1574,273 @@
         "name"
       ],
       "type": "object"
+    },
+    "RoleGraphGrant": {
+      "additionalProperties": false,
+      "description": "One graph grant of a role, projected into the RBAC image under the role\n`idm:<role_id>`.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/RbacAction"
+        },
+        "effect": {
+          "$ref": "#/$defs/GrantEffect"
+        },
+        "resource": {
+          "$ref": "#/$defs/ResourceSelector"
+        }
+      },
+      "required": [
+        "resource",
+        "action",
+        "effect"
+      ],
+      "type": "object"
+    },
+    "RoleRecord": {
+      "additionalProperties": false,
+      "description": "A role: a named set of registry scopes plus graph grants projected into\nthe RBAC image as role `idm:<role_id>`.",
+      "properties": {
+        "builtin": {
+          "default": false,
+          "type": "boolean"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "graph_grants": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RoleGraphGrant"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role_id": {
+          "type": "string"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "role_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "SessionView": {
+      "additionalProperties": false,
+      "description": "A session without its id or id hash. `handle` is a short, one-way\nprefix an operator can use to tell sessions apart.",
+      "properties": {
+        "absolute_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "auth_methods": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "handle": {
+          "type": "string"
+        },
+        "idle_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ip_prefix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_seen_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mfa_pending": {
+          "type": "boolean"
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "revoked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "handle",
+        "principal_id",
+        "created_at_ms",
+        "last_seen_at_ms",
+        "idle_expires_at_ms",
+        "absolute_expires_at_ms",
+        "auth_methods",
+        "mfa_pending",
+        "revoked"
+      ],
+      "type": "object"
+    },
+    "UserKind": {
+      "description": "Whether a principal is a person or a workload.",
+      "enum": [
+        "human",
+        "service"
+      ],
+      "type": "string"
+    },
+    "UserStatus": {
+      "description": "A principal's lifecycle state. Nothing is ever deleted: a deprovisioned\nprincipal keeps its id, links and owned data, and holds no authority.",
+      "oneOf": [
+        {
+          "enum": [
+            "active",
+            "disabled",
+            "pending_verification",
+            "deprovisioned"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "pending_reset",
+          "description": "Must set a new password (admin reset, or local mode entered without a\ncredential) before any session is issued.",
+          "type": "string"
+        }
+      ]
+    },
+    "UserView": {
+      "additionalProperties": false,
+      "description": "A principal without credentials.",
+      "properties": {
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "display_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "has_password": {
+          "type": "boolean"
+        },
+        "is_bootstrap": {
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/UserKind"
+        },
+        "last_login_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "recovery_codes_left": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/UserStatus"
+        },
+        "totp_enrolled": {
+          "type": "boolean"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal_id",
+        "username",
+        "kind",
+        "status",
+        "is_bootstrap",
+        "source",
+        "roles",
+        "has_password",
+        "totp_enrolled",
+        "recovery_codes_left",
+        "created_at_ms"
+      ],
+      "type": "object"
+    },
+    "WebauthnCredentialView": {
+      "additionalProperties": false,
+      "description": "A WebAuthn credential as the broker needs it to verify an assertion.",
+      "properties": {
+        "credential_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "public_key_cose": {
+          "type": "string"
+        },
+        "sign_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "transports": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "credential_id",
+        "public_key_cose",
+        "sign_count",
+        "transports",
+        "name"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -558,6 +1895,68 @@
           "encoding": "Json",
           "schema": {
             "$ref": "#/$defs/LedgerReadResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GovernedChange": {
+      "bodies": {
+        "approve": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GovernedChange"
+          }
+        },
+        "get": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/GovernedChange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "list": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/GovernedChange"
+            },
+            "type": "array"
+          }
+        },
+        "propose": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GovernedChange"
+          }
+        },
+        "revoke": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GovernedChange"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "Identity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/IdentityReply"
           }
         }
       },

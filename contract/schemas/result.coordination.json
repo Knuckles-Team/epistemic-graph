@@ -822,6 +822,17 @@
         "resource_class": {
           "$ref": "#/$defs/CapacityResourceClass"
         },
+        "throttle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CapacityThrottle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "EH-406: the optional error-budget throttle. Its `ceiling` gates new\nadmissions and never exceeds `capacity`; automatic steps\n(`ThrottleCapacityCell`) move only the ceiling, and only the operator\n(`UpdateCapacityCell`) declares the policy or the capacity itself."
+        },
         "updated_at_ms": {
           "format": "uint64",
           "minimum": 0,
@@ -1113,6 +1124,125 @@
         "schema_version",
         "cells",
         "leases"
+      ],
+      "type": "object"
+    },
+    "CapacityThrottle": {
+      "additionalProperties": false,
+      "description": "A cell's throttle: the declared policy plus the state automatic steps own.",
+      "properties": {
+        "ceiling": {
+          "description": "The effective ceiling: never above the cell's declared `capacity`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "history": {
+          "items": {
+            "$ref": "#/$defs/ThrottleActionRecord"
+          },
+          "type": "array"
+        },
+        "last_change_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_window_end_ms": {
+          "description": "End of the newest window already counted; an older or equal window is\nrefused, so one sample can never be counted twice.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy": {
+          "$ref": "#/$defs/CapacityThrottlePolicy"
+        }
+      },
+      "required": [
+        "policy",
+        "ceiling",
+        "last_change_at_ms",
+        "last_window_end_ms",
+        "history"
+      ],
+      "type": "object"
+    },
+    "CapacityThrottlePolicy": {
+      "additionalProperties": false,
+      "description": "The operator-declared AIMD bounds of one cell.",
+      "properties": {
+        "cooldown_ms": {
+          "description": "Minimum time between two automatic ceiling changes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "decrease_per_mille": {
+          "description": "Multiplicative decrease factor, per mille (500 halves the ceiling).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error_budget_ppm": {
+          "description": "A window whose error rate is ABOVE this narrows the cell.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "floor": {
+          "description": "The lowest ceiling a narrowing may reach. At least 1, so a narrowed\ncell still admits the traffic that produces recovery evidence.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "increase_step": {
+          "description": "Additive increase per healthy window.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_samples": {
+          "description": "A window with fewer requests is no evidence either way.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recovery_ppm": {
+          "description": "A window whose error rate is AT OR BELOW this is recovery evidence.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "error_budget_ppm",
+        "recovery_ppm",
+        "min_samples",
+        "decrease_per_mille",
+        "increase_step",
+        "floor",
+        "cooldown_ms"
+      ],
+      "type": "object"
+    },
+    "CapacityThrottleResult": {
+      "additionalProperties": false,
+      "description": "Result of `ThrottleCapacityCell`: the cell as it now stands and the step.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ThrottleActionRecord"
+        },
+        "cell": {
+          "$ref": "#/$defs/CapacityCell"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "cell",
+        "action"
       ],
       "type": "object"
     },
@@ -7553,6 +7683,87 @@
       ],
       "type": "object"
     },
+    "ThrottleAction": {
+      "description": "What one throttle step did.",
+      "enum": [
+        "narrowed",
+        "recovered",
+        "held"
+      ],
+      "type": "string"
+    },
+    "ThrottleActionRecord": {
+      "additionalProperties": false,
+      "description": "One recorded throttle step.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ThrottleAction"
+        },
+        "at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error_ppm": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "errors": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "$ref": "#/$defs/ThrottleReason"
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window_end_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at_ms",
+        "action",
+        "reason",
+        "from",
+        "to",
+        "requests",
+        "errors",
+        "error_ppm",
+        "window_end_ms"
+      ],
+      "type": "object"
+    },
+    "ThrottleReason": {
+      "description": "Why a throttle step did what it did.",
+      "enum": [
+        "error_budget_exceeded",
+        "healthy_window",
+        "insufficient_samples",
+        "within_budget",
+        "cooling_down",
+        "at_floor",
+        "at_declared_ceiling"
+      ],
+      "type": "string"
+    },
     "TraceFidelity": {
       "description": "How complete the recorded trace is.",
       "oneOf": [
@@ -8923,6 +9134,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/SubmitWorkItemsResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ThrottleCapacityCell": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityThrottleResult"
           }
         }
       },

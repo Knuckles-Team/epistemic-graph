@@ -1058,6 +1058,24 @@ class AnomalyRow(BaseModel):
     is_anomaly: bool
 
 
+class ApiKeyIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key_id: str
+    principal_id: str
+    scopes: list[str]
+    secret: Secret
+    session_token: Secret
+    ttl_ms: Annotated[int, Field(ge=0)]
+
+
+class ApiKeyUse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key_id: str
+    secret: Secret
+
+
 class AsrOpTranscribeFile(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1177,6 +1195,39 @@ class AuditReport(BaseModel):
     ok: bool
 
 
+class AuthMode(str, Enum):
+    NONE = "none"
+    LOCAL = "local"
+    EXTERNAL = "external"
+
+
+class AuthenticateOutcome(str, Enum):
+    BAD = "bad"
+    OK = "ok"
+    THROTTLED = "throttled"
+    MFA_REQUIRED = "mfa_required"
+    MFA_ENROLLMENT_REQUIRED = "mfa_enrollment_required"
+    PASSWORD_CHANGE_REQUIRED = "password_change_required"
+
+
+class AuthenticateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ip_prefix: str | None = None
+    new_password: Secret | None = None
+    password: Secret
+    session_token: Secret
+    username: str
+
+
+class AuthenticateResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    outcome: AuthenticateOutcome
+    principal_id: str | None = None
+    retry_after_ms: Annotated[int, Field(ge=0)] | None = None
+
+
 class AuthorityContext(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1254,6 +1305,11 @@ class BeliefMaterialization(BaseModel):
 
     confidence: float
     node_id: str
+
+
+class BindingChange(str, Enum):
+    ADD = "add"
+    REMOVE = "remove"
 
 
 class BlobReference(BaseModel):
@@ -1430,6 +1486,7 @@ class CapacityCell(BaseModel):
     policy_digest: str
     reserved_floor: Annotated[int, Field(ge=0)]
     resource_class: CapacityResourceClass
+    throttle: CapacityThrottle | None = None
     updated_at_ms: Annotated[int, Field(ge=0)]
 
 
@@ -1573,6 +1630,45 @@ class CapacityStatusResult(BaseModel):
     cells: list[CapacityCell]
     leases: list[CapacityLease]
     next_cursor: str | None = None
+    schema_version: NativeControlSchemaVersion
+
+
+class CapacityThrottle(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ceiling: Annotated[int, Field(ge=0)]
+    history: list[ThrottleActionRecord]
+    last_change_at_ms: Annotated[int, Field(ge=0)]
+    last_window_end_ms: Annotated[int, Field(ge=0)]
+    policy: CapacityThrottlePolicy
+
+
+class CapacityThrottlePolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cooldown_ms: Annotated[int, Field(ge=0)]
+    decrease_per_mille: Annotated[int, Field(ge=0)]
+    error_budget_ppm: Annotated[int, Field(ge=0)]
+    floor: Annotated[int, Field(ge=0)]
+    increase_step: Annotated[int, Field(ge=0)]
+    min_samples: Annotated[int, Field(ge=0)]
+    recovery_ppm: Annotated[int, Field(ge=0)]
+
+
+class CapacityThrottleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cell_id: str
+    now_ms: Annotated[int, Field(ge=0)]
+    sample: ErrorBudgetSample
+    schema_version: NativeControlSchemaVersion
+
+
+class CapacityThrottleResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    action: ThrottleActionRecord
+    cell: CapacityCell
     schema_version: NativeControlSchemaVersion
 
 
@@ -2846,6 +2942,20 @@ class CoverageDerivation(BaseModel):
     required: str
 
 
+class CreateUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    display_name: str | None = None
+    email: str | None = None
+    groups: list[str] = Field(default_factory=list)
+    kind: UserKind
+    must_change: bool | None = None
+    password: Secret | None = None
+    principal_id: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    username: str
+
+
 class CrossEntropyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4102,6 +4212,34 @@ class DirectlyFollowsRow(BaseModel):
     to: str
 
 
+class DirectoryGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    display_name: str
+    external_id: str | None = None
+    group_id: str
+    idp_id: str
+    members: list[str] = Field(default_factory=list)
+
+
+class DirectoryGroupQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after: str | None = None
+    display_name: str | None = None
+    external_id: str | None = None
+    group_id: str | None = None
+    idp_id: str
+    limit: Annotated[int, Field(ge=0)]
+
+
+class DirectoryGroupRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    group_id: str
+    idp_id: str
+
+
 class DisclosureLevelWire(str, Enum):
     FULL = "Full"
     SKELETON = "Skeleton"
@@ -4277,6 +4415,79 @@ EdgeSource = Annotated[
 ]
 
 
+class ElevationAction(str, Enum):
+    READ = "read"
+    WRITE = "write"
+
+
+class ElevationActor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    agent_id: str
+    delegation: ElevationDelegation
+    parties: list[str]
+    standing: ElevationStanding
+
+
+class ElevationApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    elevation_id: str
+    request_digest: str
+
+
+class ElevationDelegation(str, Enum):
+    DIRECT = "direct"
+    DELEGATED = "delegated"
+
+
+class ElevationLease(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approved_at_ms: Annotated[int, Field(ge=0)] | None = None
+    approver_parties: list[str]
+    elevation_id: str
+    ended_at_ms: Annotated[int, Field(ge=0)] | None = None
+    grantee: str
+    hard_expires_at_ms: Annotated[int, Field(ge=0)] | None = None
+    justification: str
+    kind: str
+    request_digest: str
+    requested_at_ms: Annotated[int, Field(ge=0)]
+    requester_parties: list[str]
+    revision: Annotated[int, Field(ge=0)]
+    scopes: list[ElevationScope]
+    span_ms: Annotated[int, Field(ge=0)]
+    status: ElevationStatus
+
+
+class ElevationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    elevation_id: str
+    justification: str
+    scopes: list[ElevationScope]
+    span_ms: Annotated[int, Field(ge=0)]
+
+
+class ElevationRevoke(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    elevation_id: str
+
+
+class ElevationScope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    action: ElevationAction
+    graph: str
+
+
+class ElevationStanding(str, Enum):
+    REQUESTER = "requester"
+    APPROVER = "approver"
+
+
 class Elimination(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4353,6 +4564,14 @@ class EpistemicStatusWire(BaseModel):
     valid_time: EpistemicStatusWireValidTime | None = None
     what_would_invalidate: MinimalFlipSetWire | None = None
     why_not: WhyNotWire | None = None
+
+
+class ErrorBudgetSample(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    errors: Annotated[int, Field(ge=0)]
+    requests: Annotated[int, Field(ge=0)]
+    window_end_ms: Annotated[int, Field(ge=0)]
 
 
 class EstimatorParams(BaseModel):
@@ -4724,6 +4943,17 @@ class ExplorationRecord(BaseModel):
     budget_digest: str
     revealed_seed: str | None = None
     seed_commitment: str
+
+
+class ExternalLogin(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    claims: dict[str, list[str]] | None = None
+    idp_id: str
+    ip_prefix: str | None = None
+    session_token: Secret
+    subject: str
+    username_hint: str | None = None
 
 
 class ExtractedEdge(BaseModel):
@@ -5477,6 +5707,105 @@ class FuseStream(BaseModel):
     layer: str
 
 
+class GovernedActor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    agent_id: str
+    delegated: bool
+    parties: list[str]
+    scopes: list[str]
+
+
+class GovernedApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    digest: str
+
+
+class GovernedChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approved_until_ms: Annotated[int, Field(ge=0)] | None = None
+    approver: str | None = None
+    change_id: str
+    digest: str
+    ended_at_ms: Annotated[int, Field(ge=0)] | None = None
+    justification: str
+    kind: str
+    proposal_expires_at_ms: Annotated[int, Field(ge=0)]
+    proposed_at_ms: Annotated[int, Field(ge=0)]
+    proposer: str
+    proposer_parties: list[str]
+    status: GovernedStatus
+    target: str
+    window_ms: Annotated[int, Field(ge=0)]
+
+
+class GovernedChangeOpPropose(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["propose"]
+    request: GovernedProposal
+
+
+class GovernedChangeOpApprove(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["approve"]
+    request: GovernedApproval
+
+
+class GovernedChangeOpRevoke(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    op: Literal["revoke"]
+
+
+class GovernedChangeOpGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    op: Literal["get"]
+
+
+class GovernedChangeOpList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["list"]
+
+
+GovernedChangeOp = Annotated[
+    GovernedChangeOpPropose
+    | GovernedChangeOpApprove
+    | GovernedChangeOpRevoke
+    | GovernedChangeOpGet
+    | GovernedChangeOpList,
+    Field(discriminator="op"),
+]
+
+
+class GovernedProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    digest: str
+    justification: str
+    kind: str
+    proposal_ttl_ms: Annotated[int, Field(ge=0)]
+    target: str
+    window_ms: Annotated[int, Field(ge=0)]
+
+
+class GovernedStatus(str, Enum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    CONSUMED = "consumed"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
 class Grant(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5669,6 +5998,26 @@ class GraphlearnPrediction(BaseModel):
     predicted: list[PredictedLink]
 
 
+class GroupMembershipChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change: BindingChange
+    group_id: str
+    principal_id: str
+
+
+class GroupRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    builtin: bool | None = None
+    group_id: str
+    members: dict[str, str] | None = None
+    mfa_required: bool | None = None
+    name: str
+    roles: list[str] = Field(default_factory=list)
+    source: str
+
+
 class GroupReshardResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5676,6 +6025,15 @@ class GroupReshardResult(BaseModel):
     graph: str
     nodes_transferred: Annotated[int, Field(ge=0)]
     to_group: Annotated[int, Field(ge=0)]
+
+
+class GroupUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    group_id: str
+    mfa_required: bool | None = None
+    name: str
+    roles: list[str] = Field(default_factory=list)
 
 
 class GrpoResult(BaseModel):
@@ -5750,6 +6108,301 @@ class IdempotentPublish(BaseModel):
     confirmed: bool
     delivered: Annotated[int, Field(ge=0)]
     duplicate: bool
+
+
+class IdentityActor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    delegated: bool
+    principal_id: str
+    scopes: list[str]
+
+
+class IdentityAuditEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actor: str
+    at_ms: Annotated[int, Field(ge=0)]
+    chain: str
+    detail: str | None = None
+    event: IdentityEvent
+    ip_prefix: str | None = None
+    prev: str
+    seq: Annotated[int, Field(ge=0)]
+    target: str | None = None
+
+
+class IdentityConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    absolute_ms: Annotated[int, Field(ge=0)]
+    epoch: Annotated[int, Field(ge=0)]
+    idle_ms: Annotated[int, Field(ge=0)]
+    initialized_at_ms: Annotated[int, Field(ge=0)]
+    issuer_kid_current: str | None = None
+    local_fallback: LocalFallback
+    mode: AuthMode
+    password_min_chars: Annotated[int, Field(ge=0)]
+    privileged_absolute_ms: Annotated[int, Field(ge=0)]
+    privileged_idle_ms: Annotated[int, Field(ge=0)]
+    registration_policy: RegistrationPolicy
+
+
+class IdentityOpConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+
+
+class IdentityOpUser(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["user"]
+
+
+class IdentityOpCredential(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+
+
+class IdentityOpSession(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["session"]
+
+
+class IdentityOpToken(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["token"]
+
+
+class IdentityOpMfa(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+
+
+class IdentityOpAccess(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+
+
+class IdentityOpIdp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+
+
+IdentityOp = Annotated[
+    IdentityOpConfig
+    | IdentityOpUser
+    | IdentityOpCredential
+    | IdentityOpSession
+    | IdentityOpToken
+    | IdentityOpMfa
+    | IdentityOpAccess
+    | IdentityOpIdp,
+    Field(discriminator="family"),
+]
+
+
+class IdentityReplyDone(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["done"]
+    value: IdentityReplyDoneValue
+
+
+class IdentityReplyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["config"]
+    value: IdentityConfig
+
+
+class IdentityReplyPrincipal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["principal"]
+    value: IdentityReplyPrincipalValue
+
+
+class IdentityReplyUser(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["user"]
+    value: UserView
+
+
+class IdentityReplyUsers(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["users"]
+    value: list[UserView]
+
+
+class IdentityReplyResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["resolution"]
+    value: PrincipalResolution
+
+
+class IdentityReplyAuthenticate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["authenticate"]
+    value: AuthenticateResult
+
+
+class IdentityReplySessions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["sessions"]
+    value: list[SessionView]
+
+
+class IdentityReplyRoles(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["roles"]
+    value: list[RoleRecord]
+
+
+class IdentityReplyGroups(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["groups"]
+    value: list[GroupRecord]
+
+
+class IdentityReplyIdps(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["idps"]
+    value: list[IdpConfig]
+
+
+class IdentityReplyAudit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["audit"]
+    value: list[IdentityAuditEntry]
+
+
+class IdentityReplySql(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["sql"]
+    value: str
+
+
+class IdentityReplyProvisioned(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["provisioned"]
+    value: list[ProvisionedUser]
+
+
+class IdentityReplyDirectoryGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["directory_group"]
+    value: DirectoryGroup
+
+
+class IdentityReplyDirectoryGroups(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["directory_groups"]
+    value: list[DirectoryGroup]
+
+
+class IdentityReplyWebauthnCredentials(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["webauthn_credentials"]
+    value: list[WebauthnCredentialView]
+
+
+class IdentityReplyResetDelivery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["reset_delivery"]
+    value: ResetDelivery
+
+
+IdentityReply = Annotated[
+    IdentityReplyDone
+    | IdentityReplyConfig
+    | IdentityReplyPrincipal
+    | IdentityReplyUser
+    | IdentityReplyUsers
+    | IdentityReplyResolution
+    | IdentityReplyAuthenticate
+    | IdentityReplySessions
+    | IdentityReplyRoles
+    | IdentityReplyGroups
+    | IdentityReplyIdps
+    | IdentityReplyAudit
+    | IdentityReplySql
+    | IdentityReplyProvisioned
+    | IdentityReplyDirectoryGroup
+    | IdentityReplyDirectoryGroups
+    | IdentityReplyWebauthnCredentials
+    | IdentityReplyResetDelivery,
+    Field(discriminator="kind"),
+]
+
+
+class IdentityReplyDoneValue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed: bool
+
+
+class IdentityReplyPrincipalValue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    principal_id: str
+
+
+class IdentityStamp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actor: IdentityActor
+    engine_loopback: bool | None = None
+    minted_principal_id: str | None = None
+    password_check: PasswordCheck | None = None
+    password_hash: str | None = None
+    sealed_secret: str | None = None
+    token_hashes: list[str] = Field(default_factory=list)
+    totp_step: Annotated[int, Field(ge=0)] | None = None
+
+
+class IdpConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    config_json: str
+    display_name: str
+    email_domains: list[str] = Field(default_factory=list)
+    enabled: bool
+    idp_id: str
+    jit_policy: JitPolicy
+    kind: IdpKind
+    order: Annotated[int, Field(ge=0)] | None = None
+    rules: list[MappingRule] = Field(default_factory=list)
+    secret_ref: str | None = None
+
+
+class IdpKind(str, Enum):
+    OIDC = "oidc"
+    SAML = "saml"
+    LDAP = "ldap"
+    SCIM = "scim"
 
 
 class Incumbent(BaseModel):
@@ -5858,6 +6511,14 @@ class IndexTombstone(BaseModel):
     successor_path: str | None = None
 
 
+class InitializeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    admin_password: Secret | None = None
+    admin_username: str | None = None
+    mode: AuthMode
+
+
 class InputsBlob(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5912,6 +6573,12 @@ ItemLabel = Annotated[
     ItemLabelGold | ItemLabelLogged,
     Field(discriminator="label"),
 ]
+
+
+class JitPolicy(str, Enum):
+    DENY = "deny"
+    CREATE = "create"
+    LINK_BY_VERIFIED_EMAIL = "link_by_verified_email"
 
 
 class JobAlgoVersion(BaseModel):
@@ -6674,10 +7341,25 @@ class LinkPredictorFit(BaseModel):
     train_auc: float
 
 
+class LinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    idp_id: str
+    principal_id: str | None = None
+    subject: str
+
+
 class Linkage(str, Enum):
     SINGLE = "single"
     COMPLETE = "complete"
     AVERAGE = "average"
+
+
+class ListQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after: str | None = None
+    limit: Annotated[int, Field(ge=0)]
 
 
 class LoadReport(BaseModel):
@@ -6694,6 +7376,17 @@ class MaintenanceEnvelope(BaseModel):
     maintenance_key: str
     serving_principal: str
     subject: str
+
+
+class MappingRule(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    claim_path: str
+    match_kind: str
+    privileged: bool | None = None
+    rule_id: str
+    target: str
+    value: str
 
 
 class MaterialClass(str, Enum):
@@ -6959,6 +7652,13 @@ class MethodUpdateCapacityCell(BaseModel):
 
     method: Literal["UpdateCapacityCell"]
     params: MethodUpdateCapacityCellParams
+
+
+class MethodThrottleCapacityCell(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ThrottleCapacityCell"]
+    params: MethodThrottleCapacityCellParams
 
 
 class MethodSubmitWorkItem(BaseModel):
@@ -8748,6 +9448,27 @@ class MethodRbacAdmin(BaseModel):
     params: MethodRbacAdminParams
 
 
+class MethodRbacElevation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["RbacElevation"]
+    params: MethodRbacElevationParams
+
+
+class MethodGovernedChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GovernedChange"]
+    params: MethodGovernedChangeParams
+
+
+class MethodIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["Identity"]
+    params: MethodIdentityParams
+
+
 class MethodApplyMultisigMutation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -9827,6 +10548,7 @@ Method = Annotated[
     | MethodReconcileCapacity
     | MethodCapacityStatus
     | MethodUpdateCapacityCell
+    | MethodThrottleCapacityCell
     | MethodSubmitWorkItem
     | MethodAgentLibrary
     | MethodAgentGraph
@@ -10086,6 +10808,9 @@ Method = Annotated[
     | MethodRegisterIdentity
     | MethodGetIdentity
     | MethodRbacAdmin
+    | MethodRbacElevation
+    | MethodGovernedChange
+    | MethodIdentity
     | MethodApplyMultisigMutation
     | MethodAnalyticsJob
     | MethodStatechart
@@ -11864,6 +12589,13 @@ class MethodGetWorkItemParams(BaseModel):
     work_item_id: str
 
 
+class MethodGovernedChangeParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actor: GovernedActor | None = None
+    op: GovernedChangeOp
+
+
 class MethodGraphLearnFitParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11922,6 +12654,13 @@ class MethodIcvConfigureParams(BaseModel):
     graph: str | None = None
     mode: str
     shapes: str
+
+
+class MethodIdentityParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: IdentityOp
+    stamp: IdentityStamp | None = None
 
 
 class MethodImportSqliteFileParams(BaseModel):
@@ -12592,6 +13331,13 @@ class MethodRbacAdminParams(BaseModel):
     op: RbacAdminOp
 
 
+class MethodRbacElevationParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actor: ElevationActor | None = None
+    op: RbacElevationOp
+
+
 class MethodReadContinuousQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13081,6 +13827,12 @@ class MethodSweepExpiredParams(BaseModel):
     now_ms: Annotated[int, Field(ge=0)]
 
 
+class MethodThrottleCapacityCellParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: CapacityThrottleRequest
+
+
 class MethodTouchNodesParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13407,6 +14159,16 @@ class ModalityFacts(BaseModel):
     output: list[str] = Field(default_factory=list)
 
 
+class ModeTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ack: str | None = None
+    expected_epoch: Annotated[int, Field(ge=0)]
+    issuer_kid: str
+    local_fallback: LocalFallback | None = None
+    to: AuthMode
+
+
 class ModelSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13716,6 +14478,12 @@ class ObdaExternalSource(BaseModel):
     table: str
 
 
+class ObjectRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    id: str
+
+
 class ObjectiveLevelKind(str, Enum):
     UNCOVERED = "uncovered"
     COMPONENTS = "components"
@@ -13769,6 +14537,16 @@ class ObservationRef(BaseModel):
 
     digest: str
     evaluation_id: str
+
+
+class OneTimeTokenIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    principal_id: str | None = None
+    purpose: TokenPurpose
+    session_token: Secret
+    token: Secret
+    ttl_ms: Annotated[int, Field(ge=0)]
 
 
 class OntologyGapMiningResult(BaseModel):
@@ -14833,6 +15611,37 @@ class ParseResult(BaseModel):
     symbols_extracted: Annotated[int, Field(ge=0)]
 
 
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current: Secret
+    new: Secret
+
+
+class PasswordCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    matched: bool
+    principal_id: str | None = None
+    rehash: str | None = None
+
+
+class PasswordResetIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    token: Secret
+    ttl_ms: Annotated[int, Field(ge=0)]
+    username: str
+
+
+class PasswordSet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    must_change: bool | None = None
+    password: Secret
+    principal_id: str
+
+
 class PatternEdge(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15038,6 +15847,15 @@ class PolicyRecord(BaseModel):
     retention_policy: str | None = None
     subject_set_digest: str
     tenant: str
+
+
+class PolicyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_epoch: Annotated[int, Field(ge=0)]
+    local_fallback: LocalFallback | None = None
+    password_min_chars: Annotated[int, Field(ge=0)] | None = None
+    registration_policy: RegistrationPolicy | None = None
 
 
 class PooledRate(BaseModel):
@@ -15343,6 +16161,22 @@ PriceSource = Annotated[
 ]
 
 
+class PrincipalResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    groups: list[str]
+    is_bootstrap: bool
+    kind: UserKind
+    mfa_enrolled: bool
+    mfa_required: bool
+    principal_id: str
+    roles: list[str]
+    scopes: list[str]
+    session_mfa_pending: bool | None = None
+    status: UserStatus
+    username: str
+
+
 class PrivacyAttestation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15478,6 +16312,36 @@ class ProofNodeWire(BaseModel):
 class PropensitySource(str, Enum):
     EXECUTED_POLICY = "executed_policy"
     HEAD_MASS = "head_mass"
+
+
+class ProvisionSubject(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active: bool
+    claims: dict[str, list[str]] | None = None
+    display_name: str | None = None
+    email: str | None = None
+    idp_id: str
+    subject: str
+    username: str
+
+
+class ProvisionedQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after: str | None = None
+    idp_id: str
+    limit: Annotated[int, Field(ge=0)]
+    principal_id: str | None = None
+    subject: str | None = None
+    username: str | None = None
+
+
+class ProvisionedUser(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    subject: str
+    user: UserView
 
 
 class PruneStats(BaseModel):
@@ -15755,6 +16619,42 @@ class RbacAdminOpRemoveRole(BaseModel):
     RemoveRole: str
 
 
+class RbacElevationOpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["request"]
+    request: ElevationRequest
+
+
+class RbacElevationOpApprove(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["approve"]
+    request: ElevationApproval
+
+
+class RbacElevationOpRevoke(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["revoke"]
+    request: ElevationRevoke
+
+
+class RbacElevationOpList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["list"]
+
+
+RbacElevationOp = Annotated[
+    RbacElevationOpRequest
+    | RbacElevationOpApprove
+    | RbacElevationOpRevoke
+    | RbacElevationOpList,
+    Field(discriminator="op"),
+]
+
+
 class RbacGrantRemoval(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15884,6 +16784,13 @@ class RecordWindow(BaseModel):
 
     from_ms: Annotated[int, Field(ge=0)]
     to_ms: Annotated[int, Field(ge=0)]
+
+
+class RecoveryCodesSet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    codes: list[Secret]
+    session_token: Secret
 
 
 class RecoveryStoreCounts(BaseModel):
@@ -16051,6 +16958,12 @@ class RequestContextClaims(BaseModel):
 
 class RequestContextSchemaVersion(str, Enum):
     V_2 = "2"
+
+
+class ResetDelivery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    email: str | None = None
 
 
 class ResolutionKind(str, Enum):
@@ -16685,6 +17598,35 @@ class Role(BaseModel):
 
     name: str
     parents: list[str] = Field(default_factory=list)
+
+
+class RoleGraphGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    action: RbacAction
+    effect: GrantEffect
+    resource: ResourceSelector
+
+
+class RoleRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    builtin: bool | None = None
+    description: str | None = None
+    graph_grants: list[RoleGraphGrant] = Field(default_factory=list)
+    name: str
+    role_id: str
+    scopes: list[str] = Field(default_factory=list)
+
+
+class RoleUpsert(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    description: str | None = None
+    graph_grants: list[RoleGraphGrant] = Field(default_factory=list)
+    name: str
+    role_id: str
+    scopes: list[str] = Field(default_factory=list)
 
 
 class RootCauseCandidateRow(BaseModel):
@@ -18156,6 +19098,28 @@ class ServerTransport(str, Enum):
     HTTP = "http"
 
 
+class SessionTouch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Secret | None = None
+    session_token: Secret
+
+
+class SessionView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    absolute_expires_at_ms: Annotated[int, Field(ge=0)]
+    auth_methods: list[str]
+    created_at_ms: Annotated[int, Field(ge=0)]
+    handle: str
+    idle_expires_at_ms: Annotated[int, Field(ge=0)]
+    ip_prefix: str | None = None
+    last_seen_at_ms: Annotated[int, Field(ge=0)]
+    mfa_pending: bool
+    principal_id: str
+    revoked: bool
+
+
 class ShaclSeverity(str, Enum):
     VIOLATION = "Violation"
     WARNING = "Warning"
@@ -18713,6 +19677,12 @@ class SqlColumnRef(BaseModel):
     column_id: str
     schema_id: str
     table_id: str
+
+
+class SqlDump(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    sql: str
 
 
 class SqlSourceBatch(BaseModel):
@@ -19467,6 +20437,36 @@ class TextSource(BaseModel):
     node_label: str
 
 
+class ThrottleAction(str, Enum):
+    NARROWED = "narrowed"
+    RECOVERED = "recovered"
+    HELD = "held"
+
+
+class ThrottleActionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    action: ThrottleAction
+    at_ms: Annotated[int, Field(ge=0)]
+    error_ppm: Annotated[int, Field(ge=0)]
+    errors: Annotated[int, Field(ge=0)]
+    from_: Annotated[int, Field(ge=0)] = Field(..., alias="from")
+    reason: ThrottleReason
+    requests: Annotated[int, Field(ge=0)]
+    to: Annotated[int, Field(ge=0)]
+    window_end_ms: Annotated[int, Field(ge=0)]
+
+
+class ThrottleReason(str, Enum):
+    ERROR_BUDGET_EXCEEDED = "error_budget_exceeded"
+    HEALTHY_WINDOW = "healthy_window"
+    INSUFFICIENT_SAMPLES = "insufficient_samples"
+    WITHIN_BUDGET = "within_budget"
+    COOLING_DOWN = "cooling_down"
+    AT_FLOOR = "at_floor"
+    AT_DECLARED_CEILING = "at_declared_ceiling"
+
+
 class TimeAxis(str, Enum):
     VALID = "Valid"
     TRANSACTION = "Transaction"
@@ -19479,6 +20479,23 @@ class TimeSeriesWindowRef(BaseModel):
     source_revision: str
     window_end: str
     window_start: str
+
+
+class TokenPurpose(str, Enum):
+    PASSWORD_RESET = "password_reset"
+    EMAIL_VERIFY = "email_verify"
+    INVITE = "invite"
+    LINK_CLAIM = "link_claim"
+    ADMIN_RESET = "admin_reset"
+
+
+class TokenRedeem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    link: LinkRequest | None = None
+    new_password: Secret | None = None
+    purpose: TokenPurpose
+    token: Secret
 
 
 class ToolEffect(str, Enum):
@@ -19497,6 +20514,13 @@ class TopicTerms(BaseModel):
 
     terms: list[TermWeight]
     topic_id: Annotated[int, Field(ge=0)]
+
+
+class TotpEnroll(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    secret_base32: Secret
+    session_token: Secret
 
 
 class TraceFidelityFullStep(BaseModel):
@@ -19643,6 +20667,54 @@ class UnitRationalWire(BaseModel):
 class UnknownCostRule(str, Enum):
     EXCLUDE_WHEN_STRICT = "exclude_when_strict"
     RANK_BELOW_KNOWN = "rank_below_known"
+
+
+class UserKind(str, Enum):
+    HUMAN = "human"
+    SERVICE = "service"
+
+
+class UserRoleChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change: BindingChange
+    principal_id: str
+    role_id: str
+
+
+class UserStatusChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    principal_id: str
+    status: UserStatus
+
+
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    display_name: str | None = None
+    email: str | None = None
+    principal_id: str
+    username: str | None = None
+
+
+class UserView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    created_at_ms: Annotated[int, Field(ge=0)]
+    display_name: str | None = None
+    email: str | None = None
+    has_password: bool
+    is_bootstrap: bool
+    kind: UserKind
+    last_login_at_ms: Annotated[int, Field(ge=0)] | None = None
+    principal_id: str
+    recovery_codes_left: Annotated[int, Field(ge=0)]
+    roles: list[str]
+    source: str
+    status: UserStatus
+    totp_enrolled: bool
+    username: str
 
 
 class VectorSource(BaseModel):
@@ -19939,6 +21011,36 @@ class WatchBatch(BaseModel):
     head_seq: Annotated[int, Field(ge=0)] | None = None
     next_seq: Annotated[int, Field(ge=0)]
     watermark: Annotated[int, Field(ge=0)] | None = None
+
+
+class WebauthnCredential(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    aaguid: str | None = None
+    credential_id: str
+    name: str
+    public_key_cose: str
+    session_token: Secret
+    sign_count: Annotated[int, Field(ge=0)]
+    transports: list[str] = Field(default_factory=list)
+
+
+class WebauthnCredentialView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    credential_id: str
+    name: str
+    public_key_cose: str
+    sign_count: Annotated[int, Field(ge=0)]
+    transports: list[str]
+
+
+class WebauthnUse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    credential_id: str
+    new_sign_count: Annotated[int, Field(ge=0)]
+    session_token: Secret
 
 
 class WeightedLevel(BaseModel):
@@ -20881,6 +21983,9 @@ DsSgdStepResult = list[float]
 DsSoftmaxResult = list[float]
 
 
+ElevationStatus = str | Literal["requested"] | Literal["active"]
+
+
 EpistemicStatusWireTxTimeItem0 = Annotated[int, Field(ge=0)] | None
 
 
@@ -21132,6 +22237,19 @@ GraphDiffEdgesRemovedItem = Annotated[
 HasNodesBatchResult = list[bool]
 
 
+IdentityEvent = (
+    str
+    | Literal["rbac_identity_registered"]
+    | Literal["rbac_policy_changed"]
+    | Literal["access_denied"]
+    | Literal["imported"]
+    | Literal["change_proposed"]
+    | Literal["user_provisioned"]
+    | Literal["mfa_removed"]
+    | Literal["password_reset_requested"]
+)
+
+
 IncarnationId = str
 
 
@@ -21182,6 +22300,9 @@ ListGraphsResult = list[GraphListing]
 
 
 ListTriggersResult = list[TriggerInfo]
+
+
+LocalFallback = str | Literal["break_glass"]
 
 
 LogicalName = str
@@ -21591,6 +22712,9 @@ RbacAdminOp = (
 )
 
 
+RegistrationPolicy = str | Literal["admin_only"]
+
+
 ResolveCandidatesResult = list[MergeProposal]
 
 
@@ -21621,6 +22745,9 @@ Scalar = str
 
 
 ScopeTenantId = str
+
+
+Secret = str
 
 
 SemanticDigest = Annotated[
@@ -21963,6 +23090,9 @@ UnifiedQueryTextResultValueItem = Annotated[
 
 
 UnifiedQueryTextResult = list[UnifiedQueryTextResultValueItem]
+
+
+UserStatus = str | Literal["pending_reset"]
 
 
 VarId = Annotated[int, Field(ge=0)]

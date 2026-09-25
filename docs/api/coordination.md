@@ -1,6 +1,6 @@
 # Coordination API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 45 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 46 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AcquireCapacity`
 
@@ -1378,6 +1378,39 @@ bounded all-or-nothing WorkItem admission batch
 | `result` | `SubmitWorkItemsResult` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/SubmitWorkItems`, `contract/schemas/result.coordination.json#/methods/SubmitWorkItems`.
+
+## `ThrottleCapacityCell`
+
+EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell)
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `capacity:throttle` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `false` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `CapacityThrottleRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `CapacityThrottleResult` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/ThrottleCapacityCell`, `contract/schemas/result.coordination.json#/methods/ThrottleCapacityCell`.
 
 ## `TransitionControlLease`
 

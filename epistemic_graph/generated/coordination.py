@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     ReconcileCapacityRequest = _models.MethodReconcileCapacityParams
     CapacityStatusRequest = _models.MethodCapacityStatusParams
     UpdateCapacityCellRequest = _models.MethodUpdateCapacityCellParams
+    ThrottleCapacityCellRequest = _models.MethodThrottleCapacityCellParams
     KgDelegateRequest = _models.MethodKgDelegateParams
     SubmitWorkItemRequest = _models.MethodSubmitWorkItemParams
     SubmitWorkItemsRequest = _models.MethodSubmitWorkItemsParams
@@ -468,6 +469,55 @@ def decode_update_capacity_cell(
     """Validate this method's result against its contract model."""
     return decode_result(
         "UpdateCapacityCell", models().CapacityCellUpdateResult, result
+    )
+
+
+async def send_throttle_capacity_cell(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ThrottleCapacityCell
+    Authorization:
+        capacity:throttle
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/ThrottleCapacityCell
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodThrottleCapacityCellParams.model_validate(params or {})
+    payload = await client._send(
+        "ThrottleCapacityCell",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ThrottleCapacityCell", payload)
+
+
+def decode_throttle_capacity_cell(
+    result: OpaqueResult,
+) -> _models.CapacityThrottleResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ThrottleCapacityCell", models().CapacityThrottleResult, result
     )
 
 
@@ -2122,6 +2172,7 @@ _REQUEST_METHODS = frozenset(
         "ReconcileCapacity",
         "CapacityStatus",
         "UpdateCapacityCell",
+        "ThrottleCapacityCell",
         "KgDelegate",
         "SubmitWorkItem",
         "SubmitWorkItems",
