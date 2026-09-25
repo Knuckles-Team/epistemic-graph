@@ -36,6 +36,12 @@ _TYPED_OPERATION_SENDS = {
     "send_fleet_catalog_lookup",
     "send_fleet_catalog_record_discovery",
     "send_fleet_catalog_set_override",
+    "send_policy_evolution_commit_capture",
+    "send_policy_evolution_commit_policy_evaluation",
+    "send_policy_evolution_commit_training_run",
+    "send_policy_evolution_get",
+    "send_policy_evolution_put_capability",
+    "send_policy_evolution_register_model_policy_version",
 }
 
 
