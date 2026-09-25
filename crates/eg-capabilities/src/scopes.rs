@@ -203,6 +203,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("scene:write", User, "engine"),
     entry("security:admin", Admin, "engine"),
     entry("security:audit", Admin, "engine"),
+    entry("security:audit-write", User, "engine"),
     entry("security:bootstrap", ServiceOnly, "engine"),
     entry("security:check", ServiceOnly, "engine"),
     entry("semantic:binding-read", User, "engine"),

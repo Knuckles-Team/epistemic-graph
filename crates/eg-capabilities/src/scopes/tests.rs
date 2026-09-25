@@ -166,6 +166,9 @@ fn graph_os_scope_classes_and_owners_match_the_api_contract() {
 
 #[test]
 fn newly_exposed_engine_actions_have_least_privilege_classes() {
+    let audit_write = scope_entry("security:audit-write").expect("audit append scope is registered");
+    assert_eq!(audit_write.class, ScopeClass::User);
+    assert_eq!(audit_write.owner, "engine");
     for scope in [
         "gap:read",
         "gap:write",
