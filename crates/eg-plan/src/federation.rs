@@ -780,7 +780,7 @@ mod json_preflight_tests {
 
 #[cfg(feature = "federation-sql")]
 #[derive(Clone, Copy)]
-enum SqlDialect {
+pub(crate) enum SqlDialect {
     Postgres,
     MySql,
 }
@@ -790,7 +790,7 @@ enum SqlDialect {
 /// nested statement, and locking/`SELECT INTO` write-shaped queries are rejected.
 /// The database read-only transaction below remains the authoritative second layer.
 #[cfg(feature = "federation-sql")]
-fn validate_federated_sql(query: &str, dialect: SqlDialect) -> Result<(), String> {
+pub(crate) fn validate_federated_sql(query: &str, dialect: SqlDialect) -> Result<(), String> {
     use core::ops::ControlFlow;
     use sqlparser::ast::{Query, Select, Statement, Visit, Visitor};
     use sqlparser::dialect::{MySqlDialect, PostgreSqlDialect};
