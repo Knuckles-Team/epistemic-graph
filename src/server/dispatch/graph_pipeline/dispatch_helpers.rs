@@ -205,11 +205,13 @@ fn service_child_receipt(
     tenant: &str,
     created: bool,
 ) -> eg_types::result_contract::security::ServiceChildReceipt {
-    let state = match record.outcome {
-        crate::redb_store::service_child::ServiceChildOutcome::Reserved => "reserved",
-        crate::redb_store::service_child::ServiceChildOutcome::Succeeded { .. } => "succeeded",
-        crate::redb_store::service_child::ServiceChildOutcome::OutcomeUnknown { .. } => {
-            "outcome_unknown"
+    let (state, result_sha256, reason_code) = match record.outcome {
+        crate::redb_store::service_child::ServiceChildOutcome::Reserved => ("reserved", None, None),
+        crate::redb_store::service_child::ServiceChildOutcome::Succeeded { result_sha256 } => {
+            ("succeeded", Some(result_sha256), None)
+        }
+        crate::redb_store::service_child::ServiceChildOutcome::OutcomeUnknown { reason_code } => {
+            ("outcome_unknown", None, Some(reason_code))
         }
     };
     eg_types::result_contract::security::ServiceChildReceipt {
@@ -223,7 +225,44 @@ fn service_child_receipt(
         durable: true,
         created,
         state: state.to_string(),
+        result_sha256,
+        reason_code,
     }
+}
+
+#[cfg(feature = "security")]
+fn service_child_verified_binding(
+    asserted: crate::protocol::ServiceChildBinding,
+    context: &VerifiedRequestContext,
+    authority: &CarrierAuthority,
+) -> Result<crate::redb_store::service_child::ServiceChildBinding, &'static str> {
+    use sha2::{Digest, Sha256};
+    if asserted.tenant != context.tenant() || asserted.owner_principal != context.principal() {
+        return Err("SERVICE_CHILD_CARRIER_MISMATCH");
+    }
+    if asserted.policy_revision != context.claims().policy_version {
+        return Err("SERVICE_CHILD_POLICY_REVISION_MISMATCH");
+    }
+    let mut scopes = context.claims().scopes.clone();
+    scopes.sort();
+    let encoded = serde_json::to_vec(&scopes).map_err(|_| "SERVICE_CHILD_SCOPE_MISMATCH")?;
+    if asserted.scopes_sha256 != hex::encode(Sha256::digest(encoded)) {
+        return Err("SERVICE_CHILD_SCOPE_MISMATCH");
+    }
+    Ok(crate::redb_store::service_child::ServiceChildBinding {
+        tenant: authority.tenant_scope().to_string(),
+        owner_principal: authority.actor_scope().to_string(),
+        owner_ref: asserted.owner_ref,
+        server: asserted.server,
+        tool: asserted.tool,
+        subject_id: asserted.subject_id,
+        argument_sha256: asserted.argument_sha256,
+        audit_params_sha256: asserted.audit_params_sha256,
+        request_id: asserted.request_id,
+        policy_revision: asserted.policy_revision,
+        registry_revision: asserted.registry_revision,
+        scopes_sha256: asserted.scopes_sha256,
+    })
 }
 
 #[cfg(feature = "security")]
@@ -234,7 +273,7 @@ pub(super) async fn dispatch_op_service_child(
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     op: crate::protocol::ServiceChildOp,
 ) -> Response {
-    use crate::redb_store::service_child::{ServiceChildBinding, ServiceChildOutcome};
+    use crate::redb_store::service_child::ServiceChildOutcome;
     let authority = match CarrierAuthority::from_verified(verified_context) {
         Ok(authority) => authority,
         Err(error) => return Response::err(req_id, error),
@@ -253,23 +292,11 @@ pub(super) async fn dispatch_op_service_child(
     let tenant = verified_context.tenant();
     let result = match op {
         crate::protocol::ServiceChildOp::Reserve { binding, audit_ref } => {
-            if binding.tenant != tenant || binding.owner_principal != verified_context.principal() {
-                return Response::err(req_id, "SERVICE_CHILD_CARRIER_MISMATCH");
-            }
-            let binding = ServiceChildBinding {
-                tenant: authority.tenant_scope().to_string(),
-                owner_principal: authority.actor_scope().to_string(),
-                owner_ref: binding.owner_ref,
-                server: binding.server,
-                tool: binding.tool,
-                subject_id: binding.subject_id,
-                argument_sha256: binding.argument_sha256,
-                audit_params_sha256: binding.audit_params_sha256,
-                request_id: binding.request_id,
-                policy_revision: binding.policy_revision,
-                registry_revision: binding.registry_revision,
-                scopes_sha256: binding.scopes_sha256,
-            };
+            let binding =
+                match service_child_verified_binding(binding, verified_context, &authority) {
+                    Ok(binding) => binding,
+                    Err(error) => return Response::err(req_id, error),
+                };
             redb.service_child_reserve(
                 &graph,
                 binding,

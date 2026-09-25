@@ -62,6 +62,8 @@ pub struct ServiceChildReceipt {
     pub durable: bool,
     pub created: bool,
     pub state: String,
+    pub result_sha256: Option<String>,
+    pub reason_code: Option<String>,
 }
 
 /// Which side of its parent a Merkle audit-path sibling sits on (provenance
