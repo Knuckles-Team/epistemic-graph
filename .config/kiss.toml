@@ -23,14 +23,21 @@
 
 [global]
 min_similarity          = 0.9      # ON. 50 duplicate violations measured.
-orphan_module_enabled   = true     # ON here (unlike au): check_liveness.py does
-                                   # not run against this repo, so there is no
-                                   # competing definition. Measured: 1 orphan.
 duplication_enabled     = true
 comment_removal_enabled = false    # OFF PERMANENTLY -- see au config.
 docs_allowed            = ["./"]   # Neutralises `doc == 0` (default [] fires on
                                    # every /// in the tree).
 orphan_allowed          = []
+# kiss 0.4.11 moved orphan detection from [global] orphan_module_enabled
+# (now an UNKNOWN key: kiss silently drops the whole [global] table, which
+# re-enabled `doc == 0` on every /// -- 84k findings) to [test]
+# orphan_detection, enforced only by the coverage-linked `kiss test`.
+# `kiss check` no longer reports orphans; the compiler-derived
+# `orphan-modules` hook (scripts/check_orphan_modules.py) is the gate.
+# scripts/kiss_config_keys.py refuses any key kiss would drop a table for.
+
+[test]
+orphan_detection        = true     # was [global] orphan_module_enabled = true
 
 [rust]
 # ---- ON at final values -------------------------------------------------

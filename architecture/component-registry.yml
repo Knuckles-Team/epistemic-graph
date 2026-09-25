@@ -3914,6 +3914,7 @@ components:
       - "tests/test_inject_pyengine.py"
       - "tests/test_integration_baseline.py"
       - "tests/test_isolation.py"
+      - "tests/test_kiss_config_keys.py"
       - "tests/test_kiss_diff_scope.py"
       - "tests/test_kiss_fork.py"
       - "tests/test_kiss_hook_context.py"
