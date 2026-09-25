@@ -208,9 +208,13 @@ pub(super) fn foreign_scan(source: &ForeignSourceSpec, join: bool) -> Printed {
                 uql_quote(&field_map.id)
             ))
         }
-        ForeignSourceSpec::RemoteEngine { .. } | ForeignSourceSpec::Sql { .. } => Err(refuse(
+        ForeignSourceSpec::RemoteEngine { .. }
+        | ForeignSourceSpec::Sql { .. }
+        | ForeignSourceSpec::Trino { .. }
+        | ForeignSourceSpec::Cypher { .. }
+        | ForeignSourceSpec::SparkBatch { .. } => Err(refuse(
             UqlPrintCode::CredentialBearingSpec,
-            "a remote-engine or SQL foreign spec carries credentials; register it and use \
+            "a self-describing foreign spec may contain endpoint or artifact details; register it and use \
              FOREIGN SCAN '<name>'",
         )),
     }
