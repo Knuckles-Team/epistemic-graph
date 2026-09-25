@@ -208,7 +208,11 @@ async fn populate_served(state: &Arc<RwLock<ServerState>>, queue_status: &str) {
         let request =
             crate::server::auth::build_shared_test_request(SECRET, id, "ops", "system", method);
         let response = crate::server::auth::dispatch_test_on_heap(state, request).await;
-        assert!(response.error.is_none(), "fixture write: {:?}", response.error);
+        assert!(
+            response.error.is_none(),
+            "fixture write: {:?}",
+            response.error
+        );
     }
 }
 
