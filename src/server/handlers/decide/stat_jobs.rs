@@ -19,7 +19,7 @@ use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::agent_component::AgentComponentKind;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{DatasetSource, LabelRegime};
-use eg_types::decision::replay::{EvalMode, ReplaySpec};
+use eg_types::decision::replay::{EvalMode, EvaluationRun, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
 use eg_types::decision::statistical::dataset::LabelledDataset;
 use eg_types::decision::statistical::features::FeatureSchemaBody;
@@ -310,6 +310,15 @@ fn eval_inputs(
 ) -> Result<EvalInputs, String> {
     let head = candidate_head(store, &request.tenant_id, &request.candidate)?;
     let dataset = resolve_dataset(store, reader, &request.source, &head.feature_schema_digest)?;
+    eval_inputs_with_dataset(store, request, head, dataset)
+}
+
+fn eval_inputs_with_dataset(
+    store: &AgentLibraryStore,
+    request: &DecisionEvalRequest,
+    head: DecisionHeadBody,
+    dataset: LabelledDataset,
+) -> Result<EvalInputs, String> {
     if dataset.feature_schema_digest != head.feature_schema_digest {
         return Err(refusal(
             StatisticalErrorCode::DatasetInvalid,
@@ -328,6 +337,87 @@ fn eval_inputs(
         policy,
         regime,
     })
+}
+
+/// Immutable, tenant-scoped Agent Library key for the worker's pinned replay
+/// request. No labelled data is copied into the analytics-job control row.
+pub(crate) fn replay_request_ref(request: &DecisionEvalRequest) -> String {
+    let digest = digest_text("eg/decision/replay-request/v1", request);
+    format!("replay-request:{}", digest.trim_start_matches("sha256:"))
+}
+
+/// Persist the complete replay request in the Agent Library before queuing a
+/// worker. Repeated identical submissions converge on the same artifact.
+pub(crate) fn persist_replay_request(
+    store: &AgentLibraryStore,
+    request: &DecisionEvalRequest,
+) -> Result<String, String> {
+    if !matches!(&request.mode, EvalMode::Replay { .. }) || request.tenant_id.is_empty() {
+        return Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "a replay worker requires a tenant-scoped replay request",
+        ));
+    }
+    let DatasetSource::Inline { dataset } = &request.source else {
+        return Err(refusal(
+            StatisticalErrorCode::ReplayPolicyDependent,
+            "replay requires an inline, pinned full-label dataset",
+        ));
+    };
+    eval_regime(request, dataset)?;
+    let key = replay_request_ref(request);
+    store.put_decision_artifacts(
+        &request.tenant_id,
+        &[(key.clone(), encode_artifact(request)?)],
+    )?;
+    Ok(key)
+}
+
+/// Execute a claimed replay from its pinned request and durable fold prefix.
+/// The worker validates the request reference, tenant and job lineage before
+/// entering here. The sealed run is idempotently written to Agent Library;
+/// its typed job result is staged separately under the worker's fenced lease.
+pub(crate) fn run_replay_job(
+    store: &AgentLibraryStore,
+    jobs: &eg_jobs::JobStore,
+    claim: &eg_jobs::store::WorkerClaim,
+    request: &DecisionEvalRequest,
+) -> Result<EvaluationRun, String> {
+    let EvalMode::Replay { spec } = &request.mode else {
+        return Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "the claimed request is not a replay evaluation",
+        ));
+    };
+    let DatasetSource::Inline { dataset } = &request.source else {
+        return Err(refusal(
+            StatisticalErrorCode::ReplayPolicyDependent,
+            "replay requires an inline, pinned full-label dataset",
+        ));
+    };
+    let head = candidate_head(store, &request.tenant_id, &request.candidate)?;
+    let inputs = eval_inputs_with_dataset(store, request, head, dataset.as_ref().clone())?;
+    #[cfg(not(feature = "finance"))]
+    {
+        let _ = (store, jobs, claim, &inputs, spec);
+        return Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "replay evaluation requires the `finance` feature (its validation kernels)",
+        ));
+    }
+    #[cfg(feature = "finance")]
+    {
+        let (output, rows) =
+            super::stat_walk_forward::run_fenced(store, &inputs, request, spec, jobs, claim)?;
+        let DecisionJobOutput::Replay { run } = output else {
+            return Err(refusal(
+                StatisticalErrorCode::ReplaySpecInvalid,
+                "the replay worker produced a different result kind",
+            ));
+        };
+        store.put_decision_artifacts(&request.tenant_id, &rows)?;
+        Ok(*run)
+    }
 }
 
 fn run_eval(inputs: &EvalInputs, request: &DecisionEvalRequest) -> JobRun {
