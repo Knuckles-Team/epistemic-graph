@@ -447,6 +447,7 @@ SEND_BY_METHOD = {
     "SemanticSearch": ingestion.send_semantic_search,
     "SendMessage": messaging.send_send_message,
     "ServedModality": ingestion.send_served_modality,
+    "ServiceChild": security.send_service_child,
     "ShaclValidate": reasoning.send_shacl_validate,
     "Shutdown": cluster.send_shutdown,
     "Solve": compute.send_solve,

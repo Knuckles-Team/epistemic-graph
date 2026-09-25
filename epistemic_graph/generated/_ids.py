@@ -383,6 +383,7 @@ METHOD_IDS = frozenset(
         "AuditVerify",
         "AuditAppend",
         "AuditReadEvent",
+        "ServiceChild",
         "AuditProveInclusion",
         "RegisterIdentity",
         "RbacAdmin",

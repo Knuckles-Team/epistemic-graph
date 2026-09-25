@@ -603,6 +603,66 @@
         "name"
       ],
       "type": "object"
+    },
+    "ServiceChildReceipt": {
+      "description": "One committed SERVICE child journal row. `created` is true only on the\nfirst reserve; callers may dispatch a child only for that receipt.",
+      "properties": {
+        "audit_ref": {
+          "type": "string"
+        },
+        "created": {
+          "type": "boolean"
+        },
+        "durable": {
+          "type": "boolean"
+        },
+        "owner_ref": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "recovery_ref": {
+          "type": "string"
+        },
+        "result_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "subject_id": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id",
+        "tenant",
+        "owner_ref",
+        "target",
+        "subject_id",
+        "audit_ref",
+        "recovery_ref",
+        "durable",
+        "created",
+        "state"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -781,6 +841,25 @@
           "encoding": "String",
           "schema": {
             "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ServiceChild": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServiceChildReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },

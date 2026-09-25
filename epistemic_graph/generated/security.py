@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     AuditAppendRequest = _models.MethodAuditAppendParams
     AuditReadEventRequest = _models.MethodAuditReadEventParams
+    ServiceChildRequest = _models.MethodServiceChildParams
     AuditProveInclusionRequest = _models.MethodAuditProveInclusionParams
     RegisterIdentityRequest = _models.MethodRegisterIdentityParams
     RbacAdminRequest = _models.MethodRbacAdminParams
@@ -226,6 +227,51 @@ async def send_audit_read_event(
 def decode_audit_read_event(result: OpaqueResult) -> _models.AuditEventProof:
     """Validate this method's result against its contract model."""
     return decode_result("AuditReadEvent", models().AuditEventProof, result)
+
+
+async def send_service_child(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ServiceChild
+    Authorization:
+        mcp:delegate
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.security.json
+        #/methods/ServiceChild
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodServiceChildParams.model_validate(params or {})
+    payload = await client._send(
+        "ServiceChild",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ServiceChild", payload)
+
+
+def decode_service_child(result: OpaqueResult) -> _models.ServiceChildResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ServiceChild", models().ServiceChildResult, result)
 
 
 async def send_audit_prove_inclusion(
@@ -476,6 +522,7 @@ _REQUEST_METHODS = frozenset(
     {
         "AuditAppend",
         "AuditReadEvent",
+        "ServiceChild",
         "AuditProveInclusion",
         "RegisterIdentity",
         "RbacAdmin",

@@ -20430,6 +20430,33 @@
         },
         {
           "additionalProperties": false,
+          "description": "Durable, caller-bound one-shot SERVICE child journal. The graph and\nowner are verified before touching the audit-linked native row.",
+          "properties": {
+            "method": {
+              "const": "ServiceChild",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/ServiceChildOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Produce + server-side-verify a Merkle inclusion proof for one node against\na prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) — the\nextension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence\nreach the ANCHORED NODES' CONTENT, not just the ordering of mutations. A\nperiodic engine job Merkle-hashes the target graph's `:ToolCall`/\n`:RunTrace` provenance-node window and folds the root into this SAME\nhash chain as one more entry (`audit::provenance_anchor_line`); this\nmethod re-hashes `node_id`'s CURRENT durable content and walks the\nanchor-time sibling path up to that chain-protected root — a mismatch\n(`MerkleInclusionReport.verified == false`) proves the node's durable\nbytes changed after anchoring, whether by raw tampering or an ordinary\nlater overwrite. `anchor_seq` selects a specific anchor by its\naudit-chain seq; `None` uses the target graph's most recent anchor.\nErrors when the graph has no anchor yet or `anchor_seq` names an entry\nthat is not one; `included == false` (not an error) means `node_id`\nsimply was not part of that anchor's window. Returns\n`Raw(MerkleInclusionReport)`.",
           "properties": {
             "method": {
@@ -42987,6 +43014,134 @@
         }
       ]
     },
+    "ServiceChildBinding": {
+      "description": "Caller identity in this body is only an assertion; the served route derives\nthe tenant and owner again from the verified request carrier.",
+      "properties": {
+        "argument_sha256": {
+          "type": "string"
+        },
+        "audit_params_sha256": {
+          "type": "string"
+        },
+        "owner_principal": {
+          "type": "string"
+        },
+        "owner_ref": {
+          "type": "string"
+        },
+        "policy_revision": {
+          "type": "string"
+        },
+        "registry_revision": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "scopes_sha256": {
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "subject_id": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "owner_principal",
+        "owner_ref",
+        "server",
+        "tool",
+        "subject_id",
+        "argument_sha256",
+        "audit_params_sha256",
+        "request_id",
+        "policy_revision",
+        "registry_revision",
+        "scopes_sha256"
+      ],
+      "type": "object"
+    },
+    "ServiceChildOp": {
+      "oneOf": [
+        {
+          "properties": {
+            "audit_ref": {
+              "type": "string"
+            },
+            "binding": {
+              "$ref": "#/$defs/ServiceChildBinding"
+            },
+            "op": {
+              "const": "reserve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "binding",
+            "audit_ref"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "finish",
+              "type": "string"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "reason_code": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "result_sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "op",
+            "record_id",
+            "outcome"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Sha256Digest": {
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
@@ -62903,6 +63058,33 @@
           "properties": {
             "op": {
               "$ref": "#/$defs/ServedModalityOp"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ServiceChild": {
+      "additionalProperties": false,
+      "description": "Durable, caller-bound one-shot SERVICE child journal. The graph and\nowner are verified before touching the audit-linked native row.",
+      "properties": {
+        "method": {
+          "const": "ServiceChild",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/ServiceChildOp"
             }
           },
           "required": [

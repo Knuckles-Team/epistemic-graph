@@ -96,6 +96,12 @@
       "approver_group": null,
       "class": "admin",
       "owner": "engine",
+      "scope": "admin:policy-evolution-store"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
       "scope": "admin:sqlite-file"
     },
     {
@@ -934,6 +940,12 @@
     },
     {
       "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "security:audit-write"
+    },
+    {
+      "approver_group": null,
       "class": "service-only",
       "owner": "engine",
       "scope": "security:bootstrap"
@@ -1081,6 +1093,12 @@
       "class": "user",
       "owner": "engine",
       "scope": "udf:exec"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "usage:read"
     },
     {
       "approver_group": null,

@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 459,
+  "method_count": 460,
   "methods": [
     {
       "consumer_profiles": [
@@ -23340,6 +23340,69 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.security.json#/methods/AuditReadEvent",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "CONFLICT",
+        "CORRUPT_MUTATION_LEDGER",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "IDEMPOTENCY_CONFLICT",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "NODE_MISMATCH",
+        "POLICY_NATIVE_AUTHORITY_REQUIRED",
+        "READ_ONLY",
+        "REDIRECTED",
+        "TIMEOUT"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "ServiceChild",
+      "is_wire_callable": true,
+      "note": "caller-bound durable one-shot SERVICE child journal; security:audit-write and reserved fleet.call audit also required",
+      "policy": {
+        "audited": true,
+        "authz_action": "mcp:delegate",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ServiceChild"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/ServiceChild",
         "selected_by": null
       },
       "stability": "stable"

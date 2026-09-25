@@ -8060,6 +8060,13 @@ class MethodAuditReadEvent(BaseModel):
     params: MethodAuditReadEventParams
 
 
+class MethodServiceChild(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ServiceChild"]
+    params: MethodServiceChildParams
+
+
 class MethodAuditProveInclusion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10372,6 +10379,7 @@ Method = Annotated[
     | MethodAuditVerify
     | MethodAuditAppend
     | MethodAuditReadEvent
+    | MethodServiceChild
     | MethodAuditProveInclusion
     | MethodGetSubgraph
     | MethodFork
@@ -13465,6 +13473,12 @@ class MethodServedModalityParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: ServedModalityOp
+
+
+class MethodServiceChildParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: ServiceChildOp
 
 
 class MethodSetPoseParams(BaseModel):
@@ -18816,6 +18830,71 @@ class ServedSegmentKind(str, Enum):
     TRACE_SPAN = "trace_span"
 
 
+class ServiceChildBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    argument_sha256: str
+    audit_params_sha256: str
+    owner_principal: str
+    owner_ref: str
+    policy_revision: str
+    registry_revision: str
+    request_id: str
+    scopes_sha256: str
+    server: str
+    subject_id: str
+    tenant: str
+    tool: str
+
+
+class ServiceChildOpReserve(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    audit_ref: str
+    binding: ServiceChildBinding
+    op: Literal["reserve"]
+
+
+class ServiceChildOpGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["get"]
+    record_id: str
+
+
+class ServiceChildOpFinish(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["finish"]
+    outcome: str
+    reason_code: str | None = None
+    record_id: str
+    result_sha256: str | None = None
+
+
+ServiceChildOp = Annotated[
+    ServiceChildOpReserve | ServiceChildOpGet | ServiceChildOpFinish,
+    Field(discriminator="op"),
+]
+
+
+class ServiceChildReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    audit_ref: str
+    created: bool
+    durable: bool
+    owner_ref: str
+    reason_code: str | None = None
+    record_id: str
+    recovery_ref: str
+    result_sha256: str | None = None
+    state: str
+    subject_id: str
+    target: str
+    tenant: str
+
+
 class ShapeKeep(str, Enum):
     CONFORMING = "conforming"
     VIOLATING = "violating"
@@ -21951,6 +22030,9 @@ SemanticSearchResult = list[SemanticSearchResultValueItem]
 SeriesExpr = SeriesExprChannel | SeriesExprConst | SeriesExprCall
 
 
+ServiceChildResult = ServiceChildReceipt | None
+
+
 SpatialOpKind = (
     SpatialOpKindBuffer
     | Literal["ConvexHull"]
@@ -24135,6 +24217,8 @@ __all__ = [
     "MethodSendMessageParams",
     "MethodServedModality",
     "MethodServedModalityParams",
+    "MethodServiceChild",
+    "MethodServiceChildParams",
     "MethodSetPose",
     "MethodSetPoseParams",
     "MethodShaclValidate",
@@ -24981,6 +25065,13 @@ __all__ = [
     "ServedSegmentKind",
     "ServerDesiredState",
     "ServerTransport",
+    "ServiceChildBinding",
+    "ServiceChildOp",
+    "ServiceChildOpFinish",
+    "ServiceChildOpGet",
+    "ServiceChildOpReserve",
+    "ServiceChildReceipt",
+    "ServiceChildResult",
     "Sha256Digest",
     "ShaclSeverity",
     "ShaclValidationReport",
