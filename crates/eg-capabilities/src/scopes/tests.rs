@@ -175,6 +175,7 @@ fn newly_exposed_engine_actions_have_least_privilege_classes() {
         "telemetry:derive",
         "work:offer-write",
         "policy:read",
+        "usage:read",
     ] {
         assert_eq!(ScopeRegistry.class_of(scope), Some(ScopeClass::User));
     }
@@ -188,7 +189,11 @@ fn newly_exposed_engine_actions_have_least_privilege_classes() {
         "admin:model-policy-register",
         "admin:training-run-write",
         "admin:policy-evaluation-write",
+        "admin:policy-evolution-store",
     ] {
         assert_eq!(ScopeRegistry.class_of(scope), Some(ScopeClass::Admin));
+    }
+    for scope in ["usage:read", "admin:policy-evolution-store"] {
+        assert_eq!(scope_entry(scope).map(|entry| entry.owner), Some("engine"));
     }
 }
