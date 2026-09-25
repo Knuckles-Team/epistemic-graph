@@ -6,7 +6,8 @@
 
 use eg_core::graph::GraphCore;
 use eg_query::exec_sql;
-use serde_json::json;
+use eg_query::tables::{Cell, SecondaryIndexLookup, TableStore};
+use serde_json::{json, Value};
 
 #[path = "common/query_rows.rs"]
 mod query_rows;
@@ -41,6 +42,46 @@ fn ids(core: &GraphCore, sql: &str) -> Vec<String> {
     v
 }
 
+/// The expected IDs come from an unfiltered scan, with the predicate evaluated here.
+fn full_scan_ids<F>(core: &GraphCore, sql: &str, predicate: F) -> Vec<String>
+where
+    F: Fn(&[Value]) -> bool,
+{
+    let snap = core.analysis_snapshot();
+    let all = exec_sql(&snap, sql, &eg_query::CancellationToken::new()).unwrap();
+    let mut ids: Vec<String> = query_rows::rows(&all)
+        .into_iter()
+        .filter(|row| predicate(row))
+        .map(|row| row[0].as_str().unwrap().to_string())
+        .collect();
+    ids.sort();
+    ids
+}
+
+fn scoped_store(path: &std::path::Path) -> TableStore {
+    TableStore::open_scoped(
+        path,
+        "tenant-a",
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap()
+}
+
+fn blue_rows(store: &TableStore) -> Vec<Vec<Cell>> {
+    store
+        .secondary_index_rows(
+            "events",
+            &SecondaryIndexLookup::Eq {
+                column: "team".into(),
+                value: Cell::Text("blue".into()),
+            },
+        )
+        .unwrap()
+        .unwrap()
+}
+
 /// The pushdown result on an indexed property column must equal the unfiltered scan
 /// filtered in the test harness — i.e. the index narrowing changes performance, not
 /// the answer.
@@ -58,19 +99,9 @@ fn pushdown_equality_matches_full_scan() {
     // indexed column — pull ALL ids + team, filter in the test. (The provider serves
     // the full batch when there is no equality predicate, so this is the full-scan
     // path.)
-    let snap = core.analysis_snapshot();
-    let all = exec_sql(
-        &snap,
-        "SELECT id, team FROM nodes",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let mut truth: Vec<String> = query_rows::rows(&all)
-        .into_iter()
-        .filter(|row| row[1].as_str() == Some("blue"))
-        .map(|row| row[0].as_str().unwrap().to_string())
-        .collect();
-    truth.sort();
+    let truth = full_scan_ids(&core, "SELECT id, team FROM nodes", |row| {
+        row[1].as_str() == Some("blue")
+    });
 
     assert_eq!(pushed, truth);
     assert_eq!(pushed.len(), 250, "half the nodes are blue");
@@ -89,19 +120,9 @@ fn pushdown_on_id_column() {
 fn pushdown_integer_equality() {
     let core = graph(70);
     let pushed = ids(&core, "SELECT id FROM nodes WHERE rank = 3 ORDER BY id");
-    let snap = core.analysis_snapshot();
-    let all = exec_sql(
-        &snap,
-        "SELECT id, rank FROM nodes",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let mut truth: Vec<String> = query_rows::rows(&all)
-        .into_iter()
-        .filter(|row| row[1].as_i64() == Some(3))
-        .map(|row| row[0].as_str().unwrap().to_string())
-        .collect();
-    truth.sort();
+    let truth = full_scan_ids(&core, "SELECT id, rank FROM nodes", |row| {
+        row[1].as_i64() == Some(3)
+    });
     assert_eq!(pushed, truth);
     assert!(!pushed.is_empty());
 }
@@ -114,19 +135,9 @@ fn pushdown_composite_and() {
         &core,
         "SELECT id FROM nodes WHERE team = 'blue' AND type = 'Tool' ORDER BY id",
     );
-    let snap = core.analysis_snapshot();
-    let all = exec_sql(
-        &snap,
-        "SELECT id, team, type FROM nodes",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let mut truth: Vec<String> = query_rows::rows(&all)
-        .into_iter()
-        .filter(|row| row[1].as_str() == Some("blue") && row[2].as_str() == Some("Tool"))
-        .map(|row| row[0].as_str().unwrap().to_string())
-        .collect();
-    truth.sort();
+    let truth = full_scan_ids(&core, "SELECT id, team, type FROM nodes", |row| {
+        row[1].as_str() == Some("blue") && row[2].as_str() == Some("Tool")
+    });
     assert_eq!(pushed, truth);
 }
 
@@ -141,40 +152,19 @@ fn non_indexed_predicate_full_scan_fallback() {
         &core,
         "SELECT id FROM nodes WHERE name LIKE 'node-1%' ORDER BY id",
     );
-    let snap = core.analysis_snapshot();
-    let all = exec_sql(
-        &snap,
-        "SELECT id, name FROM nodes",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let mut truth: Vec<String> = query_rows::rows(&all)
-        .into_iter()
-        .filter(|row| {
-            row[1]
-                .as_str()
-                .map(|s| s.starts_with("node-1"))
-                .unwrap_or(false)
-        })
-        .map(|row| row[0].as_str().unwrap().to_string())
-        .collect();
-    truth.sort();
+    let truth = full_scan_ids(&core, "SELECT id, name FROM nodes", |row| {
+        row[1]
+            .as_str()
+            .map(|s| s.starts_with("node-1"))
+            .unwrap_or(false)
+    });
     assert_eq!(like, truth, "LIKE must full-scan correctly");
 
     // An inequality (>) is also not equality-pushable.
     let gt = ids(&core, "SELECT id FROM nodes WHERE rank > 4 ORDER BY id");
-    let all2 = exec_sql(
-        &snap,
-        "SELECT id, rank FROM nodes",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let mut truth2: Vec<String> = query_rows::rows(&all2)
-        .into_iter()
-        .filter(|row| row[1].as_i64().map(|r| r > 4).unwrap_or(false))
-        .map(|row| row[0].as_str().unwrap().to_string())
-        .collect();
-    truth2.sort();
+    let truth2 = full_scan_ids(&core, "SELECT id, rank FROM nodes", |row| {
+        row[1].as_i64().map(|r| r > 4).unwrap_or(false)
+    });
     assert_eq!(gt, truth2, "inequality must full-scan correctly");
 }
 
@@ -187,21 +177,9 @@ fn pushdown_mixed_equality_and_inequality() {
         &core,
         "SELECT id FROM nodes WHERE team = 'red' AND rank > 3 ORDER BY id",
     );
-    let snap = core.analysis_snapshot();
-    let all = exec_sql(
-        &snap,
-        "SELECT id, team, rank FROM nodes",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let mut truth: Vec<String> = query_rows::rows(&all)
-        .into_iter()
-        .filter(|row| {
-            row[1].as_str() == Some("red") && row[2].as_i64().map(|r| r > 3).unwrap_or(false)
-        })
-        .map(|row| row[0].as_str().unwrap().to_string())
-        .collect();
-    truth.sort();
+    let truth = full_scan_ids(&core, "SELECT id, team, rank FROM nodes", |row| {
+        row[1].as_str() == Some("red") && row[2].as_i64().map(|r| r > 3).unwrap_or(false)
+    });
     assert_eq!(got, truth);
 }
 
@@ -212,10 +190,7 @@ fn pushdown_mixed_equality_and_inequality() {
 /// SQL DDL classification to the public TableStore methods.
 #[test]
 fn secondary_index_catalog_and_scalar_lookup_contract() {
-    use eg_query::tables::{
-        Cell, Column, ColumnType, SecondaryIndexColumn, SecondaryIndexLookup, TableSchema,
-        TableStore,
-    };
+    use eg_query::tables::{Column, ColumnType, SecondaryIndexColumn, TableSchema};
 
     let path = std::env::temp_dir().join(format!(
         "eg_secondary_contract_{}_{}.redb",
@@ -225,14 +200,7 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
             .unwrap()
             .as_nanos()
     ));
-    let store = TableStore::open_scoped(
-        &path,
-        "tenant-a",
-        eg_query::tables::store::dev_scope_grant::dev_verifier(),
-        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
-        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
-    )
-    .unwrap();
+    let store = scoped_store(&path);
     let schema = TableSchema::new(
         "events",
         vec![
@@ -277,16 +245,7 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
             ],
         )
         .unwrap();
-    let blue = store
-        .secondary_index_rows(
-            "events",
-            &SecondaryIndexLookup::Eq {
-                column: "team".into(),
-                value: Cell::Text("blue".into()),
-            },
-        )
-        .unwrap()
-        .unwrap();
+    let blue = blue_rows(&store);
     assert_eq!(blue.len(), 2);
     assert!(blue.iter().all(|row| row[1] == Cell::Text("blue".into())));
 
@@ -326,16 +285,7 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
             },
         )
         .unwrap();
-    let blue_after_update = store
-        .secondary_index_rows(
-            "events",
-            &SecondaryIndexLookup::Eq {
-                column: "team".into(),
-                value: Cell::Text("blue".into()),
-            },
-        )
-        .unwrap()
-        .unwrap();
+    let blue_after_update = blue_rows(&store);
     assert_eq!(blue_after_update.len(), 1);
 
     store
@@ -348,16 +298,7 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
             },
         )
         .unwrap();
-    let blue_after_delete = store
-        .secondary_index_rows(
-            "events",
-            &SecondaryIndexLookup::Eq {
-                column: "team".into(),
-                value: Cell::Text("blue".into()),
-            },
-        )
-        .unwrap()
-        .unwrap();
+    let blue_after_delete = blue_rows(&store);
     assert!(blue_after_delete.is_empty());
 
     assert!(store
@@ -375,14 +316,7 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
         .is_none());
 
     drop(store);
-    let reopened = TableStore::open_scoped(
-        &path,
-        "tenant-a",
-        eg_query::tables::store::dev_scope_grant::dev_verifier(),
-        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
-        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
-    )
-    .unwrap();
+    let reopened = scoped_store(&path);
     assert_eq!(
         reopened
             .list_secondary_indexes(Some("events"))

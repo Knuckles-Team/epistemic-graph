@@ -26,11 +26,14 @@ fn graph() -> GraphCore {
 }
 
 fn one(sql: &str) -> serde_json::Value {
+    query_values(sql)[0][0].clone()
+}
+
+fn query_values(sql: &str) -> Vec<Vec<serde_json::Value>> {
     let snap = graph().analysis_snapshot();
     let r = exec_sql(&snap, sql, &eg_query::CancellationToken::new())
         .unwrap_or_else(|e| panic!("query failed: {sql}\n{e}"));
-    let v = query_rows::rows(&r);
-    v[0][0].clone()
+    query_rows::rows(&r)
 }
 
 // ── common scalar functions already provided by DataFusion 54 (verify) ───────
@@ -107,14 +110,7 @@ fn eg104_extract_desugars_to_date_part() {
 
 #[test]
 fn eg104_generate_series_ascending() {
-    let snap = graph().analysis_snapshot();
-    let r = exec_sql(
-        &snap,
-        "SELECT value FROM generate_series(1, 3) ORDER BY value",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let v = query_rows::rows(&r);
+    let v = query_values("SELECT value FROM generate_series(1, 3) ORDER BY value");
     assert_eq!(v, vec![vec![json!(1)], vec![json!(2)], vec![json!(3)]]);
 }
 
@@ -147,14 +143,7 @@ fn eg104_generate_series_step_and_descending() {
 
 #[test]
 fn eg104_unnest_expands_array() {
-    let snap = graph().analysis_snapshot();
-    let r = exec_sql(
-        &snap,
-        "SELECT unnest(array[1,2,3]) AS x",
-        &eg_query::CancellationToken::new(),
-    )
-    .unwrap();
-    let v = query_rows::rows(&r);
+    let v = query_values("SELECT unnest(array[1,2,3]) AS x");
     assert_eq!(v, vec![vec![json!(1)], vec![json!(2)], vec![json!(3)]]);
 }
 
