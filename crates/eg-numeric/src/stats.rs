@@ -80,10 +80,10 @@ const LN_SQRT_2PI: f64 = 0.918_938_533_204_672_8;
 /// the asymptotic tail series instead.
 const LOG_CDF_TAIL: f64 = -37.0;
 
-/// The standard-normal CDF `Phi(x) = erfc(-x / sqrt 2) / 2` (pinned libm).
-pub fn norm_cdf(x: f64) -> f64 {
-    0.5 * math::erfc(-x / std::f64::consts::SQRT_2)
-}
+/// The standard-normal CDF `Phi(x)` and survival `1 - Phi(x)`: the one
+/// implementation, `detkernel::kernels::{normal_cdf, normal_sf}` (pinned `erfc`,
+/// relative accuracy in both tails), under the scipy-style names.
+pub use crate::detkernel::kernels::{normal_cdf as norm_cdf, normal_sf as norm_sf};
 
 /// `ln Phi(x)`, finite far into the lower tail: below [`LOG_CDF_TAIL`] it is
 /// the Mills-ratio series `-x^2/2 - ln(-x) - ln sqrt(2 pi) + ln(1 - 1/x^2 + 3/x^4)`,
