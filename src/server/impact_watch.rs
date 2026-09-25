@@ -150,12 +150,12 @@ impl ImpactWatchHub {
     }
 
     /// Recompute every due graph's watches. Returns the watch runs submitted.
-    pub async fn sweep_due(&self, state: &Arc<RwLock<ServerState>>) -> usize {
-        let mut runs = 0;
+    pub async fn sweep_due(&self, state: &Arc<RwLock<ServerState>>) -> SweepReport {
+        let mut report = SweepReport::default();
         for (graph, pending) in self.take_due(Instant::now()) {
-            runs += self.run_graph(state, &graph, &pending).await;
+            self.run_graph(state, &graph, &pending, &mut report).await;
         }
-        runs
+        report
     }
 
     /// Plan and submit each watch of `graph` that the pending changes touch.
@@ -164,12 +164,13 @@ impl ImpactWatchHub {
         state: &Arc<RwLock<ServerState>>,
         graph: &str,
         pending: &Pending,
-    ) -> usize {
+        report: &mut SweepReport,
+    ) {
         let core = {
             let guard = state.read().await;
             match guard.registry.get(graph) {
                 Some(entry) => entry.core.clone(),
-                None => return 0,
+                None => return report.refused(graph, "-", "graph is not loaded".to_string()),
             }
         };
         let view = core.analysis_snapshot();
@@ -180,18 +181,18 @@ impl ImpactWatchHub {
             .collect();
         self.seed_labels.insert(graph.to_string(), labels);
         let as_of_ms = crate::server::dispatch::authoritative_now_ms();
-        let mut runs = 0;
         for watch in &watches {
             let changed = watch_changes(&view, watch, pending);
-            match plan_watch(&view, watch, &changed, as_of_ms) {
-                Ok(Some(method)) => runs += submit(state, graph, watch, method, as_of_ms).await,
-                Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!(graph, watch = %watch.id, %error, "impact watch plan failed")
-                }
+            let outcome = match plan_watch(&view, watch, &changed, as_of_ms) {
+                Ok(Some(method)) => submit(state, graph, watch, method, as_of_ms).await,
+                Ok(None) => continue,
+                Err(error) => Err(format!("plan failed: {error}")),
+            };
+            match outcome {
+                Ok(()) => report.runs += 1,
+                Err(error) => report.refused(graph, &watch.id, error),
             }
         }
-        runs
     }
 }
 
@@ -213,27 +214,33 @@ fn watch_changes(
         .collect()
 }
 
-/// Submit one planned writeback as the watch service principal. Returns 1 when it
-/// committed, 0 (logged) when it was refused.
+/// What one sweep did: the watch runs that committed and, per refused run, why.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SweepReport {
+    pub runs: usize,
+    pub refusals: Vec<String>,
+}
+
+impl SweepReport {
+    fn refused(&mut self, graph: &str, watch: &str, error: String) {
+        tracing::warn!(graph, watch, %error, "impact watch run refused");
+        self.refusals.push(format!("{graph}/{watch}: {error}"));
+    }
+}
+
+/// Submit one planned writeback as the watch service principal.
 async fn submit(
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
     watch: &ImpactWatchSpec,
     method: crate::protocol::Method,
     as_of_ms: u64,
-) -> usize {
+) -> Result<(), String> {
     #[cfg(feature = "security")]
-    if let Err(error) = grant::ensure(&mut state.write().await.isolation, graph) {
-        tracing::warn!(graph, %error, "impact watch cannot be granted its graph");
-        return 0;
-    }
-    let context = match service_context(&watch.id, as_of_ms) {
-        Ok(context) => context,
-        Err(error) => {
-            tracing::warn!(graph, %error, "impact watch service identity unavailable");
-            return 0;
-        }
-    };
+    grant::ensure(&mut state.write().await.isolation, graph)
+        .map_err(|error| format!("cannot be granted its graph: {error}"))?;
+    let context = service_context(&watch.id, as_of_ms)
+        .map_err(|error| format!("service identity unavailable: {error}"))?;
     let request = crate::protocol::Request {
         id: 0,
         graph: graph.to_string(),
@@ -244,11 +251,8 @@ async fn submit(
     let response =
         crate::server::dispatch::dispatch_verified_request(state, request, context).await;
     match response.error {
-        None => 1,
-        Some(error) => {
-            tracing::warn!(graph, watch = %watch.id, %error, "impact watch writeback refused");
-            0
-        }
+        None => Ok(()),
+        Some(error) => Err(format!("writeback refused: {error}")),
     }
 }
 
