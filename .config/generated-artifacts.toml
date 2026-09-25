@@ -7,8 +7,8 @@
 # `proven_by` CI job (tests/test_generated_artifacts_ledger.py), so no entry can
 # outlive the proof that its bytes reproduce. Changing an artifact means
 # regenerating it AND updating its pin in the same commit.
-# Readers: scripts/generated_artifacts.py (EG); agent-utilities
-# scripts/generated_artifacts.py (the fleet sprawl gate).
+# Readers: scripts/generated_artifacts.py (EG security sanitizer) and
+# scripts/check_sprawl.py (EG bridge to the fleet sprawl gate).
 
 [[artifact]]
 path = "clients/go/eg_method_codec.wasm"

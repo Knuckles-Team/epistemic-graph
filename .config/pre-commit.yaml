@@ -190,7 +190,7 @@ repos:
     types: [python]
   - id: check-sprawl
     name: Guardrail — anti-sprawl
-    entry: bash -c 'repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${AGENT_UTILITIES_ROOT:-"$(dirname "$repo")/agent-utilities"}; python3 "$root/scripts/check_sprawl.py" "$@"' --
+    entry: python3 scripts/check_sprawl.py
     language: system
     args: ["."]
     pass_filenames: false
