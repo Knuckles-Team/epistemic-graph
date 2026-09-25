@@ -117,7 +117,10 @@ fn membership_edge(
         source,
         target,
         edge_type: edge_type.to_string(),
-        properties: HashMap::from([("revision_id".to_string(), revision.to_string())]),
+        properties: HashMap::from([
+            ("revision_id".to_string(), revision.to_string()),
+            ("evidence_rung".to_string(), "EXTRACTED".to_string()),
+        ]),
     }
 }
 
@@ -146,6 +149,6 @@ fn has_blob_edge(version: &ExtractedNode) -> ExtractedEdge {
         source: version.node_id.clone(),
         target: blob_node_id(digest),
         edge_type: "hasBlob".to_string(),
-        properties: HashMap::new(),
+        properties: HashMap::from([("evidence_rung".to_string(), "EXTRACTED".to_string())]),
     }
 }

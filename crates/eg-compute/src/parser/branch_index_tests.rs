@@ -102,6 +102,18 @@ fn symbols_named<'a>(result: &'a IndexResult, name: &str) -> Vec<&'a str> {
 fn shared_blob_is_parsed_once_and_its_symbols_attach_to_the_blob() {
     let result = index(&two_branch_scope());
 
+    assert!(result.edges.iter().all(|edge| {
+        matches!(
+            edge.properties.get("evidence_rung").map(String::as_str),
+            Some("EXTRACTED" | "INFERRED" | "DERIVED")
+        )
+    }));
+    assert!(result
+        .edges
+        .iter()
+        .filter(|edge| matches!(edge.edge_type.as_str(), "hasFileVersion" | "hasBlob"))
+        .all(|edge| edge.properties.get("evidence_rung").map(String::as_str) == Some("EXTRACTED")));
+
     let shared = symbols_named(&result, "shared");
     assert_eq!(
         shared.len(),
