@@ -298,6 +298,70 @@ fn the_request_budget_refuses_instead_of_returning_partial_rows() {
 }
 
 #[test]
+fn uql_profile_reports_remote_fragments_and_caller_hint_refuses_partial_results() {
+    use eg_types::wire::UqlResult;
+
+    let api = MockApi::spawn(catalog(250), 40);
+    let _allow = MockHttpAllowGuard::new(&api.base);
+    let fx = crate::fixture::build();
+    let spec = api.spec("?page={page}&limit={limit}");
+    let mut source = crate::federation::ForeignSourceRegistry::default();
+    source.register_spec("catalog", spec);
+    let session = FederationSession::new(FederationBudget::default());
+    let ctx = PlanCtx::new(&fx.view, &fx.semantic)
+        .with_foreign(&source)
+        .with_federation(&session);
+
+    let explain =
+        crate::uql::parse_statement("EXPLAIN FOREIGN 'catalog' |> LIMIT 2", &Default::default())
+            .unwrap();
+    let UqlResult::Explain { federation, .. } =
+        crate::uql::serve::run_statement(&explain, &ctx).unwrap()
+    else {
+        panic!("EXPLAIN expected")
+    };
+    assert_eq!(federation, ["remote registered source catalog"]);
+    assert_eq!(api.requests(), 0, "EXPLAIN never fetches");
+
+    let profile = crate::uql::parse_statement(
+        "PROFILE FEDERATION BUDGET (REQUESTS 2) FOREIGN 'catalog'",
+        &Default::default(),
+    )
+    .unwrap();
+    let err = crate::uql::serve::run_statement(&profile, &ctx).unwrap_err();
+    assert!(
+        err.starts_with(&format!("{BUDGET_EXCEEDED}:requests")),
+        "{err}"
+    );
+    assert_eq!(api.requests(), 2);
+    assert_eq!(session.budget().max_requests, 2);
+
+    let session = FederationSession::new(FederationBudget::default());
+    let ctx = PlanCtx::new(&fx.view, &fx.semantic)
+        .with_foreign(&source)
+        .with_federation(&session);
+    let profile = crate::uql::parse_statement(
+        "PROFILE FEDERATION BUDGET (REQUESTS 20) FOREIGN 'catalog' |> LIMIT 2",
+        &Default::default(),
+    )
+    .unwrap();
+    let UqlResult::Profile {
+        federation, rows, ..
+    } = crate::uql::serve::run_statement(&profile, &ctx).unwrap()
+    else {
+        panic!("PROFILE expected")
+    };
+    assert_eq!(rows.len(), 2);
+    assert_eq!(federation.len(), 1);
+    assert!(federation[0].contains("requests="), "{}", federation[0]);
+    assert!(federation[0].contains("fetched="), "{}", federation[0]);
+    assert!(
+        !federation[0].contains(&api.base),
+        "trace must not expose the URL"
+    );
+}
+
+#[test]
 fn placeholders_outside_the_query_string_never_template_the_destination() {
     let fx = crate::fixture::build();
     let ctx = PlanCtx::new(&fx.view, &fx.semantic);

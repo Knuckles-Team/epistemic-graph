@@ -854,6 +854,9 @@ pub enum UqlResult {
         stages: Vec<UqlStageReport>,
         incremental: bool,
         incremental_note: String,
+        /// Planned remote stages; local stages remain in `stages`.
+        #[serde(default)]
+        federation: Vec<String>,
         warnings: Vec<String>,
     },
     /// `PROFILE`: the rows plus per-stage actual rows and time.
@@ -861,6 +864,9 @@ pub enum UqlResult {
         columns: Vec<String>,
         rows: Vec<UqlRow>,
         stages: Vec<UqlStageReport>,
+        /// Measured remote fragments, in execution order.
+        #[serde(default)]
+        federation: Vec<String>,
         warnings: Vec<String>,
     },
 }
