@@ -29,22 +29,22 @@ reason = """Two exhaustive match-to-&str accessors over unrelated enums: a serve
 [[pair]]
 left_file = "crates/eg-query/src/sql/exec.rs"
 left_name = "exec_sql"
-left_digest = "sha256:53c986bf3c26e3c3927daeb55fb4b7d4b3f2ef12d4b482b1fe551cbfd2b18b5c"
+left_digest = "sha256:827bccdf64d0b6aa6cb0aefe9226d40ab3732d42852a823275a0541834500844"
 right_file = "crates/eg-query/src/sql/exec.rs"
 right_name = "exec_sql_typed_cancellable"
-right_digest = "sha256:5097d74b195640784cd865d0d3d4768a38c3cbabdbffa68fed070c51eec8600c"
-reviewed_on = "2026-09-10"
-reason = """Members of a deliberate three-way sibling API family (row-dictionary, typed, and Arrow). Each dispatches to a DIFFERENT backend runner and returns a different type for a different caller; the shared shape is the family's point, not an accident, and collapsing them would remove the type distinction the callers select on."""
+right_digest = "sha256:78a731779849e1624a75e4877b710e7323051a44b362ade708bf6a718e1f6998"
+reviewed_on = "2026-09-25"
+reason = """Members of a deliberate three-way sibling API family (row-dictionary, typed, and Arrow). Each dispatches to a DIFFERENT backend runner and returns a different type for a different caller; the shared shape is the family's point, not an accident, and collapsing them would remove the type distinction the callers select on. Re-reviewed 2026-09-25: exec_sql still returns QueryResult via run, while the typed sibling returns TypedQueryResult via run_typed; both now explicitly carry cancellation."""
 
 [[pair]]
 left_file = "crates/eg-query/src/sql/exec.rs"
 left_name = "exec_sql_arrow_cancellable"
-left_digest = "sha256:2fbec2cfd73e5f6e226de2738be8742492138f309eba1ee567aaa216a75a315d"
+left_digest = "sha256:58cfb0b6bec3967af2483dad92e19c2028c9e724e60cdc21ba0916b2465671af"
 right_file = "crates/eg-query/src/sql/exec.rs"
 right_name = "exec_sql_typed_cancellable"
-right_digest = "sha256:5097d74b195640784cd865d0d3d4768a38c3cbabdbffa68fed070c51eec8600c"
-reviewed_on = "2026-09-10"
-reason = """The Arrow member of the same three-way sibling family as exec_sql; it returns a schema and record batches rather than typed rows, and calls its own backend runner. Same reasoning as its sibling entry."""
+right_digest = "sha256:78a731779849e1624a75e4877b710e7323051a44b362ade708bf6a718e1f6998"
+reviewed_on = "2026-09-25"
+reason = """The Arrow member of the same three-way sibling family as exec_sql; it returns a schema and record batches rather than typed rows, and calls its own backend runner. Same reasoning as its sibling entry. Re-reviewed 2026-09-25: Arrow still returns schema plus RecordBatch values via run_arrow, while the typed sibling returns TypedQueryResult via run_typed."""
 
 [[pair]]
 left_file = "src/redb_store.rs"
@@ -231,12 +231,12 @@ reason = """EH-264 review (file:line): src/server/handlers/graph_ops/gateway_gra
 [[pair]]
 left_file = "src/server/mutation/plan.rs"
 left_name = "native_local_only_method_name"
-left_digest = "sha256:6e50e39ab218b9e344a8c988404ea36e3a90c3523257bb7293182fa8f288c8b7"
+left_digest = "sha256:93fec22f83ab5257efeb7f21be63a98d17073206c5b145560aeef5ca1cbd60fa"
 right_file = "src/server/mutation/plan.rs"
 right_name = "scene_trajectory_method_name"
 right_digest = "sha256:d73bd821ad96a7918cbbbc464196e2c29c44ba3252410333701d1d124f1d19f3"
-reviewed_on = "2026-09-24"
-reason = """EH-264 review (file:line): src/server/mutation/plan.rs:213 (scene_trajectory_method_name) vs src/server/mutation/plan.rs:650 (native_local_only_method_name), both entries of the `METHOD_NAME_RESOLVERS` table declared at src/server/mutation/plan.rs:512-538 (26 resolvers total, verified by direct count). The table is a deliberately SECTIONED design, predating this finding: the comment immediately above the table (plan.rs:509-511) says the resolvers follow the protocol's semantic sections rather than slicing one match by size, so that ownership and lookup order stay auditable. Every one of the 26 resolvers has this identical body shape (`match m { Method::X { .. } => Some("X"), ..., _ => None }`) by construction -- this is exactly BUILD-CONTRACT.md's own recommended "a chain of if/else on a value is a TABLE" pattern, already applied. Consolidating any two of the 26 into one match is exactly the change the sectioning exists to prevent, and picking these two specifically (rather than any other adjacent pair, which would trip the same finding as arm counts drift) would be arbitrary, driven by the gate rather than the design -- the anti-pattern BUILD-CONTRACT.md §3 names as "never refactor to satisfy a metric after the fact." Does NOT fit the "different trust domains" mold: this is a design-pattern argument, not a trust-domain one. Kept as reviewed-distinct rather than deduped, because deduping would contort an already-correct design to please a syntactic-similarity check; flagged to the coordinator per BUILD-CONTRACT.md §4 ("when a cap and the right design genuinely conflict... escalate") for ratification or a directed alternative -- not yet ruled on. Train-3 re-review (2026-09-24): decide-stat 034aaf851 added the `DecisionLog` arm to the agent/decision catalog resolver; the sectioned-table argument is unchanged, so the left side is re-pinned."""
+reviewed_on = "2026-09-25"
+reason = """EH-264 review (file:line): src/server/mutation/plan.rs:213 (scene_trajectory_method_name) vs src/server/mutation/plan.rs:650 (native_local_only_method_name), both entries of the `METHOD_NAME_RESOLVERS` table declared at src/server/mutation/plan.rs:512-538 (26 resolvers total, verified by direct count). The table is a deliberately SECTIONED design, predating this finding: the comment immediately above the table (plan.rs:509-511) says the resolvers follow the protocol's semantic sections rather than slicing one match by size, so that ownership and lookup order stay auditable. Every one of the 26 resolvers has this identical body shape (`match m { Method::X { .. } => Some("X"), ..., _ => None }`) by construction -- this is exactly BUILD-CONTRACT.md's own recommended "a chain of if/else on a value is a TABLE" pattern, already applied. Consolidating any two of the 26 into one match is exactly the change the sectioning exists to prevent, and picking these two specifically (rather than any other adjacent pair, which would trip the same finding as arm counts drift) would be arbitrary, driven by the gate rather than the design -- the anti-pattern BUILD-CONTRACT.md §3 names as "never refactor to satisfy a metric after the fact." Does NOT fit the "different trust domains" mold: this is a design-pattern argument, not a trust-domain one. Kept as reviewed-distinct rather than deduped, because deduping would contort an already-correct design to please a syntactic-similarity check; flagged to the coordinator per BUILD-CONTRACT.md §4 ("when a cap and the right design genuinely conflict... escalate") for ratification or a directed alternative -- not yet ruled on. Train-3 re-review (2026-09-24): decide-stat 034aaf851 added the `DecisionLog` arm to the agent/decision catalog resolver; the sectioned-table argument is unchanged, so the left side is re-pinned. Re-reviewed 2026-09-25: the local-only agent/decision resolver gained methods while scene/trajectory still maps graph-core methods; their sets and ownership remain disjoint. The sectioned-table rationale still applies."""
 
 [[pair]]
 left_file = "crates/eg-types/src/agent_component.rs"
