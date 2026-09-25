@@ -74,6 +74,10 @@ _PERSIST_DIR_ENV_VAR = "GRAPH_SERVICE_PERSIST_DIR"
 #: well-known convention rather than inventing a new keyword argument for it.
 _IN_MEMORY_SENTINEL = ":memory:"
 
+#: The graph every native `Engine` already holds from construction
+#: (`crates/eg-pyengine`'s `create_graph` refuses to create it again).
+_COMMONS_GRAPH = "__commons__"
+
 #: One list, written ONCE by Wave 0 (plan §4.6) -- every domain lane's module
 #: name, in the order the plan enumerates them (§4.6/§5.1). No lane appends
 #: to this list after Wave 0 lands; a Wave-1 lane's own module already has an
@@ -200,7 +204,8 @@ class EmbeddedTransport:
             tenant=tenant,
         )
         self._graph_name = graph_name
-        self._engine.create_graph(graph_name)
+        if graph_name != _COMMONS_GRAPH:
+            self._engine.create_graph(graph_name)
         # `Callable[..., Any]` (not a fixed arity) deliberately: most domain
         # modules' `build_dispatch` return an empty dict (Wave-1 stubs, never
         # actually called), and the one Wave-0 module with real closures
