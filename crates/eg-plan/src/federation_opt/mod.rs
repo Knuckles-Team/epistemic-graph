@@ -24,6 +24,7 @@ mod budget;
 mod capability;
 mod http;
 mod limiter;
+mod probe;
 mod remote;
 mod run;
 mod session;
@@ -40,6 +41,7 @@ pub use capability::{
     FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
     SourceRate,
 };
+pub use probe::{probe_source, ProbeOutcome};
 pub use session::FederationSession;
 pub use stats::{stats_snapshot, SourceStats};
 pub use trace::{render_trace, EstimateProvenance, FetchStrategy, FragmentTrace};

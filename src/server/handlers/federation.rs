@@ -155,36 +155,14 @@ async fn change_share(
 }
 
 fn probe_source(spec: &eg_types::wire::ForeignSourceSpec) -> eg_types::wire::ForeignSourceProbe {
-    use eg_types::wire::{ForeignSourceProbe, ForeignSourceSpec};
-    let code = match spec {
-        // The transport's own DNS-pinned gate is reused. A control probe performs
-        // no response-body fetch, so no foreign rows or credentials are exposed.
-        ForeignSourceSpec::HttpJson { url, .. } => {
-            let allow = std::env::var(eg_plan::federation_ssrf::HTTP_JSON_FEDERATION_ALLOW_ENV)
-                .unwrap_or_default();
-            let allow: Vec<String> = allow.split(',').take(1024).map(str::to_string).collect();
-            if allow.len() <= 1024
-                && eg_plan::federation_ssrf::validate_outbound_http_target(
-                    url,
-                    &allow,
-                    eg_plan::federation_ssrf::OutboundAllowPolicy::PublicHttps,
-                )
-                .is_ok()
-            {
-                "TARGET_ALLOWED"
-            } else {
-                "TARGET_REFUSED"
-            }
-        }
-        _ => "PROBE_UNSUPPORTED",
-    };
-    ForeignSourceProbe {
-        status: if code == "TARGET_ALLOWED" {
-            "validated"
+    let outcome = eg_plan::federation_opt::probe_source(spec);
+    eg_types::wire::ForeignSourceProbe {
+        status: if outcome.reachable {
+            "reachable"
         } else {
             "unavailable"
         }
         .into(),
-        diagnostic_code: code.into(),
+        diagnostic_code: outcome.code.into(),
     }
 }

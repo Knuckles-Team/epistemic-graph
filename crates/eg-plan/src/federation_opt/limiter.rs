@@ -82,6 +82,37 @@ pub(super) fn acquire(fingerprint: Fingerprint, rate: SourceRate) -> Permit {
     }
 }
 
+/// Bounded admission for control-plane probes. A busy source must not hold a
+/// server request indefinitely while regular query traffic uses its slots.
+pub(super) fn try_acquire(
+    fingerprint: Fingerprint,
+    rate: SourceRate,
+    timeout: Duration,
+) -> Option<Permit> {
+    let limiter = limiter(fingerprint);
+    let deadline = Instant::now() + timeout;
+    let mut state = limiter.state.lock().ok()?;
+    loop {
+        let now = Instant::now();
+        if state.active < rate.max_concurrent.max(1)
+            && (rate.requests_per_second == 0 || now >= state.next_at)
+        {
+            state.active += 1;
+            if rate.requests_per_second > 0 {
+                state.next_at =
+                    now + Duration::from_secs_f64(1.0 / rate.requests_per_second as f64);
+            }
+            drop(state);
+            return Some(Permit(limiter));
+        }
+        if now >= deadline {
+            return None;
+        }
+        let wait = deadline.saturating_duration_since(now);
+        state = limiter.ready.wait_timeout(state, wait).ok()?.0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
