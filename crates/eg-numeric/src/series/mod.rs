@@ -22,6 +22,7 @@
 
 pub mod kalman;
 mod kernel;
+pub mod streaming;
 pub mod window;
 
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,8 @@ pub use kernel::State;
 
 use crate::error::{NumericError, Result};
 
-/// Largest window / lag a kernel accepts (its state is O(window)).
+/// Largest window / lag a kernel accepts (its state is O(window); its step is O(1) for
+/// every statistic but `rank`/`ic`, EH-562).
 pub const MAX_WINDOW: usize = 1 << 20;
 
 /// A kernel over the last `k` valid observations.
