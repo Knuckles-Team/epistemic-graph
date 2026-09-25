@@ -5,8 +5,7 @@
 //! read only the ordinary key, so the second value never bound and a FILTER on it could
 //! not see it. These run on a plain (non-federated) graph.
 
-use super::{execute, Dataset, GraphView, Projection};
-use crate::mapping::{load_triples, parse_turtle, IriStore};
+use super::{execute, Dataset, Projection};
 
 const DATA: &str = r#"
 @prefix ex: <http://example.org/> .
@@ -15,16 +14,9 @@ ex:p ex:age 40, 18 ;
 ex:q ex:age 35 .
 "#;
 
-fn view() -> GraphView {
-    let core = eg_core::graph::GraphCore::new();
-    let mut iris = IriStore::default();
-    load_triples(&core, &mut iris, "g", parse_turtle(DATA).unwrap()).unwrap();
-    core.analysis_snapshot()
-}
-
 /// Sorted bindings of `var` for `query` (the `ex:` prefix is supplied).
 fn column(query: &str, var: &str) -> Vec<String> {
-    let view = view();
+    let view = super::view_of_turtle(DATA);
     let text = format!("PREFIX ex: <http://example.org/>\n{query}");
     let table = execute(
         &Dataset::new(&view, Vec::new()),

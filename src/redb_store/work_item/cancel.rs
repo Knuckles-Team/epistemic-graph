@@ -33,20 +33,6 @@ pub(crate) struct CancelWorkItemInput<'args, 'table, 'crypto> {
     pub(crate) crypto: DurableCrypto<'crypto>,
 }
 
-fn load_transition_work_item_props(
-    graph: &str,
-    work_item_id: &str,
-    nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
-) -> Result<Option<serde_json::Map<String, serde_json::Value>>, String> {
-    nodes
-        .get((graph, work_item_id))?
-        .map(|value| crypto.unseal(value.value()))
-        .transpose()?
-        .map(|bytes| decode_durable(&bytes))
-        .transpose()
-}
-
 fn cancel_status_refusal(
     props: &serde_json::Map<String, serde_json::Value>,
     now_s: f64,
@@ -133,7 +119,7 @@ pub(crate) fn apply_cancel_work_item_row(
         policies,
         crypto,
     } = input;
-    let Some(mut props) = load_transition_work_item_props(graph, work_item_id, nodes, crypto)?
+    let Some(mut props) = super::control_lease::load_row(nodes, graph, work_item_id, crypto)?
     else {
         return cancel_transition_result(unchanged_transition(
             eg_types::result_contract::coordination::WorkItemCancelStatus::Missing,
@@ -279,7 +265,7 @@ pub(crate) fn apply_defer_work_item_row(
     if next_retry_at_ms < now_ms {
         return Err("DeferWorkItem next_retry_at_ms must not precede now_ms".into());
     }
-    let Some(mut props) = load_transition_work_item_props(graph, work_item_id, nodes, crypto)?
+    let Some(mut props) = super::control_lease::load_row(nodes, graph, work_item_id, crypto)?
     else {
         return deferral_result(deferral_refused(
             eg_types::result_contract::coordination::WorkItemDeferStatus::Missing,

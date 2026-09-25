@@ -82,10 +82,10 @@ fn requires_write_agent_surface(method: &Method) -> Option<bool> {
     None
 }
 
-/// The decision and catalog-administration surfaces, whose read/write split
-/// lives on their own ops.
+/// Decision and catalog-administration surfaces whose read/write split lives
+/// on their own ops.
 ///
-/// Four methods, one classifier: each delegates to `is_mutation()` on the op,
+/// Each method delegates to `is_mutation()` on the op,
 /// so this file and the capability ledger cannot drift apart about an
 /// operation. `ConnectorPack.status`, `DecisionFit.status`,
 /// `DecisionEval.status`, `MutationOutbox.status` and
@@ -98,6 +98,8 @@ fn requires_write_decision_surface(method: &Method) -> Option<bool> {
         Method::DecisionEval { op } => Some(op.is_mutation()),
         Method::MutationOutbox { op } => Some(op.is_mutation()),
         Method::EdgeIndex { op } => Some(op.is_mutation()),
+        Method::FleetCatalog { op } => Some(op.is_mutation()),
+        Method::PolicyEvolution { op } => Some(op.is_mutation()),
         _ => None,
     }
 }
@@ -105,17 +107,6 @@ fn requires_write_decision_surface(method: &Method) -> Option<bool> {
 fn requires_write_back_surface(method: &Method) -> Option<bool> {
     match method {
         Method::WriteBack { op } => Some(op.is_mutation()),
-        _ => None,
-    }
-}
-
-/// The op families that carry their read/write split on the op -- the fleet
-/// catalog (EH-345) and policy evolution (EH-346/EH-347) -- so this classifier
-/// and the capability ledger cannot disagree about an operation.
-fn requires_write_op_family_surface(method: &Method) -> Option<bool> {
-    match method {
-        Method::FleetCatalog { op } => Some(op.is_mutation()),
-        Method::PolicyEvolution { op } => Some(op.is_mutation()),
         _ => None,
     }
 }
@@ -359,7 +350,6 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         requires_write_agent_surface,
         requires_write_decision_surface,
         requires_write_back_surface,
-        requires_write_op_family_surface,
         requires_write_ingestion_surface,
         requires_write_native_surface,
         requires_write_query_surface,

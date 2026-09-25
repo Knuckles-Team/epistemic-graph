@@ -41,10 +41,22 @@ impl FederationBudget {
     pub fn from_env() -> Self {
         let d = Self::default();
         Self {
-            max_requests: env_or("EPISTEMIC_GRAPH_FEDERATION_MAX_REQUESTS", d.max_requests),
-            max_rows: env_or("EPISTEMIC_GRAPH_FEDERATION_MAX_ROWS", d.max_rows),
-            max_bind_keys: env_or("EPISTEMIC_GRAPH_FEDERATION_MAX_BIND_KEYS", d.max_bind_keys),
-            max_wall_ms: env_or("EPISTEMIC_GRAPH_FEDERATION_MAX_WALL_MS", d.max_wall_ms),
+            max_requests: eg_types::runtime_limit::positive_from_env(
+                "EPISTEMIC_GRAPH_FEDERATION_MAX_REQUESTS",
+                d.max_requests,
+            ),
+            max_rows: eg_types::runtime_limit::positive_from_env(
+                "EPISTEMIC_GRAPH_FEDERATION_MAX_ROWS",
+                d.max_rows,
+            ),
+            max_bind_keys: eg_types::runtime_limit::positive_from_env(
+                "EPISTEMIC_GRAPH_FEDERATION_MAX_BIND_KEYS",
+                d.max_bind_keys,
+            ),
+            max_wall_ms: eg_types::runtime_limit::positive_from_env(
+                "EPISTEMIC_GRAPH_FEDERATION_MAX_WALL_MS",
+                d.max_wall_ms,
+            ),
         }
     }
 
@@ -57,15 +69,6 @@ impl FederationBudget {
             max_wall_ms: self.max_wall_ms.min(other.max_wall_ms),
         }
     }
-}
-
-/// A positive integer from the environment, else `default`.
-fn env_or<T: std::str::FromStr + PartialOrd + Default>(name: &str, default: T) -> T {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.trim().parse::<T>().ok())
-        .filter(|v| *v > T::default())
-        .unwrap_or(default)
 }
 
 /// The typed refusal for one exhausted dimension.

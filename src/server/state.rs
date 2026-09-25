@@ -58,11 +58,7 @@ pub(crate) fn positive_runtime_limit_from_env<T>(variable: &str, default: T) -> 
 where
     T: std::str::FromStr + PartialOrd + Default,
 {
-    std::env::var(variable)
-        .ok()
-        .and_then(|value| value.trim().parse::<T>().ok())
-        .filter(|value| *value > T::default())
-        .unwrap_or(default)
+    eg_types::runtime_limit::positive_from_env(variable, default)
 }
 
 /// Resolve the `GetNodes` full-dump node cap, read ONCE from
