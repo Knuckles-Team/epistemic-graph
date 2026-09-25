@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 pub mod maintain;
 
 /// The kernel generation a digest binds: bump when any kernel's output changes.
-pub const KERNEL_VERSION: &str = "eg-series-kernels/1";
+pub const KERNEL_VERSION: &str = "eg-series-kernels/2";
 
 /// How a function builds its kernel from its numeric parameters.
 #[derive(Clone, Copy)]
