@@ -309,13 +309,7 @@ impl KeysetListing for WorkItemListRequest {
     type Item = WorkItemView;
     const CURSOR: CursorFamily = WORK_ITEM_LIST_CURSOR;
 
-    fn tenant(&self) -> &str {
-        &self.tenant
-    }
-
-    fn limit(&self) -> usize {
-        self.limit as usize
-    }
+    crate::keyset_page::keyset_tenant_limit_methods!(self);
 
     fn select(
         &self,
