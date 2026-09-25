@@ -149,6 +149,7 @@ pub mod quantum;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
+pub mod runtime_limit;
 // EH-558 — sealed record classes: content-addressed rows generic writes may not change.
 pub mod sealed_record;
 // EH-522 — the series-expression algebra (`DERIVE` columns, derived series). Pure serde.

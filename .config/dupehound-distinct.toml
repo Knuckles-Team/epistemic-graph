@@ -267,3 +267,262 @@ Re-read 2026-09-22 (train 2): the only change is decide-assembly's EH-052
 deletion of the unread `provides` field from agent_component's struct literal
 (one line fewer); both bodies otherwise identical to the 2026-09-19 review, and
 the argument above is unchanged, so the left digest is re-pinned."""
+[[pair]]
+left_file = "crates/eg-compute/src/assemble/topology/model.rs"
+left_name = "class_name"
+left_digest = "sha256:aec3f3a19b999e05d3c56b72144e7f45cd5a374be2dcdb492fc6681bc44a9681"
+right_file = "crates/eg-modality/src/rows.rs"
+right_name = "fmt"
+right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
+reviewed_on = "2026-09-25"
+reason = """This maps federation capacity resource classes to stable wire tokens. The other function renders modality-row validation errors for humans. Their enum types, consumers, and strings differ; sharing a vocabulary would conflate resource identity with diagnostics."""
+
+[[pair]]
+left_file = "crates/eg-core/src/dep_scope.rs"
+left_name = "note_attribution_dimensions"
+left_digest = "sha256:cd258cf759b1811c4ceb53dff3d484f07887c005897564b8c7b4f1dc7be83576"
+right_file = "crates/eg-core/src/dep_scope.rs"
+right_name = "note_coarse_dimensions"
+right_digest = "sha256:b38c2c9a3544b8728caa5ae582d23fc3b56667980c87071443ab663f08ad195f"
+reviewed_on = "2026-09-25"
+reason = """These update attribution-specific invalidation clocks for unlabelled edges and row visibility. The coarse sibling updates node, edge, and floor clocks. The identical conditional store shape carries different dependency dimensions, so a merged helper would obscure which dimensions invalidate each cache."""
+
+[[pair]]
+left_file = "crates/eg-numeric/src/attribution/mod.rs"
+left_name = "as_str"
+left_digest = "sha256:6a90fba785d30b7d36e47dba18d9a1d2826ee43601a3aaa01dbfcfe29483a18a"
+right_file = "crates/eg-modality/src/rows.rs"
+right_name = "fmt"
+right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
+reviewed_on = "2026-09-25"
+reason = """This is an attribution refusal code table consumed by structured results. The modality function writes descriptive error prose. They have unrelated enum variants and output contracts; the match-to-string scaffold is the only commonality."""
+
+[[pair]]
+left_file = "crates/eg-plan/src/exec/pred_sql.rs"
+left_name = "sql_cmp"
+left_digest = "sha256:ae5488d8ebd1a69fc035807a5b996ae38a4d567a9c98175ec401f51bdaa74ff5"
+right_file = "crates/eg-modality/src/rows.rs"
+right_name = "fmt"
+right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
+reviewed_on = "2026-09-25"
+reason = """This emits SQL comparison operators for foreign pushdown, where not-equal is SQL <>. The modality function renders validation prose. The two enum-to-text tables serve unrelated protocols and cannot share a representation."""
+
+[[pair]]
+left_file = "crates/eg-plan/src/federation_opt/budget.rs"
+left_name = "narrowed"
+left_digest = "sha256:c84e24ecb42281f089d7925b4b40bd757f19e29e9b36b03b066c60c3ec89ab65"
+right_file = "src/raft/cross_node_elasticity/mod.rs"
+right_name = "saturating_add"
+right_digest = "sha256:832067badbe895ac511e899ebd17936e873be7aca4570ee01123f6d4228059fc"
+reviewed_on = "2026-09-25"
+reason = """FederationBudget combines query limits with field-wise minimum to prevent budget widening. Elasticity resource totals use saturating addition to accumulate measured usage. The struct-field repetition is similar, but the arithmetic and safety invariants are opposite."""
+
+[[pair]]
+left_file = "crates/eg-plan/src/federation_opt/stats.rs"
+left_name = "store"
+left_digest = "sha256:397e699316acf74fdff85fea47e44e939b664cb51878dc20b0e6272d352ffc07"
+right_file = "src/server/sql_tables.rs"
+right_name = "registry"
+right_digest = "sha256:b74d790c61fd077c40aa83d646bd944bde78e7f813ffaae08cc9f85d8120a57d"
+reviewed_on = "2026-09-25"
+reason = """The optimizer stores source statistics keyed by fingerprint under an RwLock. The server stores SQL tables by name under a Mutex. Their process-local OnceLock initialization pattern is common Rust scaffolding, while the state owners and concurrency policies differ."""
+
+[[pair]]
+left_file = "crates/eg-plan/src/sql_text.rs"
+left_name = "dialect_follows_the_dsn_scheme"
+left_digest = "sha256:6f3f2da035a9a9da48d45dd0b06a09d43d0324ba0b90b7d890e4076b354b8aaf"
+right_file = "src/server/stomp_wire/mod.rs"
+right_name = "eg282_ack_mode_parse"
+right_digest = "sha256:aeb4a29fa9b943a5e0ce978955cfeceeef7aaf97fbab8ee4902564a78c38372b"
+reviewed_on = "2026-09-25"
+reason = """This test proves DSN scheme to SQL dialect mapping. The STOMP test proves acknowledgement mode token parsing. Both use assert_eq on parser examples, but no production code or domain fixture is shared."""
+
+[[pair]]
+left_file = "crates/eg-plan/src/uql/diag.rs"
+left_name = "as_str"
+left_digest = "sha256:417855e5c1846cf8a9eaf3f27d39f98ea88e0a2cd359a4f9777939a2c4129968"
+right_file = "crates/eg-modality/src/rows.rs"
+right_name = "fmt"
+right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
+reviewed_on = "2026-09-25"
+reason = """This is the UQL lexer diagnostic code vocabulary, which callers persist in parse errors. The modality function renders descriptive row validation text. The enum-to-string shape is routine; their error contracts and variant sets do not overlap."""
+
+[[pair]]
+left_file = "crates/eg-plan/src/uql/diag.rs"
+left_name = "from"
+left_digest = "sha256:061205dfa3a222b10f52251b7b3cfa5a2e9a78422e41f7dd7352a94fbc02ee17"
+right_file = "crates/eg-query/src/tables/provider.rs"
+right_name = "reverse_index_operator"
+right_digest = "sha256:7fd0319fe53ae285b1f30dd53e03b3a3aeacbb02ec01fce85d9472420de9514a"
+reviewed_on = "2026-09-25"
+reason = """This converts lexical errors into the UQL diagnostic enum, preserving specific parse failure kinds. The other reverses inequality direction when a table index swaps operands. Both are exhaustive enum matches, but their source and destination types and semantics are unrelated."""
+
+[[pair]]
+left_file = "crates/eg-plan/src/uql/grammar.rs"
+left_name = "name"
+left_digest = "sha256:eb2ee10b8b07244de648b96d889bac6e1430931feb0efb8078702984f9b67a2c"
+right_file = "crates/eg-modality/src/rows.rs"
+right_name = "fmt"
+right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
+reviewed_on = "2026-09-25"
+reason = """This maps UQL feature gates to their advertised names. The modality function renders validation error prose. The feature identifier contract has no shared enum or consumer with modality-row errors."""
+
+[[pair]]
+left_file = "crates/eg-types/src/agent_graph.rs"
+left_name = "as_draft"
+left_digest = "sha256:d153861fdf37f4a46f64b9065fb87c504c4443c70baa9320ce5b2839eef663c2"
+right_file = "crates/eg-types/src/agent_library.rs"
+right_name = "as_draft"
+right_digest = "sha256:c8a0522d0f14f2f2002ff3b65ccf084e619260681a8a15a5205f0345d2feb863"
+reviewed_on = "2026-09-25"
+reason = """These RF-ADR-008 record-to-draft accessors copy different field sets from AgentGraph and AgentLibraryEntry respectively. The draft types and validation contracts are separate; a generic builder would erase compile-time schema checks for each layer."""
+
+[[pair]]
+left_file = "crates/eg-types/src/decision/statistical/retrieval.rs"
+left_name = "class"
+left_digest = "sha256:87a35bdd9d628c3a98e11fdd1d7c6f930c9b1a014156b15902d915b6e2704ef3"
+right_file = "src/server/handlers/decide/stat_decide.rs"
+right_name = "resolution"
+right_digest = "sha256:a2ff01b6a801e1fcd350955205daf364dc09628f7ca9bb683f2a4c0fef29a363"
+reviewed_on = "2026-09-25"
+reason = """This classifies statistical log operations as write or governance for admission. The served handler classifies decision outcomes as abstention or statistical resolution. Matching three grouped enum variants is a shape coincidence across unrelated security and result types."""
+
+[[pair]]
+left_file = "crates/eg-types/src/freshness.rs"
+left_name = "parse"
+left_digest = "sha256:b8d0c51efe5db8fa3566eb25ab9df8a09eb09d882ca4a27db69c2710de9632bb"
+right_file = "crates/eg-types/src/fleet_catalog/vocabulary.rs"
+right_name = "from_declared"
+right_digest = "sha256:c35862362d9d5f25175ec0ea80a595f5ad4700af82be49bf50aba7037c99d349"
+reviewed_on = "2026-09-25"
+reason = """This parser accepts freshness classes immutable, slow, fast, and live. Fleet vocabulary parses skill, workflow, graph, and MCP skill declarations. The normalization shape matches but the accepted values and destination enums define unrelated contracts."""
+
+[[pair]]
+left_file = "crates/eg-types/src/graph_schema.rs"
+left_name = "action_token"
+left_digest = "sha256:00360f727a5b1d3d1d6bc8e9acfe2eee55ddbcbbb87fdaf8866021cc4b5b8a35"
+right_file = "crates/eg-types/src/fleet_catalog.rs"
+right_name = "name"
+right_digest = "sha256:20919aa82451efe5143c44200727b7a9b2ef8a0c1eb54aa99110965177386e88"
+reviewed_on = "2026-09-25"
+reason = """GraphSchema action tokens name attach, detach, and repair operations. FleetCatalog action names identify discovery and override operations. Both are exhaustive enum label maps but authorize different method families and must evolve with their own enums."""
+
+[[pair]]
+left_file = "crates/eg-types/src/graph_schema.rs"
+left_name = "expected_composed_digest"
+left_digest = "sha256:0ebf44133ad3b76c6ced7612867d8d699421e0e0c4c627e768bd3ab5e128d51e"
+right_file = "crates/eg-query/src/tables/schema.rs"
+right_name = "name"
+right_digest = "sha256:d04feac804f6219636ee176a871bfbb59b2349a594239d886dc6a6f9c59b85da"
+reviewed_on = "2026-09-25"
+reason = """GraphSchema extracts an optimistic concurrency digest from five mutation variants. TableConstraint extracts optional human-readable constraint names. The payload meaning, lifetime, and owner enums differ despite identical Option<&str> projection shape."""
+
+[[pair]]
+left_file = "crates/eg-types/src/graph_schema.rs"
+left_name = "validate_source_key_shape"
+left_digest = "sha256:371b623d20e5befd63c36ddd0b251a5ae627917c905a1d3b0bb019e71a8af707"
+right_file = "crates/eg-types/src/fleet_catalog/request.rs"
+right_name = "validate_error_text"
+right_digest = "sha256:360ba7cfcf211a66c304daa74cdfca34e08d09dd0379d9373e2d3bea585f9494"
+reviewed_on = "2026-09-25"
+reason = """A GraphSchema source id has a bounded identifier contract and refuses control characters. A FleetCatalog discovery error is a bounded human-readable diagnostic. Different limits and refusal codes are part of their distinct wire contracts."""
+
+[[pair]]
+left_file = "crates/eg-types/src/policy_evolution.rs"
+left_name = "kind"
+left_digest = "sha256:54c34a5fecc9068d6448ac07b08e00177278d37bb6ce9a7232b6843eda92a0de"
+right_file = "crates/eg-types/src/knowledge_stream.rs"
+right_name = "family"
+right_digest = "sha256:86b5462702828bcb3bfb1284f5b8225f1af5d096db559c0531e58718202ca019"
+reviewed_on = "2026-09-25"
+reason = """Policy evolution maps persisted policy record variants to PolicyRecordKind. Knowledge streams map multimodal result variants to KnowledgeResultFamily. Exhaustive variant classification is shared shape, but these types and resulting taxonomies are unrelated."""
+
+[[pair]]
+left_file = "crates/eg-types/src/policy_evolution.rs"
+left_name = "validate"
+left_digest = "sha256:9affb44ceeec425712d17f114f44ac9ff5f139e2f6121224b6a7f98845d61a49"
+right_file = "crates/eg-types/src/fleet_catalog.rs"
+right_name = "validate"
+right_digest = "sha256:c914f75f94e39ca72e288219d42b83c473f530d32b2d96a33f0ab28b08b0ed7e"
+reviewed_on = "2026-09-25"
+reason = """Policy evolution dispatches validation to each policy record and returns typed PolicyRefusal. Fleet catalog dispatches request validation and returns String. The variants and refusal types are independent, so a shared validator would weaken their type boundaries."""
+
+[[pair]]
+left_file = "crates/eg-types/src/policy_evolution.rs"
+left_name = "authz_action"
+left_digest = "sha256:d2b5f02214e407bc26a8a9d90baee6a398267d4eeedf519e1d4ef35e18246aaa"
+right_file = "crates/eg-types/src/fleet_catalog.rs"
+right_name = "name"
+right_digest = "sha256:20919aa82451efe5143c44200727b7a9b2ef8a0c1eb54aa99110965177386e88"
+reviewed_on = "2026-09-25"
+reason = """These policy evolution strings are authorization action names used by access control. Fleet catalog names are operation labels used for method identity. Coupling their match tables would risk changing authorization when an unrelated operation label changes."""
+
+[[pair]]
+left_file = "crates/eg-types/src/policy_evolution.rs"
+left_name = "name"
+left_digest = "sha256:40c8b1fdbed3b4ea2abce5e549e303be430a4eae72395d17deba03ecf4d61e7a"
+right_file = "crates/eg-types/src/fleet_catalog.rs"
+right_name = "name"
+right_digest = "sha256:20919aa82451efe5143c44200727b7a9b2ef8a0c1eb54aa99110965177386e88"
+reviewed_on = "2026-09-25"
+reason = """Policy evolution names refer to policy mutation and get operations. Fleet catalog names refer to discovery and override operations. They are distinct protocol enum vocabularies; only the mechanical match-to-static-str shape coincides."""
+
+[[pair]]
+left_file = "crates/eg-types/src/rbac_elevation.rs"
+left_name = "code"
+left_digest = "sha256:348aad8ed0104b832bba444cab13485c060f12f16fd11f8c355d9f6439bfb6af"
+right_file = "crates/eg-modality/src/rows.rs"
+right_name = "fmt"
+right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
+reviewed_on = "2026-09-25"
+reason = """This maps elevation refusals to stable machine-readable codes. The modality function renders human-readable validation errors. Their enum values, callers, and wire semantics differ despite common match-to-string syntax."""
+
+[[pair]]
+left_file = "crates/eg-types/src/wire_query_uql_pred.rs"
+left_name = "cmp_op"
+left_digest = "sha256:982ac05bd71c80b9002df222bd00d48cecd03c77988772a2c3e36c5abb471f54"
+right_file = "crates/eg-modality/src/rows.rs"
+right_name = "fmt"
+right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
+reviewed_on = "2026-09-25"
+reason = """This renders UQL comparison operators for a wire expression, including !=. The modality function renders row validation prose. These separate protocols have no common enum or vocabulary."""
+
+[[pair]]
+left_file = "src/server/dispatch/router/lifecycle.rs"
+left_name = "index_kind_label"
+left_digest = "sha256:ee6e23cdffc019b620eb50df849d670c2b9b60f3130dc02a342df07c268e7c95"
+right_file = "src/server/dispatch/router/lifecycle.rs"
+right_name = "index_validity_label"
+right_digest = "sha256:e3033654d664abd0a2b39b954cef1e9f44746e4e14f8a9b3f24033636ec33758"
+reviewed_on = "2026-09-25"
+reason = """IndexKind labels identify index implementations in a manifest; IndexValidity labels represent the lifecycle state of those indexes. The enum types and field meanings differ, so a shared table would mix identity with state."""
+
+[[pair]]
+left_file = "src/server/handlers/decide/stat_jobs.rs"
+left_name = "serve_eval"
+left_digest = "sha256:9df32ba98e6648f8a639bfd4b8f5ccc16d60d5ed3a14173ccb2de26dc421f6a0"
+right_file = "src/server/handlers/decide/stat_jobs.rs"
+right_name = "serve_fit"
+right_digest = "sha256:93b7831ec80c1dcffff25609536897d8c7578224a18fc9f008dcf5f6aaba3325"
+reviewed_on = "2026-09-25"
+reason = """DecisionEval submits an evaluation job and returns EvalSubmit or EvalStatus; DecisionFit submits training and returns FitSubmit or FitStatus. Their kernels, request types, persisted job kinds, and result contracts differ. The sibling API scaffold is deliberate and preserves typed dispatch."""
+
+[[pair]]
+left_file = "src/server/mutation/plan.rs"
+left_name = "native_local_only_decision_method_name"
+left_digest = "sha256:be055dc7094d071127b58df3870b4966b81858b7a1f212914a23fc71e8222bab"
+right_file = "src/server/mutation/plan.rs"
+right_name = "memory_method_name"
+right_digest = "sha256:defaa4b958f6a8b46a9cd179b182e16bddd5b3ebbf75f91bd7ce7942114ed828"
+reviewed_on = "2026-09-25"
+reason = """This list marks decision methods forbidden from a nonlocal mutation path. The other list names memory methods for different routing. They classify disjoint Method variants for different control-flow decisions, despite the Option<&str> match scaffold."""
+
+[[pair]]
+left_file = "src/server/mutation_batch/canonical.rs"
+left_name = "is_capacity_method"
+left_digest = "sha256:ead5f49ceebcbef3c2bb2f0ecded65f84a5fcc446489294e32d9e0eb334aeef7"
+right_file = "crates/eg-plan/src/exec.rs"
+right_name = "is_spatial_pred"
+right_digest = "sha256:0e6e2d1518bb697284d2af632b201f41b096353d8139dd87b443315e44684375"
+reviewed_on = "2026-09-25"
+reason = """This predicate classifies capacity-control Method variants for canonical mutation handling. The other classifies spatial Pred variants for query evaluation. Separate enum domains and consumers happen to use the same matches! macro form."""

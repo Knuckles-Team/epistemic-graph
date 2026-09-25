@@ -2818,6 +2818,20 @@ fn quoted_component(b: &Binding, idx: usize) -> Option<Binding> {
 }
 
 #[cfg(test)]
+fn view_of_turtle(ttl: &str) -> GraphView {
+    let core = eg_core::graph::GraphCore::new();
+    let mut iris = crate::mapping::IriStore::default();
+    crate::mapping::load_triples(
+        &core,
+        &mut iris,
+        "g",
+        crate::mapping::parse_turtle(ttl).unwrap(),
+    )
+    .unwrap();
+    core.analysis_snapshot()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::mapping::{load_triples, parse_turtle, IriStore};
@@ -2873,13 +2887,6 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     }
 
     /// A snapshot of graph `g` loaded from a Turtle document.
-    fn view_of_turtle(ttl: &str) -> GraphView {
-        let core = eg_core::graph::GraphCore::new();
-        let mut iris = IriStore::default();
-        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
-        core.analysis_snapshot()
-    }
-
     /// W2: a ≥2-pattern BGP + a FILTER returns the right solutions.
     #[test]
     fn bgp_two_patterns_plus_filter() {
