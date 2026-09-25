@@ -9,8 +9,8 @@
 //!
 //! * [`layout_predecessors`] names every refused predecessor of a layout. A
 //!   predecessor file is refused with `{LAYOUT}_FORMAT_UPGRADE_REQUIRED` and its
-//!   removal step (EG 2.27.x ships `Refuse` only: old data is disposable, there
-//!   is no migration code).
+//!   removal step. SQL predecessors also have an explicit, inspected offline
+//!   upgrade; ordinary opens remain read-only refusals until it is run.
 //! * [`validate_against_lineage`] is the check every manifest read runs --
 //!   open, recovery adoption, classification and backup restore all read the
 //!   manifest through `manifest_io::read_manifest` -- so none of them can miss
@@ -82,8 +82,8 @@ const SQL_TABLES_BEFORE_DURABLE_ANN: &[&str] = &[
     "__sql_source_checkpoints__",
 ];
 
-/// `sql.redb` before durable SQL source checkpoints (ruling D2: refused, the
-/// bespoke offline upgrader deleted).
+/// `sql.redb` before durable SQL source checkpoints. Normal open refuses it;
+/// the explicit offline upgrader can preserve its catalog and rows.
 pub const SQL_BEFORE_SOURCE_CHECKPOINTS: LayoutPredecessor = LayoutPredecessor {
     layout: OwnerLayout::Sql,
     label: "SQL catalog store before durable source checkpoints",
@@ -103,7 +103,8 @@ pub const SQL_BEFORE_DURABLE_ANN: LayoutPredecessor = LayoutPredecessor {
     file_name: "sql.redb",
 };
 
-const SQL_DATA_LOST: &str = "its SQL catalog and rows are not migrated; re-ingest the sources";
+const SQL_DATA_LOST: &str = "its SQL catalog and rows require an explicit offline upgrade \
+                             before normal open, or re-ingestion after moving the file aside";
 
 /// The graph-shard owner tables before the background node-payload scrub's
 /// file-wide cursor (EH-384): the current census without its last table.
