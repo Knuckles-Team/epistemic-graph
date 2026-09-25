@@ -297,6 +297,11 @@ $($variants)*
     #[cfg(feature = "security")]
     AuditReadEvent { seq: u64 },
 
+    /// Durable, caller-bound one-shot SERVICE child journal. The graph and
+    /// owner are verified before touching the audit-linked native row.
+    #[cfg(feature = "security")]
+    ServiceChild { op: crate::protocol::ServiceChildOp },
+
     /// Produce + server-side-verify a Merkle inclusion proof for one node against
     /// a prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) — the
     /// extension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence

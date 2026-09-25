@@ -33,6 +33,8 @@ macro_rules! native_method_catalog {
             record GraphSchema => GraphState,
             #[cfg(feature = "security")]
             record AuditAppend => GraphState,
+            #[cfg(feature = "security")]
+            record ServiceChild => GraphState,
 
             record BeginTxn => Transaction,
             record TxnAddNode => Transaction,

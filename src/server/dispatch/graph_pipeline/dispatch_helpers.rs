@@ -200,6 +200,95 @@ pub(super) async fn dispatch_op_audit_append(
 }
 
 #[cfg(feature = "security")]
+fn service_child_receipt(
+    record: crate::redb_store::service_child::ServiceChildRecord,
+    tenant: &str,
+    created: bool,
+) -> eg_types::result_contract::security::ServiceChildReceipt {
+    let state = match record.outcome {
+        crate::redb_store::service_child::ServiceChildOutcome::Reserved => "reserved",
+        crate::redb_store::service_child::ServiceChildOutcome::Succeeded { .. } => "succeeded",
+        crate::redb_store::service_child::ServiceChildOutcome::OutcomeUnknown { .. } => "outcome_unknown",
+    };
+    eg_types::result_contract::security::ServiceChildReceipt {
+        record_id: record.record_id.clone(),
+        tenant: tenant.to_string(),
+        owner_ref: record.binding.owner_ref,
+        target: format!("fleet:{}/{}", record.binding.server, record.binding.tool),
+        subject_id: record.binding.subject_id,
+        audit_ref: record.binding.request_id,
+        recovery_ref: record.record_id,
+        durable: true,
+        created,
+        state: state.to_string(),
+    }
+}
+
+#[cfg(feature = "security")]
+pub(super) async fn dispatch_op_service_child(
+    req_id: u64,
+    graph_name: &str,
+    verified_context: &VerifiedRequestContext,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    op: crate::protocol::ServiceChildOp,
+) -> Response {
+    use crate::redb_store::service_child::{ServiceChildBinding, ServiceChildOutcome};
+    let authority = match CarrierAuthority::from_verified(verified_context) {
+        Ok(authority) => authority,
+        Err(error) => return Response::err(req_id, error),
+    };
+    let scopes = &verified_context.claims().scopes;
+    if !scopes.iter().any(|scope| scope == "security:audit-write" || scope == "*") {
+        return Response::err(req_id, "ACCESS_DENIED: security:audit-write required");
+    }
+    let Some(redb) = persistence.as_ref().and_then(|backend| backend.as_redb()) else {
+        return Response::err(req_id, "SERVICE_CHILD_DURABLE_BACKEND_REQUIRED");
+    };
+    let graph = crate::persist::sanitize(graph_name);
+    let tenant = verified_context.tenant();
+    let result = match op {
+        crate::protocol::ServiceChildOp::Reserve { binding, audit_ref } => {
+            if binding.tenant != tenant || binding.owner_principal != verified_context.principal() {
+                return Response::err(req_id, "SERVICE_CHILD_CARRIER_MISMATCH");
+            }
+            let binding = ServiceChildBinding {
+                tenant: authority.tenant_scope().to_string(),
+                owner_principal: authority.actor_scope().to_string(),
+                owner_ref: binding.owner_ref,
+                server: binding.server,
+                tool: binding.tool,
+                subject_id: binding.subject_id,
+                argument_sha256: binding.argument_sha256,
+                audit_params_sha256: binding.audit_params_sha256,
+                request_id: binding.request_id,
+                policy_revision: binding.policy_revision,
+                registry_revision: binding.registry_revision,
+                scopes_sha256: binding.scopes_sha256,
+            };
+            redb.service_child_reserve(&graph, binding, authority.tenant_scope(), authority.actor_scope(), &audit_ref)
+                .await.map(|reservation| Some(service_child_receipt(reservation.record, tenant, reservation.created)))
+        }
+        crate::protocol::ServiceChildOp::Get { record_id } => {
+            redb.service_child_get(&graph, &record_id, authority.tenant_scope(), authority.actor_scope())
+                .await.map(|record| record.map(|record| service_child_receipt(record, tenant, false)))
+        }
+        crate::protocol::ServiceChildOp::Finish { record_id, outcome, result_sha256, reason_code } => {
+            let outcome = match (outcome.as_str(), result_sha256, reason_code) {
+                ("succeeded", Some(result_sha256), None) => ServiceChildOutcome::Succeeded { result_sha256 },
+                ("outcome_unknown", None, Some(reason_code)) => ServiceChildOutcome::OutcomeUnknown { reason_code },
+                _ => return Response::err(req_id, "SERVICE_CHILD_INVALID_OUTCOME"),
+            };
+            redb.service_child_finish(&graph, &record_id, authority.tenant_scope(), authority.actor_scope(), outcome)
+                .await.map(|record| Some(service_child_receipt(record, tenant, false)))
+        }
+    };
+    match result {
+        Ok(receipt) => Response::ok(req_id, ResultPayload::of::<eg_types::result_contract::security::ServiceChild>(receipt)),
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+#[cfg(feature = "security")]
 pub(super) async fn dispatch_op_audit_verify(
     req_id: u64,
     graph_name: &str,

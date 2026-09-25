@@ -631,6 +631,15 @@ async fn route_graph_audit_and_modality(
             )
             .await);
         }
+        Method::ServiceChild { op } => {
+            return Ok(dispatch_op_service_child(
+                ctx.req_id,
+                ctx.graph_name,
+                ctx.verified_context,
+                ctx.persistence.clone(),
+                op,
+            ).await);
+        }
         method => method,
     };
     #[cfg(feature = "security")]
