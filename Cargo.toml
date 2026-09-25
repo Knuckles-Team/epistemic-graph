@@ -1130,7 +1130,7 @@ sparql-service = ["sparql-http", "federation", "dep:ureq"]
 # `failed_peers` instead of failing). REUSES the SAME pure-Rust `ureq`/rustls stack the
 # other federation surfaces link (NO new HTTP crate enters the tree); SSRF-vetted with the
 # SAME allowlist/internal-range guard as EG-052. Included in the one main build.
-federation-search = ["server", "dep:ureq"]
+federation-search = ["server", "federation", "dep:ureq"]
 # OpenSearch adapter for the federated-search fan-out (CA-14), off by default and EMPTY
 # until CA-14 implements it. Declared here by CA-17's single feature-stub commit so that
 # CA-14 never edits this shared table. Implies `federation-search`.
