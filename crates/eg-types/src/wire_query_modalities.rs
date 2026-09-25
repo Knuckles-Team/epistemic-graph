@@ -367,6 +367,11 @@ pub enum ForeignSourceSpec {
         /// The result column whose numeric value is the row score (absent ⇒ unscored).
         #[serde(default)]
         score_field: Option<String>,
+        /// Query-selected columns the registering owner permits a column query to
+        /// read. Empty for legacy id/score-only registrations. Names are checked
+        /// as SQL identifiers before projection or filter pushdown (EH-572).
+        #[serde(default)]
+        columns: Vec<String>,
     },
     /// A NAMED reference to a foreign source registered in the executor's
     /// `ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike self-describing variants
