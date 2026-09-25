@@ -150,9 +150,12 @@ pub(super) fn handle(
         }
         last = id.strip_prefix(&prefix).map(str::to_string);
         scanned += 1;
-        if !authority.can_see_blob(&blob) {
-            continue;
-        }
+        // `usage:read` is a tenant-wide accounting permission. A runtime
+        // emitter's private graph-row owner is often a different agent from
+        // GraphOS's reader, so the generic node RLS predicate is deliberately
+        // not the authority for this dedicated method. The verified carrier's
+        // tenant prefix and the method's scope gate are both mandatory; generic
+        // graph reads still apply the row's `_owner`/private visibility tags.
         let Ok(row) = eg_types::msgpack::decode_property_value(&blob) else {
             continue;
         };
