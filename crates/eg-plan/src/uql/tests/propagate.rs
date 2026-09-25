@@ -49,7 +49,7 @@ fn fixture(db_p_seed: Option<f64>) -> (eg_core::graph::GraphView, SemanticStore)
     (core.analysis_snapshot(), SemanticStore::new())
 }
 
-fn impact(src: &str, db_p_seed: Option<f64>) -> Vec<(String, f32)> {
+fn impact(src: &str, db_p_seed: Option<f64>) -> Vec<(String, f64)> {
     let (view, semantic) = fixture(db_p_seed);
     let ctx = PlanCtx::new(&view, &semantic);
     let stmt = parse_statement(src, &Params::new())
@@ -70,7 +70,7 @@ const QUERY: &str = "MATCH (:Service) |> WHERE name = 'db' \
 #[test]
 fn noisy_or_flows_against_dependencies_with_declared_and_default_transmission() {
     let rows = impact(QUERY, None);
-    let expected = [("db", 1.0f32), ("api", 0.8), ("web", 0.4), ("cache", 0.3)];
+    let expected = [("db", 1.0f64), ("api", 0.8), ("web", 0.4), ("cache", 0.3)];
     assert_eq!(rows.len(), expected.len(), "{rows:?}");
     for ((id, p), (want_id, want)) in rows.iter().zip(expected) {
         assert_eq!(id, want_id);
@@ -94,7 +94,7 @@ fn the_query_surface_and_the_kernel_agree() {
     let rows = impact(QUERY, Some(0.5));
     let by_id = |id: &str| rows.iter().find(|(r, _)| r == id).map(|(_, p)| *p);
     for (i, id) in ["db", "api", "cache", "web"].into_iter().enumerate() {
-        assert_eq!(by_id(id), Some(kernel[i] as f32), "{id}");
+        assert_eq!(by_id(id), Some(f64::from(kernel[i] as f32)), "{id}");
     }
 }
 
