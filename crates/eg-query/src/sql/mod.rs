@@ -77,9 +77,6 @@ mod iceberg_federation;
 /// `numeric` (out of `pi`); no pyo3 in the engine build.
 #[cfg(feature = "numeric")]
 mod numeric;
-/// EH-522 — `eg_<func>(…) OVER (…)` window functions over the series kernels.
-#[cfg(feature = "numeric")]
-mod series_udwf;
 /// Postgres-family extension parity: pgvector ANN index pushdown, TimescaleDB hypertables/continuous-aggregates, and
 /// ParadeDB `@@@` BM25 — the pure parse/plan/project layer.
 mod pgfamily;
@@ -92,6 +89,9 @@ mod pgvector_ddl;
 /// FOR, RETURN, RAISE, `SELECT … INTO`) against a variable environment, running embedded
 /// SQL back through the same read path. Pure Rust — no new deps (folds into `sql`).
 mod plpgsql;
+/// EH-522 — `eg_<func>(…) OVER (…)` window functions over the series kernels.
+#[cfg(feature = "numeric")]
+mod series_udwf;
 // `pub(crate)` (not `mod providers;`) so `crate::tables::provider::UserTableProvider`
 // (CONCEPT:EG-KG.query.register-each-user-table) can reuse `NodesTableProvider`'s generic equality-index
 // pushdown for its own full-scan fallback, instead of duplicating that machinery.

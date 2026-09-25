@@ -39,13 +39,23 @@ fn check_moments(xs: &[f64], window: usize) {
         let got = got.unwrap();
         let scale = win.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
         assert!(close(got.mean, want.mean, scale), "mean at {i} w={window}");
-        assert!(close(got.sum, want.sum, scale * window as f64), "sum at {i} w={window}");
+        assert!(
+            close(got.sum, want.sum, scale * window as f64),
+            "sum at {i} w={window}"
+        );
         // The two-pass reference itself carries ~eps·|x|/spread relative error at a large
         // offset, so the variance is compared relatively, plus an eps·|x| floor.
         let var_tol = 1e-6 * want.variance + 1e-12 * scale;
-        assert!((got.variance - want.variance).abs() <= var_tol, "var at {i} w={window}");
+        assert!(
+            (got.variance - want.variance).abs() <= var_tol,
+            "var at {i} w={window}"
+        );
         if win.iter().all(|&v| v == win[0]) {
-            assert_eq!((got.mean, got.variance), (win[0], 0.0), "flat window at {i}");
+            assert_eq!(
+                (got.mean, got.variance),
+                (win[0], 0.0),
+                "flat window at {i}"
+            );
         }
     }
 }
@@ -87,10 +97,16 @@ fn a_non_finite_value_falls_back_while_in_the_window_and_leaves_no_residue() {
         let want = Moments::of(xs[i + 1 - window..=i].iter().copied()).unwrap();
         let got = got.unwrap();
         if (20..21 + window).contains(&i) {
-            assert!(got.mean.is_nan() || got.mean.is_infinite(), "poisoned at {i}");
+            assert!(
+                got.mean.is_nan() || got.mean.is_infinite(),
+                "poisoned at {i}"
+            );
         } else {
             assert!(close(got.mean, want.mean, 100.0), "clean again at {i}");
-            assert!(close(got.variance, want.variance, 1.0e4), "clean again at {i}");
+            assert!(
+                close(got.variance, want.variance, 1.0e4),
+                "clean again at {i}"
+            );
         }
     }
 }

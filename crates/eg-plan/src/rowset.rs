@@ -216,10 +216,18 @@ mod tests {
             .map(|(id, v)| (id.to_string(), BTreeMap::from([("v0".to_string(), v)])))
             .collect();
         let rs = RowSet::from_ids(["a".into(), "b".into()]).with_values(values);
-        assert_eq!(rs.value("z", "v0"), None, "a channel of an absent row is dropped");
+        assert_eq!(
+            rs.value("z", "v0"),
+            None,
+            "a channel of an absent row is dropped"
+        );
         let limited = rs.limit(1);
         assert_eq!(limited.value("a", "v0"), Some(1.5));
-        assert_eq!(limited.value("b", "v0"), None, "LIMIT drops the cut row's channels");
+        assert_eq!(
+            limited.value("b", "v0"),
+            None,
+            "LIMIT drops the cut row's channels"
+        );
     }
 
     #[test]

@@ -60,7 +60,13 @@ pub(super) fn ts_scan(series: &[String], from: f64, to: f64) -> Printed {
 pub(super) fn derive(columns: &[crate::series_expr::DeriveColumn]) -> Printed {
     let parts = columns
         .iter()
-        .map(|c| Ok(format!("{} AS {}", uql_series_expr(&c.expr)?, uql_ident(&c.name))))
+        .map(|c| {
+            Ok(format!(
+                "{} AS {}",
+                uql_series_expr(&c.expr)?,
+                uql_ident(&c.name)
+            ))
+        })
         .collect::<Result<Vec<_>, UqlPrintError>>()?;
     Ok(format!("DERIVE {}", parts.join(", ")))
 }
@@ -91,7 +97,10 @@ pub fn uql_series_expr(expr: &crate::series_expr::SeriesExpr) -> Printed {
         SeriesExpr::Channel { name } => Ok(uql_ident(name)),
         SeriesExpr::Const { value } => uql_num(*value),
         SeriesExpr::Call { func, args, params } => {
-            let mut parts = args.iter().map(uql_series_expr).collect::<Result<Vec<_>, _>>()?;
+            let mut parts = args
+                .iter()
+                .map(uql_series_expr)
+                .collect::<Result<Vec<_>, _>>()?;
             for p in params {
                 parts.push(uql_num(*p)?);
             }

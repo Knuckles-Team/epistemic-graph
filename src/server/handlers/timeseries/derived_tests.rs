@@ -248,9 +248,16 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
             },
         )
         .await;
-    assert!(foreign_range.result.is_none(), "a foreign tenant reads nothing");
+    assert!(
+        foreign_range.result.is_none(),
+        "a foreign tenant reads nothing"
+    );
     let error = foreign_range.error.unwrap_or_default();
     assert!(error.contains(FOREIGN_TENANT), "foreign range: {error}");
-    assert_eq!(fx.tenants_with_series().await.len(), 1, "only the owner's scope holds series");
+    assert_eq!(
+        fx.tenants_with_series().await.len(),
+        1,
+        "only the owner's scope holds series"
+    );
     assert!(!fx.range(TENANT, "px_z").await.is_empty());
 }
