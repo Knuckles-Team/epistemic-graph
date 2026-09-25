@@ -24,7 +24,6 @@ use eg_numeric::decision::replay::{
     ReplayOutcome, ReplayPolicy, ReplayStep, Uniform,
 };
 use eg_types::contract::BoundedVec;
-use eg_types::decision::digest::digest_text;
 use eg_types::decision::replay::{
     EvaluationRun, OptionContribution, ReplayEnvironment, ReplayFoldView, ReplaySpec,
     ReplayValidation, TrialLog,
@@ -36,10 +35,9 @@ use eg_types::decision::{DecisionEvalRequest, DecisionJobOutput, QuantisedValue}
 use super::stat_jobs::{candidate_head, dataset_digest, EvalInputs, JobRun};
 use super::stat_support::refusal;
 use crate::server::persistence::agent_library::AgentLibraryStore;
-use crate::server::persistence::decision_jobs::{encode_artifact, evaluation_run_key};
-
-/// Domain of an `EvaluationRun` digest.
-const RUN_DOMAIN: &str = "eg/decision/evaluation-run/v1";
+use crate::server::persistence::decision_jobs::{
+    decode_artifact, encode_artifact, evaluation_run_key,
+};
 
 fn rendered<T>(result: RefusalResult<T>) -> Result<T, String> {
     result.map_err(|refused| refused.render())
@@ -77,7 +75,16 @@ fn check_supersedes(
         return Ok(());
     };
     match store.decision_artifact(tenant_id, &evaluation_run_key(previous))? {
-        Some(_) => Ok(()),
+        Some(bytes) => {
+            let run: EvaluationRun = decode_artifact(&bytes, "evaluation run")?;
+            if run.run_digest != *previous || !run.verify() {
+                return Err(refusal(
+                    StatisticalErrorCode::ReplaySpecInvalid,
+                    "supersedes names a corrupt evaluation run",
+                ));
+            }
+            Ok(())
+        }
         None => Err(refusal(
             StatisticalErrorCode::ReplaySpecInvalid,
             format!("supersedes names no evaluation run {previous}"),
@@ -255,7 +262,7 @@ fn seal(
         validation: validation(outcome, spec.trials)?,
         synthetic: inputs.dataset.synthetic,
     };
-    run.run_digest = digest_text(RUN_DOMAIN, &run);
+    run.run_digest = run.sealed_digest();
     Ok(run)
 }
 

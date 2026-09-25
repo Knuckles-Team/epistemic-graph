@@ -158,3 +158,55 @@ fn replay_is_deterministic_and_refuses_a_bad_cap() {
     let mut other = Uniform { steps: &data };
     assert!(replay(&data, &spec(10, 5, 5, 0, 0), 0.0, &mut uniform, &mut other).is_err());
 }
+
+/// On a policy-independent fixture with full counterfactual outcomes, a
+/// correctly supported doubly-robust OPE estimate agrees with replay within
+/// its interval. The same target allocation and test steps feed both paths.
+#[test]
+fn policy_independent_replay_agrees_with_doubly_robust_ope() {
+    use crate::detkernel::Propensity;
+    use crate::ope::{doubly_robust, LoggedDecision};
+
+    struct Fixed;
+    impl ReplayPolicy for Fixed {
+        fn prepare(&mut self, _train: &[usize]) -> RefusalResult<String> {
+            Ok("fixed-75-25".into())
+        }
+        fn requests(&self, _index: usize) -> RefusalResult<Option<Vec<f64>>> {
+            Ok(Some(vec![0.75, 0.25]))
+        }
+    }
+
+    let data = steps(60);
+    let outcome = replay(
+        &data,
+        &spec(20, 10, 10, 1, 1),
+        1.0,
+        &mut Fixed,
+        &mut Uniform { steps: &data },
+    )
+    .unwrap();
+    let logging = vec![Propensity::new(1, 2).unwrap(); 2];
+    let mut records = Vec::new();
+    for fold in &outcome.folds {
+        for index in fold.fold.test.clone() {
+            let action = index % 2;
+            let rewards = &data[index].utilities;
+            records.push(
+                LoggedDecision::new(action, rewards[action], logging.clone(), vec![0.75, 0.25])
+                    .unwrap()
+                    .with_reward_model(rewards.clone())
+                    .unwrap(),
+            );
+        }
+    }
+    let estimate = doubly_robust(&records).unwrap();
+    let replay_mean = mean(&outcome.path());
+    assert!(estimate.effective_sample_size > 0.0);
+    assert!(
+        (replay_mean - estimate.value).abs() <= 1.96 * estimate.std_error + 1e-12,
+        "replay={replay_mean}, DR={} ± {}",
+        estimate.value,
+        estimate.std_error
+    );
+}

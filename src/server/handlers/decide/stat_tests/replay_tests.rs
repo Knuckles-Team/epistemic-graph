@@ -230,6 +230,10 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
         eg_types::decision::digest::digest_text("eg/decision/evaluation-run/v1", &unsealed),
         run.run_digest
     );
+    assert!(run.verify());
+    let mut tampered = run.clone();
+    tampered.synthetic = !tampered.synthetic;
+    assert!(!tampered.verify());
     assert!(h
         .store
         .decision_artifact(TENANT, &evaluation_run_key(&run.run_digest))
@@ -249,6 +253,24 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     let mut dangling = spec();
     dangling.supersedes = Some(format!("sha256:{}", "0".repeat(64)));
     let refused = submit(&h, replay_request(&fitted, "replay-3", dangling)).await;
+    assert!(failed(&refused).starts_with("REPLAY_SPEC_INVALID"));
+
+    // A row under the expected key is insufficient: supersedes must verify
+    // the stored record's content address before accepting it as evidence.
+    h.store
+        .replace_decision_artifact(
+            TENANT,
+            &evaluation_run_key(&run.run_digest),
+            crate::server::persistence::decision_jobs::encode_artifact(&tampered).unwrap(),
+        )
+        .unwrap();
+    let mut corrupt_parent = spec();
+    corrupt_parent.supersedes = Some(run.run_digest.clone());
+    let refused = submit(
+        &h,
+        replay_request(&fitted, "replay-corrupt-parent", corrupt_parent),
+    )
+    .await;
     assert!(failed(&refused).starts_with("REPLAY_SPEC_INVALID"));
 }
 
