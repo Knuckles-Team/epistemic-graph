@@ -137,13 +137,16 @@ def pair_factory(embedded_persist_dir):
 
         shared = shared_embedded.get(embedded_persist_dir)
         if shared is None:
+            # Built on the default graph: `EmbeddedTransport` creates its
+            # construction-time graph, which would make the test's own
+            # CreateGraph of `graph_name` a duplicate that the socket side
+            # (whose connect creates nothing) never sees.
             shared = EmbeddedTransport(
-                graph_name=graph_name,
                 persist_dir=embedded_persist_dir,
                 agent_id=None,
             )
             shared_embedded[embedded_persist_dir] = shared
-        embedded = BoundEmbeddedTransport(shared, agent_id)
+        embedded = BoundEmbeddedTransport(shared, agent_id, graph_name)
         return TransportPair(socket=socket_client, embedded=embedded)
 
     yield _make
