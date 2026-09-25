@@ -18,6 +18,7 @@ use crate::server::request_scope::{interruptible, RequestCancel};
 
 mod annotations;
 mod catalog_attributes;
+mod desired;
 mod facts;
 mod front_matter;
 mod json;
