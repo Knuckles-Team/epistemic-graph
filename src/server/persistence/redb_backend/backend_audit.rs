@@ -35,7 +35,7 @@ impl RedbBackend {
         .await?;
         tokio::task::spawn_blocking(move || await_writer_reply(&rx, "audit_append"))
             .await
-            .map_err(|error| format!("audit_append join error: {error}"))?
+            .map_err(|error| format!("audit_append join error: {error}"))??
     }
     /// TEST-ONLY: flip a byte in the stored audit entry `(graph, seq)` to simulate
     /// tampering, so the verify path can prove detection. Routed through the owner
