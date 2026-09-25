@@ -39,7 +39,12 @@ pub(crate) async fn try_handle(
             ) {
                 return Ok(Response::err(req_id, error));
             }
-            s.foreign_sources.register(&owner, name.clone(), source);
+            if let Err(error) =
+                s.foreign_sources
+                    .register_durable(&owner, req_id, name.clone(), source)
+            {
+                return Ok(Response::err(req_id, error));
+            }
             Ok(Response::ok(
                 req_id,
                 ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterForeignSource>(

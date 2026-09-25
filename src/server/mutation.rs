@@ -2030,7 +2030,7 @@ mod tests {
         ("RegisterIdentity", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RbacAdmin", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RbacElevation", "EH-404: native rbac.redb MutationBatch; the elevation ledger is part of the RBAC policy image and shares its snapshot WTX"),
-        ("RegisterForeignSource", "opaque prepared/committed session-control MutationBatch"),
+        ("RegisterForeignSource", "sealed native foreign-catalog owner row and MutationBatch receipt share one WTX"),
         ("RegisterUdf", "opaque prepared/committed session-control MutationBatch"),
         ("RegisterContinuousQuery", "opaque prepared/committed session-control MutationBatch"),
         ("DropContinuousQuery", "opaque prepared/committed session-control MutationBatch"),

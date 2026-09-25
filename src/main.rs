@@ -470,7 +470,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         stores,
         &limits,
         txn_limits,
-    );
+    )?;
     let state = Arc::new(RwLock::new(server_state));
 
     // Compose the ordinary process as a real local-placement server before any

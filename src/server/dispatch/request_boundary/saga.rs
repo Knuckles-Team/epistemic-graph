@@ -43,8 +43,6 @@ fn is_session_control_mutation(method: &Method) -> bool {
         Method::CepSubscribe { .. } | Method::CepUnsubscribe { .. } => true,
         #[cfg(feature = "wasm-udf")]
         Method::RegisterUdf { .. } => true,
-        #[cfg(feature = "federation")]
-        Method::RegisterForeignSource { .. } => true,
         _ => false,
     }
 }
@@ -166,12 +164,6 @@ fn validate_session_control_result(method: &Method, result: &ResultPayload) -> R
         }
         #[cfg(feature = "wasm-udf")]
         Method::RegisterUdf { .. } => {
-            require_session_control_variant(method, result, "String", |value| {
-                matches!(value, ResultPayload::String(_))
-            })
-        }
-        #[cfg(feature = "federation")]
-        Method::RegisterForeignSource { .. } => {
             require_session_control_variant(method, result, "String", |value| {
                 matches!(value, ResultPayload::String(_))
             })

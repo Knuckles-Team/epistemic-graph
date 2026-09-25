@@ -394,12 +394,21 @@ pub(super) fn compose_server_state(
     stores: DurableStores,
     limits: &AdmissionLimits,
     (txn_ttl_secs, txn_max_per_graph, txn_max_per_agent): (u64, usize, usize),
-) -> ServerState {
+) -> Result<ServerState, String> {
     #[cfg(all(feature = "streaming", feature = "cdc-kafka"))]
     if let Some(hub) = &state.cdc {
         // CA-11 (DEC-CA-03): install the optional Kafka sink exactly once,
         // after pure state composition and before any listener can serve.
         server::cdc_sink::install_from_env(hub);
+    }
+    #[cfg(all(feature = "federation", feature = "security"))]
+    if let Some(dir) = persist_dir.as_deref() {
+        let tenant = std::env::var("EPISTEMIC_GRAPH_TENANT").map_err(|_| {
+            "FOREIGN_SOURCE_TENANT_REQUIRED: configured tenant is absent".to_string()
+        })?;
+        state.foreign_sources = Arc::new(
+            epistemic_graph::server::foreign_catalog::ForeignSourceCatalog::open(dir, &tenant)?,
+        );
     }
     state.persist_dir = persist_dir;
     state.persistence = stores.persistence;
@@ -421,7 +430,7 @@ pub(super) fn compose_server_state(
     {
         state.kv = stores.kv;
     }
-    state
+    Ok(state)
 }
 
 /// RLS is unconditionally default-deny: every served request carries a verified

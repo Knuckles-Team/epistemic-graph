@@ -38,9 +38,9 @@
 //! authorization of the registered credential, plus this owner scoping of who may
 //! use that credential.
 //!
-//! Registrations live in memory only. `RegisterForeignSource` is a `ControlRedb`
-//! session-control saga whose durable record is an opaque receipt; the endpoint
-//! configuration is never persisted, so there is no stored key shape to migrate.
+//! Production registrations commit a sealed spec and their mutation receipt in
+//! one ForeignCatalogOwner transaction. The in-memory projection is published
+//! only after that commit and reloaded at boot before listeners open.
 
 use std::sync::Arc;
 
@@ -75,6 +75,8 @@ struct OwnedSpec {
 #[derive(Default)]
 pub struct ForeignSourceCatalog {
     entries: DashMap<CatalogKey, OwnedSpec>,
+    #[cfg(feature = "security")]
+    durable: Option<super::foreign_catalog_store::ForeignCatalogStore>,
 }
 
 /// A caller's registry, built by [`ForeignSourceCatalog::registry_for`]: its own sources
@@ -105,6 +107,61 @@ impl OwnedForeignRegistry {
 }
 
 impl ForeignSourceCatalog {
+    /// Open the tenant-bound encrypted catalog before production listeners.
+    #[cfg(feature = "security")]
+    #[doc(hidden)]
+    pub fn open(persist_dir: &str, tenant: &str) -> Result<Self, String> {
+        let durable = super::foreign_catalog_store::ForeignCatalogStore::open(persist_dir, tenant)?;
+        let catalog = Self {
+            entries: DashMap::new(),
+            durable: Some(durable),
+        };
+        for row in catalog.durable.as_ref().expect("opened store").load()? {
+            catalog.entries.insert(
+                CatalogKey {
+                    owner_scope: row.owner_scope,
+                    name: row.name,
+                },
+                OwnedSpec {
+                    owner_agent: row.owner_agent,
+                    spec: row.spec,
+                },
+            );
+        }
+        Ok(catalog)
+    }
+
+    /// Commit the credential-bearing source and its receipt atomically before
+    /// publishing it to the serving projection.
+    pub(crate) fn register_durable(
+        &self,
+        owner: &CarrierAuthority,
+        request_id: u64,
+        name: String,
+        spec: ForeignSourceSpec,
+    ) -> Result<(), String> {
+        #[cfg(feature = "security")]
+        self.durable
+            .as_ref()
+            .ok_or_else(|| {
+                "FOREIGN_SOURCE_DURABILITY_UNAVAILABLE: persistent catalog is not configured"
+                    .to_string()
+            })?
+            .register(owner, request_id, &name, &spec)?;
+        #[cfg(not(feature = "security"))]
+        {
+            let _ = (owner, request_id, name, spec);
+            return Err(
+                "FOREIGN_SOURCE_DURABILITY_UNAVAILABLE: secure owner store is not built"
+                    .to_string(),
+            );
+        }
+        #[cfg(feature = "security")]
+        self.register(owner, name, spec);
+        #[cfg(feature = "security")]
+        Ok(())
+    }
+
     /// An owner-only, redacted point read. Unknown and unowned names are identical.
     pub(crate) fn get(&self, owner: &CarrierAuthority, name: &str) -> Option<ForeignSourceSummary> {
         let key = CatalogKey {

@@ -398,6 +398,8 @@ pub(crate) mod handlers;
 // place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
 #[cfg(feature = "federation")]
 pub mod foreign_catalog;
+#[cfg(all(feature = "federation", feature = "security"))]
+pub(crate) mod foreign_catalog_store;
 // Explicit RBAC-grant sharing of an owner-scoped foreign source (EH-378).
 #[cfg(feature = "federation")]
 pub(crate) mod foreign_share;
