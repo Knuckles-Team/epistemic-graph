@@ -698,10 +698,7 @@ fn check_graph_access_with_policy(
     access: AccessLevel,
 ) -> Result<(), String> {
     let agent = require_verified_caller(caller)?;
-    if !isolation.has_rules() {
-        crate::metrics::access_denied();
-        return Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string());
-    }
+    require_provisioned_policy(isolation)?;
     let query = crate::isolation::AccessQuery {
         agent_id: agent,
         graph_name,
@@ -783,10 +780,7 @@ pub(crate) fn check_caller_is_known(
     access: AccessLevel,
 ) -> Result<(), String> {
     let agent = require_verified_caller(caller)?;
-    if !isolation.has_rules() {
-        crate::metrics::access_denied();
-        return Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string());
-    }
+    require_provisioned_policy(isolation)?;
     if isolation.is_registered(agent) {
         return Ok(());
     }
@@ -806,6 +800,14 @@ fn require_verified_caller(caller: Option<&str>) -> Result<&str, String> {
             crate::metrics::access_denied();
             "ACCESS_DENIED: verified caller identity is required".to_string()
         })
+}
+
+fn require_provisioned_policy(isolation: &IsolationLayer) -> Result<(), String> {
+    if isolation.has_rules() {
+        return Ok(());
+    }
+    crate::metrics::access_denied();
+    Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string())
 }
 
 /// L10 (EG-P0-6 security finding): every broker/stream mutating op that

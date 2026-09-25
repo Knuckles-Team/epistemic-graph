@@ -77,6 +77,32 @@ def _spawn(socket_path, *extra_args, auth_secret="", **env_overrides):
     )
 
 
+def _bootstrap_and_ping(socket_path, secret):
+    bootstrap = SyncEpistemicGraphClient.connect(
+        socket_path=socket_path,
+        auth_secret=secret,
+        verified_context=bootstrap_context(),
+    )
+    try:
+        bootstrap.consensus.bootstrap_system_identity(
+            agent_id=TEST_AGENT_ID,
+            signer_id=TEST_AGENT_ID,
+            signer_key=TEST_SIGNER_KEY,
+        )
+    finally:
+        bootstrap.close()
+
+    good = SyncEpistemicGraphClient.connect(
+        socket_path=socket_path,
+        auth_secret=secret,
+        verified_context=request_context(),
+    )
+    try:
+        assert good.ping() == "pong"
+    finally:
+        good.close()
+
+
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_empty_secret_refuses_to_start(tmp_path):
     sock = str(tmp_path / "no-secret.sock")
@@ -185,29 +211,7 @@ def test_oidc_explicit_opt_out_allows_hmac_only_start(tmp_path):
     try:
         wait_for_server(proc, sock, name="auth server")
 
-        bootstrap = SyncEpistemicGraphClient.connect(
-            socket_path=sock,
-            auth_secret="opt-out-secret",
-            verified_context=bootstrap_context(),
-        )
-        try:
-            bootstrap.consensus.bootstrap_system_identity(
-                agent_id=TEST_AGENT_ID,
-                signer_id=TEST_AGENT_ID,
-                signer_key=TEST_SIGNER_KEY,
-            )
-        finally:
-            bootstrap.close()
-
-        good = SyncEpistemicGraphClient.connect(
-            socket_path=sock,
-            auth_secret="opt-out-secret",
-            verified_context=request_context(),
-        )
-        try:
-            assert good.ping() == "pong"
-        finally:
-            good.close()
+        _bootstrap_and_ping(sock, "opt-out-secret")
     finally:
         stop_server(proc, name="auth server")
 
@@ -219,29 +223,7 @@ def test_wrong_secret_is_rejected(tmp_path):
     try:
         wait_for_server(proc, sock, name="auth server")
 
-        bootstrap = SyncEpistemicGraphClient.connect(
-            socket_path=sock,
-            auth_secret="right-secret",
-            verified_context=bootstrap_context(),
-        )
-        try:
-            bootstrap.consensus.bootstrap_system_identity(
-                agent_id=TEST_AGENT_ID,
-                signer_id=TEST_AGENT_ID,
-                signer_key=TEST_SIGNER_KEY,
-            )
-        finally:
-            bootstrap.close()
-
-        good = SyncEpistemicGraphClient.connect(
-            socket_path=sock,
-            auth_secret="right-secret",
-            verified_context=request_context(),
-        )
-        try:
-            assert good.ping() == "pong"
-        finally:
-            good.close()
+        _bootstrap_and_ping(sock, "right-secret")
 
         bad = SyncEpistemicGraphClient.connect(
             socket_path=sock,
