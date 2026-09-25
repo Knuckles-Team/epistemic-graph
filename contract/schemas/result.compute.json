@@ -6357,22 +6357,6 @@
       },
       "selected_by": null
     },
-    "FinanceEwma": {
-      "bodies": {
-        "result": {
-          "dynamic": null,
-          "encoding": "Raw",
-          "schema": {
-            "items": {
-              "format": "double",
-              "type": "number"
-            },
-            "type": "array"
-          }
-        }
-      },
-      "selected_by": null
-    },
     "FinanceExpectedPnlRate": {
       "bodies": {
         "result": {
@@ -6924,22 +6908,6 @@
           "encoding": "Json",
           "schema": {
             "$ref": "#/$defs/OptimizationResult"
-          }
-        }
-      },
-      "selected_by": null
-    },
-    "FinanceRollingZscore": {
-      "bodies": {
-        "result": {
-          "dynamic": null,
-          "encoding": "Raw",
-          "schema": {
-            "items": {
-              "format": "double",
-              "type": "number"
-            },
-            "type": "array"
           }
         }
       },

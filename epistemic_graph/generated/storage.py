@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     TsGapFillRequest = _models.MethodTsGapFillParams
     TsEvictRequest = _models.MethodTsEvictParams
     TsDeleteSeriesRequest = _models.MethodTsDeleteSeriesParams
+    TsDefineSeriesRequest = _models.MethodTsDefineSeriesParams
     BlobBeginRequest = _models.MethodBlobBeginParams
     BlobChunkPutRequest = _models.MethodBlobChunkPutParams
     BlobCommitRequest = _models.MethodBlobCommitParams
@@ -1217,6 +1218,51 @@ def decode_ts_list_series(result: OpaqueResult) -> _models.TsListSeriesResult:
     return decode_result("TsListSeries", models().TsListSeriesResult, result)
 
 
+async def send_ts_define_series(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TsDefineSeries
+    Authorization:
+        timeseries:write
+    Durability:
+        SeriesRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsDefineSeries
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTsDefineSeriesParams.model_validate(params or {})
+    payload = await client._send(
+        "TsDefineSeries",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TsDefineSeries", payload)
+
+
+def decode_ts_define_series(result: OpaqueResult) -> _models.DerivedSeriesReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsDefineSeries", models().DerivedSeriesReceipt, result)
+
+
 async def send_blob_begin(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1740,6 +1786,7 @@ _REQUEST_METHODS = frozenset(
         "TsGapFill",
         "TsEvict",
         "TsDeleteSeries",
+        "TsDefineSeries",
         "BlobBegin",
         "BlobChunkPut",
         "BlobCommit",

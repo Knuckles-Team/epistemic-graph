@@ -96,8 +96,6 @@
 | `FinanceMonteCarloVar` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceStressTest` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceDetectRegimes` | false | None | `compute:finance` | true | false | false | None |  |
-| `FinanceRollingZscore` | false | None | `compute:finance` | true | false | false | None |  |
-| `FinanceEwma` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceSignalDecay` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceCombineAlphas` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceCrossSectionalRank` | false | None | `compute:finance` | true | false | false | None |  |
@@ -414,6 +412,7 @@
 | `TsEvict` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | content-idempotent unlike TsAppend: re-evicting an already-past cutoff is a safe no-op (see SeriesStore::evict_before) |
 | `TsDeleteSeries` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | content-idempotent unlike TsAppend: re-deleting an already-gone series is a safe no-op (see SeriesStore::delete_series) |
 | `TsListSeries` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
+| `TsDefineSeries` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | EH-524 materialised derived series: one native MutationBatch in series.redb commits the derived points and the definition/checkpoint in the series metadata; idempotent for the same definition (a re-definition only catches up) |
 | `BlobBegin` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
 | `BlobChunkPut` | true | BlobRedb | `blob:write` | false | false | false | Saga | durable via its own blob.redb (group-committed Immediate); self-routes before dispatch_graph_op |
 | `BlobCommit` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |

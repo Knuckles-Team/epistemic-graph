@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 438,
+  "method_count": 437,
   "methods": [
     {
       "consumer_profiles": [
@@ -3351,84 +3351,6 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.compute.json#/methods/FinanceDetectRegimes",
-        "selected_by": null
-      },
-      "stability": "stable"
-    },
-    {
-      "consumer_profiles": [
-        "python"
-      ],
-      "domain": "compute",
-      "error_set": [
-        "INVALID_ARGUMENT",
-        "ACCESS_DENIED"
-      ],
-      "format_identities": [],
-      "id": "FinanceRollingZscore",
-      "note": "",
-      "policy": {
-        "audited": false,
-        "authz_action": "compute:finance",
-        "durability_domain": "None",
-        "emits_cdc": false,
-        "idempotent": true,
-        "mutates": false,
-        "txn_participation": "None"
-      },
-      "replay_class": "NotReplayable",
-      "request_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/FinanceRollingZscore"
-      },
-      "result_schema": {
-        "bodies": {
-          "result": {
-            "dynamic": null,
-            "encoding": "Raw"
-          }
-        },
-        "kind": "declared",
-        "schema": "contract/schemas/result.compute.json#/methods/FinanceRollingZscore",
-        "selected_by": null
-      },
-      "stability": "stable"
-    },
-    {
-      "consumer_profiles": [
-        "python"
-      ],
-      "domain": "compute",
-      "error_set": [
-        "INVALID_ARGUMENT",
-        "ACCESS_DENIED"
-      ],
-      "format_identities": [],
-      "id": "FinanceEwma",
-      "note": "",
-      "policy": {
-        "audited": false,
-        "authz_action": "compute:finance",
-        "durability_domain": "None",
-        "emits_cdc": false,
-        "idempotent": true,
-        "mutates": false,
-        "txn_participation": "None"
-      },
-      "replay_class": "NotReplayable",
-      "request_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/FinanceEwma"
-      },
-      "result_schema": {
-        "bodies": {
-          "result": {
-            "dynamic": null,
-            "encoding": "Raw"
-          }
-        },
-        "kind": "declared",
-        "schema": "contract/schemas/result.compute.json#/methods/FinanceEwma",
         "selected_by": null
       },
       "stability": "stable"
@@ -17213,6 +17135,51 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.storage.json#/methods/TsListSeries",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "storage",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION"
+      ],
+      "id": "TsDefineSeries",
+      "note": "EH-524 materialised derived series: one native MutationBatch in series.redb commits the derived points and the definition/checkpoint in the series metadata; idempotent for the same definition (a re-definition only catches up)",
+      "policy": {
+        "audited": false,
+        "authz_action": "timeseries:write",
+        "durability_domain": "SeriesRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/TsDefineSeries"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsDefineSeries",
         "selected_by": null
       },
       "stability": "stable"
