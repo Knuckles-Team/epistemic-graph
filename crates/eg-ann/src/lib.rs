@@ -61,6 +61,8 @@ mod contract;
 
 pub use distance::{active_backend_name, batch_distances, CpuBackend, DistanceBackend};
 pub use flat::{FlatIndex, Metric};
+/// Bounded, validated, versioned no-rebuild HNSW graph artifact codec.
+pub use hnsw::artifact as hnsw_artifact;
 pub use hnsw::HnswIndex;
 pub use ivfpq::{
     merge_topk, merge_topk_stable, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB,
