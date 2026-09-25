@@ -19,30 +19,14 @@
 //  Special functions (self-contained — no scipy on the wire)
 // ════════════════════════════════════════════════════════════════════════
 mod sf {
-    //! The functions on the backtest-record path (`erf`, `norm_cdf`, `norm_ppf`,
-    //! `skew`, `excess_kurtosis`) use only correctly rounded IEEE operations and
-    //! the pinned soft-float kernel (`eg_numeric::detkernel::math`), never the
+    //! The functions on the backtest-record path (`norm_ppf`, `skew`,
+    //! `excess_kurtosis`) use only correctly rounded IEEE operations and the
+    //! pinned soft-float kernel (`eg_numeric::detkernel::math`), never the
     //! platform libm or `powi`/`powf`, so a sealed `BacktestRun` digest is the
-    //! same on every host (EH-517).
+    //! same on every host (EH-517). Normal tail probabilities come from
+    //! `eg_numeric::detkernel::kernels::{normal_cdf, normal_sf}`, which keep
+    //! their relative accuracy in the far tails.
     use eg_numeric::detkernel::math;
-
-    /// Error function — Abramowitz & Stegun 7.1.26 (|err| < 1.5e-7).
-    pub fn erf(x: f64) -> f64 {
-        let sign = if x < 0.0 { -1.0 } else { 1.0 };
-        let x = x.abs();
-        let t = 1.0 / (1.0 + 0.3275911 * x);
-        let y = 1.0
-            - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t
-                + 0.254829592)
-                * t
-                * math::exp(-x * x);
-        sign * y
-    }
-
-    /// Standard-normal CDF.
-    pub fn norm_cdf(x: f64) -> f64 {
-        0.5 * (1.0 + erf(x / std::f64::consts::SQRT_2))
-    }
 
     /// Inverse standard-normal CDF (Acklam's rational approximation).
     pub fn norm_ppf(p: f64) -> f64 {
@@ -350,8 +334,6 @@ mod tests {
 
     #[test]
     fn test_special_functions() {
-        assert!((sf::norm_cdf(0.0) - 0.5).abs() < 1e-6);
-        assert!((sf::norm_cdf(1.96) - 0.975).abs() < 1e-3);
         assert!((sf::norm_ppf(0.975) - 1.96).abs() < 1e-2);
         // Beta(2,2) is symmetric: median = 0.5, cdf(0.5)=0.5
         assert!((sf::betai(2.0, 2.0, 0.5) - 0.5).abs() < 1e-6);
