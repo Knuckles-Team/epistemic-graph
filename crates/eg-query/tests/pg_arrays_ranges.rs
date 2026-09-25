@@ -7,8 +7,11 @@
 #![cfg(feature = "sql")]
 
 use eg_core::graph::GraphCore;
-use eg_query::{exec_sql, QueryResult};
+use eg_query::exec_sql;
 use serde_json::json;
+
+#[path = "common/query_rows.rs"]
+mod query_rows;
 
 /// n1/n2/n3 carrying an integer `v` (10/20/30) and a string `id`.
 fn graph() -> GraphCore {
@@ -22,18 +25,11 @@ fn graph() -> GraphCore {
     core
 }
 
-fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
-    r.rows
-        .iter()
-        .map(|b| rmp_serde::from_slice::<Vec<serde_json::Value>>(b).unwrap())
-        .collect()
-}
-
 fn one(sql: &str) -> serde_json::Value {
     let snap = graph().analysis_snapshot();
     let r = exec_sql(&snap, sql, &eg_query::CancellationToken::new())
         .unwrap_or_else(|e| panic!("query failed: {sql}\n{e}"));
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     v[0][0].clone()
 }
 
@@ -118,7 +114,7 @@ fn eg104_generate_series_ascending() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert_eq!(v, vec![vec![json!(1)], vec![json!(2)], vec![json!(3)]]);
 }
 
@@ -132,7 +128,7 @@ fn eg104_generate_series_step_and_descending() {
     )
     .unwrap();
     assert_eq!(
-        rows(&r),
+        query_rows::rows(&r),
         vec![vec![json!(0)], vec![json!(5)], vec![json!(10)]]
     );
     let r = exec_sql(
@@ -142,7 +138,7 @@ fn eg104_generate_series_step_and_descending() {
     )
     .unwrap();
     assert_eq!(
-        rows(&r),
+        query_rows::rows(&r),
         vec![vec![json!(3)], vec![json!(2)], vec![json!(1)]]
     );
 }
@@ -158,7 +154,7 @@ fn eg104_unnest_expands_array() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert_eq!(v, vec![vec![json!(1)], vec![json!(2)], vec![json!(3)]]);
 }
 
@@ -188,7 +184,7 @@ fn eg104_any_operator_in_where() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    assert_eq!(rows(&r), vec![vec![json!("n2")]]);
+    assert_eq!(query_rows::rows(&r), vec![vec![json!("n2")]]);
 }
 
 #[test]

@@ -119,6 +119,16 @@ fn graph_with_one_knows_edge() -> GraphCore {
     core
 }
 
+/// Both removal tests begin with a cached KNOWS traversal and an unrelated
+/// LIKES edge so they differ only in how that edge is removed.
+fn graph_with_cached_knows_and_likes() -> GraphCore {
+    let core = graph_with_one_knows_edge();
+    put_edge(&core, "a0", "c0", "LIKES");
+    core.result_cache()
+        .put_dep(Q, 0, core.version(), traversal_deps(), b"knows".to_vec());
+    core
+}
+
 #[test]
 fn typed_traversal_survives_an_edge_of_another_type() {
     let core = graph_with_one_knows_edge();
@@ -144,10 +154,7 @@ fn typed_traversal_is_retired_by_an_edge_of_its_type() {
 
 #[test]
 fn a_node_removal_is_attributed_to_the_edge_types_it_cascades() {
-    let core = graph_with_one_knows_edge();
-    put_edge(&core, "a0", "c0", "LIKES");
-    core.result_cache()
-        .put_dep(Q, 0, core.version(), traversal_deps(), b"knows".to_vec());
+    let core = graph_with_cached_knows_and_likes();
     drop_node(&core, "c0");
     assert!(
         cached(&core).is_some(),
@@ -162,10 +169,7 @@ fn a_node_removal_is_attributed_to_the_edge_types_it_cascades() {
 
 #[test]
 fn an_uncaptured_edge_removal_retires_every_typed_traversal() {
-    let core = graph_with_one_knows_edge();
-    put_edge(&core, "a0", "c0", "LIKES");
-    core.result_cache()
-        .put_dep(Q, 0, core.version(), traversal_deps(), b"knows".to_vec());
+    let core = graph_with_cached_knows_and_likes();
     core.remove_edge("a0".into(), "c0".into());
     let mut change = ChangeSet::new();
     change.record_remove_edge("a0".into(), "c0".into());

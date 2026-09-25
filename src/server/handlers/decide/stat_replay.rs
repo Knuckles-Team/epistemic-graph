@@ -47,7 +47,11 @@ fn stored_matrix(record: &StatisticalDecisionRecord) -> Result<FeatureMatrix, St
     if values.is_empty() {
         return Err(mismatch("the record stores no feature values to replay"));
     }
-    Ok(materialize_matrix(candidate_ids, feature_names, values))
+    Ok(materialize_matrix(
+        candidate_ids.as_slice(),
+        feature_names.as_slice(),
+        values.as_slice(),
+    ))
 }
 
 /// An executed decision is logged so an outcome can evaluate it; an

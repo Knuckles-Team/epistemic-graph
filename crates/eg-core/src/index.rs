@@ -192,8 +192,11 @@ pub const LABEL_COLUMN: &str = "__label__";
 /// vector index from behind the generic registry instead of rebuilding a
 /// throwaway snapshot index per query).
 pub trait SecondaryIndex: Send + Sync + 'static {
-    /// This index's kind.
-    fn kind(&self) -> IndexKind;
+    /// This index's kind, read from the descriptor so discovery and routing
+    /// cannot disagree when an implementation has no special kind logic.
+    fn kind(&self) -> IndexKind {
+        self.descriptor().kind
+    }
 
     /// Discoverability metadata — what this index covers, for a planner.
     fn descriptor(&self) -> IndexDescriptor;
@@ -814,20 +817,12 @@ mod tests {
     }
 
     impl SecondaryIndex for ManifestProbe {
-        fn kind(&self) -> IndexKind {
-            IndexKind::Text
-        }
-
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
 
         fn descriptor(&self) -> IndexDescriptor {
-            IndexDescriptor {
-                kind: IndexKind::Text,
-                columns: IndexColumns::NonColumnar,
-                serves_lookup: false,
-            }
+            IndexDescriptor::discoverable_only(IndexKind::Text)
         }
 
         fn manifest(&self) -> IndexManifest {
@@ -1173,18 +1168,11 @@ mod tests {
         needs: bool,
     }
     impl SecondaryIndex for RecordingServerIndex {
-        fn kind(&self) -> IndexKind {
-            IndexKind::Text
-        }
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
         fn descriptor(&self) -> IndexDescriptor {
-            IndexDescriptor {
-                kind: IndexKind::Text,
-                columns: IndexColumns::NonColumnar,
-                serves_lookup: false,
-            }
+            IndexDescriptor::discoverable_only(IndexKind::Text)
         }
         fn needs_content(&self) -> bool {
             self.needs
@@ -1351,18 +1339,11 @@ mod tests {
         tag: std::sync::Mutex<String>,
     }
     impl SecondaryIndex for ProbeIndex {
-        fn kind(&self) -> IndexKind {
-            IndexKind::Text
-        }
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
         fn descriptor(&self) -> IndexDescriptor {
-            IndexDescriptor {
-                kind: IndexKind::Text,
-                columns: IndexColumns::NonColumnar,
-                serves_lookup: false,
-            }
+            IndexDescriptor::discoverable_only(IndexKind::Text)
         }
         fn apply_delta(&self, _c: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
             Ok(())
