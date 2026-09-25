@@ -14,6 +14,7 @@
 //! no SQL fragment can stand in for them there.
 
 use crate::algebra::Pred;
+use crate::pred_eval::spatial_predicate;
 use eg_types::wire::{CmpOp, PredLiteral};
 
 const MAX_FILTER_PREDICATES: usize = 256;
@@ -167,17 +168,8 @@ fn pred_sql(p: &Pred, at: Position) -> Result<String, String> {
         Pred::Or { preds } => connective(preds, "OR", "FALSE", at)?,
         Pred::Not { pred } => format!("NOT ({})", pred_sql(pred, at.inner()?)?),
         Pred::JsonPath { .. } => per_row_only(at)?,
-        // `Pred::Spatial*` always exist on the wire (NE-216 — eg-plan requests
-        // `eg-types/geo` unconditionally), so these arms are unconditional too.
-        Pred::SpatialWithin { .. }
-        | Pred::SpatialDWithin { .. }
-        | Pred::SpatialContains { .. }
-        | Pred::SpatialCovers { .. }
-        | Pred::SpatialTouches { .. }
-        | Pred::SpatialCrosses { .. }
-        | Pred::SpatialOverlaps { .. }
-        | Pred::SpatialEquals { .. }
-        | Pred::SpatialDisjoint { .. } => per_row_only(at)?,
+        // The shared exhaustive pattern remains unconditional without `geo`.
+        spatial_predicate!() => per_row_only(at)?,
     })
 }
 
