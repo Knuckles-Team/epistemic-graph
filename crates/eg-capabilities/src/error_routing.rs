@@ -269,8 +269,14 @@ mod tests {
             "ClaimWorkItem",
             "TsListSeries",
         ] {
-            assert!(method_allows_error(method, "REPLAY_NONCE_CONSUMED"), "{method}");
+            assert!(
+                method_allows_error(method, "REPLAY_NONCE_CONSUMED"),
+                "{method}"
+            );
         }
-        assert!(!method_allows_error("TsListSeries", "UNSUPPORTED_COALITION"));
+        assert!(!method_allows_error(
+            "TsListSeries",
+            "UNSUPPORTED_COALITION"
+        ));
     }
 }
