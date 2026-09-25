@@ -2,7 +2,9 @@
 
 *Measured 2026-09-11 against the full tracked tree (1,571 CCCC-supported files /
 44,404 functions; 1,279 tracked Rust files / 20,011 KISS units), with
-`cccc 1.6.0` and `kiss 0.4.10`.*
+`cccc 1.6.0` and `kiss 0.4.10`. The gates now run kiss 0.4.12 from the pinned
+fork build (`scripts/kiss_fork.py`); orphan modules are no longer a `kiss check`
+rule there (see `.config/kiss.toml`).*
 
 This page states what the two **shape** scanners accept and why, so that their
 reports read as **clean-with-known-exceptions** instead of as permanent noise,

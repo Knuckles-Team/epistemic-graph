@@ -31,6 +31,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "scanner_contract.py",
         "kiss_diff_scope.py",
         "kiss_fork.py",
+        "kiss_config_keys.py",
     ):
         shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
     shutil.copy2(ROOT / "pyproject.toml", repo / "pyproject.toml")
@@ -44,7 +45,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "#!/usr/bin/env bash\n"
         "set -eu\n"
         'if [ "${1:-}" = --version ]; then\n'
-        "  printf 'kiss 0.4.10\\n'\n"
+        "  printf 'kiss 0.4.12\\n'\n"
         "  exit 0\n"
         "fi\n"
         '[ "${1:-}" = check ]\n'
@@ -98,6 +99,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "scripts/scanner_contract.py",
         "scripts/kiss_diff_scope.py",
         "scripts/kiss_fork.py",
+        "scripts/kiss_config_keys.py",
         "src/example.rs",
         cwd=repo,
     )
@@ -514,7 +516,7 @@ def test_hook_uses_staged_pyproject_scanner_version(
     pyproject = repo / "pyproject.toml"
     original = pyproject.read_text(encoding="utf-8")
     pyproject.write_text(
-        original.replace('kiss_version = "0.4.10"', 'kiss_version = "0.4.11"'),
+        original.replace('kiss_version = "0.4.12"', 'kiss_version = "0.4.13"'),
         encoding="utf-8",
     )
     _run("git", "add", "--", "src/example.rs", "pyproject.toml", cwd=repo)
@@ -523,7 +525,7 @@ def test_hook_uses_staged_pyproject_scanner_version(
     result = _run_hook(repo, kiss, log)
 
     assert result.returncode == 2
-    assert "expected 'kiss 0.4.11'" in result.stderr
+    assert "expected 'kiss 0.4.13'" in result.stderr
     assert not log.exists()
 
 
@@ -553,7 +555,7 @@ def test_hook_rejects_staged_policy_input_symlink(
 def test_hook_rejects_the_upstream_build_that_prints_the_pinned_version(
     repository: tuple[Path, Path, Path],
 ) -> None:
-    """crates.io kiss 0.4.10 prints the pinned version line but aborts on an
+    """crates.io kiss 0.4.12 prints the pinned version line but aborts on an
     inline-module child; only the pinned fork build passes the probe."""
     repo, kiss, log = repository
     source = repo / "src/example.rs"
@@ -562,7 +564,7 @@ def test_hook_rejects_the_upstream_build_that_prints_the_pinned_version(
     upstream = kiss.with_name("kiss-upstream")
     upstream.write_text(
         "#!/usr/bin/env bash\n"
-        "if [ \"${1:-}\" = --version ]; then printf 'kiss 0.4.10\\n'; exit 0; fi\n"
+        "if [ \"${1:-}\" = --version ]; then printf 'kiss 0.4.12\\n'; exit 0; fi\n"
         "printf 'missing module helper declared from src/a.rs\\n' >&2\n"
         "exit 1\n",
         encoding="utf-8",
@@ -573,4 +575,26 @@ def test_hook_rejects_the_upstream_build_that_prints_the_pinned_version(
 
     assert result.returncode == 2
     assert "is not the pinned fork build" in result.stderr
+    assert not log.exists()
+
+
+def test_hook_refuses_a_staged_config_key_kiss_would_silently_drop(
+    repository: tuple[Path, Path, Path],
+) -> None:
+    """kiss 0.4.12 drops the whole [global] table on the pre-0.4.11
+    orphan_module_enabled key; the hook must refuse it before scanning."""
+    repo, kiss, log = repository
+    source = repo / "src/example.rs"
+    source.write_text("staged clean\n", encoding="utf-8")
+    config = repo / ".config/kiss.toml"
+    stale = config.read_text(encoding="utf-8").replace(
+        "[global]\n", "[global]\norphan_module_enabled = true\n", 1
+    )
+    config.write_text(stale, encoding="utf-8")
+    _run("git", "add", "--", "src/example.rs", ".config/kiss.toml", cwd=repo)
+
+    result = _run_hook(repo, kiss, log)
+
+    assert result.returncode == 2
+    assert "global.orphan_module_enabled" in result.stderr
     assert not log.exists()

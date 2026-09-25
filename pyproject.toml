@@ -174,7 +174,7 @@ min_confidence = 95
 # deliberate change to the same file as the thresholds and format universe.
 [tool.epistemic_graph.scanners]
 cccc_version = "1.6.0"
-kiss_version = "0.4.10"
+kiss_version = "0.4.12"
 dupehound_version = "0.1.2"
 dupehound_threshold = 0.85
 dupehound_min_tokens = 40

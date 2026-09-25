@@ -11,7 +11,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 HOOK = REPO / "scripts/check_kiss_staged.sh"
-KISS_VERSION = "0.4.10"
+KISS_VERSION = "0.4.12"
 pytestmark = pytest.mark.no_engine
 
 
@@ -93,6 +93,7 @@ def test_hook_resolves_its_worktree_when_called_outside_checkout(
         "scripts/rust_lexer.py",
         "scripts/kiss_diff_scope.py",
         "scripts/kiss_fork.py",
+        "scripts/kiss_config_keys.py",
     ):
         blob = subprocess.run(
             ["git", "hash-object", "-w", authority],

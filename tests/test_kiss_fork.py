@@ -1,5 +1,5 @@
 """The kiss fork pin: CI installs exactly the probed rev, and the probe
-rejects the crates.io 0.4.10 build that prints the same version line."""
+rejects the crates.io 0.4.12 build that prints the same version line."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def test_ci_installs_and_probes_exactly_the_pinned_fork_rev() -> None:
         f"cargo install --locked --git {kiss_fork.KISS_FORK_GIT} "
         f"--rev {kiss_fork.KISS_FORK_REV} --root" in install
     )
-    assert "--version 0.4.10" not in install
+    assert "--version 0.4.12" not in install
     verify = steps["Verify scanner versions"]["run"]
     assert 'python3 scripts/kiss_fork.py "$(command -v kiss)"' in verify
     key = steps["Restore pinned scanner toolchain"]["with"]["key"]

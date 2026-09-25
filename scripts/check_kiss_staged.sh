@@ -198,7 +198,7 @@ fi
 GOT="$(scanner_cmd "$KISS" --version 2>/dev/null)" || die "kiss --version failed"
 [ "$GOT" = "kiss $VERSION" ] || die \
   "version drift: expected 'kiss $VERSION', got '$GOT'"
-# `kiss 0.4.10` is printed by both the crates.io build and the pinned fork
+# `kiss 0.4.12` is printed by both the crates.io build and the pinned fork
 # build (scripts/kiss_fork.py); only the fork passes the inline-module probe.
 scanner_cmd python3 -I "$STAGED_ROOT/scripts/kiss_fork.py" "$KISS" >/dev/null || die \
   "kiss at $KISS is not the pinned fork build; see scripts/kiss_fork.py"
@@ -211,6 +211,9 @@ case "$cfg_resolved" in
 esac
 [ ! -e "$STAGED_ROOT/.kissconfig" ] && [ ! -L "$STAGED_ROOT/.kissconfig" ] || die \
   "staged .kissconfig exists; remove it because bare kiss check self-calibrates and disables rules"
+# kiss drops a whole [global]/[test] table on one unknown key, silently.
+scanner_cmd python3 -I "$STAGED_ROOT/scripts/kiss_config_keys.py" "$CFG" >/dev/null || die \
+  "staged .config/kiss.toml has a key kiss would silently drop its table for; see scripts/kiss_config_keys.py"
 
 # The shared walker intentionally returns canonical resolved paths. Reject
 # staged symlinks under Rust-owned roots before invoking it so a declared child
