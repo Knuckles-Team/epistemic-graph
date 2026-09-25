@@ -10,6 +10,7 @@
 use std::time::Instant;
 
 use eg_types::decision::jobs::DecisionEvalReceipt;
+use eg_types::decision::replay::EvaluationRun;
 use eg_types::decision::statistical::{StatisticalDecisionRecord, StatisticalOutcome};
 
 /// The span one served statistical call runs in.
@@ -63,6 +64,22 @@ pub(super) fn decided(record: &StatisticalDecisionRecord, candidates: usize, sta
         synthetic = record.synthetic_evidence,
         latency_ms = started.elapsed().as_millis() as u64,
         "decision served"
+    );
+}
+
+/// One finished replay evaluation (EH-528).
+pub(super) fn replayed(run: &EvaluationRun, started: Instant) {
+    crate::metrics::decision_latency("DecisionEval", started.elapsed().as_secs_f64());
+    tracing::info!(
+        target: "eg.decide",
+        run_digest = %run.run_digest,
+        folds = run.folds.len(),
+        steps = run.path.len(),
+        n_trials = run.validation.n_trials,
+        deflated_sharpe_q32 = run.validation.deflated_sharpe.value,
+        pbo_q32 = run.validation.probability_backtest_overfit.value,
+        latency_ms = started.elapsed().as_millis() as u64,
+        "decision head replayed"
     );
 }
 

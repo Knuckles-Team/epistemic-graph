@@ -431,6 +431,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         source: DatasetSource::Inline {
             dataset: Box::new(data),
         },
+        mode: eg_types::decision::EvalMode::OffPolicy,
     };
     let job: DecisionJobRecord = decode(
         super::jobs::handle_decision_eval(
@@ -730,3 +731,6 @@ mod learning_tests;
 mod evaluator_tests;
 
 mod nl_tests;
+// EH-528: replay evaluation (its validation kernels are finance's).
+#[cfg(feature = "finance")]
+mod replay_tests;

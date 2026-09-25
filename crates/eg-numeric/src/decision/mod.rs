@@ -32,6 +32,7 @@ pub mod ladder;
 pub mod nl;
 pub mod quant;
 pub mod refusal;
+pub mod replay;
 pub mod retrieval;
 
 pub use refusal::{Refusal, RefusalResult};

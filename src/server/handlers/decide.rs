@@ -54,6 +54,9 @@ mod stat_retention;
 mod stat_support;
 #[cfg(feature = "decide")]
 mod stat_vectors;
+// EH-528: walk-forward replay evaluation (its validation kernels are finance's).
+#[cfg(all(feature = "decide", feature = "finance"))]
+mod stat_walk_forward;
 // EH-394/395: retrieval outcomes on the decision log.
 #[cfg(feature = "decide")]
 mod stat_retrieval;

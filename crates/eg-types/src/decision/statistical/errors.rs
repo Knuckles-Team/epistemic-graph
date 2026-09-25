@@ -36,6 +36,15 @@ closed_error_codes! {
         EvaluationReceiptMismatch => "EVALUATION_RECEIPT_MISMATCH",
         /// A numeric kernel refused its input.
         NumericRefused => "NUMERIC_REFUSED",
+        /// A replay step read data recorded at or after the step it decided.
+        LookAhead => "LOOK_AHEAD",
+        /// A replay was asked of a policy-dependent environment or of
+        /// bandit-labelled data; the off-policy estimators are the answer.
+        ReplayPolicyDependent => "REPLAY_POLICY_DEPENDENT",
+        /// A replay declared fewer trials than its search log records.
+        TrialsUnderstated => "TRIALS_UNDERSTATED",
+        /// A replay's folds, budget or data cannot be replayed.
+        ReplaySpecInvalid => "REPLAY_SPEC_INVALID",
     }
 }
 
