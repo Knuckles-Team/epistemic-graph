@@ -28890,7 +28890,7 @@
     },
     "NamedEvaluator": {
       "additionalProperties": false,
-      "description": "The one principal a committer names to evaluate its record (EH-395).\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal join evaluations to exactly this\nrecord until it expires: it cannot read, list or count the record, and\nnothing else widens. The evaluator is never the committer.",
+      "description": "Who a committer names to evaluate its record (EH-395): ONE principal, or\nthe holders of ONE declared policy role.\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal -- or any verified principal whose signed\nrequest context carries `role`, other than the committer -- join\nevaluations to exactly this record until it expires: it cannot read, list\nor count the record, and nothing else widens. The evaluator is never the\ncommitter. Exactly one of `principal` and `role` is set.",
       "properties": {
         "expires_at_ms": {
           "description": "When the grant lapses; at most the control-lease span after commit.",
@@ -28899,12 +28899,23 @@
           "type": "integer"
         },
         "principal": {
+          "default": null,
           "description": "The evaluator's persistence id (`principal:sha256:<hex>` of its\nverified principal).",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "default": null,
+          "description": "The declared policy role whose holders may evaluate (a role name of the\nsigned request context, e.g. `decide-evaluator`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
-        "principal",
         "expires_at_ms"
       ],
       "type": "object"

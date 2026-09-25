@@ -13887,7 +13887,8 @@ class NamedEvaluator(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     expires_at_ms: Annotated[int, Field(ge=0)]
-    principal: str
+    principal: str | None = None
+    role: str | None = None
 
 
 class NativeControlSchemaVersion(str, Enum):
