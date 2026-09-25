@@ -1342,9 +1342,10 @@ mod admin_scope_tests {
             ),
         )
         .await;
+        assert_eq!(response.error.as_deref(), Some("ACCESS_DENIED"));
         assert_eq!(
-            response.error.as_deref(),
-            Some("ACCESS_DENIED: System identities require the dedicated bootstrap path")
+            response.error_detail.as_deref(),
+            Some("System identities require the dedicated bootstrap path")
         );
         assert!(!state.read().await.isolation.identity_bootstrap_pending());
         assert!(state.read().await.isolation.is_system("root"));
@@ -1372,10 +1373,10 @@ mod admin_scope_tests {
         let state = state_min();
         // alice (no roles, no grants, not System) tries to register "bob".
         let r = register_identity(&state, 3, Some("alice"), "bob", AgentRole::Agent).await;
-        assert!(r.error.is_some(), "expected ACCESS_DENIED, got {:?}", r);
-        let msg = r.error.unwrap();
+        assert_eq!(r.error.as_deref(), Some("ACCESS_DENIED"));
+        let msg = r.error_detail.as_deref().unwrap_or_default();
         assert!(
-            msg.contains("ACCESS_DENIED") && msg.contains("admin capability"),
+            msg.contains("admin capability"),
             "unexpected denial message: {msg}"
         );
     }
@@ -1558,10 +1559,10 @@ mod admin_scope_tests {
             ),
         )
         .await;
-        assert!(r.error.is_some(), "expected ACCESS_DENIED, got {:?}", r);
-        let msg = r.error.unwrap();
+        assert_eq!(r.error.as_deref(), Some("ACCESS_DENIED"));
+        let msg = r.error_detail.as_deref().unwrap_or_default();
         assert!(
-            msg.contains("ACCESS_DENIED") && msg.contains("admin capability"),
+            msg.contains("admin capability"),
             "unexpected denial message: {msg}"
         );
     }
@@ -1589,9 +1590,10 @@ mod admin_scope_tests {
             ),
         )
         .await;
-        let error = response.error.expect("unprivileged caller must be denied");
+        assert_eq!(response.error.as_deref(), Some("ACCESS_DENIED"));
+        let error = response.error_detail.as_deref().unwrap_or_default();
         assert!(
-            error.contains("ACCESS_DENIED") && error.contains("admin capability"),
+            error.contains("admin capability"),
             "unexpected denial: {error}"
         );
         assert!(!error.contains("GetIdentity requires the __commons__ graph"));
@@ -2153,12 +2155,13 @@ mod placement_route_carrier_tests {
             "acme",
         );
         let resp = dispatch_on_heap(&state, req).await;
+        assert_eq!(resp.error.as_deref(), Some("ACCESS_DENIED"));
         assert!(
-            resp.error
+            resp.error_detail
                 .as_deref()
-                .is_some_and(|e| e.contains("ACCESS_DENIED") && e.contains("lacks required scope")),
+                .is_some_and(|detail| detail.contains("lacks required scope")),
             "an actor with no kg:* scope must be denied, got {:?}",
-            resp.error
+            resp
         );
     }
 

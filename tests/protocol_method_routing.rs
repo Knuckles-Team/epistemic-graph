@@ -266,8 +266,12 @@ async fn get_identity_rejects_empty_or_alternate_request_graph() {
         .await;
         assert_eq!(
             resp.error.as_deref(),
-            Some("INVALID_ARGUMENT: GetIdentity requires the __commons__ graph"),
+            Some("INVALID_ARGUMENT"),
             "unexpected response for request graph {graph:?}: {resp:?}"
+        );
+        assert_eq!(
+            resp.error_detail.as_deref(),
+            Some("GetIdentity requires the __commons__ graph")
         );
         assert!(resp.result.is_none());
     }

@@ -50,9 +50,10 @@ async fn frame_decode_error_answers_its_id_and_preserves_next_request() {
     let frame = rx.recv().await.expect("malformed request receives a reply");
     let response: Response = rmp_serde::from_slice(&frame[4..]).expect("decode error reply");
     assert_eq!(response.id, 71);
+    assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
     assert_eq!(
-        response.error.as_deref(),
-        Some("INVALID_ARGUMENT: invalid request encoding")
+        response.error_detail.as_deref(),
+        Some("invalid request encoding")
     );
     assert!(reader.is_empty());
 }
@@ -457,13 +458,10 @@ async fn hung_dispatch_is_abandoned_with_a_typed_error() {
     )
     .await;
     assert_eq!(resp.id, 77, "the abandoned request is still answered by id");
-    assert!(
-        resp.error
-            .as_deref()
-            .unwrap_or_default()
-            .starts_with("TIMEOUT:"),
-        "expected a typed timeout error, got {:?}",
-        resp.error
+    assert_eq!(resp.error.as_deref(), Some("TIMEOUT"));
+    assert_eq!(
+        resp.error_detail.as_deref(),
+        Some("request exceeded the server dispatch deadline and was abandoned")
     );
 }
 
@@ -503,7 +501,11 @@ async fn the_dispatch_deadline_cancels_the_request_scope() {
         &RequestCancel::new(),
     )
     .await;
-    assert!(resp.error.unwrap_or_default().starts_with("TIMEOUT:"));
+    assert_eq!(resp.error.as_deref(), Some("TIMEOUT"));
+    assert_eq!(
+        resp.error_detail.as_deref(),
+        Some("request exceeded the server dispatch deadline and was abandoned")
+    );
     let cancel = seen.lock().unwrap().take().expect("the dispatch ran");
     assert!(cancel.is_cancelled());
 }
