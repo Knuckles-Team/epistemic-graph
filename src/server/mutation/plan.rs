@@ -258,9 +258,14 @@ fn graph_control_method_name(m: &Method) -> Option<&'static str> {
 }
 
 /// Resolve the X9 schema-source method. Its own resolver rather than an arm on
-/// [`graph_control_method_name`], because it is the only gateway-routed method
-/// that is ALSO local-only: the two lists it belongs to are different, and a
-/// reader looking for why should find it named.
+/// [`graph_control_method_name`] because its arm is feature-gated (`shacl`).
+/// It is gateway-routed and, like `IcvConfigure`, carries a bounded native
+/// consensus command, so it is NOT local-only: `Attach`, `AttachPack`,
+/// `Detach` and `AttachApproved` mutate the graph's schema sources
+/// (`ValidateRepair` is a dry run; the reads are the separate
+/// `GraphSchemaList`/`GraphSchemaClasses` methods), and a mutation that is both
+/// local-only and in `raft::NATIVE_CONSENSUS_METHODS` would make
+/// `cluster_mutation_route` ambiguous.
 fn graph_schema_method_name(m: &Method) -> Option<&'static str> {
     match m {
         #[cfg(feature = "shacl")]
@@ -641,7 +646,6 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "DecisionEval",
     "DecisionFit",
     "DecisionLog",
-    "GraphSchema",
     "MutationOutbox",
     "EdgeIndex",
     "SqlSourceBatch",
@@ -649,9 +653,6 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
 
 /// The local-only names that are NOT gateway-routed.
 ///
-/// `GraphSchema` is deliberately absent: it resolves through
-/// [`graph_control_method_name`] because it IS gateway-routed, and naming it
-/// twice would make `method_variant_name` depend on resolver order.
 /// Split into the agent-catalog and decision/outbox groups so each lookup
 /// stays within the complexity cap; the two groups are disjoint, so resolver
 /// order between them is immaterial.
