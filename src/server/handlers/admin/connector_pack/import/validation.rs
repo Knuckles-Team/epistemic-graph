@@ -701,6 +701,19 @@ fn validate_shapes_union(
     })?;
     let shape_triples = shape_union.triples;
     let shape_graph = shape_union.ntriples;
+    // The ICV parser represents unsupported paths but ignores them during
+    // evaluation. A pack must refuse one rather than silently drop a declared
+    // constraint (G15): this build supports only predicate paths.
+    const SH_PATH: &str = "http://www.w3.org/ns/shacl#path";
+    if shape_triples.iter().any(|triple| {
+        triple.predicate.as_str() == SH_PATH
+            && !matches!(&triple.object, eg_rdf::oxrdf::Term::NamedNode(_))
+    }) {
+        return Err((
+            PackViolationCode::ShapesInvalid,
+            "SHACL property paths must be predicate IRIs",
+        ));
+    }
     const MAX_SHACL_STEPS: usize = 10_000_000;
     if shape_triples.len().saturating_mul(ontology_triples.max(1)) > MAX_SHACL_STEPS {
         return Err((
