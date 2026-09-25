@@ -38,7 +38,10 @@ pub(crate) fn published(persist_dir: &Path) -> Option<Arc<IdentityStore>> {
 }
 
 /// The kind of an ACTIVE principal of the engine at `persist_dir`.
-pub(crate) fn active_principal_kind(persist_dir: Option<&str>, principal: &str) -> Option<UserKind> {
+pub(crate) fn active_principal_kind(
+    persist_dir: Option<&str>,
+    principal: &str,
+) -> Option<UserKind> {
     let store = published(Path::new(persist_dir?))?;
     let user = store.user(principal)?;
     user.status.is_active().then_some(user.kind)

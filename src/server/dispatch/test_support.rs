@@ -12,7 +12,11 @@ use crate::protocol::{Method, Request, Response};
 
 /// A verified context for `principal` (also the effective agent unless a
 /// delegation chain is given).
-pub(super) fn verified(principal: &str, scopes: &[&str], delegation: &[&str]) -> VerifiedRequestContext {
+pub(super) fn verified(
+    principal: &str,
+    scopes: &[&str],
+    delegation: &[&str],
+) -> VerifiedRequestContext {
     static KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let key = KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let agent = delegation.last().copied().unwrap_or(principal);

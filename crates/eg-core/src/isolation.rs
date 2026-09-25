@@ -471,10 +471,10 @@ pub use access_policy::{access_clock_ms, AccessBasis, AccessQuery};
 mod elevation_admin;
 #[cfg(feature = "security")]
 pub use elevation_admin::ElevationError;
+mod governed_admin;
 mod identity_admin;
 mod identity_query;
 mod identity_store_admin;
-mod governed_admin;
 #[cfg(feature = "security")]
 pub use governed_admin::GovernedError;
 #[cfg(feature = "security")]

@@ -393,13 +393,13 @@ mod change_envelope;
 mod consensus;
 mod elevation;
 mod governed;
-#[cfg(test)]
-mod test_support;
 mod graph_pipeline;
 #[cfg(feature = "security")]
 mod identity_store;
 mod request_boundary;
 mod router;
+#[cfg(test)]
+mod test_support;
 
 /// Create one engine-owned global graph through the same durable lifecycle as
 /// the public `CreateGraph` method.

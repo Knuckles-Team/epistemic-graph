@@ -73,7 +73,10 @@ fn published_dir() -> String {
         delegated: false,
         scopes: [IDENTITY_ADMIN_SCOPE.to_string()].into(),
     });
-    for (principal, kind) in [("svc:alloy", UserKind::Service), ("usr:alice", UserKind::Human)] {
+    for (principal, kind) in [
+        ("svc:alloy", UserKind::Service),
+        ("usr:alice", UserKind::Human),
+    ] {
         let create = IdentityOp::User(UserOp::Create {
             request: CreateUserRequest {
                 username: principal.replace(':', "-"),
@@ -94,7 +97,11 @@ fn published_dir() -> String {
     dir
 }
 
-fn verify_as(principal: &str, dir: Option<&str>, nonce: &str) -> Result<VerifiedRequestContext, String> {
+fn verify_as(
+    principal: &str,
+    dir: Option<&str>,
+    nonce: &str,
+) -> Result<VerifiedRequestContext, String> {
     let token = service_token(principal);
     let req = envelope_request(801, nonce, claims_for(principal), Some(&token));
     let context = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())?;
@@ -111,23 +118,36 @@ fn a_service_only_issuer_vouches_for_a_store_service_and_nobody_else() {
     let human = verify_as("usr:alice", Some(&dir), "svc-human").unwrap_err();
     assert!(human.contains("IDENTITY_ISSUER_KIND_REFUSED"), "{human}");
     let unknown = verify_as("svc:ghost", Some(&dir), "svc-ghost").unwrap_err();
-    assert!(unknown.contains("IDENTITY_ISSUER_KIND_REFUSED"), "{unknown}");
+    assert!(
+        unknown.contains("IDENTITY_ISSUER_KIND_REFUSED"),
+        "{unknown}"
+    );
     let no_store = verify_as("svc:alloy", None, "svc-nostore").unwrap_err();
-    assert!(no_store.contains("IDENTITY_ISSUER_KIND_REFUSED"), "fails closed: {no_store}");
+    assert!(
+        no_store.contains("IDENTITY_ISSUER_KIND_REFUSED"),
+        "fails closed: {no_store}"
+    );
 }
 
 #[test]
 fn the_primary_issuer_keeps_vouching_for_anyone_and_an_unknown_issuer_is_refused() {
     let _primary = install_test_validator();
     let _trust = install_service_issuer();
-    let token = sign(&oidc_claims("agent:planner", "tenant-a", &["kg:read"], "kg:read"));
+    let token = sign(&oidc_claims(
+        "agent:planner",
+        "tenant-a",
+        &["kg:read"],
+        "kg:read",
+    ));
     let req = envelope_request(802, "primary-any", matching_claims(), Some(&token));
-    let context = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
+    let context =
+        verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
     assert_eq!(context.issuer_kind(), None);
     let mut claims = oidc_claims("agent:planner", "tenant-a", &["kg:read"], "kg:read");
     claims["iss"] = serde_json::json!("https://rogue.example.test");
     let rogue = sign(&claims);
     let req = envelope_request(803, "rogue", matching_claims(), Some(&rogue));
-    let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap_err();
+    let error =
+        verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap_err();
     assert!(error.contains("not trusted"), "{error}");
 }

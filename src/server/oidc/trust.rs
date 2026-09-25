@@ -20,8 +20,6 @@
 //! principal kind is proven against the identity store, never read from the
 //! token.
 
-use std::sync::OnceLock;
-
 use eg_types::identity::UserKind;
 use serde::Deserialize;
 
@@ -69,7 +67,9 @@ pub(crate) fn parse_trust(text: &str) -> Result<Vec<TrustedIssuer>, String> {
             .iter()
             .all(|field| !field.trim().is_empty());
         if !complete || !seen.insert(entry.issuer.clone()) {
-            return Err(format!("{TRUST_ENV}: an entry is incomplete or its issuer repeats"));
+            return Err(format!(
+                "{TRUST_ENV}: an entry is incomplete or its issuer repeats"
+            ));
         }
         issuers.push(TrustedIssuer {
             restriction: restriction(&entry.allowed_kinds)?,
@@ -79,9 +79,12 @@ pub(crate) fn parse_trust(text: &str) -> Result<Vec<TrustedIssuer>, String> {
     Ok(issuers)
 }
 
-/// The configured additional issuers (empty when unset).
+/// The configured additional issuers (empty when unset). Tests install
+/// their own list instead of reading the environment.
+#[cfg(not(test))]
 pub(crate) fn additional_trust() -> Result<&'static [TrustedIssuer], String> {
-    static TRUST: OnceLock<Result<Vec<TrustedIssuer>, String>> = OnceLock::new();
+    static TRUST: std::sync::OnceLock<Result<Vec<TrustedIssuer>, String>> =
+        std::sync::OnceLock::new();
     let parsed = TRUST.get_or_init(|| match std::env::var(TRUST_ENV) {
         Ok(text) if !text.trim().is_empty() => parse_trust(&text),
         _ => Ok(Vec::new()),
@@ -125,7 +128,9 @@ pub(crate) fn unverified_issuer(token: &str) -> Option<String> {
     }
     let payload = token.split('.').nth(1)?;
     let bytes = base64url(payload)?;
-    serde_json::from_slice::<Issuer>(&bytes).ok().map(|claims| claims.iss)
+    serde_json::from_slice::<Issuer>(&bytes)
+        .ok()
+        .map(|claims| claims.iss)
 }
 
 /// The validator and restriction for `token`: the primary issuer (any

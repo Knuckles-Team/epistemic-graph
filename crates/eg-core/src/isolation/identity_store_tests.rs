@@ -22,7 +22,7 @@ struct Registry;
 impl ScopeClassifier for Registry {
     fn class_of(&self, scope: &str) -> Option<ScopeClass> {
         match scope {
-            "kg:read" | "identity:self" => Some(ScopeClass::User),
+            "kg:read" | "identity:self" | "governance:read" => Some(ScopeClass::User),
             "kg:admin" | "webui:admin" | "identity:admin" | "identity:read" => {
                 Some(ScopeClass::Admin)
             }

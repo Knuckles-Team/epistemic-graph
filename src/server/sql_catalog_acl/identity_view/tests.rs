@@ -47,7 +47,7 @@ fn query(dir: &std::path::Path, scopes: &[&str], sql: &str) -> Result<Vec<Vec<St
     Ok(typed
         .rows
         .iter()
-        .map(|row| row.iter().map(|cell| format!("{}", cell.to_json())).collect())
+        .map(|row| row.iter().map(|cell| format!("{cell}")).collect())
         .collect())
 }
 
@@ -58,13 +58,19 @@ fn an_identity_reader_selects_users_and_nobody_else_sees_the_relations() {
     crate::server::identity_view::publish(dir.to_str(), &store());
     let sql = "SELECT principal_id, username, has_password FROM __identity__users";
     let rows = query(&dir, &["identity:read"], sql).unwrap();
-    assert_eq!(rows, vec![vec![
-        "\"usr:bootstrap\"".to_string(),
-        "\"root\"".to_string(),
-        "true".to_string(),
-    ]]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            "\"usr:bootstrap\"".to_string(),
+            "\"root\"".to_string(),
+            "true".to_string(),
+        ]]
+    );
     for outsider in [&["kg:admin"][..], &["*"], &["kg:read"], &["identity:self"]] {
-        assert!(query(&dir, outsider, sql).is_err(), "{outsider:?} must not see identity relations");
+        assert!(
+            query(&dir, outsider, sql).is_err(),
+            "{outsider:?} must not see identity relations"
+        );
     }
 }
 

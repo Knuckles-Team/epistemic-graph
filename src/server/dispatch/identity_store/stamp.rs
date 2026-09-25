@@ -155,7 +155,11 @@ fn derive_config(op: &mut ConfigOp, stamp: &mut IdentityStamp, env: &StampEnv<'_
             stamp.engine_loopback = env.engine_loopback;
             Ok(())
         }
-        ConfigOp::UpdatePolicy { .. } | ConfigOp::Get | ConfigOp::Audit { .. } => Ok(()),
+        ConfigOp::UpdatePolicy { .. }
+        | ConfigOp::Get
+        | ConfigOp::Audit { .. }
+        | ConfigOp::ExportSql
+        | ConfigOp::ImportSql { .. } => Ok(()),
     }
 }
 

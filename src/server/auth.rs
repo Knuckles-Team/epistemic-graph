@@ -1124,7 +1124,8 @@ fn enforce_issuer_kind(
         return Ok(());
     };
     #[cfg(feature = "security")]
-    let actual = crate::server::identity_view::active_principal_kind(state_dir, context.principal());
+    let actual =
+        crate::server::identity_view::active_principal_kind(state_dir, context.principal());
     #[cfg(not(feature = "security"))]
     let actual: Option<eg_types::identity::UserKind> = {
         let _ = state_dir;
@@ -1134,8 +1135,10 @@ fn enforce_issuer_kind(
         Ok(())
     } else {
         crate::metrics::auth_failure();
-        Err("IDENTITY_ISSUER_KIND_REFUSED: the verifying issuer may not vouch for this principal"
-            .to_string())
+        Err(
+            "IDENTITY_ISSUER_KIND_REFUSED: the verifying issuer may not vouch for this principal"
+                .to_string(),
+        )
     }
 }
 

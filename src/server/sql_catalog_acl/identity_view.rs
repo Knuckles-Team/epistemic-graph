@@ -28,7 +28,10 @@ use crate::server::identity_view::published;
 
 /// Refuse a tenant table name in the reserved identity namespace.
 pub(crate) fn refuse_reserved_name(name: &str) -> Result<(), String> {
-    if name.to_ascii_lowercase().starts_with(IDENTITY_RELATION_PREFIX) {
+    if name
+        .to_ascii_lowercase()
+        .starts_with(IDENTITY_RELATION_PREFIX)
+    {
         return Err(format!(
             "SQL error: table names beginning with '{IDENTITY_RELATION_PREFIX}' are reserved for the identity store"
         ));
@@ -63,10 +66,18 @@ pub(super) fn add_identity_relations(
             .iter()
             .map(|(column, kind)| Column::new(*column, column_type(*kind), true, false))
             .collect();
-        projection.store().create_table(&TableSchema::new(name.clone(), columns), false)?;
-        let names: Vec<String> = relation.columns.iter().map(|(column, _)| column.to_string()).collect();
+        projection
+            .store()
+            .create_table(&TableSchema::new(name.clone(), columns), false)?;
+        let names: Vec<String> = relation
+            .columns
+            .iter()
+            .map(|(column, _)| column.to_string())
+            .collect();
         if !relation.rows.is_empty() {
-            projection.store().insert_rows(&name, &names, &relation.rows)?;
+            projection
+                .store()
+                .insert_rows(&name, &names, &relation.rows)?;
         }
     }
     Ok(())

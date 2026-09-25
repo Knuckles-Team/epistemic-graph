@@ -64,7 +64,9 @@ fn proposing_needs_the_proposer_scope_and_a_registered_kind() {
         ledger.propose(&actor("svc:au", &[PROPOSE], false), &unknown, NOW),
         Err(GovernedRefusal::UnknownKind)
     );
-    assert!(ledger.propose(&actor("svc:au", &[PROPOSE], false), &proposal(), NOW).is_ok());
+    assert!(ledger
+        .propose(&actor("svc:au", &[PROPOSE], false), &proposal(), NOW)
+        .is_ok());
     assert_eq!(
         ledger.propose(&actor("svc:au", &[PROPOSE], false), &proposal(), NOW),
         Err(GovernedRefusal::Collision)
@@ -75,7 +77,10 @@ fn proposing_needs_the_proposer_scope_and_a_registered_kind() {
 fn the_approver_must_be_a_second_direct_person_with_the_exact_scope() {
     let mut ledger = proposed();
     let same = actor("svc:au", &[APPROVE], false);
-    assert_eq!(ledger.approve(&same, &approval("d1"), NOW), Err(GovernedRefusal::SelfApproval));
+    assert_eq!(
+        ledger.approve(&same, &approval("d1"), NOW),
+        Err(GovernedRefusal::SelfApproval)
+    );
     let delegated = actor("usr:bob", &[APPROVE], true);
     assert_eq!(
         ledger.approve(&delegated, &approval("d1"), NOW),
@@ -87,7 +92,10 @@ fn the_approver_must_be_a_second_direct_person_with_the_exact_scope() {
         Err(GovernedRefusal::NotAuthorized)
     );
     let bob = actor("usr:bob", &[APPROVE], false);
-    assert_eq!(ledger.approve(&bob, &approval("d2"), NOW), Err(GovernedRefusal::DigestMismatch));
+    assert_eq!(
+        ledger.approve(&bob, &approval("d2"), NOW),
+        Err(GovernedRefusal::DigestMismatch)
+    );
     let approved = ledger.approve(&bob, &approval("d1"), NOW).unwrap();
     assert_eq!(approved.status, GovernedStatus::Approved);
     assert_eq!(
@@ -119,7 +127,10 @@ fn an_approval_is_consumed_once_for_the_exact_candidate_inside_its_window() {
         "the window is closed"
     );
     assert_eq!(
-        ledger.consume(&consumption("d1"), "engine", NOW + 1).unwrap().status,
+        ledger
+            .consume(&consumption("d1"), "engine", NOW + 1)
+            .unwrap()
+            .status,
         GovernedStatus::Consumed
     );
     assert_eq!(
@@ -139,8 +150,12 @@ fn a_stranger_cannot_revoke_but_the_proposer_or_an_approver_can() {
         Err(GovernedRefusal::NotAuthorized)
     );
     let mut by_approver = ledger.clone();
-    assert!(by_approver.revoke(&actor("usr:bob", &[APPROVE], false), "c1", NOW).is_ok());
-    let revoked = ledger.revoke(&actor("svc:au", &[], false), "c1", NOW).unwrap();
+    assert!(by_approver
+        .revoke(&actor("usr:bob", &[APPROVE], false), "c1", NOW)
+        .is_ok());
+    let revoked = ledger
+        .revoke(&actor("svc:au", &[], false), "c1", NOW)
+        .unwrap();
     assert_eq!(revoked.status, GovernedStatus::Revoked);
     assert_eq!(
         ledger.approve(&actor("usr:bob", &[APPROVE], false), &approval("d1"), NOW),
@@ -151,6 +166,12 @@ fn a_stranger_cannot_revoke_but_the_proposer_or_an_approver_can() {
 #[test]
 fn an_unapproved_proposal_expires() {
     let ledger = proposed();
-    assert_eq!(ledger.get("c1", NOW + 60_000).unwrap().status, GovernedStatus::Expired);
-    assert_eq!(ledger.get("c1", NOW).unwrap().status, GovernedStatus::Proposed);
+    assert_eq!(
+        ledger.get("c1", NOW + 60_000).unwrap().status,
+        GovernedStatus::Expired
+    );
+    assert_eq!(
+        ledger.get("c1", NOW).unwrap().status,
+        GovernedStatus::Proposed
+    );
 }

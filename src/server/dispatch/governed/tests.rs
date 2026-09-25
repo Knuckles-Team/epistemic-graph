@@ -42,7 +42,9 @@ fn approve(forged: Option<GovernedActor>) -> Method {
     }
 }
 
-async fn status(state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>) -> GovernedStatus {
+async fn status(
+    state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
+) -> GovernedStatus {
     state
         .read()
         .await
@@ -59,19 +61,46 @@ async fn a_second_direct_approver_with_the_exact_scope_approves() {
     let state = state();
     let proposed = send(&state, verified("svc:au", &[PROPOSE], &[]), propose()).await;
     assert!(proposed.error.is_none(), "{:?}", proposed.error);
-    let own = send(&state, verified("svc:au", &[APPROVE, READ], &[]), approve(None)).await;
-    assert!(refused_with(&own, "GOVERNED_SELF_APPROVAL"), "{:?}", own.error);
+    let own = send(
+        &state,
+        verified("svc:au", &[APPROVE, READ], &[]),
+        approve(None),
+    )
+    .await;
+    assert!(
+        refused_with(&own, "GOVERNED_SELF_APPROVAL"),
+        "{:?}",
+        own.error
+    );
     let via_agent = send(
         &state,
         verified("usr:bob", &[APPROVE, READ], &["usr:bob", "agent:helper"]),
         approve(None),
     )
     .await;
-    assert!(refused_with(&via_agent, "GOVERNED_DELEGATED_APPROVER"), "{:?}", via_agent.error);
-    let admin = send(&state, verified("usr:root", &["kg:admin", "*"], &[]), approve(None)).await;
-    assert!(refused_with(&admin, "GOVERNED_NOT_AUTHORIZED"), "{:?}", admin.error);
+    assert!(
+        refused_with(&via_agent, "GOVERNED_DELEGATED_APPROVER"),
+        "{:?}",
+        via_agent.error
+    );
+    let admin = send(
+        &state,
+        verified("usr:root", &["kg:admin", "*"], &[]),
+        approve(None),
+    )
+    .await;
+    assert!(
+        refused_with(&admin, "GOVERNED_NOT_AUTHORIZED"),
+        "{:?}",
+        admin.error
+    );
     assert_eq!(status(&state).await, GovernedStatus::Proposed);
-    let bob = send(&state, verified("usr:bob", &[APPROVE, READ], &[]), approve(None)).await;
+    let bob = send(
+        &state,
+        verified("usr:bob", &[APPROVE, READ], &[]),
+        approve(None),
+    )
+    .await;
     assert!(bob.error.is_none(), "{:?}", bob.error);
     assert_eq!(status(&state).await, GovernedStatus::Approved);
 }
@@ -80,13 +109,14 @@ async fn a_second_direct_approver_with_the_exact_scope_approves() {
 async fn a_forged_actor_in_the_body_is_overwritten() {
     let state = state();
     send(&state, verified("svc:au", &[PROPOSE], &[]), propose()).await;
-    let forged = GovernedActor::from_identities(
-        "usr:bob",
-        ["usr:bob"],
-        false,
-        [APPROVE.to_string()].into(),
-    );
-    let response = send(&state, verified("svc:au", &[READ], &[]), approve(Some(forged))).await;
+    let forged =
+        GovernedActor::from_identities("usr:bob", ["usr:bob"], false, [APPROVE.to_string()].into());
+    let response = send(
+        &state,
+        verified("svc:au", &[READ], &[]),
+        approve(Some(forged)),
+    )
+    .await;
     assert!(refused_with(&response, "GOVERNED_"), "{:?}", response.error);
     assert_eq!(status(&state).await, GovernedStatus::Proposed);
 }

@@ -45,7 +45,10 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 mod trust;
-pub(crate) use trust::{additional_trust, route, KindRestriction, TrustedIssuer};
+// The engine reads the configured trust list; tests install their own.
+#[cfg(not(test))]
+pub(crate) use trust::additional_trust;
+pub(crate) use trust::{route, TrustedIssuer};
 
 /// IDM-02 key rotation: the cached key set is re-fetched once it is older
 /// than this, so a key the issuer RETIRED stops verifying within this bound
@@ -716,7 +719,10 @@ mod tests {
         let old = sign(KID, &base_claims());
         let new = sign("test-kid-2", &base_claims());
         assert!(validator.validate(&old));
-        assert!(!validator.validate(&new), "the new kid is not published yet");
+        assert!(
+            !validator.validate(&new),
+            "the new kid is not published yet"
+        );
         let overlap = HashMap::from([
             (KID.to_string(), test_key()),
             ("test-kid-2".to_string(), test_key()),
@@ -735,9 +741,15 @@ mod tests {
         let validator = validator();
         let token = sign(KID, &base_claims());
         validator.age_keys_for_test(KEY_REFRESH_AGE + Duration::from_secs(1));
-        assert!(validator.validate(&token), "stale but inside the hard bound");
+        assert!(
+            validator.validate(&token),
+            "stale but inside the hard bound"
+        );
         let fresh = self::validator();
         fresh.age_keys_for_test(KEY_HARD_MAX_AGE + Duration::from_secs(1));
-        assert!(!fresh.validate(&token), "past the hard bound with no refresh");
+        assert!(
+            !fresh.validate(&token),
+            "past the hard bound with no refresh"
+        );
     }
 }

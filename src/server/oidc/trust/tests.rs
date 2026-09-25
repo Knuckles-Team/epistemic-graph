@@ -11,7 +11,8 @@ fn the_trust_list_parses_and_refuses_ambiguity() {
     assert!(parse_trust(duplicate).is_err());
     let unknown_kind = r#"[{"issuer":"https://a","audience":"x","jwks_url":"https://a/k","allowed_kinds":"robots"}]"#;
     assert!(parse_trust(unknown_kind).is_err());
-    let incomplete = r#"[{"issuer":"https://a","audience":"","jwks_url":"https://a/k","allowed_kinds":"any"}]"#;
+    let incomplete =
+        r#"[{"issuer":"https://a","audience":"","jwks_url":"https://a/k","allowed_kinds":"any"}]"#;
     assert!(parse_trust(incomplete).is_err());
 }
 
