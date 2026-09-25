@@ -48,12 +48,12 @@ pub(crate) use skill::skill_op;
 // EH-521 — the `TSSCAN` source and the in-txn staged-series overlay it reads.
 #[cfg(feature = "timeseries")]
 mod tsscan;
+pub(crate) use dispatch::apply;
+pub(crate) use pred_sql::{sql_literal, where_clause};
 #[cfg(feature = "timeseries")]
 pub use tsscan::StagedSeries;
 #[cfg(feature = "timeseries")]
 pub(crate) use tsscan::{tsdb_scan_op, CommittedSeries};
-pub(crate) use dispatch::apply;
-pub(crate) use pred_sql::{sql_literal, where_clause};
 
 /// Everything an operator might touch, gathered from ONE consistent snapshot. In a
 /// handler this is exactly what is already available off-lock: the `GraphView`

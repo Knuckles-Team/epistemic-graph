@@ -356,7 +356,8 @@ impl TsRequestContext<'_> {
         method: &Method,
         committed_at_ms: u64,
     ) -> Result<MutationBatch, String> {
-        self.batch_scope().series_batch(store, method, committed_at_ms)
+        self.batch_scope()
+            .series_batch(store, method, committed_at_ms)
     }
 }
 

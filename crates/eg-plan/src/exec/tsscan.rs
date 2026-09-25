@@ -119,7 +119,11 @@ pub(crate) fn tsdb_scan_op(
         // the last one is the latest correction. Staged points then shadow committed.
         let mut merged: BTreeMap<i64, Vec<f64>> =
             committed.range(sid, from_ns, to_ns).into_iter().collect();
-        merged.extend(staged.map(|s| s.range(sid, from_ns, to_ns)).unwrap_or_default());
+        merged.extend(
+            staged
+                .map(|s| s.range(sid, from_ns, to_ns))
+                .unwrap_or_default(),
+        );
         for (ts, vals) in merged {
             let id = series_row_id(sid, ts);
             scored.push((id.clone(), vals[0] as f32));

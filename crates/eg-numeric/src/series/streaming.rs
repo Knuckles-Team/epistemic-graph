@@ -274,8 +274,7 @@ impl Bivariate {
     /// Pearson correlation over `n` pairs (`None` when either side has no spread).
     pub fn correlation(&self, n: usize) -> Option<f64> {
         let count = n as f64;
-        let cross =
-            self.cross.value() - self.x.first.value() * self.y.first.value() / count;
+        let cross = self.cross.value() - self.x.first.value() * self.y.first.value() / count;
         let denom = (self.x.central_second(count) * self.y.central_second(count)).sqrt();
         (n > 1 && denom > STD_FLOOR).then(|| (cross / denom).clamp(-1.0, 1.0))
     }

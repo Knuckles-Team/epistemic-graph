@@ -132,10 +132,7 @@ impl ShiftState {
 /// O(1) per step (EH-562, [`super::streaming`]).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RollingState {
-    Moments {
-        op: Rolling,
-        stats: RollingMoments,
-    },
+    Moments { op: Rolling, stats: RollingMoments },
     Extremum(Extremum),
     Rank(Sorted),
 }

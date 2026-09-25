@@ -217,11 +217,12 @@ fn block_bootstrap(xs: &[f64], block: usize, resamples: usize, seed: u64) -> Opt
 mod tests {
     use super::*;
 
-    /// A feature that leads the outcome by two steps, plus noise.
+    /// A feature that leads the outcome by two steps (a triangle wave, no platform `sin`),
+    /// plus noise.
     fn leading(n: usize) -> (Vec<f64>, Vec<f64>) {
         let noise = |i: usize| ((i * 7919) % 13) as f64 / 13.0 - 0.5;
         let driver: Vec<f64> = (0..n + 2)
-            .map(|i| (i as f64 / 5.0).sin() + noise(i) * 0.1)
+            .map(|i| ((i % 20) as f64 - 10.0).abs() / 10.0 + noise(i) * 0.1)
             .collect();
         (
             driver[..n].to_vec(),
