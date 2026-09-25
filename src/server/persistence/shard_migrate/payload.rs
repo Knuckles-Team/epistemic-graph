@@ -10,7 +10,7 @@ use crate::redb_store::{
     RESOURCE_RESERVATION_TENANT_INDEX, SEMANTIC, WORK_ITEM_COMMAND_SEQUENCE,
 };
 #[cfg(feature = "security")]
-use crate::redb_store::{AUDIT_REQUESTS, PROVENANCE_ANCHOR_MEMBERS};
+use crate::redb_store::{AUDIT_REQUESTS, PROVENANCE_ANCHOR_MEMBERS, SERVICE_CHILDREN};
 use eg_storage::{GraphShardOwner, OwnerRowScope, OwnerRowScopeStart, ScopedRead};
 use eg_transaction::{GraftOwnerWrite, OwnerPayloadTransfer, OwnerPayloadWrite};
 use redb::TableDefinition;
@@ -88,6 +88,7 @@ fn clear_core_and_provenance_rows(write: &impl OwnerPayloadWrite) -> Result<(), 
     {
         clear_scoped_table(write, AUDIT)?;
         clear_scoped_table(write, AUDIT_REQUESTS)?;
+        clear_scoped_table(write, SERVICE_CHILDREN)?;
         clear_scoped_table(write, PROVENANCE_ANCHOR_MEMBERS)?;
     }
     clear_scoped_table(write, WORK_ITEM_COMMAND_SEQUENCE)?;
@@ -304,7 +305,11 @@ fn copy_provenance_and_sequence_rows(
     let audit_requests = copy_scoped_table(read, write, AUDIT_REQUESTS)?;
     #[cfg(not(feature = "security"))]
     let audit_requests = 0u64;
-    Ok(sequence + anchors + audit_requests)
+    #[cfg(feature = "security")]
+    let service_children = copy_scoped_table(read, write, SERVICE_CHILDREN)?;
+    #[cfg(not(feature = "security"))]
+    let service_children = 0u64;
+    Ok(sequence + anchors + audit_requests + service_children)
 }
 
 /// Every RESOURCE_* table (BUG-CX-054): reservations, tenant index, attempts, hosts,
