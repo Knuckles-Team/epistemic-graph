@@ -5,6 +5,18 @@ use super::prelude_std::*;
 use super::*;
 
 #[cfg(all(feature = "decide", feature = "finance"))]
+fn stable_replay_failure_code(error: &str) -> &'static str {
+    eg_types::decision::statistical::StatisticalErrorCode::ALL
+        .iter()
+        .find(|code| {
+            error.starts_with(code.as_str())
+                && error.as_bytes().get(code.as_str().len()) == Some(&b':')
+        })
+        .map(|code| code.as_str())
+        .unwrap_or("DECISION_REPLAY_WORKER_FAILED")
+}
+
+#[cfg(all(feature = "decide", feature = "finance"))]
 pub(super) async fn execute_replay_claim(
     state: &Arc<RwLock<ServerState>>,
     store: &Arc<JobStore>,
@@ -62,7 +74,19 @@ pub(super) async fn execute_replay_claim(
     let mut ticker = tokio::time::interval(Duration::from_millis(250));
     let run = loop {
         tokio::select! {
-            joined = &mut work => break joined.map_err(|_| "decision replay worker panicked".to_string())??,
+            joined = &mut work => match joined {
+                Ok(Ok(run)) => break run,
+                Ok(Err(error)) => {
+                    store.fail_attempt_fenced(&job_id, &worker_ref, epoch, stable_replay_failure_code(&error), unix_ms())
+                        .map_err(|error| error.to_string())?;
+                    return Ok(());
+                }
+                Err(_) => {
+                    store.fail_attempt_fenced(&job_id, &worker_ref, epoch, "DECISION_REPLAY_WORKER_FAILED", unix_ms())
+                        .map_err(|error| error.to_string())?;
+                    return Ok(());
+                }
+            },
             _ = ticker.tick() => {
                 let now = unix_ms();
                 let current = store.get(&job_id).map_err(|error| error.to_string())?;
@@ -93,4 +117,29 @@ pub(super) async fn execute_replay_claim(
         .stage_result_fenced(&job_id, &worker_ref, epoch, result, unix_ms())
         .map_err(|error| error.to_string())?;
     publish_staged_result(state, store, staged, &worker_ref, epoch).await
+}
+
+#[cfg(all(test, feature = "decide", feature = "finance"))]
+mod tests {
+    use super::stable_replay_failure_code;
+
+    #[test]
+    fn worker_keeps_only_closed_refusal_code() {
+        assert_eq!(
+            stable_replay_failure_code("LOOK_AHEAD: secret row detail"),
+            "LOOK_AHEAD"
+        );
+        assert_eq!(
+            stable_replay_failure_code("REPLAY_SPEC_INVALID: malformed folds"),
+            "REPLAY_SPEC_INVALID"
+        );
+        assert_eq!(
+            stable_replay_failure_code("LOOK_AHEAD_UNSAFE: forged"),
+            "DECISION_REPLAY_WORKER_FAILED"
+        );
+        assert_eq!(
+            stable_replay_failure_code("io: /private/path"),
+            "DECISION_REPLAY_WORKER_FAILED"
+        );
+    }
 }
