@@ -173,7 +173,8 @@ async fn a_noticed_incident_writes_assessments_through_the_served_path() {
     populate(&core, "open");
     let hub = ImpactWatchHub::new(["ops".to_string()].into(), Duration::ZERO);
     hub.note("ops", WATCH_LABEL, "watch-1");
-    assert_eq!(hub.sweep_due(&state).await, 1, "one watch run committed");
+    let report = hub.sweep_due(&state).await;
+    assert_eq!(report.runs, 1, "one watch run committed: {:?}", report.refusals);
     core.mark_dirty();
     let assessed: BTreeMap<String, serde_json::Value> = core
         .get_nodes_by_label("ImpactAssessment", 0)
