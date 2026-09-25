@@ -6,10 +6,8 @@ server instance per test session using a temporary UDS socket.
 
 import asyncio
 import os
-import signal
-import subprocess
 import tempfile
-import time
+from pathlib import Path
 
 import pytest
 from conftest import (
@@ -18,7 +16,10 @@ from conftest import (
     bootstrap_context,
     find_server_binary,
     request_context,
+    spawn_server,
+    stop_server,
     strict_server_env,
+    wait_for_server,
 )
 
 # Skip all tests if the server binary is not available. `find_server_binary()`
@@ -55,7 +56,8 @@ def service():
     persist_dir = os.path.join(tmpdir, "persist")
     os.makedirs(persist_dir, exist_ok=True)
 
-    proc = subprocess.Popen(
+    log_path = Path(tmpdir) / "server.log"
+    proc = spawn_server(
         [_SERVER_BIN, "--socket-path", socket_path],
         env={
             **os.environ,
@@ -65,18 +67,9 @@ def service():
                 persist_dir=persist_dir,
             ),
         },
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        log_path=log_path,
     )
-
-    # Wait for the socket to appear.
-    for _ in range(50):
-        if os.path.exists(socket_path):
-            break
-        time.sleep(0.1)
-    else:
-        proc.kill()
-        pytest.fail("Service failed to start within 5 seconds")
+    wait_for_server(proc, socket_path, name="service-layer server", log_path=log_path)
 
     from epistemic_graph.client import SyncEpistemicGraphClient
 
@@ -132,11 +125,7 @@ def service():
 
     yield {"socket_path": socket_path, "auth_secret": secret, "proc": proc}
 
-    proc.send_signal(signal.SIGTERM)
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    stop_server(proc, name="service-layer server", log_path=log_path)
     import shutil
 
     shutil.rmtree(tmpdir, ignore_errors=True)

@@ -187,8 +187,17 @@ class EmbeddedTransport:
         _native = importlib.import_module("epistemic_graph.engine")
 
         resolved_persist_dir = _resolve_persist_dir(persist_dir)
+        # The native engine takes the in-memory choice as the sentinel itself
+        # and refuses `None` as "no choice made" (BUG-PE-003), so the resolved
+        # `None` crosses back as the sentinel, never as `None`.
         self._engine = _native.Engine(
-            persist_dir=resolved_persist_dir, agent_id=agent_id, tenant=tenant
+            persist_dir=(
+                _IN_MEMORY_SENTINEL
+                if resolved_persist_dir is None
+                else resolved_persist_dir
+            ),
+            agent_id=agent_id,
+            tenant=tenant,
         )
         self._graph_name = graph_name
         self._engine.create_graph(graph_name)

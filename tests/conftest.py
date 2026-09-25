@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import socket
 import stat
 import subprocess
 import sys
@@ -128,20 +129,28 @@ def strict_server_env(
 def find_server_binary() -> str | None:
     """Locate an already-built `full`-featured `epistemic-graph-server`.
 
-    Checks, in order: `$CARGO_TARGET_DIR` (this worktree's own isolated build, per
-    the repo's `.cargo/config.toml` -- never a target dir shared with another
-    worktree), the repo-relative `target-isolated` that config file defaults to,
-    then the legacy `target` layout a plain `cargo build` (with no override at
-    all) would use. Never triggers a build itself -- the session fixture (or a
-    prior manual build) already paid that cost for the SAME `full` feature set
-    every caller of this helper needs. A module that spawns its own server
-    subprocess directly (rather than going through the session fixture's own
-    `cargo run`, which always lands wherever `CARGO_TARGET_DIR` points) MUST use
-    this instead of a hardcoded `target/debug/...` path -- the committed
-    `.cargo/config.toml` defaults every build in this repo to `target-isolated`,
-    so a hardcoded `target/debug` path never resolves in an ordinary checkout,
-    not just a multi-worktree host that also exports the env var.
+    A validated `EPISTEMIC_GRAPH_TEST_BINARY` (see `_prebuilt_test_binary`)
+    wins outright. Otherwise checks, in order: `$CARGO_TARGET_DIR` (this
+    worktree's own isolated build, per the repo's `.cargo/config.toml` -- never
+    a target dir shared with another worktree), the repo-relative
+    `target-isolated` that config file defaults to, then the legacy `target`
+    layout a plain `cargo build` (with no override at all) would use. Never
+    triggers a build itself -- the session fixture (or a prior manual build)
+    already paid that cost for the SAME `full` feature set every caller of this
+    helper needs. A module that spawns its own server subprocess directly
+    (rather than going through the session fixture's own `cargo run`, which
+    always lands wherever `CARGO_TARGET_DIR` points) MUST use this instead of a
+    hardcoded `target/debug/...` path -- the committed `.cargo/config.toml`
+    defaults every build in this repo to `target-isolated`, so a hardcoded
+    `target/debug` path never resolves in an ordinary checkout, not just a
+    multi-worktree host that also exports the env var.
     """
+    prebuilt = _prebuilt_test_binary()
+    if prebuilt is not None:
+        # The binary the session engine runs is the one every dedicated server
+        # runs too: a `release/` candidate below can be any other build that
+        # happens to share the target dir.
+        return prebuilt
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     candidates = []
     target_dir_env = os.environ.get("CARGO_TARGET_DIR")
@@ -202,23 +211,144 @@ def _prebuilt_test_binary() -> str | None:
     return path
 
 
-@pytest.fixture(scope="session", autouse=True)
-def start_epistemic_graph_server(request, tmp_path_factory):
-    # Exact-artifact certification owns and restarts its supplied binary, while
-    # static contract tests do not need an engine. When every selected test is in
-    # either category, never start (or implicitly Cargo-build) the shared engine.
-    selected = getattr(request.session, "items", ())
-    if selected and all(
+#: Ceiling, in seconds, on a spawned engine reaching a state: accepting
+#: connections after start, or exiting after SIGTERM. The fast path returns as
+#: soon as the state is reached (tens of milliseconds on an idle host), and a
+#: server that exits early fails at once with its own output, so the ceiling is
+#: only ever paid by a genuinely stuck server. It is generous because the suite
+#: runs a debug `full` binary under xdist on shared build hosts, where a fixed
+#: 5 s budget failed healthy servers at a load average of ~40.
+SERVER_TIMEOUT_ENV = "EPISTEMIC_GRAPH_TEST_SERVER_TIMEOUT"
+_DEFAULT_SERVER_TIMEOUT = 120.0
+_OUTPUT_TAIL_BYTES = 8192
+
+
+def server_timeout() -> float:
+    """The start/stop ceiling for a spawned engine (`$SERVER_TIMEOUT_ENV`)."""
+
+    raw = os.environ.get(SERVER_TIMEOUT_ENV, "").strip()
+    return float(raw) if raw else _DEFAULT_SERVER_TIMEOUT
+
+
+def spawn_server(
+    command: list[str], *, env: dict[str, str], log_path: Path, cwd: str | None = None
+) -> subprocess.Popen:
+    """Start an engine with its output in `log_path`, never an unread pipe.
+
+    A long-lived server writing into a pipe nobody drains blocks once the pipe
+    buffer fills; the file keeps the output for the failure messages below.
+    """
+
+    with open(log_path, "wb") as log:
+        return subprocess.Popen(command, cwd=cwd, env=env, stdout=log, stderr=log)
+
+
+def _socket_accepts(socket_path: str) -> bool:
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.connect(socket_path)
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def _server_output(process: subprocess.Popen, log_path: Path | None) -> str:
+    """What a stopped server wrote: its log tail, or its captured pipes."""
+
+    if log_path is not None:
+        data = log_path.read_bytes() if log_path.exists() else b""
+        return f"output ({log_path}):\n" + data[-_OUTPUT_TAIL_BYTES:].decode(
+            "utf-8", "replace"
+        )
+    try:
+        out, err = process.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        return "output unavailable: the server did not exit after SIGKILL"
+    return f"stdout={out!r}\nstderr={err!r}"
+
+
+def wait_for_server(
+    process: subprocess.Popen,
+    socket_path: str,
+    *,
+    name: str,
+    log_path: Path | None = None,
+) -> None:
+    """Block until the engine at `socket_path` accepts a connection.
+
+    Readiness is a successful `connect()`, not the socket file existing (the
+    file appears at `bind`, before `listen`). Fails the test with the server's
+    own output if it exits first or the `server_timeout()` ceiling passes.
+    """
+
+    timeout = server_timeout()
+    deadline = time.monotonic() + timeout
+    while not _socket_accepts(socket_path):
+        if process.poll() is not None:
+            pytest.fail(
+                f"{name} exited with code {process.returncode} before accepting "
+                f"connections on {socket_path}\n{_server_output(process, log_path)}"
+            )
+        if time.monotonic() >= deadline:
+            process.kill()
+            process.wait()
+            pytest.fail(
+                f"{name} did not accept connections on {socket_path} within "
+                f"{timeout:g}s (${SERVER_TIMEOUT_ENV} raises the ceiling)\n"
+                f"{_server_output(process, log_path)}"
+            )
+        time.sleep(0.05)
+
+
+def stop_server(
+    process: subprocess.Popen, *, name: str, log_path: Path | None = None
+) -> None:
+    """SIGTERM, then a bounded wait; a server that ignores it is killed and
+    reported rather than hanging the session until pytest-timeout fires."""
+
+    if process.poll() is not None:
+        return
+    timeout = server_timeout()
+    process.terminate()
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        pytest.fail(
+            f"{name} did not exit within {timeout:g}s of SIGTERM\n"
+            f"{_server_output(process, log_path)}"
+        )
+
+
+def selection_needs_engine(items) -> bool:
+    """Whether a test selection needs the shared session engine.
+
+    Exact-artifact certification owns and restarts its supplied binary, and
+    static contract tests (`no_engine`) need no engine at all.
+    """
+
+    return not items or not all(
         item.get_closest_marker("exact_artifact") is not None
         or item.get_closest_marker("no_engine") is not None
-        for item in selected
-    ):
+        for item in items
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def start_epistemic_graph_server(request, tmp_path_factory):
+    # When no selected test needs the shared engine, never start (or
+    # implicitly Cargo-build) it.
+    if not selection_needs_engine(getattr(request.session, "items", ())):
         yield None
         return
     rust_dir = os.path.join(os.path.dirname(__file__), "..")
     rust_dir = os.path.abspath(rust_dir)
     runtime_dir = tmp_path_factory.mktemp("epistemic-graph-runtime")
     socket_path = str(runtime_dir / "engine.sock")
+    log_path = runtime_dir / "engine.log"
     state_dir = str(runtime_dir / "security")
     persist_dir = str(runtime_dir / "persist")
     os.makedirs(persist_dir, exist_ok=True)
@@ -276,28 +406,19 @@ def start_epistemic_graph_server(request, tmp_path_factory):
             socket_path,
         ]
 
-    process = subprocess.Popen(
+    process = spawn_server(
         command,
         cwd=rust_dir,
         env={
             **os.environ,
             **server_env,
         },
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        log_path=log_path,
     )
-
     # A cold `cargo run` still pays a full relink of this crate's large
     # `full`-feature binary even when nothing needs recompiling (observed
-    # ~40s on a loaded build host) -- the previous 15s budget (30 * 0.5s)
-    # was tight enough to make the FIRST test of a session flake with a
-    # confusing downstream `FileNotFoundError` from the client racing a
-    # socket that was still on its way, not a real server-start failure.
-    # Generous, bounded budget; still fails fast once the socket is live.
-    for _ in range(240):
-        if os.path.exists(socket_path):
-            break
-        time.sleep(0.5)
+    # ~40s on a loaded build host), which `server_timeout()` covers.
+    wait_for_server(process, socket_path, name="session engine", log_path=log_path)
 
     os.environ["GRAPH_SERVICE_SOCKET"] = socket_path
     os.environ.update(server_env)
@@ -318,8 +439,7 @@ def start_epistemic_graph_server(request, tmp_path_factory):
 
     yield process
 
-    process.terminate()
-    process.wait()
+    stop_server(process, name="session engine", log_path=log_path)
     if os.path.exists(socket_path):
         os.remove(socket_path)
 
