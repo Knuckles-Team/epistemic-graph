@@ -203,6 +203,7 @@
 | `IssueControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | tenant-bound immutable grant record in the WorkItem MutationBatch; an existing id is a collision, never an overwrite |
 | `TransitionControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | one-way active to revoked/expired, CAS on the read revision |
 | `GetControlLease` | false | None | `lease:read` | true | false | false | Snapshot | tenant-bound native control-lease view |
+| `RetireSealedRecord` | true | GraphRedb | `record:retire` | true | true | false | Atomic | digest-checked replacement of a sealed record by its audited tombstone in the WorkItem MutationBatch; generic writes may not change or remove a sealed row |
 | `ReserveWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only atomic host admission and WorkItem fence validation |
 | `ReleaseWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only lifecycle release with retained tombstone |
 | `ReclaimWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only expiry/supersession reclaim with retained tombstone |

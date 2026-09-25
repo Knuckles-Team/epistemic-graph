@@ -27773,6 +27773,33 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+          "properties": {
+            "method": {
+              "const": "RetireSealedRecord",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/RetireSealedRecordRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -32649,6 +32676,51 @@
           "type": "object"
         }
       ]
+    },
+    "RetireSealedRecordRequest": {
+      "additionalProperties": false,
+      "description": "`RetireSealedRecord`: replace one sealed record with its audited tombstone.",
+      "properties": {
+        "digest": {
+          "description": "The record's seal, as its class's digest property stores it.",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Caller-stable retry identity for this retirement.",
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the record is retired (for example `share revoked` or `expired`).",
+          "type": "string"
+        },
+        "retired_at_ms": {
+          "description": "When the retirement takes effect, epoch milliseconds. Part of the retry\nidentity, so a retry carries the same value.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retired_by": {
+          "default": "",
+          "description": "Who retired it. The engine stamps this from the verified caller (a\nprincipal fingerprint) before the commit; a client-supplied value is replaced.",
+          "type": "string"
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "node_id",
+        "digest",
+        "reason",
+        "retired_at_ms",
+        "idempotency_key"
+      ],
+      "type": "object"
     },
     "RetrievalCandidateWire": {
       "description": "Wire mirror of `eg_epistemic::RetrievalCandidate` (EPI-P3-3) — one candidate in\na `Method::RankByProvenance` request, before ranking.",
@@ -53185,6 +53257,33 @@
           "required": [
             "source",
             "target_shards"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "RetireSealedRecord": {
+      "additionalProperties": false,
+      "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+      "properties": {
+        "method": {
+          "const": "RetireSealedRecord",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/RetireSealedRecordRequest"
+            }
+          },
+          "required": [
+            "request"
           ],
           "type": "object"
         }

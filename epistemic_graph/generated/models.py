@@ -9799,6 +9799,13 @@ class MethodGetControlLease(BaseModel):
     params: MethodGetControlLeaseParams
 
 
+class MethodRetireSealedRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["RetireSealedRecord"]
+    params: MethodRetireSealedRecordParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -10236,7 +10243,8 @@ Method = Annotated[
     | MethodGetWorkItemOutcome
     | MethodIssueControlLease
     | MethodTransitionControlLease
-    | MethodGetControlLease,
+    | MethodGetControlLease
+    | MethodRetireSealedRecord,
     Field(discriminator="method"),
 ]
 
@@ -12826,6 +12834,12 @@ class MethodRestoreParams(BaseModel):
 
     source: str
     target_shards: Annotated[int, Field(ge=0)]
+
+
+class MethodRetireSealedRecordParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: RetireSealedRecordRequest
 
 
 class MethodRollbackParams(BaseModel):
@@ -16587,6 +16601,18 @@ class RestoreReceipt(BaseModel):
     xshard_prepares: Annotated[int, Field(ge=0)]
 
 
+class RetireSealedRecordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    idempotency_key: str
+    node_id: str
+    reason: str
+    retired_at_ms: Annotated[int, Field(ge=0)]
+    retired_by: str | None = None
+    tenant: str
+
+
 class RetrievalCandidateWire(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16868,6 +16894,33 @@ class ScreenObservationResult(BaseModel):
     height: Annotated[int, Field(ge=0)]
     nodes: list[ExtractedNode]
     width: Annotated[int, Field(ge=0)]
+
+
+class SealedRecordRetireOutcome(str, Enum):
+    RETIRED = "retired"
+    ALREADY_RETIRED = "already_retired"
+    NOT_FOUND = "not_found"
+    NOT_SEALED = "not_sealed"
+    DIGEST_MISMATCH = "digest_mismatch"
+
+
+class SealedRecordRetirement(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    outcome: SealedRecordRetireOutcome
+    tombstone: SealedRecordTombstone | None = None
+
+
+class SealedRecordTombstone(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    node_id: str
+    reason: str
+    record_class: str
+    retired_at_ms: Annotated[int, Field(ge=0)]
+    retired_by: str
 
 
 class SemanticActivationTarget(BaseModel):

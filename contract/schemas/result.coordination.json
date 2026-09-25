@@ -6679,6 +6679,101 @@
       ],
       "type": "object"
     },
+    "SealedRecordRetireOutcome": {
+      "description": "How a retirement resolved.",
+      "oneOf": [
+        {
+          "const": "retired",
+          "description": "The record was replaced by its tombstone.",
+          "type": "string"
+        },
+        {
+          "const": "already_retired",
+          "description": "The id already holds the tombstone of a record with this digest.",
+          "type": "string"
+        },
+        {
+          "const": "not_found",
+          "description": "No row with this id exists.",
+          "type": "string"
+        },
+        {
+          "const": "not_sealed",
+          "description": "The row is not a sealed record; nothing was written.",
+          "type": "string"
+        },
+        {
+          "const": "digest_mismatch",
+          "description": "The presented digest is not the record's seal; nothing was written.",
+          "type": "string"
+        }
+      ]
+    },
+    "SealedRecordRetirement": {
+      "additionalProperties": false,
+      "description": "Result of `RetireSealedRecord`. `changed_work_item_ids` names the row the commit\nwrote, so the serving projection refreshes from authority exactly as it does for\na WorkItem transition.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SealedRecordRetireOutcome"
+        },
+        "tombstone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SealedRecordTombstone"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "SealedRecordTombstone": {
+      "additionalProperties": false,
+      "description": "The audited tombstone a retirement leaves in place of a sealed record.",
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "record_class": {
+          "type": "string"
+        },
+        "retired_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retired_by": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "record_class",
+        "digest",
+        "retired_by",
+        "retired_at_ms",
+        "reason"
+      ],
+      "type": "object"
+    },
     "ShortlistProvenance": {
       "additionalProperties": false,
       "description": "How the shortlist the decision scored was produced.",
@@ -8859,6 +8954,18 @@
           "encoding": "Json",
           "schema": {
             "$ref": "#/$defs/ResourceSnapshot"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RetireSealedRecord": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SealedRecordRetirement"
           }
         }
       },

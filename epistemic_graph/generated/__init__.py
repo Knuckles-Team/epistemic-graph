@@ -421,6 +421,7 @@ SEND_BY_METHOD = {
     "ResourceReservationStatus": coordination.send_resource_reservation_status,
     "ResourceStatsPage": coordination.send_resource_stats_page,
     "Restore": storage.send_restore,
+    "RetireSealedRecord": coordination.send_retire_sealed_record,
     "Rollback": transactions.send_rollback,
     "RunDatalogReasoning": reasoning.send_run_datalog_reasoning,
     "SemanticIndex": ingestion.send_semantic_index,
