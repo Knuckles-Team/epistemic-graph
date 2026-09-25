@@ -45,6 +45,50 @@ pub(crate) fn share_role(owner_agent: &str, name: &str) -> String {
     format!("foreign-source-use:{}", shared_name(owner_agent, name))
 }
 
+/// Change only the engine-created exact source-use role on an existing grantee.
+#[cfg(feature = "security")]
+pub(crate) fn set_shared(
+    isolation: &mut IsolationLayer,
+    owner_agent: &str,
+    name: &str,
+    grantee: &str,
+    enabled: bool,
+) -> Result<bool, String> {
+    let role = share_role(owner_agent, name);
+    if !isolation
+        .rbac()
+        .roles()
+        .any(|existing| existing.name == role)
+    {
+        return Err("FOREIGN_SOURCE_NOT_FOUND".to_string());
+    }
+    let Some(mut identity) = isolation.get_identity(grantee) else {
+        return Err("FOREIGN_SOURCE_GRANTEE_NOT_FOUND".to_string());
+    };
+    let present = identity.roles.contains(&role);
+    if present == enabled {
+        return Ok(false);
+    }
+    if enabled {
+        identity.roles.push(role);
+    } else {
+        identity.roles.retain(|existing| existing != &role);
+    }
+    isolation.try_register_agent(identity)?;
+    Ok(true)
+}
+
+#[cfg(not(feature = "security"))]
+pub(crate) fn set_shared(
+    _isolation: &mut IsolationLayer,
+    _owner_agent: &str,
+    _name: &str,
+    _grantee: &str,
+    _enabled: bool,
+) -> Result<bool, String> {
+    Err("ACCESS_DENIED: source sharing requires security".to_string())
+}
+
 #[cfg(feature = "security")]
 fn share_grant(owner_agent: &str, name: &str) -> crate::acl::Grant {
     crate::acl::Grant {
@@ -226,5 +270,21 @@ mod tests {
         let (found, revoked) = resolves(&catalog, &isolation, "agent-b", &qualified);
         assert!(!found, "revocation stops use");
         assert_eq!(before, revoked);
+    }
+
+    #[test]
+    fn control_share_changes_only_the_owned_exact_role() {
+        let mut isolation = crate::server::state::ServerState::test_isolation("share-control");
+        provision_share_role(&mut isolation, "alice", "one").unwrap();
+        provision_share_role(&mut isolation, "alice", "two").unwrap();
+        set_roles(&mut isolation, "bob", Vec::new());
+        assert!(set_shared(&mut isolation, "alice", "one", "bob", true).unwrap());
+        assert!(!set_shared(&mut isolation, "alice", "one", "bob", true).unwrap());
+        let roles = isolation.get_identity("bob").unwrap().roles;
+        assert!(roles.contains(&share_role("alice", "one")));
+        assert!(!roles.contains(&share_role("alice", "two")));
+        assert!(set_shared(&mut isolation, "alice", "one", "bob", false).unwrap());
+        assert!(!set_shared(&mut isolation, "alice", "one", "bob", false).unwrap());
+        assert!(isolation.get_identity("bob").unwrap().roles.is_empty());
     }
 }

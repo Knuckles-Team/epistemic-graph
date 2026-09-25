@@ -9,6 +9,9 @@ mod wire_datascience;
 #[cfg(feature = "finance")]
 #[path = "wire_finance.rs"]
 mod wire_finance;
+#[cfg(feature = "federation")]
+#[path = "wire_foreign_control.rs"]
+mod wire_foreign_control;
 #[cfg(feature = "mining")]
 #[path = "wire_mining.rs"]
 mod wire_mining;
@@ -65,6 +68,8 @@ mod wire_streaming;
 pub use wire_datascience::*;
 #[cfg(feature = "finance")]
 pub use wire_finance::*;
+#[cfg(feature = "federation")]
+pub use wire_foreign_control::*;
 #[cfg(feature = "mining")]
 pub use wire_mining::*;
 #[cfg(feature = "ml-pipeline")]

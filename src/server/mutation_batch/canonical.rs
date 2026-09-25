@@ -208,7 +208,12 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ResolveConflict { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
         // forces `eg-types/federation` on unconditionally (EH-319).
-        Method::RegisterForeignSource { .. } => default_mutation_domain(surface),
+        Method::RegisterForeignSource { .. }
+        | Method::ListForeignSources { .. }
+        | Method::GetForeignSource { .. }
+        | Method::ShareForeignSource { .. }
+        | Method::UnshareForeignSource { .. }
+        | Method::ProbeForeignSource { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
         // list `finance`, but `eg-capabilities` forces `eg-types/finance` on
         // regardless.

@@ -46,7 +46,9 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use eg_plan::federation::ForeignSourceRegistry;
-use eg_types::wire::ForeignSourceSpec;
+use eg_types::wire::{
+    ForeignSourceKind, ForeignSourcePage, ForeignSourceSpec, ForeignSourceSummary,
+};
 use tokio::sync::RwLock;
 
 use super::access::{CarrierAuthority, GraphReadAuthority};
@@ -103,6 +105,53 @@ impl OwnedForeignRegistry {
 }
 
 impl ForeignSourceCatalog {
+    /// An owner-only, redacted point read. Unknown and unowned names are identical.
+    pub(crate) fn get(&self, owner: &CarrierAuthority, name: &str) -> Option<ForeignSourceSummary> {
+        let key = CatalogKey {
+            owner_scope: owner.owner_scope().to_string(),
+            name: name.to_string(),
+        };
+        self.entries
+            .get(&key)
+            .map(|entry| summary(name, &entry.spec))
+    }
+
+    /// Owner-only, stable name-keyset page. Cursor is a name, never an endpoint.
+    pub(crate) fn list(
+        &self,
+        owner: &CarrierAuthority,
+        after: Option<&str>,
+        limit: usize,
+    ) -> ForeignSourcePage {
+        let mut items: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.key().owner_scope == owner.owner_scope())
+            .filter(|entry| after.is_none_or(|cursor| entry.key().name.as_str() > cursor))
+            .map(|entry| summary(&entry.key().name, &entry.value().spec))
+            .collect();
+        items.sort_by(|a, b| a.name.cmp(&b.name));
+        let has_more = items.len() > limit;
+        items.truncate(limit);
+        let next_cursor = has_more
+            .then(|| items.last().map(|item| item.name.clone()))
+            .flatten();
+        ForeignSourcePage { items, next_cursor }
+    }
+
+    /// Internal spec access for an owner-scoped probe; never returned on wire.
+    pub(crate) fn owned_spec(
+        &self,
+        owner: &CarrierAuthority,
+        name: &str,
+    ) -> Option<ForeignSourceSpec> {
+        let key = CatalogKey {
+            owner_scope: owner.owner_scope().to_string(),
+            name: name.to_string(),
+        };
+        self.entries.get(&key).map(|entry| entry.spec.clone())
+    }
+
     /// Record (or replace) `owner`'s source `name`. Another owner's entry under the
     /// same name is a different key, so it can be neither read nor overwritten here.
     pub(crate) fn register(&self, owner: &CarrierAuthority, name: String, spec: ForeignSourceSpec) {
@@ -198,6 +247,19 @@ impl ForeignSourceCatalog {
     }
 }
 
+fn summary(name: &str, spec: &ForeignSourceSpec) -> ForeignSourceSummary {
+    let kind = match spec {
+        ForeignSourceSpec::RemoteEngine { .. } => ForeignSourceKind::RemoteEngine,
+        ForeignSourceSpec::HttpJson { .. } => ForeignSourceKind::HttpJson,
+        ForeignSourceSpec::Sql { .. } => ForeignSourceKind::Sql,
+        ForeignSourceSpec::Named { .. } => ForeignSourceKind::Named,
+    };
+    ForeignSourceSummary {
+        name: name.to_string(),
+        kind,
+    }
+}
+
 /// [`ForeignSourceCatalog::resolve_for_plan`] against the server's catalog for a served
 /// plan, with the caller's verified carrier taken from its read authority. `Err` is the
 /// caller-facing refusal text.
@@ -251,6 +313,38 @@ mod tests {
     /// A verified carrier for `agent` in the deployment's one tenant.
     fn carrier(agent: &str) -> CarrierAuthority {
         CarrierAuthority::verified_for_test(agent)
+    }
+
+    #[test]
+    fn control_reads_are_owner_scoped_paginated_and_redacted() {
+        let catalog = ForeignSourceCatalog::default();
+        let secret = "never-return-this-token";
+        let spec = ForeignSourceSpec::HttpJson {
+            url: format!("https://example.org/{secret}"),
+            json_path: String::new(),
+            field_map: eg_types::wire::HttpFieldMap {
+                id: "id".into(),
+                score: None,
+            },
+        };
+        catalog.register(&carrier("alice"), "z".into(), spec.clone());
+        catalog.register(&carrier("alice"), "a".into(), spec);
+        catalog.register(
+            &carrier("bob"),
+            "private".into(),
+            ForeignSourceSpec::Named { name: "x".into() },
+        );
+        let first = catalog.list(&carrier("alice"), None, 1);
+        assert_eq!(first.items[0].name, "a");
+        assert_eq!(first.next_cursor.as_deref(), Some("a"));
+        let second = catalog.list(&carrier("alice"), first.next_cursor.as_deref(), 1);
+        assert_eq!(second.items[0].name, "z");
+        assert_eq!(second.next_cursor, None);
+        assert!(catalog.get(&carrier("alice"), "private").is_none());
+        assert!(catalog.get(&carrier("bob"), "a").is_none());
+        let wire = serde_json::to_string(&first).unwrap();
+        assert!(!wire.contains(secret));
+        assert!(!wire.contains("https://"));
     }
 
     fn http_spec(url: &str) -> ForeignSourceSpec {

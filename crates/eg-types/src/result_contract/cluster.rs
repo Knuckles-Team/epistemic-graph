@@ -44,6 +44,14 @@ method_results! {
     Shutdown(Shutdown) => Text<String>;
     CancelRequest(CancelRequest) => Bool<bool>;
     RegisterForeignSource(RegisterForeignSource) => Text<String>;
+    #[cfg(feature = "federation")]
+    ListForeignSources(ListForeignSources) => Raw<crate::wire::ForeignSourcePage>;
+    #[cfg(feature = "federation")]
+    GetForeignSource(GetForeignSource) => Raw<crate::wire::ForeignSourceSummary>;
+    ShareForeignSource(ShareForeignSource) => Bool<bool>;
+    UnshareForeignSource(UnshareForeignSource) => Bool<bool>;
+    #[cfg(feature = "federation")]
+    ProbeForeignSource(ProbeForeignSource) => Raw<crate::wire::ForeignSourceProbe>;
     RegisterUdf(RegisterUdf) => Text<String>;
     CreateMatView(CreateMatView) => Count<u64>;
     #[cfg(feature = "compute-dist")]

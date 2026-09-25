@@ -413,6 +413,25 @@ $($variants)*
         name: String,
         source: crate::wire::ForeignSourceSpec,
     },
+    /// List only the verified caller's registered sources by name-keyset page.
+    #[cfg(feature = "federation")]
+    ListForeignSources {
+        #[serde(default)]
+        after: Option<String>,
+        limit: u16,
+    },
+    /// Get redacted metadata for one source owned by the verified caller.
+    #[cfg(feature = "federation")]
+    GetForeignSource { name: String },
+    /// Grant one principal use of one source owned by the verified admin caller.
+    #[cfg(feature = "federation")]
+    ShareForeignSource { name: String, grantee: String },
+    /// Remove that source's exact use role from one principal.
+    #[cfg(feature = "federation")]
+    UnshareForeignSource { name: String, grantee: String },
+    /// Validate and briefly probe an owned source without fetching rows.
+    #[cfg(feature = "federation")]
+    ProbeForeignSource { name: String },
 
 
     // ── WASM-sandboxed UDF / extension model (CONCEPT:EG-KG.query.rowset-execution) ─────────────
