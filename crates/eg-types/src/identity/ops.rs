@@ -183,6 +183,9 @@ pub enum UserOp {
     Search {
         request: UserSearch,
     },
+    ListServiceAccounts {
+        request: ListQuery,
+    },
     /// Effective roles, groups and scopes of one principal: what the local
     /// issuer puts in a token.
     Resolve {
@@ -428,6 +431,9 @@ impl UserOp {
             Self::Get { .. } => meta("get_user", false, OpAuthority::Read),
             Self::List { .. } => meta("list_users", false, OpAuthority::Read),
             Self::Search { .. } => meta("search_users", false, OpAuthority::Read),
+            Self::ListServiceAccounts { .. } => {
+                meta("list_service_accounts", false, OpAuthority::Read)
+            }
             Self::Resolve { .. } => meta("resolve_principal", false, OpAuthority::Broker),
         }
     }

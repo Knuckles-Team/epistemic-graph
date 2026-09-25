@@ -38,6 +38,36 @@ fn search_users_pages_in_principal_order_and_checks_read_scope() {
 }
 
 #[test]
+fn list_service_accounts_excludes_humans_before_paging() {
+    let mut store = store_in(AuthMode::Local);
+    create(&mut store, "human", UserKind::Human).unwrap();
+    create(&mut store, "svc-a", UserKind::Service).unwrap();
+    create(&mut store, "svc-b", UserKind::Service).unwrap();
+    let op = IdentityOp::User(UserOp::ListServiceAccounts {
+        request: ListQuery {
+            after: None,
+            limit: 1,
+        },
+    });
+    let IdentityReply::Users(first) = apply_kept(&mut store, &op, &admin(), NOW).unwrap() else {
+        panic!("expected service accounts")
+    };
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].kind, UserKind::Service);
+    let next = IdentityOp::User(UserOp::ListServiceAccounts {
+        request: ListQuery {
+            after: Some(first[0].principal_id.clone()),
+            limit: 1,
+        },
+    });
+    let IdentityReply::Users(second) = apply_kept(&mut store, &next, &admin(), NOW).unwrap() else {
+        panic!("expected service accounts")
+    };
+    assert_eq!(second.len(), 1);
+    assert_ne!(first[0].principal_id, second[0].principal_id);
+}
+
+#[test]
 fn revoke_one_session_uses_public_handle_and_requires_direct_admin() {
     let mut store = store_in(AuthMode::Local);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();

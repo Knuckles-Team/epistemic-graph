@@ -44,6 +44,9 @@ impl IdentityStore {
             UserOp::Get { request } => Ok(IdentityReply::User(self.view_of(&request.id)?)),
             UserOp::List { request } => Ok(IdentityReply::Users(self.list_users(request))),
             UserOp::Search { request } => Ok(IdentityReply::Users(self.search_users(request)?)),
+            UserOp::ListServiceAccounts { request } => {
+                Ok(IdentityReply::Users(self.list_service_accounts(request)))
+            }
             UserOp::Resolve { request } => Ok(IdentityReply::Resolution(
                 self.resolve(&request.id, ctx.classifier)?,
             )),
@@ -113,6 +116,22 @@ impl IdentityStore {
             .take(limit)
             .map(|user| UserView::of(user, self.facts_of(&user.principal_id)))
             .collect())
+    }
+
+    fn list_service_accounts(&self, request: &ListQuery) -> Vec<UserView> {
+        let limit = request.limit.min(MAX_PAGE) as usize;
+        self.users
+            .values()
+            .filter(|user| user.kind == UserKind::Service)
+            .filter(|user| {
+                request
+                    .after
+                    .as_deref()
+                    .is_none_or(|after| user.principal_id.as_str() > after)
+            })
+            .take(limit)
+            .map(|user| UserView::of(user, self.facts_of(&user.principal_id)))
+            .collect()
     }
 
     /// Validate a new principal's id and username against the store.
