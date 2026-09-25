@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph.ontology_pack import compile_ontology_pack
+from epistemic_graph.ontology_pack import (
+    compile_ontology_pack,
+    compile_ontology_proposal,
+)
 
 
 def test_compiles_sorted_declarations_and_escapes_labels() -> None:
@@ -49,3 +52,18 @@ def test_rejects_untrusted_rdf_syntax(source, classes, datatypes) -> None:
             object_properties=(),
             datatype_properties=datatypes,
         )
+
+
+def test_proposal_escapes_untrusted_description_and_keeps_reservation() -> None:
+    ttl = compile_ontology_proposal(
+        classes=[
+            {"local": "Widget", "label": "Widget", "description": 'Quoted "text"'}
+        ],
+        object_properties=[],
+    )
+    assert "CONCEPT:RESERVE-PENDING" in ttl
+    assert 'rdfs:comment "Quoted \\"text\\""' in ttl
+
+
+def test_empty_proposal_has_no_semantic_document() -> None:
+    assert compile_ontology_proposal(classes=[], object_properties=[]) == ""
