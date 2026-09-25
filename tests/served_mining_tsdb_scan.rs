@@ -186,13 +186,16 @@ async fn plan_sourced_mining_tsscan_errors_typed_when_store_absent() {
     let state = state(None);
 
     let resp = Box::pin(dispatch(&state, req(1, mine_anomaly_over(ts_scan_plan())))).await;
+    assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
     assert!(
         resp.error.is_some(),
         "a TsScan-bearing mining plan with no tsdb store configured must surface a typed \
          error, not a silent-empty success: result={:?}",
         resp.result
     );
-    let msg = resp.error.unwrap();
+    let msg = resp
+        .error_detail
+        .expect("a missing time-series store needs diagnostic detail");
     assert!(
         msg.contains("TsScan") || msg.contains("time-series") || msg.contains("tsdb"),
         "the error should name the actual gap (no tsdb store), not a generic failure: {msg}"

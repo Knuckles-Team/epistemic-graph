@@ -232,7 +232,7 @@ async fn t04_replayed_add_node_request_is_not_double_applied() {
     assert!(first.error.is_none(), "first AddNode: {:?}", first.error);
     let second = Box::pin(dispatch(&state, add_request.clone())).await;
     let refusal = second
-        .error
+        .error_detail
         .as_deref()
         .expect("replaying the identical signed AddNode envelope must be refused");
     assert!(

@@ -206,11 +206,12 @@ async fn t06_ts_list_series_without_a_configured_store_fails_cleanly() {
     let state = state();
     assert!(create_graph(&state, 1, "cx06-op-ts1").await.error.is_none());
     let resp = call(&state, 2, "cx06-op-ts1", Method::TsListSeries).await;
+    assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
     assert_eq!(
-        resp.error.as_deref(),
+        resp.error_detail.as_deref(),
         Some("time-series store not configured"),
         "TsListSeries without a configured tsdb_store: {:?}",
-        resp.error
+        resp.error_detail
     );
 }
 
