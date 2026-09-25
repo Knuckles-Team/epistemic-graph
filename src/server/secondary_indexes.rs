@@ -37,7 +37,7 @@
 
 use crate::graph::GraphCore;
 use crate::index::{
-    ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest, Predicate,
+    ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest,
     SecondaryIndex, SecondaryIndexFactory,
 };
 use crate::lock_recovery::LockRecovery;
@@ -127,12 +127,6 @@ impl SecondaryIndex for GraphTextIndex {
             columns: IndexColumns::NonColumnar,
             serves_lookup: false,
         }
-    }
-    fn covers(&self, _p: &Predicate) -> bool {
-        false
-    }
-    fn lookup(&self, _core: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
-        None
     }
     fn needs_content(&self) -> bool {
         true
@@ -362,12 +356,6 @@ impl SecondaryIndex for GraphTemporalIndex {
             serves_lookup: false,
         }
     }
-    fn covers(&self, _p: &Predicate) -> bool {
-        false
-    }
-    fn lookup(&self, _core: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
-        None
-    }
     fn needs_content(&self) -> bool {
         true
     }
@@ -467,12 +455,6 @@ impl SecondaryIndex for DerivedOwlIndex {
             columns: IndexColumns::NonColumnar,
             serves_lookup: false,
         }
-    }
-    fn covers(&self, _p: &Predicate) -> bool {
-        false
-    }
-    fn lookup(&self, _core: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
-        None
     }
     // No content needed: the reasoner reads the graph's triples/axioms itself on-demand.
     fn needs_content(&self) -> bool {
@@ -671,12 +653,6 @@ impl SecondaryIndex for GraphSpatialIndex {
             columns: IndexColumns::NonColumnar,
             serves_lookup: false,
         }
-    }
-    fn covers(&self, _p: &Predicate) -> bool {
-        false
-    }
-    fn lookup(&self, _core: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
-        None
     }
     fn needs_content(&self) -> bool {
         true
