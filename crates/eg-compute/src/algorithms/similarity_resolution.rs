@@ -1,6 +1,7 @@
 //! Embedding similarity and entity-resolution proposals.
 
 use crate::graph::GraphView;
+use crate::graph_algos::components::find_root;
 
 pub fn compute_similarity_edges(core: &GraphView, threshold: f64) -> Vec<(String, String, f64)> {
     use rayon::prelude::*;
@@ -125,16 +126,6 @@ fn compute_candidate_pairs(
         .collect()
 }
 
-/// Union-find path-halving root lookup. Split out of `resolve_candidates`
-/// (extract-method, cx/wD8) — was a nested `fn` there, unchanged.
-fn find(parent: &mut [usize], mut x: usize) -> usize {
-    while parent[x] != x {
-        parent[x] = parent[parent[x]];
-        x = parent[x];
-    }
-    x
-}
-
 /// (parent, degree, extends_pairs) — the union-find result of
 /// [`build_same_as_clusters`]. The alias keeps this union-find result readable
 /// at its call sites (cx/wD8).
@@ -155,7 +146,7 @@ fn build_same_as_clusters(
         degree[i] += 1;
         degree[j] += 1;
         if s >= merge_threshold && nodes[i].2 == nodes[j].2 {
-            let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+            let (ri, rj) = (find_root(&mut parent, i), find_root(&mut parent, j));
             if ri != rj {
                 parent[ri] = rj;
             }
@@ -180,7 +171,7 @@ fn build_same_as_proposals(
     let mut clusters: std::collections::HashMap<usize, Vec<usize>> =
         std::collections::HashMap::new();
     for idx in 0..nodes.len() {
-        let root = find(parent, idx);
+        let root = find_root(parent, idx);
         clusters.entry(root).or_default().push(idx);
     }
     let mut proposals: Vec<MergeProposal> = Vec::new();
@@ -222,7 +213,7 @@ fn build_extends_proposals(
 ) -> Vec<MergeProposal> {
     let mut proposals = Vec::new();
     for &(i, j, s) in extends_pairs {
-        if find(parent, i) == find(parent, j) {
+        if find_root(parent, i) == find_root(parent, j) {
             continue; // already in one same_as cluster
         }
         proposals.push(MergeProposal {

@@ -12,6 +12,15 @@ pub(crate) struct UnionFind {
     rank: Vec<u32>,
 }
 
+/// Find a representative in a parent array, shortening the path on each visit.
+pub(crate) fn find_root(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+    }
+    x
+}
+
 impl UnionFind {
     pub(crate) fn new(n: usize) -> Self {
         Self {
@@ -20,12 +29,8 @@ impl UnionFind {
         }
     }
 
-    pub(crate) fn find(&mut self, mut x: usize) -> usize {
-        while self.parent[x] != x {
-            self.parent[x] = self.parent[self.parent[x]]; // path halving
-            x = self.parent[x];
-        }
-        x
+    pub(crate) fn find(&mut self, x: usize) -> usize {
+        find_root(&mut self.parent, x)
     }
 
     pub(crate) fn union(&mut self, a: usize, b: usize) {

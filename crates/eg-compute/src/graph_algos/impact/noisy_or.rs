@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 
 use super::{hop_depths, seed_vector, ImpactGraph, Seed, Semantics, MAX_HOPS};
+use crate::graph_algos::components::find_root;
 
 /// Per-node impact probabilities and what they mean.
 #[derive(Debug, Clone, PartialEq)]
@@ -87,7 +88,7 @@ fn is_polytree(graph: &ImpactGraph, cone: &[bool]) -> bool {
     let mut parent: Vec<usize> = (0..graph.len()).collect();
     for u in (0..graph.len()).filter(|u| cone[*u]) {
         for &(v, _) in graph.out_edges(u).iter().filter(|(v, _)| cone[*v]) {
-            let (ru, rv) = (find(&mut parent, u), find(&mut parent, v));
+            let (ru, rv) = (find_root(&mut parent, u), find_root(&mut parent, v));
             if ru == rv {
                 return false;
             }
@@ -95,14 +96,6 @@ fn is_polytree(graph: &ImpactGraph, cone: &[bool]) -> bool {
         }
     }
     true
-}
-
-fn find(parent: &mut [usize], mut x: usize) -> usize {
-    while parent[x] != x {
-        parent[x] = parent[parent[x]];
-        x = parent[x];
-    }
-    x
 }
 
 /// Edges on the longest path of the (acyclic) cone.
