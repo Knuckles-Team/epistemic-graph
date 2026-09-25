@@ -536,6 +536,7 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     modality_method_name,
     cluster_admin_method_name,
     native_local_only_method_name,
+    native_local_only_decision_method_name,
     write_back_method_name,
 ];
 
@@ -650,6 +651,9 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
 /// `GraphSchema` is deliberately absent: it resolves through
 /// [`graph_control_method_name`] because it IS gateway-routed, and naming it
 /// twice would make `method_variant_name` depend on resolver order.
+/// Split into the agent-catalog and decision/outbox groups so each lookup
+/// stays within the complexity cap; the two groups are disjoint, so resolver
+/// order between them is immaterial.
 fn native_local_only_method_name(m: &Method) -> Option<&'static str> {
     match m {
         Method::AgentComponent { .. } => Some("AgentComponent"),
@@ -657,6 +661,14 @@ fn native_local_only_method_name(m: &Method) -> Option<&'static str> {
         Method::AgentLibrary { .. } => Some("AgentLibrary"),
         Method::AgentTemplate { .. } => Some("AgentTemplate"),
         Method::ConnectorPack { .. } => Some("ConnectorPack"),
+        _ => None,
+    }
+}
+
+/// The decision-plane and outbox half of the local-only names (see
+/// [`native_local_only_method_name`]).
+fn native_local_only_decision_method_name(m: &Method) -> Option<&'static str> {
+    match m {
         Method::DecisionCommit { .. } => Some("DecisionCommit"),
         Method::DecisionEval { .. } => Some("DecisionEval"),
         Method::DecisionFit { .. } => Some("DecisionFit"),

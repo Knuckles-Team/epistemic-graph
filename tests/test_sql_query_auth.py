@@ -45,43 +45,38 @@ def test_sql_query_authenticates_under_the_same_session_as_cypher(clean_graph):
 
 
 @pytest.mark.concept("CONCEPT:EG-KG.query.read-only-sql-query")
-def test_sql_query_omitting_params_msgpack_from_the_signed_body_fails_closed():
-    """Direct reproduction of the exact wire-level defect: hand-construct the
-    OLD (broken) request shape -- a `Sql` params map missing
-    `params_msgpack` entirely -- and confirm the real server's HMAC verifier
-    genuinely rejects it with "Authentication failed", proving this is a
-    signed-body-hash mismatch and not a coincidental error string.
+def test_sql_query_omitting_params_msgpack_signs_the_server_canonical_body(
+    clean_graph,
+):
+    """The U-144 wire shape -- a `Sql` params map with no `params_msgpack` --
+    now authenticates. The client signs `Method::canonical_body_bytes()` of the
+    request the engine will DECODE (5e64e9715: serde defaults materialized by
+    the same eg-types codec), so an omitted defaulted field can no longer split
+    the signed body from the one the server re-derives. Before that fix this
+    exact send failed closed with "Authentication failed"; it must now return
+    the same rows as `QueryClient.sql()`.
     """
     import asyncio
     import os
 
     from epistemic_graph.client import EpistemicGraphClient
 
+    clean_graph.nodes.add("A", {"label": "sql-fixture"})
+    query = "SELECT count(*) AS n FROM nodes"
+    expected = clean_graph.query.sql(query)
     socket_path = os.environ.get("GRAPH_SERVICE_SOCKET")
     assert socket_path is not None
 
-    async def _run() -> str | None:
+    async def _run():
         client = await EpistemicGraphClient.connect(
             socket_path=socket_path,
             verified_context=request_context(),
         )
         try:
-            # Bypass QueryClient.sql() entirely -- send the pre-fix wire shape
-            # directly through the low-level `_send`, which signs exactly the
-            # params dict it is given.
-            try:
-                await client._send("Sql", {"query": "SELECT count(*) AS n FROM nodes"})
-            except Exception as exc:
-                return str(exc)
-            return None
+            # Bypass QueryClient.sql(): send the pre-fix shape through `_send`.
+            raw = await client._send("Sql", {"query": query})
+            return client.query._rows_to_dicts(raw)
         finally:
             await client.close()
 
-    error = asyncio.run(_run())
-    assert error is not None, (
-        "sending Sql without params_msgpack unexpectedly succeeded -- either "
-        "the server no longer recomputes the body hash from the full "
-        "deserialized Method, or this reproduction no longer matches "
-        "QueryClient.sql()'s pre-fix shape"
-    )
-    assert "Authentication failed" in error
+    assert asyncio.run(_run()) == expected

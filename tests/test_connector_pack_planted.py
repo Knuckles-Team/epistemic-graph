@@ -12,7 +12,11 @@ the engine to name the planted rule:
 * a defect the wire contract itself cannot represent (an unknown kind, a
   bounded list over its bound, an invalid connector id) is refused while the
   request is decoded, before any rule runs -- for those the refusal must be a
-  decode refusal and the case's codes must be ones decoding enforces.
+  decode refusal and the case's codes must be ones decoding enforces. The
+  client signs the body the engine re-derives through the same eg-types
+  decoder, so such a request is refused either by the engine (``RuntimeError``)
+  or by the client before it is sent (``ValueError`` naming an invalid engine
+  request); both are the same decode refusal.
 
 Every case uses its own connector, so no case's committed state leaks into
 another's head.
@@ -41,6 +45,8 @@ DECODE_ENFORCED = {
     "FORBIDDEN_ENTRY_KIND",
     "PACK_TOO_LARGE",
 }
+#: How the client names a request its eg-types decoder refuses before sending.
+CLIENT_DECODE_REFUSAL = "is not a valid engine request"
 IMPORTER = "principal:sha256:" + hashlib.sha256(TEST_AGENT_ID.encode()).hexdigest()
 OTHER_IMPORTER = "principal:sha256:" + "0" * 64
 
@@ -138,8 +144,13 @@ def _check_rejection(case: MalformedPack, result: dict[str, Any]) -> None:
         assert result["budget_exhausted"] is True
 
 
+def _is_decode_refusal(error: Exception) -> bool:
+    return isinstance(error, RuntimeError) or CLIENT_DECODE_REFUSAL in str(error)
+
+
 def _check(case: MalformedPack, outcome: Any) -> None:
-    if isinstance(outcome, RuntimeError):
+    if isinstance(outcome, Exception):
+        assert _is_decode_refusal(outcome), f"{case.variant}: {outcome!r}"
         assert set(case.expected_any) <= DECODE_ENFORCED, (
             f"{case.rule}/{case.variant} was refused as an error, not a rule: {outcome}"
         )
@@ -174,7 +185,7 @@ async def _run(index: int) -> None:
             outcome = await _import(
                 client, case.pack, expected_head=head, upload=case.upload_archive
             )
-        except RuntimeError as error:
+        except (RuntimeError, ValueError) as error:
             outcome = error
         _check(case, outcome)
     finally:

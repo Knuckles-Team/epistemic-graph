@@ -46,16 +46,23 @@ class Entry:
     reason: str
 
 
+def _is_sha256(digest: str) -> bool:
+    return len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+
+
+def _is_repository_relative(path: str) -> bool:
+    relative = Path(path)
+    return not relative.is_absolute() and ".." not in relative.parts
+
+
 def _entry(raw: object, index: int) -> Entry:
     if not isinstance(raw, dict) or set(raw) != set(FIELDS):
         raise LedgerError(f"entry {index} must have exactly the fields {FIELDS}")
     if not all(isinstance(raw[field], str) and raw[field].strip() for field in FIELDS):
         raise LedgerError(f"entry {index}: every field must be a non-empty string")
-    digest = raw["sha256"]
-    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+    if not _is_sha256(raw["sha256"]):
         raise LedgerError(f"entry {index}: sha256 must be 64 lowercase hex digits")
-    relative = Path(raw["path"])
-    if relative.is_absolute() or ".." in relative.parts:
+    if not _is_repository_relative(raw["path"]):
         raise LedgerError(f"entry {index}: path must be repository-relative")
     return Entry(**{field: raw[field] for field in FIELDS})
 
