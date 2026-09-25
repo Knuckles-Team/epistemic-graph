@@ -134,3 +134,12 @@ pub struct ModeTransition {
     /// The local issuer's new signing key id (rotation on every transition).
     pub issuer_kid: String,
 }
+
+/// Record a local issuer signing-key rotation without changing auth mode.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct IssuerRotation {
+    pub expected_epoch: u64,
+    pub issuer_kid: String,
+}

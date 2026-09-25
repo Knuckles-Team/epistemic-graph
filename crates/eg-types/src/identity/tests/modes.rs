@@ -313,3 +313,40 @@ fn session_policy_is_bounded_and_revokes_old_sessions() {
         Ok(IdentityReply::Sessions(Vec::new()))
     );
 }
+
+#[test]
+fn issuer_rotation_is_epoch_guarded_audited_and_keeps_mode() {
+    let mut store = store_in(AuthMode::Local);
+    let rotation = |epoch| {
+        IdentityOp::Config(ConfigOp::RotateIssuer {
+            request: IssuerRotation {
+                expected_epoch: epoch,
+                issuer_kid: "kid-next".to_string(),
+            },
+        })
+    };
+    assert_eq!(
+        apply_kept(&mut store, &rotation(5), &admin(), NOW),
+        Err(IdentityRefusal::EpochConflict)
+    );
+    let IdentityReply::Config(config) =
+        apply_kept(&mut store, &rotation(1), &admin(), NOW).unwrap()
+    else {
+        panic!("expected config")
+    };
+    assert_eq!(config.mode, AuthMode::Local);
+    assert_eq!(config.epoch, 2);
+    assert_eq!(config.issuer_kid_current.as_deref(), Some("kid-next"));
+    let audit = IdentityOp::Config(ConfigOp::Audit {
+        request: ListQuery {
+            after: None,
+            limit: 10,
+        },
+    });
+    let IdentityReply::Audit(rows) = apply_kept(&mut store, &audit, &admin(), NOW).unwrap() else {
+        panic!("expected audit")
+    };
+    assert!(rows
+        .iter()
+        .any(|row| row.event == IdentityEvent::IssuerRotated));
+}

@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::super::access::{GroupRecord, RoleRecord};
 use super::super::audit::IdentityEvent;
 use super::super::config::{
-    AuthMode, IdentityConfig, ModeTransition, HARD_PASSWORD_MIN_CHARS, NONE_MODE_ACK,
+    AuthMode, IdentityConfig, IssuerRotation, ModeTransition, HARD_PASSWORD_MIN_CHARS,
+    NONE_MODE_ACK,
 };
 use super::super::model::{PasswordCredential, UserKind, UserRecord, UserStatus};
 use super::super::ops::ConfigOp;
@@ -78,6 +79,7 @@ impl IdentityStore {
         match op {
             ConfigOp::Initialize { request } => self.initialize(request, stamp, ctx.now_ms),
             ConfigOp::Transition { request } => self.transition(request, stamp, ctx.now_ms),
+            ConfigOp::RotateIssuer { request } => self.rotate_issuer(request, stamp, ctx.now_ms),
             ConfigOp::UpdatePolicy { request } => self.update_policy(request, stamp, ctx.now_ms),
             ConfigOp::Get => Ok(IdentityReply::Config(self.require_initialized()?.clone())),
             ConfigOp::Audit { request } | ConfigOp::ExportAudit { request } => {
@@ -330,6 +332,27 @@ impl IdentityStore {
         self.config = Some(next.clone());
         self.audit_event(stamp, now_ms, IdentityEvent::ModeTransition, None);
         Ok(IdentityReply::Config(next))
+    }
+
+    fn rotate_issuer(
+        &mut self,
+        request: &IssuerRotation,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        let mut config = self.require_initialized()?.clone();
+        if request.expected_epoch != config.epoch {
+            return Err(IdentityRefusal::EpochConflict);
+        }
+        super::super::text::identifier(&request.issuer_kid)?;
+        if config.issuer_kid_current.as_deref() == Some(&request.issuer_kid) {
+            return Err(IdentityRefusal::InvalidRequest);
+        }
+        config.issuer_kid_current = Some(request.issuer_kid.clone());
+        config.epoch += 1;
+        self.config = Some(config.clone());
+        self.audit_event(stamp, now_ms, IdentityEvent::IssuerRotated, None);
+        Ok(IdentityReply::Config(config))
     }
 
     /// The per-edge preconditions of §2.3.

@@ -10,7 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::access::IdpConfig;
-use super::config::ModeTransition;
+use super::config::{IssuerRotation, ModeTransition};
 use super::requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
     InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordResetIssue,
@@ -129,6 +129,9 @@ pub enum ConfigOp {
     },
     Transition {
         request: ModeTransition,
+    },
+    RotateIssuer {
+        request: IssuerRotation,
     },
     UpdatePolicy {
         request: PolicyUpdate,
@@ -417,6 +420,7 @@ impl ConfigOp {
         match self {
             Self::Initialize { .. } => meta("initialize", true, OpAuthority::FirstRun),
             Self::Transition { .. } => meta("transition", true, OpAuthority::Admin),
+            Self::RotateIssuer { .. } => meta("rotate_issuer", true, OpAuthority::Admin),
             Self::UpdatePolicy { .. } => meta("update_policy", true, OpAuthority::Admin),
             Self::Get => meta("get_config", false, OpAuthority::Broker),
             Self::Audit { .. } => meta("audit", false, OpAuthority::Read),

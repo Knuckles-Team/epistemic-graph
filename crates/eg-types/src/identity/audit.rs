@@ -16,6 +16,7 @@ pub const MAX_IDENTITY_AUDIT_ENTRIES: usize = 4_096;
 pub enum IdentityEvent {
     Initialized,
     ModeTransition,
+    IssuerRotated,
     PolicyUpdated,
     UserCreated,
     UserUpdated,

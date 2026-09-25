@@ -50,7 +50,7 @@ pub use audit::{
     AuditRecord, AuditTrail, IdentityAuditEntry, IdentityEvent, MAX_IDENTITY_AUDIT_ENTRIES,
 };
 pub use config::{
-    AuthMode, IdentityConfig, LocalFallback, ModeTransition, RegistrationPolicy,
+    AuthMode, IdentityConfig, IssuerRotation, LocalFallback, ModeTransition, RegistrationPolicy,
     DEFAULT_PASSWORD_MIN_CHARS, MAX_PASSWORD_CHARS, NONE_MODE_ACK,
 };
 pub use denials::{DenialSample, DenialSampler, MAX_DENIAL_SAMPLES};
