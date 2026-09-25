@@ -91,7 +91,10 @@ pub(crate) fn scrub_pass(
         if resume_graph.is_some_and(|resume| graph.as_str() < resume) {
             continue;
         }
-        let after = start.after.as_deref().filter(|_| resume_graph == Some(graph.as_str()));
+        let after = start
+            .after
+            .as_deref()
+            .filter(|_| resume_graph == Some(graph.as_str()));
         let remaining = budget.rows.saturating_sub(pass.scanned as usize);
         let walk = scrub_graph(shard, crypto, &graph, after, remaining, &mut pass.findings)?;
         pass.scanned += walk.scanned as u64;

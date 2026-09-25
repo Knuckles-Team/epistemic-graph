@@ -91,12 +91,12 @@ mod shard_control_tests;
 pub(crate) mod capacity_lease;
 #[cfg(feature = "redb")]
 pub(crate) mod development_lane;
-/// The graph shard as a kernel-owned store (RF-RULING-004 step 8).
-#[cfg(feature = "redb")]
-pub(crate) mod shard;
 /// Bounded background node-payload scrub (EH-384).
 #[cfg(feature = "redb")]
 pub(crate) mod scrub;
+/// The graph shard as a kernel-owned store (RF-RULING-004 step 8).
+#[cfg(feature = "redb")]
+pub(crate) mod shard;
 pub(crate) mod work_item_capability;
 
 pub(crate) mod audit;
