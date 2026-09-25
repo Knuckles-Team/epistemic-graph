@@ -2,7 +2,7 @@
 
 use super::MigrationReport;
 #[cfg(feature = "security")]
-use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
+use crate::redb_store::{AUDIT_REQUESTS, PROVENANCE_ANCHOR_MEMBERS};
 use crate::redb_store::{capacity_lease, development_lane, work_item_capability};
 use crate::redb_store::{
     AUDIT, CHANGE_BLOBS, CHANGE_CURSORS, CHANGE_ENVELOPES, CHANGE_EVIDENCE, CHANGE_FEATURES,
@@ -87,6 +87,7 @@ fn clear_core_and_provenance_rows(write: &impl OwnerPayloadWrite) -> Result<(), 
     #[cfg(feature = "security")]
     {
         clear_scoped_table(write, AUDIT)?;
+        clear_scoped_table(write, AUDIT_REQUESTS)?;
         clear_scoped_table(write, PROVENANCE_ANCHOR_MEMBERS)?;
     }
     clear_scoped_table(write, WORK_ITEM_COMMAND_SEQUENCE)?;
@@ -299,7 +300,11 @@ fn copy_provenance_and_sequence_rows(
     let anchors = copy_scoped_table(read, write, PROVENANCE_ANCHOR_MEMBERS)?;
     #[cfg(not(feature = "security"))]
     let anchors = 0u64;
-    Ok(sequence + anchors)
+    #[cfg(feature = "security")]
+    let audit_requests = copy_scoped_table(read, write, AUDIT_REQUESTS)?;
+    #[cfg(not(feature = "security"))]
+    let audit_requests = 0u64;
+    Ok(sequence + anchors + audit_requests)
 }
 
 /// Every RESOURCE_* table (BUG-CX-054): reservations, tenant index, attempts, hosts,
