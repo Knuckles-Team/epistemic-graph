@@ -36,6 +36,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
         ("semantic_store", "&str", "&[u8]"),
         ("audit_chain", "(&str,u64)", "&[u8]"),
         ("audit_requests", "(&str,&str)", "&[u8]"),
+        ("service_children", "(&str,&str)", "&[u8]"),
         ("provenance_anchor_members", "(&str,u64)", "&[u8]"),
         ("graph_meta", "&str", "&[u8]"),
         ("work_item_command_sequence", "&str", "u64"),
@@ -141,7 +142,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
 /// The Raft, cross-shard, matview, canary, series and **catalog** rows belong
 /// to the file, not to any one graph, and say so in the manifest.
 ///
-/// The split is 41 `Serving` / 12 `StorePrivate`, not 42/11: `graph_meta` moved
+/// The split is 42 `Serving` / 13 `StorePrivate`: `graph_meta` moved
 /// to the file side because it is the catalog the boot scan reads to learn the
 /// graph names, which is strictly before any graph scope can be bound. See
 /// `graph_shard::scope`.
@@ -177,14 +178,20 @@ fn the_shard_separates_graph_scoped_rows_from_file_wide_rows() {
     ] {
         assert_eq!(scope_of(name), TableScope::StorePrivate, "{name}");
     }
-    for name in ["nodes", "edges", "semantic_store", "development_lane_holds"] {
+    for name in [
+        "nodes",
+        "edges",
+        "semantic_store",
+        "development_lane_holds",
+        "service_children",
+    ] {
         assert_eq!(scope_of(name), TableScope::Serving, "{name}");
     }
     let private = owner_table_names(OwnerLayout::GraphShard)
         .iter()
         .filter(|name| scope_of(name) == TableScope::StorePrivate)
         .count();
-    assert_eq!((private, 54 - private), (13, 41));
+    assert_eq!((private, 55 - private), (13, 42));
 }
 
 /// The catalog is readable by the scope that exists before any graph is known,
