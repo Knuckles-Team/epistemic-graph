@@ -62,6 +62,8 @@ pub mod fleet_catalog;
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
 pub mod policy_evolution;
+/// Scope class currency for the capability registry and identity store.
+pub mod scope;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
 // identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
 // by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality

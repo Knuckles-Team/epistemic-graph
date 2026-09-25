@@ -331,10 +331,13 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out.extend(python::artifacts(catalog));
     out.extend(vectors::artifacts());
     out.extend(method_bodies::artifacts());
+    out.push(Artifact {
+        path: "contract/scopes.json".to_string(),
+        bytes: scopes_json(),
+    });
     // The API binds the exact catalog and schema bytes installed with the
     // wheel. Mirror every generated root contract file before receipt_json
     // digests the artifact list, so neither copy can drift independently.
-    // Once IDM-05 supplies scopes.json, it follows the same rule.
     let wheel_copies: Vec<Artifact> = out
         .iter()
         .filter(|artifact| {
@@ -352,6 +355,30 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
         .collect();
     out.extend(wheel_copies);
     out
+}
+
+/// The canonical IDM-05 scope registry, sorted by exact scope name.
+fn scopes_json() -> Vec<u8> {
+    let scopes: Vec<serde_json::Value> = crate::scopes::SCOPES
+        .iter()
+        .map(|entry| {
+            let approver_group = crate::scopes::APPROVER_GROUPS
+                .iter()
+                .find(|(scope, _)| *scope == entry.scope)
+                .map(|(_, group)| *group);
+            serde_json::json!({
+                "scope": entry.scope,
+                "class": crate::scopes::class_name(entry.class),
+                "owner": entry.owner,
+                "approver_group": approver_group,
+            })
+        })
+        .collect();
+    pretty(&serde_json::json!({
+        "registry_version": 1,
+        "generator": "eg-capabilities/gen_contract",
+        "scopes": scopes,
+    }))
 }
 
 /// Render every committed contract artifact, receipt last.
