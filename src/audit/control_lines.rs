@@ -300,23 +300,6 @@ pub(super) fn edge_audit_line(method: &Method) -> Option<String> {
 
 pub(super) fn capacity_audit_line(method: &Method) -> Option<String> {
     match method {
-        Method::ClaimWorkItem { request } => {
-            Some(format!("CLAIM_WORK_ITEM|{}", request.tenant_ref))
-        }
-        Method::KgDelegate { request } => Some(format!(
-            "KG_DELEGATE|{}|{}|{}",
-            request.context.tenant_id, request.delegation_id, request.idempotency_key
-        )),
-        Method::SubmitWorkItem { request } => Some(format!(
-            "SUBMIT_WORK_ITEM|{}|{}",
-            request.context.tenant_id, request.idempotency_key
-        )),
-        Method::SubmitWorkItems { request } => Some(format!(
-            "SUBMIT_WORK_ITEMS|{}|{}|{}",
-            request.context.tenant_id,
-            request.idempotency_key,
-            request.requests.len()
-        )),
         Method::AcquireCapacity { request } => Some(format!(
             "ACQUIRE_CAPACITY|{}|{}|{}",
             request.tenant_ref,
@@ -347,6 +330,30 @@ pub(super) fn capacity_audit_line(method: &Method) -> Option<String> {
         Method::UpdateCapacityCell { request } => Some(format!(
             "UPDATE_CAPACITY_CELL|{}|{}",
             request.cell.cell_id, request.cell.epoch
+        )),
+        other => work_admission_audit_line(other),
+    }
+}
+
+/// Work admission and claim records share the control audit chain with capacity.
+fn work_admission_audit_line(method: &Method) -> Option<String> {
+    match method {
+        Method::ClaimWorkItem { request } => {
+            Some(format!("CLAIM_WORK_ITEM|{}", request.tenant_ref))
+        }
+        Method::KgDelegate { request } => Some(format!(
+            "KG_DELEGATE|{}|{}|{}",
+            request.context.tenant_id, request.delegation_id, request.idempotency_key
+        )),
+        Method::SubmitWorkItem { request } => Some(format!(
+            "SUBMIT_WORK_ITEM|{}|{}",
+            request.context.tenant_id, request.idempotency_key
+        )),
+        Method::SubmitWorkItems { request } => Some(format!(
+            "SUBMIT_WORK_ITEMS|{}|{}|{}",
+            request.context.tenant_id,
+            request.idempotency_key,
+            request.requests.len()
         )),
         _ => None,
     }

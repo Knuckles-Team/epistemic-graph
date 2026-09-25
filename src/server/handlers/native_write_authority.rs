@@ -69,18 +69,25 @@ fn work_item_body_tenants(method: &Method) -> Vec<&str> {
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }
         | Method::DeferWorkItem { tenant, .. } => vec![tenant.as_str()],
-        Method::IssueControlLease { request } => vec![request.tenant.as_str()],
-        Method::TransitionControlLease { request } => vec![request.tenant.as_str()],
-        // EH-346: the engine-internal policy-record store binds the same way.
-        Method::PolicyEvolutionStore { request } => vec![request.tenant_id.as_str()],
-        // EH-558: sealed-record retirement names its tenant in the body too.
-        Method::RetireSealedRecord { request } => vec![request.tenant.as_str()],
         Method::SubmitWorkItem { request } => vec![request.context.tenant_id.as_str()],
         Method::KgDelegate { request } => vec![request.context.tenant_id.as_str()],
         Method::SubmitWorkItems { request } => std::iter::once(&request.context)
             .chain(request.requests.iter().map(|child| &child.context))
             .map(|context| context.tenant_id.as_str())
             .collect(),
+        other => governance_body_tenants(other),
+    }
+}
+
+/// Governance and work-market writes bind their named tenant the same way.
+fn governance_body_tenants(method: &Method) -> Vec<&str> {
+    match method {
+        Method::IssueControlLease { request } => vec![request.tenant.as_str()],
+        Method::TransitionControlLease { request } => vec![request.tenant.as_str()],
+        // EH-346: the engine-internal policy-record store binds the same way.
+        Method::PolicyEvolutionStore { request } => vec![request.tenant_id.as_str()],
+        // EH-558: sealed-record retirement names its tenant in the body too.
+        Method::RetireSealedRecord { request } => vec![request.tenant.as_str()],
         // EH-348 work-market writes share the kernel and its tenant rule.
         other => eg_types::work_market::market_write_scope(other)
             .map(|(tenant, _)| vec![tenant])
