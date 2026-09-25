@@ -106,6 +106,157 @@
       ],
       "type": "object"
     },
+    "ElevationAction": {
+      "description": "The graph action an elevation may grant. Deliberately NOT\n`crate::acl::RbacAction`: `Admin` is unrepresentable here.",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "type": "string"
+    },
+    "ElevationLease": {
+      "additionalProperties": false,
+      "description": "One elevation: a control lease of kind [`RBAC_ELEVATION_KIND`].",
+      "properties": {
+        "approved_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "approver_parties": {
+          "description": "The approver's one-way party ids, once approved.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "elevation_id": {
+          "type": "string"
+        },
+        "ended_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "grantee": {
+          "description": "The effective identity the scopes are granted to (the requester).",
+          "type": "string"
+        },
+        "hard_expires_at_ms": {
+          "description": "`approved_at_ms + span_ms`; the authority `permits` checks.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "justification": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "Always [`RBAC_ELEVATION_KIND`].",
+          "type": "string"
+        },
+        "request_digest": {
+          "description": "Digest of the request as recorded; an approval must name it.",
+          "type": "string"
+        },
+        "requested_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requester_parties": {
+          "description": "The requester's one-way party ids; an approver may share none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "description": "1 at request, bumped by every transition.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scopes": {
+          "description": "The immutable grant body, sorted and unique.",
+          "items": {
+            "$ref": "#/$defs/ElevationScope"
+          },
+          "type": "array"
+        },
+        "span_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/ElevationStatus"
+        }
+      },
+      "required": [
+        "elevation_id",
+        "kind",
+        "grantee",
+        "requester_parties",
+        "approver_parties",
+        "scopes",
+        "span_ms",
+        "justification",
+        "status",
+        "requested_at_ms",
+        "request_digest",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ElevationScope": {
+      "additionalProperties": false,
+      "description": "One granted (graph, action) pair. The graph is a literal graph name.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ElevationAction"
+        },
+        "graph": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph",
+        "action"
+      ],
+      "type": "object"
+    },
+    "ElevationStatus": {
+      "description": "Where an elevation is in its one-way lifecycle.",
+      "oneOf": [
+        {
+          "enum": [
+            "revoked",
+            "expired"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "requested",
+          "description": "Waiting for a second identity's approval; grants nothing.",
+          "type": "string"
+        },
+        {
+          "const": "active",
+          "description": "Approved and inside its window; grants its scopes.",
+          "type": "string"
+        }
+      ]
+    },
     "Grant": {
       "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
       "properties": {
@@ -447,6 +598,42 @@
           "encoding": "String",
           "schema": {
             "type": "string"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "RbacElevation": {
+      "bodies": {
+        "approve": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ElevationLease"
+          }
+        },
+        "list": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ElevationLease"
+            },
+            "type": "array"
+          }
+        },
+        "request": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ElevationLease"
+          }
+        },
+        "revoke": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ElevationLease"
           }
         }
       },

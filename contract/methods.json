@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 437,
+  "method_count": 454,
   "methods": [
     {
       "consumer_profiles": [
@@ -4691,6 +4691,85 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
+      "id": "FinanceMarket",
+      "note": "EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority",
+      "policy": {
+        "audited": false,
+        "authz_action": "compute:finance",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "None"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/FinanceMarket"
+      },
+      "result_schema": {
+        "bodies": {
+          "analysis_snapshot": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "backtest_run": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "decimate": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "encode_points": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "flip_confidence": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "indicators": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "resolve": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "rollup": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "signal_advance": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "signal_replay": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "signal_scan": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMarket",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "compute",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
       "id": "FinanceKalmanFilter1d",
       "note": "",
       "policy": {
@@ -7150,6 +7229,53 @@
         "GRAPH_SNAPSHOT_SCHEMA_VERSION",
         "GRAPH_META_SCHEMA_VERSION"
       ],
+      "id": "ThrottleCapacityCell",
+      "note": "EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell)",
+      "policy": {
+        "audited": true,
+        "authz_action": "capacity:throttle",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ThrottleCapacityCell"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ThrottleCapacityCell",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
       "id": "KgDelegate",
       "note": "authenticated Agent Library pinned delegation lowered to native WorkItem admission",
       "policy": {
@@ -7819,6 +7945,45 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
+      "id": "ListControlLeases",
+      "note": "bounded tenant-bound control-lease page filtered by kind/status/grant pairs",
+      "policy": {
+        "audited": false,
+        "authz_action": "lease:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ListControlLeases"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ListControlLeases",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
       "id": "GetControlLease",
       "note": "tenant-bound native control-lease view",
       "policy": {
@@ -7844,6 +8009,272 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/GetControlLease",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "GapUpsert",
+      "note": "one tenant-bound canonical Gap and its native WorkItem commit together or not at all; only unseen evidence changes or reopens it",
+      "policy": {
+        "audited": true,
+        "authz_action": "gap:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GapUpsert"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GapUpsert",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "GapTransition",
+      "note": "legal-edge Gap lifecycle move, CAS on the read revision",
+      "policy": {
+        "audited": true,
+        "authz_action": "gap:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GapTransition"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GapTransition",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "GapSettle",
+      "note": "engine-read terminal WorkItem outcome recorded as Gap evidence in the same transaction",
+      "policy": {
+        "audited": true,
+        "authz_action": "gap:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GapSettle"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GapSettle",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "WorkOfferPut",
+      "note": "versioned derived offer on a live Gap's WorkItem citing only held evidence; engine-computed fixed-point utility rate",
+      "policy": {
+        "audited": true,
+        "authz_action": "work:offer-write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/WorkOfferPut"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/WorkOfferPut",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GapGet",
+      "note": "tenant-bound canonical Gap view",
+      "policy": {
+        "audited": false,
+        "authz_action": "gap:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GapGet"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GapGet",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GapList",
+      "note": "bounded tenant-bound Gap page in row-key order; a listing, never a ranking",
+      "policy": {
+        "audited": false,
+        "authz_action": "gap:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GapList"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GapList",
         "selected_by": null
       },
       "stability": "stable"
@@ -8751,6 +9182,14 @@
             "encoding": "Raw"
           },
           "get": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "learn": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "resolve": {
             "dynamic": null,
             "encoding": "Raw"
           },
@@ -9783,6 +10222,118 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.graph.json#/methods/SceneChildren",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "graph",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "PolicyEvolution",
+      "note": "EH-346/EH-347 capture-first policy evolution, runtime-conditional: get is a snapshot read (policy:read); put_capability / commit_capture / register_model_policy_version / commit_training_run / commit_policy_evaluation each self-translate into ONE CreateNodeIfAbsent of an immutable content-addressed record in the request graph. The row names the capture leg; PolicyEvolutionOp::authz_action is the authority for each operation (the other writes are admin: gated)",
+      "policy": {
+        "audited": true,
+        "authz_action": "policy:capture-write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/PolicyEvolution"
+      },
+      "result_schema": {
+        "bodies": {
+          "commit_capture": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "commit_policy_evaluation": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "commit_training_run": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "get": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "put_capability": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "register_model_policy_version": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/PolicyEvolution",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "graph",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "PolicyEvolutionStore",
+      "note": "EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer",
+      "policy": {
+        "audited": true,
+        "authz_action": "admin:policy-evolution-store",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/PolicyEvolutionStore"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/PolicyEvolutionStore",
         "selected_by": null
       },
       "stability": "internal"
@@ -11641,6 +12192,53 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.ingestion.json#/methods/SourceIngestStatus",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "ingestion",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "TelemetryDerive",
+      "note": "EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op; a re-derivation is an idempotent upsert",
+      "policy": {
+        "audited": true,
+        "authz_action": "telemetry:derive",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/TelemetryDerive"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/TelemetryDerive",
         "selected_by": null
       },
       "stability": "stable"
@@ -13958,6 +14556,45 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
+      "id": "FreshnessFeed",
+      "note": "",
+      "policy": {
+        "audited": false,
+        "authz_action": "cdc:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/FreshnessFeed"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/FreshnessFeed",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "messaging",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
       "id": "FiredTriggers",
       "note": "",
       "policy": {
@@ -14503,8 +15140,8 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
-      "id": "UnifiedQueryText",
-      "note": "",
+      "id": "Uql",
+      "note": "UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only",
       "policy": {
         "audited": false,
         "authz_action": "query:unified",
@@ -14517,7 +15154,7 @@
       "replay_class": "NotReplayable",
       "request_schema": {
         "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/UnifiedQueryText"
+        "schema": "contract/schemas/method.request.json#/methods/Uql"
       },
       "result_schema": {
         "bodies": {
@@ -14527,7 +15164,7 @@
           }
         },
         "kind": "declared",
-        "schema": "contract/schemas/result.query.json#/methods/UnifiedQueryText",
+        "schema": "contract/schemas/result.query.json#/methods/Uql",
         "selected_by": null
       },
       "stability": "stable"
@@ -15211,7 +15848,7 @@
         "ACCESS_DENIED"
       ],
       "format_identities": [],
-      "id": "TxnUnifiedQueryText",
+      "id": "TxnUql",
       "note": "",
       "policy": {
         "audited": false,
@@ -15225,7 +15862,7 @@
       "replay_class": "NotReplayable",
       "request_schema": {
         "kind": "named",
-        "schema": "contract/schemas/method.request.json#/methods/TxnUnifiedQueryText"
+        "schema": "contract/schemas/method.request.json#/methods/TxnUql"
       },
       "result_schema": {
         "bodies": {
@@ -15235,7 +15872,93 @@
           }
         },
         "kind": "declared",
-        "schema": "contract/schemas/result.query.json#/methods/TxnUnifiedQueryText",
+        "schema": "contract/schemas/result.query.json#/methods/TxnUql",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "EdgeIndex",
+      "note": "EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it",
+      "policy": {
+        "audited": false,
+        "authz_action": "semantic:binding-write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/EdgeIndex"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/EdgeIndex",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "EdgeSearch",
+      "note": "EH-351: edge-native vector or BM25 search of the request graph; the caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal)",
+      "policy": {
+        "audited": false,
+        "authz_action": "semantic:binding-read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/EdgeSearch"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/EdgeSearch",
         "selected_by": null
       },
       "stability": "stable"
@@ -15770,6 +16493,45 @@
       "stability": "stable"
     },
     {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "reasoning",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GraphSchemaClasses",
+      "note": "EH-389. One page of the classes and properties the request graph's composed schema declares, with the declaring source; the schema's own vocabulary, not graph rows and not the source documents, so an ordinary ontology read (owl:read) rather than GraphSchemaList's security:admin",
+      "policy": {
+        "audited": false,
+        "authz_action": "owl:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GraphSchemaClasses"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/GraphSchemaClasses",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
       "consumer_profiles": [],
       "domain": "reasoning",
       "error_set": [
@@ -16027,6 +16789,64 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.security.json#/methods/RbacAdmin",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "RbacElevation",
+      "note": "EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX",
+      "policy": {
+        "audited": true,
+        "authz_action": "rbac:elevation",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/RbacElevation"
+      },
+      "result_schema": {
+        "bodies": {
+          "approve": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "list": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "request": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "revoke": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/RbacElevation",
         "selected_by": "op"
       },
       "stability": "stable"

@@ -142,13 +142,13 @@ def test_the_agent_component_request_grows_a_content_branch() -> None:
 def test_the_receipt_counts_match_the_wave() -> None:
     for copy in ("contract/receipt.json", "epistemic_graph/contract/receipt.json"):
         receipt = _json(copy)
-        assert receipt["method_count"] == 438, copy
-        assert receipt["internal_only_methods"] == 19, copy
-        assert receipt["python_client_methods"] == 419, copy
+        assert receipt["method_count"] == 454, copy
+        assert receipt["internal_only_methods"] == 20, copy
+        assert receipt["python_client_methods"] == 434, copy
         classification = receipt["result_classification"]
-        assert classification["schematized"] == 425, copy
+        assert classification["schematized"] == 441, copy
         assert classification["unclassified"] == 0, copy
-        assert sum(classification.values()) == 438, copy
+        assert sum(classification.values()) == 454, copy
 
 
 def test_the_receipt_declares_every_new_format_identity() -> None:

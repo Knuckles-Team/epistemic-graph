@@ -1,6 +1,6 @@
 # Coordination API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 45 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 53 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AcquireCapacity`
 
@@ -430,6 +430,8 @@ RF-ADR-010 DL-5/DL-5b, runtime-conditional: commit re-derives an acted-on statis
 | `compact` | `DecisionLogCompacted` | Raw |  |
 | `evaluate` | `StoredEvaluation` | Raw |  |
 | `get` | one of: `DecisionLogEntry` \| null | Raw |  |
+| `learn` | `LearningRecorded` | Raw |  |
+| `resolve` | `StoredResolution` | Raw |  |
 | `verify` | `DecisionLogVerification` | Raw |  |
 
 > Multi-body result: the `op` request field selects which body above is returned.
@@ -541,6 +543,170 @@ terminal lifecycle releases active count but retains cleanup charges and identit
 | `result` | `DevelopmentLaneFinishResult` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinishDevelopmentLane`, `contract/schemas/result.coordination.json#/methods/FinishDevelopmentLane`.
+
+## `GapGet`
+
+tenant-bound canonical Gap view
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `gap:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `gap_id` | string | yes |  |
+| `tenant` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | one of: `GapView` \| null | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GapGet`, `contract/schemas/result.coordination.json#/methods/GapGet`.
+
+## `GapList`
+
+bounded tenant-bound Gap page in row-key order; a listing, never a ranking
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `gap:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `GapListRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `GapPage` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GapList`, `contract/schemas/result.coordination.json#/methods/GapList`.
+
+## `GapSettle`
+
+engine-read terminal WorkItem outcome recorded as Gap evidence in the same transaction
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `gap:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `GapSettleRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `GapSettled` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GapSettle`, `contract/schemas/result.coordination.json#/methods/GapSettle`.
+
+## `GapTransition`
+
+legal-edge Gap lifecycle move, CAS on the read revision
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `gap:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `GapTransitionRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `GapTransitioned` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GapTransition`, `contract/schemas/result.coordination.json#/methods/GapTransition`.
+
+## `GapUpsert`
+
+one tenant-bound canonical Gap and its native WorkItem commit together or not at all; only unseen evidence changes or reopens it
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `gap:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `GapUpsertRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `GapUpserted` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GapUpsert`, `contract/schemas/result.coordination.json#/methods/GapUpsert`.
 
 ## `GetControlLease`
 
@@ -706,6 +872,38 @@ authenticated Agent Library pinned delegation lowered to native WorkItem admissi
 | `result` | `KgDelegateResult` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/KgDelegate`, `contract/schemas/result.coordination.json#/methods/KgDelegate`.
+
+## `ListControlLeases`
+
+bounded tenant-bound control-lease page filtered by kind/status/grant pairs
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `lease:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `ListControlLeasesRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `ControlLeasePage` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/ListControlLeases`, `contract/schemas/result.coordination.json#/methods/ListControlLeases`.
 
 ## `ListWorkItems`
 
@@ -1379,6 +1577,39 @@ bounded all-or-nothing WorkItem admission batch
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/SubmitWorkItems`, `contract/schemas/result.coordination.json#/methods/SubmitWorkItems`.
 
+## `ThrottleCapacityCell`
+
+EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell)
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `capacity:throttle` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `false` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `CapacityThrottleRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `CapacityThrottleResult` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/ThrottleCapacityCell`, `contract/schemas/result.coordination.json#/methods/ThrottleCapacityCell`.
+
 ## `TransitionControlLease`
 
 one-way active to revoked/expired, CAS on the read revision
@@ -1543,3 +1774,36 @@ linearizable live-lease check precedes private capability lookup
 | `result` | `WorkItemClaimCapabilityResult` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/VerifyWorkItemClaimCapability`, `contract/schemas/result.coordination.json#/methods/VerifyWorkItemClaimCapability`.
+
+## `WorkOfferPut`
+
+versioned derived offer on a live Gap's WorkItem citing only held evidence; engine-computed fixed-point utility rate
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `work:offer-write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `WorkOfferPutRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `WorkOfferRecorded` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/WorkOfferPut`, `contract/schemas/result.coordination.json#/methods/WorkOfferPut`.

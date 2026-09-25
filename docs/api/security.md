@@ -1,6 +1,6 @@
 # Security API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 6 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 7 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AuditProveInclusion`
 
@@ -161,6 +161,45 @@ runtime-conditional: List is a read; role and grant updates share one rbac.redb 
 > Multi-body result: the `op` request field selects which body above is returned.
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/RbacAdmin`, `contract/schemas/result.security.json#/methods/RbacAdmin`.
+
+## `RbacElevation`
+
+EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `rbac:elevation` |
+| Mutates | `true` |
+| Durability domain | `ControlRedb` |
+| Idempotent | `false` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `actor` | one of: `ElevationActor` \| null | no |  |
+| `op` | `RbacElevationOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `approve` | `ElevationLease` | Json |  |
+| `list` | array of `ElevationLease` | Json |  |
+| `request` | `ElevationLease` | Json |  |
+| `revoke` | `ElevationLease` | Json |  |
+
+> Multi-body result: the `op` request field selects which body above is returned.
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/RbacElevation`, `contract/schemas/result.security.json#/methods/RbacElevation`.
 
 ## `RegisterIdentity`
 

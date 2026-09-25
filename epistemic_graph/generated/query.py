@@ -15,6 +15,11 @@ from ._runtime import (
     decode_result,
     models,
 )
+from .managed_index import (
+    EdgeIndexOp,
+    EdgeIndexStatusView,
+    EdgeSearchView,
+)
 
 if TYPE_CHECKING:
     from . import models as _models
@@ -28,7 +33,7 @@ if TYPE_CHECKING:
     GraphQlRequest = _models.MethodGraphQlParams
     KnowledgeStreamRequest = _models.MethodKnowledgeStreamParams
     UnifiedQueryRequest = _models.MethodUnifiedQueryParams
-    UnifiedQueryTextRequest = _models.MethodUnifiedQueryTextParams
+    UqlRequest = _models.MethodUqlParams
     ExplainPlanRequest = _models.MethodExplainPlanParams
     ExplainProvenanceRequest = _models.MethodExplainProvenanceParams
     ExplainProvenanceByIdsRequest = _models.MethodExplainProvenanceByIdsParams
@@ -45,7 +50,8 @@ if TYPE_CHECKING:
     RankByProvenanceRequest = _models.MethodRankByProvenanceParams
     NlQueryRequest = _models.MethodNlQueryParams
     TxnUnifiedQueryRequest = _models.MethodTxnUnifiedQueryParams
-    TxnUnifiedQueryTextRequest = _models.MethodTxnUnifiedQueryTextParams
+    TxnUqlRequest = _models.MethodTxnUqlParams
+    EdgeSearchRequest = _models.MethodEdgeSearchParams
     DecideRequest = _models.MethodDecideParams
 
 
@@ -418,7 +424,7 @@ def decode_unified_query(result: OpaqueResult) -> _models.UnifiedQueryResult:
     return decode_result("UnifiedQuery", models().UnifiedQueryResult, result)
 
 
-async def send_unified_query_text(
+async def send_uql(
     client: Any,
     params: dict[str, Any] | None = None,
     graph: str | None = None,
@@ -428,7 +434,7 @@ async def send_unified_query_text(
     """Send one engine-contract request.
 
     Method:
-        UnifiedQueryText
+        Uql
     Authorization:
         query:unified
     Durability:
@@ -439,24 +445,24 @@ async def send_unified_query_text(
         ResultPayload::Raw
     Result schema:
         contract/schemas/result.query.json
-        #/methods/UnifiedQueryText
+        #/methods/Uql
     Errors:
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    models().MethodUnifiedQueryTextParams.model_validate(params or {})
+    models().MethodUqlParams.model_validate(params or {})
     payload = await client._send(
-        "UnifiedQueryText",
+        "Uql",
         params,
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("UnifiedQueryText", payload)
+    return OpaqueResult("Uql", payload)
 
 
-def decode_unified_query_text(result: OpaqueResult) -> _models.UnifiedQueryTextResult:
+def decode_uql(result: OpaqueResult) -> _models.UqlResult:
     """Validate this method's result against its contract model."""
-    return decode_result("UnifiedQueryText", models().UnifiedQueryTextResult, result)
+    return decode_result("Uql", models().UqlResult, result)
 
 
 async def send_explain_plan(
@@ -1191,7 +1197,7 @@ def decode_txn_unified_query(result: OpaqueResult) -> _models.TxnUnifiedQueryRes
     return decode_result("TxnUnifiedQuery", models().TxnUnifiedQueryResult, result)
 
 
-async def send_txn_unified_query_text(
+async def send_txn_uql(
     client: Any,
     params: dict[str, Any] | None = None,
     graph: str | None = None,
@@ -1201,7 +1207,7 @@ async def send_txn_unified_query_text(
     """Send one engine-contract request.
 
     Method:
-        TxnUnifiedQueryText
+        TxnUql
     Authorization:
         txn:read
     Durability:
@@ -1212,28 +1218,115 @@ async def send_txn_unified_query_text(
         ResultPayload::Raw
     Result schema:
         contract/schemas/result.query.json
-        #/methods/TxnUnifiedQueryText
+        #/methods/TxnUql
     Errors:
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    models().MethodTxnUnifiedQueryTextParams.model_validate(params or {})
+    models().MethodTxnUqlParams.model_validate(params or {})
     payload = await client._send(
-        "TxnUnifiedQueryText",
+        "TxnUql",
         params,
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("TxnUnifiedQueryText", payload)
+    return OpaqueResult("TxnUql", payload)
 
 
-def decode_txn_unified_query_text(
-    result: OpaqueResult,
-) -> _models.TxnUnifiedQueryTextResult:
+def decode_txn_uql(result: OpaqueResult) -> _models.UqlResult:
     """Validate this method's result against its contract model."""
-    return decode_result(
-        "TxnUnifiedQueryText", models().TxnUnifiedQueryTextResult, result
+    return decode_result("TxnUql", models().UqlResult, result)
+
+
+class EdgeIndexRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        EdgeIndex
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/EdgeIndex
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: EdgeIndexOp
+
+
+async def send_edge_index(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> EdgeIndexStatusView:
+    """Send one engine-contract request.
+
+    Method:
+        EdgeIndex
+    Authorization:
+        semantic:binding-write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/EdgeIndex
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    EdgeIndexRequest.model_validate(params or {})
+    payload = await client._send(
+        "EdgeIndex",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
     )
+    return EdgeIndexStatusView.model_validate(payload)
+
+
+async def send_edge_search(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> EdgeSearchView:
+    """Send one engine-contract request.
+
+    Method:
+        EdgeSearch
+    Authorization:
+        semantic:binding-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/EdgeSearch
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodEdgeSearchParams.model_validate(params or {})
+    payload = await client._send(
+        "EdgeSearch",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return EdgeSearchView.model_validate(payload)
 
 
 async def send_decide(
@@ -1289,7 +1382,7 @@ _REQUEST_METHODS = frozenset(
         "GraphQl",
         "KnowledgeStream",
         "UnifiedQuery",
-        "UnifiedQueryText",
+        "Uql",
         "ExplainPlan",
         "ExplainProvenance",
         "ExplainProvenanceByIds",
@@ -1306,7 +1399,8 @@ _REQUEST_METHODS = frozenset(
         "RankByProvenance",
         "NlQuery",
         "TxnUnifiedQuery",
-        "TxnUnifiedQueryText",
+        "TxnUql",
+        "EdgeSearch",
         "Decide",
     }
 )

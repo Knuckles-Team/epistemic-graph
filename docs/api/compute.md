@@ -1,6 +1,6 @@
 # Compute API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.compute.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 133 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.compute.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 134 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `BatchL2Normalize`
 
@@ -1954,6 +1954,50 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Fina
 | `result` | `Quote` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceLogitQuotes`, `contract/schemas/result.compute.json#/methods/FinanceLogitQuotes`.
+
+## `FinanceMarket`
+
+EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `compute:finance` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `None` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `FinanceMarketOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `analysis_snapshot` | `AnalysisSnapshot` | Raw |  |
+| `backtest_run` | `BacktestRun` | Raw |  |
+| `decimate` | `DecimatedChart` | Raw |  |
+| `encode_points` | array of `SeriesPoint` | Raw |  |
+| `flip_confidence` | `FlipConfidence` | Raw |  |
+| `indicators` | array of `IndicatorPoint` | Raw |  |
+| `resolve` | array of `BarRecord` | Raw |  |
+| `rollup` | array of `BarRecord` | Raw |  |
+| `signal_advance` | `SignalAdvanced` | Raw |  |
+| `signal_replay` | `SignalReplay` | Raw |  |
+| `signal_scan` | `ScanPage` | Raw |  |
+
+> Multi-body result: the `op` request field selects which body above is returned.
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceMarket`, `contract/schemas/result.compute.json#/methods/FinanceMarket`.
 
 ## `FinanceMarketImpact`
 

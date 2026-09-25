@@ -11,9 +11,13 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._shared import (
+    Digest256,
+)
+
 
 class RegisteredServerCursor(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     after_name: str
     registry_digest: Digest256
@@ -21,7 +25,7 @@ class RegisteredServerCursor(BaseModel):
 
 
 class RegisteredServerListPage(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     entries: BoundedVec_RegisteredServerView_256
     next_cursor: RegisteredServerCursor | None = None
@@ -33,14 +37,14 @@ class RegisteredServerListPage(BaseModel):
 
 
 class RegisteredServerListRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     cursor: RegisteredServerCursor | None = None
     limit: Annotated[int, Field(ge=0, le=65535)] | None = None
 
 
 class RegisteredServerView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     desired: ServerDesiredState
     last_heartbeat_ms: Annotated[int, Field(ge=0)]
@@ -66,16 +70,6 @@ class ServerTransport(str, Enum):
     HTTP = "http"
 
 
-Digest256 = Annotated[
-    str,
-    Field(
-        pattern="^[0-9a-f]{64}$",
-        min_length=64,
-        max_length=64,
-    ),
-]
-
-
 BoundedVec_RegisteredServerView_256 = Annotated[
     list[RegisteredServerView],
     Field(
@@ -90,3 +84,15 @@ RegisteredServerListPage.model_rebuild()
 RegisteredServerListRequest.model_rebuild()
 
 RegisteredServerView.model_rebuild()
+
+
+__all__ = [
+    "BoundedVec_RegisteredServerView_256",
+    "Digest256",
+    "RegisteredServerCursor",
+    "RegisteredServerListPage",
+    "RegisteredServerListRequest",
+    "RegisteredServerView",
+    "ServerDesiredState",
+    "ServerTransport",
+]

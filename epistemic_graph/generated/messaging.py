@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     RegisterTriggerRequest = _models.MethodRegisterTriggerParams
     DropTriggerRequest = _models.MethodDropTriggerParams
     ListTriggersRequest = _models.MethodListTriggersParams
+    FreshnessFeedRequest = _models.MethodFreshnessFeedParams
     FiredTriggersRequest = _models.MethodFiredTriggersParams
     CepSubscribeRequest = _models.MethodCepSubscribeParams
     CepPollRequest = _models.MethodCepPollParams
@@ -1643,6 +1644,47 @@ def decode_list_triggers(result: OpaqueResult) -> _models.ListTriggersResult:
     return decode_result("ListTriggers", models().ListTriggersResult, result)
 
 
+async def send_freshness_feed(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FreshnessFeed
+    Authorization:
+        cdc:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.messaging.json
+        #/methods/FreshnessFeed
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFreshnessFeedParams.model_validate(params or {})
+    payload = await client._send(
+        "FreshnessFeed",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FreshnessFeed", payload)
+
+
+def decode_freshness_feed(result: OpaqueResult) -> _models.FreshnessFeed:
+    """Validate this method's result against its contract model."""
+    return decode_result("FreshnessFeed", models().FreshnessFeed, result)
+
+
 async def send_fired_triggers(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1845,6 +1887,7 @@ _REQUEST_METHODS = frozenset(
         "RegisterTrigger",
         "DropTrigger",
         "ListTriggers",
+        "FreshnessFeed",
         "FiredTriggers",
         "CepSubscribe",
         "CepPoll",

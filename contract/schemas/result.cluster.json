@@ -870,6 +870,13 @@
             "null"
           ]
         },
+        "output_schema_digest": {
+          "description": "`sha256:<hex>` of the served output schema (D18); `None` when the tool\ndeclares no output schema.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tool_mode": {
           "$ref": "#/$defs/ToolMode"
         }
