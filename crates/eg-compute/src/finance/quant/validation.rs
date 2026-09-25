@@ -1,5 +1,4 @@
 use super::sf;
-use eg_numeric::detkernel::kernels::{normal_cdf, normal_sf};
 
 // ════════════════════════════════════════════════════════════════════════
 //  Position sizing: Kelly & Bayesian Kelly
