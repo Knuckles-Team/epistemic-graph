@@ -204,12 +204,7 @@ pub(super) async fn dispatch_op_capacity_ops(
             )
             .await
         }
-        method @ (Method::AcquireCapacity { .. }
-        | Method::RenewCapacity { .. }
-        | Method::ReleaseCapacity { .. }
-        | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. }
-        | Method::ThrottleCapacityCell { .. }) => {
+        method @ eg_types::capacity_lease_writes!() => {
             capacity_commit_response(backend, &fname, method, req_id).await
         }
         _ => unreachable!("capacity classifier and dispatch diverged"),
