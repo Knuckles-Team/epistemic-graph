@@ -97,6 +97,11 @@ impl VerifiedRequestContext {
         &self.claims.principal
     }
 
+    /// The role names of the verified (MAC-covered) request context.
+    pub(crate) fn roles(&self) -> &[String] {
+        &self.claims.roles
+    }
+
     /// The request's MAC-covered advisory QoS priority claim, if any (W2.4 —
     /// engine-native QoS lanes). Read by the transport's QoS admission gate and
     /// mapped to an admission class by `server::qos::QosClass::from_priority_claim`.

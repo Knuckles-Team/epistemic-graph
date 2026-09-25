@@ -175,6 +175,7 @@ impl DecisionViews {
             reader: LogReader {
                 tenant_id: tenant_id.to_string(),
                 principal: principal.to_string(),
+                roles: Vec::new(),
                 retention: Retention::none(),
             },
             served_tenant: authority.tenant_scope().to_string(),

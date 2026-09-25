@@ -96,10 +96,13 @@ def decide_request(
     }
 
 
-def named_evaluator(principal: str, expires_at_ms: int) -> dict[str, Any]:
-    """The one principal (its persistence id) that may evaluate a committed
-    record until ``expires_at_ms`` (EH-395); never the committer."""
-    return {"principal": principal, "expires_at_ms": expires_at_ms}
+def named_evaluator(
+    expires_at_ms: int, *, principal: str | None = None, role: str | None = None
+) -> dict[str, Any]:
+    """Who may evaluate a committed record until ``expires_at_ms`` (EH-395):
+    one principal (its persistence id, never the committer) or the holders of
+    one declared policy role -- exactly one of the two."""
+    return {"principal": principal, "role": role, "expires_at_ms": expires_at_ms}
 
 
 def commit_op(
