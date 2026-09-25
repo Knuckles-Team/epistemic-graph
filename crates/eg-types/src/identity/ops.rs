@@ -50,6 +50,8 @@ pub enum OpAuthority {
     Admin,
     /// `identity:read` or `identity:admin`.
     Read,
+    /// `identity:read` / `identity:admin`, or the identity broker.
+    ReadOrBroker,
     /// `identity:authenticate` (the broker).
     Broker,
     /// `identity:self`, acting on the actor's own principal.
@@ -84,6 +86,11 @@ impl OpAuthority {
         match self {
             Self::Admin => &[IDENTITY_ADMIN_SCOPE],
             Self::Read => &[IDENTITY_READ_SCOPE, IDENTITY_ADMIN_SCOPE],
+            Self::ReadOrBroker => &[
+                IDENTITY_READ_SCOPE,
+                IDENTITY_ADMIN_SCOPE,
+                IDENTITY_AUTHENTICATE_SCOPE,
+            ],
             Self::Broker => &[IDENTITY_AUTHENTICATE_SCOPE],
             Self::FirstRun => &[IDENTITY_AUTHENTICATE_SCOPE, IDENTITY_ADMIN_SCOPE],
             Self::SelfService => &[IDENTITY_SELF_SCOPE],
@@ -422,7 +429,7 @@ impl ConfigOp {
             Self::Transition { .. } => meta("transition", true, OpAuthority::Admin),
             Self::RotateIssuer { .. } => meta("rotate_issuer", true, OpAuthority::Admin),
             Self::UpdatePolicy { .. } => meta("update_policy", true, OpAuthority::Admin),
-            Self::Get => meta("get_config", false, OpAuthority::Broker),
+            Self::Get => meta("get_config", false, OpAuthority::ReadOrBroker),
             Self::Audit { .. } => meta("audit", false, OpAuthority::Read),
             Self::ExportAudit { .. } => meta("export_audit", false, OpAuthority::Read),
             Self::VerifyAudit => meta("verify_audit", false, OpAuthority::Read),

@@ -253,6 +253,7 @@ impl IdentityStore {
             OpAuthority::SelfOrAdmin => self.self_or_admin(actor),
             OpAuthority::Admin
             | OpAuthority::Read
+            | OpAuthority::ReadOrBroker
             | OpAuthority::Broker
             | OpAuthority::FirstRun
             | OpAuthority::Directory

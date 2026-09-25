@@ -95,6 +95,26 @@ fn every_op_but_initialize_needs_an_initialized_store() {
 }
 
 #[test]
+fn config_get_accepts_reader_admin_and_broker_only() {
+    let mut store = store_in(AuthMode::Local);
+    let get = IdentityOp::Config(ConfigOp::Get);
+    let reader = IdentityStamp::for_actor(actor("usr:reader", &[IDENTITY_READ_SCOPE]));
+    for allowed in [reader, admin(), broker()] {
+        assert!(matches!(
+            apply_kept(&mut store, &get, &allowed, NOW),
+            Ok(IdentityReply::Config(_))
+        ));
+    }
+    for scope in [IDENTITY_SELF_SCOPE, "kg:admin"] {
+        let denied = IdentityStamp::for_actor(actor("usr:denied", &[scope]));
+        assert_eq!(
+            apply_kept(&mut store, &get, &denied, NOW),
+            Err(IdentityRefusal::NotAuthorized)
+        );
+    }
+}
+
+#[test]
 fn none_to_local_needs_an_administrator_with_a_credential() {
     let mut store = store_in(AuthMode::None);
     assert_eq!(
