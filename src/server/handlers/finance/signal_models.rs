@@ -23,8 +23,8 @@ fn probability(value: f64) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
 
-/// Finance-only eligibility; the posterior math lives in eg-epistemic.
-fn bayes_fuse(request: &BayesFuseRequest) -> MarketResult<BayesFusion> {
+/// Validate the finance request before any fusion work.
+fn validate_request(request: &BayesFuseRequest) -> MarketResult<()> {
     if !probability(request.prior)
         || !probability(request.default_weight)
         || !probability(request.default_accuracy)
@@ -35,6 +35,10 @@ fn bayes_fuse(request: &BayesFuseRequest) -> MarketResult<BayesFusion> {
             "fusion parameters must be finite and probabilities in [0, 1]",
         ));
     }
+    Ok(())
+}
+
+fn seeded_sources(request: &BayesFuseRequest) -> MarketResult<BTreeMap<String, FusionSource>> {
     let mut seeded = BTreeMap::new();
     for prior in &request.priors {
         if !probability(prior.directional_accuracy)
@@ -59,17 +63,30 @@ fn bayes_fuse(request: &BayesFuseRequest) -> MarketResult<BayesFusion> {
             },
         );
     }
+    Ok(seeded)
+}
+
+fn finance_source(
+    name: &str,
+    request: &BayesFuseRequest,
+    seeded: &BTreeMap<String, FusionSource>,
+) -> FusionSource {
+    seeded.get(name).cloned().unwrap_or_else(|| FusionSource {
+        name: name.to_string(),
+        weight: request.default_weight,
+        accuracy: request.default_accuracy,
+        seeded: false,
+    })
+}
+
+/// Finance-only eligibility; the posterior math lives in eg-epistemic.
+fn bayes_fuse(request: &BayesFuseRequest) -> MarketResult<BayesFusion> {
+    validate_request(request)?;
+    let seeded = seeded_sources(request)?;
     let sources: Vec<_> = request
         .directions
         .keys()
-        .map(|name| {
-            seeded.get(name).cloned().unwrap_or_else(|| FusionSource {
-                name: name.clone(),
-                weight: request.default_weight,
-                accuracy: request.default_accuracy,
-                seeded: false,
-            })
-        })
+        .map(|name| finance_source(name, request, &seeded))
         .collect();
     let evidence: Vec<_> = request
         .directions
