@@ -122,6 +122,24 @@ def test_a_marker_two_calls_away_does_not_anchor_the_layer(gate):
     assert gate._admission_anchors_for_layer(bodies, {"open_it"}, "GRAPH") == set()
 
 
+def test_nested_write_closure_does_not_anchor_outer_function(gate):
+    bodies = {
+        "commit_decision_record": (
+            "fn commit_decision_record(record: &DecisionRecord) { "
+            "let entry: AgentComponentEntry = current_component(); "
+            "write_revision_with_rows(|txn: &AdmittedMutation| store(entry, txn)); }"
+        ),
+        "prepare_component_entry": (
+            "fn prepare_component_entry(txn: &AdmittedMutation) "
+            "-> AgentComponentEntry { "
+            "resolve_component_pins_in_write(txn); }"
+        ),
+    }
+    assert gate._admission_anchors_for_layer(
+        bodies, {"commit_decision_record", "prepare_component_entry"}, "COMPONENT"
+    ) == {"prepare_component_entry"}
+
+
 def test_removing_the_library_resolver_is_reported(gate, monkeypatch, real):
     planted = _without_call(
         real["bodies"], "prepare_publish_entry", "admit_entry_references_in_write"

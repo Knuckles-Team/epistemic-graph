@@ -548,7 +548,10 @@ def _admission_anchors_for_layer(
     carries = {
         name
         for name, body in bodies.items()
-        if marker.search(body) and re.search(r"\btxn\s*:\s*&", body)
+        # Only the function's own signature can establish admission. A nested
+        # write closure may declare `txn: &...` while this outer function
+        # merely calls component helpers (as decision-record commits do).
+        if marker.search(body) and re.search(r"\btxn\s*:\s*&", body.partition("{")[0])
     }
     anchors = opens_write & carries
     for name in opens_write:
