@@ -40,6 +40,30 @@ fn committed_json(path: &str) -> serde_json::Value {
     serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
 }
 
+#[test]
+fn scopes_are_identical_in_the_root_and_packaged_contract() {
+    let artifacts = eg_capabilities::contract::render_all(&repo_root());
+    let find = |path: &str| {
+        artifacts
+            .iter()
+            .find(|artifact| artifact.path == path)
+            .unwrap_or_else(|| panic!("missing {path}"))
+    };
+    let root = find("contract/scopes.json");
+    let wheel = find("epistemic_graph/contract/scopes.json");
+    assert_eq!(root.bytes, wheel.bytes);
+    let parsed: serde_json::Value = serde_json::from_slice(&root.bytes).unwrap();
+    assert_eq!(parsed["scopes"][0]["scope"], "admin:backup");
+    let receipt = find("contract/receipt.json");
+    let receipt: serde_json::Value = serde_json::from_slice(&receipt.bytes).unwrap();
+    for path in [
+        "contract/scopes.json",
+        "epistemic_graph/contract/scopes.json",
+    ] {
+        assert!(receipt["artifact_digests"].get(path).is_some(), "{path}");
+    }
+}
+
 /// The contract profile turns on `eg-types/timeseries` (via `canonical-ledger`), so the
 /// `Op` variants that feature gates are part of the published request schema. `Op` is
 /// externally tagged: a variant's name is its subschema's single required key.

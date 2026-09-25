@@ -39,6 +39,7 @@ pub mod catalog;
 pub mod contract;
 mod descriptor;
 mod domains;
+pub mod scopes;
 
 pub use catalog::{method_schema, CONTRACT_CATALOG_DIGEST, METHOD_CATALOG};
 
