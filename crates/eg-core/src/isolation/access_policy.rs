@@ -33,6 +33,47 @@ impl AccessBasis {
     }
 }
 
+/// Stable explanation of the decision made by the access chokepoint.
+/// Token scope is enforced by the request envelope before this graph decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccessReasonCode {
+    UnknownPrincipal,
+    SystemIdentity,
+    StandingGrant,
+    ExplicitDeny,
+    NoMatchingGrant,
+    Elevation,
+    OwnershipAcl,
+    AclDenied,
+}
+
+impl AccessReasonCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UnknownPrincipal => "UNKNOWN_PRINCIPAL",
+            Self::SystemIdentity => "SYSTEM_IDENTITY",
+            Self::StandingGrant => "STANDING_GRANT",
+            Self::ExplicitDeny => "EXPLICIT_DENY",
+            Self::NoMatchingGrant => "NO_MATCHING_GRANT",
+            Self::Elevation => "ELEVATION",
+            Self::OwnershipAcl => "OWNERSHIP_ACL",
+            Self::AclDenied => "ACL_DENIED",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccessDecision {
+    pub basis: AccessBasis,
+    pub reason_code: AccessReasonCode,
+}
+
+impl AccessDecision {
+    pub fn is_allowed(&self) -> bool {
+        self.basis.is_allowed()
+    }
+}
+
 /// Wall-clock milliseconds: the clock an elevation's hard expiry is checked
 /// against on every access decision.
 pub fn access_clock_ms() -> u64 {
@@ -52,7 +93,7 @@ impl IsolationLayer {
         graph_owner: Option<&str>,
         access: AccessLevel,
     ) -> bool {
-        self.access_basis(&AccessQuery {
+        self.access_decision(&AccessQuery {
             agent_id,
             graph_name,
             graph_type,
@@ -67,11 +108,22 @@ impl IsolationLayer {
     /// only when no standing grant decided: an explicit RBAC `Deny` is never
     /// overridden by an elevation.
     pub fn access_basis(&self, query: &AccessQuery<'_>) -> AccessBasis {
+        self.access_decision(query).basis
+    }
+
+    /// A decision and its reason from one evaluation of the engine's policy.
+    pub fn access_decision(&self, query: &AccessQuery<'_>) -> AccessDecision {
         let Some(identity) = self.agents.get(query.agent_id) else {
-            return AccessBasis::Denied;
+            return AccessDecision {
+                basis: AccessBasis::Denied,
+                reason_code: AccessReasonCode::UnknownPrincipal,
+            };
         };
         if identity.role == AgentRole::System {
-            return AccessBasis::Standing;
+            return AccessDecision {
+                basis: AccessBasis::Standing,
+                reason_code: AccessReasonCode::SystemIdentity,
+            };
         }
         self.check_non_system_access(identity, query)
     }
@@ -81,7 +133,7 @@ impl IsolationLayer {
         &self,
         identity: &AgentIdentity,
         query: &AccessQuery<'_>,
-    ) -> AccessBasis {
+    ) -> AccessDecision {
         // Mandatory RBAC means no pre-RBAC ACL fall-through on empty/no-match.
         let context = crate::acl::ResourceContext::graph(query.graph_name);
         let (action, elevation_action) = match query.access {
@@ -95,20 +147,29 @@ impl IsolationLayer {
             ),
         };
         match self.rbac.evaluate(&identity.roles, &context, action) {
-            Some(crate::acl::GrantEffect::Allow) => AccessBasis::Standing,
-            Some(crate::acl::GrantEffect::Deny) => AccessBasis::Denied,
-            None => self
-                .rbac
-                .elevations()
-                .permitting(
-                    query.agent_id,
-                    query.graph_name,
-                    elevation_action,
-                    query.now_ms,
-                )
-                .map_or(AccessBasis::Denied, |id| {
-                    AccessBasis::Elevation(id.to_string())
-                }),
+            Some(crate::acl::GrantEffect::Allow) => AccessDecision {
+                basis: AccessBasis::Standing,
+                reason_code: AccessReasonCode::StandingGrant,
+            },
+            Some(crate::acl::GrantEffect::Deny) => AccessDecision {
+                basis: AccessBasis::Denied,
+                reason_code: AccessReasonCode::ExplicitDeny,
+            },
+            None => match self.rbac.elevations().permitting(
+                query.agent_id,
+                query.graph_name,
+                elevation_action,
+                query.now_ms,
+            ) {
+                Some(id) => AccessDecision {
+                    basis: AccessBasis::Elevation(id.to_string()),
+                    reason_code: AccessReasonCode::Elevation,
+                },
+                None => AccessDecision {
+                    basis: AccessBasis::Denied,
+                    reason_code: AccessReasonCode::NoMatchingGrant,
+                },
+            },
         }
     }
 
@@ -117,7 +178,7 @@ impl IsolationLayer {
         &self,
         identity: &AgentIdentity,
         query: &AccessQuery<'_>,
-    ) -> AccessBasis {
+    ) -> AccessDecision {
         let allowed = match query.graph_type {
             GraphType::Commons => true,
             GraphType::Global => query.access == AccessLevel::Read,
@@ -138,9 +199,15 @@ impl IsolationLayer {
             }
         };
         if allowed {
-            AccessBasis::Standing
+            AccessDecision {
+                basis: AccessBasis::Standing,
+                reason_code: AccessReasonCode::OwnershipAcl,
+            }
         } else {
-            AccessBasis::Denied
+            AccessDecision {
+                basis: AccessBasis::Denied,
+                reason_code: AccessReasonCode::AclDenied,
+            }
         }
     }
 

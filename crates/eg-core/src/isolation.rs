@@ -464,7 +464,9 @@ fn tenant_slug_from_graph_name(name: &str) -> Option<String> {
 }
 
 mod access_policy;
-pub use access_policy::{access_clock_ms, AccessBasis, AccessQuery};
+pub use access_policy::{
+    access_clock_ms, AccessBasis, AccessDecision, AccessQuery, AccessReasonCode,
+};
 mod elevation_admin;
 #[cfg(feature = "security")]
 pub use elevation_admin::ElevationError;
