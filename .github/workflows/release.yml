@@ -497,7 +497,7 @@ jobs:
       - name: Test (root Python suite — pytest-xdist, per-test timeout, the pre-built engine binary)
         run: |
           W=$(( $(nproc) - 2 )); [ "$W" -gt 6 ] && W=6; [ "$W" -lt 1 ] && W=1
-          BT="/var/tmp/eg-pytest-$$"
+          BT="/tmp/eg-pytest-$$"
           rm -rf "$BT"
           echo "pytest-xdist workers: $W (nproc $(nproc)); basetemp $BT"
           EPISTEMIC_GRAPH_TEST_BINARY="$PWD/target-isolated/debug/epistemic-graph-server" \
