@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 pub use crate::result_contract::security::LedgerReadResult;
 #[cfg(feature = "security")]
 pub use crate::result_contract::security::{
-    AuditAppendReceipt, AuditReport, MerkleInclusionReport, MerkleProofStep, MerkleSide,
+    AuditAppendReceipt, AuditEventProof, AuditReport, MerkleInclusionReport, MerkleProofStep,
+    MerkleSide,
 };
 
 /// Deserialize an explicitly present nullable field.

@@ -292,6 +292,11 @@ $($variants)*
         identity_chain: bool,
     },
 
+    /// Read one operation-audit event and verify the graph's current chain.
+    /// Gated independently from append by `security:audit`.
+    #[cfg(feature = "security")]
+    AuditReadEvent { seq: u64 },
+
     /// Produce + server-side-verify a Merkle inclusion proof for one node against
     /// a prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) — the
     /// extension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence

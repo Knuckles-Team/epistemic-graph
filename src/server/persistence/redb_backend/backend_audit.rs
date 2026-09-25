@@ -3,6 +3,16 @@ use crate::server::persistence::writer_reply::await_writer_reply;
 
 impl RedbBackend {
     #[cfg(feature = "security")]
+    pub fn audit_read_event_blocking(
+        &self,
+        graph_fname: &str,
+        seq: u64,
+    ) -> Result<crate::protocol::AuditEventProof, String> {
+        let writer = self.shard_for(graph_fname);
+        let shard = writer.shard.upgrade().ok_or("redb writer thread is gone")?;
+        crate::redb_store::operation_audit_read(&shard, graph_fname, seq)
+    }
+    #[cfg(feature = "security")]
     pub fn audit_append_blocking(
         &self,
         graph_fname: &str,

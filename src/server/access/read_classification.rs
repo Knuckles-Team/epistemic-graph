@@ -183,7 +183,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
 pub(super) const REASON_SERVER_LIFECYCLE: &str =
     "server-lifecycle / liveness methods touch no tenant-owned row";
 pub(super) const REASON_AUDIT_CHAIN_ADMIN_GATED: &str =
-    "AuditVerify/AuditProveInclusion walk the hash-chained audit log (incl. its provenance-anchor entries) under the kg:admin capability gate -- not a graph row read";
+    "AuditVerify/AuditReadEvent/AuditProveInclusion walk the hash-chained audit log under security:audit and graph ACL; audit events are control records, not graph rows";
 // BUG A1 (2026-08-12): GetLedger was previously (wrongly) RLS_ROUTED. Its handler
 // (`handlers::graph_ops::try_handle`, `Method::GetLedger` arm) reads the mutation
 // ledger off `raw_core` (captured before `read_authority.project_core` shadows
@@ -371,6 +371,7 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("ResourceStatsPage", REASON_SERVER_LIFECYCLE),
     // REASON_AUDIT_CHAIN_ADMIN_GATED
     ("AuditVerify", REASON_AUDIT_CHAIN_ADMIN_GATED),
+    ("AuditReadEvent", REASON_AUDIT_CHAIN_ADMIN_GATED),
     ("AuditProveInclusion", REASON_AUDIT_CHAIN_ADMIN_GATED),
     // REASON_LEDGER_ADMIN_OBSERVABILITY
     ("GetLedger", REASON_LEDGER_ADMIN_OBSERVABILITY),
