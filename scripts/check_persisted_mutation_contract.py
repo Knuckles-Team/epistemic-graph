@@ -129,9 +129,10 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # `GapSettle`, `WorkOfferPut` (WorkItem kernel).
     # 107 -> 109: EH-404 `RbacElevation` (Identity) and EH-406
     # `ThrottleCapacityCell` (WorkItem kernel).
+    # 109 -> 110: EH-524 `TsDefineSeries => TimeSeries` (materialised derived series).
     require(
-        len(entries) == 109,
-        f"native method catalog must contain 109 entries, observed {len(entries)}",
+        len(entries) == 110,
+        f"native method catalog must contain 110 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -162,7 +163,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
             "WorkItem": 25,
             "Blob": 6,
             "KeyValue": 3,
-            "TimeSeries": 3,
+            "TimeSeries": 4,  # +1 TsDefineSeries (EH-524)
             "AnalyticsJob": 1,
             "Statechart": 1,
             "SqliteCatalog": 1,
