@@ -44,3 +44,14 @@ pub(super) fn with_nodes<R>(
     shard.commit_drain(group, &batches, 0).unwrap();
     outcome
 }
+
+pub(super) fn check_guard(shard: &Shard, tag: &str, method: Method) -> Result<(), String> {
+    with_nodes(shard, tag, |nodes| {
+        Ok(super::row_guard::refuse_generic_native_row_write(
+            GRAPH,
+            &method,
+            nodes,
+            DurableCrypto::none(),
+        ))
+    })
+}

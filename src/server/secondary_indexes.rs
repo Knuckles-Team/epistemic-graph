@@ -49,6 +49,14 @@ fn decode_props(blob: &[u8]) -> Option<serde_json::Map<String, serde_json::Value
     eg_types::msgpack::decode_property_object(blob).ok()
 }
 
+fn source_counts(core: &GraphCore) -> (u64, u64, u64) {
+    (
+        core.version(),
+        core.node_count() as u64,
+        core.edge_count() as u64,
+    )
+}
+
 // ── text (CONCEPT:EG-KG.storage.incremental-text) ────────────────────────────────────
 
 /// The conventional node fields a text index derives its document body from, in
@@ -233,9 +241,7 @@ impl ServedTextIndex {
     /// Run `read` against the registered [`GraphTextIndex`] iff its manifest covers the
     /// live source version and counts; `None` otherwise (absent or stale index).
     fn read_current<T>(&self, read: impl FnOnce(&GraphTextIndex) -> T) -> Option<T> {
-        let source_snapshot_version = self.core.version();
-        let nodes = self.core.node_count() as u64;
-        let edges = self.core.edge_count() as u64;
+        let (source_snapshot_version, nodes, edges) = source_counts(&self.core);
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Text, |index| {
@@ -773,9 +779,7 @@ impl ServedSpatialIndex {
     /// between pushdown and the snapshot-derived fallback; merely registering an
     /// empty/incomplete recovery or paged-lazy-open index is never sufficient.
     pub fn available(&self) -> bool {
-        let source_snapshot_version = self.core.version();
-        let nodes = self.core.node_count() as u64;
-        let edges = self.core.edge_count() as u64;
+        let (source_snapshot_version, nodes, edges) = source_counts(&self.core);
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Spatial, |idx| {
@@ -790,9 +794,7 @@ impl ServedSpatialIndex {
 #[cfg(feature = "geo")]
 impl eg_plan::SpatialSource for ServedSpatialIndex {
     fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
-        let source_snapshot_version = self.core.version();
-        let nodes = self.core.node_count() as u64;
-        let edges = self.core.edge_count() as u64;
+        let (source_snapshot_version, nodes, edges) = source_counts(&self.core);
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Spatial, |idx| {

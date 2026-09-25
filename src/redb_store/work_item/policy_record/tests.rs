@@ -1,7 +1,7 @@
 //! Store-level proof over a real shard: the kernel is the sole writer of a
 //! policy-evolution row, and a store is create-only.
 
-use super::super::test_shard::{open, with_nodes, GRAPH};
+use super::super::test_shard::{check_guard as check, open, with_nodes, GRAPH};
 use super::*;
 use eg_types::policy_evolution::PolicyEvolutionRecord;
 
@@ -43,17 +43,6 @@ fn store(
         crate::protocol::ResultPayload::Raw(bytes) => Ok(rmp_serde::from_slice(&bytes).unwrap()),
         other => panic!("policy record stores are raw, got {other:?}"),
     }
-}
-
-fn check(shard: &Shard, tag: &str, method: Method) -> Result<(), String> {
-    with_nodes(shard, tag, |nodes| {
-        Ok(refuse_generic_native_row_write(
-            GRAPH,
-            &method,
-            nodes,
-            DurableCrypto::none(),
-        ))
-    })
 }
 
 #[test]
