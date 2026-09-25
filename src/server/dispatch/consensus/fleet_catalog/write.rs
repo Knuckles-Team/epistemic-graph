@@ -222,7 +222,7 @@ async fn commit_and_respond<M: MethodResult<Body = FleetWriteReceipt>>(
         Ok(write) => commit(state, req_id, caller, verified, write).await,
         Err(error) => Err(error),
     };
-    respond::<M>(req_id, receipt)
+    crate::server::dispatch::typed_response::<M>(req_id, receipt)
 }
 
 pub(super) async fn record_discovery(

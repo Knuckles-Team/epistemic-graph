@@ -14,7 +14,6 @@
 //! * `project` -- rows, filter, order, digest, page.
 
 use eg_types::fleet_catalog::FleetCatalogOp;
-use eg_types::result_contract::MethodResult;
 
 use super::*;
 
@@ -22,14 +21,6 @@ mod project;
 mod read;
 mod records;
 mod write;
-
-/// Encode a fleet catalog body as `M`'s declared result, or answer the refusal.
-fn respond<M: MethodResult>(req_id: u64, result: Result<M::Body, String>) -> Response {
-    match result.and_then(ResultPayload::of::<M>) {
-        Ok(payload) => Response::ok(req_id, payload),
-        Err(error) => Response::err(req_id, error),
-    }
-}
 
 /// Route one fleet catalog operation. Scope and admin authority were checked
 /// against the op's own `authz_action` before dispatch; tenant and principal

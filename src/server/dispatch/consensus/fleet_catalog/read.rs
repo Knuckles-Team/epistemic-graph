@@ -311,7 +311,10 @@ pub(super) async fn list(
     verified: &VerifiedRequestContext,
     request: FleetCatalogListRequest,
 ) -> Response {
-    respond::<FleetCatalogList>(req_id, list_page(state, verified, &request).await)
+    crate::server::dispatch::typed_response::<FleetCatalogList>(
+        req_id,
+        list_page(state, verified, &request).await,
+    )
 }
 
 pub(super) async fn lookup(
@@ -320,5 +323,8 @@ pub(super) async fn lookup(
     verified: &VerifiedRequestContext,
     request: FleetCatalogLookupRequest,
 ) -> Response {
-    respond::<FleetCatalogLookupRows>(req_id, lookup_rows(state, verified, &request).await)
+    crate::server::dispatch::typed_response::<FleetCatalogLookupRows>(
+        req_id,
+        lookup_rows(state, verified, &request).await,
+    )
 }
