@@ -83,6 +83,7 @@ closed_error_codes! {
         RegistryCursorStale => "REGISTRY_CURSOR_STALE",
         RegistryLimit => "REGISTRY_LIMIT",
         ReplayNonceConsumed => "REPLAY_NONCE_CONSUMED",
+        ReservedGraphName => "RESERVED_GRAPH_NAME",
         ResultTooLarge => "RESULT_TOO_LARGE",
         SchemaInconsistent => "SCHEMA_INCONSISTENT",
         SourceAuthoritativeLiveIdInvalid => "SOURCE_AUTHORITATIVE_LIVE_ID_INVALID",
