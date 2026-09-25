@@ -1,7 +1,7 @@
-//! Explicit offline creation of missing SQL provider-checkpoint and ANN dirty tables.
+//! Explicit offline creation of missing SQL checkpoint and ANN authority tables.
 //!
 //! Ordinary opens and recovery adoption remain current-format-only. This
-//! one-time migration accepts two frozen predecessors, changes only its owner
+//! one-time migration accepts three frozen predecessors, changes only its owner
 //! manifest and missing empty tables, and never reanchors a copy.
 
 use super::domain::SqlOwner;
@@ -151,7 +151,7 @@ pub fn upgrade_sql_source_checkpoints(
     upgrade_opened_predecessor(token, file)
 }
 
-/// Inspect an offline SQL file from either pinned pre-ANN layout. The returned
+/// Inspect an offline SQL file from a pinned pre-ANN layout. The returned
 /// token is bound to the source descriptor and its exact content fingerprint.
 pub fn inspect_sql_ann_dirty_upgrade(
     path: &Path,

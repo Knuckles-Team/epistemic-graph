@@ -96,10 +96,16 @@ fn validate_manifest_shape(manifest: &GenerationManifest) -> Result<(), String> 
     if manifest.version != FORMAT_VERSION || manifest.generation == 0 {
         return Err("ANN generation manifest version or number is invalid".to_string());
     }
-    if manifest.rows > 1_000_000 || manifest.rows > 0 && manifest.max_rowid.is_none() {
+    if manifest.rows > 500_000 || manifest.rows > 0 && manifest.max_rowid.is_none() {
         return Err("ANN generation row metadata is invalid".to_string());
     }
-    if manifest.rows > 0 && manifest.dim.is_none_or(|dim| dim == 0) {
+    if manifest.dim.is_some_and(|dim| dim == 0 || dim > 8_192)
+        || manifest.rows > 0 && manifest.dim.is_none()
+        || manifest.index_key.len() > 1_024
+        || manifest.table.len() > 256
+        || manifest.column.len() > 256
+        || manifest.schema_digest.len() != 64
+    {
         return Err("ANN generation dimension is invalid".to_string());
     }
     let expected: BTreeSet<&str> = expected_parts(manifest.method, manifest.rows)

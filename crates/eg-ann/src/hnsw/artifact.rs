@@ -8,9 +8,9 @@ use std::io::{Error, ErrorKind, Result};
 
 const MAGIC: &[u8; 8] = b"EGHNSW\0\x01";
 /// Maximum encoded graph size accepted for serving.
-pub const MAX_ARTIFACT_BYTES: usize = 256 * 1024 * 1024;
+pub const MAX_ARTIFACT_BYTES: usize = 512 * 1024 * 1024;
 pub const MAX_DIM: usize = 4096;
-pub const MAX_NODES: usize = 250_000;
+pub const MAX_NODES: usize = 500_000;
 pub const MAX_M: usize = 128;
 pub const MAX_EF_CONSTRUCTION: usize = 4096;
 const MAX_COORDINATE: f32 = 1.0e15;
