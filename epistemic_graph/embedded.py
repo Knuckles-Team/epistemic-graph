@@ -160,17 +160,10 @@ class EmbeddedTransport:
     round-trip floor, so no per-call module import/introspection/logging
     belongs on this path).
 
-    ``agent_id``/``tenant`` bind the DEFAULT identity for the lifetime of
-    this instance -- the common case for a genuinely single-tenant embedded
-    deployment (plan §4.3). ``_send``'s own ``agent_id`` keyword (below) is a
-    PER-CALL override of that default, added once `crates/eg-pyengine`
-    started accepting one on its RLS-relevant methods
-    (`authority::EmbeddedAuthority::can_see_properties`, commit
-    `b48ee56c`): the mechanism BUG-PE-022 needed so two principals can share
-    ONE embedded engine/`persist_dir` (a second same-process open of one
-    `persist_dir` is denied at the OS advisory-lock level, so two
-    `EmbeddedTransport`s can never observe each other's writes -- see
-    `tests/parity/conftest.py`'s `pair_factory`).
+    ``agent_id`` binds one principal for this engine. ``_send`` accepts the
+    same principal or no override and refuses another principal for every
+    method. Embedded mode cannot share the served graph ACL yet, so it must
+    not offer ungoverned multi-principal access (EH-635).
     """
 
     def __init__(
@@ -203,6 +196,9 @@ class EmbeddedTransport:
             agent_id=agent_id,
             tenant=tenant,
         )
+        # Embedded graph ACL provisioning is not available yet. Keep this
+        # engine bound to one principal until it shares the served policy.
+        self._agent_id = agent_id
         self._graph_name = graph_name
         if graph_name != _COMMONS_GRAPH:
             self._engine.create_graph(graph_name)
@@ -227,15 +223,13 @@ class EmbeddedTransport:
         graph: str | None = None,
         agent_id: str | None = None,
     ) -> Any:
-        """``agent_id``, when given, OVERRIDES this transport's construction-time
-        identity for THIS call only -- threaded straight through to the
-        dispatch handler, which passes it to whichever native `PyEngine`
-        method accepts an `agent_id` override (currently
-        `get_node_properties`/`has_node`, `crates/eg-pyengine/src/lib.rs`).
-        `None` (the default) preserves today's construction-time-only
-        behavior byte-for-byte. A handler for a method with no override
-        support simply ignores the extra argument.
+        """Route under the bound principal; refuse a different principal
+        before any of the five handlers can access graph state.
         """
+        if agent_id is not None and agent_id != self._agent_id:
+            raise RuntimeError(
+                "ACCESS_DENIED: embedded engine is bound to one principal"
+            )
         handler = self._dispatch.get(method)
         if handler is None:
             raise NotImplementedError(f"EmbeddedTransport: {method} not yet ported")

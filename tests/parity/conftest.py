@@ -108,20 +108,16 @@ def pair_factory(embedded_persist_dir):
     `embedded_persist_dir`. That cannot work: `src/persist_lock.rs`'s
     advisory flock is scoped to the OS open-file-description, not the
     process, so a second same-process `Engine(persist_dir=...)` open of one
-    `persist_dir` is denied outright (confirmed by the Rust lane's
-    throwaway `fs4` probe) -- two principals could never even get far enough
-    to compare what they see. `crates/eg-pyengine` (commit `b48ee56c`) closed
-    the actual gap instead: `get_node_properties`/`has_node` now accept a
-    per-call `agent_id` override (`authority::EmbeddedAuthority`), so ONE
-    engine can answer for many principals. This factory now opens exactly
+    `persist_dir` is denied outright. The old native read override allowed
+    ungoverned access to a peer graph; EH-635 makes identity changes fail
+    closed. This factory still opens exactly
     ONE `EmbeddedTransport` per `embedded_persist_dir` (cached below,
     keyed on that path -- `embedded_persist_dir` is one-per-test, so in
     practice this cache never holds more than one entry) and hands out a
     `BoundEmbeddedTransport` (`_harness.py`) per agent_id, each threading its
-    own identity through as the per-call override. The shared engine itself
-    is constructed with `agent_id=None` (the trusted-caller default) so no
-    single principal is implicitly favored -- every real read goes through
-    an explicit per-call override on the bound wrapper.
+    own identity through as the per-call assertion. The shared engine itself
+    is bound to the first principal. Other principals fail closed until the
+    embedded graph ACL can share the served engine's provisioned policy.
     """
     socket_clients: list[EpistemicGraphClient] = []
     shared_embedded: dict[str, EmbeddedTransport] = {}
@@ -143,7 +139,7 @@ def pair_factory(embedded_persist_dir):
             # (whose connect creates nothing) never sees.
             shared = EmbeddedTransport(
                 persist_dir=embedded_persist_dir,
-                agent_id=None,
+                agent_id=agent_id,
             )
             shared_embedded[embedded_persist_dir] = shared
         embedded = BoundEmbeddedTransport(shared, agent_id, graph_name)

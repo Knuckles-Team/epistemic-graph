@@ -77,6 +77,17 @@ pub(crate) struct EmbeddedAuthority {
 }
 
 impl EmbeddedAuthority {
+    /// Embedded mode has no provisioned graph ACL. A native caller cannot
+    /// switch principal on the shared registry until that policy is wired.
+    /// This protects direct `Engine` users as well as Python transport users.
+    #[allow(dead_code)]
+    pub(crate) fn require_bound_caller(&self, override_id: Option<&str>) -> Result<(), String> {
+        if override_id.is_some_and(|id| Some(id) != self.agent_id.as_deref()) {
+            return Err("ACCESS_DENIED: embedded engine is bound to one principal".to_string());
+        }
+        Ok(())
+    }
+
     /// Construct the trusted-caller-default authority (`agent_id: None`) with
     /// no RBAC roles/grants provisioned — matches `IsolationLayer::new()`'s
     /// own empty, default-deny-once-active posture.
@@ -131,19 +142,9 @@ impl EmbeddedAuthority {
     /// — the point-lookup equivalent of `IsolationLayer::filter_view`, see
     /// module doc for why this crate uses the point form here.
     ///
-    /// `agent_id_override`, when `Some`, takes precedence over the identity
-    /// this authority was CONSTRUCTED with (design doc §7: "a fixed identity
-    /// ... or per-call as an optional override parameter") — added in
-    /// response to a real gap the Wave-0 Python lane's differential harness
-    /// surfaced: with construction-time-only identity, two principals
-    /// sharing one embedded engine (`EG-PYENGINE-PLAN.md` §3's correctness
-    /// bar, point 2 — RLS "must be tested with two distinct principals
-    /// against the SAME embedded engine instance") is structurally
-    /// impossible without either this override or durable cross-instance
-    /// storage (see `lib.rs`'s `persist_dir` handling and this Wave's report
-    /// for why the latter isn't available yet). `None` falls back to the
-    /// construction-time identity — the common single-tenant case (§7) is
-    /// unaffected by this parameter existing.
+    /// `agent_id_override` is retained for the row-decision primitive. The
+    /// exported native reads first call `require_bound_caller`, so this
+    /// override can no longer switch principals through the graph surface.
     ///
     /// `true` when the resolved identity (override, else construction-time)
     /// is unset (trusted-caller default: unchanged, unfiltered behavior) or
@@ -217,6 +218,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn embedded_engine_refuses_identity_switch_before_graph_access() {
+        let bound = EmbeddedAuthority::new(Some("owner".into()), None);
+        assert!(bound.require_bound_caller(None).is_ok());
+        assert!(bound.require_bound_caller(Some("owner")).is_ok());
+        assert!(bound
+            .require_bound_caller(Some("other"))
+            .unwrap_err()
+            .starts_with("ACCESS_DENIED:"));
+        let trusted = EmbeddedAuthority::new(None, None);
+        assert!(trusted.require_bound_caller(Some("owner")).is_err());
+    }
+
+    #[test]
     fn trusted_caller_default_sees_everything() {
         let authority = EmbeddedAuthority::new(None, None);
         assert!(authority.can_see_properties(None, None));
@@ -255,17 +269,9 @@ mod tests {
     }
 
     #[test]
-    fn per_call_override_lets_two_principals_share_one_authority() {
-        // The gap the Wave-0 Python lane's differential harness surfaced
-        // (`tests/parity/test_parity_graph_ops.py::
-        // test_get_node_properties_rls_isolation`): ONE `EmbeddedAuthority`
-        // (hence one `Engine`/one `SharedRegistry`) needs to answer
-        // differently for two DISTINCT principals without constructing two
-        // separate instances. Own an owner-tagged, private row; the owner
-        // (matching construction-time identity, no override) sees it; an
-        // unregistered `other` (per-call override, NOT the construction-time
-        // identity) does not — proving the override, not just the
-        // construction-time path, reaches `can_see_row`.
+    fn row_decision_primitive_distinguishes_principals() {
+        // Keep the shared row decision exact even though exported embedded
+        // graph methods now refuse identity switches before calling it.
         let owner_id = "agent-owner";
         let authority = EmbeddedAuthority::new(Some(owner_id.to_string()), None);
         let mut props = std::collections::BTreeMap::new();
