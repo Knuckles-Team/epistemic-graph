@@ -105,6 +105,15 @@ impl NonceWindow {
         }
         self.seen.extend(entries.into_iter().skip(keep_from));
     }
+
+    /// Graceful-shutdown handoff: returns the floor and every remembered
+    /// nonce, then closes the window (the floor becomes `u64::MAX`) so nothing
+    /// accepted after the snapshot can be missing from it.
+    #[cfg(feature = "security")]
+    fn seal(&mut self) -> (u64, Vec<(String, u64)>) {
+        let floor = std::mem::replace(&mut self.floor, u64::MAX);
+        (floor, self.seen.drain().collect())
+    }
 }
 
 /// Test-build ledger: the same window, no durable floor, so a unit test needs
@@ -140,6 +149,17 @@ const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
 /// accepted nonce carried (or will carry — it is written first).
 #[cfg(feature = "security")]
 const HIGH_WATER_KEY: &str = "accepted_timestamp_high_water";
+/// Present only between a GRACEFUL shutdown and the next open: the sealed
+/// window's floor. Its presence says the `handoff/` rows are the complete set
+/// of nonces that incarnation accepted above it, so the next one may start
+/// from them instead of refusing everything up to the high-water.
+#[cfg(feature = "security")]
+const HANDOFF_FLOOR_KEY: &str = "handoff_floor";
+#[cfg(feature = "security")]
+const HANDOFF_PREFIX: &str = "handoff/";
+/// The first key after every `handoff/` key (`'0'` follows `'/'`).
+#[cfg(feature = "security")]
+const HANDOFF_END: &str = "handoff0";
 #[cfg(feature = "security")]
 const REPLAY_PHYSICAL_STORE: &str = "epistemic-graph:request-replay";
 #[cfg(feature = "security")]
@@ -160,9 +180,11 @@ const REPLAY_SCOPE_INCARNATION: &str = "request-replay:v1";
 /// Cost model: timestamps are whole seconds, so the durable commit is paid
 /// once per clock second (by the first request that advances it) instead of
 /// once per request; the rest take a mutex and a map lookup. The price is
-/// availability, not protection: right after a restart, an envelope signed in
+/// availability, not protection: right after a CRASH, an envelope signed in
 /// or before the last second the previous incarnation accepted is refused
 /// and must be re-signed (clients sign each attempt with a fresh timestamp).
+/// A graceful shutdown avoids that by sealing the window into a one-shot
+/// handoff ([`RedbReplayLedger::seal`], consumed by the next [`restore`]).
 ///
 /// **KNOWN GAP — per-node only, NOT replicated across a `cluster`/`raft`
 /// deployment** (tracked in `reports/seam-identity-closure.md`, "Raft
@@ -199,13 +221,35 @@ impl RedbReplayLedger {
             REPLAY_SCOPE_INCARNATION,
             crate::store_authority::process_authority(),
         )?;
-        let floor = stored_high_water(&durable)?;
+        let (high_water, window) = restore(&durable)?;
         Ok(RedbReplayLedger {
             durable,
-            high_water: std::sync::atomic::AtomicU64::new(floor),
+            high_water: std::sync::atomic::AtomicU64::new(high_water),
             advance: std::sync::Mutex::new(()),
-            window: std::sync::Mutex::new(NonceWindow::with_floor(floor)),
+            window: std::sync::Mutex::new(window),
         })
+    }
+
+    /// Writes the window as a handoff for the next incarnation and closes it.
+    /// Called once the accept loops have stopped; a request still in flight
+    /// after this is refused. Returns how many nonces were handed off.
+    pub(crate) fn seal(&self) -> Result<usize, String> {
+        let mut window = self.window.lock_recovering("replay ledger window");
+        let (floor, rows) = window.seal();
+        self.durable.maintain("request_replay_handoff", |owner| {
+            let mut table = owner.open_table(REPLAY_TABLE)?;
+            for (nonce, signed_at) in &rows {
+                let key = format!("{HANDOFF_PREFIX}{nonce}");
+                table
+                    .insert(key.as_str(), *signed_at)
+                    .map_err(|e| e.to_string())?;
+            }
+            table
+                .insert(HANDOFF_FLOOR_KEY, floor)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        })?;
+        Ok(rows.len())
     }
 
     /// Makes `timestamp` durable as the high-water unless it already is. Only
@@ -232,24 +276,62 @@ impl RedbReplayLedger {
     }
 }
 
-/// The high-water a previous incarnation made durable (0 on a fresh file).
-/// Read inside a maintenance write so a fresh file gets its table created.
+/// The durable high-water (0 on a fresh file) and the window to start from.
+///
+/// After a graceful shutdown the window is the sealed handoff, consumed in
+/// this same commit, so a later CRASH can never resurrect it. Otherwise
+/// (crash, or a file from before handoffs) its floor is the high-water: every
+/// envelope a previous incarnation could have accepted is refused. Runs as a
+/// maintenance write so a fresh file gets its table created.
 #[cfg(feature = "security")]
-fn stored_high_water(
+fn restore(
     durable: &crate::sidecar_store::SidecarStore<eg_storage::RequestReplayOwner>,
-) -> Result<u64, String> {
+) -> Result<(u64, NonceWindow), String> {
     use redb::ReadableTable;
 
-    let mut stored = 0;
+    let mut restored = None;
     durable.maintain("request_replay_open", |owner| {
-        let table = owner.open_table(REPLAY_TABLE)?;
-        stored = table
-            .get(HIGH_WATER_KEY)
-            .map_err(|e| e.to_string())?
-            .map_or(0, |value| value.value());
+        let mut table = owner.open_table(REPLAY_TABLE)?;
+        let stored = |key: &str| -> Result<Option<u64>, String> {
+            Ok(table
+                .get(key)
+                .map_err(|e| e.to_string())?
+                .map(|value| value.value()))
+        };
+        let high_water = stored(HIGH_WATER_KEY)?.unwrap_or(0);
+        let window = match stored(HANDOFF_FLOOR_KEY)? {
+            Some(floor) => take_handoff(&mut table, floor)?,
+            None => NonceWindow::with_floor(high_water),
+        };
+        restored = Some((high_water, window));
         Ok(())
     })?;
-    Ok(stored)
+    restored.ok_or_else(|| "request replay ledger was not restored".to_string())
+}
+
+/// Reads the sealed handoff into a window and deletes it (rows + floor key).
+#[cfg(feature = "security")]
+fn take_handoff(
+    table: &mut redb::Table<'_, &'static str, u64>,
+    floor: u64,
+) -> Result<NonceWindow, String> {
+    use redb::ReadableTable;
+
+    let mut window = NonceWindow::with_floor(floor);
+    for row in table
+        .range(HANDOFF_PREFIX..HANDOFF_END)
+        .map_err(|e| e.to_string())?
+    {
+        let (key, signed_at) = row.map_err(|e| e.to_string())?;
+        let nonce = &key.value()[HANDOFF_PREFIX.len()..];
+        window.seen.insert(nonce.to_string(), signed_at.value());
+    }
+    for nonce in window.seen.keys() {
+        let key = format!("{HANDOFF_PREFIX}{nonce}");
+        table.remove(key.as_str()).map_err(|e| e.to_string())?;
+    }
+    table.remove(HANDOFF_FLOOR_KEY).map_err(|e| e.to_string())?;
+    Ok(window)
 }
 
 #[cfg(feature = "security")]
@@ -264,11 +346,30 @@ impl ReplayLedger for RedbReplayLedger {
 }
 
 #[cfg(all(feature = "security", not(test)))]
+static LEDGER: std::sync::OnceLock<Result<RedbReplayLedger, String>> = std::sync::OnceLock::new();
+
+/// Graceful shutdown: hand the process's replay window to the next
+/// incarnation (see [`RedbReplayLedger::seal`]), so a clean restart does not
+/// refuse fresh envelopes signed in the last second this one accepted. A
+/// no-op when the ledger was never opened. Returns the nonces handed off.
+#[cfg(all(feature = "security", not(test)))]
+pub fn seal_request_replay_ledger() -> Result<usize, String> {
+    match LEDGER.get() {
+        Some(Ok(ledger)) => ledger.seal(),
+        _ => Ok(0),
+    }
+}
+
+/// Without the durable ledger there is nothing to hand off.
+#[cfg(any(not(feature = "security"), test))]
+pub fn seal_request_replay_ledger() -> Result<usize, String> {
+    Ok(0)
+}
+
+#[cfg(all(feature = "security", not(test)))]
 pub(crate) fn durable_replay_ledger(
     state_dir: Option<&str>,
 ) -> Result<&'static RedbReplayLedger, String> {
-    static LEDGER: std::sync::OnceLock<Result<RedbReplayLedger, String>> =
-        std::sync::OnceLock::new();
     match LEDGER.get_or_init(|| {
         let dir = std::env::var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR")
             .ok()
@@ -403,6 +504,41 @@ mod durable_tests {
             );
         }
         assert!(accept(&ledger, "after-restart", 1_001));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A GRACEFUL restart hands the window over: the replay is still refused,
+    /// but a fresh envelope signed in the last accepted second is not (the
+    /// bench's restart->ready probe was refused before this).
+    #[test]
+    fn a_sealed_window_carries_over_a_graceful_restart() {
+        let dir = crate::test_support::temp_dir("eg-request-replay", "handoff");
+        {
+            let ledger = RedbReplayLedger::open(&dir).unwrap();
+            assert!(accept(&ledger, "nonce", 1_000));
+            assert_eq!(ledger.seal().unwrap(), 1);
+            assert!(!accept(&ledger, "after-seal", 1_001));
+        }
+        let ledger = RedbReplayLedger::open(&dir).unwrap();
+        assert!(!accept(&ledger, "nonce", 1_000));
+        assert!(accept(&ledger, "unseen-same-second", 1_000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The handoff is consumed by the open that reads it, so a crash after a
+    /// graceful restart falls back to the high-water floor.
+    #[test]
+    fn a_handoff_is_used_once_then_a_crash_falls_back_to_the_floor() {
+        let dir = crate::test_support::temp_dir("eg-request-replay", "handoff-once");
+        {
+            let ledger = RedbReplayLedger::open(&dir).unwrap();
+            assert!(accept(&ledger, "nonce", 1_000));
+            ledger.seal().unwrap();
+        }
+        drop(RedbReplayLedger::open(&dir).unwrap());
+        let ledger = RedbReplayLedger::open(&dir).unwrap();
+        assert!(!accept(&ledger, "unseen-same-second", 1_000));
+        assert!(accept(&ledger, "next-second", 1_001));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

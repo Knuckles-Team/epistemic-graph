@@ -47,10 +47,12 @@ Secure deployments must align these values with the issuing Graph-OS service:
 
 The replay ledger keeps accepted read-request nonces in a bounded in-memory
 window and makes only a high-water envelope timestamp durable, once per clock
-second, before the request dispatches. After a restart every envelope signed at
-or before that high-water is refused as a possible replay, so a client whose
-request raced a restart re-signs it; signed mutations consume their nonce inside
-the mutation kernel instead.
+second, before the request dispatches. A graceful shutdown (SIGTERM/SIGINT)
+seals the window into a one-shot handoff that the next start consumes, so a
+clean restart refuses only genuine replays. After a crash there is no handoff:
+every envelope signed at or before the high-water is refused as a possible
+replay, so a client whose request raced the crash re-signs it; signed mutations
+consume their nonce inside the mutation kernel instead.
 
 All values are mandatory except the skew override. The server also requires a
 build containing the `security` feature. Graph operations receive identity only
