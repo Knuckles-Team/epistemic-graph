@@ -113,6 +113,53 @@ pub(super) async fn decision_log_round_trip(h: &Harness, record: StatisticalDeci
         "a library-sourced record is tenant-visible"
     );
 
+    let listed: DecisionLogPage = decode(
+        log_op(
+            h,
+            "evaluator",
+            DecisionLogOp::List {
+                tenant_id: TENANT.to_string(),
+                after: None,
+                limit: 1,
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(listed.entries.len(), 1);
+    assert_eq!(listed.entries[0].record.record_id, record.record_id);
+    assert!(listed.next_cursor.is_none());
+    let bad_limit = decode::<DecisionLogPage>(
+        log_op(
+            h,
+            "evaluator",
+            DecisionLogOp::List {
+                tenant_id: TENANT.to_string(),
+                after: None,
+                limit: 0,
+            },
+        )
+        .await,
+    );
+    assert!(bad_limit.unwrap_err().starts_with("INVALID_ARGUMENT"));
+
+    let provenance: Option<DecisionLogProvenance> = decode(
+        log_op(
+            h,
+            "evaluator",
+            DecisionLogOp::Provenance {
+                tenant_id: TENANT.to_string(),
+                record_id: record.record_id.clone(),
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    let provenance = provenance.expect("visible record has provenance");
+    assert_eq!(provenance.entry.record.record_id, record.record_id);
+    assert_eq!(provenance.evaluations.len(), 1);
+    assert!(provenance.resolutions.is_empty());
+
     let request = OutcomeAggregateRequest {
         tenant_id: TENANT.to_string(),
         question_id: None,

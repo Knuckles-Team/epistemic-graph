@@ -18,8 +18,9 @@ use crate::control_lease::{
     ControlLeaseIssued, ControlLeasePage, ControlLeaseTransition, ControlLeaseView,
 };
 use crate::decision::statistical::log::{
-    DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification,
-    OutcomeAggregate, StoredEvaluation, StoredResolution,
+    DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogPage,
+    DecisionLogProvenance, DecisionLogVerification, OutcomeAggregate, StoredEvaluation,
+    StoredResolution,
 };
 use crate::decision::statistical::retrieval::LearningRecorded;
 use crate::decision::DecisionJobRecord;
@@ -141,6 +142,8 @@ method_results! {
     DecisionLogCommit(DecisionLog / "commit") => Raw<DecisionLogCommitted>;
     DecisionLogEvaluate(DecisionLog / "evaluate") => Raw<StoredEvaluation>;
     DecisionLogGet(DecisionLog / "get") => Raw<Option<DecisionLogEntry>>;
+    DecisionLogList(DecisionLog / "list") => Raw<DecisionLogPage>;
+    DecisionLogProvenanceRead(DecisionLog / "provenance") => Raw<Option<DecisionLogProvenance>>;
     DecisionLogAggregate(DecisionLog / "aggregate") => Raw<OutcomeAggregate>;
     DecisionLogCompact(DecisionLog / "compact") => Raw<DecisionLogCompacted>;
     DecisionLogVerify(DecisionLog / "verify") => Raw<DecisionLogVerification>;
