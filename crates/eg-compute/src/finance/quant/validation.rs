@@ -165,7 +165,10 @@ pub fn deflated_sharpe_ratio(observed_sr: f64, n_trials: usize, sr_returns: &[f6
 
 /// Probability of Backtest Overfit (López de Prado). Rows = CV splits,
 /// columns = strategies. Returns fraction of splits where the IS-best strategy
-/// landed below the OOS median. PBO < 0.3 robust; > 0.5 pure overfit.
+/// landed below the OOS median. Rank counts strictly lower OOS scores; ties
+/// share the lower rank. Exact median rank is not below median (for odd N,
+/// the middle strategy does not count as overfit). PBO < 0.3 robust; > 0.5
+/// pure overfit.
 pub fn probability_of_backtest_overfit(insample: &[Vec<f64>], oos: &[Vec<f64>]) -> f64 {
     let n_splits = insample.len();
     if n_splits == 0 || oos.len() != n_splits {

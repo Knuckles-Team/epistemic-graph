@@ -333,19 +333,9 @@ fn draft() -> BacktestRunDraft {
             purge_window: 2,
             embargo: 1,
             n_trials: 5,
-            // Adversarial on purpose: in every split the IS-best config is the
-            // OOS-worst, so PBO saturates at exactly 1.0. The non-saturated case
-            // is `quant::tests::pbo_counts_only_splits_whose_is_best_lands_below_the_oos_median`.
-            insample: vec![
-                vec![0.4, 0.1, 0.3],
-                vec![0.2, 0.5, 0.1],
-                vec![0.3, 0.2, 0.6],
-            ],
-            oos: vec![
-                vec![0.1, 0.3, 0.2],
-                vec![0.4, 0.1, 0.2],
-                vec![0.2, 0.4, 0.1],
-            ],
+            // One per-period row per return. Variant 0 wins in every train
+            // and test set, regardless of the 15 CPCV combinations.
+            performance: vec![vec![1.0, 0.2, 0.1]; 48],
         },
         supersedes: None,
     }
@@ -400,9 +390,31 @@ fn look_ahead_fills_and_missing_outputs_are_refused() {
     outside.fills[0].known_at = 950 * DAY;
     assert_eq!(seal(&outside).unwrap_err().code, LOOK_AHEAD);
     let mut no_pbo = draft();
-    no_pbo.validation.oos.clear();
+    no_pbo.validation.performance.clear();
     assert_eq!(seal(&no_pbo).unwrap_err().code, INVALID_REQUEST);
+    let mut misaligned = draft();
+    misaligned.validation.performance.pop();
+    assert_eq!(seal(&misaligned).unwrap_err().code, INVALID_REQUEST);
     let mut no_keys = draft();
     no_keys.signal_keys.clear();
     assert_eq!(seal(&no_keys).unwrap_err().code, INVALID_REQUEST);
+}
+
+#[test]
+fn pbo_uses_all_cpcv_splits_from_the_records_performance() {
+    let skilled = seal(&draft()).unwrap();
+    assert_eq!(skilled.validation.cpcv_splits, 15);
+    assert_eq!(skilled.validation.probability_backtest_overfit, 0.0);
+
+    // Three variants specialise in disjoint pairs of the six groups. When
+    // a variant wins in-sample, the held-out groups favour another variant.
+    let mut overfit = draft();
+    let peaks = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    overfit.validation.performance = (0..48)
+        .map(|period| peaks[period / 16].to_vec())
+        .collect();
+    let result = seal(&overfit).unwrap();
+    assert_eq!(result.validation.cpcv_splits, 15);
+    assert_eq!(result.validation.probability_backtest_overfit, 1.0);
+    assert_ne!(result.digest, skilled.digest);
 }
