@@ -236,6 +236,7 @@ fn sql_key_type(name: &str) -> Option<&'static str> {
     match name {
         "__sql_rows__" | "__sql_ann_dirty__" | "__sql_schema_catalog_order__" => Some("(&str,u64)"),
         "__sql_schema_migrations__" | "__sql_source_checkpoints__" => Some("(&str,&str,&str)"),
+        "__sql_ann_generations__" => Some("(&str,u64,&str)"),
         "__sql_schema_migration_order__" => Some("(&str,&str,u64)"),
         "__sql_schema_versions__" => Some("(&str,&str)"),
         name if name.starts_with("__sql_") => Some("&str"),

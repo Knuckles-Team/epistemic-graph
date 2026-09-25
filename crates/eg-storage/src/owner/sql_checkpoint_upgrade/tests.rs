@@ -42,6 +42,7 @@ fn create_pre_ann_dirty(path: &Path) {
     manifest.layout_digest = contract::PRE_ANN_DIRTY_LAYOUT;
     manifest.tables = contract::pre_ann_dirty_contracts().unwrap();
     write.delete_table(SQL_ANN_DIRTY).unwrap();
+    write.delete_table(SQL_ANN_GENERATIONS).unwrap();
     write
         .open_table(OWNER_MANIFEST)
         .unwrap()
@@ -54,6 +55,71 @@ fn create_pre_ann_dirty(path: &Path) {
         .unwrap();
     write.commit().unwrap();
     drop(kernel);
+}
+
+fn create_pre_generation(path: &Path) {
+    let kernel = StorageKernel::create_owner_with::<SqlOwner>(
+        path,
+        physical(),
+        None,
+        StoreOpenOptions::default()
+            .with_cache_bytes(UPGRADE_CACHE_BYTES)
+            .unwrap(),
+    )
+    .unwrap();
+    let write = kernel.store().database().begin_write().unwrap();
+    let mut manifest = kernel.store().manifest().clone();
+    manifest.layout_digest = contract::PRE_GENERATION_LAYOUT;
+    manifest.tables = contract::pre_generation_contracts().unwrap();
+    write.delete_table(SQL_ANN_GENERATIONS).unwrap();
+    write
+        .open_table(OWNER_MANIFEST)
+        .unwrap()
+        .insert(
+            "manifest",
+            encode_bounded(&manifest, "pre-generation SQL manifest")
+                .unwrap()
+                .as_slice(),
+        )
+        .unwrap();
+    write.commit().unwrap();
+    drop(kernel);
+}
+
+#[test]
+fn dirty_journal_store_requires_inspected_generation_upgrade() {
+    let directory = private_tempdir();
+    let path = directory.path().join("sql.redb");
+    create_pre_generation(&path);
+    assert!(StorageKernel::open_owner::<SqlOwner>(&path, physical(), None).is_err());
+    let token =
+        inspect_sql_ann_generation_upgrade(&path, physical(), None, inspection_options(&path))
+            .unwrap();
+    let (kernel, report) = upgrade_sql_ann_generations(token).unwrap();
+    assert_eq!(report.previous_authority_epoch, 0);
+    assert_eq!(report.current_authority_epoch, 1);
+    assert!(strict_recovery_evidence(&kernel)
+        .unwrap()
+        .tables
+        .iter()
+        .any(|table| table.table_id == SQL_ANN_GENERATIONS.name() && table.rows == 0));
+    drop(kernel);
+    assert!(
+        inspect_sql_ann_generation_upgrade(&path, physical(), None, inspection_options(&path))
+            .is_err()
+    );
+}
+
+#[test]
+fn pre_generation_digest_probe() {
+    let contracts: Vec<_> = super::super::contract::expected_table_contracts(OwnerLayout::Sql)
+        .into_iter()
+        .filter(|contract| contract.table_id != SQL_ANN_GENERATIONS.name())
+        .collect();
+    assert_eq!(
+        contract::predecessor_digest(&contracts),
+        contract::PRE_GENERATION_LAYOUT
+    );
 }
 
 #[test]
@@ -108,7 +174,7 @@ fn predecessor_and_successor_layout_digests_are_pinned() {
     );
     let current = OwnerManifest::new(physical(), OwnerLayout::Sql).unwrap();
     assert_eq!(contract::pre_ann_dirty_contracts().unwrap().len(), 37);
-    assert_eq!(current.tables.len(), 38);
+    assert_eq!(current.tables.len(), 39);
     assert_ne!(current.layout_digest, contract::PRE_ANN_DIRTY_LAYOUT);
     let dirty = current
         .tables
@@ -145,7 +211,7 @@ fn upgrade_preserves_old_owner_and_kernel_bytes_and_changes_only_layout_authorit
         report.current_authority_digest
     );
     let after = strict_recovery_evidence(&kernel).unwrap();
-    assert_eq!(after.tables.len(), before.tables.len() + 2);
+    assert_eq!(after.tables.len(), before.tables.len() + 3);
     for previous in &before.tables {
         let current = after
             .tables

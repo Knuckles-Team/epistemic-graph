@@ -2,7 +2,7 @@
 
 use super::super::contract::expected_table_contracts;
 use super::super::layout::{layout_domain_tag, OwnerLayout};
-use super::super::registry::{SQL_ANN_DIRTY, SQL_SOURCE_CHECKPOINTS};
+use super::super::registry::{SQL_ANN_DIRTY, SQL_ANN_GENERATIONS, SQL_SOURCE_CHECKPOINTS};
 use crate::physical::incarnation::STORAGE_KERNEL_SCHEMA_VERSION;
 use crate::physical::manifest::{hash_table_contract, OwnerManifest, TableContract};
 use redb::TableHandle;
@@ -19,6 +19,10 @@ pub(super) const PRE_ANN_DIRTY_LAYOUT: [u8; 32] = [
     0xa0, 0x50, 0xc6, 0x8a, 0xcb, 0xec, 0x87, 0x6f, 0xc0, 0x69, 0xd3, 0xb5, 0x06, 0xd9, 0x3e, 0x1e,
 ];
 
+// Filled with the inspected 20-table digest before the migration is released.
+// The all-zero value fails closed until the hosted digest fixture pins it.
+pub(super) const PRE_GENERATION_LAYOUT: [u8; 32] = [0; 32];
+
 /// Reuse every current typed contract, subtract exactly the added table, and
 /// pin the result to its frozen digest. Future unrelated registry changes
 /// cannot silently broaden what this one-time migration accepts.
@@ -28,6 +32,7 @@ pub(super) fn predecessor_contracts() -> Result<Vec<TableContract>, String> {
         .filter(|contract| {
             contract.table_id != SQL_SOURCE_CHECKPOINTS.name()
                 && contract.table_id != SQL_ANN_DIRTY.name()
+                && contract.table_id != SQL_ANN_GENERATIONS.name()
         })
         .collect();
     if predecessor_digest(&contracts) != PRE_CHECKPOINT_LAYOUT {
@@ -39,10 +44,24 @@ pub(super) fn predecessor_contracts() -> Result<Vec<TableContract>, String> {
 pub(super) fn pre_ann_dirty_contracts() -> Result<Vec<TableContract>, String> {
     let contracts: Vec<_> = expected_table_contracts(OwnerLayout::Sql)
         .into_iter()
-        .filter(|contract| contract.table_id != SQL_ANN_DIRTY.name())
+        .filter(|contract| {
+            contract.table_id != SQL_ANN_DIRTY.name()
+                && contract.table_id != SQL_ANN_GENERATIONS.name()
+        })
         .collect();
     if predecessor_digest(&contracts) != PRE_ANN_DIRTY_LAYOUT {
         return Err("SQL ANN dirty predecessor contract has changed".to_string());
+    }
+    Ok(contracts)
+}
+
+pub(super) fn pre_generation_contracts() -> Result<Vec<TableContract>, String> {
+    let contracts: Vec<_> = expected_table_contracts(OwnerLayout::Sql)
+        .into_iter()
+        .filter(|contract| contract.table_id != SQL_ANN_GENERATIONS.name())
+        .collect();
+    if predecessor_digest(&contracts) != PRE_GENERATION_LAYOUT {
+        return Err("SQL ANN generation predecessor contract has changed".to_string());
     }
     Ok(contracts)
 }
@@ -51,6 +70,7 @@ pub(super) fn contracts_for(manifest: &OwnerManifest) -> Result<Vec<TableContrac
     match manifest.layout_digest {
         PRE_CHECKPOINT_LAYOUT => predecessor_contracts(),
         PRE_ANN_DIRTY_LAYOUT => pre_ann_dirty_contracts(),
+        PRE_GENERATION_LAYOUT => pre_generation_contracts(),
         _ => Err("owner manifest is not a supported SQL layout predecessor".to_string()),
     }
 }

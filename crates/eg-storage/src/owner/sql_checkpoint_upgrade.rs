@@ -9,7 +9,8 @@ use super::identity::PhysicalStoreIdentity;
 use super::layout::OwnerLayout;
 use super::manifest_io::read_manifest_slot;
 use super::registry::{
-    sql_pre_ann_dirty_evidence, sql_pre_checkpoint_evidence, SQL_ANN_DIRTY, SQL_SOURCE_CHECKPOINTS,
+    sql_pre_ann_dirty_evidence, sql_pre_checkpoint_evidence, sql_pre_generation_evidence,
+    SQL_ANN_DIRTY, SQL_ANN_GENERATIONS, SQL_SOURCE_CHECKPOINTS,
 };
 use super::validate_declared_tables_write;
 use crate::codec::encode_bounded;
@@ -173,6 +174,28 @@ pub fn upgrade_sql_ann_dirty(
     upgrade_sql_source_checkpoints(token)
 }
 
+/// Inspect a pinned predecessor before adding durable ANN generation storage.
+pub fn inspect_sql_ann_generation_upgrade(
+    path: &Path,
+    expected_physical_identity: PhysicalStoreIdentity,
+    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    options: SqlSourceCheckpointInspectionOptions,
+) -> Result<ValidatedSqlSourceCheckpointUpgrade, String> {
+    inspect_sql_source_checkpoint_upgrade(
+        path,
+        expected_physical_identity,
+        private_integrity,
+        options,
+    )
+}
+
+/// Apply the inspected transition in one immediate durable owner commit.
+pub fn upgrade_sql_ann_generations(
+    token: ValidatedSqlSourceCheckpointUpgrade,
+) -> Result<(StorageKernel, SqlSourceCheckpointUpgradeReport), String> {
+    upgrade_sql_source_checkpoints(token)
+}
+
 /// Bind the exact descriptor before redb can initialize or repair any bytes.
 /// Keeping the clone lets the exclusive transaction recheck its actual file.
 fn upgrade_opened_predecessor(
@@ -254,10 +277,11 @@ fn predecessor_evidence(
     manifest: &OwnerManifest,
     source: HashSnapshot<'_>,
 ) -> Result<StrictRecoveryEvidence, String> {
-    if manifest.layout_digest == contract::PRE_CHECKPOINT_LAYOUT {
-        sql_pre_checkpoint_evidence(source)
-    } else {
-        sql_pre_ann_dirty_evidence(source)
+    match manifest.layout_digest {
+        contract::PRE_CHECKPOINT_LAYOUT => sql_pre_checkpoint_evidence(source),
+        contract::PRE_ANN_DIRTY_LAYOUT => sql_pre_ann_dirty_evidence(source),
+        contract::PRE_GENERATION_LAYOUT => sql_pre_generation_evidence(source),
+        _ => Err("unsupported SQL predecessor evidence layout".to_string()),
     }
 }
 
@@ -413,6 +437,9 @@ fn stage_checkpoint_layout(
         .map_err(|error| error.to_string())?;
     write
         .open_table(SQL_ANN_DIRTY)
+        .map_err(|error| error.to_string())?;
+    write
+        .open_table(SQL_ANN_GENERATIONS)
         .map_err(|error| error.to_string())?;
     #[cfg(test)]
     tests::crash_at("after_table");

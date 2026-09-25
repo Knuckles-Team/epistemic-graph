@@ -100,6 +100,9 @@ const SQL_ROWS: TableDefinition<'static, (&str, u64), &[u8]> = TableDefinition::
 /// observed them. The value is the SQL source epoch of the row mutation.
 pub(crate) const SQL_ANN_DIRTY: TableDefinition<'static, (&str, u64), u64> =
     TableDefinition::new("__sql_ann_dirty__");
+/// Immutable ANN generation parts and the generation-zero live pointer.
+pub const SQL_ANN_GENERATIONS: TableDefinition<'static, (&str, u64, &str), &[u8]> =
+    TableDefinition::new("__sql_ann_generations__");
 const SQL_SEQ: TableDefinition<'static, &str, u64> = TableDefinition::new("__sql_seq__");
 const SQL_CATALOG_VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("__sql_schema_catalog_versions__");
@@ -310,6 +313,7 @@ macro_rules! visit_owner_tables {
                 }
                 $visit!(SQL_ROWS);
                 $visit!(SQL_ANN_DIRTY);
+                $visit!(SQL_ANN_GENERATIONS);
                 $visit!(SQL_SEQ);
                 $visit!(SQL_CATALOG_VERSIONS);
                 $visit!(SQL_SCHEMA_VERSIONS);
@@ -546,6 +550,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_extensions__",
             "__sql_rows__",
             "__sql_ann_dirty__",
+            "__sql_ann_generations__",
             "__sql_seq__",
             "__sql_schema_catalog_versions__",
             "__sql_schema_versions__",
@@ -761,6 +766,7 @@ pub(super) fn sql_pre_checkpoint_evidence(
         ($table:expr) => {{
             if $table.name() != SQL_SOURCE_CHECKPOINTS.name()
                 && $table.name() != SQL_ANN_DIRTY.name()
+                && $table.name() != SQL_ANN_GENERATIONS.name()
             {
                 let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
                 rows += count;
@@ -793,7 +799,40 @@ pub(super) fn sql_pre_ann_dirty_evidence(
     let mut rows = 0;
     macro_rules! hash_predecessor {
         ($table:expr) => {{
-            if $table.name() != SQL_ANN_DIRTY.name() {
+            if $table.name() != SQL_ANN_DIRTY.name() && $table.name() != SQL_ANN_GENERATIONS.name()
+            {
+                let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
+                rows += count;
+                tables.push(StrictTableEvidence {
+                    table_id: $table.name().to_string(),
+                    rows: count,
+                    fingerprint,
+                });
+            }
+        }};
+    }
+    crate::tables::visit_ledger_tables!(hash_predecessor);
+    let ledger_rows = rows;
+    visit_owner_tables!(OwnerLayout::Sql, hash_predecessor);
+    Ok(StrictRecoveryEvidence {
+        ledger_rows,
+        owner_rows: rows - ledger_rows,
+        fingerprint: hasher.finalize().into(),
+        tables,
+    })
+}
+
+/// Exact typed evidence for the SQL layout with a dirty journal but without
+/// durable ANN generation parts.
+pub(super) fn sql_pre_generation_evidence(
+    source: HashSnapshot<'_>,
+) -> Result<StrictRecoveryEvidence, String> {
+    let mut hasher = Sha256::new();
+    let mut tables = Vec::new();
+    let mut rows = 0;
+    macro_rules! hash_predecessor {
+        ($table:expr) => {{
+            if $table.name() != SQL_ANN_GENERATIONS.name() {
                 let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
                 rows += count;
                 tables.push(StrictTableEvidence {
