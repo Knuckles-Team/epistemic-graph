@@ -362,7 +362,7 @@ fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
 
 /// EH-517: the sealed record of the fixed draft, pinned. The validation outputs
 /// run on the pinned soft-float kernel, so this digest is the same on every build
-/// host; the lane's runs pass this test unchanged on two hosts.
+/// host; the new PBO-derived digest needs a second-host proof at integration.
 const PINNED_RUN_DIGEST: &str =
     "sha256:991112d2c9fe33d30edab5e67a0a522a0d30a3521c5d0e91138a0c8992b814bc";
 
