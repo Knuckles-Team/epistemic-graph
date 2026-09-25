@@ -76,17 +76,10 @@ impl Barrier {
 
 /// `P(T <= t)`: the first-passage CDF of arithmetic Brownian motion.
 pub fn first_passage_cdf(barrier: Barrier, fit: DriftDiffusion, t: f64) -> f64 {
-    let (a, nu) = barrier.toward(fit.mu);
-    if a <= 0.0 {
-        return 1.0;
-    }
-    if t <= 0.0 {
-        return 0.0;
-    }
-    if fit.sigma <= 0.0 {
-        return deterministic_cdf(a, nu, t);
-    }
-    let scale = fit.sigma * t.sqrt();
+    let (a, nu, scale) = match crossing_inputs(barrier, fit, t) {
+        Ok(inputs) => inputs,
+        Err(probability) => return probability,
+    };
     let direct = norm_cdf((nu * t - a) / scale);
     let log_reflected =
         2.0 * nu * a / (fit.sigma * fit.sigma) + norm_log_cdf((-a - nu * t) / scale);
@@ -104,17 +97,24 @@ fn deterministic_cdf(a: f64, nu: f64, t: f64) -> f64 {
 
 /// `P(X_t >= level)` (or `<=` for a level below): the terminal-crossing comparison.
 pub fn terminal_crossing(barrier: Barrier, fit: DriftDiffusion, t: f64) -> f64 {
+    crossing_inputs(barrier, fit, t)
+        .map(|(a, nu, scale)| norm_cdf((nu * t - a) / scale))
+        .unwrap_or_else(|probability| probability)
+}
+
+/// Shared boundary cases and scale for both crossing probabilities.
+fn crossing_inputs(barrier: Barrier, fit: DriftDiffusion, t: f64) -> Result<(f64, f64, f64), f64> {
     let (a, nu) = barrier.toward(fit.mu);
     if a <= 0.0 {
-        return 1.0;
+        return Err(1.0);
     }
     if t <= 0.0 {
-        return 0.0;
+        return Err(0.0);
     }
     if fit.sigma <= 0.0 {
-        return deterministic_cdf(a, nu, t);
+        return Err(deterministic_cdf(a, nu, t));
     }
-    norm_cdf((nu * t - a) / (fit.sigma * t.sqrt()))
+    Ok((a, nu, fit.sigma * t.sqrt()))
 }
 
 /// `P(T < infinity)`: one when drifting toward the level, `exp(2 nu a / sigma^2)`

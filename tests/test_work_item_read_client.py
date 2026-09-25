@@ -7,13 +7,13 @@ from typing import Any, cast
 
 import pytest
 
+from _client_send_stub import CapturingEngine as FakeEngine
+
 from epistemic_graph.client import (
     ControlLeaseClient,
     EpistemicGraphClient,
     WorkItemClient,
 )
-
-from _client_send_stub import CapturingEngine as _Engine
 
 pytestmark = pytest.mark.no_engine
 
@@ -28,13 +28,12 @@ VIEW: dict[str, Any] = {
 }
 
 
-
-def _work_items(engine: _Engine) -> WorkItemClient:
+def _work_items(engine: FakeEngine) -> WorkItemClient:
     return WorkItemClient(cast(EpistemicGraphClient, engine))
 
 
 def test_get_sends_the_typed_request_and_returns_the_view() -> None:
-    engine = _Engine(VIEW)
+    engine = FakeEngine(VIEW)
     view = asyncio.run(_work_items(engine).get(tenant="tenant-a", work_item_id="wi-1"))
 
     assert view == VIEW
@@ -44,7 +43,7 @@ def test_get_sends_the_typed_request_and_returns_the_view() -> None:
 
 
 def test_get_answers_none_for_an_invisible_item() -> None:
-    engine = _Engine(None)
+    engine = FakeEngine(None)
     assert (
         asyncio.run(_work_items(engine).get(tenant="tenant-a", work_item_id="wi-9"))
         is None
@@ -52,7 +51,7 @@ def test_get_answers_none_for_an_invisible_item() -> None:
 
 
 def test_list_forwards_paging_and_returns_the_page() -> None:
-    engine = _Engine({"items": [VIEW], "next_cursor": "opaque"})
+    engine = FakeEngine({"items": [VIEW], "next_cursor": "opaque"})
     page = asyncio.run(
         _work_items(engine).list(
             tenant="tenant-a", cursor="c1", limit=5, kind="au.task"
@@ -72,11 +71,11 @@ def test_a_view_carrying_lease_authority_never_reaches_the_caller() -> None:
     leaky = {**VIEW, "fencing_token": 7}
     with pytest.raises(RuntimeError):
         asyncio.run(
-            _work_items(_Engine(leaky)).get(tenant="tenant-a", work_item_id="wi-1")
+            _work_items(FakeEngine(leaky)).get(tenant="tenant-a", work_item_id="wi-1")
         )
     with pytest.raises(RuntimeError):
         asyncio.run(
-            _work_items(_Engine({"items": [leaky], "next_cursor": None})).list(
+            _work_items(FakeEngine({"items": [leaky], "next_cursor": None})).list(
                 tenant="tenant-a"
             )
         )
@@ -84,7 +83,7 @@ def test_a_view_carrying_lease_authority_never_reaches_the_caller() -> None:
 
 @pytest.mark.parametrize("limit", [0, 101])
 def test_list_refuses_a_limit_outside_the_engine_bound(limit: int) -> None:
-    engine = _Engine({"items": [], "next_cursor": None})
+    engine = FakeEngine({"items": [], "next_cursor": None})
     with pytest.raises(ValueError):
         asyncio.run(_work_items(engine).list(tenant="tenant-a", limit=limit))
     assert engine.sent == []
@@ -104,12 +103,12 @@ LEASE: dict[str, Any] = {
 }
 
 
-def _leases(engine: _Engine) -> ControlLeaseClient:
+def _leases(engine: FakeEngine) -> ControlLeaseClient:
     return ControlLeaseClient(cast(EpistemicGraphClient, engine))
 
 
 def test_issue_sends_the_typed_request_and_validates_the_answer() -> None:
-    engine = _Engine(
+    engine = FakeEngine(
         {"outcome": "issued", "lease": LEASE, "changed_work_item_ids": ["x"]}
     )
     answer = asyncio.run(
@@ -133,7 +132,7 @@ def test_issue_sends_the_typed_request_and_validates_the_answer() -> None:
 
 def test_transition_and_get_round_trip_the_lease_view() -> None:
     ended = {**LEASE, "status": "revoked", "revision": 2}
-    engine = _Engine(
+    engine = FakeEngine(
         {"outcome": "applied", "lease": ended, "changed_work_item_ids": []}
     )
     answer = asyncio.run(
@@ -146,18 +145,18 @@ def test_transition_and_get_round_trip_the_lease_view() -> None:
         )
     )
     assert answer["lease"] == ended
-    assert asyncio.run(_leases(_Engine(None)).get(tenant="t", lease_id="l")) is None
-    assert asyncio.run(_leases(_Engine(LEASE)).get(tenant="t", lease_id="l")) == LEASE
+    assert asyncio.run(_leases(FakeEngine(None)).get(tenant="t", lease_id="l")) is None
+    assert asyncio.run(_leases(FakeEngine(LEASE)).get(tenant="t", lease_id="l")) == LEASE
 
 
 def test_a_lease_answer_outside_the_contract_is_refused() -> None:
     with pytest.raises(RuntimeError):
         asyncio.run(
-            _leases(_Engine({**LEASE, "extra": 1})).get(tenant="t", lease_id="l")
+            _leases(FakeEngine({**LEASE, "extra": 1})).get(tenant="t", lease_id="l")
         )
     with pytest.raises(ValueError):
         asyncio.run(
-            _leases(_Engine(None)).transition(
+            _leases(FakeEngine(None)).transition(
                 tenant="t",
                 lease_id="l",
                 expected_revision=1,
@@ -178,7 +177,7 @@ def test_get_outcome_returns_the_verified_provenance_view() -> None:
         "outcome_ref": "oe-1",
         "outcome": {"status": "succeeded"},
     }
-    engine = _Engine(outcome)
+    engine = FakeEngine(outcome)
     items = _work_items(engine)
     assert asyncio.run(items.get_outcome(tenant="t", work_item_id="wi-1")) == outcome
     assert engine.sent == [
@@ -187,7 +186,7 @@ def test_get_outcome_returns_the_verified_provenance_view() -> None:
     leaky = {**outcome, "work_item": {**VIEW, "lease_epoch": 3}}
     with pytest.raises(RuntimeError):
         asyncio.run(
-            _work_items(_Engine(leaky)).get_outcome(tenant="t", work_item_id="wi-1")
+            _work_items(FakeEngine(leaky)).get_outcome(tenant="t", work_item_id="wi-1")
         )
 
 
@@ -230,7 +229,7 @@ def _outcome_extension() -> dict[str, Any]:
 
 
 def test_commit_result_carries_the_outcome_extension_only_when_given() -> None:
-    engine = _Engine({"status": "succeeded"})
+    engine = FakeEngine({"status": "succeeded"})
     common: dict[str, Any] = {
         "tenant": "t",
         "work_item_id": "wi-1",
@@ -254,7 +253,7 @@ def test_commit_result_carries_the_outcome_extension_only_when_given() -> None:
 
 
 def test_list_forwards_a_metadata_match_only_when_given() -> None:
-    engine = _Engine({"items": [], "next_cursor": None})
+    engine = FakeEngine({"items": [], "next_cursor": None})
     items = _work_items(engine)
     asyncio.run(items.list(tenant="t", metadata_match={"correlation_id": "c-1"}))
     asyncio.run(items.list(tenant="t"))
@@ -273,7 +272,7 @@ def test_receipt_properties_encode_as_a_msgpack_map() -> None:
 
 
 def test_control_lease_list_sends_the_typed_filter_and_validates_views() -> None:
-    engine = _Engine({"leases": [LEASE], "next_cursor": None})
+    engine = FakeEngine({"leases": [LEASE], "next_cursor": None})
     page = asyncio.run(
         _leases(engine).list(
             tenant="tenant-a",
@@ -289,5 +288,5 @@ def test_control_lease_list_sends_the_typed_filter_and_validates_views() -> None
     assert params["request"]["grant_match"] == {"request_digest": "d-1"}
     with pytest.raises(RuntimeError):
         asyncio.run(
-            _leases(_Engine({"leases": [{**LEASE, "x": 1}]})).list(tenant="tenant-a")
+            _leases(FakeEngine({"leases": [{**LEASE, "x": 1}]})).list(tenant="tenant-a")
         )

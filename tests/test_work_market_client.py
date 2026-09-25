@@ -7,10 +7,10 @@ from typing import Any, cast
 
 import pytest
 
+from _client_send_stub import CapturingEngine as FakeEngine
+
 from epistemic_graph.client import EpistemicGraphClient
 from epistemic_graph.work_market import GapClient, WorkMarketClient
-
-from _client_send_stub import CapturingEngine as _Engine
 
 pytestmark = pytest.mark.no_engine
 
@@ -39,13 +39,12 @@ GAP: dict[str, Any] = {
 }
 
 
-
-def _gaps(engine: _Engine) -> GapClient:
+def _gaps(engine: FakeEngine) -> GapClient:
     return GapClient(cast(EpistemicGraphClient, engine))
 
 
 def test_upsert_sends_the_typed_request_and_validates_the_answer() -> None:
-    engine = _Engine(
+    engine = FakeEngine(
         {
             "outcome": "created",
             "gap": GAP,
@@ -79,21 +78,21 @@ def test_upsert_sends_the_typed_request_and_validates_the_answer() -> None:
 
 
 def test_a_view_outside_the_contract_is_refused() -> None:
-    engine = _Engine({**GAP, "lease_owner": "worker-1"})
+    engine = FakeEngine({**GAP, "lease_owner": "worker-1"})
     with pytest.raises(RuntimeError):
         asyncio.run(_gaps(engine).get(tenant="tenant-a", gap_id="gap:failure:timeout"))
 
 
 def test_get_answers_none_for_an_invisible_gap_and_list_pages() -> None:
-    assert asyncio.run(_gaps(_Engine(None)).get(tenant="t", gap_id="gap:a:b")) is None
-    engine = _Engine({"gaps": [GAP], "next_cursor": None})
+    assert asyncio.run(_gaps(FakeEngine(None)).get(tenant="t", gap_id="gap:a:b")) is None
+    engine = FakeEngine({"gaps": [GAP], "next_cursor": None})
     page = asyncio.run(_gaps(engine).list(tenant="t", status="open", limit=10))
     assert page == {"gaps": [GAP], "next_cursor": None}
     assert engine.sent[0][0] == "GapList"
 
 
 def test_settle_and_transition_carry_only_the_gap_identity() -> None:
-    engine = _Engine({"outcome": "pending", "gap": GAP, "changed_work_item_ids": []})
+    engine = FakeEngine({"outcome": "pending", "gap": GAP, "changed_work_item_ids": []})
     answer = asyncio.run(
         _gaps(engine).settle(tenant="t", gap_id="gap:a:b", idempotency_key="s")
     )
@@ -116,7 +115,7 @@ def test_settle_and_transition_carry_only_the_gap_identity() -> None:
 
 
 def test_put_offer_refuses_fields_outside_the_contract() -> None:
-    market = WorkMarketClient(cast(EpistemicGraphClient, _Engine(None)))
+    market = WorkMarketClient(cast(EpistemicGraphClient, FakeEngine(None)))
     with pytest.raises(ValueError):
         asyncio.run(
             market.put_offer(

@@ -771,13 +771,7 @@ fn bool_result(b: bool) -> SparqlResult {
 /// an unrecognized algebra node) — in which case EVERY predicate is materialized so the
 /// answer stays complete. This is the projection/predicate pushdown key.
 fn wanted_predicates(query: &spargebra::Query) -> Option<BTreeSet<String>> {
-    use spargebra::Query;
-    let pattern = match query {
-        Query::Select { pattern, .. }
-        | Query::Construct { pattern, .. }
-        | Query::Describe { pattern, .. }
-        | Query::Ask { pattern, .. } => pattern,
-    };
+    let pattern = query_pattern(query);
     let mut preds = BTreeSet::new();
     let mut unrestricted = false;
     collect_predicates(pattern, &mut preds, &mut unrestricted);
@@ -785,6 +779,16 @@ fn wanted_predicates(query: &spargebra::Query) -> Option<BTreeSet<String>> {
         None
     } else {
         Some(preds)
+    }
+}
+
+fn query_pattern(query: &spargebra::Query) -> &spargebra::algebra::GraphPattern {
+    use spargebra::Query;
+    match query {
+        Query::Select { pattern, .. }
+        | Query::Construct { pattern, .. }
+        | Query::Describe { pattern, .. }
+        | Query::Ask { pattern, .. } => pattern,
     }
 }
 
@@ -867,13 +871,7 @@ impl FilterContext {
     /// Completeness is always preserved: whatever is not extracted is simply re-filtered by
     /// the evaluator over the materialized view.
     fn from_query(query: &spargebra::Query) -> Self {
-        use spargebra::Query;
-        let pattern = match query {
-            Query::Select { pattern, .. }
-            | Query::Construct { pattern, .. }
-            | Query::Describe { pattern, .. }
-            | Query::Ask { pattern, .. } => pattern,
-        };
+        let pattern = query_pattern(query);
         let mut ctx = FilterContext {
             shape: pushdown::QueryShape::from_query(query),
             ..FilterContext::default()

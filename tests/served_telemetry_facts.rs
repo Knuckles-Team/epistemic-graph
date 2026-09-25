@@ -35,7 +35,7 @@ use std::sync::Arc;
 use eg_stream::telemetry::{
     AnomalyRule, IncidentRule, MetricRole, ResolutionPolicy, RollupPolicy, TelemetryPolicy,
 };
-use eg_stream::{AttrPredicate, CepPattern, EventMatcher, Window};
+use eg_stream::{CepPattern, EventMatcher, Window};
 use eg_tsdb::point::Point;
 use eg_tsdb::traces::Span;
 use eg_types::telemetry_derive::TelemetryDeriveReceipt;
@@ -157,10 +157,6 @@ fn seed_telemetry(obs: &ObsState) {
 }
 
 fn policy() -> Vec<u8> {
-    let hot = EventMatcher::key("BehaviourObservation").with_pred(AttrPredicate::Gt {
-        field: "error_ratio".into(),
-        value: 0.5,
-    });
     let anomaly = EventMatcher::key("HealthAnomaly");
     let policy = TelemetryPolicy {
         resolution: ResolutionPolicy::standard(),
@@ -168,14 +164,7 @@ fn policy() -> Vec<u8> {
             window_ms: WINDOW_MS,
             metric_roles: BTreeMap::from([(REQUESTS_METRIC.to_string(), MetricRole::Requests)]),
         },
-        anomalies: vec![AnomalyRule {
-            id: "error-burst".into(),
-            kind: "error_burst".into(),
-            pattern: CepPattern::Sequence(vec![hot.clone(), hot.clone(), hot]),
-            window: Window::Sliding {
-                size: 2 * WINDOW_MS,
-            },
-        }],
+        anomalies: vec![AnomalyRule::error_burst(2 * WINDOW_MS)],
         incidents: vec![IncidentRule {
             id: "correlated".into(),
             pattern: CepPattern::Sequence(vec![anomaly.clone(), anomaly]),

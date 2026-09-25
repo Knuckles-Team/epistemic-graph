@@ -27,6 +27,7 @@ use super::binding::EntityRef;
 use super::rollup::BehaviourObservation;
 use crate::cep::{run, CepPattern, Match, Window};
 use crate::event::Event;
+use crate::{AttrPredicate, EventMatcher};
 
 /// The event key an observation is presented to CEP under.
 pub const OBSERVATION_EVENT: &str = "BehaviourObservation";
@@ -41,6 +42,22 @@ pub struct AnomalyRule {
     pub kind: String,
     pub pattern: CepPattern,
     pub window: Window,
+}
+
+impl AnomalyRule {
+    /// Three consecutive observation windows with error ratio over one half.
+    pub fn error_burst(window_ms: u64) -> Self {
+        let hot = EventMatcher::key(OBSERVATION_EVENT).with_pred(AttrPredicate::Gt {
+            field: "error_ratio".into(),
+            value: 0.5,
+        });
+        Self {
+            id: "error-burst".into(),
+            kind: "error_burst".into(),
+            pattern: CepPattern::Sequence(vec![hot.clone(), hot.clone(), hot]),
+            window: Window::Sliding { size: window_ms },
+        }
+    }
 }
 
 /// A declared pattern over anomalies across entities.

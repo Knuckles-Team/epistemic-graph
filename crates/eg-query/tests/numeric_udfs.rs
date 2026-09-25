@@ -4,8 +4,15 @@
 #![cfg(feature = "numeric")]
 
 use eg_core::graph::GraphCore;
-use eg_query::{exec_sql, QueryResult};
+use eg_query::{exec_sql, CancellationToken};
 use serde_json::json;
+
+#[path = "common/query_rows.rs"]
+mod query_rows;
+
+#[path = "common/numeric_assertions.rs"]
+mod numeric_assertions;
+use numeric_assertions::{kmeans_labels, pca_diagonal_component};
 
 /// A 5-node graph whose nodes carry `x` (1..5) and `y = 2x` (2,4,6,8,10) numeric props,
 /// so covariance/zscore have exact hand-computed answers.
@@ -18,13 +25,6 @@ fn graph() -> GraphCore {
     core
 }
 
-fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
-    r.rows
-        .iter()
-        .map(|b| rmp_serde::from_slice::<Vec<serde_json::Value>>(b).unwrap())
-        .collect()
-}
-
 #[test]
 fn cosine_sim_text_literals() {
     // Identical vectors → 1.0; orthogonal → 0.0; opposite → -1.0.
@@ -34,10 +34,10 @@ fn cosine_sim_text_literals() {
         "SELECT cosine_sim('[1,2,3]', '[1,2,3]') AS same, \
                 cosine_sim('[1,0]', '[0,1]') AS orth, \
                 cosine_sim('[1,0]', '[-1,0]') AS opp LIMIT 1",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert!(
         (v[0][0].as_f64().unwrap() - 1.0).abs() < 1e-9,
         "same: {:?}",
@@ -61,10 +61,10 @@ fn cosine_sim_dim_mismatch_is_null() {
     let r = exec_sql(
         &snap,
         "SELECT cosine_sim('[1,2,3]', '[1,2]') AS m LIMIT 1",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert_eq!(v[0][0], json!(null));
 }
 
@@ -75,10 +75,10 @@ fn l2_normalize_unit_vector() {
     let r = exec_sql(
         &snap,
         "SELECT l2_normalize('[3,4]') AS u LIMIT 1",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     let arr = v[0][0].as_array().expect("l2_normalize → JSON array");
     assert_eq!(arr.len(), 2);
     assert!((arr[0].as_f64().unwrap() - 0.6).abs() < 1e-6, "{arr:?}");
@@ -92,10 +92,10 @@ fn l2_normalize_feeds_cosine_sim() {
     let r = exec_sql(
         &snap,
         "SELECT cosine_sim(l2_normalize('[3,4]'), '[3,4]') AS s LIMIT 1",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert!(
         (v[0][0].as_f64().unwrap() - 1.0).abs() < 1e-6,
         "{:?}",
@@ -111,10 +111,10 @@ fn zscore_standardizes_column() {
         &snap,
         "SELECT json_get_f64(props, 'x') AS x, zscore(json_get_f64(props, 'x')) AS z \
          FROM nodes ORDER BY x",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert_eq!(v.len(), 5);
     let sqrt2 = std::f64::consts::SQRT_2;
     assert!(
@@ -141,10 +141,10 @@ fn covariance_udaf() {
     let r = exec_sql(
         &snap,
         "SELECT covariance(json_get_f64(props, 'x'), json_get_f64(props, 'y')) AS c FROM nodes",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert!(
         (v[0][0].as_f64().unwrap() - 5.0).abs() < 1e-9,
         "cov: {:?}",
@@ -165,10 +165,10 @@ fn svd_singular_values_of_known_matrix() {
     let r = exec_sql(
         &snap,
         "SELECT svd(v) AS s FROM (VALUES ('[3,0]'), ('[0,-2]')) AS t(v)",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     let s = v[0][0]
         .as_array()
         .expect("svd → JSON array of singular values");
@@ -184,10 +184,10 @@ fn svd_rectangular_matrix() {
     let r = exec_sql(
         &snap,
         "SELECT svd(v) AS s FROM (VALUES ('[2,0]'), ('[0,3]'), ('[0,0]')) AS t(v)",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     let s = v[0][0].as_array().unwrap();
     assert_eq!(s.len(), 2, "{s:?}");
     assert!((s[0].as_f64().unwrap() - 3.0).abs() < 1e-9, "{s:?}");
@@ -203,22 +203,12 @@ fn pca_first_component_direction() {
         &snap,
         "SELECT pca(v, 1) AS pcs \
          FROM (VALUES ('[2,2]'), ('[1,1]'), ('[-1,-1]'), ('[-2,-2]')) AS t(v)",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     // List<List<Float64>>: one component vector of length 2.
-    let pcs = v[0][0].as_array().expect("pca → list of components");
-    assert_eq!(pcs.len(), 1, "{pcs:?}");
-    let pc0 = pcs[0].as_array().expect("component → vector");
-    assert_eq!(pc0.len(), 2, "{pc0:?}");
-    let inv_sqrt2 = 1.0 / std::f64::consts::SQRT_2;
-    let a = pc0[0].as_f64().unwrap();
-    let b = pc0[1].as_f64().unwrap();
-    assert!((a.abs() - inv_sqrt2).abs() < 1e-9, "a: {pc0:?}");
-    assert!((b.abs() - inv_sqrt2).abs() < 1e-9, "b: {pc0:?}");
-    // Same sign (direction [1,1], not [1,-1]).
-    assert!(a * b > 0.0, "components should share sign: {pc0:?}");
+    let _ = pca_diagonal_component(&v[0][0]);
 }
 
 #[test]
@@ -229,10 +219,10 @@ fn pca_two_components_are_orthonormal_and_ordered() {
         &snap,
         "SELECT pca(v, 2) AS pcs \
          FROM (VALUES ('[4,1]'), ('[2,0]'), ('[-2,0]'), ('[-4,-1]')) AS t(v)",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     let pcs = v[0][0].as_array().unwrap();
     assert_eq!(pcs.len(), 2, "{pcs:?}");
     let pc1 = pcs[0].as_array().unwrap();
@@ -275,17 +265,11 @@ fn kmeans_two_blobs_partition() {
         "SELECT kmeans(v, 2) AS c FROM (VALUES \
            ('[0,0]'), ('[0.1,-0.1]'), ('[-0.1,0.2]'), \
            ('[10,10]'), ('[10.1,9.9]'), ('[9.8,10.2]')) AS t(v)",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
-    let labels: Vec<i64> = v[0][0]
-        .as_array()
-        .expect("kmeans → JSON array of Int64 labels")
-        .iter()
-        .map(|x| x.as_i64().unwrap())
-        .collect();
-    assert_eq!(labels.len(), 6, "{labels:?}");
+    let v = query_rows::rows(&r);
+    let labels = kmeans_labels(&v[0][0]);
     // Exactly two clusters, balanced 3/3.
     let mut sorted = labels.clone();
     sorted.sort_unstable();
@@ -305,8 +289,8 @@ fn kmeans_deterministic() {
     let snap = graph().analysis_snapshot();
     let sql = "SELECT kmeans(v, 2) AS c FROM (VALUES \
         ('[1,1]'), ('[1.2,0.9]'), ('[8,8]'), ('[8.1,7.8]'), ('[4,9]')) AS t(v)";
-    let a = rows(&exec_sql(&snap, sql, &eg_query::CancellationToken::new()).unwrap());
-    let b = rows(&exec_sql(&snap, sql, &eg_query::CancellationToken::new()).unwrap());
+    let a = query_rows::rows(&exec_sql(&snap, sql, &CancellationToken::new()).unwrap());
+    let b = query_rows::rows(&exec_sql(&snap, sql, &CancellationToken::new()).unwrap());
     assert_eq!(a, b, "kmeans must be deterministic given the default seed");
 }
 
@@ -316,10 +300,10 @@ fn kmeans_empty_is_null() {
     let r = exec_sql(
         &snap,
         "SELECT kmeans(json_get_f64(props, 'missing_vec'), 2) AS c FROM nodes WHERE 1 = 0",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert_eq!(v[0][0], json!(null));
 }
 
@@ -330,9 +314,9 @@ fn svd_empty_is_null() {
     let r = exec_sql(
         &snap,
         "SELECT svd(json_get_f64(props, 'missing_vec')) AS s FROM nodes WHERE 1 = 0",
-        &eg_query::CancellationToken::new(),
+        &CancellationToken::new(),
     )
     .unwrap();
-    let v = rows(&r);
+    let v = query_rows::rows(&r);
     assert_eq!(v[0][0], json!(null));
 }

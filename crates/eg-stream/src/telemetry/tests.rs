@@ -12,7 +12,7 @@ use super::{
     AnomalyRule, DeclaredEntity, EntityClass, EntityDirectory, EntityRef, IncidentRule,
     ResolutionPolicy, RollupPolicy, TelemetrySignal,
 };
-use crate::{AttrPredicate, CepPattern, EventMatcher, Window};
+use crate::{CepPattern, EventMatcher, Window};
 
 /// Rollup window used throughout: ten seconds.
 pub(super) const WINDOW_MS: u64 = 10_000;
@@ -119,18 +119,7 @@ pub(super) fn traffic(service: &str, errors: &[usize], per_window: usize) -> Vec
 /// "Three consecutive windows each over 50% errors": three hot windows whose
 /// starts lie within two window widths of each other.
 pub(super) fn error_burst_rule() -> AnomalyRule {
-    let hot = EventMatcher::key(super::derive::OBSERVATION_EVENT).with_pred(AttrPredicate::Gt {
-        field: "error_ratio".into(),
-        value: 0.5,
-    });
-    AnomalyRule {
-        id: "error-burst".into(),
-        kind: "error_burst".into(),
-        pattern: CepPattern::Sequence(vec![hot.clone(), hot.clone(), hot]),
-        window: Window::Sliding {
-            size: 2 * WINDOW_MS,
-        },
-    }
+    AnomalyRule::error_burst(2 * WINDOW_MS)
 }
 
 /// "Two anomalies starting within `window_ms`" — an incident only across two entities.

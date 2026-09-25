@@ -23,7 +23,10 @@ use serde_json::json;
 
 #[path = "common/query_rows.rs"]
 mod query_rows;
-use query_rows::rows;
+
+#[path = "common/numeric_assertions.rs"]
+mod numeric_assertions;
+use numeric_assertions::{kmeans_labels, pca_diagonal_component};
 
 /// A 6-node graph in TWO communities, each node carrying:
 ///   * `x`   — a graph/relational scalar attribute (1..6),
@@ -67,7 +70,7 @@ fn joined_rows(projection: &str) -> Vec<Vec<serde_json::Value>> {
     let snap = graph().analysis_snapshot();
     let sql =
         format!("WITH {READINGS_CTE} SELECT {projection} FROM nodes n JOIN ts t ON n.id = t.nid");
-    rows(&exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap())
+    query_rows::rows(&exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap())
 }
 
 /// **The cross-modal covariance** (CONCEPT:EG-KG.query.eg-3): `covariance` over a column from the
@@ -95,13 +98,7 @@ fn cross_modal_covariance_graph_join_timeseries() {
 #[test]
 fn cross_modal_kmeans_over_join() {
     let v = joined_rows("kmeans(json_get(n.props, 'emb'), 2) AS clusters");
-    let labels: Vec<i64> = v[0][0]
-        .as_array()
-        .expect("kmeans → JSON array of Int64 labels")
-        .iter()
-        .map(|x| x.as_i64().unwrap())
-        .collect();
-    assert_eq!(labels.len(), 6, "one label per joined row: {labels:?}");
+    let labels = kmeans_labels(&v[0][0]);
     // Exactly two clusters, balanced 3 / 3 (the two communities).
     let mut counts = std::collections::HashMap::new();
     for l in &labels {
@@ -121,17 +118,7 @@ fn cross_modal_kmeans_over_join() {
 #[test]
 fn cross_modal_pca_over_join() {
     let v = joined_rows("pca(json_get(n.props, 'emb'), 1) AS pcs");
-    let pcs = v[0][0].as_array().expect("pca → list of components");
-    assert_eq!(pcs.len(), 1, "{pcs:?}");
-    let pc0 = pcs[0].as_array().expect("component → vector");
-    assert_eq!(pc0.len(), 2, "{pc0:?}");
-    let inv_sqrt2 = 1.0 / std::f64::consts::SQRT_2;
-    let a = pc0[0].as_f64().unwrap();
-    let b = pc0[1].as_f64().unwrap();
-    assert!((a.abs() - inv_sqrt2).abs() < 1e-9, "pc0[0]: {pc0:?}");
-    assert!((b.abs() - inv_sqrt2).abs() < 1e-9, "pc0[1]: {pc0:?}");
-    // Direction [1,1] (same sign), not [1,-1].
-    assert!(a * b > 0.0, "PC1 should lie on y=x: {pc0:?}");
+    let _ = pca_diagonal_component(&v[0][0]);
 }
 
 /// **All three modalities, ONE statement** (CONCEPT:EG-KG.query.eg-3): graph ⋈ timeseries, with the
