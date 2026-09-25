@@ -562,6 +562,16 @@
       ],
       "type": "object"
     },
+    "AllocationRule": {
+      "description": "How requests are scaled when they exceed the shared cap.",
+      "oneOf": [
+        {
+          "const": "proportional",
+          "description": "Every request is scaled by the same factor `cap / sum |request|`.",
+          "type": "string"
+        }
+      ]
+    },
     "AnalyticsJobRecord": {
       "additionalProperties": false,
       "description": "The durable analytics-job record, as a caller sees it.",
@@ -768,6 +778,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_ComponentContribution_64": {
+      "items": {
+        "$ref": "#/$defs/ComponentContribution"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_FeatureStandardisation_32": {
       "items": {
         "$ref": "#/$defs/FeatureStandardisation"
@@ -787,6 +804,13 @@
         "$ref": "#/$defs/OptionAggregate"
       },
       "maxItems": 1024,
+      "type": "array"
+    },
+    "BoundedVec_OptionContribution_256": {
+      "items": {
+        "$ref": "#/$defs/OptionContribution"
+      },
+      "maxItems": 256,
       "type": "array"
     },
     "BoundedVec_PathEdge_8": {
@@ -824,11 +848,25 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_QuantisedValue_4096": {
+      "items": {
+        "$ref": "#/$defs/QuantisedValue"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
     "BoundedVec_QuantisedValue_64": {
       "items": {
         "$ref": "#/$defs/QuantisedValue"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_ReplayFoldView_256": {
+      "items": {
+        "$ref": "#/$defs/ReplayFoldView"
+      },
+      "maxItems": 256,
       "type": "array"
     },
     "BoundedVec_ReturnedEvidence_256": {
@@ -1896,6 +1934,27 @@
       ],
       "type": "object"
     },
+    "ComponentContribution": {
+      "additionalProperties": false,
+      "description": "One component's share of a slate's success rate.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "contribution": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "slot": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "component_id",
+        "contribution"
+      ],
+      "type": "object"
+    },
     "ComponentDependency": {
       "additionalProperties": false,
       "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
@@ -2336,6 +2395,24 @@
           "required": [
             "output",
             "receipt"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A replay evaluation's sealed run (EH-528).",
+          "properties": {
+            "output": {
+              "const": "replay",
+              "type": "string"
+            },
+            "run": {
+              "$ref": "#/$defs/EvaluationRun"
+            }
+          },
+          "required": [
+            "output",
+            "run"
           ],
           "type": "object"
         }
@@ -4089,6 +4166,103 @@
           "type": "object"
         }
       ]
+    },
+    "EvalCandidate": {
+      "description": "What is being evaluated.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A fit job's draft artifact, pinned by content digest.",
+          "properties": {
+            "candidate": {
+              "const": "draft_artifact",
+              "type": "string"
+            },
+            "length": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "candidate",
+            "sha256",
+            "length"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An already-published head.",
+          "properties": {
+            "candidate": {
+              "const": "published_head",
+              "type": "string"
+            },
+            "head": {
+              "$ref": "#/$defs/ComponentDependency"
+            }
+          },
+          "required": [
+            "candidate",
+            "head"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EvaluationRun": {
+      "additionalProperties": false,
+      "description": "A sealed replay evaluation: content-addressed, immutable; a revision is a\nnew run that names this one in `supersedes`.",
+      "properties": {
+        "contributions": {
+          "$ref": "#/$defs/BoundedVec_OptionContribution_256"
+        },
+        "dataset_digest": {
+          "type": "string"
+        },
+        "folds": {
+          "$ref": "#/$defs/BoundedVec_ReplayFoldView_256"
+        },
+        "head_digest": {
+          "type": "string"
+        },
+        "path": {
+          "$ref": "#/$defs/BoundedVec_QuantisedValue_4096",
+          "description": "The candidate's utility at every replayed step, in time order."
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "run_digest": {
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/ReplaySpec"
+        },
+        "synthetic": {
+          "type": "boolean"
+        },
+        "validation": {
+          "$ref": "#/$defs/ReplayValidation"
+        }
+      },
+      "required": [
+        "run_digest",
+        "head_digest",
+        "policy_digest",
+        "dataset_digest",
+        "spec",
+        "folds",
+        "path",
+        "contributions",
+        "validation",
+        "synthetic"
+      ],
+      "type": "object"
     },
     "EvidenceClass": {
       "description": "The weakest class of evidence the conclusion rests on.",
@@ -6070,6 +6244,31 @@
       ],
       "type": "string"
     },
+    "OptimiserSpec": {
+      "additionalProperties": false,
+      "description": "Deterministic optimiser limits. The seed is part of the request, so a fit\nis reproducible from its record.",
+      "properties": {
+        "max_iterations": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tolerance": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "max_iterations",
+        "tolerance",
+        "seed"
+      ],
+      "type": "object"
+    },
     "OptionAggregate": {
       "additionalProperties": false,
       "description": "One aggregate row: an option (or a whole assembly slate) under one\nquestion and policy, or across every question when `question_id` is `None`.",
@@ -6191,10 +6390,42 @@
       ],
       "type": "object"
     },
+    "OptionContribution": {
+      "additionalProperties": false,
+      "description": "One option's share of the candidate's utility: the applied budget and the\nutility it earned, summed over every step it was offered in. The utility is\nlinear in the applied amounts, so these contributions sum to the total.",
+      "properties": {
+        "applied": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "option_id": {
+          "type": "string"
+        },
+        "utility": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "option_id",
+        "applied",
+        "utility"
+      ],
+      "type": "object"
+    },
     "OutcomeAggregate": {
       "additionalProperties": false,
       "description": "The joined outcome aggregate. Rows below `min_support` report no rate;\ncounts are k-anonymised by the same floor (reported as zero below it).",
       "properties": {
+        "attribution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SlateAttribution"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The requested slate split (EH-523); absent when none was asked for."
+        },
         "min_support": {
           "format": "uint64",
           "minimum": 0,
@@ -6837,6 +7068,190 @@
           "type": "object"
         }
       ]
+    },
+    "RefitSpec": {
+      "additionalProperties": false,
+      "description": "Refit the head on each fold's training window with `DecisionFit`'s kernel.",
+      "properties": {
+        "head_kind": {
+          "$ref": "#/$defs/HeadKind"
+        },
+        "optimiser": {
+          "$ref": "#/$defs/OptimiserSpec"
+        }
+      },
+      "required": [
+        "head_kind",
+        "optimiser"
+      ],
+      "type": "object"
+    },
+    "ReplayEnvironment": {
+      "description": "What the caller asserts about the environment the policy is replayed in.",
+      "oneOf": [
+        {
+          "const": "policy_independent",
+          "description": "An option's outcome does not depend on which option the policy chose.\nThe only environment replay evaluates.",
+          "type": "string"
+        },
+        {
+          "const": "policy_dependent",
+          "description": "The policy's choice changes what is observed. Replay refuses; the\noff-policy estimators (within the logging support) are the answer.",
+          "type": "string"
+        }
+      ]
+    },
+    "ReplayFoldView": {
+      "additionalProperties": false,
+      "description": "One fold's outcome. Utilities are sums over the fold's test steps.",
+      "properties": {
+        "abstained": {
+          "description": "Steps where the head read a feature outside its fitted range and\nallocated nothing.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_test_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "head_digest": {
+          "description": "The head the fold replayed: the candidate's digest, or its refit's.",
+          "type": "string"
+        },
+        "incumbent_utility": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "last_test_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_drawdown": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "test_items": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "train_items": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "utility": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "train_items",
+        "test_items",
+        "first_test_ms",
+        "last_test_ms",
+        "head_digest",
+        "utility",
+        "incumbent_utility",
+        "max_drawdown",
+        "abstained"
+      ],
+      "type": "object"
+    },
+    "ReplaySpec": {
+      "additionalProperties": false,
+      "description": "A replay evaluation's parameters.",
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/SharedCap"
+        },
+        "env": {
+          "$ref": "#/$defs/ReplayEnvironment"
+        },
+        "folds": {
+          "$ref": "#/$defs/WalkForward"
+        },
+        "incumbent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvalCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The policy the candidate is compared against; `None` is the uniform\nallocation over each step's options."
+        },
+        "refit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`None` replays the candidate as submitted in every fold."
+        },
+        "supersedes": {
+          "default": null,
+          "description": "The digest of the run this one revises.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trials": {
+          "$ref": "#/$defs/TrialLog"
+        }
+      },
+      "required": [
+        "folds",
+        "budget",
+        "env",
+        "trials"
+      ],
+      "type": "object"
+    },
+    "ReplayValidation": {
+      "additionalProperties": false,
+      "description": "The run's overfitting and comparison statistics, from the engine's own\nvalidation kernels (never the caller).",
+      "properties": {
+        "deflated_sharpe": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "diebold_mariano": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Diebold-Mariano on the per-step losses (negated utilities), candidate\nminus incumbent: negative favours the candidate."
+        },
+        "diebold_mariano_p": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "n_trials": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_sharpe": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Per-step Sharpe-like ratio of the candidate's utility path."
+        },
+        "probability_backtest_overfit": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Over the folds, candidate vs incumbent, train window vs test window."
+        }
+      },
+      "required": [
+        "observed_sharpe",
+        "n_trials",
+        "deflated_sharpe",
+        "probability_backtest_overfit",
+        "diebold_mariano",
+        "diebold_mariano_p"
+      ],
+      "type": "object"
     },
     "ResolutionKind": {
       "description": "How the conclusion was reached.",
@@ -8332,6 +8747,118 @@
       ],
       "type": "object"
     },
+    "SealedRecordRetireOutcome": {
+      "description": "How a retirement resolved.",
+      "oneOf": [
+        {
+          "const": "retired",
+          "description": "The record was replaced by its tombstone.",
+          "type": "string"
+        },
+        {
+          "const": "already_retired",
+          "description": "The id already holds the tombstone of a record with this digest.",
+          "type": "string"
+        },
+        {
+          "const": "not_found",
+          "description": "No row with this id exists.",
+          "type": "string"
+        },
+        {
+          "const": "not_sealed",
+          "description": "The row is not a sealed record; nothing was written.",
+          "type": "string"
+        },
+        {
+          "const": "digest_mismatch",
+          "description": "The presented digest is not the record's seal; nothing was written.",
+          "type": "string"
+        }
+      ]
+    },
+    "SealedRecordRetirement": {
+      "additionalProperties": false,
+      "description": "Result of `RetireSealedRecord`. `changed_work_item_ids` names the row the commit\nwrote, so the serving projection refreshes from authority exactly as it does for\na WorkItem transition.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SealedRecordRetireOutcome"
+        },
+        "tombstone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SealedRecordTombstone"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "SealedRecordTombstone": {
+      "additionalProperties": false,
+      "description": "The audited tombstone a retirement leaves in place of a sealed record.",
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "record_class": {
+          "type": "string"
+        },
+        "retired_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retired_by": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "record_class",
+        "digest",
+        "retired_by",
+        "retired_at_ms",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SharedCap": {
+      "additionalProperties": false,
+      "description": "One budget shared by every option of a step (capital, GPU-hours, tokens,\nlane slots): the applied amounts never sum past `cap` in absolute value.",
+      "properties": {
+        "cap": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "rule": {
+          "$ref": "#/$defs/AllocationRule"
+        }
+      },
+      "required": [
+        "cap",
+        "rule"
+      ],
+      "type": "object"
+    },
     "ShortlistProvenance": {
       "additionalProperties": false,
       "description": "How the shortlist the decision scored was produced.",
@@ -8362,6 +8889,64 @@
         "now_ms"
       ],
       "type": "object"
+    },
+    "SlateAttribution": {
+      "additionalProperties": false,
+      "description": "The per-component split of one slate's success rate (EH-523). Evidence class is\nalways `claim`: an outcome is OBSERVED for the whole slate (EH-012); its split across\ncomponents is computed under an assumption and is advisory, never a label.",
+      "properties": {
+        "components": {
+          "$ref": "#/$defs/BoundedVec_ComponentContribution_64",
+          "description": "One per slot of the slate, in slot order; they sum to `grand`."
+        },
+        "digest": {
+          "description": "`sha256:` over the request, the observed coalition values and the kernel.",
+          "type": "string"
+        },
+        "evidence_class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "grand": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "The whole slate's observed success rate."
+        },
+        "graph_digest": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/SlateAttributionMethod"
+        },
+        "observed_coalitions": {
+          "description": "Distinct sub-slates (at `min_support`) the split was computed from.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph_digest",
+        "method",
+        "evidence_class",
+        "components",
+        "grand",
+        "observed_coalitions",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "SlateAttributionMethod": {
+      "description": "How a slate's outcome is split across its components (EH-523).",
+      "oneOf": [
+        {
+          "const": "shapley",
+          "description": "Exact Shapley values over the LOGGED sub-slates: every non-empty sub-slate of\nthe target must itself have been assembled and evaluated at `min_support`, or the\nreport is refused with `UNSUPPORTED_COALITION` (it is never interpolated).",
+          "type": "string"
+        },
+        {
+          "const": "additive",
+          "description": "The least-squares additive split over the logged sub-slates: this request IS the\ndeclared additive-reward assumption (DECIDE-LAYER §6.4), so the report is advisory.",
+          "type": "string"
+        }
+      ]
     },
     "SlotType": {
       "description": "The type of one slot a template binds at run time.",
@@ -9371,6 +9956,27 @@
         }
       ]
     },
+    "TrialLog": {
+      "additionalProperties": false,
+      "description": "How many configurations the search behind this candidate tried. The\ndeflated Sharpe ratio deflates by `declared`; a declaration below the\nsearch log's own count is refused (`n_trials = 1` after a search is the\ndefect this guards).",
+      "properties": {
+        "declared": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "searched": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "declared",
+        "searched"
+      ],
+      "type": "object"
+    },
     "TypedParam": {
       "additionalProperties": false,
       "description": "One named parameter of a question.",
@@ -9508,6 +10114,45 @@
       "required": [
         "numerator",
         "denominator"
+      ],
+      "type": "object"
+    },
+    "WalkForward": {
+      "additionalProperties": false,
+      "description": "Walk-forward folds, in admitted items. Fold `k` tests the `test` items\nstarting at `train + purge + k * step`; it trains on the `train` items that\nend `purge` items before its test window, minus the `embargo` items after\nevery earlier test window (their outcomes may still be maturing).",
+      "properties": {
+        "embargo": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "purge": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "step": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "test": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "train": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "train",
+        "test",
+        "step",
+        "purge",
+        "embargo"
       ],
       "type": "object"
     },
@@ -10911,6 +11556,18 @@
           "encoding": "Json",
           "schema": {
             "$ref": "#/$defs/ResourceSnapshot"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RetireSealedRecord": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SealedRecordRetirement"
           }
         }
       },

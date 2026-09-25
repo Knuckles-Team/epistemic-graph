@@ -96,8 +96,6 @@
 | `FinanceMonteCarloVar` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceStressTest` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceDetectRegimes` | false | None | `compute:finance` | true | false | false | None |  |
-| `FinanceRollingZscore` | false | None | `compute:finance` | true | false | false | None |  |
-| `FinanceEwma` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceSignalDecay` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceCombineAlphas` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceCrossSectionalRank` | false | None | `compute:finance` | true | false | false | None |  |
@@ -131,6 +129,7 @@
 | `FinanceDieboldMariano` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceForensicReport` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceMarket` | false | None | `compute:finance` | true | false | false | None | EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority |
+| `FinanceSignalModels` | false | None | `compute:finance` | true | false | false | None | EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request; informational only, never an order authority |
 | `FinanceKalmanFilter1d` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanBeta` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanVolatility` | false | None | `compute:finance` | true | false | false | None |  |
@@ -212,6 +211,7 @@
 | `WorkOfferPut` | true | GraphRedb | `work:offer-write` | true | true | false | Atomic | versioned derived offer on a live Gap's WorkItem citing only held evidence; engine-computed fixed-point utility rate |
 | `GapGet` | false | None | `gap:read` | true | false | false | Snapshot | tenant-bound canonical Gap view |
 | `GapList` | false | None | `gap:read` | true | false | false | Snapshot | bounded tenant-bound Gap page in row-key order; a listing, never a ranking |
+| `RetireSealedRecord` | true | GraphRedb | `record:retire` | true | true | false | Atomic | digest-checked replacement of a sealed record by its audited tombstone in the WorkItem MutationBatch; generic writes may not change or remove a sealed row |
 | `ReserveWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only atomic host admission and WorkItem fence validation |
 | `ReleaseWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only lifecycle release with retained tombstone |
 | `ReclaimWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only expiry/supersession reclaim with retained tombstone |
@@ -408,6 +408,7 @@
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
 | `RbacElevation` | ~true | ControlRedb | `rbac:elevation` | false | true | false | Atomic | EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX |
 | `GetIdentity` | false | None | `security:admin` | true | false | false | Snapshot | identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege |
+| `CheckAccess` | false | None | `security:check` | true | false | false | Snapshot | confused-deputy-safe executor re-check: would this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read; never the identity or the policy |
 | `ToMsgpack` | false | None | `graph:read` | true | false | false | Snapshot |  |
 | `FromMsgpack` | true | GraphRedb | `graph:admin` | false | true | true | Atomic | state-backed MutationBatch commits the imported authoritative image |
 | `ClearLedger` | true | GraphRedb | `ledger:admin` | true | true | true | Atomic | state-backed MutationBatch |
@@ -430,6 +431,7 @@
 | `TsEvict` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | content-idempotent unlike TsAppend: re-evicting an already-past cutoff is a safe no-op (see SeriesStore::evict_before) |
 | `TsDeleteSeries` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | content-idempotent unlike TsAppend: re-deleting an already-gone series is a safe no-op (see SeriesStore::delete_series) |
 | `TsListSeries` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
+| `TsDefineSeries` | true | SeriesRedb | `timeseries:write` | true | false | false | Atomic | EH-524 materialised derived series: one native MutationBatch in series.redb commits the derived points and the definition/checkpoint in the series metadata; idempotent for the same definition (a re-definition only catches up) |
 | `BlobBegin` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
 | `BlobChunkPut` | true | BlobRedb | `blob:write` | false | false | false | Saga | durable via its own blob.redb (group-committed Immediate); self-routes before dispatch_graph_op |
 | `BlobCommit` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |

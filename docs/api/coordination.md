@@ -1,6 +1,6 @@
 # Coordination API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 53 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 54 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AcquireCapacity`
 
@@ -1471,6 +1471,39 @@ bounded ACL-filtered keyset page; summary suppresses detail arrays
 | `result` | `ResourceSnapshot` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/ResourceStatsPage`, `contract/schemas/result.coordination.json#/methods/ResourceStatsPage`.
+
+## `RetireSealedRecord`
+
+digest-checked replacement of a sealed record by its audited tombstone in the WorkItem MutationBatch; generic writes may not change or remove a sealed row
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `record:retire` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `RetireSealedRecordRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `SealedRecordRetirement` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/RetireSealedRecord`, `contract/schemas/result.coordination.json#/methods/RetireSealedRecord`.
 
 ## `Statechart`
 

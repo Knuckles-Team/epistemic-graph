@@ -13,8 +13,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ._shared import (
     AbstainReason,
+    AbstainReasonBudgetExhausted,
+    AbstainReasonIneligibleExternalAgent,
+    AbstainReasonInfeasible,
+    AbstainReasonInsufficientConfidence,
+    AbstainReasonPolicyLoosening,
+    AbstainReasonRecordTooLarge,
+    AbstainReasonUncoveredCapability,
+    AbstainReasonUnknownFact,
+    AbstainReasonUnmappedTask,
+    AbstainReasonUnresolvedCapabilityIri,
     AgentComponentEntry,
     AgentComponentFacts,
+    AgentComponentFactsModelProfile,
+    AgentComponentFactsOpaque,
+    AgentComponentFactsSystemPrompt,
+    AgentComponentFactsTool,
+    AgentComponentFactsToolset,
     AgentComponentKind,
     AgentGraphEdge,
     AgentGraphEntryRef,
@@ -71,6 +86,9 @@ from ._shared import (
     BoundProofTreeBody,
     CandidateFacts,
     CandidateSourceRecord,
+    CandidateSourceRecordAgentLibrary,
+    CandidateSourceRecordDeclared,
+    CandidateSourceRecordGraph,
     CapacityHeadroom,
     CapacityResourceClass,
     CapacityScope,
@@ -81,8 +99,14 @@ from ._shared import (
     Coefficient,
     CoefficientKnown,
     ColdStart,
+    ColdStartAdvisoryUncalibrated,
+    ColdStartDeterministicOnly,
+    ColdStartExplore,
     ComponentDependency,
     ComponentProvenance,
+    ComponentProvenanceMcpServer,
+    ComponentProvenanceNative,
+    ComponentProvenanceSourcePackage,
     ConstraintBody,
     ConstraintBodyAtLeast,
     ConstraintBodyAtLeastBody,
@@ -104,8 +128,12 @@ from ._shared import (
     CoverageDerivation,
     DecisionInputs,
     DecisionOutcome,
+    DecisionOutcomeAbstained,
+    DecisionOutcomeSolved,
     DecisionPolicy,
     DecisionPolicyRef,
+    DecisionPolicyRefDefault,
+    DecisionPolicyRefPinned,
     DecisionQuestion,
     DecisionRecord,
     DeclaredLatency,
@@ -114,6 +142,8 @@ from ._shared import (
     Digest256,
     DualEntry,
     EdgeSource,
+    EdgeSourceComponentClassification,
+    EdgeSourceNativeOntology,
     Elimination,
     EvidenceClass,
     ExplorationBudget,
@@ -136,13 +166,27 @@ from ._shared import (
     ObjectiveLevelKind,
     ObjectiveLevelSpec,
     ObjectiveOrder,
+    ObjectiveOrderLexicographic,
+    ObjectiveOrderWeighted,
     ObjectiveTerm,
     ObjectiveValue,
     ObservationRef,
     PremiseClass,
     PremiseProvenance,
+    PremiseProvenanceCapacityCell,
+    PremiseProvenanceClaimedMapping,
+    PremiseProvenanceConnectorPack,
+    PremiseProvenanceNativeOntology,
+    PremiseProvenanceObservation,
+    PremiseProvenancePolicy,
+    PremiseProvenancePublisher,
+    PremiseProvenanceRequest,
+    PremiseProvenanceSchemaSource,
     PremiseRef,
     PriceSource,
+    PriceSourceConnectorPack,
+    PriceSourceOperator,
+    PriceSourcePublisher,
     PromptMode,
     ProofNode,
     ProofNodeBranch,
@@ -178,8 +222,15 @@ from ._shared import (
     SolveStatusOptimalByDeterministicSearchBody,
     StatisticalPolicy,
     StopRule,
+    StopRuleBudget,
+    StopRuleDeadline,
+    StopRuleMaxRounds,
+    StopRuleQuorum,
+    StopRuleVerifierPass,
     SubagentAllowance,
     SubagentFallback,
+    SubagentFallbackDisabled,
+    SubagentFallbackTokenBudget,
     TemplateFacts,
     Term,
     ToolEffect,
@@ -192,11 +243,26 @@ from ._shared import (
     TopologyPolicy,
     TopologyRequirements,
     TraceFidelity,
+    TraceFidelityFullStep,
     TraceFidelityLevel,
+    TraceFidelityTruncated,
     UnitRationalWire,
     UnknownCostRule,
     VarId,
     Violation,
+    ViolationContextWindowTooSmall,
+    ViolationDenied,
+    ViolationIneligibleExternalAgent,
+    ViolationInfeasibleWhenForced,
+    ViolationMissingModality,
+    ViolationMissingStructuredOutput,
+    ViolationMissingToolSupport,
+    ViolationOverBudget,
+    ViolationRetired,
+    ViolationTemplateValidation,
+    ViolationUnknownCostUnderStrictBudget,
+    ViolationUnknownLatencyUnderBudget,
+    ViolationWithdrawn,
     WeightedLevel,
     WhyNot,
 )
@@ -206,6 +272,13 @@ from .agent_component import (
     AgentComponentDraft,
     AgentComponentMutationKind,
     AgentComponentOp,
+    AgentComponentOpContent,
+    AgentComponentOpCurrent,
+    AgentComponentOpHistory,
+    AgentComponentOpPublish,
+    AgentComponentOpRetire,
+    AgentComponentOpSearch,
+    AgentComponentOpStatus,
     AgentComponentPublishRequest,
     AgentComponentRetireRequest,
     AgentComponentSearchPage,
@@ -222,6 +295,13 @@ from .connector_pack import (
     ConnectorPackImportRequest,
     ConnectorPackIndex,
     ConnectorPackOp,
+    ConnectorPackOpBind,
+    ConnectorPackOpImport,
+    ConnectorPackOpReconcileBodies,
+    ConnectorPackOpReproject,
+    ConnectorPackOpRetire,
+    ConnectorPackOpStatus,
+    ConnectorPackOpUnbind,
     ConnectorPackReconcileRequest,
     ConnectorPackReprojectRequest,
     ConnectorPackRetireRequest,
@@ -238,10 +318,17 @@ from .connector_pack import (
     PackHeadView,
     PackImportReceipt,
     PackImportResult,
+    PackImportResultImported,
+    PackImportResultRejected,
+    PackImportResultUnchanged,
     PackMemberCounts,
     PackModelFacts,
     PackProducer,
     PackProjectionState,
+    PackProjectionStateApplied,
+    PackProjectionStateFailed,
+    PackProjectionStateNone,
+    PackProjectionStatePending,
     PackRef,
     PackSection,
     PackToolMode,
@@ -274,15 +361,29 @@ from .fleet_catalog import (
     BoundedVec_FleetCatalogRow_256,
     DiscoveryCounts,
     DiscoveryOutcome,
+    DiscoveryOutcomeReachable,
+    DiscoveryOutcomeUnreachable,
     DiscoveryScope,
+    DiscoveryScopeOauthGrant,
+    DiscoveryScopeTenantLocal,
     FleetCatalogCursor,
     FleetCatalogKind,
     FleetCatalogListRequest,
     FleetCatalogLookup,
     FleetCatalogLookupRequest,
     FleetCatalogOp,
+    FleetCatalogOpClearOverride,
+    FleetCatalogOpList,
+    FleetCatalogOpLookup,
+    FleetCatalogOpRecordDiscovery,
+    FleetCatalogOpSetOverride,
     FleetCatalogPage,
     FleetCatalogRow,
+    FleetCatalogRowDiscovery,
+    FleetCatalogRowPrompt,
+    FleetCatalogRowResource,
+    FleetCatalogRowSkill,
+    FleetCatalogRowTool,
     FleetComponentRef,
     FleetDiscoveryRecordRequest,
     FleetDiscoveryRow,
@@ -290,12 +391,15 @@ from .fleet_catalog import (
     FleetOverrideClearRequest,
     FleetOverrideField,
     FleetOverrideSetRequest,
+    FleetOverrideSkillType,
     FleetPromptRow,
     FleetResourceRow,
     FleetRowAcl,
     FleetSkillRow,
     FleetToolRow,
     FleetVisibility,
+    FleetVisibilityPrincipal,
+    FleetVisibilityTenant,
     FleetWriteDisposition,
     FleetWriteReceipt,
     ResourceKind,
@@ -311,6 +415,11 @@ from .graph_schema import (
     GraphSchemaClassesView,
     GraphSchemaCommitted,
     GraphSchemaOp,
+    GraphSchemaOpAttach,
+    GraphSchemaOpAttachApproved,
+    GraphSchemaOpAttachPack,
+    GraphSchemaOpDetach,
+    GraphSchemaOpValidateRepair,
     GraphSchemaSourcesView,
     GraphSchemaSourceView,
     GraphSchemaTermKind,
@@ -318,6 +427,12 @@ from .graph_schema import (
     JsonType,
     RecordContract,
     SchemaSourceOriginView,
+    SchemaSourceOriginViewAdmin,
+    SchemaSourceOriginViewApproved,
+    SchemaSourceOriginViewCore,
+    SchemaSourceOriginViewIngestion,
+    SchemaSourceOriginViewOperator,
+    SchemaSourceOriginViewPack,
 )
 from .index_repository import (
     BoundedVec_IndexDiagnostic_8,
@@ -343,11 +458,19 @@ from .managed_index import (
     BoundedVec_ManagedIndexStatus_1024,
     EdgeIndexDefinition,
     EdgeIndexKind,
+    EdgeIndexKindText,
+    EdgeIndexKindVector,
     EdgeIndexOp,
+    EdgeIndexOpCreate,
+    EdgeIndexOpDrop,
+    EdgeIndexOpRefresh,
+    EdgeIndexOpStatus,
     EdgeIndexStatusView,
     EdgePropertyEquals,
     EdgeSearchHit,
     EdgeSearchQuery,
+    EdgeSearchQueryText,
+    EdgeSearchQueryVector,
     EdgeSearchRequest,
     EdgeSearchView,
     EdgeVectorMetric,
@@ -357,9 +480,12 @@ from .managed_index import (
     ManagedIndexState,
     ManagedIndexStatus,
     ManagedIndexTarget,
+    ManagedIndexTargetGraphEdges,
+    ManagedIndexTargetTableColumn,
 )
 from .policy_evolution import (
     AdapterSpec,
+    AdapterSpecLora,
     ArrayEncoding,
     CaptureCompletion,
     CaptureEligibility,
@@ -369,6 +495,11 @@ from .policy_evolution import (
     EvaluationVerdict,
     HeldBlobRef,
     KlEstimator,
+    KlEstimatorBinary,
+    KlEstimatorFullVocabulary,
+    KlEstimatorMonteCarlo,
+    KlEstimatorSampledToken,
+    KlEstimatorTopK,
     LogprobSupport,
     ModelPolicyVersion,
     OpenWeightPolicyCapability,
@@ -376,7 +507,18 @@ from .policy_evolution import (
     PolicyControls,
     PolicyEvaluation,
     PolicyEvolutionOp,
+    PolicyEvolutionOpCommitCapture,
+    PolicyEvolutionOpCommitPolicyEvaluation,
+    PolicyEvolutionOpCommitTrainingRun,
+    PolicyEvolutionOpGet,
+    PolicyEvolutionOpPutCapability,
+    PolicyEvolutionOpRegisterModelPolicyVersion,
     PolicyEvolutionRecord,
+    PolicyEvolutionRecordCapability,
+    PolicyEvolutionRecordCapture,
+    PolicyEvolutionRecordModelPolicyVersion,
+    PolicyEvolutionRecordPolicyEvaluation,
+    PolicyEvolutionRecordTrainingRun,
     PolicyRecordGetRequest,
     PolicyRecordKind,
     PolicyRecordReceipt,
@@ -387,10 +529,19 @@ from .policy_evolution import (
     RewardRecord,
     SafetyOutcome,
     TrainingMethod,
+    TrainingMethodDpo,
+    TrainingMethodGrpo,
+    TrainingMethodKlpo,
+    TrainingMethodSft,
     TrainingOutput,
     TrainingRun,
     TrainingRunStatus,
+    TrainingRunStatusCancelled,
+    TrainingRunStatusFailed,
+    TrainingRunStatusSucceeded,
     VersionOrigin,
+    VersionOriginBase,
+    VersionOriginTrained,
 )
 from .rdf_report import (
     DatalogReasoningResult,
@@ -460,10 +611,17 @@ from .write_back import (
     WriteBackAuthorizationMode,
     WriteBackEffectStatus,
     WriteBackOp,
+    WriteBackOpCreate,
+    WriteBackOpGet,
+    WriteBackOpReceipts,
+    WriteBackOpRecordAttempt,
+    WriteBackOpRecordReconciliation,
     WriteBackOutcome,
     WriteBackReceipt,
     WriteBackReceiptPage,
     WriteBackReceiptRecord,
+    WriteBackReceiptRecordAttempt,
+    WriteBackReceiptRecordReconciliation,
 )
 
 
@@ -494,6 +652,20 @@ AbstentionResolver = Annotated[
     AbstentionResolverHuman | AbstentionResolverModel,
     Field(discriminator="resolver"),
 ]
+
+
+class AccessCheck(str, Enum):
+    READ = "read"
+    WRITE = "write"
+
+
+class AccessDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    access: AccessCheck
+    agent_id: str
+    allowed: bool
+    graph: str
 
 
 class AdamResult(BaseModel):
@@ -955,6 +1127,10 @@ class AgentTemplateStatusRequest(BaseModel):
     template_id: str
 
 
+class AllocationRule(str, Enum):
+    PROPORTIONAL = "proportional"
+
+
 class AnalysisSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1002,13 +1178,6 @@ class AnalyticsJobRecord(BaseModel):
     retry: JobRetryPolicy
     state: JobState
     updated_at_ms: int
-
-
-class AnomalyAlgorithm(str, Enum):
-    ZSCORE = "zscore"
-    ISOFOREST = "isoforest"
-    LOF = "lof"
-    OCSVM = "ocsvm"
 
 
 class AnomalyMiningResult(BaseModel):
@@ -1083,6 +1252,55 @@ class AssociationRuleRow(BaseModel):
     consequent: list[str]
     lift: float
     support: float
+
+
+class AttributionInputProperty(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Property: AttributionInputPropertyBody
+
+
+class AttributionInputPropertyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    name: str
+
+
+class AttributionMethodOwen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Owen: AttributionMethodOwenBody
+
+
+class AttributionMethodOwenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    by: str
+
+
+class AttributionMethodShapleySampled(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ShapleySampled: AttributionMethodShapleySampledBody
+
+
+class AttributionMethodShapleySampledBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    samples: Annotated[int, Field(ge=0)]
+    seed: Annotated[int, Field(ge=0)]
+
+
+class AttributionValuePercentile(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Percentile: AttributionValuePercentileBody
+
+
+class AttributionValuePercentileBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    p: Annotated[int, Field(ge=0, le=255)]
 
 
 class AuditDraw(BaseModel):
@@ -1236,6 +1454,26 @@ class BatchUpdateReport(BaseModel):
     upserted_nodes: Annotated[int, Field(ge=0)]
 
 
+class BayesFuseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    default_accuracy: float | None = None
+    default_weight: float | None = None
+    directions: dict[str, Annotated[int, Field(ge=-128, le=127)]]
+    max_pbo: float | None = None
+    min_sharpe: float | None = None
+    prior: float | None = None
+    priors: list[FusionPrior] = Field(default_factory=list)
+
+
+class BayesFusion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    posterior_up: float
+    seeded: Annotated[int, Field(ge=0)]
+    sources: list[FusionSource]
+
+
 class BeliefMaterialization(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1255,6 +1493,13 @@ class BeliefSliceInputs(BaseModel):
 
     as_of_ms: Annotated[int, Field(ge=0)]
     values: BoundedVec_int64_2048 = Field(default_factory=list)
+
+
+class BindingLever(str, Enum):
+    CRIMINAL = "criminal"
+    CIVIL = "civil"
+    ENFORCEMENT = "enforcement"
+    NONE = "none"
 
 
 class BlastRadius(str, Enum):
@@ -2361,6 +2606,14 @@ class CompactNodesResult(BaseModel):
     removed_nodes: list[str]
 
 
+class ComponentContribution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    component_id: str
+    contribution: QuantisedValue
+    slot: str
+
+
 class ConfirmToken(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2708,6 +2961,7 @@ class DecisionEvalRequest(BaseModel):
     estimators: BoundedVec_OpeEstimatorKind_8
     gold_set_digest: str | None = None
     idempotency_key: str
+    mode: EvalMode | None = None
     policy: DecisionPolicyRef
     source: DatasetSource
     tenant_id: str
@@ -2789,8 +3043,15 @@ class DecisionJobOutputEval(BaseModel):
     receipt: DecisionEvalReceipt
 
 
+class DecisionJobOutputReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    output: Literal["replay"]
+    run: EvaluationRun
+
+
 DecisionJobOutput = Annotated[
-    DecisionJobOutputFit | DecisionJobOutputEval,
+    DecisionJobOutputFit | DecisionJobOutputEval | DecisionJobOutputReplay,
     Field(discriminator="output"),
 ]
 
@@ -3041,6 +3302,26 @@ DelegationTarget = Annotated[
     DelegationTargetAgent | DelegationTargetGraph,
     Field(discriminator="target"),
 ]
+
+
+class DeriveColumn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expr: SeriesExpr
+    name: str
+
+
+class DerivedSeriesReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    appended: Annotated[int, Field(ge=0)]
+    caught_up: bool
+    derived_from: str
+    digest: str
+    expr: str
+    kernel_version: str
+    last_ts: int | None = None
+    series_id: str
 
 
 class DevelopmentLaneCleanupCompleteRequest(BaseModel):
@@ -4018,6 +4299,40 @@ EvalCandidate = Annotated[
 ]
 
 
+class EvalModeOffPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    mode: Literal["off_policy"]
+
+
+class EvalModeReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    mode: Literal["replay"]
+    spec: ReplaySpec
+
+
+EvalMode = Annotated[
+    EvalModeOffPolicy | EvalModeReplay,
+    Field(discriminator="mode"),
+]
+
+
+class EvaluationRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    contributions: BoundedVec_OptionContribution_256
+    dataset_digest: str
+    folds: BoundedVec_ReplayFoldView_256
+    head_digest: str
+    path: BoundedVec_QuantisedValue_4096
+    policy_digest: str
+    run_digest: str
+    spec: ReplaySpec
+    synthetic: bool
+    validation: ReplayValidation
+
+
 class EvidenceAddressWireCharacterRange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4543,6 +4858,26 @@ FinanceMarketOp = Annotated[
 ]
 
 
+class FinanceSignalModelsOpBayesFuse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["bayes_fuse"]
+    request: BayesFuseRequest
+
+
+class FinanceSignalModelsOpInsiderEquilibrium(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["insider_equilibrium"]
+    request: InsiderEquilibriumRequest
+
+
+FinanceSignalModelsOp = Annotated[
+    FinanceSignalModelsOpBayesFuse | FinanceSignalModelsOpInsiderEquilibrium,
+    Field(discriminator="op"),
+]
+
+
 class FiredAction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5024,6 +5359,24 @@ class FuseStream(BaseModel):
     layer: str
 
 
+class FusionPrior(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    directional_accuracy: float
+    name: str
+    pbo: float
+    standalone_sharpe: float
+
+
+class FusionSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accuracy: float
+    name: str
+    seeded: bool
+    weight: float
+
+
 class GapEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5441,6 +5794,48 @@ class IdempotentPublish(BaseModel):
     duplicate: bool
 
 
+class ImpactOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of_ms: Annotated[int, Field(ge=0)] | None = None
+    assess: list[str] = Field(default_factory=list)
+    attribute_seeds: bool | None = None
+    hops: Annotated[int, Field(ge=0)] | None = None
+    rng_seed: Annotated[int, Field(ge=0)] | None = None
+    samples: Annotated[int, Field(ge=0)] | None = None
+    scope: str | None = None
+    top_paths: Annotated[int, Field(ge=0)] | None = None
+
+
+class ImpactPathRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    node: str
+    path: list[str]
+    probability: float
+
+
+class ImpactReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    attribution: list[SeedAttributionRow]
+    attribution_note: str | None = None
+    digest: str
+    expected_spread: float
+    hops: Annotated[int, Field(ge=0)]
+    paths: list[ImpactPathRow]
+    semantics: ImpactSemantics
+    spread_lower: float | None = None
+    spread_upper: float | None = None
+
+
+class ImpactSemantics(str, Enum):
+    EXACT = "exact"
+    UPPER_BOUND = "upper_bound"
+    CYCLIC_UNROLL = "cyclic_unroll"
+    MONTE_CARLO = "monte_carlo"
+
+
 class IndexCompleteness(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5586,6 +5981,58 @@ class InputsBlob(BaseModel):
     length: Annotated[int, Field(ge=0)]
     manifest_digest: str
     sha256: str
+
+
+class InsiderAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    equilibrium: InsiderEquilibrium
+    policy: PenaltyPolicy
+    schedule: list[InsiderScheduleSample]
+
+
+class InsiderEquilibrium(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    baseline_intensity: float
+    binding_lever: BindingLever
+    detection_prob: float
+    expected_penalty: float
+    expected_profit: float
+    intensity: float
+    kyle_lambda: float
+    net_value: float
+    suppressed: bool
+
+
+class InsiderEquilibriumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    inputs: InsiderInputs
+    steps: Annotated[int, Field(ge=0)]
+
+
+class InsiderInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    civil_penalty_rate: float
+    criminal_penalty: float
+    enforcement: float
+    gap_var: float | None = None
+    horizon: float
+    sigma_u: float
+    sigma_v: float
+    surveillance_kappa: float
+
+
+class InsiderScheduleSample(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    detection_prob: float
+    enforcement: float
+    intensity: float
+    remaining: float
+    t: float
 
 
 class InterClusterEdge(BaseModel):
@@ -8124,20 +8571,6 @@ class MethodFinanceDetectRegimes(BaseModel):
     params: MethodFinanceDetectRegimesParams
 
 
-class MethodFinanceRollingZscore(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    method: Literal["FinanceRollingZscore"]
-    params: MethodFinanceRollingZscoreParams
-
-
-class MethodFinanceEwma(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    method: Literal["FinanceEwma"]
-    params: MethodFinanceEwmaParams
-
-
 class MethodFinanceSignalDecay(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -8514,6 +8947,13 @@ class MethodGetIdentity(BaseModel):
 
     method: Literal["GetIdentity"]
     params: MethodGetIdentityParams
+
+
+class MethodCheckAccess(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["CheckAccess"]
+    params: MethodCheckAccessParams
 
 
 class MethodRbacAdmin(BaseModel):
@@ -8974,6 +9414,13 @@ class MethodTsListSeries(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     method: Literal["TsListSeries"]
+
+
+class MethodTsDefineSeries(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["TsDefineSeries"]
+    params: MethodTsDefineSeriesParams
 
 
 class MethodBlobBegin(BaseModel):
@@ -9686,6 +10133,20 @@ class MethodFinanceMarket(BaseModel):
     params: MethodFinanceMarketParams
 
 
+class MethodFinanceSignalModels(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceSignalModels"]
+    params: MethodFinanceSignalModelsParams
+
+
+class MethodRetireSealedRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["RetireSealedRecord"]
+    params: MethodRetireSealedRecordParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -9917,8 +10378,6 @@ Method = Annotated[
     | MethodFinanceMonteCarloVar
     | MethodFinanceStressTest
     | MethodFinanceDetectRegimes
-    | MethodFinanceRollingZscore
-    | MethodFinanceEwma
     | MethodFinanceSignalDecay
     | MethodFinanceCombineAlphas
     | MethodFinanceCrossSectionalRank
@@ -9973,6 +10432,7 @@ Method = Annotated[
     | MethodFinanceSabrCalibrate
     | MethodRegisterIdentity
     | MethodGetIdentity
+    | MethodCheckAccess
     | MethodRbacAdmin
     | MethodRbacElevation
     | MethodApplyMultisigMutation
@@ -10039,6 +10499,7 @@ Method = Annotated[
     | MethodTsEvict
     | MethodTsDeleteSeries
     | MethodTsListSeries
+    | MethodTsDefineSeries
     | MethodBlobBegin
     | MethodBlobChunkPut
     | MethodBlobCommit
@@ -10140,7 +10601,9 @@ Method = Annotated[
     | MethodGapGet
     | MethodGapList
     | MethodTelemetryDerive
-    | MethodFinanceMarket,
+    | MethodFinanceMarket
+    | MethodFinanceSignalModels
+    | MethodRetireSealedRecord,
     Field(discriminator="method"),
 ]
 
@@ -10515,6 +10978,13 @@ class MethodCepUnsubscribeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     sub_id: Annotated[int, Field(ge=0)]
+
+
+class MethodCheckAccessParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    access: AccessCheck
+    agent_id: str
 
 
 class MethodClaimNextParams(BaseModel):
@@ -11184,13 +11654,6 @@ class MethodFinanceEmpiricalKellyParams(BaseModel):
     seed: Annotated[int, Field(ge=0)]
 
 
-class MethodFinanceEwmaParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    span: Annotated[int, Field(ge=0)]
-    values: list[float]
-
-
 class MethodFinanceExpectedPnlRateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11492,13 +11955,6 @@ class MethodFinanceRiskParityParams(BaseModel):
     cov_matrix: list[list[float]]
 
 
-class MethodFinanceRollingZscoreParams(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    values: list[float]
-    window: Annotated[int, Field(ge=0)]
-
-
 class MethodFinanceSabrCalibrateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11538,6 +11994,12 @@ class MethodFinanceSignalDecayParams(BaseModel):
 
     half_life: float
     signal: list[float]
+
+
+class MethodFinanceSignalModelsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: FinanceSignalModelsOp
 
 
 class MethodFinanceSpreadReversionParams(BaseModel):
@@ -12229,6 +12691,7 @@ class MethodMineRiskPropagationParams(BaseModel):
     damping: float | None = None
     edges: list[MethodMineRiskPropagationParamsEdgesItem] = Field(default_factory=list)
     max_iterations: Annotated[int, Field(ge=0)] | None = None
+    model: RiskModel | None = None
     nodes: list[str] = Field(default_factory=list)
     seed: list[float] = Field(default_factory=list)
     tolerance: float | None = None
@@ -12822,6 +13285,12 @@ class MethodRestoreParams(BaseModel):
     target_shards: Annotated[int, Field(ge=0)]
 
 
+class MethodRetireSealedRecordParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: RetireSealedRecordRequest
+
+
 class MethodRollbackParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13118,6 +13587,14 @@ class MethodTsAsofJoinParams(BaseModel):
     left_ts_msgpack: bytes
     series_id: str
     tolerance: int | None = None
+
+
+class MethodTsDefineSeriesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expr: str
+    series_id: str
+    source: str
 
 
 class MethodTsDeleteSeriesParams(BaseModel):
@@ -13443,6 +13920,51 @@ class MotifMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class MotifOp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    channel: str
+    search: MotifSearch
+    seed: Annotated[int, Field(ge=0)] | None = None
+    top: Annotated[int, Field(ge=0)]
+
+
+class MotifSearchDiscord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    discord: MotifSearchDiscordBody
+
+
+class MotifSearchDiscordBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    length: Annotated[int, Field(ge=0)]
+
+
+class MotifSearchLike(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    like: MotifSearchLikeBody
+
+
+class MotifSearchLikeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    shape: list[float]
+
+
+class MotifSearchPairs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    pairs: MotifSearchPairsBody
+
+
+class MotifSearchPairsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    length: Annotated[int, Field(ge=0)]
+
+
 class MultiGraphBatchReport(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13627,7 +14149,8 @@ class NamedEvaluator(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     expires_at_ms: Annotated[int, Field(ge=0)]
-    principal: str
+    principal: str | None = None
+    role: str | None = None
 
 
 class NativeControlSchemaVersion(str, Enum):
@@ -13773,6 +14296,20 @@ class OpAsOfBody(BaseModel):
     ts: float
 
 
+class OpAttribute(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Attribute: OpAttributeBody
+
+
+class OpAttributeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    input: AttributionInput
+    method: AttributionMethod
+    value: AttributionValue
+
+
 class OpBeliefAsOf(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13825,6 +14362,30 @@ class OpDecisionScanBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     preds: list[Pred]
+
+
+class OpDerive(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Derive: OpDeriveBody
+
+
+class OpDeriveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: list[DeriveColumn]
+
+
+class OpEvents(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Events: OpEventsBody
+
+
+class OpEventsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    channels: list[str]
 
 
 class OpEvidenceFor(BaseModel):
@@ -13929,6 +14490,18 @@ class OpLimitBody(BaseModel):
     k: Annotated[int, Field(ge=0)]
 
 
+class OpMotif(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Motif: OpMotifBody
+
+
+class OpMotifBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    spec: MotifOp
+
+
 class OpProbabilistic(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13951,6 +14524,23 @@ class OpProjectBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     channels: list[str]
+
+
+class OpPropagate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Propagate: OpPropagateBody
+
+
+class OpPropagateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    default_transmission: float
+    dir: EdgeDir
+    edge_preds: list[Pred]
+    hops: Annotated[int, Field(ge=0)]
+    model: PropagateModel
+    rel: str | None = None
 
 
 class OpRank(BaseModel):
@@ -14089,6 +14679,18 @@ class OpSensorFuseBody(BaseModel):
 
     streams: list[str]
     tolerance_ns: Annotated[int, Field(ge=0)]
+
+
+class OpSkill(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Skill: OpSkillBody
+
+
+class OpSkillBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    spec: SkillOp
 
 
 class OpSourceReliability(BaseModel):
@@ -14332,6 +14934,14 @@ class OptionAttentionParams(BaseModel):
     width: Annotated[int, Field(ge=0, le=255)]
 
 
+class OptionContribution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    applied: QuantisedValue
+    option_id: str
+    utility: QuantisedValue
+
+
 class Order(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14454,6 +15064,7 @@ OutboxTarget = Annotated[
 class OutcomeAggregate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    attribution: SlateAttribution | None = None
     min_support: Annotated[int, Field(ge=0)]
     rows: BoundedVec_OptionAggregate_1024
     schema_version: Annotated[int, Field(ge=0, le=65535)]
@@ -14462,6 +15073,7 @@ class OutcomeAggregate(BaseModel):
 class OutcomeAggregateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    attribution: SlateAttributionRequest | None = None
     question_id: str | None = None
     tenant_id: str
     window: RecordWindow
@@ -14571,6 +15183,23 @@ class PatternEdge(BaseModel):
     from_: Annotated[int, Field(ge=0)] = Field(..., alias="from")
     label: str
     to: Annotated[int, Field(ge=0)]
+
+
+class PenaltyPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    civil_only_min_intensity: float
+    criminal_intensity_floor: float | None = None
+    d_intensity_d_civil: float
+    d_intensity_d_criminal: float
+    enforcement_gated: bool
+    verdict: PenaltyVerdict
+
+
+class PenaltyVerdict(str, Enum):
+    ENFORCEMENT_GATED = "enforcement_gated"
+    CRIMINAL_SUPPRESSES = "criminal_suppresses"
+    CRIMINAL_IS_THE_LEVER = "criminal_is_the_lever"
 
 
 class PipelineClassifiedRow(BaseModel):
@@ -15227,6 +15856,19 @@ class PromotionMetrics(BaseModel):
     stable_items: Annotated[int, Field(ge=0)]
 
 
+class PropagateModelCascade(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cascade: PropagateModelCascadeBody
+
+
+class PropagateModelCascadeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    samples: Annotated[int, Field(ge=0)]
+    seed: Annotated[int, Field(ge=0)]
+
+
 class PropensitySource(str, Enum):
     EXECUTED_POLICY = "executed_policy"
     HEAD_MASS = "head_mass"
@@ -15680,6 +16322,13 @@ class ReductionMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class RefitSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    head_kind: HeadKind
+    optimiser: OptimiserSpec
+
+
 class RegimeResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15699,6 +16348,48 @@ class RegressionResult(BaseModel):
     intercept: float
     r_squared: float
     residuals: list[float]
+
+
+class ReplayEnvironment(str, Enum):
+    POLICY_INDEPENDENT = "policy_independent"
+    POLICY_DEPENDENT = "policy_dependent"
+
+
+class ReplayFoldView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    abstained: Annotated[int, Field(ge=0)]
+    first_test_ms: Annotated[int, Field(ge=0)]
+    head_digest: str
+    incumbent_utility: QuantisedValue
+    last_test_ms: Annotated[int, Field(ge=0)]
+    max_drawdown: QuantisedValue
+    test_items: Annotated[int, Field(ge=0)]
+    train_items: Annotated[int, Field(ge=0)]
+    utility: QuantisedValue
+
+
+class ReplaySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    budget: SharedCap
+    env: ReplayEnvironment
+    folds: WalkForward
+    incumbent: EvalCandidate | None = None
+    refit: RefitSpec | None = None
+    supersedes: str | None = None
+    trials: TrialLog
+
+
+class ReplayValidation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    deflated_sharpe: QuantisedValue
+    diebold_mariano: QuantisedValue
+    diebold_mariano_p: QuantisedValue
+    n_trials: Annotated[int, Field(ge=0)]
+    observed_sharpe: QuantisedValue
+    probability_backtest_overfit: QuantisedValue
 
 
 class RequestContext(BaseModel):
@@ -16266,6 +16957,18 @@ class RestoreReceipt(BaseModel):
     xshard_prepares: Annotated[int, Field(ge=0)]
 
 
+class RetireSealedRecordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    idempotency_key: str
+    node_id: str
+    reason: str
+    retired_at_ms: Annotated[int, Field(ge=0)]
+    retired_by: str | None = None
+    tenant: str
+
+
 class RetrievalCandidateWire(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16364,10 +17067,35 @@ class RiskMetrics(BaseModel):
     volatility: float
 
 
+class RiskModelShare(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["share"]
+
+
+class RiskModelNoisyOr(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["noisy_or"]
+
+
+class RiskModelIndependentCascade(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["independent_cascade"]
+
+
+RiskModel = Annotated[
+    RiskModelShare | RiskModelNoisyOr | RiskModelIndependentCascade,
+    Field(discriminator="kind"),
+]
+
+
 class RiskPropagationMiningResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     converged: bool
+    impact: ImpactReport | None = None
     iterations: Annotated[int, Field(ge=0)]
     scores: list[RiskScoreRow]
     written_back: Annotated[int, Field(ge=0)]
@@ -16376,8 +17104,11 @@ class RiskPropagationMiningResult(BaseModel):
 class RiskScoreRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    hops: Annotated[int, Field(ge=0)] | None = None
+    lower: float | None = None
     node: str
     score: float
+    upper: float | None = None
 
 
 class RiskStatement(BaseModel):
@@ -16579,6 +17310,41 @@ class ScreenObservationResult(BaseModel):
     height: Annotated[int, Field(ge=0)]
     nodes: list[ExtractedNode]
     width: Annotated[int, Field(ge=0)]
+
+
+class SealedRecordRetireOutcome(str, Enum):
+    RETIRED = "retired"
+    ALREADY_RETIRED = "already_retired"
+    NOT_FOUND = "not_found"
+    NOT_SEALED = "not_sealed"
+    DIGEST_MISMATCH = "digest_mismatch"
+
+
+class SealedRecordRetirement(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    outcome: SealedRecordRetireOutcome
+    tombstone: SealedRecordTombstone | None = None
+
+
+class SealedRecordTombstone(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    node_id: str
+    reason: str
+    record_class: str
+    retired_at_ms: Annotated[int, Field(ge=0)]
+    retired_by: str
+
+
+class SeedAttributionRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    node: str
+    seed: str
+    shapley: float
 
 
 class SemanticActivationTarget(BaseModel):
@@ -17570,6 +18336,78 @@ class SequentialPatternRow(BaseModel):
     support: float
 
 
+class SeriesExprCall(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Call: SeriesExprCallBody
+
+
+class SeriesExprCallBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    args: list[SeriesExpr]
+    func: SeriesFunc
+    params: list[float]
+
+
+class SeriesExprChannel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Channel: SeriesExprChannelBody
+
+
+class SeriesExprChannelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    name: str
+
+
+class SeriesExprConst(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Const: SeriesExprConstBody
+
+
+class SeriesExprConstBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    value: float
+
+
+class SeriesFunc(str, Enum):
+    LAG = "lag"
+    DIFF = "diff"
+    RET = "ret"
+    LOGRET = "logret"
+    RMEAN = "rmean"
+    RSTD = "rstd"
+    RSUM = "rsum"
+    RMIN = "rmin"
+    RMAX = "rmax"
+    RRANK = "rrank"
+    ZSCORE = "zscore"
+    EWMA = "ewma"
+    EWMA_HALFLIFE = "ewma_halflife"
+    ABS = "abs"
+    SIGN = "sign"
+    NEG = "neg"
+    CLIP = "clip"
+    ADD = "add"
+    SUB = "sub"
+    MUL = "mul"
+    DIV = "div"
+    RCORR = "rcorr"
+    IC = "ic"
+    WSUM = "wsum"
+    KALMAN = "kalman"
+    KBETA = "kbeta"
+    GT = "gt"
+    LT = "lt"
+    GREATEST = "greatest"
+    LEAST = "least"
+    MPROFILE = "mprofile"
+
+
 class SeriesIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17899,6 +18737,13 @@ class ShardReshardReport(BaseModel):
     to_shard: Annotated[int, Field(ge=0)]
 
 
+class SharedCap(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cap: QuantisedValue
+    rule: AllocationRule
+
+
 class ShexNodeResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17973,6 +18818,41 @@ class SignalState(BaseModel):
     line: int | None = None
     source_revision: str
     spec: IndicatorSpec
+
+
+class SkillOp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    feature: str
+    horizons: list[Annotated[int, Field(ge=0)]]
+    outcome: str
+    resamples: Annotated[int, Field(ge=0)] | None = None
+    seed: Annotated[int, Field(ge=0)] | None = None
+    window: Annotated[int, Field(ge=0)]
+
+
+class SlateAttribution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    components: BoundedVec_ComponentContribution_64
+    digest: str
+    evidence_class: EvidenceClass
+    grand: QuantisedValue
+    graph_digest: str
+    method: SlateAttributionMethod
+    observed_coalitions: Annotated[int, Field(ge=0)]
+
+
+class SlateAttributionMethod(str, Enum):
+    SHAPLEY = "shapley"
+    ADDITIVE = "additive"
+
+
+class SlateAttributionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph_digest: str
+    method: SlateAttributionMethod
 
 
 class SlotType(str, Enum):
@@ -19061,6 +19941,13 @@ class TrendFlip(BaseModel):
     to: Direction
 
 
+class TrialLog(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    declared: Annotated[int, Field(ge=0)]
+    searched: Annotated[int, Field(ge=0)]
+
+
 class TriggerInfo(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19514,6 +20401,16 @@ class VolatilityClass(str, Enum):
     LIVE = "live"
 
 
+class WalkForward(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    embargo: Annotated[int, Field(ge=0)]
+    purge: Annotated[int, Field(ge=0)]
+    step: Annotated[int, Field(ge=0)]
+    test: Annotated[int, Field(ge=0)]
+    train: Annotated[int, Field(ge=0)]
+
+
 class WatchBatch(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19758,10 +20655,27 @@ class YearData(BaseModel):
 AgentRole = Literal["System"] | AgentRoleManager | Literal["Agent"]
 
 
+AnomalyAlgorithm = str | Literal["matrix_profile_discord"]
+
+
 AppendStepResult = str | None
 
 
 AsrOp = AsrOpTranscribeFile
+
+
+AttributionInput = Literal["Score"] | AttributionInputProperty
+
+
+AttributionMethod = (
+    Literal["Linear"]
+    | Literal["Shapley"]
+    | AttributionMethodShapleySampled
+    | AttributionMethodOwen
+)
+
+
+AttributionValue = str | Literal["Sum"] | AttributionValuePercentile
 
 
 BatchL2NormalizeResult = list[list[float]]
@@ -19835,6 +20749,14 @@ BoundedVec_BoundedVec_SqlSourceCell_256_1024 = Annotated[
 BoundedVec_ClassCoverage_64 = Annotated[list[ClassCoverage], Field(max_length=64)]
 
 
+BoundedVec_ComponentContribution_64 = Annotated[
+    list[ComponentContribution],
+    Field(
+        max_length=64,
+    ),
+]
+
+
 BoundedVec_ComponentDependency_1024 = Annotated[
     list[ComponentDependency],
     Field(
@@ -19885,6 +20807,14 @@ BoundedVec_OptionAggregate_1024 = Annotated[
 ]
 
 
+BoundedVec_OptionContribution_256 = Annotated[
+    list[OptionContribution],
+    Field(
+        max_length=256,
+    ),
+]
+
+
 BoundedVec_OutboxDeadLetterView_256 = Annotated[
     list[OutboxDeadLetterView],
     Field(
@@ -19905,7 +20835,13 @@ BoundedVec_PooledRate_64 = Annotated[list[PooledRate], Field(max_length=64)]
 BoundedVec_QuantisedValue_32 = Annotated[list[QuantisedValue], Field(max_length=32)]
 
 
+BoundedVec_QuantisedValue_4096 = Annotated[list[QuantisedValue], Field(max_length=4096)]
+
+
 BoundedVec_QuantisedValue_64 = Annotated[list[QuantisedValue], Field(max_length=64)]
+
+
+BoundedVec_ReplayFoldView_256 = Annotated[list[ReplayFoldView], Field(max_length=256)]
 
 
 BoundedVec_ReturnedEvidence_256 = Annotated[
@@ -20175,9 +21111,6 @@ FinanceCrossSectionalRankResult = list[list[float]]
 FinanceDrawdownSeriesResult = list[float]
 
 
-FinanceEwmaResult = list[float]
-
-
 FinanceKalmanVolatilityResult = list[float]
 
 
@@ -20209,9 +21142,6 @@ FinancePurgedCpcvResult = list[CvSplit]
 
 
 FinanceRealizedVolTickResult = list[float]
-
-
-FinanceRollingZscoreResult = list[float]
 
 
 FinanceSabrSmileResult = list[float]
@@ -20668,6 +21598,9 @@ MinimumSpanningTreeResultValueItem = Annotated[
 MinimumSpanningTreeResult = list[MinimumSpanningTreeResultValueItem]
 
 
+MotifSearch = MotifSearchLike | MotifSearchPairs | MotifSearchDiscord
+
+
 MutationEnvelope = MutationEnvelopeOperation | MutationEnvelopeMaintenance
 
 
@@ -20695,6 +21628,7 @@ Op = (
     | OpFilter
     | OpTraverse
     | OpExpand
+    | OpPropagate
     | OpRank
     | OpRankEmbed
     | OpRankNodeDistance
@@ -20720,6 +21654,10 @@ Op = (
     | OpSensorFuse
     | OpSensorAlign
     | OpTsScan
+    | OpDerive
+    | OpSkill
+    | OpMotif
+    | OpEvents
     | OpProbabilistic
     | OpEvidenceFor
     | OpContradicts
@@ -20728,6 +21666,7 @@ Op = (
     | OpSourceReliability
     | OpConfidenceOp
     | OpExplainBelief
+    | OpAttribute
     | OpDecisionScan
     | OpLimit
     | OpProject
@@ -20803,6 +21742,9 @@ Pred = (
 PredLiteral = PredLiteralStr | PredLiteralNum | PredLiteralBool
 
 
+PropagateModel = Literal["noisy_or"] | PropagateModelCascade
+
+
 RbacAdminOp = (
     RbacAdminOpAddRole
     | RbacAdminOpRemoveRole
@@ -20858,6 +21800,9 @@ SemanticSearchResultValueItem = Annotated[
 
 
 SemanticSearchResult = list[SemanticSearchResultValueItem]
+
+
+SeriesExpr = SeriesExprChannel | SeriesExprConst | SeriesExprCall
 
 
 SpatialOpKind = (
@@ -21079,13 +22024,28 @@ WorldTransformResult = ScenePose | None
 
 __all__ = [
     "AbstainReason",
+    "AbstainReasonBudgetExhausted",
+    "AbstainReasonIneligibleExternalAgent",
+    "AbstainReasonInfeasible",
+    "AbstainReasonInsufficientConfidence",
+    "AbstainReasonPolicyLoosening",
+    "AbstainReasonRecordTooLarge",
+    "AbstainReasonUncoveredCapability",
+    "AbstainReasonUnknownFact",
+    "AbstainReasonUnmappedTask",
+    "AbstainReasonUnresolvedCapabilityIri",
     "AbstentionResolution",
     "AbstentionResolver",
+    "AbstentionResolverHuman",
+    "AbstentionResolverModel",
+    "AccessCheck",
+    "AccessDecision",
     "AdamResult",
     "AdapterDirection",
     "AdapterEvalReceipt",
     "AdapterFitRequest",
     "AdapterSpec",
+    "AdapterSpecLora",
     "AdfResult",
     "AgentComponentCommittedResult",
     "AgentComponentContentRequest",
@@ -21093,9 +22053,21 @@ __all__ = [
     "AgentComponentDraft",
     "AgentComponentEntry",
     "AgentComponentFacts",
+    "AgentComponentFactsModelProfile",
+    "AgentComponentFactsOpaque",
+    "AgentComponentFactsSystemPrompt",
+    "AgentComponentFactsTool",
+    "AgentComponentFactsToolset",
     "AgentComponentKind",
     "AgentComponentMutationKind",
     "AgentComponentOp",
+    "AgentComponentOpContent",
+    "AgentComponentOpCurrent",
+    "AgentComponentOpHistory",
+    "AgentComponentOpPublish",
+    "AgentComponentOpRetire",
+    "AgentComponentOpSearch",
+    "AgentComponentOpStatus",
     "AgentComponentPublishRequest",
     "AgentComponentRetireRequest",
     "AgentComponentSearchPage",
@@ -21118,6 +22090,11 @@ __all__ = [
     "AgentGraphNodeKindTemplate",
     "AgentGraphNodeKindTemplateBody",
     "AgentGraphOp",
+    "AgentGraphOpCurrent",
+    "AgentGraphOpHistory",
+    "AgentGraphOpPublish",
+    "AgentGraphOpRetire",
+    "AgentGraphOpStatus",
     "AgentGraphPublishRequest",
     "AgentGraphRetireRequest",
     "AgentGraphShape",
@@ -21131,6 +22108,11 @@ __all__ = [
     "AgentLibraryMutationContext",
     "AgentLibraryMutationKind",
     "AgentLibraryOp",
+    "AgentLibraryOpCurrent",
+    "AgentLibraryOpHistory",
+    "AgentLibraryOpPublish",
+    "AgentLibraryOpRetire",
+    "AgentLibraryOpStatus",
     "AgentLibraryPublishRequest",
     "AgentLibraryRetireRequest",
     "AgentLibraryStatusRequest",
@@ -21149,11 +22131,18 @@ __all__ = [
     "AgentTemplateInstantiateRequest",
     "AgentTemplateMutationKind",
     "AgentTemplateOp",
+    "AgentTemplateOpCurrent",
+    "AgentTemplateOpHistory",
+    "AgentTemplateOpInstantiate",
+    "AgentTemplateOpPublish",
+    "AgentTemplateOpRetire",
+    "AgentTemplateOpStatus",
     "AgentTemplatePublishRequest",
     "AgentTemplateRetireRequest",
     "AgentTemplateStatusRequest",
     "AgentUsageLimits",
     "Algorithm",
+    "AllocationRule",
     "AnalysisSnapshot",
     "AnalysisSnapshotDraft",
     "AnalyticsJobRecord",
@@ -21173,6 +22162,17 @@ __all__ = [
     "AssemblyResult",
     "AssociationMiningResult",
     "AssociationRuleRow",
+    "AttributionInput",
+    "AttributionInputProperty",
+    "AttributionInputPropertyBody",
+    "AttributionMethod",
+    "AttributionMethodOwen",
+    "AttributionMethodOwenBody",
+    "AttributionMethodShapleySampled",
+    "AttributionMethodShapleySampledBody",
+    "AttributionValue",
+    "AttributionValuePercentile",
+    "AttributionValuePercentileBody",
     "AuditDraw",
     "AuditReport",
     "AuthorityContext",
@@ -21187,12 +22187,15 @@ __all__ = [
     "BarWindow",
     "BatchL2NormalizeResult",
     "BatchUpdateReport",
+    "BayesFuseRequest",
+    "BayesFusion",
     "BeliefMaterialization",
     "BeliefPoint",
     "BeliefSliceInputs",
     "BestTrajectoryResult",
     "BetweennessCentralityResult",
     "BetweennessCentralityResultValueItem",
+    "BindingLever",
     "BlastRadius",
     "BlobFetchBeginResult",
     "BlobGcResult",
@@ -21215,6 +22218,7 @@ __all__ = [
     "BoundedVec_CellLease_8",
     "BoundedVec_ClaimedTaskMapping_32",
     "BoundedVec_ClassCoverage_64",
+    "BoundedVec_ComponentContribution_64",
     "BoundedVec_ComponentDependency_1024",
     "BoundedVec_ComponentDependency_256",
     "BoundedVec_ComponentDependency_64",
@@ -21244,6 +22248,7 @@ __all__ = [
     "BoundedVec_OpeEstimateView_8",
     "BoundedVec_OpeEstimatorKind_8",
     "BoundedVec_OptionAggregate_1024",
+    "BoundedVec_OptionContribution_256",
     "BoundedVec_OutboxDeadLetterView_256",
     "BoundedVec_PackEntry_1024",
     "BoundedVec_PackRef_64",
@@ -21255,10 +22260,12 @@ __all__ = [
     "BoundedVec_PremiseRef_1024",
     "BoundedVec_PremiseRef_32",
     "BoundedVec_QuantisedValue_32",
+    "BoundedVec_QuantisedValue_4096",
     "BoundedVec_QuantisedValue_64",
     "BoundedVec_RawAdmissionReceipt_1024",
     "BoundedVec_RawRelationshipAdmissionReceipt_4096",
     "BoundedVec_RegisteredServerView_256",
+    "BoundedVec_ReplayFoldView_256",
     "BoundedVec_ReturnedEvidence_256",
     "BoundedVec_ScoredOption_64",
     "BoundedVec_SlotAssignment_64",
@@ -21304,7 +22311,13 @@ __all__ = [
     "CalibrationWireInterval",
     "CandidateFacts",
     "CandidateSource",
+    "CandidateSourceAgentLibrary",
+    "CandidateSourceDeclared",
+    "CandidateSourceGraph",
     "CandidateSourceRecord",
+    "CandidateSourceRecordAgentLibrary",
+    "CandidateSourceRecordDeclared",
+    "CandidateSourceRecordGraph",
     "CandleBasis",
     "CanonicalTextAssetRef",
     "CapacityAcquireRequest",
@@ -21386,6 +22399,9 @@ __all__ = [
     "ChangeEnvelopeBatch",
     "ChangeEnvelopeConflict",
     "ChangeEnvelopeOutcome",
+    "ChangeEnvelopeOutcomeApplied",
+    "ChangeEnvelopeOutcomeConflict",
+    "ChangeEnvelopeOutcomeIdempotentSkip",
     "ChangeEnvelopeRecord",
     "ChangedBeliefWire",
     "ChannelCreated",
@@ -21433,6 +22449,9 @@ __all__ = [
     "Coefficient",
     "CoefficientKnown",
     "ColdStart",
+    "ColdStartAdvisoryUncalibrated",
+    "ColdStartDeterministicOnly",
+    "ColdStartExplore",
     "CommitOutcome",
     "CommitOutcomeBundle",
     "CommitOutcomeValue1",
@@ -21448,8 +22467,12 @@ __all__ = [
     "CommunityQualityFunction",
     "CommunityRow",
     "CompactNodesResult",
+    "ComponentContribution",
     "ComponentDependency",
     "ComponentProvenance",
+    "ComponentProvenanceMcpServer",
+    "ComponentProvenanceNative",
+    "ComponentProvenanceSourcePackage",
     "ComputeSimilarityEdgesResult",
     "ComputeSimilarityEdgesResultValueItem",
     "ConfirmToken",
@@ -21459,6 +22482,13 @@ __all__ = [
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
     "ConnectorPackOp",
+    "ConnectorPackOpBind",
+    "ConnectorPackOpImport",
+    "ConnectorPackOpReconcileBodies",
+    "ConnectorPackOpReproject",
+    "ConnectorPackOpRetire",
+    "ConnectorPackOpStatus",
+    "ConnectorPackOpUnbind",
     "ConnectorPackReconcileRequest",
     "ConnectorPackReprojectRequest",
     "ConnectorPackRetireRequest",
@@ -21483,7 +22513,10 @@ __all__ = [
     "ConstraintSpec",
     "ContentVersion",
     "ContentVersionPosition",
+    "ContentVersionPositionOpaque",
     "ContentVersionPositionOpaqueValue",
+    "ContentVersionPositionSequence",
+    "ContentVersionPositionTimestampMillis",
     "ContextView",
     "ContextViewEdgesItem",
     "ContinuousQueryResult",
@@ -21503,13 +22536,18 @@ __all__ = [
     "CoverageDerivation",
     "CrossEntropyResult",
     "CursorPosition",
+    "CursorPositionOpaque",
     "CursorPositionOpaqueValue",
+    "CursorPositionSequence",
+    "CursorPositionTimestampMillis",
     "CvSplit",
     "CypherMode",
     "DataRevisionRef",
     "DataStatus",
     "DatalogReasoningResult",
     "DatasetSource",
+    "DatasetSourceInline",
+    "DatasetSourceLogged",
     "DatasetStats",
     "DecayStats",
     "DecideRequest",
@@ -21519,26 +22557,52 @@ __all__ = [
     "DecisionCommitRequest",
     "DecisionCommitResult",
     "DecisionEvalOp",
+    "DecisionEvalOpStatus",
+    "DecisionEvalOpSubmit",
     "DecisionEvalReceipt",
     "DecisionEvalRequest",
     "DecisionFitOp",
+    "DecisionFitOpStatus",
+    "DecisionFitOpSubmit",
     "DecisionFitRequest",
     "DecisionHeadBody",
     "DecisionInputs",
     "DecisionJobKind",
     "DecisionJobOutput",
+    "DecisionJobOutputEval",
+    "DecisionJobOutputFit",
+    "DecisionJobOutputReplay",
     "DecisionJobRecord",
     "DecisionJobState",
+    "DecisionJobStateCancelled",
+    "DecisionJobStateFailed",
+    "DecisionJobStateQueued",
+    "DecisionJobStateRunning",
+    "DecisionJobStateSucceeded",
     "DecisionJobStatusRequest",
     "DecisionLogCommitted",
     "DecisionLogCompacted",
     "DecisionLogEntry",
     "DecisionLogOp",
+    "DecisionLogOpAggregate",
+    "DecisionLogOpCommit",
+    "DecisionLogOpCompact",
+    "DecisionLogOpEvaluate",
+    "DecisionLogOpGet",
+    "DecisionLogOpLearn",
+    "DecisionLogOpResolve",
+    "DecisionLogOpVerify",
     "DecisionLogVerification",
+    "DecisionLogVerificationInputsRetired",
+    "DecisionLogVerificationVerified",
     "DecisionOutcome",
+    "DecisionOutcomeAbstained",
     "DecisionOutcomeEvaluation",
+    "DecisionOutcomeSolved",
     "DecisionPolicy",
     "DecisionPolicyRef",
+    "DecisionPolicyRefDefault",
+    "DecisionPolicyRefPinned",
     "DecisionQuestion",
     "DecisionRecord",
     "DecisionTree",
@@ -21550,8 +22614,12 @@ __all__ = [
     "DegreeCentralityAllResult",
     "DegreeCentralityAllResultValueItem",
     "DelegationTarget",
+    "DelegationTargetAgent",
+    "DelegationTargetGraph",
     "DerivationClass",
     "DerivationEdge",
+    "DeriveColumn",
+    "DerivedSeriesReceipt",
     "DevelopmentLaneCleanupCompleteRequest",
     "DevelopmentLaneCleanupCompleteRequestSchemaVersion",
     "DevelopmentLaneCleanupCompleteResult",
@@ -21613,7 +22681,11 @@ __all__ = [
     "DiscoveryAuthBinding",
     "DiscoveryCounts",
     "DiscoveryOutcome",
+    "DiscoveryOutcomeReachable",
+    "DiscoveryOutcomeUnreachable",
     "DiscoveryScope",
+    "DiscoveryScopeOauthGrant",
+    "DiscoveryScopeTenantLocal",
     "DistAlgo",
     "DistAlgoBfs",
     "DistAlgoBfsBody",
@@ -21637,14 +22709,24 @@ __all__ = [
     "EdgeFunctionRow",
     "EdgeIndexDefinition",
     "EdgeIndexKind",
+    "EdgeIndexKindText",
+    "EdgeIndexKindVector",
     "EdgeIndexOp",
+    "EdgeIndexOpCreate",
+    "EdgeIndexOpDrop",
+    "EdgeIndexOpRefresh",
+    "EdgeIndexOpStatus",
     "EdgeIndexStatusView",
     "EdgePropertyEquals",
     "EdgeSearchHit",
     "EdgeSearchQuery",
+    "EdgeSearchQueryText",
+    "EdgeSearchQueryVector",
     "EdgeSearchRequest",
     "EdgeSearchView",
     "EdgeSource",
+    "EdgeSourceComponentClassification",
+    "EdgeSourceNativeOntology",
     "EdgeVectorMetric",
     "ElevationAction",
     "ElevationActor",
@@ -21660,6 +22742,9 @@ __all__ = [
     "EntityMatchRow",
     "EntityResolutionMiningResult",
     "EntryInputs",
+    "EntryInputsCompacted",
+    "EntryInputsInline",
+    "EntryInputsRetired",
     "EpistemicStatusResult",
     "EpistemicStatusWire",
     "EpistemicStatusWireTxTime",
@@ -21668,9 +22753,27 @@ __all__ = [
     "EstimatorParams",
     "EstimatorPrediction",
     "EvalCandidate",
+    "EvalCandidateDraftArtifact",
+    "EvalCandidatePublishedHead",
+    "EvalMode",
+    "EvalModeOffPolicy",
+    "EvalModeReplay",
     "EvaluationMetrics",
+    "EvaluationRun",
     "EvaluationVerdict",
     "EvidenceAddressWire",
+    "EvidenceAddressWireAudioRange",
+    "EvidenceAddressWireCharacterRange",
+    "EvidenceAddressWireCodeSymbol",
+    "EvidenceAddressWireFrameRange",
+    "EvidenceAddressWireImageRegion",
+    "EvidenceAddressWireMetricWindow",
+    "EvidenceAddressWirePageRegion",
+    "EvidenceAddressWirePoint",
+    "EvidenceAddressWireRowVersion",
+    "EvidenceAddressWireTableCellRange",
+    "EvidenceAddressWireTraceSpan",
+    "EvidenceAddressWireVideoTimeRange",
     "EvidenceBundle",
     "EvidenceBundleSchemaVersion",
     "EvidenceCitationWire",
@@ -21679,6 +22782,12 @@ __all__ = [
     "EvidenceLocusWire",
     "EvidenceRecord",
     "EvidenceResourceWire",
+    "EvidenceResourceWireArtifact",
+    "EvidenceResourceWireEvidenceLocus",
+    "EvidenceResourceWireFeature",
+    "EvidenceResourceWireOccurrence",
+    "EvidenceResourceWireRendition",
+    "EvidenceResourceWireSegment",
     "EvidenceTimeRange",
     "ExchangeCalendar",
     "ExistenceSignalWire",
@@ -21695,9 +22804,14 @@ __all__ = [
     "ExtractedNode",
     "FactQuality",
     "FeatureMatrixRef",
+    "FeatureMatrixRefBlob",
+    "FeatureMatrixRefInline",
     "FeatureRecord",
     "FeatureStandardisation",
     "FeatureStep",
+    "FeatureStepEmbedding",
+    "FeatureStepNodeVector",
+    "FeatureStepNormalize",
     "FidelityCounts",
     "FieldContract",
     "Fill",
@@ -21707,9 +22821,19 @@ __all__ = [
     "FinanceCombineAlphasResult",
     "FinanceCrossSectionalRankResult",
     "FinanceDrawdownSeriesResult",
-    "FinanceEwmaResult",
     "FinanceKalmanVolatilityResult",
     "FinanceMarketOp",
+    "FinanceMarketOpAnalysisSnapshot",
+    "FinanceMarketOpBacktestRun",
+    "FinanceMarketOpDecimate",
+    "FinanceMarketOpEncodePoints",
+    "FinanceMarketOpFlipConfidence",
+    "FinanceMarketOpIndicators",
+    "FinanceMarketOpResolve",
+    "FinanceMarketOpRollup",
+    "FinanceMarketOpSignalAdvance",
+    "FinanceMarketOpSignalReplay",
+    "FinanceMarketOpSignalScan",
     "FinanceMarkovTransitionMatrixResult",
     "FinanceMatchOrdersResult",
     "FinanceMeanReversionResult",
@@ -21720,9 +22844,11 @@ __all__ = [
     "FinancePairsTradingResult",
     "FinancePurgedCpcvResult",
     "FinanceRealizedVolTickResult",
-    "FinanceRollingZscoreResult",
     "FinanceSabrSmileResult",
     "FinanceSignalDecayResult",
+    "FinanceSignalModelsOp",
+    "FinanceSignalModelsOpBayesFuse",
+    "FinanceSignalModelsOpInsiderEquilibrium",
     "FinanceStressTestResult",
     "FinanceTwapResult",
     "FinanceTwapResultValueItem",
@@ -21732,16 +22858,26 @@ __all__ = [
     "FiredAction",
     "FiredTriggersResult",
     "FittedClassifier",
+    "FittedClassifierGaussianNb",
     "FittedClassifierGaussianNbModel",
+    "FittedClassifierKnn",
     "FittedClassifierKnnModel",
+    "FittedClassifierLinearOvr",
     "FittedClassifierLinearOvrModel",
+    "FittedClassifierMultinomialNb",
     "FittedClassifierMultinomialNbModel",
     "FittedModel",
+    "FittedModelAdaBoost",
     "FittedModelAdaBoostModel",
+    "FittedModelForest",
     "FittedModelForestModel",
+    "FittedModelGradientBoosting",
     "FittedModelGradientBoostingModel",
+    "FittedModelLinear",
     "FittedModelLinearModel",
+    "FittedModelSvr",
     "FittedModelSvrModel",
+    "FittedModelTree",
     "FittedRegime",
     "FleetCatalogCursor",
     "FleetCatalogKind",
@@ -21749,8 +22885,18 @@ __all__ = [
     "FleetCatalogLookup",
     "FleetCatalogLookupRequest",
     "FleetCatalogOp",
+    "FleetCatalogOpClearOverride",
+    "FleetCatalogOpList",
+    "FleetCatalogOpLookup",
+    "FleetCatalogOpRecordDiscovery",
+    "FleetCatalogOpSetOverride",
     "FleetCatalogPage",
     "FleetCatalogRow",
+    "FleetCatalogRowDiscovery",
+    "FleetCatalogRowPrompt",
+    "FleetCatalogRowResource",
+    "FleetCatalogRowSkill",
+    "FleetCatalogRowTool",
     "FleetComponentRef",
     "FleetDiscoveryRecordRequest",
     "FleetDiscoveryRow",
@@ -21758,16 +22904,26 @@ __all__ = [
     "FleetOverrideClearRequest",
     "FleetOverrideField",
     "FleetOverrideSetRequest",
+    "FleetOverrideSkillType",
     "FleetPromptRow",
     "FleetResourceRow",
     "FleetRowAcl",
     "FleetSkillRow",
     "FleetToolRow",
     "FleetVisibility",
+    "FleetVisibilityPrincipal",
+    "FleetVisibilityTenant",
     "FleetWriteDisposition",
     "FleetWriteReceipt",
     "FlipAbstainReason",
+    "FlipAbstainReasonAmbiguousSet",
+    "FlipAbstainReasonDataNotValid",
+    "FlipAbstainReasonDrift",
+    "FlipAbstainReasonInsufficientHistory",
+    "FlipAbstainReasonRegimeUnsupported",
     "FlipConfidence",
+    "FlipConfidenceAbstained",
+    "FlipConfidenceCalibrated",
     "FlipConfidenceRequest",
     "FlipFeatures",
     "FlipOutcomeSample",
@@ -21795,6 +22951,8 @@ __all__ = [
     "FuseClockUniformBody",
     "FuseInterp",
     "FuseStream",
+    "FusionPrior",
+    "FusionSource",
     "GapEvidence",
     "GapEvidenceInput",
     "GapGetResult",
@@ -21851,6 +23009,11 @@ __all__ = [
     "GraphSchemaClassesView",
     "GraphSchemaCommitted",
     "GraphSchemaOp",
+    "GraphSchemaOpAttach",
+    "GraphSchemaOpAttachApproved",
+    "GraphSchemaOpAttachPack",
+    "GraphSchemaOpDetach",
+    "GraphSchemaOpValidateRepair",
     "GraphSchemaSourceView",
     "GraphSchemaSourcesView",
     "GraphSchemaTermKind",
@@ -21870,6 +23033,10 @@ __all__ = [
     "HeldBlobRef",
     "HttpFieldMap",
     "IdempotentPublish",
+    "ImpactOptions",
+    "ImpactPathRow",
+    "ImpactReport",
+    "ImpactSemantics",
     "IncarnationId",
     "Incumbent",
     "IndexBlock",
@@ -21886,15 +23053,33 @@ __all__ = [
     "IndexResult",
     "IndexTombstone",
     "IndicatorKind",
+    "IndicatorKindAtr",
+    "IndicatorKindBand",
+    "IndicatorKindEma",
+    "IndicatorKindHeikinAshi",
+    "IndicatorKindSma",
+    "IndicatorKindSuperTrend",
     "IndicatorPoint",
     "IndicatorSpec",
     "IndicatorValue",
+    "IndicatorValueBand",
+    "IndicatorValueCandle",
+    "IndicatorValueLine",
+    "IndicatorValueTrail",
+    "IndicatorValueWarming",
     "InputsBlob",
+    "InsiderAnalysis",
+    "InsiderEquilibrium",
+    "InsiderEquilibriumRequest",
+    "InsiderInputs",
+    "InsiderScheduleSample",
     "InterClusterEdge",
     "InvalidationEvent",
     "InvalidationScope",
     "IssueControlLeaseRequest",
     "ItemLabel",
+    "ItemLabelGold",
+    "ItemLabelLogged",
     "JobAlgoVersion",
     "JobCheckpoint",
     "JobInputSnapshot",
@@ -21959,14 +23144,28 @@ __all__ = [
     "KgDelegateResult",
     "KgDelegateSchemaVersion",
     "KlEstimator",
+    "KlEstimatorBinary",
+    "KlEstimatorFullVocabulary",
+    "KlEstimatorMonteCarlo",
+    "KlEstimatorSampledToken",
+    "KlEstimatorTopK",
     "KnowledgeResultFamily",
     "KnowledgeStreamBatch",
     "KnowledgeStreamCursor",
     "KnowledgeStreamProjection",
     "KnowledgeStreamQuery",
+    "KnowledgeStreamQueryCrossModal",
+    "KnowledgeStreamQueryGraph",
+    "KnowledgeStreamQueryJob",
+    "KnowledgeStreamQueryRdf",
+    "KnowledgeStreamQuerySql",
+    "KnowledgeStreamQueryTimeSeries",
+    "KnowledgeStreamQueryVector",
     "KnowledgeStreamRequest",
     "LabelExclusions",
     "LabelRegime",
+    "LabelRegimeBanditLabel",
+    "LabelRegimeFullLabel",
     "LabelSource",
     "LabelledDataset",
     "LabelledItem",
@@ -21979,7 +23178,15 @@ __all__ = [
     "LeafProofInfeasible",
     "LeafProofInfeasibleBody",
     "LearningRecorded",
+    "LearningRecordedFitted",
+    "LearningRecordedGeneration",
+    "LearningRecordedOutcome",
+    "LearningRecordedPointer",
     "LearningWrite",
+    "LearningWriteEvaluateGeneration",
+    "LearningWriteFitAdapter",
+    "LearningWriteMovePointer",
+    "LearningWriteRecordOutcome",
     "LeaseDemand",
     "LeasePlan",
     "LeasePriority",
@@ -22006,6 +23213,8 @@ __all__ = [
     "ManagedIndexState",
     "ManagedIndexStatus",
     "ManagedIndexTarget",
+    "ManagedIndexTargetGraphEdges",
+    "ManagedIndexTargetTableColumn",
     "MatchOntologyTermsResult",
     "MaterialClass",
     "MaterialOperation",
@@ -22018,360 +23227,737 @@ __all__ = [
     "MerkleProofStep",
     "MerkleSide",
     "Method",
+    "MethodAcquireCapacity",
     "MethodAcquireCapacityParams",
+    "MethodAddEdge",
     "MethodAddEdgeParams",
+    "MethodAddEmbedding",
     "MethodAddEmbeddingParams",
+    "MethodAddNode",
     "MethodAddNodeParams",
+    "MethodAddSceneObject",
     "MethodAddSceneObjectParams",
+    "MethodAddTriples",
     "MethodAddTriplesParams",
+    "MethodAgentAssemble",
     "MethodAgentAssembleParams",
+    "MethodAgentComponent",
     "MethodAgentComponentParams",
+    "MethodAgentGraph",
     "MethodAgentGraphParams",
+    "MethodAgentLibrary",
     "MethodAgentLibraryParams",
+    "MethodAgentTemplate",
     "MethodAgentTemplateParams",
+    "MethodAnalyticsJob",
     "MethodAnalyticsJobParams",
+    "MethodAppendStep",
     "MethodAppendStepParams",
+    "MethodApplyChangeEnvelope",
     "MethodApplyChangeEnvelopeParams",
+    "MethodApplyChangeEnvelopes",
     "MethodApplyChangeEnvelopesParams",
+    "MethodApplyLedger",
     "MethodApplyLedgerParams",
+    "MethodApplyMultisigMutation",
     "MethodApplyMultisigMutationParams",
+    "MethodApplyMutation",
     "MethodApplyMutationParams",
+    "MethodAsr",
     "MethodAsrParams",
+    "MethodAuditProveInclusion",
     "MethodAuditProveInclusionParams",
+    "MethodAuditVerify",
+    "MethodBackup",
     "MethodBackupParams",
+    "MethodBatchL2Normalize",
     "MethodBatchL2NormalizeParams",
+    "MethodBatchUpdate",
     "MethodBatchUpdateParams",
+    "MethodBeginTxn",
     "MethodBeginTxnParams",
+    "MethodBestTrajectory",
     "MethodBestTrajectoryParams",
+    "MethodBetweennessCentrality",
+    "MethodBindQueue",
     "MethodBindQueueParams",
+    "MethodBlobBegin",
     "MethodBlobBeginParams",
+    "MethodBlobChunkGet",
     "MethodBlobChunkGetParams",
+    "MethodBlobChunkPut",
     "MethodBlobChunkPutParams",
+    "MethodBlobCommit",
     "MethodBlobCommitParams",
+    "MethodBlobFetchBegin",
     "MethodBlobFetchBeginParams",
+    "MethodBlobFetchEnd",
     "MethodBlobFetchEndParams",
+    "MethodBlobGc",
+    "MethodBlobRef",
     "MethodBlobRefParams",
+    "MethodBlobUnref",
     "MethodBlobUnrefParams",
+    "MethodBrokerAck",
     "MethodBrokerAckParams",
+    "MethodBrokerAckTag",
     "MethodBrokerAckTagParams",
+    "MethodBrokerConsume",
     "MethodBrokerConsumeParams",
+    "MethodBrokerNackTag",
     "MethodBrokerNackTagParams",
+    "MethodBrokerReject",
     "MethodBrokerRejectParams",
+    "MethodBrokerRenewTag",
     "MethodBrokerRenewTagParams",
+    "MethodCancelRequest",
     "MethodCancelRequestParams",
+    "MethodCancelWorkItem",
     "MethodCancelWorkItemParams",
+    "MethodCapacityStatus",
     "MethodCapacityStatusParams",
+    "MethodCasWorkItemMetadata",
     "MethodCasWorkItemMetadataParams",
+    "MethodCatalogAssign",
     "MethodCatalogAssignParams",
+    "MethodCatalogList",
+    "MethodCatalogReassign",
     "MethodCatalogReassignParams",
+    "MethodCatalogRemove",
     "MethodCatalogRemoveParams",
+    "MethodCausalCounterfactual",
     "MethodCausalCounterfactualParams",
+    "MethodCausalEstimate",
     "MethodCausalEstimateParams",
+    "MethodCdcRead",
     "MethodCdcReadParams",
+    "MethodCepPoll",
     "MethodCepPollParams",
+    "MethodCepSubscribe",
     "MethodCepSubscribeParams",
+    "MethodCepUnsubscribe",
     "MethodCepUnsubscribeParams",
+    "MethodCheckAccess",
+    "MethodCheckAccessParams",
+    "MethodClaimNext",
     "MethodClaimNextParams",
+    "MethodClaimWorkItem",
     "MethodClaimWorkItemParams",
+    "MethodCleanupDevelopmentLane",
     "MethodCleanupDevelopmentLaneParams",
+    "MethodClearGraph",
+    "MethodClearLedger",
+    "MethodCloseChannel",
     "MethodCloseChannelParams",
+    "MethodClusterHierarchyClusters",
     "MethodClusterHierarchyClustersParams",
+    "MethodClusterHierarchyExpand",
     "MethodClusterHierarchyExpandParams",
+    "MethodClusterHierarchyRefresh",
     "MethodClusterHierarchyRefreshParams",
+    "MethodClusterMembers",
+    "MethodCommit",
     "MethodCommitParams",
+    "MethodCommitWorkItemResult",
     "MethodCommitWorkItemResultParams",
+    "MethodCommunityDetectEphemeral",
     "MethodCommunityDetectEphemeralParams",
     "MethodCommunityDetectEphemeralParamsEdgesItem",
+    "MethodCommunityDetection",
     "MethodCommunityDetectionParams",
+    "MethodCompactNodesByType",
     "MethodCompactNodesByTypeParams",
+    "MethodCompareAndSetNodeFields",
     "MethodCompareAndSetNodeFieldsParams",
+    "MethodComputeSimilarityEdges",
     "MethodComputeSimilarityEdgesParams",
+    "MethodConnectedComponents",
+    "MethodConnectorPack",
     "MethodConnectorPackParams",
+    "MethodConsolidate",
     "MethodConsolidateParams",
+    "MethodCreateChannel",
     "MethodCreateChannelParams",
+    "MethodCreateGraph",
     "MethodCreateGraphParams",
+    "MethodCreateMatView",
     "MethodCreateMatViewParams",
+    "MethodCreateNodeIfAbsent",
     "MethodCreateNodeIfAbsentParams",
+    "MethodCreateSummaryNode",
     "MethodCreateSummaryNodeParams",
+    "MethodCypherQuery",
     "MethodCypherQueryParams",
+    "MethodDecayMemories",
     "MethodDecayMemoriesParams",
+    "MethodDecayNode",
     "MethodDecayNodeParams",
+    "MethodDecaySweep",
     "MethodDecaySweepParams",
+    "MethodDecide",
     "MethodDecideParams",
+    "MethodDecisionCommit",
     "MethodDecisionCommitParams",
+    "MethodDecisionEval",
     "MethodDecisionEvalParams",
+    "MethodDecisionFit",
     "MethodDecisionFitParams",
+    "MethodDecisionLog",
     "MethodDecisionLogParams",
+    "MethodDeclareExchange",
     "MethodDeclareExchangeParams",
+    "MethodDeclareQueue",
     "MethodDeclareQueueParams",
+    "MethodDeferWorkItem",
     "MethodDeferWorkItemParams",
+    "MethodDegreeCentrality",
+    "MethodDegreeCentralityAll",
     "MethodDegreeCentralityParams",
+    "MethodDeleteExchange",
     "MethodDeleteExchangeParams",
+    "MethodDeleteGraph",
     "MethodDeleteGraphParams",
+    "MethodDevelopmentLaneStatus",
     "MethodDevelopmentLaneStatusParams",
+    "MethodDiffAgainst",
     "MethodDiffAgainstParams",
+    "MethodDiscountedReturn",
     "MethodDiscountedReturnParams",
+    "MethodDiscover",
     "MethodDiscoverParams",
+    "MethodDistributedCompute",
     "MethodDistributedComputeParams",
+    "MethodDropContinuousQuery",
     "MethodDropContinuousQueryParams",
+    "MethodDropNamedGraph",
+    "MethodDropTrigger",
     "MethodDropTriggerParams",
+    "MethodDsAdamStep",
     "MethodDsAdamStepParams",
+    "MethodDsComputeStats",
     "MethodDsComputeStatsParams",
+    "MethodDsCrossEntropy",
     "MethodDsCrossEntropyParams",
+    "MethodDsDpoLoss",
     "MethodDsDpoLossParams",
+    "MethodDsFitEstimator",
     "MethodDsFitEstimatorParams",
+    "MethodDsGrpoSurrogate",
     "MethodDsGrpoSurrogateParams",
+    "MethodDsKMeans",
     "MethodDsKMeansParams",
+    "MethodDsKlDivergence",
     "MethodDsKlDivergenceParams",
+    "MethodDsLinearRegression",
     "MethodDsLinearRegressionParams",
+    "MethodDsLogSoftmax",
     "MethodDsLogSoftmaxParams",
+    "MethodDsPca",
     "MethodDsPcaParams",
+    "MethodDsPredictEstimator",
     "MethodDsPredictEstimatorParams",
+    "MethodDsSgdStep",
     "MethodDsSgdStepParams",
+    "MethodDsSoftmax",
     "MethodDsSoftmaxParams",
+    "MethodDsTrainTestSplit",
     "MethodDsTrainTestSplitParams",
+    "MethodEdgeCount",
+    "MethodEdgeIndex",
     "MethodEdgeIndexParams",
+    "MethodEdgeSearch",
     "MethodEdgeSearchParams",
+    "MethodEpistemicStatus",
     "MethodEpistemicStatusParams",
+    "MethodEvictBelow",
     "MethodEvictBelowParams",
+    "MethodEvictLRU",
     "MethodEvictLRUParams",
+    "MethodExplainBelief",
     "MethodExplainBeliefParams",
+    "MethodExplainEvidence",
     "MethodExplainEvidenceParams",
+    "MethodExplainPlan",
     "MethodExplainPlanParams",
+    "MethodExplainPolicy",
     "MethodExplainPolicyParams",
+    "MethodExplainProvenance",
+    "MethodExplainProvenanceByIds",
     "MethodExplainProvenanceByIdsParams",
     "MethodExplainProvenanceParams",
+    "MethodExportSqliteFile",
     "MethodExportSqliteFileParams",
+    "MethodFinanceAdfTest",
     "MethodFinanceAdfTestParams",
+    "MethodFinanceAlphaCombinationEngine",
     "MethodFinanceAlphaCombinationEngineParams",
+    "MethodFinanceAvellanedaStoikov",
     "MethodFinanceAvellanedaStoikovParams",
+    "MethodFinanceBayesianKelly",
     "MethodFinanceBayesianKellyParams",
+    "MethodFinanceBlackLitterman",
     "MethodFinanceBlackLittermanParams",
+    "MethodFinanceBreakevenAlpha",
     "MethodFinanceBreakevenAlphaParams",
+    "MethodFinanceBrierScore",
     "MethodFinanceBrierScoreParams",
+    "MethodFinanceCombineAlphas",
     "MethodFinanceCombineAlphasParams",
+    "MethodFinanceConvergenceGate",
     "MethodFinanceConvergenceGateParams",
+    "MethodFinanceCrossSectionalRank",
     "MethodFinanceCrossSectionalRankParams",
+    "MethodFinanceCvar",
     "MethodFinanceCvarParams",
+    "MethodFinanceDeflatedSharpe",
     "MethodFinanceDeflatedSharpeParams",
+    "MethodFinanceDetectRegimes",
     "MethodFinanceDetectRegimesParams",
+    "MethodFinanceDieboldMariano",
     "MethodFinanceDieboldMarianoParams",
+    "MethodFinanceDownsideDeviation",
     "MethodFinanceDownsideDeviationParams",
+    "MethodFinanceDrawdownSeries",
     "MethodFinanceDrawdownSeriesParams",
+    "MethodFinanceEffectiveIndependentN",
     "MethodFinanceEffectiveIndependentNParams",
+    "MethodFinanceEfficientFrontier",
     "MethodFinanceEfficientFrontierParams",
+    "MethodFinanceEmpiricalKelly",
     "MethodFinanceEmpiricalKellyParams",
-    "MethodFinanceEwmaParams",
+    "MethodFinanceExpectedPnlRate",
     "MethodFinanceExpectedPnlRateParams",
+    "MethodFinanceForensicReport",
     "MethodFinanceForensicReportParams",
+    "MethodFinanceGlostenMilgromSpread",
     "MethodFinanceGlostenMilgromSpreadParams",
+    "MethodFinanceGltQuotes",
     "MethodFinanceGltQuotesParams",
+    "MethodFinanceHardimanBouchaud",
     "MethodFinanceHardimanBouchaudParams",
+    "MethodFinanceHawkesMle",
     "MethodFinanceHawkesMleParams",
+    "MethodFinanceInformationCoefficient",
     "MethodFinanceInformationCoefficientParams",
+    "MethodFinanceInformationRatio",
     "MethodFinanceInformationRatioParams",
+    "MethodFinanceKalmanBeta",
     "MethodFinanceKalmanBetaParams",
+    "MethodFinanceKalmanFilter1d",
     "MethodFinanceKalmanFilter1dParams",
+    "MethodFinanceKalmanVolatility",
     "MethodFinanceKalmanVolatilityParams",
+    "MethodFinanceKellyFraction",
     "MethodFinanceKellyFractionParams",
+    "MethodFinanceKyleLambda",
     "MethodFinanceKyleLambdaParams",
+    "MethodFinanceLogitQuotes",
     "MethodFinanceLogitQuotesParams",
+    "MethodFinanceMarket",
+    "MethodFinanceMarketImpact",
     "MethodFinanceMarketImpactParams",
     "MethodFinanceMarketParams",
+    "MethodFinanceMarkovTransitionMatrix",
     "MethodFinanceMarkovTransitionMatrixParams",
+    "MethodFinanceMatchOrders",
     "MethodFinanceMatchOrdersParams",
+    "MethodFinanceMaxDrawdown",
     "MethodFinanceMaxDrawdownParams",
+    "MethodFinanceMeanReversion",
     "MethodFinanceMeanReversionParams",
+    "MethodFinanceMicropriceSeries",
     "MethodFinanceMicropriceSeriesParams",
+    "MethodFinanceMomentum",
     "MethodFinanceMomentumParams",
+    "MethodFinanceMonteCarloVar",
     "MethodFinanceMonteCarloVarParams",
+    "MethodFinanceOfiSeries",
     "MethodFinanceOfiSeriesParams",
+    "MethodFinanceOptimizePortfolio",
     "MethodFinanceOptimizePortfolioParams",
+    "MethodFinanceOrderBookImbalance",
     "MethodFinanceOrderBookImbalanceParams",
+    "MethodFinanceOuCalibrate",
     "MethodFinanceOuCalibrateParams",
+    "MethodFinanceOuOptimalThresholds",
     "MethodFinanceOuOptimalThresholdsParams",
+    "MethodFinancePairsTrading",
     "MethodFinancePairsTradingParams",
+    "MethodFinancePosteriorCredibleInterval",
     "MethodFinancePosteriorCredibleIntervalParams",
+    "MethodFinanceProbabilityBacktestOverfit",
     "MethodFinanceProbabilityBacktestOverfitParams",
+    "MethodFinancePurgedCpcv",
     "MethodFinancePurgedCpcvParams",
+    "MethodFinanceQueueImbalance",
     "MethodFinanceQueueImbalanceParams",
+    "MethodFinanceRealizedVolTick",
     "MethodFinanceRealizedVolTickParams",
+    "MethodFinanceRiskMetrics",
     "MethodFinanceRiskMetricsParams",
+    "MethodFinanceRiskParity",
     "MethodFinanceRiskParityParams",
-    "MethodFinanceRollingZscoreParams",
+    "MethodFinanceSabrCalibrate",
     "MethodFinanceSabrCalibrateParams",
+    "MethodFinanceSabrImpliedVol",
     "MethodFinanceSabrImpliedVolParams",
+    "MethodFinanceSabrSmile",
     "MethodFinanceSabrSmileParams",
+    "MethodFinanceSignalDecay",
     "MethodFinanceSignalDecayParams",
+    "MethodFinanceSignalModels",
+    "MethodFinanceSignalModelsParams",
+    "MethodFinanceSpreadReversion",
     "MethodFinanceSpreadReversionParams",
+    "MethodFinanceStressTest",
     "MethodFinanceStressTestParams",
+    "MethodFinanceSurveillanceRisk",
     "MethodFinanceSurveillanceRiskParams",
+    "MethodFinanceTwap",
     "MethodFinanceTwapParams",
+    "MethodFinanceVar",
     "MethodFinanceVarParams",
+    "MethodFinanceVpinPm",
     "MethodFinanceVpinPmParams",
+    "MethodFinanceVwap",
     "MethodFinanceVwapParams",
+    "MethodFindCycle",
+    "MethodFinishDevelopmentLane",
     "MethodFinishDevelopmentLaneParams",
+    "MethodFiredTriggers",
     "MethodFiredTriggersParams",
+    "MethodFleetCatalog",
     "MethodFleetCatalogParams",
+    "MethodFork",
+    "MethodFreshnessFeed",
     "MethodFreshnessFeedParams",
+    "MethodFromMsgpack",
     "MethodFromMsgpackParams",
+    "MethodGapGet",
     "MethodGapGetParams",
+    "MethodGapList",
     "MethodGapListParams",
+    "MethodGapSettle",
     "MethodGapSettleParams",
+    "MethodGapTransition",
     "MethodGapTransitionParams",
+    "MethodGapUpsert",
     "MethodGapUpsertParams",
+    "MethodGetBlastRadius",
     "MethodGetBlastRadiusParams",
+    "MethodGetChangeCursor",
     "MethodGetChangeCursorParams",
+    "MethodGetChangeEnvelope",
     "MethodGetChangeEnvelopeParams",
+    "MethodGetChannelMembers",
     "MethodGetChannelMembersParams",
+    "MethodGetChannelMessages",
     "MethodGetChannelMessagesParams",
+    "MethodGetContentVersion",
     "MethodGetContentVersionParams",
+    "MethodGetContextView",
     "MethodGetContextViewParams",
+    "MethodGetControlLease",
     "MethodGetControlLeaseParams",
+    "MethodGetEdgeProperties",
+    "MethodGetEdgePropertiesBatch",
     "MethodGetEdgePropertiesBatchParams",
     "MethodGetEdgePropertiesBatchParamsEdgesItem",
     "MethodGetEdgePropertiesParams",
+    "MethodGetEdges",
+    "MethodGetEdgesPage",
     "MethodGetEdgesPageParams",
     "MethodGetEdgesPageParamsAfter",
+    "MethodGetIdentity",
     "MethodGetIdentityParams",
+    "MethodGetLedger",
+    "MethodGetMatView",
     "MethodGetMatViewParams",
+    "MethodGetNeighbors",
+    "MethodGetNeighborsBatch",
     "MethodGetNeighborsBatchParams",
     "MethodGetNeighborsParams",
+    "MethodGetNodeProperties",
+    "MethodGetNodePropertiesBatch",
     "MethodGetNodePropertiesBatchParams",
     "MethodGetNodePropertiesParams",
+    "MethodGetNodes",
+    "MethodGetNodesByLabel",
     "MethodGetNodesByLabelParams",
+    "MethodGetPredecessors",
     "MethodGetPredecessorsParams",
+    "MethodGetRdf",
+    "MethodGetShortestPath",
     "MethodGetShortestPathParams",
+    "MethodGetSubgraph",
     "MethodGetSubgraphParams",
+    "MethodGetSuccessors",
     "MethodGetSuccessorsParams",
+    "MethodGetWorkItem",
+    "MethodGetWorkItemOutcome",
     "MethodGetWorkItemOutcomeParams",
     "MethodGetWorkItemParams",
+    "MethodGraphColoring",
+    "MethodGraphLearnFit",
     "MethodGraphLearnFitParams",
+    "MethodGraphLearnPredict",
     "MethodGraphLearnPredictParams",
     "MethodGraphLearnPredictParamsCandidatePairsItem",
+    "MethodGraphQl",
     "MethodGraphQlParams",
+    "MethodGraphSchema",
+    "MethodGraphSchemaClasses",
     "MethodGraphSchemaClassesParams",
+    "MethodGraphSchemaList",
     "MethodGraphSchemaParams",
+    "MethodHasEdge",
     "MethodHasEdgeParams",
+    "MethodHasNode",
     "MethodHasNodeParams",
+    "MethodHasNodesBatch",
     "MethodHasNodesBatchParams",
+    "MethodHealth",
+    "MethodIcvConfigure",
     "MethodIcvConfigureParams",
+    "MethodImportSqliteFile",
     "MethodImportSqliteFileParams",
+    "MethodInDegree",
     "MethodInDegreeParams",
+    "MethodIndexRepository",
     "MethodIndexRepositoryParams",
+    "MethodInvalidateEdge",
     "MethodInvalidateEdgeParams",
+    "MethodIssueControlLease",
     "MethodIssueControlLeaseParams",
+    "MethodJoinChannel",
     "MethodJoinChannelParams",
+    "MethodKgDelegate",
     "MethodKgDelegateParams",
+    "MethodKnowledgeStream",
     "MethodKnowledgeStreamParams",
+    "MethodKvCas",
     "MethodKvCasParams",
+    "MethodKvDelete",
     "MethodKvDeleteParams",
+    "MethodKvGet",
     "MethodKvGetParams",
+    "MethodKvPut",
     "MethodKvPutParams",
+    "MethodKvScan",
     "MethodKvScanParams",
+    "MethodLeaveChannel",
     "MethodLeaveChannelParams",
+    "MethodListChannels",
+    "MethodListControlLeases",
     "MethodListControlLeasesParams",
+    "MethodListGraphs",
+    "MethodListRegisteredServers",
     "MethodListRegisteredServersParams",
+    "MethodListTriggers",
     "MethodListTriggersParams",
+    "MethodListWorkItems",
     "MethodListWorkItemsParams",
+    "MethodMaintain",
     "MethodMaintainParams",
+    "MethodMatchOntologyTerms",
     "MethodMatchOntologyTermsParams",
+    "MethodMaterializationStatus",
     "MethodMaterializationStatusParams",
+    "MethodMetrics",
+    "MethodMineAnomaly",
     "MethodMineAnomalyParams",
+    "MethodMineAssociate",
     "MethodMineAssociateParams",
+    "MethodMineCausalImpact",
     "MethodMineCausalImpactParams",
+    "MethodMineClassifyFit",
     "MethodMineClassifyFitParams",
+    "MethodMineClassifyPredict",
     "MethodMineClassifyPredictParams",
+    "MethodMineCluster",
     "MethodMineClusterParams",
+    "MethodMineCommunity",
     "MethodMineCommunityParams",
+    "MethodMineEntityResolve",
     "MethodMineEntityResolveParams",
+    "MethodMineForecast",
     "MethodMineForecastParams",
+    "MethodMineOntologyGap",
     "MethodMineOntologyGapParams",
+    "MethodMineProcess",
     "MethodMineProcessParams",
+    "MethodMineReduce",
     "MethodMineReduceParams",
+    "MethodMineRetrievalQuality",
     "MethodMineRetrievalQualityParams",
+    "MethodMineRiskPropagation",
     "MethodMineRiskPropagationParams",
     "MethodMineRiskPropagationParamsEdgesItem",
+    "MethodMineRootCause",
     "MethodMineRootCauseParams",
     "MethodMineRootCauseParamsEdgesItem",
+    "MethodMineSequence",
     "MethodMineSequenceParams",
+    "MethodMineSubgraph",
     "MethodMineSubgraphParams",
+    "MethodMineText",
     "MethodMineTextParams",
+    "MethodMinimumSpanningTree",
+    "MethodMiningPipelineCompare",
     "MethodMiningPipelineCompareParams",
+    "MethodMiningPipelineEvaluate",
     "MethodMiningPipelineEvaluateParams",
+    "MethodMiningPipelinePredict",
     "MethodMiningPipelinePredictParams",
+    "MethodMiningPipelineServe",
     "MethodMiningPipelineServeParams",
+    "MethodMiningPipelineTrain",
     "MethodMiningPipelineTrainParams",
+    "MethodMintWorkItemClaimCapability",
     "MethodMintWorkItemClaimCapabilityParams",
+    "MethodMultiGraphBatchUpdate",
     "MethodMultiGraphBatchUpdateParams",
+    "MethodMutationOutbox",
     "MethodMutationOutboxParams",
+    "MethodNlQuery",
     "MethodNlQueryParams",
+    "MethodNodeCount",
+    "MethodNodeIds",
+    "MethodObserveDevelopmentLane",
     "MethodObserveDevelopmentLaneParams",
+    "MethodObserveScreen",
     "MethodObserveScreenParams",
+    "MethodOutDegree",
     "MethodOutDegreeParams",
+    "MethodOwlExplain",
     "MethodOwlExplainParams",
+    "MethodOwlReason",
+    "MethodOwlReasonDistributed",
     "MethodOwlReasonDistributedParams",
     "MethodOwlReasonParams",
+    "MethodPageRank",
     "MethodPageRankParams",
+    "MethodParseFile",
     "MethodParseFileParams",
+    "MethodParseFiles",
     "MethodParseFilesParams",
+    "MethodPersonalizedPageRank",
     "MethodPersonalizedPageRankParams",
     "MethodPersonalizedPageRankParamsSeedNodesItem",
+    "MethodPing",
+    "MethodPlacementAdmin",
     "MethodPlacementAdminParams",
+    "MethodPlacementRoute",
     "MethodPlacementRouteParams",
+    "MethodPlanMatViewDefine",
     "MethodPlanMatViewDefineParams",
+    "MethodPlanMatViewDrop",
     "MethodPlanMatViewDropParams",
+    "MethodPlanMatViewGet",
     "MethodPlanMatViewGetParams",
+    "MethodPlanMatViewRefresh",
     "MethodPlanMatViewRefreshParams",
+    "MethodPolicyEvolution",
     "MethodPolicyEvolutionParams",
+    "MethodPolicyEvolutionStore",
     "MethodPolicyEvolutionStoreParams",
+    "MethodPruneByLifecycle",
     "MethodPruneByLifecycleParams",
+    "MethodPublish",
+    "MethodPublishConfirmed",
     "MethodPublishConfirmedParams",
+    "MethodPublishEx",
     "MethodPublishExParams",
+    "MethodPublishIdempotent",
     "MethodPublishIdempotentParams",
     "MethodPublishParams",
+    "MethodQuantum",
     "MethodQuantumParams",
+    "MethodQueryDevelopmentLane",
     "MethodQueryDevelopmentLaneParams",
+    "MethodQueryWorkItemReservation",
     "MethodQueryWorkItemReservationParams",
+    "MethodRaftAddLearner",
     "MethodRaftAddLearnerParams",
+    "MethodRaftChangeMembership",
     "MethodRaftChangeMembershipParams",
+    "MethodRankByProvenance",
     "MethodRankByProvenanceParams",
+    "MethodRbacAdmin",
     "MethodRbacAdminParams",
+    "MethodRbacElevation",
     "MethodRbacElevationParams",
+    "MethodReadContinuousQuery",
     "MethodReadContinuousQueryParams",
+    "MethodRebalanceExecute",
     "MethodRebalanceExecuteParams",
+    "MethodRebalancePlan",
     "MethodRebalancePlanParams",
+    "MethodReclaimExpiredCapacity",
     "MethodReclaimExpiredCapacityParams",
+    "MethodReclaimWorkItemResources",
     "MethodReclaimWorkItemResourcesParams",
+    "MethodRecomputeMaterialization",
     "MethodRecomputeMaterializationParams",
+    "MethodReconcile",
+    "MethodReconcileCapacity",
     "MethodReconcileCapacityParams",
     "MethodReconcileParams",
+    "MethodRefreshMatView",
     "MethodRefreshMatViewParams",
+    "MethodRegisterContinuousQuery",
     "MethodRegisterContinuousQueryParams",
+    "MethodRegisterForeignSource",
     "MethodRegisterForeignSourceParams",
+    "MethodRegisterIdentity",
     "MethodRegisterIdentityParams",
+    "MethodRegisterServer",
     "MethodRegisterServerParams",
+    "MethodRegisterTrigger",
     "MethodRegisterTriggerParams",
+    "MethodRegisterUdf",
     "MethodRegisterUdfParams",
+    "MethodReinforce",
     "MethodReinforceParams",
+    "MethodReleaseCapacity",
     "MethodReleaseCapacityParams",
+    "MethodReleaseWorkItemResources",
     "MethodReleaseWorkItemResourcesParams",
+    "MethodRemoveEdge",
     "MethodRemoveEdgeParams",
+    "MethodRemoveNode",
     "MethodRemoveNodeParams",
+    "MethodRemoveTriples",
     "MethodRemoveTriplesParams",
+    "MethodRenewCapacity",
     "MethodRenewCapacityParams",
+    "MethodRenewDevelopmentLane",
     "MethodRenewDevelopmentLaneParams",
+    "MethodRenewWorkItemLease",
     "MethodRenewWorkItemLeaseParams",
+    "MethodReparent",
     "MethodReparentParams",
+    "MethodReserveDevelopmentLane",
     "MethodReserveDevelopmentLaneParams",
+    "MethodReserveWorkItemResources",
     "MethodReserveWorkItemResourcesParams",
+    "MethodReshard",
     "MethodReshardParams",
+    "MethodResolveCandidates",
     "MethodResolveCandidatesParams",
+    "MethodResolveConflict",
     "MethodResolveConflictParams",
+    "MethodResourceReservationStatus",
     "MethodResourceReservationStatusParams",
+    "MethodResourceStatsPage",
     "MethodResourceStatsPageParams",
+    "MethodRestore",
     "MethodRestoreParams",
+    "MethodRetireSealedRecord",
+    "MethodRetireSealedRecordParams",
+    "MethodRollback",
     "MethodRollbackParams",
+    "MethodRunDatalogReasoning",
     "MethodRunDatalogReasoningParams",
     "MethodRunDatalogReasoningParamsDomainRulesItem",
     "MethodRunDatalogReasoningParamsInversePropertiesItem",
@@ -22379,78 +23965,159 @@ __all__ = [
     "MethodRunDatalogReasoningParamsRangeRulesItem",
     "MethodRunDatalogReasoningParamsSubclassRelationsItem",
     "MethodRunDatalogReasoningParamsSubpropertyRelationsItem",
+    "MethodRunRules",
     "MethodRunRulesParams",
+    "MethodRunUdf",
     "MethodRunUdfParams",
+    "MethodSceneChildren",
     "MethodSceneChildrenParams",
+    "MethodSemanticIndex",
     "MethodSemanticIndexParams",
+    "MethodSemanticSearch",
     "MethodSemanticSearchParams",
+    "MethodSendMessage",
     "MethodSendMessageParams",
+    "MethodServedModality",
     "MethodServedModalityParams",
+    "MethodSetPose",
     "MethodSetPoseParams",
+    "MethodShaclValidate",
     "MethodShaclValidateParams",
+    "MethodShexValidate",
     "MethodShexValidateParams",
+    "MethodShutdown",
+    "MethodSolve",
     "MethodSolveParams",
+    "MethodSourceIngest",
     "MethodSourceIngestParams",
+    "MethodSourceIngestStatus",
     "MethodSourceIngestStatusParams",
+    "MethodSparql",
     "MethodSparqlParams",
+    "MethodSparqlVirtual",
     "MethodSparqlVirtualParams",
+    "MethodSql",
     "MethodSqlParams",
+    "MethodSqlSourceBatch",
     "MethodSqlSourceBatchParams",
+    "MethodStaleMaterializations",
+    "MethodStartTrajectory",
     "MethodStartTrajectoryParams",
+    "MethodStatechart",
     "MethodStatechartParams",
+    "MethodStreamCommitOffset",
     "MethodStreamCommitOffsetParams",
+    "MethodStreamCommittedOffset",
     "MethodStreamCommittedOffsetParams",
+    "MethodStreamDeclare",
     "MethodStreamDeclareParams",
+    "MethodStreamPublish",
     "MethodStreamPublishParams",
+    "MethodStreamRead",
     "MethodStreamReadParams",
+    "MethodStreamTrim",
     "MethodStreamTrimParams",
+    "MethodStronglyConnectedComponents",
+    "MethodSubmitWorkItem",
     "MethodSubmitWorkItemParams",
+    "MethodSubmitWorkItems",
     "MethodSubmitWorkItemsParams",
+    "MethodSummariesAtLevel",
     "MethodSummariesAtLevelParams",
+    "MethodSummaryChildren",
     "MethodSummaryChildrenParams",
+    "MethodSupersedeEdge",
     "MethodSupersedeEdgeParams",
+    "MethodSweepExpired",
     "MethodSweepExpiredParams",
+    "MethodTelemetryDerive",
     "MethodTelemetryDeriveParams",
+    "MethodThrottleCapacityCell",
     "MethodThrottleCapacityCellParams",
+    "MethodToMsgpack",
+    "MethodTopologicalSort",
+    "MethodTouchNodes",
     "MethodTouchNodesParams",
+    "MethodTransitionControlLease",
     "MethodTransitionControlLeaseParams",
+    "MethodTsAppend",
     "MethodTsAppendParams",
+    "MethodTsAsofJoin",
     "MethodTsAsofJoinParams",
+    "MethodTsDefineSeries",
+    "MethodTsDefineSeriesParams",
+    "MethodTsDeleteSeries",
     "MethodTsDeleteSeriesParams",
+    "MethodTsEvict",
     "MethodTsEvictParams",
+    "MethodTsGapFill",
     "MethodTsGapFillParams",
+    "MethodTsListSeries",
+    "MethodTsRange",
     "MethodTsRangeParams",
+    "MethodTsWindow",
     "MethodTsWindowParams",
+    "MethodTxnAddEdge",
     "MethodTxnAddEdgeParams",
+    "MethodTxnAddEmbedding",
     "MethodTxnAddEmbeddingParams",
+    "MethodTxnAddMeasurement",
     "MethodTxnAddMeasurementParams",
+    "MethodTxnAddNode",
     "MethodTxnAddNodeParams",
+    "MethodTxnAxiom",
     "MethodTxnAxiomParams",
+    "MethodTxnBlobRef",
     "MethodTxnBlobRefParams",
+    "MethodTxnCas",
     "MethodTxnCasParams",
+    "MethodTxnConstruct",
     "MethodTxnConstructParams",
+    "MethodTxnMaterializeBelief",
     "MethodTxnMaterializeBeliefParams",
+    "MethodTxnPlanWriteback",
     "MethodTxnPlanWritebackParams",
+    "MethodTxnRemoveEdge",
     "MethodTxnRemoveEdgeParams",
+    "MethodTxnRemoveNode",
     "MethodTxnRemoveNodeParams",
+    "MethodTxnUnifiedQuery",
     "MethodTxnUnifiedQueryParams",
+    "MethodTxnUql",
     "MethodTxnUqlParams",
+    "MethodUnbindQueue",
     "MethodUnbindQueueParams",
+    "MethodUnifiedQuery",
     "MethodUnifiedQueryParams",
+    "MethodUnionGetNeighbors",
     "MethodUnionGetNeighborsParams",
+    "MethodUnionGetNodeProperties",
     "MethodUnionGetNodePropertiesParams",
+    "MethodUnionGetNodesByLabel",
     "MethodUnionGetNodesByLabelParams",
+    "MethodUpdateCapacityCell",
     "MethodUpdateCapacityCellParams",
+    "MethodUpdateDevelopmentLaneQuota",
     "MethodUpdateDevelopmentLaneQuotaParams",
+    "MethodUpdateResourceHost",
     "MethodUpdateResourceHostParams",
+    "MethodUql",
     "MethodUqlParams",
+    "MethodVerifyWorkItemClaimCapability",
     "MethodVerifyWorkItemClaimCapabilityParams",
+    "MethodVf2SubgraphMatch",
     "MethodVf2SubgraphMatchParams",
+    "MethodViz",
     "MethodVizParams",
+    "MethodWatch",
     "MethodWatchParams",
+    "MethodWhatChanged",
     "MethodWhatChangedParams",
+    "MethodWorkOfferPut",
     "MethodWorkOfferPutParams",
+    "MethodWorldTransform",
     "MethodWorldTransformParams",
+    "MethodWriteBack",
     "MethodWriteBackParams",
     "MineAlgorithm",
     "MineSeqAlgorithm",
@@ -22462,6 +24129,14 @@ __all__ = [
     "ModelSpec",
     "MotifCountsRow",
     "MotifMiningResult",
+    "MotifOp",
+    "MotifSearch",
+    "MotifSearchDiscord",
+    "MotifSearchDiscordBody",
+    "MotifSearchLike",
+    "MotifSearchLikeBody",
+    "MotifSearchPairs",
+    "MotifSearchPairsBody",
     "MultiGraphBatchReport",
     "MultimodalAssetRef",
     "MutationBatch",
@@ -22473,27 +24148,42 @@ __all__ = [
     "MutationOutboxIntent",
     "MutationOutboxLease",
     "MutationOutboxOp",
+    "MutationOutboxOpDeadLetters",
+    "MutationOutboxOpRewind",
+    "MutationOutboxOpStatus",
     "MutationOutboxRecord",
     "MutationOutboxStatusView",
     "MutationScope",
     "MutationScopeDigest",
+    "MutationScopeGraph",
     "MutationScopeIdentity",
+    "MutationScopeNative",
     "MutationStateDescriptor",
     "MutationSurface",
     "NamedEvaluator",
     "NativeControlSchemaVersion",
     "NativeOutboxScope",
+    "NativeOutboxScopeSemanticBinding",
+    "NativeOutboxScopeSqlResource",
+    "NativeOutboxScopeTenant",
     "NativeOutboxStore",
     "NlBinding",
     "NlChoiceSource",
+    "NlChoiceSourceEngine",
+    "NlChoiceSourceLlmProposal",
     "NlQueryResult",
     "NlQueryResultValueItem",
     "NlTarget",
+    "NlTargetAgentAssemble",
+    "NlTargetDecide",
+    "NlTargetNamedQuery",
     "Nonce",
     "ObdaExternalSource",
     "ObjectiveLevelKind",
     "ObjectiveLevelSpec",
     "ObjectiveOrder",
+    "ObjectiveOrderLexicographic",
+    "ObjectiveOrderWeighted",
     "ObjectiveTerm",
     "ObjectiveValue",
     "ObservationRef",
@@ -22503,6 +24193,8 @@ __all__ = [
     "Op",
     "OpAsOf",
     "OpAsOfBody",
+    "OpAttribute",
+    "OpAttributeBody",
     "OpBeliefAsOf",
     "OpBeliefAsOfBody",
     "OpCep",
@@ -22512,6 +24204,10 @@ __all__ = [
     "OpContradictsBody",
     "OpDecisionScan",
     "OpDecisionScanBody",
+    "OpDerive",
+    "OpDeriveBody",
+    "OpEvents",
+    "OpEventsBody",
     "OpEvidenceFor",
     "OpEvidenceForBody",
     "OpExpand",
@@ -22528,10 +24224,14 @@ __all__ = [
     "OpFuseRrfBody",
     "OpLimit",
     "OpLimitBody",
+    "OpMotif",
+    "OpMotifBody",
     "OpProbabilistic",
     "OpProbabilisticBody",
     "OpProject",
     "OpProjectBody",
+    "OpPropagate",
+    "OpPropagateBody",
     "OpRank",
     "OpRankBody",
     "OpRankEmbed",
@@ -22554,6 +24254,8 @@ __all__ = [
     "OpSensorAlignBody",
     "OpSensorFuse",
     "OpSensorFuseBody",
+    "OpSkill",
+    "OpSkillBody",
     "OpSourceReliability",
     "OpSourceReliabilityBody",
     "OpSparqlBgp",
@@ -22588,6 +24290,7 @@ __all__ = [
     "OptimizationResult",
     "OptionAggregate",
     "OptionAttentionParams",
+    "OptionContribution",
     "Order",
     "OuParams",
     "OuThresholds",
@@ -22598,6 +24301,8 @@ __all__ = [
     "OutboxPositionView",
     "OutboxRewindReceipt",
     "OutboxTarget",
+    "OutboxTargetGraph",
+    "OutboxTargetNativeStore",
     "OutcomeAggregate",
     "OutcomeAggregateRequest",
     "OutcomeArtifactRef",
@@ -22622,10 +24327,17 @@ __all__ = [
     "PackHeadView",
     "PackImportReceipt",
     "PackImportResult",
+    "PackImportResultImported",
+    "PackImportResultRejected",
+    "PackImportResultUnchanged",
     "PackMemberCounts",
     "PackModelFacts",
     "PackProducer",
     "PackProjectionState",
+    "PackProjectionStateApplied",
+    "PackProjectionStateFailed",
+    "PackProjectionStateNone",
+    "PackProjectionStatePending",
     "PackRef",
     "PackRetireResult",
     "PackSection",
@@ -22643,17 +24355,25 @@ __all__ = [
     "PathEdge",
     "PathRank",
     "PatternEdge",
+    "PenaltyPolicy",
+    "PenaltyVerdict",
     "PersonalizedPageRankResult",
     "PersonalizedPageRankResultValueItem",
     "PipelineClassifiedRow",
     "PipelineComparison",
     "PipelineEvaluation",
     "PipelinePrediction",
+    "PipelinePredictionClassify",
+    "PipelinePredictionEstimator",
+    "PipelinePredictionGraphlearn",
     "PipelineServeResult",
     "PipelineSpec",
     "PipelineTrainResult",
     "PipelineValueRow",
     "PlacementAdminOp",
+    "PlacementAdminOpAbortMove",
+    "PlacementAdminOpAssign",
+    "PlacementAdminOpMove",
     "PlacementEpoch",
     "PlacementMoveResult",
     "PlacementMoveResultRange",
@@ -22664,13 +24384,28 @@ __all__ = [
     "Plan",
     "PointerEvent",
     "PointerMovement",
+    "PointerMovementActivate",
+    "PointerMovementRollback",
     "PointerRef",
+    "PointerRefAdapter",
+    "PointerRefGeneration",
     "PointerTransition",
     "PolicyCapture",
     "PolicyControls",
     "PolicyEvaluation",
     "PolicyEvolutionOp",
+    "PolicyEvolutionOpCommitCapture",
+    "PolicyEvolutionOpCommitPolicyEvaluation",
+    "PolicyEvolutionOpCommitTrainingRun",
+    "PolicyEvolutionOpGet",
+    "PolicyEvolutionOpPutCapability",
+    "PolicyEvolutionOpRegisterModelPolicyVersion",
     "PolicyEvolutionRecord",
+    "PolicyEvolutionRecordCapability",
+    "PolicyEvolutionRecordCapture",
+    "PolicyEvolutionRecordModelPolicyVersion",
+    "PolicyEvolutionRecordPolicyEvaluation",
+    "PolicyEvolutionRecordTrainingRun",
     "PolicyRecord",
     "PolicyRecordGetRequest",
     "PolicyRecordKind",
@@ -22728,11 +24463,29 @@ __all__ = [
     "PredictedLink",
     "PremiseClass",
     "PremiseProvenance",
+    "PremiseProvenanceCapacityCell",
+    "PremiseProvenanceClaimedMapping",
+    "PremiseProvenanceConnectorPack",
+    "PremiseProvenanceNativeOntology",
+    "PremiseProvenanceObservation",
+    "PremiseProvenancePolicy",
+    "PremiseProvenancePublisher",
+    "PremiseProvenanceRequest",
+    "PremiseProvenanceSchemaSource",
     "PremiseRef",
     "PriceSource",
+    "PriceSourceConnectorPack",
+    "PriceSourceOperator",
+    "PriceSourcePublisher",
     "PrivacyAttestation",
     "ProbEvidenceSpec",
+    "ProbEvidenceSpecBernoulli",
+    "ProbEvidenceSpecGaussian",
     "ProbQuery",
+    "ProbQueryConditional",
+    "ProbQueryExpectation",
+    "ProbQueryMarginal",
+    "ProbQuerySample",
     "ProcessMiningResult",
     "PromotionMetrics",
     "PromptMode",
@@ -22744,6 +24497,9 @@ __all__ = [
     "ProofNodeLeaf",
     "ProofNodeLeafBody",
     "ProofNodeWire",
+    "PropagateModel",
+    "PropagateModelCascade",
+    "PropagateModelCascadeBody",
     "PropensitySource",
     "PropertyBlob",
     "PruneStats",
@@ -22751,6 +24507,9 @@ __all__ = [
     "QuantisedValue",
     "QuantumExpectationResult",
     "QuantumOp",
+    "QuantumOpExpectation",
+    "QuantumOpOptimizeQaoa",
+    "QuantumOpRank",
     "QuantumOperationKind",
     "QuantumPlannerAuditEntry",
     "QuantumPlannerReport",
@@ -22777,6 +24536,10 @@ __all__ = [
     "RbacAdminOpRemoveGrant",
     "RbacAdminOpRemoveRole",
     "RbacElevationOp",
+    "RbacElevationOpApprove",
+    "RbacElevationOpList",
+    "RbacElevationOpRequest",
+    "RbacElevationOpRevoke",
     "RbacGrantRemoval",
     "RbacPolicyListing",
     "RebalanceExecution",
@@ -22789,12 +24552,15 @@ __all__ = [
     "ReconciliationReceipt",
     "RecordContract",
     "RecordVisibility",
+    "RecordVisibilityPrincipal",
+    "RecordVisibilityTenant",
     "RecordWindow",
     "RecoveryStoreCounts",
     "RedactedJustificationNodeWire",
     "ReduceAlgorithm",
     "ReducedRow",
     "ReductionMiningResult",
+    "RefitSpec",
     "RegimeResult",
     "RegisteredServerCursor",
     "RegisteredServerListPage",
@@ -22802,6 +24568,10 @@ __all__ = [
     "RegisteredServerView",
     "RegressionResult",
     "Relation",
+    "ReplayEnvironment",
+    "ReplayFoldView",
+    "ReplaySpec",
+    "ReplayValidation",
     "RequestContext",
     "RequestContextAuthenticationMethod",
     "RequestContextClaims",
@@ -22853,6 +24623,7 @@ __all__ = [
     "ResourceTargetSnapshot",
     "ResourceTargetSnapshotKind",
     "RestoreReceipt",
+    "RetireSealedRecordRequest",
     "RetrievalCandidateWire",
     "RetrievalOutcome",
     "RetrievalPathTemplate",
@@ -22862,8 +24633,14 @@ __all__ = [
     "RewardEvidenceSource",
     "RewardRecord",
     "RewindTarget",
+    "RewindTargetAt",
+    "RewindTargetStart",
     "RiskMethod",
     "RiskMetrics",
+    "RiskModel",
+    "RiskModelIndependentCascade",
+    "RiskModelNoisyOr",
+    "RiskModelShare",
     "RiskPropagationMiningResult",
     "RiskScoreRow",
     "RiskStatement",
@@ -22890,9 +24667,19 @@ __all__ = [
     "SceneVec3",
     "SchemaAuthority",
     "SchemaSourceOriginView",
+    "SchemaSourceOriginViewAdmin",
+    "SchemaSourceOriginViewApproved",
+    "SchemaSourceOriginViewCore",
+    "SchemaSourceOriginViewIngestion",
+    "SchemaSourceOriginViewOperator",
+    "SchemaSourceOriginViewPack",
     "ScopeTenantId",
     "ScoredOption",
     "ScreenObservationResult",
+    "SealedRecordRetireOutcome",
+    "SealedRecordRetirement",
+    "SealedRecordTombstone",
+    "SeedAttributionRow",
     "SemanticActivationTarget",
     "SemanticActivePointer",
     "SemanticAnnIndexIdentity",
@@ -22908,13 +24695,40 @@ __all__ = [
     "SemanticDigest",
     "SemanticGenerationAggregate",
     "SemanticGenerationArtifact",
+    "SemanticGenerationArtifactActivation",
+    "SemanticGenerationArtifactAnnIndexManifest",
+    "SemanticGenerationArtifactLexicalIndexManifest",
     "SemanticGenerationCheckpoint",
     "SemanticGenerationCheckpointUpdate",
     "SemanticGenerationDependency",
+    "SemanticGenerationDependencyActivation",
+    "SemanticGenerationDependencyCheckpoint",
+    "SemanticGenerationDependencyNone",
     "SemanticGenerationMember",
     "SemanticGraphProjectionManifest",
     "SemanticIndexFilter",
     "SemanticIndexOp",
+    "SemanticIndexOpAdmitBinding",
+    "SemanticIndexOpAdmitSourcePage",
+    "SemanticIndexOpAdmitSourceReconcile",
+    "SemanticIndexOpAdmitSourceRecord",
+    "SemanticIndexOpAdmitSourceReplacement",
+    "SemanticIndexOpBinding",
+    "SemanticIndexOpClaimStageLeases",
+    "SemanticIndexOpCompleteGenerationStage",
+    "SemanticIndexOpCompleteSqlSourceStage",
+    "SemanticIndexOpCompleteStage",
+    "SemanticIndexOpDropBinding",
+    "SemanticIndexOpListBindings",
+    "SemanticIndexOpLiveGeneration",
+    "SemanticIndexOpRefreshBinding",
+    "SemanticIndexOpReleaseStageLease",
+    "SemanticIndexOpReplayCompletedSqlSourceStage",
+    "SemanticIndexOpSqlSourceManifest",
+    "SemanticIndexOpStageStatus",
+    "SemanticIndexOpSubscribeStageConsumer",
+    "SemanticIndexOpTransitionBinding",
+    "SemanticIndexOpValidateStageLease",
     "SemanticLexicalIndexIdentity",
     "SemanticLexicalIndexManifest",
     "SemanticLexicalIndexSpec",
@@ -22927,6 +24741,13 @@ __all__ = [
     "SemanticSearchResult",
     "SemanticSearchResultValueItem",
     "SemanticSourceSelector",
+    "SemanticSourceSelectorAgentLibraryComposite",
+    "SemanticSourceSelectorCanonicalTextAsset",
+    "SemanticSourceSelectorGraphTextPropertyRef",
+    "SemanticSourceSelectorLakehouseVectorProjectionRef",
+    "SemanticSourceSelectorMultimodalAssetRef",
+    "SemanticSourceSelectorSqlColumnRef",
+    "SemanticSourceSelectorTimeSeriesWindowRef",
     "SemanticSqlSourceIdentity",
     "SemanticSqlSourceManifest",
     "SemanticSqlSourceManifestDraft",
@@ -22934,19 +24755,39 @@ __all__ = [
     "SemanticSqlSourceReconciliationAdmission",
     "SemanticStage",
     "SemanticStageArtifact",
+    "SemanticStageArtifactDeadLetter",
+    "SemanticStageArtifactGraphProjectionManifest",
+    "SemanticStageArtifactNone",
+    "SemanticStageArtifactSqlSourceManifest",
+    "SemanticStageArtifactVector",
     "SemanticStageIntent",
     "SemanticStageLeaseEntry",
     "SemanticStageLeasePage",
     "SemanticStageOutcome",
     "SemanticStagePredecessor",
+    "SemanticStagePredecessorActivation",
+    "SemanticStagePredecessorEntityReceipt",
+    "SemanticStagePredecessorGenerationCheckpoint",
+    "SemanticStagePredecessorGenerationCoverage",
+    "SemanticStagePredecessorNone",
     "SemanticStageReceipt",
     "SemanticStageScope",
+    "SemanticStageScopeEntity",
+    "SemanticStageScopeGeneration",
     "SemanticStageTransition",
     "SemanticVector",
     "SemanticVectorMetric",
     "SequenceMiningResult",
     "SequenceSource",
     "SequentialPatternRow",
+    "SeriesExpr",
+    "SeriesExprCall",
+    "SeriesExprCallBody",
+    "SeriesExprChannel",
+    "SeriesExprChannelBody",
+    "SeriesExprConst",
+    "SeriesExprConstBody",
+    "SeriesFunc",
     "SeriesIdentity",
     "SeriesPoint",
     "ServedModalityApplyDisposition",
@@ -22959,9 +24800,26 @@ __all__ = [
     "ServedModalityIngestItem",
     "ServedModalityKind",
     "ServedModalityOp",
+    "ServedModalityOpAuthority",
+    "ServedModalityOpCapabilities",
+    "ServedModalityOpCollectTombstones",
+    "ServedModalityOpDelete",
+    "ServedModalityOpEvents",
+    "ServedModalityOpIngest",
+    "ServedModalityOpIngestStream",
+    "ServedModalityOpMoveToCold",
+    "ServedModalityOpNativeQuery",
+    "ServedModalityOpQuery",
+    "ServedModalityOpRestore",
+    "ServedModalityOpStats",
     "ServedModalityStats",
     "ServedModalityTombstoneCollection",
     "ServedNativePredicate",
+    "ServedNativePredicateAudioWindow",
+    "ServedNativePredicateDocumentLexical",
+    "ServedNativePredicateImagePerceptualHash",
+    "ServedNativePredicateImageRegion",
+    "ServedNativePredicateVideoWindow",
     "ServedSegmentKind",
     "ServerDesiredState",
     "ServerTransport",
@@ -22972,6 +24830,7 @@ __all__ = [
     "ShapeKeep",
     "ShardLoadSummary",
     "ShardReshardReport",
+    "SharedCap",
     "ShexNodeResult",
     "ShexValidationReport",
     "ShortlistProvenance",
@@ -22980,8 +24839,12 @@ __all__ = [
     "SignalReplay",
     "SignalReplayRequest",
     "SignalState",
+    "SkillOp",
     "SkillType",
     "SkillTypeSource",
+    "SlateAttribution",
+    "SlateAttributionMethod",
+    "SlateAttributionRequest",
     "SlotAssignment",
     "SlotPlan",
     "SlotRole",
@@ -23048,6 +24911,15 @@ __all__ = [
     "SqlSourceBatchRequest",
     "SqlSourceBatchResult",
     "SqlSourceCell",
+    "SqlSourceCellBool",
+    "SqlSourceCellBytes",
+    "SqlSourceCellFiniteFloat",
+    "SqlSourceCellFiniteVector",
+    "SqlSourceCellInt",
+    "SqlSourceCellJson",
+    "SqlSourceCellNull",
+    "SqlSourceCellText",
+    "SqlSourceCellTimestamp",
     "SqlSourceDescriptor",
     "SqlSourceFloat",
     "SqlSourceJson",
@@ -23061,7 +24933,15 @@ __all__ = [
     "SqliteTableRows",
     "StaleMaterializationsResult",
     "StatechartAction",
+    "StatechartActionAssign",
+    "StatechartActionCustom",
+    "StatechartActionEmit",
+    "StatechartActionLog",
+    "StatechartActionRemove",
     "StatechartActionValue",
+    "StatechartActionValueConst",
+    "StatechartActionValueContext",
+    "StatechartActionValueEvent",
     "StatechartConfiguration",
     "StatechartDefinitionId",
     "StatechartEventOutcome",
@@ -23082,9 +24962,18 @@ __all__ = [
     "StatisticalDecisionRecord",
     "StatisticalInputs",
     "StatisticalOutcome",
+    "StatisticalOutcomeAbstained",
+    "StatisticalOutcomeActed",
+    "StatisticalOutcomeAdvisory",
+    "StatisticalOutcomeExplored",
     "StatisticalPolicy",
     "StatisticalQuestion",
     "StopRule",
+    "StopRuleBudget",
+    "StopRuleDeadline",
+    "StopRuleMaxRounds",
+    "StopRuleQuorum",
+    "StopRuleVerifierPass",
     "StoredEvaluation",
     "StoredPolicyRecord",
     "StoredResolution",
@@ -23096,6 +24985,8 @@ __all__ = [
     "StructuralEquationWireParentsItem",
     "SubagentAllowance",
     "SubagentFallback",
+    "SubagentFallbackDisabled",
+    "SubagentFallbackTokenBudget",
     "SubgraphAlgorithm",
     "SubgraphEdge",
     "SubgraphMiningResult",
@@ -23137,6 +25028,11 @@ __all__ = [
     "TimeAxis",
     "TimeSeriesWindowRef",
     "Timeframe",
+    "TimeframeDay",
+    "TimeframeHours",
+    "TimeframeMinutes",
+    "TimeframeMonth",
+    "TimeframeWeek",
     "ToMsgpackResult",
     "ToolEffect",
     "ToolMode",
@@ -23151,18 +25047,30 @@ __all__ = [
     "TopologyPolicy",
     "TopologyRequirements",
     "TraceFidelity",
+    "TraceFidelityFullStep",
     "TraceFidelityLevel",
+    "TraceFidelityTruncated",
     "TradeFill",
     "TradingCalendar",
+    "TradingCalendarExchange",
+    "TradingCalendarUtc24x7",
     "TrainTestSplitResult",
     "TrainingMethod",
+    "TrainingMethodDpo",
+    "TrainingMethodGrpo",
+    "TrainingMethodKlpo",
+    "TrainingMethodSft",
     "TrainingOutput",
     "TrainingRun",
     "TrainingRunStatus",
+    "TrainingRunStatusCancelled",
+    "TrainingRunStatusFailed",
+    "TrainingRunStatusSucceeded",
     "TransactionSource",
     "TransitionControlLeaseRequest",
     "TreeNode",
     "TrendFlip",
+    "TrialLog",
     "TriggerInfo",
     "TsAsofJoinResult",
     "TsGapFillResult",
@@ -23176,6 +25084,12 @@ __all__ = [
     "TxnUnifiedQueryResultValueItem",
     "TypedParam",
     "TypedValue",
+    "TypedValueBool",
+    "TypedValueInt",
+    "TypedValueIri",
+    "TypedValueIriList",
+    "TypedValueRational",
+    "TypedValueText",
     "UnifiedQueryResult",
     "UnifiedQueryResultValueItem",
     "UnitRationalWire",
@@ -23214,8 +25128,23 @@ __all__ = [
     "VersionExpectationGraph",
     "VersionExpectationNative",
     "VersionOrigin",
+    "VersionOriginBase",
+    "VersionOriginTrained",
     "Vf2MatchResult",
     "Violation",
+    "ViolationContextWindowTooSmall",
+    "ViolationDenied",
+    "ViolationIneligibleExternalAgent",
+    "ViolationInfeasibleWhenForced",
+    "ViolationMissingModality",
+    "ViolationMissingStructuredOutput",
+    "ViolationMissingToolSupport",
+    "ViolationOverBudget",
+    "ViolationRetired",
+    "ViolationTemplateValidation",
+    "ViolationUnknownCostUnderStrictBudget",
+    "ViolationUnknownLatencyUnderBudget",
+    "ViolationWithdrawn",
     "VizCapabilityEntry",
     "VizCapabilityMatrix",
     "VizColumnValues",
@@ -23239,6 +25168,7 @@ __all__ = [
     "VizRenderResponse",
     "VizViewResult",
     "VolatilityClass",
+    "WalkForward",
     "WatchBatch",
     "WeightedLevel",
     "WhatChangedResult",
@@ -23274,9 +25204,16 @@ __all__ = [
     "WriteBackAuthorizationMode",
     "WriteBackEffectStatus",
     "WriteBackOp",
+    "WriteBackOpCreate",
+    "WriteBackOpGet",
+    "WriteBackOpReceipts",
+    "WriteBackOpRecordAttempt",
+    "WriteBackOpRecordReconciliation",
     "WriteBackOutcome",
     "WriteBackReceipt",
     "WriteBackReceiptPage",
     "WriteBackReceiptRecord",
+    "WriteBackReceiptRecordAttempt",
+    "WriteBackReceiptRecordReconciliation",
     "YearData",
 ]

@@ -67,8 +67,6 @@ if TYPE_CHECKING:
     FinanceMonteCarloVarRequest = _models.MethodFinanceMonteCarloVarParams
     FinanceStressTestRequest = _models.MethodFinanceStressTestParams
     FinanceDetectRegimesRequest = _models.MethodFinanceDetectRegimesParams
-    FinanceRollingZscoreRequest = _models.MethodFinanceRollingZscoreParams
-    FinanceEwmaRequest = _models.MethodFinanceEwmaParams
     FinanceSignalDecayRequest = _models.MethodFinanceSignalDecayParams
     FinanceCombineAlphasRequest = _models.MethodFinanceCombineAlphasParams
     FinanceCrossSectionalRankRequest = _models.MethodFinanceCrossSectionalRankParams
@@ -108,6 +106,7 @@ if TYPE_CHECKING:
     FinanceDieboldMarianoRequest = _models.MethodFinanceDieboldMarianoParams
     FinanceForensicReportRequest = _models.MethodFinanceForensicReportParams
     FinanceMarketRequest = _models.MethodFinanceMarketParams
+    FinanceSignalModelsRequest = _models.MethodFinanceSignalModelsParams
     FinanceKalmanFilter1dRequest = _models.MethodFinanceKalmanFilter1dParams
     FinanceKalmanBetaRequest = _models.MethodFinanceKalmanBetaParams
     FinanceKalmanVolatilityRequest = _models.MethodFinanceKalmanVolatilityParams
@@ -2399,92 +2398,6 @@ def decode_finance_detect_regimes(result: OpaqueResult) -> _models.RegimeResult:
     return decode_result("FinanceDetectRegimes", models().RegimeResult, result)
 
 
-async def send_finance_rolling_zscore(
-    client: Any,
-    params: dict[str, Any] | None = None,
-    graph: str | None = None,
-    *,
-    idempotency_key: str | None = None,
-) -> OpaqueResult:
-    """Send one engine-contract request.
-
-    Method:
-        FinanceRollingZscore
-    Authorization:
-        compute:finance
-    Durability:
-        None
-    Replay:
-        NotReplayable
-    Result:
-        ResultPayload::Raw
-    Result schema:
-        contract/schemas/result.compute.json
-        #/methods/FinanceRollingZscore
-    Errors:
-        - INVALID_ARGUMENT
-        - ACCESS_DENIED
-    """
-    models().MethodFinanceRollingZscoreParams.model_validate(params or {})
-    payload = await client._send(
-        "FinanceRollingZscore",
-        params,
-        graph,
-        idempotency_key=idempotency_key,
-    )
-    return OpaqueResult("FinanceRollingZscore", payload)
-
-
-def decode_finance_rolling_zscore(
-    result: OpaqueResult,
-) -> _models.FinanceRollingZscoreResult:
-    """Validate this method's result against its contract model."""
-    return decode_result(
-        "FinanceRollingZscore", models().FinanceRollingZscoreResult, result
-    )
-
-
-async def send_finance_ewma(
-    client: Any,
-    params: dict[str, Any] | None = None,
-    graph: str | None = None,
-    *,
-    idempotency_key: str | None = None,
-) -> OpaqueResult:
-    """Send one engine-contract request.
-
-    Method:
-        FinanceEwma
-    Authorization:
-        compute:finance
-    Durability:
-        None
-    Replay:
-        NotReplayable
-    Result:
-        ResultPayload::Raw
-    Result schema:
-        contract/schemas/result.compute.json
-        #/methods/FinanceEwma
-    Errors:
-        - INVALID_ARGUMENT
-        - ACCESS_DENIED
-    """
-    models().MethodFinanceEwmaParams.model_validate(params or {})
-    payload = await client._send(
-        "FinanceEwma",
-        params,
-        graph,
-        idempotency_key=idempotency_key,
-    )
-    return OpaqueResult("FinanceEwma", payload)
-
-
-def decode_finance_ewma(result: OpaqueResult) -> _models.FinanceEwmaResult:
-    """Validate this method's result against its contract model."""
-    return decode_result("FinanceEwma", models().FinanceEwmaResult, result)
-
-
 async def send_finance_signal_decay(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -3803,6 +3716,42 @@ async def send_finance_market(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("FinanceMarket", payload)
+
+
+async def send_finance_signal_models(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FinanceSignalModels
+    Authorization:
+        compute:finance
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/FinanceSignalModels
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodFinanceSignalModelsParams.model_validate(params or {})
+    payload = await client._send(
+        "FinanceSignalModels",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FinanceSignalModels", payload)
 
 
 async def send_finance_kalman_filter1d(
@@ -5850,8 +5799,6 @@ _REQUEST_METHODS = frozenset(
         "FinanceMonteCarloVar",
         "FinanceStressTest",
         "FinanceDetectRegimes",
-        "FinanceRollingZscore",
-        "FinanceEwma",
         "FinanceSignalDecay",
         "FinanceCombineAlphas",
         "FinanceCrossSectionalRank",
@@ -5885,6 +5832,7 @@ _REQUEST_METHODS = frozenset(
         "FinanceDieboldMariano",
         "FinanceForensicReport",
         "FinanceMarket",
+        "FinanceSignalModels",
         "FinanceKalmanFilter1d",
         "FinanceKalmanBeta",
         "FinanceKalmanVolatility",

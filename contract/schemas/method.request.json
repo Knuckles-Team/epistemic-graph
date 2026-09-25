@@ -264,6 +264,14 @@
         }
       ]
     },
+    "AccessCheck": {
+      "description": "The access `CheckAccess` asks about.",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "type": "string"
+    },
     "AdapterFitRequest": {
       "additionalProperties": false,
       "description": "Fit an adapter from the judged retrieval outcomes of one space.",
@@ -2615,6 +2623,16 @@
         }
       ]
     },
+    "AllocationRule": {
+      "description": "How requests are scaled when they exceed the shared cap.",
+      "oneOf": [
+        {
+          "const": "proportional",
+          "description": "Every request is scaled by the same factor `cap / sum |request|`.",
+          "type": "string"
+        }
+      ]
+    },
     "AnalysisSnapshotDraft": {
       "additionalProperties": false,
       "description": "What the caller asks to seal.",
@@ -2733,13 +2751,22 @@
     },
     "AnomalyAlgorithm": {
       "description": "Which detector `MineAnomaly` runs (CONCEPT:EG-KG.mining.isolation-forest).",
-      "enum": [
-        "zscore",
-        "isoforest",
-        "lof",
-        "ocsvm"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "zscore",
+            "isoforest",
+            "lof",
+            "ocsvm"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "matrix_profile_discord",
+          "description": "The matrix-profile discord score of a 1-D `values` series (EH-529, ANALYTICS-\nHARVEST AH-09): reuses `sample_size` as the subsequence length `m` and `seed` as\nthe profile's diagonal-order seed (`eg_compute::mining::anomaly::Algorithm::\nMatrixProfileDiscord`) — no new request field, the same per-algorithm parameter\nreuse `IsolationForest`/`Lof`/`Ocsvm` already use.",
+          "type": "string"
+        }
+      ]
     },
     "ArrayEncoding": {
       "description": "How the elements of a referenced array are encoded.",
@@ -2987,6 +3014,144 @@
         }
       },
       "type": "object"
+    },
+    "AttributionInput": {
+      "description": "Where each player's value comes from.",
+      "oneOf": [
+        {
+          "const": "Score",
+          "description": "The incoming row's score (a prior RANK, WINDOW, TSSCAN, … stage).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A numeric property of the row's node.",
+          "properties": {
+            "Property": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Property"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AttributionMethod": {
+      "description": "How contributions are computed.",
+      "oneOf": [
+        {
+          "const": "Linear",
+          "description": "The exact split of an additive value (`SUM`); anything else is refused.",
+          "type": "string"
+        },
+        {
+          "const": "Shapley",
+          "description": "Exact Shapley over a memoised coalition table (at most 16 rows).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sampled Shapley: `samples` antithetic permutation pairs drawn from `seed`.",
+          "properties": {
+            "ShapleySampled": {
+              "properties": {
+                "samples": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "seed": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "samples",
+                "seed"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ShapleySampled"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Owen values with the rows grouped into unions by the node property `by`.",
+          "properties": {
+            "Owen": {
+              "properties": {
+                "by": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "by"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Owen"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AttributionValue": {
+      "description": "The aggregate a coalition's value is.",
+      "oneOf": [
+        {
+          "enum": [
+            "Mean",
+            "Max",
+            "Min"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "Sum",
+          "description": "Additive: the only aggregate `LINEAR` accepts.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The `p`-th percentile, `1..=99` (UQL `P<p>`, e.g. `P95`).",
+          "properties": {
+            "Percentile": {
+              "properties": {
+                "p": {
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "p"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Percentile"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "AuditDraw": {
       "additionalProperties": false,
@@ -3314,6 +3479,62 @@
         "from_open",
         "to_close",
         "bars"
+      ],
+      "type": "object"
+    },
+    "BayesFuseRequest": {
+      "additionalProperties": false,
+      "description": "`bayes_fuse`: fuse directional calls into `P(up)`.",
+      "properties": {
+        "default_accuracy": {
+          "default": 0.55,
+          "description": "Accuracy of a source that called but has no seeded prior.",
+          "format": "double",
+          "type": "number"
+        },
+        "default_weight": {
+          "default": 0.5,
+          "description": "Weight of a source that called but has no seeded prior.",
+          "format": "double",
+          "type": "number"
+        },
+        "directions": {
+          "additionalProperties": {
+            "format": "int8",
+            "maximum": 127,
+            "minimum": -128,
+            "type": "integer"
+          },
+          "description": "Each source's call: `1` up, `-1` down, `0` no call. Applied in name\norder, so the result does not depend on how a caller built the map.",
+          "type": "object"
+        },
+        "max_pbo": {
+          "default": 0.5,
+          "format": "double",
+          "type": "number"
+        },
+        "min_sharpe": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "prior": {
+          "default": 0.5,
+          "description": "`P(up)` before any call.",
+          "format": "double",
+          "type": "number"
+        },
+        "priors": {
+          "default": [],
+          "description": "Measured priors; a source is seeded only when it has an edge and is\nnot overfit.",
+          "items": {
+            "$ref": "#/$defs/FusionPrior"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "directions"
       ],
       "type": "object"
     },
@@ -7176,6 +7397,13 @@
         "idempotency_key": {
           "type": "string"
         },
+        "mode": {
+          "$ref": "#/$defs/EvalMode",
+          "default": {
+            "mode": "off_policy"
+          },
+          "description": "Off-policy (the default) or a walk-forward replay (EH-528)."
+        },
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
@@ -8089,6 +8317,22 @@
         "broader",
         "source",
         "class"
+      ],
+      "type": "object"
+    },
+    "DeriveColumn": {
+      "description": "One `DERIVE` column: an expression and the channel name its values are written to.",
+      "properties": {
+        "expr": {
+          "$ref": "#/$defs/SeriesExpr"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expr",
+        "name"
       ],
       "type": "object"
     },
@@ -9866,6 +10110,43 @@
         }
       ]
     },
+    "EvalMode": {
+      "description": "How a `DecisionEval` job evaluates its candidate.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Off-policy and calibration evaluation into a promotion receipt.",
+          "properties": {
+            "mode": {
+              "const": "off_policy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Walk-forward replay into a sealed [`EvaluationRun`].",
+          "properties": {
+            "mode": {
+              "const": "replay",
+              "type": "string"
+            },
+            "spec": {
+              "$ref": "#/$defs/ReplaySpec"
+            }
+          },
+          "required": [
+            "mode",
+            "spec"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "EvaluationMetrics": {
       "additionalProperties": false,
       "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
@@ -10592,6 +10873,47 @@
           "required": [
             "op",
             "draft"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FinanceSignalModelsOp": {
+      "description": "One signal-model operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Sequential Bayesian fusion of directional calls.",
+          "properties": {
+            "op": {
+              "const": "bayes_fuse",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/BayesFuseRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The strategic insider under dynamic legal risk.",
+          "properties": {
+            "op": {
+              "const": "insider_equilibrium",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/InsiderEquilibriumRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
           ],
           "type": "object"
         }
@@ -11918,6 +12240,34 @@
       ],
       "type": "object"
     },
+    "FusionPrior": {
+      "additionalProperties": false,
+      "description": "A stored per-source prior: what a backtest measured for one signal.",
+      "properties": {
+        "directional_accuracy": {
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pbo": {
+          "format": "double",
+          "type": "number"
+        },
+        "standalone_sharpe": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "directional_accuracy",
+        "standalone_sharpe",
+        "pbo"
+      ],
+      "type": "object"
+    },
     "GapEvidenceInput": {
       "additionalProperties": false,
       "description": "One evidence signal a caller submits.",
@@ -12662,6 +13012,65 @@
       ],
       "type": "object"
     },
+    "ImpactOptions": {
+      "description": "Options of the probabilistic impact models.",
+      "properties": {
+        "as_of_ms": {
+          "default": 0,
+          "description": "With writeback: the as-of time (unix ms) recorded on each assessment.\nPart of the request, so a WAL replay writes the same facts.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "assess": {
+          "default": [],
+          "description": "With writeback: assess only these node ids (the recomputed cone of an\nevent-driven run). Empty assesses every hit node.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "attribute_seeds": {
+          "default": false,
+          "description": "Report per-seed Shapley attribution for the reported path targets.",
+          "type": "boolean"
+        },
+        "hops": {
+          "default": 8,
+          "description": "Hop bound (capped at 64).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rng_seed": {
+          "default": 0,
+          "description": "Seed of the Monte Carlo stream; the run replays bit-identically.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "samples": {
+          "default": 2000,
+          "description": "Monte Carlo worlds (`independent_cascade` only).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scope": {
+          "default": "",
+          "description": "With writeback: the assessment scope recorded on, and keying, each\n`:ImpactAssessment` node (a standing impact watch's id). Empty = `adhoc`.",
+          "type": "string"
+        },
+        "top_paths": {
+          "default": 10,
+          "description": "How many of the strongest seed-to-node paths to report.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "IncarnationId": {
       "description": "Opaque logical-generation identity. It is never derived from a resource name.",
       "type": "string"
@@ -13088,6 +13497,86 @@
           "type": "object"
         }
       ]
+    },
+    "InsiderEquilibriumRequest": {
+      "additionalProperties": false,
+      "description": "`insider_equilibrium`: the equilibrium, its schedule and the policy verdict.",
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/InsiderInputs"
+        },
+        "steps": {
+          "description": "Schedule samples over the window (`steps + 1` points).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "inputs",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "InsiderInputs": {
+      "additionalProperties": false,
+      "description": "Primitives of the continuous-time Kyle game with dynamic legal risk, in the\npaper's normalized units.",
+      "properties": {
+        "civil_penalty_rate": {
+          "description": "Civil damages as a multiple of gross profit.",
+          "format": "double",
+          "type": "number"
+        },
+        "criminal_penalty": {
+          "description": "Expected criminal cost (fixed, hazard-scaled).",
+          "format": "double",
+          "type": "number"
+        },
+        "enforcement": {
+          "description": "Regulator effort in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "gap_var": {
+          "default": null,
+          "description": "`E[(v-p)^2]`; `sigma_v^2` when absent.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "horizon": {
+          "description": "Trading window length.",
+          "format": "double",
+          "type": "number"
+        },
+        "sigma_u": {
+          "description": "Std of noise-trader flow (the cover for stealth).",
+          "format": "double",
+          "type": "number"
+        },
+        "sigma_v": {
+          "description": "Std of the fundamental value (the informational edge).",
+          "format": "double",
+          "type": "number"
+        },
+        "surveillance_kappa": {
+          "description": "How fast the detection hazard grows with activity.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "sigma_v",
+        "sigma_u",
+        "enforcement",
+        "surveillance_kappa",
+        "criminal_penalty",
+        "civil_penalty_rate",
+        "horizon"
+      ],
+      "type": "object"
     },
     "IssueControlLeaseRequest": {
       "additionalProperties": false,
@@ -22827,78 +23316,6 @@
           "additionalProperties": false,
           "properties": {
             "method": {
-              "const": "FinanceRollingZscore",
-              "type": "string"
-            },
-            "params": {
-              "additionalProperties": false,
-              "properties": {
-                "values": {
-                  "items": {
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": "array"
-                },
-                "window": {
-                  "format": "uint",
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "values",
-                "window"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "method": {
-              "const": "FinanceEwma",
-              "type": "string"
-            },
-            "params": {
-              "additionalProperties": false,
-              "properties": {
-                "span": {
-                  "format": "uint",
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "values": {
-                  "items": {
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": "array"
-                }
-              },
-              "required": [
-                "values",
-                "span"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "method": {
               "const": "FinanceSignalDecay",
               "type": "string"
             },
@@ -25280,6 +25697,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+          "properties": {
+            "method": {
+              "const": "CheckAccess",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "access": {
+                  "$ref": "#/$defs/AccessCheck"
+                },
+                "agent_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent_id",
+                "access"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the\nenum; the handler is gated behind the `security` feature (a non-security build\nfalls to the dispatch \"not available in this build\" catch-all, like EG-090's\nbackup/restore on a non-redb build).",
           "properties": {
             "method": {
@@ -27537,6 +27985,41 @@
           },
           "required": [
             "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from\n`source` — a series in the caller's own scope — by `expr`, a series expression in\nthe UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example\n`zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points\nare `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it\nfrom its checkpoint (bounded work per append; a lagging series catches up on the\nnext append or re-definition); a source point at or before the last one derived is\na revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read\nit like any series. Idempotent for the same definition (the call then catches the\nseries up); a different definition, a missing source or a cycle is refused.",
+          "properties": {
+            "method": {
+              "const": "TsDefineSeries",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "expr": {
+                  "type": "string"
+                },
+                "series_id": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "series_id",
+                "source",
+                "expr"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
           ],
           "type": "object"
         },
@@ -30604,7 +31087,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized\nPageRank over a directed weighted graph (`edges`), restarting to a `seed`\nrisk distribution instead of teleporting uniformly. With `writeback=true`\nmaterializes each node's propagated score as a typed `:RiskScore` node — a\ngraph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.",
+          "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation). The default\n`model: share` is personalized PageRank over a directed weighted graph\n(`edges`), restarting to a `seed` risk distribution instead of teleporting\nuniformly: each node's SHARE of propagated risk mass (the shares sum to 1 —\na mass share, not a probability). The impact models (`noisy_or`,\n`independent_cascade`, EH-526) instead read `edges` weights as transmission\nprobabilities and `seed` as seed-hit probabilities and return `P(node is\nhit)` with hop depth, the strongest paths and per-seed attribution. With\n`writeback=true` `share` materializes `:RiskScore` nodes and the impact\nmodels `:ImpactAssessment` nodes — a graph MUTATION, WAL-replayed by\nre-propagating deterministically (the Monte Carlo stream is seeded). Gated\n`mining`.",
           "properties": {
             "method": {
               "const": "MineRiskPropagation",
@@ -30652,6 +31135,13 @@
                   "format": "uint",
                   "minimum": 0,
                   "type": "integer"
+                },
+                "model": {
+                  "$ref": "#/$defs/RiskModel",
+                  "default": {
+                    "kind": "share"
+                  },
+                  "description": "The propagation model (default `share`; `damping`/`tolerance`/\n`max_iterations` apply to `share` only)."
                 },
                 "nodes": {
                   "default": [],
@@ -31892,6 +32382,60 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+          "properties": {
+            "method": {
+              "const": "FinanceSignalModels",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/FinanceSignalModelsOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+          "properties": {
+            "method": {
+              "const": "RetireSealedRecord",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/RetireSealedRecordRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -31992,6 +32536,110 @@
         }
       },
       "type": "object"
+    },
+    "MotifOp": {
+      "description": "A UQL `MOTIF` / `DISCORD` stage (EH-529): which value channel is searched, for what,\nhow many hits, and the seed of the matrix profile's anytime diagonal order.",
+      "properties": {
+        "channel": {
+          "type": "string"
+        },
+        "search": {
+          "$ref": "#/$defs/MotifSearch"
+        },
+        "seed": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "top": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "channel",
+        "search",
+        "top"
+      ],
+      "type": "object"
+    },
+    "MotifSearch": {
+      "description": "What a `MOTIF` / `DISCORD` stage looks for in each series.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`MOTIF LIKE shape`: the windows z-normalised-closest to `shape` (MASS).",
+          "properties": {
+            "like": {
+              "properties": {
+                "shape": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "shape"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "like"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`MOTIF LENGTH m`: the closest pairs of length-`m` windows (matrix-profile minima).",
+          "properties": {
+            "pairs": {
+              "properties": {
+                "length": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "pairs"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`DISCORD LENGTH m`: the length-`m` windows farthest from every other window\n(matrix-profile maxima).",
+          "properties": {
+            "discord": {
+              "properties": {
+                "length": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "discord"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "MultimodalAssetRef": {
       "additionalProperties": false,
@@ -32508,7 +33156,7 @@
     },
     "NamedEvaluator": {
       "additionalProperties": false,
-      "description": "The one principal a committer names to evaluate its record (EH-395).\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal join evaluations to exactly this\nrecord until it expires: it cannot read, list or count the record, and\nnothing else widens. The evaluator is never the committer.",
+      "description": "Who a committer names to evaluate its record (EH-395): ONE principal, or\nthe holders of ONE declared policy role.\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal -- or any verified principal whose signed\nrequest context carries `role`, other than the committer -- join\nevaluations to exactly this record until it expires: it cannot read, list\nor count the record, and nothing else widens. The evaluator is never the\ncommitter. Exactly one of `principal` and `role` is set.",
       "properties": {
         "expires_at_ms": {
           "description": "When the grant lapses; at most the control-lease span after commit.",
@@ -32517,12 +33165,23 @@
           "type": "integer"
         },
         "principal": {
+          "default": null,
           "description": "The evaluator's persistence id (`principal:sha256:<hex>` of its\nverified principal).",
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "default": null,
+          "description": "The declared policy role whose holders may evaluate (a role name of the\nsigned request context, e.g. `decide-evaluator`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
-        "principal",
         "expires_at_ms"
       ],
       "type": "object"
@@ -33031,6 +33690,55 @@
           },
           "required": [
             "Expand"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "PROPAGATE (graph, EH-526) — the probability that each node is hit when the\ncurrent rows are hit: seeds are the input rows (seed probability = the node's\n`p_seed` property when it is a number in `[0, 1]`, else 1), impact flows along\nedges in `dir` restricted to `rel` and `edge_preds` for at most `hops` hops,\nand an edge transmits with its `transmission` property (else\n`default_transmission`). Output: every hit node, most probable first, scored\nby its probability (channel `impact`).",
+          "properties": {
+            "Propagate": {
+              "properties": {
+                "default_transmission": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "dir": {
+                  "$ref": "#/$defs/EdgeDir"
+                },
+                "edge_preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                },
+                "hops": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "model": {
+                  "$ref": "#/$defs/PropagateModel"
+                },
+                "rel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "model",
+                "dir",
+                "edge_preds",
+                "hops",
+                "default_transmission"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Propagate"
           ],
           "type": "object"
         },
@@ -33672,6 +34380,96 @@
         },
         {
           "additionalProperties": false,
+          "description": "TRANSFORM (series, EH-522, UQL `DERIVE expr AS name {, expr AS name}`) — evaluate each\ncolumn's [`crate::series_expr::SeriesExpr`] over every series of the input in timestamp\norder (a row belongs to the series its `series@ts` id names) and write the result\nunder the column's name as an exact value channel a later `DERIVE` or `RETURN` reads.\nRows, their order and their scores pass through unchanged; a row with no value yet\n(warm-up, a skipped input) simply has no channel. The kernels are `eg_numeric::series`,\nthe same ones the SQL `eg_*` window functions and a materialised derived series run.",
+          "properties": {
+            "Derive": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "$ref": "#/$defs/DeriveColumn"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "columns"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Derive"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "REPORT (series, EH-522 FeatureSkill, UQL `SKILL f AGAINST y HORIZONS [..] WINDOW w\n[BOOTSTRAP n SEED s]`) — the predictive skill of value channel `feature` for the\nlater value channel `outcome`, per series: the rolling Spearman IC of `feature[t]`\nagainst `outcome[t + h]` for each horizon, summarised (mean, deviation, ICIR, a\nseeded moving-block bootstrap interval), with the breadth across horizons.\nReplaces the rows with one row per series and horizon, id `<series>:skill@<h>`,\nscore the mean IC and channels `mean_ic ic_std icir ic_lo ic_hi n n_eff ir`\n(`eg_numeric::evaluation::skill::feature_skill`).",
+          "properties": {
+            "Skill": {
+              "properties": {
+                "spec": {
+                  "$ref": "#/$defs/SkillOp"
+                }
+              },
+              "required": [
+                "spec"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Skill"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "REPORT (series, EH-529 motif / discord search, UQL `MOTIF [OF c] LIKE shape [TOP k]`,\n`MOTIF [OF c] LENGTH m [TOP k] [SEED s]`, `DISCORD [OF c] LENGTH m [TOP k] [SEED s]`)\n— per series, over value channel `c` in timestamp order: the `k` non-overlapping\nwindows z-normalised-closest to `shape` (MASS query-by-example), the `k` closest\nwindow pairs, or the `k` windows farthest from all others (the SCRIMP++ matrix\nprofile, anytime under the plan's series-work budget). Replaces the rows with one\nrow per hit, id `<series>#motif@<start ts>` / `<series>#discord@<start ts>` (shape\nevents a later `CEP` matches by key `motif` / `discord`), score the distance and\nchannels `distance start end neighbor approximate` (`eg_numeric::series`).",
+          "properties": {
+            "Motif": {
+              "properties": {
+                "spec": {
+                  "$ref": "#/$defs/MotifOp"
+                }
+              },
+              "required": [
+                "spec"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Motif"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "TRANSFORM (series, EH-529 shape events, UQL `EVENTS c {, c}`) — every series row\nwhose value channel `c` is non-zero (a `DERIVE` shape predicate such as\n`gt(ret(v0, 1), 0)`) becomes an event row `<series>#<c>@<ts>` carrying the row's\nvalue channels, which a later `CEP` stage matches by key `c` — the existing NFA, no\nnew pattern language. Rows that are not series rows are dropped.",
+          "properties": {
+            "Events": {
+              "properties": {
+                "channels": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "channels"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Events"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — run the probabilistic query `query`\nagainst each row's stored `Distribution` VALUE (the conventional `distribution`\nnode property, the tagged serde form of `eg_types::Distribution`) and SCORE the\nrow with the closed-form result — expectation / marginal probability / conditional\nposterior mean / deterministic seeded sample — re-ordering the RowSet by that score\nDESCENDING, exactly as `Rank` produces a scored order a downstream `Limit` respects.\nRows whose `distribution` is missing/invalid, or where the query does not apply\n(e.g. a `Conditional` with an unsupported conjugate pair), are DROPPED — mirroring\nhow the tensor/spatial legs narrow their input. Gated by `probabilistic` (the\ndistribution + Bayesian math lives in eg-types/eg-compute behind eg-plan's own\n`probabilistic` gate; this is the pure-serde wire variant — no RNG-from-clock, so a\nseeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.",
           "properties": {
             "Probabilistic": {
@@ -33828,6 +34626,35 @@
           },
           "required": [
             "ExplainBelief"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "TRANSFORM (EH-523, UQL `ATTRIBUTE <agg> OF <input> <method>`) — contribution\nattribution over the incoming rows as players: each row's value is `input`, a\ncoalition's value is the `value` aggregate of its members (`v(∅) = 0`), and every\nrow is re-scored with its contribution under `method` (linear split, exact or\nsampled Shapley, Owen), ordered descending. Contributions sum to `v(all rows)`.\nThe executor is eg-numeric's attribution kernel (eg-plan `numeric`); a build\nwithout it refuses the stage.",
+          "properties": {
+            "Attribute": {
+              "properties": {
+                "input": {
+                  "$ref": "#/$defs/AttributionInput"
+                },
+                "method": {
+                  "$ref": "#/$defs/AttributionMethod"
+                },
+                "value": {
+                  "$ref": "#/$defs/AttributionValue"
+                }
+              },
+              "required": [
+                "input",
+                "value",
+                "method"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Attribute"
           ],
           "type": "object"
         },
@@ -34179,6 +35006,17 @@
       "additionalProperties": false,
       "description": "Ask for the outcome aggregate.",
       "properties": {
+        "attribution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SlateAttributionRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Also split one slate's outcome across its components (EH-523)."
+        },
         "question_id": {
           "default": null,
           "description": "`None` aggregates every question; rows then also carry the\ncross-question total per option.",
@@ -36518,6 +37356,45 @@
         }
       ]
     },
+    "PropagateModel": {
+      "description": "The impact model of a [`Op::Propagate`] stage (EH-526).",
+      "oneOf": [
+        {
+          "const": "noisy_or",
+          "description": "Noisy-OR over the downstream cone (exact on a polytree cone, otherwise an\nupper bound; bounded unrolling on a cycle).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Seeded Monte Carlo of the independent-cascade (live-edge) model.",
+          "properties": {
+            "cascade": {
+              "properties": {
+                "samples": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "seed": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "samples",
+                "seed"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "cascade"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "PropensitySource": {
       "description": "Where a logged propensity came from.",
       "oneOf": [
@@ -37148,6 +38025,23 @@
         }
       ]
     },
+    "RefitSpec": {
+      "additionalProperties": false,
+      "description": "Refit the head on each fold's training window with `DecisionFit`'s kernel.",
+      "properties": {
+        "head_kind": {
+          "$ref": "#/$defs/HeadKind"
+        },
+        "optimiser": {
+          "$ref": "#/$defs/OptimiserSpec"
+        }
+      },
+      "required": [
+        "head_kind",
+        "optimiser"
+      ],
+      "type": "object"
+    },
     "RegisteredServerCursor": {
       "additionalProperties": false,
       "description": "Stable continuation over one complete live registry snapshot.",
@@ -37222,6 +38116,78 @@
           "type": "string"
         }
       ]
+    },
+    "ReplayEnvironment": {
+      "description": "What the caller asserts about the environment the policy is replayed in.",
+      "oneOf": [
+        {
+          "const": "policy_independent",
+          "description": "An option's outcome does not depend on which option the policy chose.\nThe only environment replay evaluates.",
+          "type": "string"
+        },
+        {
+          "const": "policy_dependent",
+          "description": "The policy's choice changes what is observed. Replay refuses; the\noff-policy estimators (within the logging support) are the answer.",
+          "type": "string"
+        }
+      ]
+    },
+    "ReplaySpec": {
+      "additionalProperties": false,
+      "description": "A replay evaluation's parameters.",
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/SharedCap"
+        },
+        "env": {
+          "$ref": "#/$defs/ReplayEnvironment"
+        },
+        "folds": {
+          "$ref": "#/$defs/WalkForward"
+        },
+        "incumbent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvalCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The policy the candidate is compared against; `None` is the uniform\nallocation over each step's options."
+        },
+        "refit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`None` replays the candidate as submitted in every fold."
+        },
+        "supersedes": {
+          "default": null,
+          "description": "The digest of the run this one revises.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trials": {
+          "$ref": "#/$defs/TrialLog"
+        }
+      },
+      "required": [
+        "folds",
+        "budget",
+        "env",
+        "trials"
+      ],
+      "type": "object"
     },
     "RequestContext": {
       "additionalProperties": false,
@@ -37947,6 +38913,51 @@
         }
       ]
     },
+    "RetireSealedRecordRequest": {
+      "additionalProperties": false,
+      "description": "`RetireSealedRecord`: replace one sealed record with its audited tombstone.",
+      "properties": {
+        "digest": {
+          "description": "The record's seal, as its class's digest property stores it.",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Caller-stable retry identity for this retirement.",
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the record is retired (for example `share revoked` or `expired`).",
+          "type": "string"
+        },
+        "retired_at_ms": {
+          "description": "When the retirement takes effect, epoch milliseconds. Part of the retry\nidentity, so a retry carries the same value.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retired_by": {
+          "default": "",
+          "description": "Who retired it. The engine stamps this from the verified caller (a\nprincipal fingerprint) before the commit; a client-supplied value is replaced.",
+          "type": "string"
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "node_id",
+        "digest",
+        "reason",
+        "retired_at_ms",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "RetrievalCandidateWire": {
       "description": "Wire mirror of `eg_epistemic::RetrievalCandidate` (EPI-P3-3) — one candidate in\na `Method::RankByProvenance` request, before ranking.",
       "properties": {
@@ -38203,6 +39214,51 @@
         "conformal_risk_control"
       ],
       "type": "string"
+    },
+    "RiskModel": {
+      "description": "Which propagation model `MineRiskPropagation` runs.\n\n`share` (the default) is personalised PageRank: each node's SHARE of the\npropagated risk mass. The shares sum to one, so they are not probabilities:\nten independent paths into a node divide mass rather than raising the\nnode's chance of being hit. `noisy_or` and `independent_cascade` return the\nprobability that each node is hit, with the edge weights read as\ntransmission probabilities and the seed values as seed-hit probabilities.",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "share",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ImpactOptions",
+          "description": "Noisy-OR over the seeds' downstream cone: exact on a polytree cone, an\nupper bound on other DAGs, unrolled for `hops` rounds on a cycle.",
+          "properties": {
+            "kind": {
+              "const": "noisy_or",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ImpactOptions",
+          "description": "Seeded Monte Carlo of the independent-cascade (live-edge) model, with\n95% Wilson intervals per node.",
+          "properties": {
+            "kind": {
+              "const": "independent_cascade",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "RiskStatement": {
       "additionalProperties": false,
@@ -40963,6 +42019,127 @@
       ],
       "type": "object"
     },
+    "SeriesExpr": {
+      "description": "One node of a series expression.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A row's value channel: `v0..vk` (a `TSSCAN` field), `score`, or a `DERIVE` alias.",
+          "properties": {
+            "Channel": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Channel"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A constant series.",
+          "properties": {
+            "Const": {
+              "properties": {
+                "value": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Const"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`func(args…, params…)`: `args` are series, `params` numbers (a window, a span…).",
+          "properties": {
+            "Call": {
+              "properties": {
+                "args": {
+                  "items": {
+                    "$ref": "#/$defs/SeriesExpr"
+                  },
+                  "type": "array"
+                },
+                "func": {
+                  "$ref": "#/$defs/SeriesFunc"
+                },
+                "params": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "func",
+                "args",
+                "params"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Call"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SeriesFunc": {
+      "description": "The fixed function table.",
+      "enum": [
+        "lag",
+        "diff",
+        "ret",
+        "logret",
+        "rmean",
+        "rstd",
+        "rsum",
+        "rmin",
+        "rmax",
+        "rrank",
+        "zscore",
+        "ewma",
+        "ewma_halflife",
+        "abs",
+        "sign",
+        "neg",
+        "clip",
+        "add",
+        "sub",
+        "mul",
+        "div",
+        "rcorr",
+        "ic",
+        "wsum",
+        "kalman",
+        "kbeta",
+        "gt",
+        "lt",
+        "greatest",
+        "least",
+        "mprofile"
+      ],
+      "type": "string"
+    },
     "SeriesIdentity": {
       "additionalProperties": false,
       "description": "What a bar series is: one listing, price basis, timeframe and calendar.",
@@ -41630,6 +42807,23 @@
         }
       ]
     },
+    "SharedCap": {
+      "additionalProperties": false,
+      "description": "One budget shared by every option of a step (capital, GPU-hours, tokens,\nlane slots): the applied amounts never sum past `cap` in absolute value.",
+      "properties": {
+        "cap": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "rule": {
+          "$ref": "#/$defs/AllocationRule"
+        }
+      },
+      "required": [
+        "cap",
+        "rule"
+      ],
+      "type": "object"
+    },
     "ShortlistProvenance": {
       "additionalProperties": false,
       "description": "How the shortlist the decision scored was produced.",
@@ -41826,6 +43020,50 @@
       ],
       "type": "object"
     },
+    "SkillOp": {
+      "description": "A UQL `SKILL` stage (EH-522 FeatureSkill): which channels, horizons, IC window and\nbootstrap.",
+      "properties": {
+        "feature": {
+          "type": "string"
+        },
+        "horizons": {
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "resamples": {
+          "default": 0,
+          "description": "Bootstrap resamples for the interval on the mean IC (`0`: none).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "feature",
+        "outcome",
+        "horizons",
+        "window"
+      ],
+      "type": "object"
+    },
     "SkillType": {
       "description": "How a skill is run. The four values the agent ecosystem declares.",
       "enum": [
@@ -41835,6 +43073,39 @@
         "mcp_skill"
       ],
       "type": "string"
+    },
+    "SlateAttributionMethod": {
+      "description": "How a slate's outcome is split across its components (EH-523).",
+      "oneOf": [
+        {
+          "const": "shapley",
+          "description": "Exact Shapley values over the LOGGED sub-slates: every non-empty sub-slate of\nthe target must itself have been assembled and evaluated at `min_support`, or the\nreport is refused with `UNSUPPORTED_COALITION` (it is never interpolated).",
+          "type": "string"
+        },
+        {
+          "const": "additive",
+          "description": "The least-squares additive split over the logged sub-slates: this request IS the\ndeclared additive-reward assumption (DECIDE-LAYER §6.4), so the report is advisory.",
+          "type": "string"
+        }
+      ]
+    },
+    "SlateAttributionRequest": {
+      "additionalProperties": false,
+      "description": "Ask for the per-component split of one assembled slate's outcome (EH-523).",
+      "properties": {
+        "graph_digest": {
+          "description": "The solved assembly's graph digest (`slate:<digest>` in the aggregate rows).",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/SlateAttributionMethod"
+        }
+      },
+      "required": [
+        "graph_digest",
+        "method"
+      ],
+      "type": "object"
     },
     "SlotAssignment": {
       "additionalProperties": false,
@@ -45426,6 +46697,27 @@
       ],
       "type": "object"
     },
+    "TrialLog": {
+      "additionalProperties": false,
+      "description": "How many configurations the search behind this candidate tried. The\ndeflated Sharpe ratio deflates by `declared`; a declaration below the\nsearch log's own count is refused (`n_trials = 1` after a search is the\ndefect this guards).",
+      "properties": {
+        "declared": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "searched": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "declared",
+        "searched"
+      ],
+      "type": "object"
+    },
     "TypedParam": {
       "additionalProperties": false,
       "description": "One named parameter of a question.",
@@ -46313,6 +47605,45 @@
         "max_primitives",
         "max_bytes",
         "dataset_ref"
+      ],
+      "type": "object"
+    },
+    "WalkForward": {
+      "additionalProperties": false,
+      "description": "Walk-forward folds, in admitted items. Fold `k` tests the `test` items\nstarting at `train + purge + k * step`; it trains on the `train` items that\nend `purge` items before its test window, minus the `embargo` items after\nevery earlier test window (their outcomes may still be maturing).",
+      "properties": {
+        "embargo": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "purge": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "step": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "test": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "train": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "train",
+        "test",
+        "step",
+        "purge",
+        "embargo"
       ],
       "type": "object"
     },
@@ -48718,6 +50049,37 @@
           },
           "required": [
             "sub_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "CheckAccess": {
+      "additionalProperties": false,
+      "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+      "properties": {
+        "method": {
+          "const": "CheckAccess",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "access": {
+              "$ref": "#/$defs/AccessCheck"
+            },
+            "agent_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "agent_id",
+            "access"
           ],
           "type": "object"
         }
@@ -52228,42 +53590,6 @@
       ],
       "type": "object"
     },
-    "FinanceEwma": {
-      "additionalProperties": false,
-      "properties": {
-        "method": {
-          "const": "FinanceEwma",
-          "type": "string"
-        },
-        "params": {
-          "additionalProperties": false,
-          "properties": {
-            "span": {
-              "format": "uint",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "values": {
-              "items": {
-                "format": "double",
-                "type": "number"
-              },
-              "type": "array"
-            }
-          },
-          "required": [
-            "values",
-            "span"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
     "FinanceExpectedPnlRate": {
       "additionalProperties": false,
       "properties": {
@@ -53810,42 +55136,6 @@
       ],
       "type": "object"
     },
-    "FinanceRollingZscore": {
-      "additionalProperties": false,
-      "properties": {
-        "method": {
-          "const": "FinanceRollingZscore",
-          "type": "string"
-        },
-        "params": {
-          "additionalProperties": false,
-          "properties": {
-            "values": {
-              "items": {
-                "format": "double",
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "window": {
-              "format": "uint",
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          "required": [
-            "values",
-            "window"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
     "FinanceSabrCalibrate": {
       "additionalProperties": false,
       "properties": {
@@ -54041,6 +55331,33 @@
           "required": [
             "signal",
             "half_life"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "FinanceSignalModels": {
+      "additionalProperties": false,
+      "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+      "properties": {
+        "method": {
+          "const": "FinanceSignalModels",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/FinanceSignalModelsOp"
+            }
+          },
+          "required": [
+            "op"
           ],
           "type": "object"
         }
@@ -57757,7 +59074,7 @@
     },
     "MineRiskPropagation": {
       "additionalProperties": false,
-      "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized\nPageRank over a directed weighted graph (`edges`), restarting to a `seed`\nrisk distribution instead of teleporting uniformly. With `writeback=true`\nmaterializes each node's propagated score as a typed `:RiskScore` node — a\ngraph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.",
+      "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation). The default\n`model: share` is personalized PageRank over a directed weighted graph\n(`edges`), restarting to a `seed` risk distribution instead of teleporting\nuniformly: each node's SHARE of propagated risk mass (the shares sum to 1 —\na mass share, not a probability). The impact models (`noisy_or`,\n`independent_cascade`, EH-526) instead read `edges` weights as transmission\nprobabilities and `seed` as seed-hit probabilities and return `P(node is\nhit)` with hop depth, the strongest paths and per-seed attribution. With\n`writeback=true` `share` materializes `:RiskScore` nodes and the impact\nmodels `:ImpactAssessment` nodes — a graph MUTATION, WAL-replayed by\nre-propagating deterministically (the Monte Carlo stream is seeded). Gated\n`mining`.",
       "properties": {
         "method": {
           "const": "MineRiskPropagation",
@@ -57805,6 +59122,13 @@
               "format": "uint",
               "minimum": 0,
               "type": "integer"
+            },
+            "model": {
+              "$ref": "#/$defs/RiskModel",
+              "default": {
+                "kind": "share"
+              },
+              "description": "The propagation model (default `share`; `damping`/`tolerance`/\n`max_iterations` apply to `share` only)."
             },
             "nodes": {
               "default": [],
@@ -60879,6 +62203,33 @@
       ],
       "type": "object"
     },
+    "RetireSealedRecord": {
+      "additionalProperties": false,
+      "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+      "properties": {
+        "method": {
+          "const": "RetireSealedRecord",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/RetireSealedRecordRequest"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "Rollback": {
       "additionalProperties": false,
       "properties": {
@@ -62432,6 +63783,41 @@
           "required": [
             "series_id",
             "left_ts_msgpack"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "TsDefineSeries": {
+      "additionalProperties": false,
+      "description": "Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from\n`source` — a series in the caller's own scope — by `expr`, a series expression in\nthe UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example\n`zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points\nare `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it\nfrom its checkpoint (bounded work per append; a lagging series catches up on the\nnext append or re-definition); a source point at or before the last one derived is\na revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read\nit like any series. Idempotent for the same definition (the call then catches the\nseries up); a different definition, a missing source or a cycle is refused.",
+      "properties": {
+        "method": {
+          "const": "TsDefineSeries",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "expr": {
+              "type": "string"
+            },
+            "series_id": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "series_id",
+            "source",
+            "expr"
           ],
           "type": "object"
         }
