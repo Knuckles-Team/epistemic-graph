@@ -700,7 +700,7 @@ fn build_two_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
         store
             .append_scoped(
                 &SeriesKey::new(TEST_TENANT, TEST_GRAPH, series),
-                1,
+                values.len(),
                 one_s as u64,
                 &names,
                 &[Point { ts: one_s, values }],

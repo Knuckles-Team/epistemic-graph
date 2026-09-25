@@ -253,7 +253,10 @@ fn commit(
         .bucket_ns;
     let field_names: Vec<String> = DERIVED_FIELDS.iter().map(|f| (*f).to_string()).collect();
     let bytes = state.encode()?;
-    let batch = scope.series_batch(store, &maintenance_event(key, &step.points, &bytes)?, now)?;
+    let event = maintenance_event(key, &step.points, &bytes)?;
+    let batch = scope
+        .follow_on(&event)?
+        .series_batch(store, &maintenance_method(event), now)?;
     let source_storage = source_key.encode();
     store
         .append_scoped_batch(
@@ -276,20 +279,25 @@ fn commit(
         .map_err(|error| error.to_string())
 }
 
-/// The batch identity of one maintenance commit: the derived series and the digest of
-/// the points and state it commits, so two commits of one request never share a key.
-fn maintenance_event(key: &SeriesKey, points: &[Point], state: &[u8]) -> Result<Method, String> {
+/// The identity of one maintenance commit: the derived series and the digest of the
+/// points and state it commits, so two commits of one request never share a key.
+fn maintenance_event(key: &SeriesKey, points: &[Point], state: &[u8]) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let wire: Vec<(i64, &[f64])> = points.iter().map(|p| (p.ts, p.values.as_slice())).collect();
     let content = rmp_serde::to_vec(&(wire, state)).map_err(|e| e.to_string())?;
-    Ok(Method::ApplyMutation {
+    Ok(format!(
+        "{}:sha256:{}",
+        key.encode(),
+        hex::encode(Sha256::digest(&content))
+    ))
+}
+
+/// The batch method a maintenance commit is keyed by.
+fn maintenance_method(event: String) -> Method {
+    Method::ApplyMutation {
         event_type: "timeseries_derive".to_string(),
-        query: format!(
-            "{}:sha256:{}",
-            key.encode(),
-            hex::encode(Sha256::digest(&content))
-        ),
-    })
+        query: event,
+    }
 }
 
 fn meta(store: &SeriesStore, key: &SeriesKey) -> Result<Option<SeriesMeta>, String> {
