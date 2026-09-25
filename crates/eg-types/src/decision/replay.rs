@@ -99,6 +99,9 @@ pub struct TrialLog {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ReplaySpec {
+    /// The exact graph whose ACL admits the queued replay job. A worker must
+    /// bind the same graph when it claims and reads the pinned input snapshot.
+    pub graph: String,
     pub folds: WalkForward,
     pub budget: SharedCap,
     pub env: ReplayEnvironment,
