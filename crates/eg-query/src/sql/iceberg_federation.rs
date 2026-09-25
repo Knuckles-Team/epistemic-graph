@@ -299,9 +299,10 @@ pub fn build_iceberg_provider(
         schema: Arc::new(schema),
         stats: std::sync::RwLock::new(IcebergPushdownStats {
             total_data_files,
+            // Before the first scan no pruning has been observed.
+            files_scanned: total_data_files,
             columns_total,
             columns_projected: columns_total,
-            ..Default::default()
         }),
     }))
 }
