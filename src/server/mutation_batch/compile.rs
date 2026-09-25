@@ -984,6 +984,25 @@ mod tests {
             true
         )
         .is_ok());
+        let batch = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "upsert_node", "id": "usage:event:tenant-a:forged", "properties": {"type": "UsageEvent"}}
+        ]))
+        .unwrap();
+        assert!(reject_reserved_usage_compact_method(
+            &Method::BatchUpdate {
+                operations_msgpack: batch
+            },
+            false
+        )
+        .is_err());
+        assert!(reject_reserved_usage_compact_method(
+            &Method::AddNode {
+                node_id: "ordinary".into(),
+                properties_msgpack: Vec::new()
+            },
+            false
+        )
+        .is_ok());
     }
     #[test]
     fn terminal_run_event_replaces_generic_projection_intent() {
