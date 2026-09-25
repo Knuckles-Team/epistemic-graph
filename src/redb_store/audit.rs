@@ -69,7 +69,7 @@ impl OperationAuditEvent {
             || !token(&self.op, 128)
             || !token(&self.surface, 32)
             || !token(&self.request_id, 128)
-            || !matches!(self.status.as_str(), "ok" | "error" | "denied")
+            || !matches!(self.status.as_str(), "reserved" | "ok" | "error" | "denied")
             || self.params_sha256.len() != 64
             || !self.params_sha256.bytes().all(|b| b.is_ascii_hexdigit())
         {
@@ -83,6 +83,7 @@ impl OperationAuditEvent {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct AuditRequestRecord {
     fingerprint: crate::audit::Hash,
+    context_fingerprint: crate::audit::Hash,
     seq: u64,
     entry_hash: crate::audit::Hash,
 }
@@ -99,10 +100,23 @@ pub(crate) fn operation_audit_append(
 ) -> Result<crate::protocol::AuditAppendReceipt, String> {
     use sha2::{Digest, Sha256};
     event.validate()?;
-    let key = hex::encode(Sha256::digest(format!(
+    let request_identity = format!(
         "{}\0{}\0{}\0{}",
         event.tenant, event.principal, event.request_id, event.op
-    )));
+    );
+    let phase = if event.status == "reserved" { "reserve" } else { "outcome" };
+    let key = hex::encode(Sha256::digest(format!("{request_identity}\0{phase}")));
+    let reserve_key = hex::encode(Sha256::digest(format!("{request_identity}\0reserve")));
+    let context_fingerprint: crate::audit::Hash = Sha256::digest(format!(
+        "{}\0{}\0{}\0{}\0{}\0{}\0{}",
+        event.tenant,
+        event.principal,
+        event.request_id,
+        event.op,
+        event.surface,
+        event.params_sha256,
+        event.identity_chain,
+    )).into();
     let line = format!(
         "OP_AUDIT|v1|tenant={}|principal={}|op={}|surface={}|params_sha256={}|status={}|request_id={}|identity={}",
         event.tenant,
@@ -117,11 +131,24 @@ pub(crate) fn operation_audit_append(
     let fingerprint: crate::audit::Hash = Sha256::digest(line.as_bytes()).into();
     let mut staged_tail = tail.clone();
     let members = shard.graph_members(&[graph])?;
-    let op_id = anchor_op_id(graph);
+    // Stable across replicas: the native Raft command carries the same sealed
+    // event to every applier, and the maintenance admission ID must not depend
+    // on the local clock or process counter.
+    let op_id = format!("operation_audit/{key}");
     let (group, batches) = shard.admit_maintenance(&members, &op_id)?;
     let write = ShardWrite::open(shard, &group, &members, &batches)?;
     let applied = (|| {
         let mut requests = write.graph(graph)?.open_scoped_table(AUDIT_REQUESTS)?;
+        if phase == "outcome" {
+            let reservation = requests
+                .get((graph, reserve_key.as_str()))?
+                .ok_or_else(|| "AUDIT_RESERVATION_REQUIRED".to_string())?;
+            let record: AuditRequestRecord =
+                rmp_serde::from_slice(reservation.value()).map_err(|e| e.to_string())?;
+            if record.context_fingerprint != context_fingerprint {
+                return Err("AUDIT_RESERVATION_MISMATCH".to_string());
+            }
+        }
         if let Some(row) = requests.get((graph, key.as_str()))? {
             let record: AuditRequestRecord =
                 rmp_serde::from_slice(row.value()).map_err(|e| e.to_string())?;
@@ -133,7 +160,7 @@ pub(crate) fn operation_audit_append(
         let mut audit = write.graph(graph)?.open_scoped_table(AUDIT)?;
         let (seq, entry_hash) =
             append_audit_entry_with_line(&mut audit, &mut staged_tail, graph, line.as_bytes())?;
-        let record = AuditRequestRecord { fingerprint, seq, entry_hash };
+        let record = AuditRequestRecord { fingerprint, context_fingerprint, seq, entry_hash };
         let encoded = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
         requests.insert((graph, key.as_str()), encoded.as_slice())?;
         Ok((seq, entry_hash, false))
@@ -149,6 +176,47 @@ pub(crate) fn operation_audit_append(
     *tail = staged_tail;
     Ok(crate::protocol::AuditAppendReceipt {
         graph: graph.to_string(), seq, entry_sha256: hex::encode(hash), replayed,
+    })
+}
+
+/// Fetch one operation event and verify the entire graph chain before giving
+/// the caller a proof status. This is an operator read, so the O(history)
+/// verification is explicit; appends remain O(log history) on a cold tail.
+#[cfg(feature = "security")]
+pub(crate) fn operation_audit_read(
+    shard: &Shard,
+    graph: &str,
+    seq: u64,
+) -> Result<crate::protocol::AuditEventProof, String> {
+    let handle = shard.graph(graph)?;
+    let read = shard.read(&handle)?;
+    let audit = read.scoped_owner_table(AUDIT)?;
+    let entry = audit
+        .get((graph, seq))?
+        .ok_or_else(|| "AUDIT_EVENT_NOT_FOUND".to_string())?;
+    let (previous, hash, line) = crate::audit::decode_entry(entry.value())
+        .ok_or_else(|| "AUDIT_EVENT_CORRUPT".to_string())?;
+    let event_line = std::str::from_utf8(line).map_err(|_| "AUDIT_EVENT_CORRUPT")?;
+    if !event_line.starts_with("OP_AUDIT|v1|") {
+        return Err("AUDIT_EVENT_NOT_FOUND".to_string());
+    }
+    let proof = crate::protocol::AuditEventProof {
+        graph: graph.to_string(),
+        seq,
+        entry_sha256: hex::encode(hash),
+        previous_sha256: hex::encode(previous),
+        event_line: event_line.to_string(),
+        chain_verified: false,
+        chain_entries: 0,
+    };
+    drop(entry);
+    drop(audit);
+    drop(read);
+    let report = verify_audit(shard, graph)?;
+    Ok(crate::protocol::AuditEventProof {
+        chain_verified: report.ok,
+        chain_entries: report.entries,
+        ..proof
     })
 }
 

@@ -291,7 +291,8 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     // 107 -> 109: EH-404 `RbacElevation` and EH-406 `ThrottleCapacityCell`;
     // 109 -> 110: EH-524 `TsDefineSeries => TimeSeries`;
     // 110 -> 111: EH-558's `RetireSealedRecord`.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 111);
+    // 111 -> 112: EH-658's tenant-scoped operation audit append.
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 112);
     for control_lease_write in [
         "IssueControlLease",
         "TransitionControlLease",
@@ -306,6 +307,18 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     assert!(unique.iter().all(|name| !name.is_empty()));
 
     assert_native_round_trip(Method::ClearLedger, NativeMutationDomain::GraphState);
+    #[cfg(feature = "security")]
+    assert_native_round_trip(
+        Method::AuditAppend {
+            op: "graph.nodes.write".to_string(),
+            surface: "http".to_string(),
+            params_sha256: "a".repeat(64),
+            status: "reserved".to_string(),
+            request_id: "request-1".to_string(),
+            identity_chain: false,
+        },
+        NativeMutationDomain::GraphState,
+    );
     #[cfg(feature = "shacl")]
     assert_native_round_trip(
         Method::GraphSchema {

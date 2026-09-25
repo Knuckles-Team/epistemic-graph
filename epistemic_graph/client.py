@@ -14703,6 +14703,14 @@ class AdminClient:
             )
         ).payload
 
+    async def audit_read_event(self, seq: int) -> dict[str, Any]:
+        """Read one committed operation event and its chain verification result."""
+        return (
+            await _gen.security.send_audit_read_event(
+                self._client, {"seq": _integer("seq", seq, minimum=0)}
+            )
+        ).payload
+
     async def audit_prove_inclusion(
         self, node_id: str, *, anchor_seq: int | None = None
     ) -> dict[str, Any]:

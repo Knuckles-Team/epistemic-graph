@@ -31,6 +31,21 @@ pub struct AuditAppendReceipt {
     pub replayed: bool,
 }
 
+/// One operation event bound to a verified hash chain. `chain_verified` is
+/// false when any entry in the graph's chain fails verification.
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AuditEventProof {
+    pub graph: String,
+    pub seq: u64,
+    pub entry_sha256: String,
+    pub previous_sha256: String,
+    pub event_line: String,
+    pub chain_verified: bool,
+    pub chain_entries: u64,
+}
+
 /// Which side of its parent a Merkle audit-path sibling sits on (provenance
 /// anchoring, CONCEPT:EG-KG.sharding.row-level-security). The verifier folds the running hash with each
 /// step's sibling on the side named here — RFC 6962 §2.1.1 Merkle audit path
@@ -177,6 +192,8 @@ method_results! {
     AuditVerify(AuditVerify) => Raw<AuditReport>;
     #[cfg(feature = "security")]
     AuditAppend(AuditAppend) => Raw<AuditAppendReceipt>;
+    #[cfg(feature = "security")]
+    AuditReadEvent(AuditReadEvent) => Raw<AuditEventProof>;
     #[cfg(feature = "security")]
     AuditProveInclusion(AuditProveInclusion) => Raw<MerkleInclusionReport>;
     RegisterIdentity(RegisterIdentity) => Text<String>;
