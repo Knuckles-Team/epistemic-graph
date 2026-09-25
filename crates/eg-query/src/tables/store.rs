@@ -3584,13 +3584,22 @@ fn drop_ann_indexes_for_column_in(
         table.to_ascii_lowercase(),
         column.to_ascii_lowercase()
     );
+    drop_ann_indexes_with_prefix_in(wtx, &prefix)
+}
+
+fn drop_ann_indexes_for_table_in(wtx: &SqlWrite<'_>, table: &str) -> Result<usize, String> {
+    drop_ann_indexes_with_prefix_in(wtx, &format!("{}.", table.to_ascii_lowercase()))
+}
+
+fn drop_ann_indexes_with_prefix_in(wtx: &SqlWrite<'_>, prefix: &str) -> Result<usize, String> {
     let mut indexes = wtx.open_table(ANN_INDEXES)?;
-    let keys = indexes
-        .iter()
-        .map_err(map_err)?
-        .filter_map(|row| row.ok().map(|(key, _)| key.value().to_string()))
-        .filter(|key| key.starts_with(&prefix))
-        .collect::<Vec<_>>();
+    let mut keys = Vec::new();
+    for row in indexes.iter().map_err(map_err)? {
+        let (key, _) = row.map_err(map_err)?;
+        if key.value().starts_with(prefix) {
+            keys.push(key.value().to_string());
+        }
+    }
     for key in &keys {
         indexes.remove(key.as_str()).map_err(map_err)?;
     }
@@ -4922,6 +4931,7 @@ fn drop_in(
     }
     delete_all_rows_of_table_in(wtx, name)?;
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, name)?;
+    drop_ann_indexes_for_table_in(wtx, name)?;
     {
         let mut hypertables = wtx.open_table(HYPERTABLES)?;
         hypertables.remove(name).map_err(map_err)?;

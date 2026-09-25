@@ -610,6 +610,20 @@ fn a_failed_build_is_visible_and_a_dropped_registration_is_forgotten() {
 }
 
 #[test]
+fn dropping_a_table_removes_its_ann_registration() {
+    let index = hnsw_l2();
+    let (store, _path) = open_docs(&vectors(30, 27), &index);
+    refresh(&store);
+    assert_eq!(store.list_ann_indexes().unwrap().len(), 1);
+
+    assert!(store.drop_table("docs", false).unwrap());
+    assert!(store.list_ann_indexes().unwrap().is_empty());
+    assert!(store.ann_index_status().unwrap().is_empty());
+    assert!(refresh(&store).is_empty());
+    assert!(store.ann_authority().slot_keys().is_empty());
+}
+
+#[test]
 fn a_restart_serves_exactly_while_building_then_rebuilds_the_generation() {
     let index = hnsw_l2();
     let rows = vectors(90, 20);

@@ -169,10 +169,11 @@ enum ScalarKind {
 
 impl ScalarKind {
     fn of(ty: ColumnType) -> Option<Self> {
-        if matches!(
-            ty,
-            ColumnType::Int | ColumnType::BigInt | ColumnType::Float | ColumnType::Double
-        ) {
+        // RowPredicate compares JSON numbers through f64. BigInt can exceed
+        // f64's exact integer range, while Float/Double cells can contain NaN
+        // (rendered as JSON null). Either case can disagree with SQL WHERE,
+        // so keep those predicates on the ordinary scan path.
+        if matches!(ty, ColumnType::Int) {
             return Some(Self::Number);
         }
         if matches!(ty, ColumnType::Text) {
@@ -186,6 +187,39 @@ impl ScalarKind {
             Self::Number => value.is_number(),
             Self::Text => value.is_string(),
             Self::Bool => value.is_boolean(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod prefilter_precision_tests {
+    use super::*;
+    use crate::tables::Column;
+    use eg_types::CmpOp;
+    use serde_json::json;
+
+    #[test]
+    fn numeric_prefilter_requires_exact_sql_comparison_semantics() {
+        let schema = TableSchema::new(
+            "docs",
+            vec![
+                Column::new("small", ColumnType::Int, false, false),
+                Column::new("wide", ColumnType::BigInt, false, false),
+                Column::new("float", ColumnType::Float, false, false),
+                Column::new("double", ColumnType::Double, false, false),
+            ],
+        );
+        let predicate = |col: &str, value: Value| RowPredicate::Cmp {
+            col: col.to_string(),
+            op: CmpOp::Eq,
+            value,
+        };
+        assert!(admissible_prefilter(&predicate("small", json!(7)), &schema));
+        for col in ["wide", "float", "double"] {
+            assert!(!admissible_prefilter(
+                &predicate(col, json!(9007199254740993_i64)),
+                &schema
+            ));
         }
     }
 }
