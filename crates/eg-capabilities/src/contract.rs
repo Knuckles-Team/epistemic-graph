@@ -331,6 +331,26 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out.extend(python::artifacts(catalog));
     out.extend(vectors::artifacts());
     out.extend(method_bodies::artifacts());
+    // The API binds the exact catalog and schema bytes installed with the
+    // wheel. Mirror every generated root contract file before receipt_json
+    // digests the artifact list, so neither copy can drift independently.
+    // Once IDM-05 supplies scopes.json, it follows the same rule.
+    let wheel_copies: Vec<Artifact> = out
+        .iter()
+        .filter(|artifact| {
+            matches!(
+                artifact.path.as_str(),
+                "contract/methods.json" | "contract/errors.json" | "contract/scopes.json"
+            ) || artifact.path.starts_with("contract/schemas/")
+        })
+        .map(|artifact| Artifact {
+            path: artifact
+                .path
+                .replacen("contract/", "epistemic_graph/contract/", 1),
+            bytes: artifact.bytes.clone(),
+        })
+        .collect();
+    out.extend(wheel_copies);
     out
 }
 

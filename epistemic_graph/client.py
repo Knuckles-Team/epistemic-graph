@@ -15743,6 +15743,34 @@ class EpistemicGraphClient:
             _raise_send_error(resp)
         return _decode_send_result(method, resp.get("result"))
 
+    async def invoke_method(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Invoke a published method with generated request and result validation.
+
+        The generated sender validates request parameters before calling the
+        existing signed transport. The packaged result schema validates the
+        decoded response before exposing it to a generic API consumer.
+        """
+        from .contract.invocation import (
+            validate_method_params,
+            validate_method_result,
+        )
+
+        checked_params = validate_method_params(method, params)
+        sender = _gen.SEND_BY_METHOD.get(method)
+        if sender is None:
+            raise ValueError(f"{method} has no generated engine client sender")
+        result = await sender(
+            self, checked_params, graph, idempotency_key=idempotency_key
+        )
+        return validate_method_result(method, checked_params, result)
+
     # ── Connection Management ─────────────────────────────────────────────
 
     async def _finish_close(self, reader_task: asyncio.Task[None] | None) -> None:
@@ -16029,6 +16057,23 @@ class SyncEpistemicGraphClient:
         """
         future = asyncio.run_coroutine_threadsafe(self._client.supports(op), self._loop)
         return bool(_sync_result_before_deadline(future))
+
+    def invoke_method(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        """Synchronous version of the contract-checked generic method call."""
+        future = asyncio.run_coroutine_threadsafe(
+            self._client.invoke_method(
+                method, params, graph, idempotency_key=idempotency_key
+            ),
+            self._loop,
+        )
+        return _sync_result_before_deadline(future)
 
     class _SyncWrapper:
         def __init__(

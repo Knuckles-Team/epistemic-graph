@@ -118,6 +118,50 @@ class WheelContractSurface(unittest.TestCase):
         receipt = json.loads(_SHIPPED_RECEIPT.read_text(encoding="utf-8"))
         self.assertEqual(len(receipt["contract_digest"]), 64)
 
+    def test_generated_contract_data_ships_without_drift(self) -> None:
+        """The API binding reads the same catalog and schemas the engine generated."""
+        for name in ("methods.json", "errors.json", "scopes.json"):
+            source = _ROOT / "contract" / name
+            shipped = _PACKAGE / "contract" / name
+            self.assertTrue(source.is_file(), f"missing generated {source}")
+            self.assertEqual(shipped.read_bytes(), source.read_bytes(), name)
+
+        root_schemas = _ROOT / "contract" / "schemas"
+        shipped_schemas = _PACKAGE / "contract" / "schemas"
+        names = sorted(path.name for path in root_schemas.glob("*.json"))
+        self.assertTrue(names, "the engine contract has no JSON schemas")
+        self.assertEqual(
+            sorted(path.name for path in shipped_schemas.glob("*.json")), names
+        )
+        for name in names:
+            self.assertEqual(
+                (shipped_schemas / name).read_bytes(),
+                (root_schemas / name).read_bytes(),
+                name,
+            )
+
+    def test_packaged_methods_declare_wire_callability(self) -> None:
+        catalog = json.loads(
+            (_PACKAGE / "contract" / "methods.json").read_text(encoding="utf-8")
+        )
+        methods = catalog["methods"]
+        self.assertEqual(catalog["method_count"], len(methods))
+        self.assertTrue(methods)
+        self.assertTrue(
+            all(type(method.get("is_wire_callable")) is bool for method in methods)
+        )
+        self.assertTrue(any(method["is_wire_callable"] for method in methods))
+
+    def test_maturin_includes_the_contract_payload(self) -> None:
+        project = _PYPROJECT.read_text(encoding="utf-8")
+        for path in (
+            "methods.json",
+            "errors.json",
+            "scopes.json",
+            "schemas/*.json",
+        ):
+            self.assertIn(f'"epistemic_graph/contract/{path}"', project)
+
     def test_the_contract_module_is_stdlib_only_and_verifies_the_digest(self) -> None:
         """Executed in an EMPTY namespace, not imported, so this proves the module needs
         neither pydantic nor the transport -- exactly the constraint a consumer pinning
