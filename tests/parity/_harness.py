@@ -65,9 +65,13 @@ class BoundEmbeddedTransport:
     need to know whether an embedded pair member is bound or not.
     """
 
-    def __init__(self, shared: Any, agent_id: str) -> None:
+    def __init__(self, shared: Any, agent_id: str, graph_name: str) -> None:
         self._shared = shared
         self._agent_id = agent_id
+        # Routed per call, like the socket client's `graph_name`: connecting
+        # never creates the graph, so the test's own CreateGraph is the first
+        # write on both transports.
+        self._graph_name = graph_name
 
     async def _send(
         self,
@@ -77,7 +81,7 @@ class BoundEmbeddedTransport:
         graph: str | None = None,
     ) -> Any:
         return await self._shared._send(
-            method, params, graph=graph, agent_id=self._agent_id
+            method, params, graph=graph or self._graph_name, agent_id=self._agent_id
         )
 
 
