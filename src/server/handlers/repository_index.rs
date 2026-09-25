@@ -32,11 +32,62 @@ const POLICY_VERSION: &str = "repository-index";
 /// The verified request coordinates one scoped commit is compiled under.
 pub(crate) type IndexCommitContext<'a> = crate::server::mutation_batch::GraphWriteScope<'a>;
 
+/// Most operations one repository-index ChangeEnvelope carries.
+///
+/// Every committed operation contributes one fixed-schema event (at most 11
+/// MessagePack items, a few hundred bytes of opaque refs) to the batch's
+/// projection wake-up outbox payload, which the envelope screens as bounded
+/// inline material (8 MiB / 200 000 items). A whole repository batch easily
+/// lowers to 20 000+ operations and was refused, so a write-set larger than
+/// this commits as consecutive content-addressed envelopes: 8 192 x 11 items
+/// stays under half the item bound, and far under both the byte bound and the
+/// mutation batch's own operation limit.
+pub(crate) const MAX_ENVELOPE_OPERATIONS: usize = 8_192;
+
 /// The lowered, digest-keyed write-set of one scoped result.
 pub(crate) struct IndexWriteSet {
     pub envelope_id: String,
     digest: Digest256,
     methods: Vec<Method>,
+}
+
+impl IndexWriteSet {
+    fn keyed(domain: &[u8], parts: &[&[u8]], methods: Vec<Method>) -> Result<Self, String> {
+        let digest = Digest256::framed(domain, parts)?;
+        Ok(Self {
+            envelope_id: format!("{ENVELOPE_PREFIX}{}", digest.to_hex()),
+            digest,
+            methods,
+        })
+    }
+
+    /// Split into envelopes of at most `limit` operations, in order. A set
+    /// within the limit is returned unchanged (same envelope id); a chunk's id
+    /// binds the whole set's digest, its ordinal and its own operations, so a
+    /// re-sent batch replays chunk by chunk.
+    pub(crate) fn into_chunks(self, limit: usize) -> Result<Vec<Self>, String> {
+        if self.methods.len() <= limit {
+            return Ok(vec![self]);
+        }
+        let parent = self.digest.to_hex();
+        let mut chunks = Vec::new();
+        let mut methods = self.methods.into_iter();
+        loop {
+            let chunk: Vec<Method> = methods.by_ref().take(limit).collect();
+            if chunk.is_empty() {
+                return Ok(chunks);
+            }
+            let encoded = encode_methods(&chunk)?;
+            let ordinal = (chunks.len() as u64).to_be_bytes();
+            let parts: [&[u8]; 3] = [parent.as_bytes(), &ordinal, &encoded];
+            chunks.push(Self::keyed(b"eg/repository-index-chunk", &parts, chunk)?);
+        }
+    }
+}
+
+fn encode_methods(methods: &[Method]) -> Result<Vec<u8>, String> {
+    rmp_serde::to_vec_named(methods)
+        .map_err(|error| format!("repository index write-set encoding failed: {error}"))
 }
 
 /// Properties are re-keyed into a `BTreeMap` so the encoding -- and therefore
@@ -91,14 +142,8 @@ pub(crate) fn lower(result: &IndexResult) -> Result<IndexWriteSet, String> {
             methods.push(edge_method(edge)?);
         }
     }
-    let encoded = rmp_serde::to_vec_named(&methods)
-        .map_err(|error| format!("repository index write-set encoding failed: {error}"))?;
-    let digest = Digest256::framed(b"eg/repository-index-batch", &[&encoded])?;
-    Ok(IndexWriteSet {
-        envelope_id: format!("{ENVELOPE_PREFIX}{}", digest.to_hex()),
-        digest,
-        methods,
-    })
+    let encoded = encode_methods(&methods)?;
+    IndexWriteSet::keyed(b"eg/repository-index-batch", &[&encoded], methods)
 }
 
 fn policy(object_id: &str, tenant: &str) -> Result<PolicyRecord, String> {
@@ -177,14 +222,6 @@ pub(crate) fn respond(request_id: u64, result: IndexResult) -> Response {
         request_id,
         ResultPayload::of::<eg_types::result_contract::ingestion::IndexRepository>(result),
     )
-}
-
-/// Answer the commit of a batch: its index result, or the commit's refusal.
-pub(crate) fn finish(result: IndexResult, commit: Response) -> Response {
-    match commit.error {
-        Some(error) => Response::err(commit.id, error),
-        None => respond(commit.id, result),
-    }
 }
 
 #[cfg(test)]

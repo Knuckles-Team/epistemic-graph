@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use eg_types::change_envelope::{ChangeEnvelope, MaterialClass};
 use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
 
-use super::{lower, seal, IndexWriteSet};
+use super::{lower, seal, IndexWriteSet, MAX_ENVELOPE_OPERATIONS};
 use crate::mutation_batch::MutationSurface;
 use crate::protocol::Method;
 use crate::server::mutation_batch::{compile_methods, CompileBatch};
@@ -119,11 +119,15 @@ fn code_result(extra: &[(&str, &str)]) -> IndexResult {
 
 /// The repository-snapshot envelope the durable route commits for `result`.
 pub(crate) fn repository_envelope(result: &IndexResult) -> Result<ChangeEnvelope, String> {
+    seal_write_set(lower(result)?)
+}
+
+fn seal_write_set(write_set: IndexWriteSet) -> Result<ChangeEnvelope, String> {
     let IndexWriteSet {
         envelope_id,
         digest,
         methods,
-    } = lower(result)?;
+    } = write_set;
     let mutation = compile_methods(
         CompileBatch {
             batch_id: &envelope_id,
@@ -168,4 +172,53 @@ fn host_identity_inside_repository_content_is_still_refused() {
             .expect_err("host identity is refused in every class");
         assert!(error.contains("host identity"), "{error}");
     }
+}
+
+/// A repository-sized result: `symbols` SYMBOL nodes, each implemented by one
+/// file version (two operations per symbol).
+fn large_result(symbols: usize) -> IndexResult {
+    let nodes = (0..symbols)
+        .map(|index| node(&format!("symbol:{index}"), "SYMBOL", &[("name", "f")]))
+        .collect();
+    let edges = (0..symbols)
+        .map(|index| edge("fileversion:v", &format!("symbol:{index}"), "IMPLEMENTS"))
+        .collect();
+    IndexResult {
+        nodes,
+        edges,
+        ..Default::default()
+    }
+}
+
+/// A real repository batch lowers to far more operations than one envelope's
+/// projection wake-up may carry: as ONE envelope it is refused (the regression
+/// that failed every real ingest), split into bounded chunks every envelope
+/// validates, in order, with no operation lost.
+#[test]
+fn a_repository_sized_write_set_commits_as_bounded_envelopes() {
+    let result = large_result(12_000);
+    let whole = lower(&result).expect("lowered");
+    let total = whole.methods.len();
+    // The per-operation wake-up events are what outgrow the bound.
+    #[cfg(feature = "epistemic-tms")]
+    assert!(seal_write_set(lower(&result).expect("lowered")).is_err());
+
+    let chunks = whole.into_chunks(MAX_ENVELOPE_OPERATIONS).expect("chunked");
+    assert_eq!(chunks.len(), total.div_ceil(MAX_ENVELOPE_OPERATIONS));
+    assert_eq!(chunks.iter().map(|c| c.methods.len()).sum::<usize>(), total);
+    let ids: std::collections::BTreeSet<String> =
+        chunks.iter().map(|c| c.envelope_id.clone()).collect();
+    assert_eq!(ids.len(), chunks.len(), "every chunk has its own id");
+    for chunk in chunks {
+        seal_write_set(chunk).expect("a bounded chunk validates");
+    }
+}
+
+#[test]
+fn a_write_set_within_the_bound_keeps_its_single_envelope_id() {
+    let whole = lower(&result()).expect("lowered");
+    let id = whole.envelope_id.clone();
+    let chunks = whole.into_chunks(MAX_ENVELOPE_OPERATIONS).expect("chunked");
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0].envelope_id, id);
 }
