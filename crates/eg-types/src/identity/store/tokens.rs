@@ -61,29 +61,40 @@ impl IdentityStore {
             TokenOp::RevokeApiKey { request } => {
                 self.revoke_api_key(&request.id, stamp, ctx.now_ms)
             }
-            TokenOp::ListApiKeys { request } => {
-                if !self.users.contains_key(&request.principal_id) {
-                    return Err(IdentityRefusal::NotFound);
-                }
-                let keys = self
-                    .api_keys
-                    .values()
-                    .filter(|key| key.principal_id == request.principal_id)
-                    .filter(|key| {
-                        request
-                            .after
-                            .as_deref()
-                            .is_none_or(|after| key.key_id.as_str() > after)
-                    })
-                    .take(request.limit.min(MAX_PAGE) as usize)
-                    .map(ApiKeyView::of)
-                    .collect();
-                Ok(IdentityReply::ApiKeys(keys))
-            }
+            TokenOp::ListApiKeys { request } => self.list_api_keys(
+                &request.principal_id,
+                request.after.as_deref(),
+                request.limit,
+            ),
+            TokenOp::ListOwnApiKeys { request } => self.list_api_keys(
+                &stamp.actor.principal_id,
+                request.after.as_deref(),
+                request.limit,
+            ),
             TokenOp::IssuePasswordReset { request } => {
                 self.issue_password_reset(request, stamp, ctx.now_ms)
             }
         }
+    }
+
+    fn list_api_keys(
+        &self,
+        principal_id: &str,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        if !self.users.contains_key(principal_id) {
+            return Err(IdentityRefusal::NotFound);
+        }
+        let keys = self
+            .api_keys
+            .values()
+            .filter(|key| key.principal_id == principal_id)
+            .filter(|key| after.is_none_or(|cursor| key.key_id.as_str() > cursor))
+            .take(limit.min(MAX_PAGE) as usize)
+            .map(ApiKeyView::of)
+            .collect();
+        Ok(IdentityReply::ApiKeys(keys))
     }
 
     fn revoke_api_key(

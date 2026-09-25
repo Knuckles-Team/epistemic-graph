@@ -293,6 +293,30 @@ fn an_enrolled_factor_holds_the_session_until_a_fresh_step_verifies() {
         outcome(apply_kept(&mut store, &op, &fresh, NOW).unwrap()).outcome,
         AuthenticateOutcome::Ok
     );
+    let mut broker_stamp = broker();
+    broker_stamp.token_hashes = vec!["mfa-session".to_string()];
+    let resolve = IdentityOp::Session(SessionOp::Resolve {
+        request: SessionTouch {
+            session_token: Secret::default(),
+            code: Secret::default(),
+        },
+    });
+    let IdentityReply::Resolution(session) =
+        apply_kept(&mut store, &resolve, &broker_stamp, NOW).unwrap()
+    else {
+        panic!("expected session resolution")
+    };
+    assert_eq!(session.session_mfa_at_ms, Some(NOW));
+    assert!(!session.session_mfa_pending);
+    let principal = IdentityOp::User(UserOp::Resolve {
+        request: ObjectRef { id: alice.clone() },
+    });
+    let IdentityReply::Resolution(plain) =
+        apply_kept(&mut store, &principal, &broker(), NOW).unwrap()
+    else {
+        panic!("expected principal resolution")
+    };
+    assert_eq!(plain.session_mfa_at_ms, None);
 }
 
 #[test]

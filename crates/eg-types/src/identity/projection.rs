@@ -38,6 +38,10 @@ pub struct PrincipalResolution {
     /// Set by `resolve_session`: the session still owes its second factor.
     #[serde(default)]
     pub session_mfa_pending: bool,
+    /// Set only by broker `resolve_session` from the live stored session.
+    /// Principal-only resolution leaves this absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_mfa_at_ms: Option<u64>,
 }
 
 /// The RBAC state the store owns.
@@ -132,6 +136,7 @@ impl IdentityStore {
             mfa_required,
             mfa_enrolled: self.mfa_enrolled(principal_id),
             session_mfa_pending: false,
+            session_mfa_at_ms: None,
         })
     }
 

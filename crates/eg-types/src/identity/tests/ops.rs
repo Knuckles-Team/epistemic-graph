@@ -68,6 +68,44 @@ fn list_service_accounts_excludes_humans_before_paging() {
 }
 
 #[test]
+fn self_reads_use_only_the_stamped_principal() {
+    let mut store = store_in(AuthMode::Local);
+    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
+    let bob = create(&mut store, "bob", UserKind::Human).unwrap();
+    open_session(&mut store, "alice", &alice, "alice-session");
+    open_session(&mut store, "bob", &bob, "bob-session");
+    let self_stamp = IdentityStamp::for_actor(actor(&alice, &[IDENTITY_SELF_SCOPE]));
+    let resolution = IdentityOp::User(UserOp::ResolveSelf);
+    let IdentityReply::Resolution(who) =
+        apply_kept(&mut store, &resolution, &self_stamp, NOW).unwrap()
+    else {
+        panic!("expected self resolution")
+    };
+    assert_eq!(who.principal_id, alice);
+    let sessions = IdentityOp::Session(SessionOp::ListOwn);
+    let IdentityReply::Sessions(rows) =
+        apply_kept(&mut store, &sessions, &self_stamp, NOW).unwrap()
+    else {
+        panic!("expected own sessions")
+    };
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].principal_id, alice);
+    let status = IdentityOp::Mfa(MfaOp::Status);
+    assert_eq!(
+        apply_kept(&mut store, &status, &self_stamp, NOW),
+        Ok(IdentityReply::MfaStatus(MfaStatusView {
+            totp_enrolled: false,
+            webauthn_credentials: 0,
+            recovery_codes_left: 0,
+        }))
+    );
+    assert_eq!(
+        apply_kept(&mut store, &sessions, &broker(), NOW),
+        Err(IdentityRefusal::NotAuthorized)
+    );
+}
+
+#[test]
 fn revoke_one_session_uses_public_handle_and_requires_direct_admin() {
     let mut store = store_in(AuthMode::Local);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();

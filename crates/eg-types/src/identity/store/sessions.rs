@@ -54,6 +54,13 @@ impl IdentityStore {
                     .map(SessionView::of)
                     .collect(),
             )),
+            SessionOp::ListOwn => Ok(IdentityReply::Sessions(
+                self.sessions
+                    .values()
+                    .filter(|session| session.principal_id == stamp.actor.principal_id)
+                    .map(SessionView::of)
+                    .collect(),
+            )),
         }
     }
 
@@ -112,11 +119,13 @@ impl IdentityStore {
             .ok_or(IdentityRefusal::NotFound)?;
         let principal = session.principal_id.clone();
         let pending = session.mfa_pending;
+        let mfa_at_ms = session.mfa_at_ms;
         if !self.is_active(&principal) {
             return Err(IdentityRefusal::NotFound);
         }
         let mut resolution = self.resolve(&principal, ctx.classifier)?;
         resolution.session_mfa_pending = pending;
+        resolution.session_mfa_at_ms = mfa_at_ms;
         let idle = self.idle_ms_for(&resolution.scopes, ctx);
         if let Some(session) = self.sessions.get_mut(hash) {
             // Touch at a coarse granularity: a resolve inside the same minute

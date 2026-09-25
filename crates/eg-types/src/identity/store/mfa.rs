@@ -6,7 +6,7 @@ use super::super::audit::IdentityEvent;
 use super::super::model::TotpRecord;
 use super::super::ops::MfaOp;
 use super::super::stamp::IdentityStamp;
-use super::super::views::{AuthenticateOutcome, AuthenticateResult, IdentityReply};
+use super::super::views::{AuthenticateOutcome, AuthenticateResult, IdentityReply, MfaStatusView};
 use super::super::{IdentityRefusal, RECOVERY_CODES_PER_SET};
 use super::sessions::PendingSession;
 use super::throttle::account_key;
@@ -20,6 +20,9 @@ impl IdentityStore {
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
         match op {
+            MfaOp::Status => Ok(IdentityReply::MfaStatus(
+                self.mfa_status(&stamp.actor.principal_id),
+            )),
             MfaOp::RegisterWebauthn { .. }
             | MfaOp::WebauthnCredentials { .. }
             | MfaOp::VerifyWebauthn { .. }
@@ -33,6 +36,23 @@ impl IdentityStore {
             MfaOp::ConsumeRecoveryCode { .. } => Ok(IdentityReply::Authenticate(
                 self.consume_recovery(stamp, ctx.now_ms)?,
             )),
+        }
+    }
+
+    fn mfa_status(&self, principal_id: &str) -> MfaStatusView {
+        MfaStatusView {
+            totp_enrolled: self.totp_confirmed(principal_id),
+            webauthn_credentials: self
+                .webauthn
+                .values()
+                .filter(|credential| credential.principal_id == principal_id)
+                .count(),
+            recovery_codes_left: self.recovery.get(principal_id).map_or(0, |codes| {
+                codes
+                    .iter()
+                    .filter(|code| code.used_at_ms.is_none())
+                    .count()
+            }),
         }
     }
 

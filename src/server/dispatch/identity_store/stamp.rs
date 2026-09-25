@@ -246,9 +246,10 @@ fn derive_sign_in(
 fn derive_session(op: &mut SessionOp, stamp: &mut IdentityStamp) -> Derived {
     let request = match op {
         SessionOp::Resolve { request } | SessionOp::Revoke { request } => request,
-        SessionOp::RevokeAll { .. } | SessionOp::RevokeOne { .. } | SessionOp::List { .. } => {
-            return Ok(())
-        }
+        SessionOp::RevokeAll { .. }
+        | SessionOp::RevokeOne { .. }
+        | SessionOp::List { .. }
+        | SessionOp::ListOwn => return Ok(()),
     };
     stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Lookup)?];
     request.code.take();
@@ -294,7 +295,9 @@ fn derive_token(op: &mut TokenOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>)
         TokenOp::IssuePasswordReset { request } => {
             stamp.token_hashes = vec![take_token(&mut request.token, Floor::Issue)?];
         }
-        TokenOp::RevokeApiKey { .. } | TokenOp::ListApiKeys { .. } => {}
+        TokenOp::RevokeApiKey { .. }
+        | TokenOp::ListApiKeys { .. }
+        | TokenOp::ListOwnApiKeys { .. } => {}
     }
     Ok(())
 }
@@ -354,6 +357,7 @@ fn derive_webauthn(op: &mut MfaOp, stamp: &mut IdentityStamp) -> Derived {
             &mut request.session_token
         }
         MfaOp::RemoveWebauthn { .. }
+        | MfaOp::Status
         | MfaOp::EnrollTotp { .. }
         | MfaOp::ConfirmTotp { .. }
         | MfaOp::VerifyTotp { .. }
@@ -366,6 +370,7 @@ fn derive_webauthn(op: &mut MfaOp, stamp: &mut IdentityStamp) -> Derived {
 
 fn derive_mfa(op: &mut MfaOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>) -> Derived {
     match op {
+        MfaOp::Status => Ok(()),
         MfaOp::RegisterWebauthn { .. }
         | MfaOp::WebauthnCredentials { .. }
         | MfaOp::VerifyWebauthn { .. }

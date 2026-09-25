@@ -90,8 +90,8 @@ pub use text::{
     MIN_RECOVERY_CODE_CHARS, MIN_TOTP_SECRET_CHARS,
 };
 pub use views::{
-    ApiKeyView, AuthenticateOutcome, AuthenticateResult, IdentityReply, ResetDelivery,
-    ScimClientView, SessionView, UserView, WebauthnCredentialView,
+    ApiKeyView, AuthenticateOutcome, AuthenticateResult, IdentityReply, MfaStatusView,
+    ResetDelivery, ScimClientView, SessionView, UserView, WebauthnCredentialView,
 };
 
 /// The principal id of the built-in bootstrap user (§2.2.3).

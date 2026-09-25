@@ -50,6 +50,9 @@ impl IdentityStore {
             UserOp::Resolve { request } => Ok(IdentityReply::Resolution(
                 self.resolve(&request.id, ctx.classifier)?,
             )),
+            UserOp::ResolveSelf => Ok(IdentityReply::Resolution(
+                self.resolve(&stamp.actor.principal_id, ctx.classifier)?,
+            )),
         }
     }
 

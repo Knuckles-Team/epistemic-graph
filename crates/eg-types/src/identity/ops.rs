@@ -201,6 +201,7 @@ pub enum UserOp {
     Resolve {
         request: ObjectRef,
     },
+    ResolveSelf,
 }
 
 /// Passwords and sign-in.
@@ -248,6 +249,7 @@ pub enum SessionOp {
     List {
         request: ObjectRef,
     },
+    ListOwn,
 }
 
 /// One-time tokens and API keys.
@@ -276,6 +278,9 @@ pub enum TokenOp {
     ListApiKeys {
         request: PrincipalListQuery,
     },
+    ListOwnApiKeys {
+        request: ListQuery,
+    },
     /// A signed-out user's reset link (uniform answer, throttled).
     IssuePasswordReset {
         request: PasswordResetIssue,
@@ -287,6 +292,7 @@ pub enum TokenOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MfaOp {
+    Status,
     EnrollTotp {
         request: TotpEnroll,
     },
@@ -459,6 +465,7 @@ impl UserOp {
                 meta("list_service_accounts", false, OpAuthority::Read)
             }
             Self::Resolve { .. } => meta("resolve_principal", false, OpAuthority::Broker),
+            Self::ResolveSelf => meta("resolve_self", false, OpAuthority::SelfService),
         }
     }
 }
@@ -483,6 +490,7 @@ impl SessionOp {
             Self::RevokeAll { .. } => meta("revoke_user_sessions", true, OpAuthority::Admin),
             Self::RevokeOne { .. } => meta("revoke_one_session", true, OpAuthority::Admin),
             Self::List { .. } => meta("list_sessions", false, OpAuthority::Read),
+            Self::ListOwn => meta("list_own_sessions", false, OpAuthority::SelfService),
         }
     }
 }
@@ -497,6 +505,9 @@ impl TokenOp {
             Self::VerifyApiKey { .. } => meta("verify_api_key", true, OpAuthority::Broker),
             Self::RevokeApiKey { .. } => meta("revoke_api_key", true, OpAuthority::Admin),
             Self::ListApiKeys { .. } => meta("list_api_keys", false, OpAuthority::Read),
+            Self::ListOwnApiKeys { .. } => {
+                meta("list_own_api_keys", false, OpAuthority::SelfService)
+            }
             Self::IssuePasswordReset { .. } => {
                 meta("issue_password_reset", true, OpAuthority::Broker)
             }
@@ -507,6 +518,7 @@ impl TokenOp {
 impl MfaOp {
     fn meta(&self) -> OpMeta {
         match self {
+            Self::Status => meta("mfa_status", false, OpAuthority::SelfService),
             Self::EnrollTotp { .. } => meta("enroll_totp", true, OpAuthority::Broker),
             Self::ConfirmTotp { .. } => meta("confirm_totp", true, OpAuthority::Broker),
             Self::VerifyTotp { .. } => meta("verify_totp", true, OpAuthority::Broker),

@@ -131,6 +131,16 @@ pub struct ScimClientView {
     pub enabled: bool,
 }
 
+/// Self-service factor summary without credential material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct MfaStatusView {
+    pub totp_enrolled: bool,
+    pub webauthn_credentials: usize,
+    pub recovery_codes_left: usize,
+}
+
 impl ApiKeyView {
     pub(crate) fn of(key: &ApiKeyRecord) -> Self {
         Self {
@@ -243,6 +253,7 @@ pub enum IdentityReply {
     DirectoryGroups(Vec<DirectoryGroup>),
     /// `webauthn_credentials`.
     WebauthnCredentials(Vec<WebauthnCredentialView>),
+    MfaStatus(MfaStatusView),
     /// `issue_password_reset`.
     ResetDelivery(ResetDelivery),
 }

@@ -169,6 +169,35 @@ fn api_key_listing_is_paged_redacted_and_read_scoped() {
 }
 
 #[test]
+fn own_api_key_listing_uses_the_actor_and_keeps_other_keys_private() {
+    let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
+    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
+    let bob = create(&mut store, "bob", UserKind::Human).unwrap();
+    for (principal, key) in [(&alice, "alice-key"), (&bob, "bob-key")] {
+        let (op, stamp) = api_key(principal, key, &["kg:read"]);
+        apply_kept(&mut store, &op, &stamp, NOW).unwrap();
+    }
+    let own = IdentityOp::Token(TokenOp::ListOwnApiKeys {
+        request: ListQuery {
+            after: None,
+            limit: 50,
+        },
+    });
+    let self_stamp = IdentityStamp::for_actor(actor(&alice, &[IDENTITY_SELF_SCOPE]));
+    let IdentityReply::ApiKeys(keys) = apply_kept(&mut store, &own, &self_stamp, NOW).unwrap()
+    else {
+        panic!("expected own keys")
+    };
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].key_id, "alice-key");
+    assert_eq!(
+        apply_kept(&mut store, &own, &broker(), NOW),
+        Err(IdentityRefusal::NotAuthorized)
+    );
+}
+
+#[test]
 fn direct_admin_reset_replaces_token_and_revokes_sessions() {
     let mut store = store_in(AuthMode::Local);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
