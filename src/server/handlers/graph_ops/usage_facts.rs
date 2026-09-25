@@ -70,6 +70,29 @@ fn event(row: &Value) -> Result<UsageEventRow, String> {
         .map_err(|_| "invalid usage event fact".to_string())
 }
 
+fn validated_event(id: &str, tenant: &str, blob: &[u8]) -> Result<(Value, UsageEventRow), String> {
+    let row = eg_types::msgpack::decode_property_value(blob)
+        .map_err(|_| "invalid usage event encoding".to_string())?;
+    let Some(event_ref) = id.strip_prefix(&format!("usage:event:{tenant}:")) else {
+        return Err("usage event id has a foreign tenant".to_string());
+    };
+    let principal_ref = row["principal_ref"].as_str().unwrap_or_default();
+    if row["type"] != LABEL
+        || row["schema"] != "usage-event-fact-v1"
+        || row["tenant_ref"] != tenant
+        || row["event_ref"] != event_ref
+        || !opaque_ref(event_ref, "usage_dedup")
+        || principal_ref.len() != 64
+        || !principal_ref.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || row["_owner"].as_str().is_none_or(str::is_empty)
+        || row["_visibility"] != "private"
+    {
+        return Err("usage event authority or schema mismatch".to_string());
+    }
+    let event = event(&row)?;
+    Ok((row, event))
+}
+
 fn add_totals(totals: &mut UsageFactTotals, row: &UsageEventRow) -> Result<(), String> {
     macro_rules! checked_add {
         ($field:ident, $amount:expr) => {
@@ -177,21 +200,18 @@ pub(super) async fn handle(
         // not the authority for this dedicated method. The verified carrier's
         // tenant prefix and the method's scope gate are both mandatory; generic
         // graph reads still apply the row's `_owner`/private visibility tags.
-        let Ok(row) = eg_types::msgpack::decode_property_value(&blob) else {
-            continue;
-        };
-        if row["tenant_ref"] != carrier.tenant_scope() || !filter.accepts(&row) {
-            continue;
-        }
-        let row = match event(&row) {
-            Ok(row) => row,
+        let (row, event) = match validated_event(&id, carrier.tenant_scope(), &blob) {
+            Ok(event) => event,
             Err(error) => return Response::err(req_id, format!("USAGE_FACT_INVALID: {error}")),
         };
-        if let Err(error) = add_totals(&mut totals, &row) {
+        if !filter.accepts(&row) {
+            continue;
+        }
+        if let Err(error) = add_totals(&mut totals, &event) {
             return Response::err(req_id, format!("USAGE_FACT_INVALID: {error}"));
         }
         if mode == "events" {
-            events.push(row);
+            events.push(event);
         }
     }
     Response::ok(
@@ -265,6 +285,7 @@ mod tests {
             "type": "UsageEvent",
             "schema": "usage-event-fact-v1",
             "tenant_ref": writer_carrier.tenant_scope(),
+            "principal_ref": "c".repeat(64),
             "_owner": "emitter",
             "_visibility": "private",
             "event_ref": event_ref,
@@ -305,5 +326,38 @@ mod tests {
             panic!("cross-tenant usage read failed: {:?}", cross_tenant.error);
         };
         assert_eq!(page["events"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn forged_or_corrupt_usage_rows_fail_validation() {
+        let tenant = format!("carrier-tenant:{}", "a".repeat(64));
+        let event_ref = format!("pref_usage_dedup_{}", "b".repeat(64));
+        let id = format!("usage:event:{tenant}:{event_ref}");
+        let valid = serde_json::json!({
+            "type": "UsageEvent",
+            "schema": "usage-event-fact-v1",
+            "tenant_ref": tenant,
+            "principal_ref": "c".repeat(64),
+            "_owner": "emitter",
+            "_visibility": "private",
+            "event_ref": event_ref,
+            "run_ref": format!("pref_run_{}", "d".repeat(64)),
+            "origin": "runtime",
+            "occurred_at": "2026-09-25T00:00:00Z",
+            "occurred_at_ms": 1_790_294_400_000i64,
+            "input_tokens": 1,
+            "output_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
+            "reasoning_tokens": 0,
+            "cost_microusd": null,
+            "model_ref": null,
+        });
+        let valid_blob = rmp_serde::to_vec_named(&valid).unwrap();
+        assert!(validated_event(&id, &tenant, &valid_blob).is_ok());
+        let mut forged = valid;
+        forged["event_ref"] = serde_json::json!(format!("pref_usage_dedup_{}", "e".repeat(64)));
+        assert!(validated_event(&id, &tenant, &rmp_serde::to_vec_named(&forged).unwrap()).is_err());
+        assert!(validated_event(&id, &tenant, b"not msgpack").is_err());
     }
 }
