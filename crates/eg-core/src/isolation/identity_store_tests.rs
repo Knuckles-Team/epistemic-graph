@@ -59,10 +59,27 @@ pub(super) fn apply(
     layer.try_apply_identity(&op, stamp, NOW, &Registry)
 }
 
-/// A layer whose store is initialized (`none` mode) with `alice` holding a
-/// role that may read [`GRAPH`].
-pub(super) fn seeded() -> IsolationLayer {
+/// The engine's System identity (`engine-root`) registered through the
+/// one-time bootstrap: the store may hold real principals from here on.
+pub(super) fn bootstrapped() -> IsolationLayer {
     let mut layer = IsolationLayer::new();
+    layer
+        .try_bootstrap_system_identity(AgentIdentity {
+            agent_id: SYSTEM_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        })
+        .unwrap();
+    layer
+}
+
+pub(super) const SYSTEM_AGENT: &str = "engine-root";
+
+/// A bootstrapped layer whose store is initialized (`none` mode) with `alice`
+/// holding a role that may read [`GRAPH`].
+pub(super) fn seeded() -> IsolationLayer {
+    let mut layer = bootstrapped();
     let init = IdentityOp::Config(ConfigOp::Initialize {
         request: InitializeRequest {
             mode: AuthMode::None,

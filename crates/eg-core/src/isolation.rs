@@ -480,7 +480,9 @@ mod identity_store_admin;
 #[cfg(feature = "security")]
 pub use governed_admin::GovernedError;
 #[cfg(feature = "security")]
-pub use identity_store_admin::{AuditActor, IdentityStoreError, STORE_MANAGED, STORE_NAMESPACE};
+pub use identity_store_admin::{
+    AuditActor, IdentityStoreError, STORE_MANAGED, STORE_NAMESPACE, SYSTEM_BOOTSTRAP_PENDING,
+};
 mod layer_store;
 mod policy_admin;
 #[cfg(test)]

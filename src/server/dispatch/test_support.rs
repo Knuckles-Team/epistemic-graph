@@ -66,6 +66,24 @@ pub(super) fn state() -> Arc<RwLock<ServerState>> {
     )))
 }
 
+/// An engine whose System identity already bootstrapped: the identity store
+/// may hold real principals (IDM ordering).
+pub(super) fn bootstrapped_state() -> Arc<RwLock<ServerState>> {
+    let mut layer = crate::isolation::IsolationLayer::new();
+    layer
+        .try_bootstrap_system_identity(crate::isolation::AgentIdentity {
+            agent_id: "engine-root".to_string(),
+            role: crate::isolation::AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        })
+        .expect("a fresh layer bootstraps its System identity");
+    Arc::new(RwLock::new(ServerState::new_for_test(
+        "dispatch-test-secret",
+        layer,
+    )))
+}
+
 /// Whether `response` was refused with `code`.
 pub(super) fn refused_with(response: &Response, code: &str) -> bool {
     response

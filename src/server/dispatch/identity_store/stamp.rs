@@ -159,7 +159,8 @@ fn derive_config(op: &mut ConfigOp, stamp: &mut IdentityStamp, env: &StampEnv<'_
         | ConfigOp::Get
         | ConfigOp::Audit { .. }
         | ConfigOp::ExportSql
-        | ConfigOp::ImportSql { .. } => Ok(()),
+        | ConfigOp::ImportSql { .. }
+        | ConfigOp::RepairSystemIdentity { .. } => Ok(()),
     }
 }
 

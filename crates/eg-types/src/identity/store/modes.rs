@@ -10,8 +10,9 @@ use super::super::config::{
 use super::super::model::{PasswordCredential, UserKind, UserRecord, UserStatus};
 use super::super::ops::ConfigOp;
 use super::super::requests::InitializeRequest;
-use super::super::requests_admin::{PolicyUpdate, RoleGraphGrant, MAX_PAGE};
+use super::super::requests_admin::{ListQuery, PolicyUpdate, RoleGraphGrant, MAX_PAGE};
 use super::super::stamp::IdentityStamp;
+use super::super::text::{bounded, MAX_ID_BYTES};
 use super::super::views::IdentityReply;
 use super::super::{
     normalize_username, IdentityRefusal, ADMINISTRATORS_GROUP, ADMIN_ROLE, BOOTSTRAP_PRINCIPAL,
@@ -79,25 +80,63 @@ impl IdentityStore {
             ConfigOp::Transition { request } => self.transition(request, stamp, ctx.now_ms),
             ConfigOp::UpdatePolicy { request } => self.update_policy(request, stamp, ctx.now_ms),
             ConfigOp::Get => Ok(IdentityReply::Config(self.require_initialized()?.clone())),
-            ConfigOp::Audit { request } => {
-                let after = request.after.as_deref().map(str::parse::<u64>);
-                let after = after
-                    .transpose()
-                    .map_err(|_| IdentityRefusal::InvalidRequest)?;
-                let limit = request.limit.min(MAX_PAGE) as usize;
-                Ok(IdentityReply::Audit(self.audit.page(after, limit)))
-            }
+            ConfigOp::Audit { request } => self.audit_page(request),
             ConfigOp::ExportSql => Ok(IdentityReply::Sql(super::super::sql_dump::render_dump(
                 &self.sql_relations(),
             ))),
-            ConfigOp::ImportSql { request } => {
-                let imported = self.import_dump(&request.sql, ctx.now_ms)?;
-                self.audit_event(stamp, ctx.now_ms, IdentityEvent::Imported, None);
-                Ok(IdentityReply::Done {
-                    changed: imported > 0,
-                })
+            ConfigOp::ImportSql { request } => self.import_sql(&request.sql, stamp, ctx.now_ms),
+            ConfigOp::RepairSystemIdentity { request } => {
+                self.repair_system_identity(&request.id, stamp, ctx.now_ms)
             }
         }
+    }
+
+    fn audit_page(&self, request: &ListQuery) -> Result<IdentityReply, IdentityRefusal> {
+        let after = request.after.as_deref().map(str::parse::<u64>);
+        let after = after
+            .transpose()
+            .map_err(|_| IdentityRefusal::InvalidRequest)?;
+        let limit = request.limit.min(MAX_PAGE) as usize;
+        Ok(IdentityReply::Audit(self.audit.page(after, limit)))
+    }
+
+    fn import_sql(
+        &mut self,
+        sql: &str,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        let imported = self.import_dump(sql, now_ms)?;
+        self.audit_event(stamp, now_ms, IdentityEvent::Imported, None);
+        Ok(IdentityReply::Done {
+            changed: imported > 0,
+        })
+    }
+
+    /// The store's half of a System-identity repair: validate the agent id
+    /// and audit the repair. A principal the store manages (a person, a
+    /// provisioned service) is never the engine's System identity. The engine
+    /// applies the identity itself in the same durable write.
+    fn repair_system_identity(
+        &mut self,
+        agent_id: &str,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        bounded(agent_id, MAX_ID_BYTES)?;
+        if agent_id.chars().any(char::is_whitespace) {
+            return Err(IdentityRefusal::InvalidRequest);
+        }
+        if self.manages(agent_id) {
+            return Err(IdentityRefusal::KindMismatch);
+        }
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::SystemIdentityRepaired,
+            Some(agent_id),
+        );
+        Ok(IdentityReply::Done { changed: true })
     }
 
     /// Seed the singleton, the built-in roles and groups, and the bootstrap

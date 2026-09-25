@@ -8,7 +8,9 @@ use eg_types::identity::*;
 const PASSWORD: &str = "correct horse battery staple";
 const SESSION: &str = "sess-0123456789abcdefghijklmnopqrstuv";
 
-use super::super::test_support::{send as send_method, state, verified};
+use super::super::test_support::{
+    bootstrapped_state as state, send as send_method, state as unbootstrapped_state, verified,
+};
 
 fn context(principal: &str, scopes: &[&str]) -> VerifiedRequestContext {
     verified(principal, scopes, &[])
@@ -352,4 +354,23 @@ async fn a_signed_out_reset_request_is_broker_only_and_its_token_meets_the_floor
         !image.contains(SESSION),
         "the reset token never reaches the image"
     );
+}
+
+#[tokio::test]
+async fn first_admin_setup_before_the_system_bootstrap_is_refused_at_the_boundary() {
+    let early = unbootstrapped_state();
+    let refused = send(&early, broker(), initialize(PASSWORD)).await;
+    assert!(
+        refused
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("SYSTEM_BOOTSTRAP_PENDING"),
+        "{:?}",
+        refused.error
+    );
+    assert!(early.read().await.isolation.identity_bootstrap_pending());
+    let ready = state();
+    let accepted = send(&ready, broker(), initialize(PASSWORD)).await;
+    assert!(accepted.error.is_none(), "{:?}", accepted.error);
 }

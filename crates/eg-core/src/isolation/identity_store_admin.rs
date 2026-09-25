@@ -13,16 +13,28 @@
 
 use eg_types::acl::{Grant, RbacAdminOp, Role};
 use eg_types::identity::{
-    ApplyContext, AuditRecord, DenialSample, IdentityEvent, IdentityOp, IdentityRefusal,
-    IdentityReply, IdentityStamp, ScopeClassifier, RBAC_ROLE_PREFIX,
+    ApplyContext, AuditRecord, ConfigOp, DenialSample, IdentityEvent, IdentityOp, IdentityRefusal,
+    IdentityReply, IdentityStamp, IdentityStore, ScopeClassifier, RBAC_ROLE_PREFIX,
 };
 
-use super::{AgentIdentity, IsolationLayer};
+use super::{AgentIdentity, AgentRole, IsolationLayer};
+
+/// The agent a System-identity repair names, if `op` is one.
+fn system_repair_target(op: &IdentityOp) -> Option<&str> {
+    if let IdentityOp::Config(ConfigOp::RepairSystemIdentity { request }) = op {
+        Some(&request.id)
+    } else {
+        None
+    }
+}
 
 /// A refused identity op, or a persistence failure after an accepted one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdentityStoreError {
     Refused(IdentityRefusal),
+    /// The engine's System identity has not bootstrapped yet: the store may
+    /// hold only its seed until it has (see `bootstrap_order`).
+    SystemBootstrapPending,
     Persist(String),
 }
 
@@ -30,10 +42,17 @@ impl std::fmt::Display for IdentityStoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Refused(refusal) => refusal.fmt(f),
+            Self::SystemBootstrapPending => f.write_str(SYSTEM_BOOTSTRAP_PENDING),
             Self::Persist(error) => f.write_str(error),
         }
     }
 }
+
+/// Refusal for a real principal, credential or grant (first-admin setup, a
+/// claim, SCIM/LDAP provisioning, ...) before the engine's System identity
+/// bootstrapped: were it accepted, the System bootstrap could never run.
+pub const SYSTEM_BOOTSTRAP_PENDING: &str =
+    "IDENTITY_SYSTEM_BOOTSTRAP_PENDING: register the engine's System identity (the signer-backed bootstrap) before creating principals, credentials or grants";
 
 /// Refusal codes for the older writers entering the store's namespace.
 pub const STORE_MANAGED: &str =
@@ -62,20 +81,58 @@ impl IsolationLayer {
         let reply = next
             .apply(op, stamp, &ctx)
             .map_err(IdentityStoreError::Refused)?;
+        self.bootstrap_order(op, &next)?;
         if &next == self.rbac.identity_store() {
             return Ok(reply);
         }
         // The one-time System bootstrap is NOT consumed here: the identity
         // store owns only its own principals, and the engine's System
-        // identity is still registered through the dedicated bootstrap path.
+        // identity is still registered through the dedicated bootstrap path
+        // (or, after it, repaired by an administrator below).
         let previous = (self.rbac.clone(), self.agents.clone());
         *self.rbac.identity_store_mut() = next;
         self.project_identity_store();
+        if let Some(agent_id) = system_repair_target(op) {
+            self.merge_system_identity(agent_id);
+        }
         if let Err(error) = self.persist_state() {
             (self.rbac, self.agents) = previous;
             return Err(IdentityStoreError::Persist(error));
         }
         Ok(reply)
+    }
+
+    /// Ordering: until the engine's System identity bootstrapped, the store
+    /// may hold only its SEED -- a first administrator, a provisioned user or
+    /// any other real principal, credential or grant is refused, and so is a
+    /// System-identity repair (the bootstrap itself is the path then).
+    fn bootstrap_order(
+        &self,
+        op: &IdentityOp,
+        next: &IdentityStore,
+    ) -> Result<(), IdentityStoreError> {
+        let pending =
+            self.identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending;
+        let leaves_seed = system_repair_target(op).is_some() || !next.holds_only_seed();
+        if pending && leaves_seed {
+            return Err(IdentityStoreError::SystemBootstrapPending);
+        }
+        Ok(())
+    }
+
+    /// Make `agent_id` the System identity, keeping its teams and roles (a
+    /// repair never replaces unrelated roles; a new agent starts with none).
+    fn merge_system_identity(&mut self, agent_id: &str) {
+        let identity = self
+            .agents
+            .entry(agent_id.to_string())
+            .or_insert_with(|| AgentIdentity {
+                agent_id: agent_id.to_string(),
+                role: AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
+        identity.role = AgentRole::System;
     }
 
     /// Replace the RBAC state the store owns with its current projection:

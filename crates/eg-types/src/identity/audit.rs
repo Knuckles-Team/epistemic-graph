@@ -62,6 +62,8 @@ pub enum IdentityEvent {
     MfaRemoved,
     /// A signed-out user asked for a password reset (issued or not).
     PasswordResetRequested,
+    /// An administrator registered or repaired the engine's System identity.
+    SystemIdentityRepaired,
 }
 
 /// One tamper-evident entry.

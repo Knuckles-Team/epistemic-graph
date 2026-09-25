@@ -143,6 +143,13 @@ pub enum ConfigOp {
     ImportSql {
         request: SqlDump,
     },
+    /// Register or repair the engine's System identity AFTER the one-time
+    /// System bootstrap (recovery: the System identity lost or replaced).
+    /// Exact direct `identity:admin`; the engine sets the named agent's role
+    /// to System and keeps its teams and roles -- nothing else is replaced.
+    RepairSystemIdentity {
+        request: ObjectRef,
+    },
 }
 
 /// Principals.
@@ -387,6 +394,9 @@ impl ConfigOp {
             Self::Audit { .. } => meta("audit", false, OpAuthority::Read),
             Self::ExportSql => meta("export_sql", false, OpAuthority::Read),
             Self::ImportSql { .. } => meta("import_sql", true, OpAuthority::Admin),
+            Self::RepairSystemIdentity { .. } => {
+                meta("repair_system_identity", true, OpAuthority::Admin)
+            }
         }
     }
 }
