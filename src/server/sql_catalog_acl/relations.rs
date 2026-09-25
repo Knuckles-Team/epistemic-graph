@@ -26,11 +26,13 @@ pub(crate) type SharedRelations = Arc<dyn ReadOnlyRelations>;
 
 /// Does `query` name a read-only relation, or read the catalogs that list relations?
 /// Only then are the relations materialized — a statement that cannot see them never
-/// pays for them. (A false positive only builds relations nobody reads.)
+/// pays for them. (A false positive only builds relations nobody reads.) The names come
+/// from the one reserved list, so a relation added there is never silently skipped here.
 pub(crate) fn wants_read_only_relations(query: &str) -> bool {
     let query = query.to_ascii_lowercase();
-    ["decision", "pg_", "information_schema"]
+    ["pg_", "information_schema"]
         .iter()
+        .chain(eg_query::READ_ONLY_RELATION_NAMES)
         .any(|word| query.contains(word))
 }
 

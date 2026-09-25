@@ -16,6 +16,7 @@ use eg_types::decision::statistical::retrieval_generation::{
     GenerationEvalItem, GenerationEvalRequest, GenerationEvaluated, GenerationReceipt,
     GENERATION_RECEIPT_SCHEMA_VERSION, MAX_GENERATION_TOP_K,
 };
+use eg_types::decision::statistical::retrieval_pointer::PointerState;
 use eg_types::decision::statistical::StatisticalErrorCode;
 
 use super::stat_executor::ExecutionContext;
@@ -220,6 +221,15 @@ pub(super) fn evaluate_generation(
     Ok(evaluated)
 }
 
+/// The move this receipt already made is the active one: re-activating it is a replay
+/// (answered by the pointer as it stands), not a move against a stale baseline.
+fn is_replay(pointer: &PointerState, shadow_graph: &str, receipt_digest: &str) -> bool {
+    pointer.active.as_ref().is_some_and(|active| {
+        active.target.as_deref() == Some(shadow_graph)
+            && active.receipt_digest.as_deref() == Some(receipt_digest)
+    })
+}
+
 /// The shadow generation `logical` may move to: the named receipt passed, it
 /// measured exactly this shadow for this logical graph, and it measured it
 /// against the generation active NOW (a receipt against a stale baseline is
@@ -242,10 +252,10 @@ pub(super) fn qualified_generation(
         ));
     }
     let (_, pointer) = read_pointer(store, tenant, &generation_pointer(logical))?;
-    // The measured baseline must still be the active generation -- or the
-    // shadow already is (a replayed activation, answered as a replay).
-    let current = pointer.target().unwrap_or(logical);
-    if current != receipt.active_graph && current != shadow_graph {
+    // The measured baseline must still be the active generation -- or this very
+    // receipt already activated the shadow (a replayed activation).
+    let stale = pointer.target().unwrap_or(logical) != receipt.active_graph;
+    if stale && !is_replay(&pointer, shadow_graph, receipt_digest) {
         return Err(mismatch(
             "the receipt measured a generation that is no longer the active one",
         ));
