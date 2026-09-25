@@ -20,6 +20,7 @@ const OP_LEVEL_ACTIONS: &[&str] = &[
     "connector:write-back-read",
     "identity:admin",
     "identity:authenticate",
+    "identity:provision",
     "identity:read",
     "identity:self",
     "kg:admin",

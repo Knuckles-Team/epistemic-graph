@@ -8,8 +8,8 @@
 
 use eg_types::identity::{
     check_password, check_recovery_code, check_token, check_totp_secret, normalize_username,
-    ConfigOp, CredentialOp, IdentityOp, IdentityRefusal, IdentityStamp, IdentityStore, MfaOp,
-    PasswordCheck, PasswordCredential, Secret, SessionOp, TokenOp, UserOp,
+    ConfigOp, CredentialOp, IdentityOp, IdentityRefusal, IdentityStamp, IdentityStore, IdpOp,
+    MfaOp, PasswordCheck, PasswordCredential, Secret, SessionOp, TokenOp, UserOp,
     DEFAULT_PASSWORD_MIN_CHARS,
 };
 
@@ -127,7 +127,14 @@ pub(super) fn derive(
         IdentityOp::Session(op) => derive_session(op, stamp),
         IdentityOp::Token(op) => derive_token(op, stamp, env),
         IdentityOp::Mfa(op) => derive_mfa(op, stamp, env),
-        IdentityOp::Access(_) | IdentityOp::Idp(_) => Ok(()),
+        IdentityOp::Access(_) => Ok(()),
+        IdentityOp::Idp(op) => {
+            // A first-seen directory subject becomes a new principal.
+            if matches!(op, IdpOp::Provision { .. }) {
+                stamp.minted_principal_id = Some(format!("usr:{}", uuid::Uuid::new_v4()));
+            }
+            Ok(())
+        }
     }
 }
 

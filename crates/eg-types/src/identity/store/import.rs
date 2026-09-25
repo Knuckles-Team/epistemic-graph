@@ -34,13 +34,24 @@ const IMPORTERS: [(&str, Importer); 11] = [
 ];
 
 /// Relations a dump carries that a restore deliberately does not replay.
-const NOT_RESTORED: [&str; 3] = ["api_keys", "audit", "config"];
+/// Directory groups are owned by the directory: its next SCIM push or LDAP
+/// sync re-creates them.
+const NOT_RESTORED: [&str; 5] = [
+    "api_keys",
+    "audit",
+    "config",
+    "directory_groups",
+    "directory_group_members",
+];
 
 fn required(row: &DumpRow, column: &str) -> Result<String, IdentityRefusal> {
     row.text(column).ok_or(IdentityRefusal::InvalidRequest)
 }
 
-fn parsed<T: serde::de::DeserializeOwned>(row: &DumpRow, column: &str) -> Result<T, IdentityRefusal> {
+fn parsed<T: serde::de::DeserializeOwned>(
+    row: &DumpRow,
+    column: &str,
+) -> Result<T, IdentityRefusal> {
     serde_json::from_value(row.get(column).clone()).map_err(|_| IdentityRefusal::InvalidRequest)
 }
 
@@ -50,7 +61,11 @@ fn flag(row: &DumpRow, column: &str) -> bool {
 
 impl IdentityStore {
     /// Merge every row of `dump`. Answers how many rows were new.
-    pub(super) fn import_dump(&mut self, dump: &str, now_ms: u64) -> Result<usize, IdentityRefusal> {
+    pub(super) fn import_dump(
+        &mut self,
+        dump: &str,
+        now_ms: u64,
+    ) -> Result<usize, IdentityRefusal> {
         let rows = parse_dump(dump)?;
         let known = |relation: &str| {
             NOT_RESTORED.contains(&relation) || IMPORTERS.iter().any(|(name, _)| *name == relation)
@@ -86,7 +101,10 @@ impl IdentityStore {
     }
 
     /// The restorable (non-built-in) role a binding row names.
-    fn restorable_role(&mut self, row: &DumpRow) -> Result<Option<&mut RoleRecord>, IdentityRefusal> {
+    fn restorable_role(
+        &mut self,
+        row: &DumpRow,
+    ) -> Result<Option<&mut RoleRecord>, IdentityRefusal> {
         let role = self
             .roles
             .get_mut(&required(row, "role_id")?)
@@ -245,7 +263,10 @@ impl IdentityStore {
             .idps
             .get_mut(&required(row, "idp_id")?)
             .ok_or(IdentityRefusal::NotFound)?;
-        let new = !idp.rules.iter().any(|existing| existing.rule_id == rule.rule_id);
+        let new = !idp
+            .rules
+            .iter()
+            .any(|existing| existing.rule_id == rule.rule_id);
         if new {
             idp.rules.push(rule);
         }
@@ -268,7 +289,9 @@ impl IdentityStore {
             subject,
             principal_id,
             linked_at_ms: row.get("linked_at_ms").as_u64().unwrap_or(now_ms),
-            linked_by: row.text("linked_by").unwrap_or_else(|| "import".to_string()),
+            linked_by: row
+                .text("linked_by")
+                .unwrap_or_else(|| "import".to_string()),
         };
         self.links.insert(key, link);
         Ok(true)

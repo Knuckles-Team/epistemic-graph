@@ -54,6 +54,10 @@ pub enum IdentityEvent {
     ChangeApproved,
     ChangeRevoked,
     ChangeConsumed,
+    /// Directory provisioning (SCIM / LDAP sync).
+    UserProvisioned,
+    UserDeprovisioned,
+    DirectoryGroupChanged,
 }
 
 /// One tamper-evident entry.

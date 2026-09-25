@@ -20,6 +20,9 @@ use super::requests_admin::{
     GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, RoleUpsert, SqlDump,
     UserRoleChange,
 };
+use super::requests_provision::{
+    DirectoryGroup, DirectoryGroupQuery, DirectoryGroupRef, ProvisionSubject, ProvisionedQuery,
+};
 
 /// Administer identity: users, roles, groups, IdPs, policy, mode.
 pub const IDENTITY_ADMIN_SCOPE: &str = "identity:admin";
@@ -29,7 +32,7 @@ pub const IDENTITY_READ_SCOPE: &str = "identity:read";
 pub const IDENTITY_AUTHENTICATE_SCOPE: &str = "identity:authenticate";
 /// A principal managing its own credentials and second factors.
 pub const IDENTITY_SELF_SCOPE: &str = "identity:self";
-/// SCIM provisioning (registered for IDM-14; no op uses it yet).
+/// Directory provisioning (SCIM), bound to one `kind=scim` IdP.
 pub const IDENTITY_PROVISION_SCOPE: &str = "identity:provision";
 
 /// Which exact scope an op needs.
@@ -53,17 +56,45 @@ pub enum OpAuthority {
     /// `identity:authenticate` or `identity:admin`, and only while the store
     /// is uninitialized.
     FirstRun,
+    /// The IdP directory: `identity:read` / `identity:admin`, or the broker
+    /// (the sign-in page lists the enabled IdPs; an IdP record holds no
+    /// secret, only `secret_ref`).
+    Directory,
+    /// `identity:provision` (SCIM) or `identity:authenticate` (the broker is
+    /// the LDAP client), direct actor. The op is further bound to one IdP:
+    /// a provisioner only to the `kind=scim` IdP whose
+    /// `config_json.provisioner` names it, the broker only to `kind=ldap`.
+    Provision,
 }
 
 impl OpAuthority {
-    /// The scope the ledger names for this authority.
+    /// The scope the ledger names for this authority (the first of
+    /// [`OpAuthority::scopes`]).
     pub fn scope(self) -> &'static str {
+        self.scopes()[0]
+    }
+
+    /// Every exact scope that satisfies this authority. The store's check
+    /// and the request boundary's ledger check both read this one list.
+    pub fn scopes(self) -> &'static [&'static str] {
         match self {
-            Self::Admin => IDENTITY_ADMIN_SCOPE,
-            Self::Read => IDENTITY_READ_SCOPE,
-            Self::Broker | Self::FirstRun => IDENTITY_AUTHENTICATE_SCOPE,
-            Self::SelfService => IDENTITY_SELF_SCOPE,
+            Self::Admin => &[IDENTITY_ADMIN_SCOPE],
+            Self::Read => &[IDENTITY_READ_SCOPE, IDENTITY_ADMIN_SCOPE],
+            Self::Broker => &[IDENTITY_AUTHENTICATE_SCOPE],
+            Self::FirstRun => &[IDENTITY_AUTHENTICATE_SCOPE, IDENTITY_ADMIN_SCOPE],
+            Self::SelfService => &[IDENTITY_SELF_SCOPE],
+            Self::Directory => &[
+                IDENTITY_READ_SCOPE,
+                IDENTITY_ADMIN_SCOPE,
+                IDENTITY_AUTHENTICATE_SCOPE,
+            ],
+            Self::Provision => &[IDENTITY_PROVISION_SCOPE, IDENTITY_AUTHENTICATE_SCOPE],
         }
+    }
+
+    /// Whether a delegated actor is refused outright.
+    pub fn direct_only(self) -> bool {
+        matches!(self, Self::Admin | Self::FirstRun | Self::Provision)
     }
 }
 
@@ -88,15 +119,25 @@ const fn meta(name: &'static str, mutates: bool, authority: OpAuthority) -> OpMe
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ConfigOp {
-    Initialize { request: InitializeRequest },
-    Transition { request: ModeTransition },
-    UpdatePolicy { request: PolicyUpdate },
+    Initialize {
+        request: InitializeRequest,
+    },
+    Transition {
+        request: ModeTransition,
+    },
+    UpdatePolicy {
+        request: PolicyUpdate,
+    },
     Get,
-    Audit { request: ListQuery },
+    Audit {
+        request: ListQuery,
+    },
     /// The redacted Postgres dump of the store (backup / migration).
     ExportSql,
     /// Merge a dump produced by `export_sql` (restore / migration).
-    ImportSql { request: SqlDump },
+    ImportSql {
+        request: SqlDump,
+    },
 }
 
 /// Principals.
@@ -216,11 +257,36 @@ pub enum AccessOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum IdpOp {
-    Upsert { request: IdpConfig },
-    Remove { request: ObjectRef },
-    Link { request: LinkRequest },
-    Unlink { request: LinkRequest },
+    Upsert {
+        request: IdpConfig,
+    },
+    Remove {
+        request: ObjectRef,
+    },
+    Link {
+        request: LinkRequest,
+    },
+    Unlink {
+        request: LinkRequest,
+    },
     List,
+    /// Directory provisioning (SCIM `Users`, LDAP sync).
+    Provision {
+        request: ProvisionSubject,
+    },
+    ListProvisioned {
+        request: ProvisionedQuery,
+    },
+    /// Directory groups (SCIM `Groups`, LDAP groups).
+    ProvisionGroup {
+        request: DirectoryGroup,
+    },
+    RemoveDirectoryGroup {
+        request: DirectoryGroupRef,
+    },
+    ListDirectoryGroups {
+        request: DirectoryGroupQuery,
+    },
 }
 
 /// Every identity operation.
@@ -368,7 +434,16 @@ impl IdpOp {
             Self::Remove { .. } => meta("remove_idp", true, OpAuthority::Admin),
             Self::Link { .. } => meta("link_identity", true, OpAuthority::Admin),
             Self::Unlink { .. } => meta("unlink_identity", true, OpAuthority::Admin),
-            Self::List => meta("list_idps", false, OpAuthority::Read),
+            Self::List => meta("list_idps", false, OpAuthority::Directory),
+            Self::Provision { .. } => meta("provision", true, OpAuthority::Provision),
+            Self::ListProvisioned { .. } => meta("list_provisioned", false, OpAuthority::Provision),
+            Self::ProvisionGroup { .. } => meta("provision_group", true, OpAuthority::Provision),
+            Self::RemoveDirectoryGroup { .. } => {
+                meta("remove_directory_group", true, OpAuthority::Provision)
+            }
+            Self::ListDirectoryGroups { .. } => {
+                meta("list_directory_groups", false, OpAuthority::Provision)
+            }
         }
     }
 }

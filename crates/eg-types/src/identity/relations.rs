@@ -128,6 +128,14 @@ pub const LINKS: &[(&str, SqlType)] = &[
     ("linked_at_ms", Integer),
     ("linked_by", Text),
 ];
+pub const DIRECTORY_GROUPS: &[(&str, SqlType)] = &[
+    ("idp_id", Text),
+    ("group_id", Text),
+    ("display_name", Text),
+    ("external_id", Text),
+];
+pub const DIRECTORY_GROUP_MEMBERS: &[(&str, SqlType)] =
+    &[("idp_id", Text), ("group_id", Text), ("principal_id", Text)];
 pub const AUDIT: &[(&str, SqlType)] = &[
     ("seq", Integer),
     ("at_ms", Integer),
@@ -188,6 +196,16 @@ impl IdentityStore {
             relation("idps", IDPS, self.idp_rows()),
             relation("idp_rules", IDP_RULES, self.idp_rule_rows()),
             relation("links", LINKS, self.link_rows()),
+            relation(
+                "directory_groups",
+                DIRECTORY_GROUPS,
+                self.directory_group_rows(),
+            ),
+            relation(
+                "directory_group_members",
+                DIRECTORY_GROUP_MEMBERS,
+                self.directory_member_rows(),
+            ),
             relation("audit", AUDIT, self.audit_rows()),
             relation("throttle", THROTTLE, self.throttle_rows()),
             relation("config", CONFIG, self.config_rows()),
@@ -395,6 +413,31 @@ impl IdentityStore {
                     json!(link.linked_at_ms),
                     json!(link.linked_by),
                 ]
+            })
+            .collect()
+    }
+
+    fn directory_group_rows(&self) -> Vec<Vec<Value>> {
+        self.directory_groups
+            .values()
+            .map(|group| {
+                vec![
+                    json!(group.idp_id),
+                    json!(group.group_id),
+                    json!(group.display_name),
+                    json!(group.external_id),
+                ]
+            })
+            .collect()
+    }
+
+    fn directory_member_rows(&self) -> Vec<Vec<Value>> {
+        self.directory_groups
+            .values()
+            .flat_map(|group| {
+                group.members.iter().map(move |principal| {
+                    vec![json!(group.idp_id), json!(group.group_id), json!(principal)]
+                })
             })
             .collect()
     }

@@ -27,7 +27,11 @@ async fn send_stamped(
     send_method(state, context, Method::Identity { op, stamp: forged }).await
 }
 
-async fn send(state: &Arc<RwLock<ServerState>>, context: VerifiedRequestContext, op: IdentityOp) -> Response {
+async fn send(
+    state: &Arc<RwLock<ServerState>>,
+    context: VerifiedRequestContext,
+    op: IdentityOp,
+) -> Response {
     send_stamped(state, context, op, None).await
 }
 
@@ -211,4 +215,96 @@ async fn stamping_clears_every_secret_from_the_op() {
     })
     .unwrap();
     assert!(!replicated.contains(PASSWORD));
+}
+
+fn scim_idp() -> IdentityOp {
+    IdentityOp::Idp(IdpOp::Upsert {
+        request: IdpConfig {
+            idp_id: "okta-scim".to_string(),
+            kind: IdpKind::Scim,
+            display_name: "Okta".to_string(),
+            enabled: true,
+            config_json: "{\"provisioner\":\"svc:scim\"}".to_string(),
+            secret_ref: None,
+            jit_policy: JitPolicy::Deny,
+            email_domains: Vec::new(),
+            order: 0,
+            rules: Vec::new(),
+        },
+    })
+}
+
+fn provision_ann() -> IdentityOp {
+    IdentityOp::Idp(IdpOp::Provision {
+        request: ProvisionSubject {
+            idp_id: "okta-scim".to_string(),
+            subject: "00u-ann".to_string(),
+            username: "ann".to_string(),
+            display_name: None,
+            email: None,
+            active: true,
+            claims: std::collections::BTreeMap::new(),
+        },
+    })
+}
+
+#[tokio::test]
+async fn the_broker_reads_idps_and_a_bound_provisioner_provisions_through_the_boundary() {
+    let state = state();
+    assert!(send(&state, broker(), initialize(PASSWORD))
+        .await
+        .error
+        .is_none());
+    let admin = context("usr:bootstrap", &[IDENTITY_ADMIN_SCOPE]);
+    let upserted = send(&state, admin, scim_idp()).await;
+    assert!(upserted.error.is_none(), "{:?}", upserted.error);
+    let listed = send(&state, broker(), IdentityOp::Idp(IdpOp::List)).await;
+    assert!(
+        listed.error.is_none(),
+        "the sign-in page lists IdPs: {:?}",
+        listed.error
+    );
+    let outsider = send(
+        &state,
+        context("usr:x", &[IDENTITY_SELF_SCOPE]),
+        IdentityOp::Idp(IdpOp::List),
+    )
+    .await;
+    assert!(
+        outsider.error.is_some(),
+        "identity:self does not read the IdP directory"
+    );
+    let stranger = send(
+        &state,
+        context("svc:other", &[IDENTITY_PROVISION_SCOPE]),
+        provision_ann(),
+    )
+    .await;
+    assert!(
+        stranger
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("IDENTITY_NOT_AUTHORIZED"),
+        "{:?}",
+        stranger.error
+    );
+    let bound = send(
+        &state,
+        context("svc:scim", &[IDENTITY_PROVISION_SCOPE]),
+        provision_ann(),
+    )
+    .await;
+    assert!(bound.error.is_none(), "{:?}", bound.error);
+    let store = state.read().await.isolation.rbac().identity_store().clone();
+    let (principal, _) = store.sign_in_target("ann");
+    let principal = principal.expect("ann was provisioned");
+    assert!(
+        principal.starts_with("usr:"),
+        "the boundary minted the principal id"
+    );
+    assert_eq!(
+        store.user(principal).map(|user| user.source.as_str()),
+        Some("scim:okta-scim")
+    );
 }

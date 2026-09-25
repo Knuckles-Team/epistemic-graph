@@ -194,6 +194,27 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
+        match op {
+            IdpOp::Upsert { .. }
+            | IdpOp::Remove { .. }
+            | IdpOp::Link { .. }
+            | IdpOp::Unlink { .. }
+            | IdpOp::List => self.apply_idp_admin(op, stamp, ctx),
+            IdpOp::Provision { .. }
+            | IdpOp::ListProvisioned { .. }
+            | IdpOp::ProvisionGroup { .. }
+            | IdpOp::RemoveDirectoryGroup { .. }
+            | IdpOp::ListDirectoryGroups { .. } => self.apply_provisioning(op, stamp, ctx),
+        }
+    }
+
+    /// IdP configuration and administrator-made links.
+    fn apply_idp_admin(
+        &mut self,
+        op: &IdpOp,
+        stamp: &IdentityStamp,
+        ctx: &ApplyContext<'_>,
+    ) -> Result<IdentityReply, IdentityRefusal> {
         let now_ms = ctx.now_ms;
         match op {
             IdpOp::Upsert { request } => {
@@ -210,6 +231,7 @@ impl IdentityStore {
                 self.idps
                     .remove(&request.id)
                     .ok_or(IdentityRefusal::NotFound)?;
+                self.forget_idp_directory(&request.id);
                 self.audit_event(stamp, now_ms, IdentityEvent::IdpChanged, Some(&request.id));
                 Ok(IdentityReply::Done { changed: true })
             }
@@ -225,6 +247,11 @@ impl IdentityStore {
             }
             IdpOp::Unlink { request } => self.unlink(request, stamp, now_ms),
             IdpOp::List => Ok(IdentityReply::Idps(self.idps.values().cloned().collect())),
+            IdpOp::Provision { .. }
+            | IdpOp::ListProvisioned { .. }
+            | IdpOp::ProvisionGroup { .. }
+            | IdpOp::RemoveDirectoryGroup { .. }
+            | IdpOp::ListDirectoryGroups { .. } => Err(IdentityRefusal::InvalidRequest),
         }
     }
 
@@ -339,6 +366,7 @@ impl IdentityStore {
         let key = link_key(&request.idp_id, &request.subject);
         let link = self.links.remove(&key).ok_or(IdentityRefusal::NotFound)?;
         self.link_roles.remove(&key);
+        self.forget_link(&link);
         self.audit_event(
             stamp,
             now_ms,

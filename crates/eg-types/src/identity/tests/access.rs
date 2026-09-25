@@ -295,7 +295,13 @@ fn the_sql_relations_carry_no_secret_and_a_dump_restores_the_structure() {
     with_admin_session(&mut store);
     apply_kept(&mut store, &role("reader", &["kg:read"]), &admin(), NOW).unwrap();
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
-    apply_kept(&mut store, &bind(&alice, "reader", BindingChange::Add), &admin(), NOW).unwrap();
+    apply_kept(
+        &mut store,
+        &bind(&alice, "reader", BindingChange::Add),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
     let text = serde_json::to_string(
         &store
             .sql_relations()
@@ -304,8 +310,14 @@ fn the_sql_relations_carry_no_secret_and_a_dump_restores_the_structure() {
             .collect::<Vec<_>>(),
     )
     .unwrap();
-    assert!(!text.contains("argon2"), "a relation leaked a password hash");
-    assert!(!text.contains(ADMIN_SESSION), "a relation leaked a session id");
+    assert!(
+        !text.contains("argon2"),
+        "a relation leaked a password hash"
+    );
+    assert!(
+        !text.contains(ADMIN_SESSION),
+        "a relation leaked a session id"
+    );
     let export = IdentityOp::Config(ConfigOp::ExportSql);
     let IdentityReply::Sql(dump) = apply_kept(&mut store, &export, &admin(), NOW).unwrap() else {
         panic!("export answers SQL");
@@ -325,7 +337,11 @@ fn the_sql_relations_carry_no_secret_and_a_dump_restores_the_structure() {
     apply_kept(&mut restored, &import, &admin(), NOW).unwrap();
     let alice_back = restored.resolve(&alice, &TestRegistry).unwrap();
     assert!(alice_back.roles.contains("reader"));
-    assert_eq!(alice_back.status, UserStatus::PendingReset, "no credential was carried");
+    assert_eq!(
+        alice_back.status,
+        UserStatus::PendingReset,
+        "no credential was carried"
+    );
     assert!(restored.credential_of(&alice).is_none());
 }
 
@@ -336,7 +352,9 @@ fn a_dump_cannot_smuggle_a_forbidden_binding_or_foreign_sql() {
                    INSERT INTO identity.group_members (group_id, principal_id, source) VALUES ('elevation-approvers', 'usr:svc', 'local');\n";
     let import = |sql: &str| {
         IdentityOp::Config(ConfigOp::ImportSql {
-            request: SqlDump { sql: sql.to_string() },
+            request: SqlDump {
+                sql: sql.to_string(),
+            },
         })
     };
     assert_eq!(
@@ -345,7 +363,12 @@ fn a_dump_cannot_smuggle_a_forbidden_binding_or_foreign_sql() {
     );
     assert!(!store.manages("usr:svc"), "the whole import was refused");
     assert_eq!(
-        apply_kept(&mut store, &import("DROP TABLE identity.users;"), &admin(), NOW),
+        apply_kept(
+            &mut store,
+            &import("DROP TABLE identity.users;"),
+            &admin(),
+            NOW
+        ),
         Err(IdentityRefusal::InvalidRequest)
     );
 }

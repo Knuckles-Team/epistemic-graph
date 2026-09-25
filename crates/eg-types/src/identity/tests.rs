@@ -8,6 +8,7 @@ use super::*;
 mod access;
 mod auth;
 mod modes;
+mod provision;
 mod tokens;
 
 /// A registry fixture with one scope of every class.

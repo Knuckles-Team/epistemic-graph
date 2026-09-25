@@ -25,7 +25,9 @@ fn literal(value: &Value) -> String {
         Value::Bool(false) => "FALSE".to_string(),
         Value::Number(number) => number.to_string(),
         Value::String(text) => format!("'{}'", text.replace('\'', "''")),
-        Value::Array(_) | Value::Object(_) => format!("'{}'", value.to_string().replace('\'', "''")),
+        Value::Array(_) | Value::Object(_) => {
+            format!("'{}'", value.to_string().replace('\'', "''"))
+        }
     }
 }
 
@@ -35,7 +37,11 @@ fn create_table(relation: &SqlRelation) -> String {
         .iter()
         .map(|(name, kind)| format!("  {name} {}", kind.postgres()))
         .collect();
-    format!("CREATE TABLE identity.{} (\n{}\n);\n", relation.name, columns.join(",\n"))
+    format!(
+        "CREATE TABLE identity.{} (\n{}\n);\n",
+        relation.name,
+        columns.join(",\n")
+    )
 }
 
 fn inserts(relation: &SqlRelation, out: &mut String) {
@@ -98,7 +104,10 @@ fn statements(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
-    for line in text.lines().filter(|line| !line.trim_start().starts_with("--")) {
+    for line in text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+    {
         for character in line.chars() {
             if character == '\'' {
                 quoted = !quoted;
@@ -112,7 +121,9 @@ fn statements(text: &str) -> Vec<String> {
         current.push('\n');
     }
     out.push(current);
-    out.into_iter().map(|statement| statement.trim().to_string()).collect()
+    out.into_iter()
+        .map(|statement| statement.trim().to_string())
+        .collect()
 }
 
 /// Split a parenthesised list at commas outside single quotes.
@@ -139,9 +150,9 @@ fn parse_literal(token: &str) -> Result<Value, IdentityRefusal> {
         "NULL" => Ok(Value::Null),
         "TRUE" => Ok(Value::Bool(true)),
         "FALSE" => Ok(Value::Bool(false)),
-        quoted if quoted.len() >= 2 && quoted.starts_with('\'') && quoted.ends_with('\'') => {
-            Ok(Value::String(quoted[1..quoted.len() - 1].replace("''", "'")))
-        }
+        quoted if quoted.len() >= 2 && quoted.starts_with('\'') && quoted.ends_with('\'') => Ok(
+            Value::String(quoted[1..quoted.len() - 1].replace("''", "'")),
+        ),
         number => number
             .parse::<u64>()
             .map(Value::from)
@@ -156,7 +167,9 @@ fn parenthesised(text: &str) -> Option<&str> {
 
 fn parse_insert(statement: &str) -> Result<DumpRow, IdentityRefusal> {
     let invalid = IdentityRefusal::InvalidRequest;
-    let rest = statement.strip_prefix("INSERT INTO identity.").ok_or(invalid)?;
+    let rest = statement
+        .strip_prefix("INSERT INTO identity.")
+        .ok_or(invalid)?;
     let (relation, rest) = rest.split_once(' ').ok_or(invalid)?;
     let (columns, values) = rest.split_once(" VALUES ").ok_or(invalid)?;
     let columns = split_list(parenthesised(columns).ok_or(invalid)?);

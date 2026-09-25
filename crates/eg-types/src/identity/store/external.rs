@@ -186,7 +186,7 @@ impl IdentityStore {
     }
 
     /// Recompute this IdP's roles and group memberships for `principal`.
-    fn sync_idp_bindings(
+    pub(super) fn sync_idp_bindings(
         &mut self,
         idp: &IdpConfig,
         subject: &str,

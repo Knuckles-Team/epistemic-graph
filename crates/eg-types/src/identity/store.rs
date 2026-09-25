@@ -18,7 +18,8 @@ use super::config::IdentityConfig;
 use super::model::{
     ApiKeyRecord, ExternalIdentity, OneTimeToken, PasswordCredential, SessionRecord, TotpRecord,
 };
-use super::ops::{IdentityOp, OpAuthority, IDENTITY_ADMIN_SCOPE, IDENTITY_AUTHENTICATE_SCOPE};
+use super::ops::{IdentityOp, OpAuthority};
+use super::requests_provision::DirectoryGroup;
 use super::scope::ScopeClassifier;
 use super::stamp::IdentityStamp;
 use super::views::IdentityReply;
@@ -31,6 +32,7 @@ mod import;
 mod invariants;
 mod mfa;
 mod modes;
+mod provision;
 mod sessions;
 mod throttle;
 mod tokens;
@@ -95,6 +97,13 @@ pub struct IdentityStore {
     /// IdP-mapped roles per link key, recomputed at every external login.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) link_roles: BTreeMap<String, std::collections::BTreeSet<String>>,
+    /// The claims a directory last provisioned per link key, so a directory
+    /// group change can recompute the member's IdP bindings.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) link_claims: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    /// `<idp_id>\0<group_id>` → directory group (grants nothing by itself).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) directory_groups: BTreeMap<String, DirectoryGroup>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) throttle: BTreeMap<String, ThrottleEntry>,
     #[serde(default, skip_serializing_if = "AuditTrail::is_empty")]
@@ -231,20 +240,18 @@ impl IdentityStore {
     /// unauthorized caller never makes the engine do that work.
     pub fn authorize(&self, op: &IdentityOp, stamp: &IdentityStamp) -> Result<(), IdentityRefusal> {
         let actor = &stamp.actor;
-        let allowed = match op.meta().authority {
-            OpAuthority::Admin => actor.holds(IDENTITY_ADMIN_SCOPE) && !actor.delegated,
-            OpAuthority::Read => {
-                actor.holds(super::ops::IDENTITY_READ_SCOPE) || actor.holds(IDENTITY_ADMIN_SCOPE)
-            }
-            OpAuthority::Broker => actor.holds(IDENTITY_AUTHENTICATE_SCOPE),
-            OpAuthority::SelfService => {
-                actor.holds(super::ops::IDENTITY_SELF_SCOPE) && self.is_active(&actor.principal_id)
-            }
-            OpAuthority::FirstRun => {
-                (actor.holds(IDENTITY_AUTHENTICATE_SCOPE) || actor.holds(IDENTITY_ADMIN_SCOPE))
-                    && !actor.delegated
-            }
+        let authority = op.meta().authority;
+        let holds_one = authority.scopes().iter().any(|scope| actor.holds(scope));
+        let standing = match authority {
+            OpAuthority::SelfService => self.is_active(&actor.principal_id),
+            OpAuthority::Admin
+            | OpAuthority::Read
+            | OpAuthority::Broker
+            | OpAuthority::FirstRun
+            | OpAuthority::Directory
+            | OpAuthority::Provision => !(authority.direct_only() && actor.delegated),
         };
+        let allowed = holds_one && standing;
         if allowed {
             Ok(())
         } else {

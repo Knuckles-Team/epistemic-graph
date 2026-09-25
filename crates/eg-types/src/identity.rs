@@ -37,6 +37,7 @@ mod projection;
 mod relations;
 mod requests;
 mod requests_admin;
+mod requests_provision;
 mod scope;
 mod sql_dump;
 mod stamp;
@@ -64,6 +65,7 @@ pub use ops::{
 };
 pub use password_policy::check_password;
 pub use projection::{rbac_role_name, PrincipalResolution, RbacProjection};
+pub use relations::{SqlRelation, SqlType};
 pub use requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
     InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordSet,
@@ -73,7 +75,10 @@ pub use requests_admin::{
     BindingChange, GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate,
     RoleGraphGrant, RoleUpsert, SqlDump, UserRoleChange, MAX_PAGE,
 };
-pub use relations::{SqlRelation, SqlType};
+pub use requests_provision::{
+    DirectoryGroup, DirectoryGroupQuery, DirectoryGroupRef, ProvisionSubject, ProvisionedQuery,
+    ProvisionedUser,
+};
 pub use scope::{ScopeClass, ScopeClassifier};
 pub use sql_dump::{parse_dump, render_dump, DumpRow, MAX_DUMP_BYTES};
 pub use stamp::{IdentityActor, IdentityStamp, PasswordCheck, Secret};
@@ -115,6 +120,11 @@ pub const MAX_ONE_TIME_TOKENS: usize = 4_096;
 pub const MAX_ROLES: usize = 512;
 pub const MAX_GROUPS: usize = 512;
 pub const MAX_IDPS: usize = 32;
+/// Most directory groups (all IdPs) one store holds.
+pub const MAX_DIRECTORY_GROUPS: usize = 4_096;
+/// Largest claim set (bytes of paths and values) one provisioned subject
+/// carries.
+pub const MAX_PROVISIONED_CLAIM_BYTES: usize = 16 * 1024;
 /// Most mapping rules per identity provider.
 pub const MAX_MAPPING_RULES: usize = 256;
 /// Most throttle keys tracked (older windows are evicted first).

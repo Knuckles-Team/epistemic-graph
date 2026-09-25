@@ -11,6 +11,7 @@ use super::audit::IdentityAuditEntry;
 use super::config::IdentityConfig;
 use super::model::{SessionRecord, UserKind, UserRecord, UserStatus};
 use super::projection::PrincipalResolution;
+use super::requests_provision::{DirectoryGroup, ProvisionedUser};
 
 /// A principal without credentials.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,4 +172,8 @@ pub enum IdentityReply {
     Audit(Vec<IdentityAuditEntry>),
     /// `export_sql`: the dump text.
     Sql(String),
+    /// `list_provisioned`.
+    Provisioned(Vec<ProvisionedUser>),
+    DirectoryGroup(DirectoryGroup),
+    DirectoryGroups(Vec<DirectoryGroup>),
 }

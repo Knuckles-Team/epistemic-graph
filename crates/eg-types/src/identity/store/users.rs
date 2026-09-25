@@ -252,22 +252,7 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        let user = self
-            .users
-            .get(&request.principal_id)
-            .ok_or(IdentityRefusal::NotFound)?;
-        let leaving = user.status.is_active() && !request.status.is_active();
-        if leaving && self.is_last_active_admin(&request.principal_id) {
-            return Err(IdentityRefusal::PreconditionFailed);
-        }
-        if let Some(user) = self.users.get_mut(&request.principal_id) {
-            user.status = request.status;
-            user.disabled_at_ms = (!request.status.is_active()).then_some(now_ms);
-        }
-        if leaving {
-            self.revoke_principal_sessions(&request.principal_id, now_ms, "status_change");
-            self.revoke_principal_api_keys(&request.principal_id, now_ms);
-        }
+        self.transition_status(&request.principal_id, request.status, now_ms)?;
         self.audit_event(
             stamp,
             now_ms,
@@ -275,6 +260,33 @@ impl IdentityStore {
             Some(&request.principal_id),
         );
         Ok(IdentityReply::Done { changed: true })
+    }
+
+    /// Move a principal to `status`. Leaving `active` revokes every session
+    /// and API key; the last active administrator is never taken out.
+    pub(crate) fn transition_status(
+        &mut self,
+        principal_id: &str,
+        status: UserStatus,
+        now_ms: u64,
+    ) -> Result<(), IdentityRefusal> {
+        let user = self
+            .users
+            .get(principal_id)
+            .ok_or(IdentityRefusal::NotFound)?;
+        let leaving = user.status.is_active() && !status.is_active();
+        if leaving && self.is_last_active_admin(principal_id) {
+            return Err(IdentityRefusal::PreconditionFailed);
+        }
+        if let Some(user) = self.users.get_mut(principal_id) {
+            user.status = status;
+            user.disabled_at_ms = (!status.is_active()).then_some(now_ms);
+        }
+        if leaving {
+            self.revoke_principal_sessions(principal_id, now_ms, "status_change");
+            self.revoke_principal_api_keys(principal_id, now_ms);
+        }
+        Ok(())
     }
 
     /// Whether `principal_id` is the only active human administrator.
