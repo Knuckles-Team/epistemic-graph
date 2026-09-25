@@ -295,6 +295,29 @@ impl BatchScope {
         .map_err(|error| format!("time-series MutationBatch compile failed: {error}"))
     }
 
+    /// The scope a follow-on write of this request commits under (EH-524: a derived
+    /// series' maintenance after the request's own append). The request's attempt
+    /// nonce is consumed by its own batch, so each follow-on write takes a nonce
+    /// derived from it and from `event`, the follow-on batch's identity: a retry of
+    /// the request derives the same nonce and replays, and two follow-on writes of
+    /// one request never share a nonce.
+    pub(super) fn follow_on(&self, event: &str) -> Result<BatchScope, String> {
+        let attempt_nonce = self
+            .attempt_nonce
+            .map(|parent| {
+                eg_types::contract::Digest256::framed(
+                    b"eg/timeseries-follow-on-nonce/v1",
+                    &[parent.as_bytes(), event.as_bytes()],
+                )
+                .map(|digest| Nonce::from_bytes(*digest.as_bytes()))
+            })
+            .transpose()?;
+        Ok(BatchScope {
+            attempt_nonce,
+            ..self.clone()
+        })
+    }
+
     /// The canonical key of `series_id` in this scope.
     pub(super) fn key(&self, series_id: &str) -> Result<SeriesKey, String> {
         scoped_key(&self.authority, &self.graph, series_id)
