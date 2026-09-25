@@ -82,7 +82,7 @@ async fn dispatch_query_family(
         return Ok(handle_freshness_feed(hctx, request).await);
     }
     #[cfg(feature = "query")]
-    let method = match edge_index::dispatch_edge_method(&hctx, method).await {
+    let method = match edge_index::dispatch_edge_method(hctx, method).await {
         Ok(response) => return Ok(response),
         Err(method) => method,
     };

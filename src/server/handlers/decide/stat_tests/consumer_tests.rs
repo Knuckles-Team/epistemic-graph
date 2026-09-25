@@ -52,6 +52,7 @@ fn declared_request(schema: &ComponentDependency, options: Vec<DeclaredOption>) 
         policy: DecisionPolicyRef::Default,
         params: BoundedVec::default(),
         max_records: None,
+        belief_as_of: BoundedVec::default(),
     }
 }
 

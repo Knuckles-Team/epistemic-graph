@@ -216,10 +216,9 @@ async fn route_native_typed_ops(
         Ok(response) => return Ok(response),
         Err(method) => method,
     };
-    let method = match refuse_foreign_native_writes(ctx, method) {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
+    if let Some(refusal) = refuse_foreign_native_writes(ctx, &method) {
+        return Ok(refusal);
+    }
     route_native_resource_ops(ctx, method).await
 }
 
@@ -300,16 +299,14 @@ async fn route_work_item_reads(
 /// Every WorkItem-kernel write binds its body tenant to the verified carrier
 /// tenant, and `fleet.` broker streams take writes only from the fleet event
 /// authority (`handlers::native_write_authority`). Replicated state-machine
-/// applies were checked when proposed. A permitted write falls through (`Err`).
-fn refuse_foreign_native_writes(
-    ctx: GraphOpRouting<'_>,
-    method: Method,
-) -> Result<Response, Method> {
+/// applies were checked when proposed. A permitted write falls through
+/// (`None`).
+fn refuse_foreign_native_writes(ctx: GraphOpRouting<'_>, method: &Method) -> Option<Response> {
     use handlers::native_write_authority::{
         refuse_foreign_native_write, FleetAuthority, FLEET_EVENT_ACTION,
     };
     if ctx.state_machine_authorized {
-        return Err(method);
+        return None;
     }
     let verified = ctx.verified_context;
     let fleet_authority =
@@ -318,13 +315,9 @@ fn refuse_foreign_native_writes(
         } else {
             FleetAuthority::Absent
         };
-    match refuse_foreign_native_write(&method, verified.tenant(), fleet_authority) {
-        Ok(()) => Err(method),
-        Err(denied) => {
-            crate::metrics::access_denied();
-            Ok(Response::err(ctx.req_id, denied))
-        }
-    }
+    let denied = refuse_foreign_native_write(method, verified.tenant(), fleet_authority).err()?;
+    crate::metrics::access_denied();
+    Some(Response::err(ctx.req_id, denied))
 }
 
 /// RF-ADR-009 source ingestion is graph-scoped and therefore reaches this
