@@ -937,15 +937,7 @@ fn eval_pattern_project(
     inner: &GraphPattern,
     variables: &[Variable],
 ) -> Result<Vec<Solution>, String> {
-    let projected: std::collections::HashSet<&str> = variables.iter().map(|v| v.as_str()).collect();
-    Ok(eval_pattern(ctx, inner)?
-        .into_iter()
-        .map(|s| {
-            s.into_iter()
-                .filter(|(k, _)| projected.contains(k.as_str()))
-                .collect()
-        })
-        .collect())
+    Ok(project_solutions(eval_pattern(ctx, inner)?, variables))
 }
 
 /// GROUP BY + aggregates (CONCEPT:EG-KG.query.sparql-completeness). `Group` produces one solution per
@@ -1041,24 +1033,18 @@ fn eval_pattern_slice(
     start: usize,
     length: Option<usize>,
 ) -> Result<Vec<Solution>, String> {
-    let all = match (start, length, inner) {
-        (
-            0,
-            Some(limit),
-            GraphPattern::Service {
-                name,
-                inner: remote,
-                silent,
-            },
-        ) => {
-            let pushed = GraphPattern::Slice {
-                inner: remote.clone(),
-                start: 0,
-                length: Some(limit),
-            };
-            eval_service(ctx, name, &pushed, *silent)
-                .or_else(|_| eval_service(ctx, name, remote, *silent))?
-        }
+    let all = match (start, length) {
+        (0, Some(limit)) => match inner {
+            GraphPattern::Service { .. } => eval_service_limited(ctx, inner, limit)?,
+            GraphPattern::Project {
+                inner: service,
+                variables,
+            } if matches!(service.as_ref(), GraphPattern::Service { .. }) => {
+                let rows = eval_service_limited(ctx, service, limit)?;
+                project_solutions(rows, variables)
+            }
+            _ => eval_pattern(ctx, inner)?,
+        },
         _ => eval_pattern(ctx, inner)?,
     };
     let end = length.map(|l| start + l).unwrap_or(all.len());
@@ -1067,6 +1053,38 @@ fn eval_pattern_slice(
         .skip(start)
         .take(end.saturating_sub(start))
         .collect())
+}
+
+fn eval_service_limited(
+    ctx: &Ctx,
+    pattern: &GraphPattern,
+    limit: usize,
+) -> Result<Vec<Solution>, String> {
+    let GraphPattern::Service {
+        name,
+        inner,
+        silent,
+    } = pattern
+    else {
+        return eval_pattern(ctx, pattern);
+    };
+    let pushed = GraphPattern::Slice {
+        inner: inner.clone(),
+        start: 0,
+        length: Some(limit),
+    };
+    eval_service(ctx, name, &pushed, *silent).or_else(|_| eval_service(ctx, name, inner, *silent))
+}
+
+fn project_solutions(rows: Vec<Solution>, variables: &[Variable]) -> Vec<Solution> {
+    let projected: std::collections::HashSet<&str> = variables.iter().map(|v| v.as_str()).collect();
+    rows.into_iter()
+        .map(|s| {
+            s.into_iter()
+                .filter(|(k, _)| projected.contains(k.as_str()))
+                .collect()
+        })
+        .collect()
 }
 
 /// MINUS (CONCEPT:EG-KG.ontology.minus): set-difference. Keep each LEFT solution that is NOT
@@ -4335,6 +4353,58 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         let mut blank = Solution::new();
         blank.insert("name".into(), Binding::Node("_:local".into()));
         assert!(service_values_rows(&[blank], &keys).is_none());
+    }
+
+    #[test]
+    fn service_filter_and_limit_are_pushed_with_local_residuals() {
+        use std::sync::Mutex;
+
+        struct CapturingService(Mutex<Vec<String>>);
+        impl RemoteSparql for CapturingService {
+            fn select(&self, _endpoint: &str, query: &str) -> Result<SparqlResult, String> {
+                self.0.lock().unwrap().push(query.to_string());
+                let solutions = ["1", "2"]
+                    .into_iter()
+                    .map(|value| {
+                        let mut row = Solution::new();
+                        row.insert("score".into(), Binding::Literal(value.into()));
+                        row
+                    })
+                    .collect();
+                Ok(SparqlResult {
+                    vars: vec!["score".into()],
+                    solutions,
+                })
+            }
+        }
+
+        let view = loaded_view();
+        let ds = Dataset::new(&view, Vec::new());
+        let service = CapturingService(Mutex::new(Vec::new()));
+        let filter_query = r#"PREFIX ex: <http://example.org/>
+            SELECT ?score WHERE {
+                SERVICE <http://remote/e> { ?name ex:score ?score }
+                FILTER (?score > 1)
+            }"#;
+        let QueryOutcome::Solutions(filtered) =
+            query_dataset_service(&ds, filter_query, &Projection::raw(), Some(&service)).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(filtered.solutions.len(), 1);
+        assert!(service.0.lock().unwrap()[0].contains("FILTER"));
+
+        let limit_query = r#"PREFIX ex: <http://example.org/>
+            SELECT ?score WHERE {
+                SERVICE <http://remote/e> { ?name ex:score ?score }
+            } LIMIT 1"#;
+        let QueryOutcome::Solutions(limited) =
+            query_dataset_service(&ds, limit_query, &Projection::raw(), Some(&service)).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(limited.solutions.len(), 1);
+        assert!(service.0.lock().unwrap()[1].contains("LIMIT 1"));
     }
 
     /// (b) SILENT swallows a remote error to ONE empty solution → the local side passes
