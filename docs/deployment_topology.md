@@ -113,7 +113,7 @@ reading (paths are in the `agent-utilities` repo under `docs/`):
   single-node-prod / enterprise profiles; lists the optional UIs).
 - **`docs/guides/deployment-configurations.md`** — the five-rung configuration ladder
   (zero-infra dev → autonomous ops); each rung names its engine deployment shape.
-- **`docs/guides/day0.md`** — the day-0 / `agent-os-genesis` bootstrap workflow.
+- **`docs/guides/day0.md`** — the day-0 bootstrap workflow (graph-os's `graphos-genesis` skill).
 - **`docs/recipes/tiny.md`** — zero-infra, engine-embedded laptop/edge recipe.
 - **`docs/recipes/single-node-prod.md`** — one durable server (engine + optional
   Postgres/pg-age mirror).

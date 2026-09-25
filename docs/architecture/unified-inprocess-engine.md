@@ -599,7 +599,7 @@ surface. In priority order:
    shape.
 9. **`EngineResolver` / genesis wiring** (W-D, W-E). `agent-utilities`' engine resolution
    needs a new "embedded" mode alongside its existing socket-autostart behavior
-   (`EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS`'s shared-tiny-daemon mode); `agent-os-genesis`
+   (`EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS`'s shared-tiny-daemon mode); graph-os's `graphos-genesis` skill
    needs to pick this shape for the self-contained default profile. Both are explicitly
    out of scope for W-A (they are W-D/W-E), listed here only so the dependency is visible.
 
