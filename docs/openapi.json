@@ -154883,6 +154883,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "REPLAY_NONCE_CONSUMED",
+          "RESERVED_GRAPH_NAME",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -167029,6 +167031,7 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -168460,6 +168463,7 @@
           "BUSY",
           "CANCELLED",
           "CAPACITY_DENIED",
+          "CLUSTER_CONFIGURATION_INVALID",
           "CONFLICT",
           "CORRUPT_MUTATION_LEDGER",
           "ENGINE_DEADLINE_EXCEEDED",
@@ -168472,6 +168476,7 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170033,6 +170038,7 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170789,6 +170795,7 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172571,6 +172578,7 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "RESULT_TOO_LARGE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172997,6 +173005,7 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "RESULT_TOO_LARGE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -180078,6 +180087,7 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
           "TIMEOUT",
@@ -181293,6 +181303,7 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
           "TIMEOUT",
@@ -186836,6 +186847,7 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
           "TIMEOUT"
         ],
         "x-idempotent": true,

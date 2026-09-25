@@ -783,6 +783,12 @@
     },
     {
       "class": "server",
+      "code": "RESERVED_GRAPH_NAME",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "RESULT_TOO_LARGE",
       "http_status_hint": 400,
       "retryable": false
