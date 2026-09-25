@@ -194,6 +194,15 @@ const TEST_TENANT: &str = "test-tenant";
 #[cfg(feature = "timeseries")]
 const TEST_GRAPH: &str = "test-graph";
 
+#[cfg(feature = "timeseries")]
+fn scan(series: &[&str], to: f64) -> eg_types::wire::Op {
+    eg_types::wire::Op::TsScan {
+        series: series.iter().map(|id| (*id).to_string()).collect(),
+        from: 0.0,
+        to,
+    }
+}
+
 /// Build a one-field series with points at 1s/2s/3s carrying values 10/20/30, under
 /// `(TEST_TENANT, TEST_GRAPH)`. Every caller MUST also attach
 /// `.with_tsdb_scope(TEST_TENANT, TEST_GRAPH)` to its `PlanCtx` (see the module doc
@@ -229,17 +238,13 @@ fn build_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
 #[cfg(feature = "timeseries")]
 #[test]
 fn tsdb_in_plan_fusion() {
-    use crate::exec::{execute, PlanCtx};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
+    use crate::exec::execute;
     use eg_types::wire::{Op, Plan};
 
-    let path = temp_store_path("fusion");
-    let store = build_series(&path);
+    let (path, store, core, mut semantic) = series_fixture("fusion", build_series);
 
     // The scan emits rows keyed `series@ts` (ns, EH-521). Embed them so 2s ranks first, then 1s,
     // then 3s — a vector order DIFFERENT from the tsdb ts order (proving the rerank).
-    let mut semantic = SemanticStore::new();
     semantic
         .add_embedding("temp@1000000000".into(), vec![0.80, 0.60, 0.0, 0.0])
         .unwrap(); // 2nd
@@ -251,18 +256,11 @@ fn tsdb_in_plan_fusion() {
         .unwrap(); // 3rd
 
     // A tsdb SOURCE plan needs no graph; a bare snapshot suffices for the (unused) view.
-    let core = GraphCore::new();
     let view = core.analysis_snapshot();
 
     // Bare TsScan first: proves the SOURCE reads the store (3 rows, scores = the values).
-    let src_plan = Plan::new(vec![Op::TsScan {
-        series: vec!["temp".into()],
-        from: 0.0,
-        to: 10.0,
-    }]);
-    let ctx = PlanCtx::new(&view, &semantic)
-        .with_tsdb(&store)
-        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let src_plan = Plan::new(vec![scan(&["temp"], 10.0)]);
+    let ctx = scoped_context(&view, &semantic, &store);
     let sourced = execute(&src_plan, &ctx).unwrap();
     assert_eq!(
         sourced.len(),
@@ -281,11 +279,7 @@ fn tsdb_in_plan_fusion() {
 
     // Fused: TsScan → Rank → Limit — tsdb rows reranked by the vector leg, top-2.
     let plan = Plan::new(vec![
-        Op::TsScan {
-            series: vec!["temp".into()],
-            from: 0.0,
-            to: 10.0,
-        },
+        scan(&["temp"], 10.0),
         Op::Rank {
             query: vec![1.0, 0.0, 0.0, 0.0],
         },
@@ -312,7 +306,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
     use crate::StagedSeries;
     use eg_core::compute::semantic::SemanticStore;
     use eg_core::graph::GraphCore;
-    use eg_types::wire::{Op, Plan};
+    use eg_types::wire::Plan;
 
     let one_s: i64 = 1_000_000_000;
     let path = temp_store_path("ryow");
@@ -332,13 +326,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
     let core = GraphCore::new();
     let view = core.analysis_snapshot();
 
-    let scan = |series: &str| {
-        Plan::new(vec![Op::TsScan {
-            series: vec![series.to_string()],
-            from: 0.0,
-            to: 10.0,
-        }])
-    };
+    let scan_plan = |series: &str| Plan::new(vec![scan(&[series], 10.0)]);
     let by_id = |rs: crate::rowset::RowSet| -> std::collections::HashMap<String, Option<f32>> {
         rs.rows().iter().map(|r| (r.id.clone(), r.score)).collect()
     };
@@ -348,7 +336,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
         let ctx = PlanCtx::new(&view, &semantic)
             .with_tsdb(&store)
             .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
-        by_id(execute(&scan("temp"), &ctx).unwrap())
+        by_id(execute(&scan_plan("temp"), &ctx).unwrap())
     };
     assert_eq!(off.len(), 3, "off-txn sees the 3 committed points only");
     assert_eq!(off.get(&format!("temp@{one_s}")), Some(&Some(10.0)));
@@ -363,7 +351,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
         .with_tsdb(&store)
         .with_tsdb_scope(TEST_TENANT, TEST_GRAPH)
         .with_staged_series(&staged);
-    let in_txn = by_id(execute(&scan("temp"), &ctx).unwrap());
+    let in_txn = by_id(execute(&scan_plan("temp"), &ctx).unwrap());
     assert_eq!(
         in_txn.len(),
         4,
@@ -384,7 +372,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
     );
 
     // A staged-only series (never committed) reads its own staged point in-txn …
-    let staged_only = by_id(execute(&scan("temp2"), &ctx).unwrap());
+    let staged_only = by_id(execute(&scan_plan("temp2"), &ctx).unwrap());
     assert_eq!(
         staged_only.get(&format!("temp2@{}", 5 * one_s)),
         Some(&Some(99.0)),
@@ -395,7 +383,7 @@ fn tsdb_in_txn_ryow_staged_overlay() {
         let ctx = PlanCtx::new(&view, &semantic)
             .with_tsdb(&store)
             .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
-        execute(&scan("temp2"), &ctx).unwrap()
+        execute(&scan_plan("temp2"), &ctx).unwrap()
     };
     assert!(
         off_only.is_empty(),
@@ -413,31 +401,17 @@ fn tsdb_in_txn_ryow_staged_overlay() {
 #[cfg(feature = "timeseries")]
 #[test]
 fn tsscan_window_mean_consumes_and_composes() {
-    use crate::exec::{execute, PlanCtx};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
+    use crate::exec::execute;
     use eg_types::wire::{Op, Plan};
 
     // Series "temp": 1s=10, 2s=20, 3s=30 (see build_series). A 60s window aligns all three
     // points to ONE bucket (start 0), so the mean is (10+20+30)/3 = 20.
-    let path = temp_store_path("window_mean");
-    let store = build_series(&path);
-    let semantic = SemanticStore::new();
-    let core = GraphCore::new();
+    let (path, store, core, semantic) = series_fixture("window_mean", build_series);
     let view = core.analysis_snapshot();
-    let ctx = PlanCtx::new(&view, &semantic)
-        .with_tsdb(&store)
-        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let ctx = scoped_context(&view, &semantic, &store);
 
     // TsScan → Window(60s): one bucket (start 0), mean = 20.
-    let win = Plan::new(vec![
-        Op::TsScan {
-            series: vec!["temp".into()],
-            from: 0.0,
-            to: 10.0,
-        },
-        Op::Window { secs: 60.0 },
-    ]);
+    let win = Plan::new(vec![scan(&["temp"], 10.0), Op::Window { secs: 60.0 }]);
     let out = execute(&win, &ctx).unwrap();
     let rows: Vec<(String, Option<f32>)> =
         out.rows().iter().map(|r| (r.id.clone(), r.score)).collect();
@@ -449,14 +423,7 @@ fn tsscan_window_mean_consumes_and_composes() {
 
     // Finer buckets: the points sit at 1s/2s/3s, so a 1-second window buckets each on its
     // own — 3 buckets (aligned to seconds 1/2/3), each the point's value.
-    let fine = Plan::new(vec![
-        Op::TsScan {
-            series: vec!["temp".into()],
-            from: 0.0,
-            to: 10.0,
-        },
-        Op::Window { secs: 1.0 },
-    ]);
+    let fine = Plan::new(vec![scan(&["temp"], 10.0), Op::Window { secs: 1.0 }]);
     let fine_out = execute(&fine, &ctx).unwrap();
     assert_eq!(
         fine_out.len(),
@@ -467,11 +434,7 @@ fn tsscan_window_mean_consumes_and_composes() {
     // Downstream compose: Window → Limit truncates the windowed series (proves the RowSet
     // flows on unchanged).
     let composed = Plan::new(vec![
-        Op::TsScan {
-            series: vec!["temp".into()],
-            from: 0.0,
-            to: 10.0,
-        },
+        scan(&["temp"], 10.0),
         Op::Window { secs: 1.0 },
         Op::Limit { k: 2 },
     ]);
@@ -490,27 +453,16 @@ fn tsscan_window_mean_consumes_and_composes() {
 #[cfg(feature = "timeseries")]
 #[test]
 fn window_agg_selects_the_aggregate() {
-    use crate::exec::{execute, PlanCtx};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
+    use crate::exec::execute;
     use eg_types::wire::{Op, Plan};
 
-    let path = temp_store_path("window_agg");
-    let store = build_series(&path);
-    let semantic = SemanticStore::new();
-    let core = GraphCore::new();
+    let (path, store, core, semantic) = series_fixture("window_agg", build_series);
     let view = core.analysis_snapshot();
-    let ctx = PlanCtx::new(&view, &semantic)
-        .with_tsdb(&store)
-        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let ctx = scoped_context(&view, &semantic, &store);
 
     let agg_value = |agg: &str| -> f32 {
         let plan = Plan::new(vec![
-            Op::TsScan {
-                series: vec!["temp".into()],
-                from: 0.0,
-                to: 10.0,
-            },
+            scan(&["temp"], 10.0),
             Op::WindowAgg {
                 secs: 60.0,
                 agg: agg.into(),
@@ -584,16 +536,12 @@ fn tsdb_scan_without_store_is_empty() {
     use crate::exec::{execute, PlanCtx};
     use eg_core::compute::semantic::SemanticStore;
     use eg_core::graph::GraphCore;
-    use eg_types::wire::{Op, Plan};
+    use eg_types::wire::Plan;
 
     let core = GraphCore::new();
     let view = core.analysis_snapshot();
     let semantic = SemanticStore::new();
-    let plan = Plan::new(vec![Op::TsScan {
-        series: vec!["temp".into()],
-        from: 0.0,
-        to: 10.0,
-    }]);
+    let plan = Plan::new(vec![scan(&["temp"], 10.0)]);
     let ctx = PlanCtx::new(&view, &semantic); // no .with_tsdb
     let out = execute(&plan, &ctx).unwrap();
     assert!(
@@ -612,7 +560,7 @@ fn tsdb_scan_rejects_unscoped_committed_store() {
     use eg_core::graph::GraphCore;
     use eg_tsdb::point::Point;
     use eg_tsdb::store::SeriesKey;
-    use eg_types::wire::{Op, Plan};
+    use eg_types::wire::Plan;
 
     let path = temp_store_path("graph_scope");
     let store = eg_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
@@ -628,11 +576,7 @@ fn tsdb_scan_rejects_unscoped_committed_store() {
     let core = GraphCore::new();
     let view = core.analysis_snapshot();
     let semantic = SemanticStore::new();
-    let plan = Plan::new(vec![Op::TsScan {
-        series: vec!["cpu".into()],
-        from: 0.0,
-        to: 2.0,
-    }]);
+    let plan = Plan::new(vec![scan(&["cpu"], 2.0)]);
     let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
     let out = execute(&plan, &ctx).unwrap();
     assert!(out.is_empty());
@@ -649,7 +593,7 @@ fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
     use eg_core::graph::GraphCore;
     use eg_tsdb::point::Point;
     use eg_tsdb::store::SeriesKey;
-    use eg_types::wire::{Op, Plan};
+    use eg_types::wire::Plan;
 
     let path = temp_store_path("verified_owner_scope");
     let store = eg_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
@@ -672,11 +616,7 @@ fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
     let core = GraphCore::new();
     let view = core.analysis_snapshot();
     let semantic = SemanticStore::new();
-    let plan = Plan::new(vec![Op::TsScan {
-        series: vec!["cpu".into()],
-        from: 0.0,
-        to: 2.0,
-    }]);
+    let plan = Plan::new(vec![scan(&["cpu"], 2.0)]);
     let score = |tenant, owner_graph| {
         let ctx = PlanCtx::new(&view, &semantic)
             .with_tsdb(&store)
@@ -719,28 +659,49 @@ fn build_two_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
     store
 }
 
+#[cfg(feature = "timeseries")]
+fn series_fixture(
+    tag: &str,
+    build: fn(&std::path::Path) -> eg_tsdb::store::SeriesStore,
+) -> (
+    std::path::PathBuf,
+    eg_tsdb::store::SeriesStore,
+    eg_core::graph::GraphCore,
+    eg_core::compute::semantic::SemanticStore,
+) {
+    let path = temp_store_path(tag);
+    let store = build(&path);
+    (
+        path,
+        store,
+        eg_core::graph::GraphCore::new(),
+        eg_core::compute::semantic::SemanticStore::new(),
+    )
+}
+
+#[cfg(feature = "timeseries")]
+fn scoped_context<'a>(
+    view: &'a eg_core::graph::GraphView,
+    semantic: &'a eg_core::compute::semantic::SemanticStore,
+    store: &'a eg_tsdb::store::SeriesStore,
+) -> crate::exec::PlanCtx<'a> {
+    crate::exec::PlanCtx::new(view, semantic)
+        .with_tsdb(store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH)
+}
+
 /// Two series with a point at the SAME timestamp are two rows (`a@ts`, `b@ts`); the old
 /// bare-ts id kept only the first series' point.
 #[cfg(feature = "timeseries")]
 #[test]
 fn tsscan_keeps_both_series_at_a_shared_timestamp() {
-    use crate::exec::{execute, PlanCtx};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
-    use eg_types::wire::{Op, Plan};
+    use crate::exec::execute;
+    use eg_types::wire::Plan;
 
-    let path = temp_store_path("two_series");
-    let store = build_two_series(&path);
-    let (core, semantic) = (GraphCore::new(), SemanticStore::new());
+    let (path, store, core, semantic) = series_fixture("two_series", build_two_series);
     let view = core.analysis_snapshot();
-    let ctx = PlanCtx::new(&view, &semantic)
-        .with_tsdb(&store)
-        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
-    let plan = Plan::new(vec![Op::TsScan {
-        series: vec!["a".into(), "b".into()],
-        from: 0.0,
-        to: 10.0,
-    }]);
+    let ctx = scoped_context(&view, &semantic, &store);
+    let plan = Plan::new(vec![scan(&["a", "b"], 10.0)]);
     let out = execute(&plan, &ctx).unwrap();
     assert_eq!(out.ids(), vec!["a@1000000000", "b@1000000000"]);
     assert_eq!(out.value("a@1000000000", "v0"), Some(1.000_000_123_456_789));
@@ -754,20 +715,13 @@ fn tsscan_keeps_both_series_at_a_shared_timestamp() {
 #[cfg(feature = "timeseries")]
 #[test]
 fn tsscan_value_channels_are_exact_f64_through_uql_return() {
-    use crate::exec::PlanCtx;
     use crate::uql::serve::run_statement;
     use crate::uql::{parse_statement, Params};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
     use eg_types::wire::UqlResult;
 
-    let path = temp_store_path("f64_channel");
-    let store = build_two_series(&path);
-    let (core, semantic) = (GraphCore::new(), SemanticStore::new());
+    let (path, store, core, semantic) = series_fixture("f64_channel", build_two_series);
     let view = core.analysis_snapshot();
-    let ctx = PlanCtx::new(&view, &semantic)
-        .with_tsdb(&store)
-        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let ctx = scoped_context(&view, &semantic, &store);
     let src = "TSSCAN ['a', 'b'] FROM 0 TO 10 |> RETURN v0, v1";
     let stmt = parse_statement(src, &Params::new()).unwrap();
     let UqlResult::Rows { rows, columns, .. } = run_statement(&stmt, &ctx).unwrap() else {
@@ -794,24 +748,14 @@ fn tsscan_value_channels_are_exact_f64_through_uql_return() {
 #[cfg(feature = "timeseries")]
 #[test]
 fn tsscan_window_reads_series_row_ids_and_exact_values() {
-    use crate::exec::{execute, PlanCtx};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
+    use crate::exec::execute;
     use eg_types::wire::{Op, Plan};
 
-    let path = temp_store_path("two_series_window");
-    let store = build_two_series(&path);
-    let (core, semantic) = (GraphCore::new(), SemanticStore::new());
+    let (path, store, core, semantic) = series_fixture("two_series_window", build_two_series);
     let view = core.analysis_snapshot();
-    let ctx = PlanCtx::new(&view, &semantic)
-        .with_tsdb(&store)
-        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+    let ctx = scoped_context(&view, &semantic, &store);
     let plan = Plan::new(vec![
-        Op::TsScan {
-            series: vec!["a".into(), "b".into()],
-            from: 0.0,
-            to: 10.0,
-        },
+        scan(&["a", "b"], 10.0),
         Op::WindowAgg {
             secs: 60.0,
             agg: "sum".into(),

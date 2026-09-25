@@ -73,6 +73,32 @@ fn ids(plan: &Plan, ctx: &PlanCtx) -> Vec<String> {
     plan.execute(ctx).unwrap().ids()
 }
 
+fn category_rank_plan(category: &str, query: Vec<f32>, limit: Option<usize>) -> Plan {
+    let mut ops = vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "category".into(),
+                value: category.into(),
+            }],
+        },
+        Op::Rank { query },
+    ];
+    if let Some(k) = limit {
+        ops.push(Op::Limit { k });
+    }
+    Plan::new(ops)
+}
+
+fn category_members(category: usize) -> HashSet<String> {
+    (0..DOCS)
+        .filter(|doc| doc % 8 == category)
+        .map(|doc| format!("d{doc:04}"))
+        .collect()
+}
+
 /// The EH-564 query shape: one seed doc, a 1..2-hop traversal, then vector rank and
 /// `Limit 10`. Every seed's answer equals the brute-force top-10 of its reached set.
 #[test]
@@ -121,24 +147,8 @@ fn filtered_rank_ranks_every_member_exactly() {
     let view = core.analysis_snapshot();
     let ctx = PlanCtx::new(&view, &semantic);
     let query = vector(424_242);
-    let plan = Plan::new(vec![
-        Op::Scan {
-            label: "Doc".into(),
-        },
-        Op::Filter {
-            preds: vec![Pred::Eq {
-                prop: "category".into(),
-                value: "c3".into(),
-            }],
-        },
-        Op::Rank {
-            query: query.clone(),
-        },
-    ]);
-    let members: HashSet<String> = (0..DOCS)
-        .filter(|doc| doc % 8 == 3)
-        .map(|doc| format!("d{doc:04}"))
-        .collect();
+    let plan = category_rank_plan("c3", query.clone(), None);
+    let members = category_members(3);
     let got = ids(&plan, &ctx);
     assert_eq!(got, oracle(&semantic, &query, &members, members.len()));
 }
@@ -161,25 +171,8 @@ fn rank_then_limit_is_the_exact_top_k_under_the_ceiling() {
     let view = core.analysis_snapshot();
     let ctx = PlanCtx::new(&view, &semantic);
     let query = vector(77);
-    let plan = Plan::new(vec![
-        Op::Scan {
-            label: "Doc".into(),
-        },
-        Op::Filter {
-            preds: vec![Pred::Eq {
-                prop: "category".into(),
-                value: "c5".into(),
-            }],
-        },
-        Op::Rank {
-            query: query.clone(),
-        },
-        Op::Limit { k: 10 },
-    ]);
-    let members: HashSet<String> = (0..DOCS)
-        .filter(|doc| doc % 8 == 5)
-        .map(|doc| format!("d{doc:04}"))
-        .collect();
+    let plan = category_rank_plan("c5", query.clone(), Some(10));
+    let members = category_members(5);
     assert_eq!(ids(&plan, &ctx), oracle(&semantic, &query, &members, 10));
 }
 
