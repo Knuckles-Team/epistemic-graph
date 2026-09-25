@@ -18,27 +18,25 @@ fn blob(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
 }
 
+type NodeRows = Vec<(String, Vec<u8>)>;
+type EdgeRows = Vec<(String, String, Vec<u8>)>;
+
 /// Two incidents on db and queue; api/worker depend on them; web on api and worker.
-fn populate(core: &GraphCore, queue_status: &str) {
-    core.add_node(
-        "watch-1".into(),
-        blob(json!({
-            "type": "ImpactWatch",
-            "seed_labels": ["Incident"],
-            "relationship": "dependsOn",
-            "hops": 4,
-            "default_transmission": 0.5,
-        })),
-    );
+fn fixture(queue_status: &str) -> (NodeRows, EdgeRows) {
+    let watch = json!({
+        "type": "ImpactWatch",
+        "seed_labels": ["Incident"],
+        "relationship": "dependsOn",
+        "hops": 4,
+        "default_transmission": 0.5,
+    });
+    let mut nodes = vec![("watch-1".to_string(), blob(watch))];
     for id in ["db", "queue", "api", "worker", "web", "island"] {
-        core.add_node(id.into(), blob(json!({ "type": "Service" })));
+        nodes.push((id.into(), blob(json!({ "type": "Service" }))));
     }
-    let incidents = [("inc-db", "open"), ("inc-queue", queue_status)];
-    for (id, status) in incidents {
-        core.add_node(
-            id.into(),
-            blob(json!({ "type": "Incident", "status": status })),
-        );
+    for (id, status) in [("inc-db", "open"), ("inc-queue", queue_status)] {
+        let props = json!({ "type": "Incident", "status": status });
+        nodes.push((id.into(), blob(props)));
     }
     let edges = [
         ("db", "inc-db", 0.9),
@@ -47,10 +45,23 @@ fn populate(core: &GraphCore, queue_status: &str) {
         ("worker", "queue", 0.6),
         ("web", "api", 0.5),
         ("web", "worker", 0.5),
-    ];
-    for (from, to, p) in edges {
+    ]
+    .into_iter()
+    .map(|(from, to, p)| {
         let props = json!({ "relationship": "dependsOn", "transmission": p });
-        core.add_edge(from.into(), to.into(), blob(props)).unwrap();
+        (from.to_string(), to.to_string(), blob(props))
+    })
+    .collect();
+    (nodes, edges)
+}
+
+fn populate(core: &GraphCore, queue_status: &str) {
+    let (nodes, edges) = fixture(queue_status);
+    for (id, props) in nodes {
+        core.add_node(id, props);
+    }
+    for (from, to, props) in edges {
+        core.add_edge(from, to, props).unwrap();
     }
 }
 
@@ -174,6 +185,33 @@ fn persisted_state() -> Arc<RwLock<ServerState>> {
     Arc::new(RwLock::new(state))
 }
 
+/// Write the fixture through the served, durable write path: the watch's own
+/// writeback links assessments to these nodes and needs durable endpoints.
+#[cfg(feature = "redb")]
+async fn populate_served(state: &Arc<RwLock<ServerState>>, queue_status: &str) {
+    let (nodes, edges) = fixture(queue_status);
+    let mut writes = Vec::new();
+    for (node_id, properties_msgpack) in nodes {
+        writes.push(Method::AddNode {
+            node_id,
+            properties_msgpack,
+        });
+    }
+    for (source_id, target_id, properties_msgpack) in edges {
+        writes.push(Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        });
+    }
+    for (id, method) in (1_u64..).zip(writes) {
+        let request =
+            crate::server::auth::build_shared_test_request(SECRET, id, "ops", "system", method);
+        let response = crate::server::auth::dispatch_test_on_heap(state, request).await;
+        assert!(response.error.is_none(), "fixture write: {:?}", response.error);
+    }
+}
+
 #[cfg(feature = "redb")]
 #[tokio::test]
 async fn a_noticed_incident_writes_assessments_through_the_served_path() {
@@ -186,13 +224,12 @@ async fn a_noticed_incident_writes_assessments_through_the_served_path() {
             .expect("create graph");
         guard.registry.get("ops").expect("graph").core.clone()
     };
-    populate(&core, "open");
+    populate_served(&state, "open").await;
     let hub = ImpactWatchHub::new(["ops".to_string()].into(), Duration::ZERO);
     hub.note("ops", WATCH_LABEL, "watch-1");
     let report = hub.sweep_due(&state).await;
     assert_eq!(
-        report.runs,
-        1,
+        report.runs, 1,
         "one watch run committed: {:?}",
         report.refusals
     );
