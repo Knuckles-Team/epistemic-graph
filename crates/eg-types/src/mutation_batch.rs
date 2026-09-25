@@ -7,6 +7,7 @@
 mod fault;
 mod model;
 mod validation;
+pub use validation::MAX_MUTATION_OPERATIONS;
 
 pub use fault::apply_certification_fault;
 pub use model::*;

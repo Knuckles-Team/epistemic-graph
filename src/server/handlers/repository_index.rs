@@ -32,6 +32,11 @@ const POLICY_VERSION: &str = "repository-index";
 /// The verified request coordinates one scoped commit is compiled under.
 pub(crate) type IndexCommitContext<'a> = crate::server::mutation_batch::GraphWriteScope<'a>;
 
+/// A batch that lowers past the mutation batch's operation budget is refused
+/// with this code BEFORE compilation: it commits as ONE atomic envelope or not
+/// at all, and the source transport halves it and re-sends.
+pub(crate) const BATCH_TOO_LARGE: &str = "REPOSITORY_BATCH_TOO_LARGE";
+
 /// The lowered, digest-keyed write-set of one scoped result.
 pub(crate) struct IndexWriteSet {
     pub envelope_id: String,
@@ -90,6 +95,14 @@ pub(crate) fn lower(result: &IndexResult) -> Result<IndexWriteSet, String> {
         if pairs.insert((edge.source.as_str(), edge.target.as_str())) {
             methods.push(edge_method(edge)?);
         }
+    }
+    let limit = eg_types::mutation_batch::MAX_MUTATION_OPERATIONS;
+    if methods.len() > limit {
+        return Err(format!(
+            "{BATCH_TOO_LARGE}: the batch lowers to {} graph operations, over the \
+             {limit}-operation commit budget; submit fewer blobs per batch",
+            methods.len()
+        ));
     }
     let encoded = rmp_serde::to_vec_named(&methods)
         .map_err(|error| format!("repository index write-set encoding failed: {error}"))?;
