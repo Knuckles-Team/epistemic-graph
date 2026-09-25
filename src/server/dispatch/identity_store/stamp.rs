@@ -156,8 +156,11 @@ fn derive_config(op: &mut ConfigOp, stamp: &mut IdentityStamp, env: &StampEnv<'_
             Ok(())
         }
         ConfigOp::UpdatePolicy { .. }
+        | ConfigOp::RotateIssuer { .. }
         | ConfigOp::Get
         | ConfigOp::Audit { .. }
+        | ConfigOp::ExportAudit { .. }
+        | ConfigOp::VerifyAudit
         | ConfigOp::ExportSql
         | ConfigOp::ImportSql { .. }
         | ConfigOp::RepairSystemIdentity { .. } => Ok(()),
@@ -243,7 +246,9 @@ fn derive_sign_in(
 fn derive_session(op: &mut SessionOp, stamp: &mut IdentityStamp) -> Derived {
     let request = match op {
         SessionOp::Resolve { request } | SessionOp::Revoke { request } => request,
-        SessionOp::RevokeAll { .. } | SessionOp::List { .. } => return Ok(()),
+        SessionOp::RevokeAll { .. } | SessionOp::RevokeOne { .. } | SessionOp::List { .. } => {
+            return Ok(())
+        }
     };
     stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Lookup)?];
     request.code.take();
@@ -286,7 +291,7 @@ fn derive_token(op: &mut TokenOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>)
         TokenOp::IssuePasswordReset { request } => {
             stamp.token_hashes = vec![take_token(&mut request.token, Floor::Issue)?];
         }
-        TokenOp::RevokeApiKey { .. } => {}
+        TokenOp::RevokeApiKey { .. } | TokenOp::ListApiKeys { .. } => {}
     }
     Ok(())
 }
