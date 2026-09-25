@@ -82,15 +82,7 @@ impl CarrierAuthority {
                     .to_string(),
             );
         }
-        let tenant_scope = if opaque_scope(tenant, "carrier-tenant") {
-            tenant.to_string()
-        } else {
-            crate::server::mutation_batch::opaque_coordinator_key(
-                "carrier-tenant",
-                "verified",
-                tenant,
-            )
-        };
+        let tenant_scope = verified_tenant_scope(tenant);
         let actor_scope = if opaque_scope(principal, "principal:sha256") {
             principal.to_string()
         } else {
@@ -206,6 +198,29 @@ impl CarrierAuthority {
                 "ACCESS_DENIED: {domain} has no per-row ownership and requires kg:admin"
             ))
         }
+    }
+}
+
+/// Map a tenant from a verified request (or a verified persisted request
+/// artifact) to the same opaque carrier scope used by native job policy.
+pub(crate) fn verified_tenant_scope(tenant: &str) -> String {
+    if opaque_scope(tenant, "carrier-tenant") {
+        tenant.to_string()
+    } else {
+        crate::server::mutation_batch::opaque_coordinator_key("carrier-tenant", "verified", tenant)
+    }
+}
+
+#[cfg(test)]
+mod replay_tenant_scope_tests {
+    use super::*;
+
+    #[test]
+    fn raw_tenant_and_opaque_carrier_share_one_scope() {
+        let scope = verified_tenant_scope("tenant-shared");
+        assert!(scope.starts_with("carrier-tenant:"));
+        assert_eq!(scope, verified_tenant_scope(&scope));
+        assert_ne!(scope, verified_tenant_scope("tenant-other"));
     }
 }
 

@@ -41,7 +41,8 @@ pub(super) async fn execute_replay_claim(
         &bytes,
         "decision replay request",
     )?;
-    if request.tenant_id != job.policy.tenant
+    if request.tenant_id.trim().is_empty()
+        || crate::server::access::verified_tenant_scope(&request.tenant_id) != job.policy.tenant
         || !matches!(&request.mode, EvalMode::Replay { .. })
         || crate::server::handlers::decide::replay_request_ref(&request) != request_ref
     {
