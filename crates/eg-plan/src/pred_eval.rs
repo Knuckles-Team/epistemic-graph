@@ -12,7 +12,7 @@
 use std::cmp::Ordering;
 
 use eg_types::row_predicate::cmp_op_matches;
-use eg_types::wire::{CmpOp, Pred, PredLiteral};
+use eg_types::wire::{Pred, PredLiteral};
 use serde_json::{Map, Value};
 
 // Keep the spatial family exhaustive in one place. Both the relational classifier
@@ -151,6 +151,7 @@ fn kleene_or(items: impl Iterator<Item = Truth>) -> Truth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eg_types::wire::CmpOp;
     use serde_json::json;
 
     fn row(v: Value) -> Map<String, Value> {
