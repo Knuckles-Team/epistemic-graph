@@ -501,6 +501,54 @@ mod eg318_dispatch_tests {
         (state, path)
     }
 
+    /// Give both time-series cases the same registered callers and private graphs.
+    #[cfg(feature = "tsdb")]
+    fn register_ts_tenants(state: &mut ServerState) {
+        #[cfg(feature = "security")]
+        {
+            use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+            state.isolation.add_role(Role::new("owner-acme-private"));
+            state.isolation.add_role(Role::new("owner-other-private"));
+            let grant = |role: &str, graph: &str, action: RbacAction| Grant {
+                role: role.to_string(),
+                resource: ResourceSelector::Graph(graph.to_string()),
+                action,
+                effect: GrantEffect::Allow,
+            };
+            for action in [RbacAction::Read, RbacAction::Write] {
+                state
+                    .isolation
+                    .add_grant(grant("owner-acme-private", "acme:private", action));
+                state
+                    .isolation
+                    .add_grant(grant("owner-other-private", "other:private", action));
+            }
+        }
+        for (agent_id, role) in [
+            ("alice", "owner-acme-private"),
+            ("bob", "owner-other-private"),
+        ] {
+            #[cfg(not(feature = "security"))]
+            let _ = role;
+            state.isolation.register_agent(AgentIdentity {
+                agent_id: agent_id.into(),
+                role: AgentRole::Agent,
+                teams: vec![],
+                #[cfg(feature = "security")]
+                roles: vec![role.into()],
+                #[cfg(not(feature = "security"))]
+                roles: vec![],
+            });
+        }
+        for (graph, agent_id) in [("acme:private", "alice"), ("other:private", "bob")] {
+            let _ = state.registry.create_graph(
+                graph,
+                crate::protocol::GraphType::Agent,
+                Some(agent_id.into()),
+            );
+        }
+    }
+
     fn req(id: u64, method: Method) -> Request {
         build_shared_test_request(SECRET, id, "__commons__", "system", method)
     }
@@ -765,52 +813,7 @@ mod eg318_dispatch_tests {
             // against the RBAC policy (no pre-RBAC ACL fall-through, no "owner
             // always wins" shortcut). So each agent needs an explicit grant on
             // their own private graph, or every Ts* call below default-denies.
-            #[cfg(feature = "security")]
-            {
-                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-                s.isolation.add_role(Role::new("owner-acme-private"));
-                s.isolation.add_role(Role::new("owner-other-private"));
-                let grant = |role: &str, graph: &str, action: RbacAction| Grant {
-                    role: role.to_string(),
-                    resource: ResourceSelector::Graph(graph.to_string()),
-                    action,
-                    effect: GrantEffect::Allow,
-                };
-                for action in [RbacAction::Read, RbacAction::Write] {
-                    s.isolation
-                        .add_grant(grant("owner-acme-private", "acme:private", action));
-                    s.isolation
-                        .add_grant(grant("owner-other-private", "other:private", action));
-                }
-            }
-            s.isolation.register_agent(AgentIdentity {
-                agent_id: "alice".into(),
-                role: AgentRole::Agent,
-                teams: vec![],
-                #[cfg(feature = "security")]
-                roles: vec!["owner-acme-private".into()],
-                #[cfg(not(feature = "security"))]
-                roles: vec![],
-            });
-            s.isolation.register_agent(AgentIdentity {
-                agent_id: "bob".into(),
-                role: AgentRole::Agent,
-                teams: vec![],
-                #[cfg(feature = "security")]
-                roles: vec!["owner-other-private".into()],
-                #[cfg(not(feature = "security"))]
-                roles: vec![],
-            });
-            let _ = s.registry.create_graph(
-                "acme:private",
-                crate::protocol::GraphType::Agent,
-                Some("alice".into()),
-            );
-            let _ = s.registry.create_graph(
-                "other:private",
-                crate::protocol::GraphType::Agent,
-                Some("bob".into()),
-            );
+            register_ts_tenants(&mut s);
         }
         let request = |id: u64, graph: &str, agent: &str, method: Method| {
             sign_current_test_request(
@@ -911,52 +914,7 @@ mod eg318_dispatch_tests {
         let (state, path) = ts_test_state("eg-ts-retention").await;
         {
             let mut s = state.write().await;
-            #[cfg(feature = "security")]
-            {
-                use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-                s.isolation.add_role(Role::new("owner-acme-private"));
-                s.isolation.add_role(Role::new("owner-other-private"));
-                let grant = |role: &str, graph: &str, action: RbacAction| Grant {
-                    role: role.to_string(),
-                    resource: ResourceSelector::Graph(graph.to_string()),
-                    action,
-                    effect: GrantEffect::Allow,
-                };
-                for action in [RbacAction::Read, RbacAction::Write] {
-                    s.isolation
-                        .add_grant(grant("owner-acme-private", "acme:private", action));
-                    s.isolation
-                        .add_grant(grant("owner-other-private", "other:private", action));
-                }
-            }
-            s.isolation.register_agent(AgentIdentity {
-                agent_id: "alice".into(),
-                role: AgentRole::Agent,
-                teams: vec![],
-                #[cfg(feature = "security")]
-                roles: vec!["owner-acme-private".into()],
-                #[cfg(not(feature = "security"))]
-                roles: vec![],
-            });
-            s.isolation.register_agent(AgentIdentity {
-                agent_id: "bob".into(),
-                role: AgentRole::Agent,
-                teams: vec![],
-                #[cfg(feature = "security")]
-                roles: vec!["owner-other-private".into()],
-                #[cfg(not(feature = "security"))]
-                roles: vec![],
-            });
-            let _ = s.registry.create_graph(
-                "acme:private",
-                crate::protocol::GraphType::Agent,
-                Some("alice".into()),
-            );
-            let _ = s.registry.create_graph(
-                "other:private",
-                crate::protocol::GraphType::Agent,
-                Some("bob".into()),
-            );
+            register_ts_tenants(&mut s);
         }
         let request = |id: u64, graph: &str, agent: &str, method: Method| {
             sign_current_test_request(
