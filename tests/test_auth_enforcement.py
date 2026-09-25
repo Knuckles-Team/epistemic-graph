@@ -103,6 +103,22 @@ def _bootstrap_and_ping(socket_path, secret):
         good.close()
 
 
+def _assert_oidc_startup_refusal(socket_path, required_value):
+    proc = _spawn(
+        socket_path,
+        auth_secret="test-request-secret",
+        EPISTEMIC_GRAPH_REQUIRE_OIDC=required_value,
+    )
+    try:
+        proc.wait(timeout=server_timeout())
+    finally:
+        proc.kill()
+    assert proc.returncode == 1
+    stderr = proc.stderr.read().decode()
+    assert "EPISTEMIC_GRAPH_REQUIRE_OIDC" in stderr, stderr
+    assert not os.path.exists(socket_path)
+
+
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_empty_secret_refuses_to_start(tmp_path):
     sock = str(tmp_path / "no-secret.sock")
@@ -159,19 +175,7 @@ def test_oidc_required_by_default_refuses_to_start_without_issuer(tmp_path):
     default is actually secure.
     """
     sock = str(tmp_path / "oidc-default-required.sock")
-    proc = _spawn(
-        sock,
-        auth_secret="test-request-secret",
-        EPISTEMIC_GRAPH_REQUIRE_OIDC=None,  # truly unset: exercise the real default
-    )
-    try:
-        proc.wait(timeout=server_timeout())
-    finally:
-        proc.kill()
-    assert proc.returncode == 1
-    stderr = proc.stderr.read().decode()
-    assert "EPISTEMIC_GRAPH_REQUIRE_OIDC" in stderr, stderr
-    assert not os.path.exists(sock)
+    _assert_oidc_startup_refusal(sock, None)  # truly unset: exercise the real default
 
 
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
@@ -180,19 +184,7 @@ def test_oidc_required_explicitly_also_refuses_to_start_without_issuer(tmp_path)
     gate responds to the variable itself and not just to some other unset
     dependency."""
     sock = str(tmp_path / "oidc-explicit-required.sock")
-    proc = _spawn(
-        sock,
-        auth_secret="test-request-secret",
-        EPISTEMIC_GRAPH_REQUIRE_OIDC="true",
-    )
-    try:
-        proc.wait(timeout=server_timeout())
-    finally:
-        proc.kill()
-    assert proc.returncode == 1
-    stderr = proc.stderr.read().decode()
-    assert "EPISTEMIC_GRAPH_REQUIRE_OIDC" in stderr, stderr
-    assert not os.path.exists(sock)
+    _assert_oidc_startup_refusal(sock, "true")
 
 
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
