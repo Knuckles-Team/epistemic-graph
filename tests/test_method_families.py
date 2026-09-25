@@ -217,10 +217,12 @@ _UNCONDITIONAL_WRITES_AT_BASE = (
         "MintWorkItemClaimCapability",
         # Declared writes (mutates=true in eg-capabilities) that joined the
         # unconditional tail after the family refactor, not family members:
-        # DecisionCommit and GraphSchema (a4804f87c), SourceIngest (dcc5d53c0).
+        # DecisionCommit and GraphSchema (a4804f87c), SourceIngest (dcc5d53c0),
+        # TelemetryDerive (EH-408/EH-409, a self-translating declared write).
         "DecisionCommit",
         "GraphSchema",
         "SourceIngest",
+        "TelemetryDerive",
     }
 )
 

@@ -163,8 +163,10 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
         "method: Method, ) -> Response"
     )
     production_code = module._rust_code_mask(family.production)
-    # 262 since f17f47ab3 routed `GraphSchema` and `GraphSchemaList` here.
-    assert len(module._METHOD_VARIANT.findall(production_code)) == 262
+    # 262 since f17f47ab3 routed `GraphSchema` and `GraphSchemaList` here;
+    # 262 -> 266: retrieval-learning (EH-394..397) reads `Discover` and
+    # `SemanticSearch` in the gateway family (two references each).
+    assert len(module._METHOD_VARIANT.findall(production_code)) == 266
     assert "under_cap_returns_no_error_so_data_is_served" not in family.production
     assert "under_cap_returns_no_error_so_data_is_served" in family.with_tests
 
