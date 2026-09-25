@@ -1,6 +1,6 @@
 # Compute API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.compute.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 134 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.compute.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 132 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `BatchL2Normalize`
 
@@ -1460,37 +1460,6 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Fina
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceEmpiricalKelly`, `contract/schemas/result.compute.json#/methods/FinanceEmpiricalKelly`.
 
-## `FinanceEwma`
-
-| Property | Value |
-|---|---|
-| Stability | `stable` |
-| Authz action | `compute:finance` |
-| Mutates | `false` |
-| Durability domain | `None` |
-| Idempotent | `true` |
-| Audited | `false` |
-| Emits CDC | `false` |
-| Txn participation | `None` |
-| Replay class | `NotReplayable` |
-| Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
-
-**Request parameters**
-
-| Parameter | Type | Required | Description |
-|---|---|:---:|---|
-| `span` | integer (uint) | yes |  |
-| `values` | array of number (double) | yes |  |
-
-**Result**
-
-| Body | Type | Encoding | Dynamic |
-|---|---|---|---|
-| `result` | array of number (double) | Raw |  |
-
-Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceEwma`, `contract/schemas/result.compute.json#/methods/FinanceEwma`.
-
 ## `FinanceExpectedPnlRate`
 
 | Property | Value |
@@ -2667,37 +2636,6 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Fina
 | `result` | `OptimizationResult` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceRiskParity`, `contract/schemas/result.compute.json#/methods/FinanceRiskParity`.
-
-## `FinanceRollingZscore`
-
-| Property | Value |
-|---|---|
-| Stability | `stable` |
-| Authz action | `compute:finance` |
-| Mutates | `false` |
-| Durability domain | `None` |
-| Idempotent | `true` |
-| Audited | `false` |
-| Emits CDC | `false` |
-| Txn participation | `None` |
-| Replay class | `NotReplayable` |
-| Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
-
-**Request parameters**
-
-| Parameter | Type | Required | Description |
-|---|---|:---:|---|
-| `values` | array of number (double) | yes |  |
-| `window` | integer (uint) | yes |  |
-
-**Result**
-
-| Body | Type | Encoding | Dynamic |
-|---|---|---|---|
-| `result` | array of number (double) | Raw |  |
-
-Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceRollingZscore`, `contract/schemas/result.compute.json#/methods/FinanceRollingZscore`.
 
 ## `FinanceSabrCalibrate`
 

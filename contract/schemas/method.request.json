@@ -195,6 +195,75 @@
         }
       ]
     },
+    "AbstentionResolution": {
+      "additionalProperties": false,
+      "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+      "properties": {
+        "option_id": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "resolution_id": {
+          "type": "string"
+        },
+        "resolver": {
+          "$ref": "#/$defs/AbstentionResolver"
+        }
+      },
+      "required": [
+        "record_id",
+        "resolution_id",
+        "option_id",
+        "resolver"
+      ],
+      "type": "object"
+    },
+    "AbstentionResolver": {
+      "description": "Who resolved an abstention (EH-037, §6.4 \"abstentions as labels\").",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+          "properties": {
+            "resolver": {
+              "const": "human",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+          "properties": {
+            "producer": {
+              "type": "string"
+            },
+            "prompt_digest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resolver": {
+              "const": "model",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver",
+            "producer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AgentComponentContentRequest": {
       "additionalProperties": false,
       "description": "Read one component revision's bytes.",
@@ -3121,6 +3190,27 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_DeclaredNumber_32": {
+      "items": {
+        "$ref": "#/$defs/DeclaredNumber"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredOption_64": {
+      "items": {
+        "$ref": "#/$defs/DeclaredOption"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredText_8": {
+      "items": {
+        "$ref": "#/$defs/DeclaredText"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_DerivationEdge_16": {
       "items": {
         "$ref": "#/$defs/DerivationEdge"
@@ -3569,6 +3659,24 @@
             "plan"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The caller's own options, each fact a claim the caller makes\n([`declared`]). Visible to the declaring principal only.",
+          "properties": {
+            "options": {
+              "$ref": "#/$defs/BoundedVec_DeclaredOption_64"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3615,6 +3723,24 @@
           "required": [
             "source",
             "plan_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Options the caller declared, pinned by the digest of the declaration.",
+          "properties": {
+            "options_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options_digest"
           ],
           "type": "object"
         }
@@ -4757,6 +4883,18 @@
         "hierarchical",
         "gmm",
         "kmedoids"
+      ],
+      "type": "string"
+    },
+    "CmpOp": {
+      "description": "A comparison operator of [`Pred::Cmp`] (UQL-01).",
+      "enum": [
+        "Eq",
+        "Ne",
+        "Gt",
+        "Ge",
+        "Lt",
+        "Le"
       ],
       "type": "string"
     },
@@ -6524,6 +6662,28 @@
             "record_id"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Record how an escalation resolved one logged abstention (EH-037).",
+          "properties": {
+            "op": {
+              "const": "resolve",
+              "type": "string"
+            },
+            "resolution": {
+              "$ref": "#/$defs/AbstentionResolution"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "resolution"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -6913,6 +7073,69 @@
       ],
       "type": "object"
     },
+    "DeclaredNumber": {
+      "additionalProperties": false,
+      "description": "One named numeric fact of a declared option, already on the `Q32` scale.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "q32": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "q32"
+      ],
+      "type": "object"
+    },
+    "DeclaredOption": {
+      "additionalProperties": false,
+      "description": "One option a caller declares.",
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": [],
+          "description": "Native capability IRIs the option claims; read by `CoverageFraction`."
+        },
+        "numbers": {
+          "$ref": "#/$defs/BoundedVec_DeclaredNumber_32",
+          "default": [],
+          "description": "Sorted by key and unique."
+        },
+        "option_id": {
+          "type": "string"
+        },
+        "texts": {
+          "$ref": "#/$defs/BoundedVec_DeclaredText_8",
+          "default": [],
+          "description": "Sorted by key and unique."
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "type": "object"
+    },
+    "DeclaredText": {
+      "additionalProperties": false,
+      "description": "One named text field of a declared option.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "text"
+      ],
+      "type": "object"
+    },
     "DelegationTarget": {
       "description": "What a delegation runs.\n\n# Why one delegation, not one per node\n\nA graph delegation admits exactly ONE work item. The child agent runs are\nthe executor's business, bounded by the graph's own composed ceiling.\n\nThe alternative -- admitting one work item per node -- was rejected because\n`max_tenant_in_flight` would then make a graph UNSCHEDULABLE whenever its\nnode count exceeded the tenant's limit: the parent would hold a slot while\nwaiting for children that cannot get one. That is a deadlock, not a\nthrottle.\n\nSo the two bounds govern two different things, and both are needed:\n\n* `max_tenant_in_flight` bounds how many DELEGATIONS a tenant may have in\n  flight;\n* `composed_work_ceiling` bounds what one delegation may do INTERNALLY.\n\nWithout the second, a graph would be a way to escape the first by fanning\nout. `MAX_COMPOSITION_WORK` is the global cap that makes the escape\nimpossible rather than merely discouraged.",
       "oneOf": [
@@ -6982,6 +7205,22 @@
         "broader",
         "source",
         "class"
+      ],
+      "type": "object"
+    },
+    "DeriveColumn": {
+      "description": "One `DERIVE` column: an expression and the channel name its values are written to.",
+      "properties": {
+        "expr": {
+          "$ref": "#/$defs/SeriesExpr"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expr",
+        "name"
       ],
       "type": "object"
     },
@@ -8115,6 +8354,26 @@
         "close_minute"
       ],
       "type": "object"
+    },
+    "EdgeDir": {
+      "description": "Which way an [`Op::Expand`] follows edges (UQL-05).",
+      "oneOf": [
+        {
+          "const": "Out",
+          "description": "`-[..]->` — from the current rows along outgoing edges.",
+          "type": "string"
+        },
+        {
+          "const": "In",
+          "description": "`<-[..]-` — along incoming edges.",
+          "type": "string"
+        },
+        {
+          "const": "Both",
+          "description": "`-[..]-` — either direction.",
+          "type": "string"
+        }
+      ]
     },
     "EdgeSource": {
       "description": "Which side of a subsumption edge the engine got it from.",
@@ -9823,7 +10082,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`\n(UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip — the cross-engine federation seam.",
+          "description": "A REMOTE epistemic-graph engine, reached over the SAME length-prefixed\nMessagePack + HMAC transport this engine speaks. The federation client\nconnects to `endpoint` (a `host:port` TCP address), sends a `Uql` statement\n(UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,\nand projects the result rows into a local RowSet. Every request is an `eg2.`\nverified-context envelope; an empty secret or incomplete context fails before\ndialing. This composes the engine with ANOTHER engine without a Python\nround-trip — the cross-engine federation seam.",
           "properties": {
             "RemoteEngine": {
               "properties": {
@@ -20059,78 +20318,6 @@
           "additionalProperties": false,
           "properties": {
             "method": {
-              "const": "FinanceRollingZscore",
-              "type": "string"
-            },
-            "params": {
-              "additionalProperties": false,
-              "properties": {
-                "values": {
-                  "items": {
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": "array"
-                },
-                "window": {
-                  "format": "uint",
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "values",
-                "window"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "method": {
-              "const": "FinanceEwma",
-              "type": "string"
-            },
-            "params": {
-              "additionalProperties": false,
-              "properties": {
-                "span": {
-                  "format": "uint",
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "values": {
-                  "items": {
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": "array"
-                }
-              },
-              "required": [
-                "values",
-                "span"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "method": {
               "const": "FinanceSignalDecay",
               "type": "string"
             },
@@ -22868,12 +23055,19 @@
           "additionalProperties": false,
           "properties": {
             "method": {
-              "const": "UnifiedQueryText",
+              "const": "Uql",
               "type": "string"
             },
             "params": {
               "additionalProperties": false,
               "properties": {
+                "params": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/UqlParam"
+                  },
+                  "default": {},
+                  "type": "object"
+                },
                 "text": {
                   "type": "string"
                 }
@@ -23362,7 +23556,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Natural-language → executable query → rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\n`UnifiedQueryText` pipeline (`eg_plan::uql::parse` → the fused executor) — NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` —\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all — so the wire stays compatible while the NL\nsurface is a build-tier choice.",
+          "description": "Natural-language → executable query → rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\nUQL pipeline (`eg_plan::uql::parse` → the fused executor) — NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` —\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all — so the wire stays compatible while the NL\nsurface is a build-tier choice.",
           "properties": {
             "method": {
               "const": "NlQuery",
@@ -24331,15 +24525,22 @@
         },
         {
           "additionalProperties": false,
-          "description": "In-txn unified query, TEXT surface — UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-\nwritable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the\nSAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same\n`query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.",
+          "description": "A UQL statement INSIDE a transaction (CONCEPT:EG-KG.query.txn-cross-modal-ryow,\nEH-434): exactly `Uql`'s statement — the same grammar, typed `$name` `params`,\n`EXPLAIN`/`PROFILE`, `LET` programs, `RETURN` channels and row annotations — run\nover the committed snapshot OVERLAID with this txn's staged write-set (read your\nown writes). Result: [`crate::wire::UqlResult`]. (Replaced the rows-only\n`TxnUnifiedQueryText`.)",
           "properties": {
             "method": {
-              "const": "TxnUnifiedQueryText",
+              "const": "TxnUql",
               "type": "string"
             },
             "params": {
               "additionalProperties": false,
               "properties": {
+                "params": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/UqlParam"
+                  },
+                  "default": {},
+                  "type": "object"
+                },
                 "text": {
                   "type": "string"
                 },
@@ -24718,6 +24919,41 @@
           },
           "required": [
             "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from\n`source` — a series in the caller's own scope — by `expr`, a series expression in\nthe UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example\n`zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points\nare `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it\nfrom its checkpoint (bounded work per append; a lagging series catches up on the\nnext append or re-definition); a source point at or before the last one derived is\na revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read\nit like any series. Idempotent for the same definition (the call then catches the\nseries up); a different definition, a missing source or a cycle is refused.",
+          "properties": {
+            "method": {
+              "const": "TsDefineSeries",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "expr": {
+                  "type": "string"
+                },
+                "series_id": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "series_id",
+                "source",
+                "expr"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
           ],
           "type": "object"
         },
@@ -29593,6 +29829,19 @@
         },
         {
           "additionalProperties": false,
+          "description": "SOURCE — seed from EVERY node of the (RLS/lease-filtered) snapshot, in id order:\nUQL `MATCH ()` (UQL-03).",
+          "properties": {
+            "ScanAll": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "ScanAll"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "FILTER (relational) — keep rows matching ALL `preds`, via real DataFusion.",
           "properties": {
             "Filter": {
@@ -29645,6 +29894,52 @@
           },
           "required": [
             "Traverse"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "TRAVERSE, general form (UQL-05): follow edges in `dir`, restricted to relationship\n`rel` (`None` ⇒ any relationship, UQL `*`) and to edges whose property blob\nsatisfies every `edge_preds` entry, `min..=max` hops. `Expand{Some(r), Out, [], ..}`\nis spelled [`Op::Traverse`] (one encoding; the UQL parser emits `Traverse` for it).",
+          "properties": {
+            "Expand": {
+              "properties": {
+                "dir": {
+                  "$ref": "#/$defs/EdgeDir"
+                },
+                "edge_preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                },
+                "max": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "min": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "rel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "dir",
+                "min",
+                "max",
+                "edge_preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Expand"
           ],
           "type": "object"
         },
@@ -30286,6 +30581,51 @@
         },
         {
           "additionalProperties": false,
+          "description": "TRANSFORM (series, EH-522, UQL `DERIVE expr AS name {, expr AS name}`) — evaluate each\ncolumn's [`crate::series_expr::SeriesExpr`] over every series of the input in timestamp\norder (a row belongs to the series its `series@ts` id names) and write the result\nunder the column's name as an exact value channel a later `DERIVE` or `RETURN` reads.\nRows, their order and their scores pass through unchanged; a row with no value yet\n(warm-up, a skipped input) simply has no channel. The kernels are `eg_numeric::series`,\nthe same ones the SQL `eg_*` window functions and a materialised derived series run.",
+          "properties": {
+            "Derive": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "$ref": "#/$defs/DeriveColumn"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "columns"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Derive"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "REPORT (series, EH-522 FeatureSkill, UQL `SKILL f AGAINST y HORIZONS [..] WINDOW w\n[BOOTSTRAP n SEED s]`) — the predictive skill of value channel `feature` for the\nlater value channel `outcome`, per series: the rolling Spearman IC of `feature[t]`\nagainst `outcome[t + h]` for each horizon, summarised (mean, deviation, ICIR, a\nseeded moving-block bootstrap interval), with the breadth across horizons.\nReplaces the rows with one row per series and horizon, id `<series>:skill@<h>`,\nscore the mean IC and channels `mean_ic ic_std icir ic_lo ic_hi n n_eff ir`\n(`eg_numeric::evaluation::skill::feature_skill`).",
+          "properties": {
+            "Skill": {
+              "properties": {
+                "spec": {
+                  "$ref": "#/$defs/SkillOp"
+                }
+              },
+              "required": [
+                "spec"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Skill"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — run the probabilistic query `query`\nagainst each row's stored `Distribution` VALUE (the conventional `distribution`\nnode property, the tagged serde form of `eg_types::Distribution`) and SCORE the\nrow with the closed-form result — expectation / marginal probability / conditional\nposterior mean / deterministic seeded sample — re-ordering the RowSet by that score\nDESCENDING, exactly as `Rank` produces a scored order a downstream `Limit` respects.\nRows whose `distribution` is missing/invalid, or where the query does not apply\n(e.g. a `Conditional` with an unsupported conjugate pair), are DROPPED — mirroring\nhow the tensor/spatial legs narrow their input. Gated by `probabilistic` (the\ndistribution + Bayesian math lives in eg-types/eg-compute behind eg-plan's own\n`probabilistic` gate; this is the pure-serde wire variant — no RNG-from-clock, so a\nseeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.",
           "properties": {
             "Probabilistic": {
@@ -30447,6 +30787,30 @@
         },
         {
           "additionalProperties": false,
+          "description": "SOURCE (EH-066, UQL `DECISIONS [WHERE pred]`) — the record ids of the caller's\nVISIBLE decision log (the same rows the SQL `decisions` relation holds), kept when\nevery relational predicate holds over the record's columns (`question_id`,\n`outcome`, `option_id`, `source`, `safety`, `committed_at_ms`, …). Unscored, in\nrecord-id order. The served path binds the caller's log; unbound it is a typed\nerror, never an empty set.",
+          "properties": {
+            "DecisionScan": {
+              "properties": {
+                "preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "DecisionScan"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "LIMIT — top-k, respecting the current order.",
           "properties": {
             "Limit": {
@@ -30465,6 +30829,30 @@
           },
           "required": [
             "Limit"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "PROJECT (UQL `RETURN`, UQL-08) — name the score CHANNELS the result carries per\nrow, alongside `id` and the current `score`. Every scoring op records its score\nunder a fixed channel name (`similarity`, `text`, `belief`, `window`, …; see\n`eg_plan::channels`) so results of several scoring stages coexist instead of the\nlast one overwriting the others. Rows pass through unchanged; a channel no op\nproduced for a row is `None`.",
+          "properties": {
+            "Project": {
+              "properties": {
+                "channels": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "channels"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Project"
           ],
           "type": "object"
         }
@@ -31455,6 +31843,182 @@
         },
         {
           "additionalProperties": false,
+          "description": "`prop <op> value` over a TYPED scalar (UQL predicate algebra, UQL-01). The three\nlegacy forms above stay the canonical spelling of what they express —\n`Cmp{Eq,Str}` ≡ `Eq`, `Cmp{Gt,Num}` ≡ `GtNum`, `Cmp{Lt,Num}` ≡ `LtNum` (the UQL\nparser never emits those three `Cmp` shapes; `eg_plan::uql::canonicalize` rewrites\nthem) — so the wire keeps ONE encoding per meaning. A `Num` compares numerically\nand a `Bool` as a boolean, never as their JSON text.",
+          "properties": {
+            "Cmp": {
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/CmpOp"
+                },
+                "prop": {
+                  "type": "string"
+                },
+                "value": {
+                  "$ref": "#/$defs/PredLiteral"
+                }
+              },
+              "required": [
+                "prop",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Cmp"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`prop IN (v, …)` — membership in a typed literal list (non-empty).",
+          "properties": {
+            "In": {
+              "properties": {
+                "prop": {
+                  "type": "string"
+                },
+                "values": {
+                  "items": {
+                    "$ref": "#/$defs/PredLiteral"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "prop",
+                "values"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "In"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`prop BETWEEN lo AND hi` — inclusive on both ends (SQL semantics).",
+          "properties": {
+            "Between": {
+              "properties": {
+                "hi": {
+                  "$ref": "#/$defs/PredLiteral"
+                },
+                "lo": {
+                  "$ref": "#/$defs/PredLiteral"
+                },
+                "prop": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prop",
+                "lo",
+                "hi"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Between"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`prop IS NULL` — the property is absent or JSON `null`. `IS NOT NULL` is\n`Not { IsNull }` (one encoding).",
+          "properties": {
+            "IsNull": {
+              "properties": {
+                "prop": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prop"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "IsNull"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Conjunction of at least two predicates (a parenthesised `AND` group). A top-level\n`WHERE a AND b` stays the flat `Filter.preds` list; this node exists so a\nconjunction can sit under `Or`/`Not`.",
+          "properties": {
+            "And": {
+              "properties": {
+                "preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "And"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Disjunction of at least two predicates.",
+          "properties": {
+            "Or": {
+              "properties": {
+                "preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Or"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Negation.",
+          "properties": {
+            "Not": {
+              "properties": {
+                "pred": {
+                  "$ref": "#/$defs/Pred"
+                }
+              },
+              "required": [
+                "pred"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Not"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "DOCUMENT/JSON — keep rows whose node property document satisfies a deep\nJSONPath predicate (CONCEPT:EG-KG.query.json-wire-roundtrip). `path` is a JSONPath (`$.a.b`, `$.a[0]`,\n`$.a[*]`, wildcard) evaluated against the row's decoded JSON; `op` is the\nexistence / equality / `@>`-containment test. This is the lowered form of the\nPostgres JSON operators (`->`, `->>`, `@>`, `jsonb_path_query`) and a Mongo-style\n`$match` — see `eg_query::sql::classify`. Like the spatial preds it is NOT lowered\nto SQL (DataFusion has no JSONPath): `eg-plan`'s FILTER leg splits it out and\napplies it per-row against the stored JSON, and the planner can consult eg-core's\ninverted path-index for candidate selectivity. PURE serde here (a string, a small\nenum, and a `serde_json::Value` literal — exactly as `CepAttrPredSpec` carries),\nso it is present whenever `query` is on and adds NO dependency.",
           "properties": {
             "JsonPath": {
@@ -31699,6 +32263,48 @@
           },
           "required": [
             "SpatialDisjoint"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PredLiteral": {
+      "description": "A typed predicate literal (UQL-01): the value a [`Pred::Cmp`]/[`Pred::In`]/\n[`Pred::Between`] compares against. Typed so a number is compared as a number and a\nstring as a string — the literal's type, not its spelling, decides the comparison.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Str": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Str"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Num": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "Num"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Bool": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Bool"
           ],
           "type": "object"
         }
@@ -36355,6 +36961,122 @@
       ],
       "type": "object"
     },
+    "SeriesExpr": {
+      "description": "One node of a series expression.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A row's value channel: `v0..vk` (a `TSSCAN` field), `score`, or a `DERIVE` alias.",
+          "properties": {
+            "Channel": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Channel"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A constant series.",
+          "properties": {
+            "Const": {
+              "properties": {
+                "value": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Const"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`func(args…, params…)`: `args` are series, `params` numbers (a window, a span…).",
+          "properties": {
+            "Call": {
+              "properties": {
+                "args": {
+                  "items": {
+                    "$ref": "#/$defs/SeriesExpr"
+                  },
+                  "type": "array"
+                },
+                "func": {
+                  "$ref": "#/$defs/SeriesFunc"
+                },
+                "params": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "func",
+                "args",
+                "params"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Call"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SeriesFunc": {
+      "description": "The fixed function table.",
+      "enum": [
+        "lag",
+        "diff",
+        "ret",
+        "logret",
+        "rmean",
+        "rstd",
+        "rsum",
+        "rmin",
+        "rmax",
+        "rrank",
+        "zscore",
+        "ewma",
+        "ewma_halflife",
+        "abs",
+        "sign",
+        "neg",
+        "clip",
+        "add",
+        "sub",
+        "mul",
+        "div",
+        "rcorr",
+        "ic",
+        "wsum",
+        "kalman",
+        "kbeta"
+      ],
+      "type": "string"
+    },
     "SeriesIdentity": {
       "additionalProperties": false,
       "description": "What a bar series is: one listing, price basis, timeframe and calendar.",
@@ -37215,6 +37937,50 @@
         "data_status",
         "source_revision",
         "kernel"
+      ],
+      "type": "object"
+    },
+    "SkillOp": {
+      "description": "A UQL `SKILL` stage (EH-522 FeatureSkill): which channels, horizons, IC window and\nbootstrap.",
+      "properties": {
+        "feature": {
+          "type": "string"
+        },
+        "horizons": {
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "resamples": {
+          "default": 0,
+          "description": "Bootstrap resamples for the interval on the mean IC (`0`: none).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "feature",
+        "outcome",
+        "horizons",
+        "window"
       ],
       "type": "object"
     },
@@ -40052,6 +40818,81 @@
           "const": "rank_below_known",
           "description": "An unknown cost ranks below every known one, and is never read as zero.",
           "type": "string"
+        }
+      ]
+    },
+    "UqlParam": {
+      "description": "A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound\nvalues are substituted into the parsed plan as typed literals — never spliced into\nthe text — so a parameter can never change the query's structure.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Str": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Str"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Num": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "Num"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Bool": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Bool"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A query vector (`RANK BY ~$v`).",
+          "properties": {
+            "Vector": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Vector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A literal list (`x IN $values`).",
+          "properties": {
+            "List": {
+              "items": {
+                "$ref": "#/$defs/PredLiteral"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "List"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -46399,42 +47240,6 @@
       ],
       "type": "object"
     },
-    "FinanceEwma": {
-      "additionalProperties": false,
-      "properties": {
-        "method": {
-          "const": "FinanceEwma",
-          "type": "string"
-        },
-        "params": {
-          "additionalProperties": false,
-          "properties": {
-            "span": {
-              "format": "uint",
-              "minimum": 0,
-              "type": "integer"
-            },
-            "values": {
-              "items": {
-                "format": "double",
-                "type": "number"
-              },
-              "type": "array"
-            }
-          },
-          "required": [
-            "values",
-            "span"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
     "FinanceExpectedPnlRate": {
       "additionalProperties": false,
       "properties": {
@@ -47971,42 +48776,6 @@
           },
           "required": [
             "cov_matrix"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
-    "FinanceRollingZscore": {
-      "additionalProperties": false,
-      "properties": {
-        "method": {
-          "const": "FinanceRollingZscore",
-          "type": "string"
-        },
-        "params": {
-          "additionalProperties": false,
-          "properties": {
-            "values": {
-              "items": {
-                "format": "double",
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "window": {
-              "format": "uint",
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          "required": [
-            "values",
-            "window"
           ],
           "type": "object"
         }
@@ -52441,7 +53210,7 @@
     },
     "NlQuery": {
       "additionalProperties": false,
-      "description": "Natural-language → executable query → rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\n`UnifiedQueryText` pipeline (`eg_plan::uql::parse` → the fused executor) — NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` —\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all — so the wire stays compatible while the NL\nsurface is a build-tier choice.",
+      "description": "Natural-language → executable query → rows. `text` is the NL request, `graph`\nthe target graph (the `/nl` HTTP facade path has no request envelope, so the\ngraph rides the method; over the wire an empty `graph` falls back to the request\nenvelope's graph). The handler resolves a configured/injected `NlPlanner`, turns\nthe NL into a UQL query string, and runs it through the IDENTICAL deterministic\nUQL pipeline (`eg_plan::uql::parse` → the fused executor) — NO new\nexecution path, and no LLM in the engine core. Result via `ResultPayload::raw` —\nthe SAME `[id, score|nil]` rows as `UnifiedQuery`.\n\nUNCONDITIONAL in the enum (like `RbacAdmin`); the HANDLER is gated behind the\nfacade `nl-query` feature. A build WITHOUT `nl-query` falls to the dispatch \"not\navailable in this build\" catch-all — so the wire stays compatible while the NL\nsurface is a build-tier choice.",
       "properties": {
         "method": {
           "const": "NlQuery",
@@ -56186,6 +56955,41 @@
       ],
       "type": "object"
     },
+    "TsDefineSeries": {
+      "additionalProperties": false,
+      "description": "Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from\n`source` — a series in the caller's own scope — by `expr`, a series expression in\nthe UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example\n`zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points\nare `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it\nfrom its checkpoint (bounded work per append; a lagging series catches up on the\nnext append or re-definition); a source point at or before the last one derived is\na revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read\nit like any series. Idempotent for the same definition (the call then catches the\nseries up); a different definition, a missing source or a cycle is refused.",
+      "properties": {
+        "method": {
+          "const": "TsDefineSeries",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "expr": {
+              "type": "string"
+            },
+            "series_id": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "series_id",
+            "source",
+            "expr"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "TsDeleteSeries": {
       "additionalProperties": false,
       "description": "Retention: drop `series_id` ENTIRELY -- every chunk plus its meta row -- in\none durable write. Same legal-hold boundary as `TsEvict`. Returns the number\nof chunks removed (`ResultPayload::Count`; `0` for an unknown or held\nseries). Unlike `TsEvict`, a subsequently re-appended series with the same\nid starts fresh (no stale count/span carried over).",
@@ -56942,17 +57746,24 @@
       ],
       "type": "object"
     },
-    "TxnUnifiedQueryText": {
+    "TxnUql": {
       "additionalProperties": false,
-      "description": "In-txn unified query, TEXT surface — UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-\nwritable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the\nSAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same\n`query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.",
+      "description": "A UQL statement INSIDE a transaction (CONCEPT:EG-KG.query.txn-cross-modal-ryow,\nEH-434): exactly `Uql`'s statement — the same grammar, typed `$name` `params`,\n`EXPLAIN`/`PROFILE`, `LET` programs, `RETURN` channels and row annotations — run\nover the committed snapshot OVERLAID with this txn's staged write-set (read your\nown writes). Result: [`crate::wire::UqlResult`]. (Replaced the rows-only\n`TxnUnifiedQueryText`.)",
       "properties": {
         "method": {
-          "const": "TxnUnifiedQueryText",
+          "const": "TxnUql",
           "type": "string"
         },
         "params": {
           "additionalProperties": false,
           "properties": {
+            "params": {
+              "additionalProperties": {
+                "$ref": "#/$defs/UqlParam"
+              },
+              "default": {},
+              "type": "object"
+            },
             "text": {
               "type": "string"
             },
@@ -57024,32 +57835,6 @@
           },
           "required": [
             "plan"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
-    "UnifiedQueryText": {
-      "additionalProperties": false,
-      "properties": {
-        "method": {
-          "const": "UnifiedQueryText",
-          "type": "string"
-        },
-        "params": {
-          "additionalProperties": false,
-          "properties": {
-            "text": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "text"
           ],
           "type": "object"
         }
@@ -57239,6 +58024,39 @@
           },
           "required": [
             "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "Uql": {
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "const": "Uql",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "additionalProperties": {
+                "$ref": "#/$defs/UqlParam"
+              },
+              "default": {},
+              "type": "object"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
           ],
           "type": "object"
         }
