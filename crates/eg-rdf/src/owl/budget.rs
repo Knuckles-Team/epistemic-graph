@@ -79,6 +79,12 @@ impl StepMeter {
         self.steps += 1;
         true
     }
+
+    /// The budget refused a step: the completion must stop, since every later new
+    /// fact would be refused too.
+    pub(super) fn exhausted(&self) -> bool {
+        self.refused
+    }
 }
 
 impl Reasoner {
@@ -91,14 +97,17 @@ impl Reasoner {
         budget: DerivationBudget,
     ) -> Result<Classification, BudgetExhausted> {
         self.meter = StepMeter::limited(budget);
-        let classification = self.classify();
-        let refused = std::mem::take(&mut self.meter).refused;
-        if refused {
+        self.weighted = false;
+        self.seed();
+        self.saturate();
+        // An exhausted run returns before projecting: the partial closure is never
+        // read, and projecting it costs as much again as deriving it.
+        if std::mem::take(&mut self.meter).refused {
             return Err(BudgetExhausted {
                 max_steps: budget.max_steps,
             });
         }
-        Ok(classification)
+        Ok(self.snapshot())
     }
 }
 
@@ -141,6 +150,21 @@ mod tests {
         assert!(exhausted
             .to_string()
             .starts_with("VALIDATION_BUDGET_EXCEEDED"));
+    }
+
+    /// A spent budget stops the completion instead of re-scanning the closure: a
+    /// 1,000-class chain (about 500k subsumptions) is refused at the budget, and the
+    /// same reasoner then completes unbudgeted to the full closure.
+    #[test]
+    fn a_chain_far_past_the_budget_is_refused_at_the_budget() {
+        let triples = chain(1_000);
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let exhausted = reasoner
+            .classify_within(DerivationBudget::new(50_000))
+            .unwrap_err();
+        assert_eq!(exhausted, BudgetExhausted { max_steps: 50_000 });
+        let complete = reasoner.classify();
+        assert!(complete.entails_subclass("<http://example.org/C0>", "<http://example.org/C1000>"));
     }
 
     /// The verdict is a pure function of the axioms and the budget.

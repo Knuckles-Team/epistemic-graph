@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _fuzz():
-    path = ROOT / ".security" / "repository_fuzz.py"
+    path = ROOT / ".config" / "security" / "repository_fuzz.py"
     spec = importlib.util.spec_from_file_location("eg_repository_fuzz", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

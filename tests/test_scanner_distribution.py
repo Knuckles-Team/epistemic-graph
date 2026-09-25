@@ -63,7 +63,7 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
         )
     } == {
         "cccc_version": "1.6.0",
-        "kiss_version": "0.4.10",
+        "kiss_version": "0.4.12",
         "dupehound_version": "0.1.2",
         "jscpd_version": "5.0.16",
         "dependency_cruiser_version": "18.2.0",

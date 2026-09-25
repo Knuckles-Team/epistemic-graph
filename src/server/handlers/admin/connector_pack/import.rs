@@ -17,6 +17,7 @@ use crate::server::persistence::agent_library::AgentLibraryStore;
 
 mod annotations;
 mod catalog_attributes;
+mod desired;
 mod facts;
 mod front_matter;
 mod json;
@@ -40,9 +41,19 @@ pub(super) async fn validate_and_commit(
     request: ConnectorPackImportRequest,
     archive: Vec<u8>,
 ) -> Result<PackImportResult, String> {
-    let prior =
-        store.connector_pack_members(&request.context.tenant_id, &request.index.connector)?;
-    let prepared = match prepare(&store, &*blob.store, &request, &archive, prior)? {
+    // Validation is CPU-bound -- G14-G16 reasoning runs to a multi-million step
+    // budget -- so it runs on the blocking pool, never on an async worker.
+    let validation_store = store.clone();
+    let chunks = blob.store.clone();
+    let (prepared, request) = tokio::task::spawn_blocking(move || {
+        let prior = validation_store
+            .connector_pack_members(&request.context.tenant_id, &request.index.connector)?;
+        let prepared = prepare(&validation_store, &*chunks, &request, &archive, prior)?;
+        Ok::<_, String>((prepared, request))
+    })
+    .await
+    .map_err(|error| format!("connector pack validation task failed: {error}"))??;
+    let prepared = match prepared {
         Prepared::Rejected(result) => return Ok(result),
         Prepared::Ready(ready) => *ready,
     };

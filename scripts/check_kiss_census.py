@@ -42,6 +42,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
+from kiss_config_keys import UnknownKissKey, require_known_keys
+from kiss_fork import NotForkBuild, require_fork_build
 from scanner_contract import (
     ScannerContractError,
     load_contract,
@@ -239,6 +241,10 @@ def _require_pinned_version(kiss_bin: str, env: dict[str, str]) -> None:
     got = version.stdout.decode("utf-8", errors="replace").strip()
     if got != f"kiss {expected}":
         fail(f"expected kiss {expected}, got {got}")
+    try:
+        require_fork_build(kiss_bin, env)
+    except NotForkBuild as exc:
+        fail(str(exc))
 
 
 def main() -> int:
@@ -249,6 +255,10 @@ def main() -> int:
         fail("missing .config/kiss.toml")
     if (ROOT / ".kissconfig").exists() or (ROOT / ".kissconfig").is_symlink():
         fail(".kissconfig is forbidden because it disables measured rules")
+    try:
+        require_known_keys(ROOT / ".config/kiss.toml")
+    except UnknownKissKey as exc:
+        fail(str(exc))
 
     paths = _manifest(env)
     roots = [CENSUS_ROOT, *package_roots(paths)]
