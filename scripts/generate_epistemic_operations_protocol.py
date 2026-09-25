@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# ruff: noqa: E501
 """Generate and verify EG-owned Epistemic Operations Protocol projections.
 
 The 16 packaged JSON Schemas are the authority. The generator checks strict
@@ -373,7 +372,8 @@ def _validate_reference_cycles(
                 sorted(_format_reference_node(node) for node in component)
             )
             raise ProtocolGateError(
-                f"unsupported schema reference cycle across multiple components: {labels}"
+                "unsupported schema reference cycle across multiple components: "
+                f"{labels}"
             )
         (node,) = component
         if node not in graph.get(node, set()):
@@ -960,7 +960,8 @@ def _render_python(manifest: dict[str, Any]) -> str:
         f'    "{entry["name"]}": "{entry["version"]}",' for entry in manifest["schemas"]
     )
     schema_pairs = "\n".join(
-        f'    "{entry["name"]}": "{entry["sha256"]}",' for entry in manifest["schemas"]
+        f'    "{entry["name"]}": (\n        "{entry["sha256"]}"\n    ),'
+        for entry in manifest["schemas"]
     )
     binding_pairs = "\n".join(
         "\n".join(
@@ -992,9 +993,9 @@ def _render_python(manifest: dict[str, Any]) -> str:
             )
         models.append("\n".join(fields))
     return (
-        "# ruff: noqa: E501\n"
         '"""Generated strict Epistemic Operations Protocol client projections.\n\n'
-        "JSON Schema is authoritative. Regenerate with the protocol gate; do not edit.\n"
+        "JSON Schema is authoritative. Regenerate with the protocol gate; "
+        "do not edit.\n"
         '"""\n\n'
         "from __future__ import annotations\n\n"
         "from typing import Annotated, Any, Literal\n\n"
@@ -1077,11 +1078,12 @@ def _render_rust_types(manifest: dict[str, Any]) -> str:
     return (
         "//! Generated strict Epistemic Operations Protocol serde projections.\n"
         "//!\n"
-        "//! JSON Schema is authoritative. Regenerate with the AU protocol gate.\n\n"
+        "//! JSON Schema is authoritative. Regenerate with the EG protocol gate.\n\n"
         "use std::collections::BTreeMap;\n\n"
         "use serde::{Deserialize, Deserializer, Serialize};\n"
         "use serde_json::Value;\n\n"
-        "fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>\n"
+        "fn deserialize_required_option<'de, D, T>(deserializer: D) "
+        "-> Result<Option<T>, D::Error>\n"
         "where\n"
         "    D: Deserializer<'de>,\n"
         "    T: Deserialize<'de>,\n"
@@ -1108,7 +1110,8 @@ def _render_rust_manifest(manifest: dict[str, Any]) -> str:
         for entry in manifest["schemas"]
     )
     return (
-        "//! Auto-generated protocol digests; regenerate from the canonical catalog.\n\n"
+        "//! Auto-generated protocol digests; regenerate from the canonical "
+        "catalog.\n\n"
         f'pub const PROTOCOL_NAME: &str = "{manifest["protocol"]}";\n'
         f'pub const PROTOCOL_VERSION: &str = "{manifest["version"]}";\n'
         f'pub const CATALOG_SHA256: &str = "{manifest["catalog_sha256"]}";\n'
@@ -1151,7 +1154,8 @@ def _format_python_source(source: str) -> str:
         raise ProtocolGateError(f"ruff format is unavailable: {exc}") from exc
     if result.returncode != 0:
         raise ProtocolGateError(
-            f"ruff format rejected the generated epistemic_operations module: {result.stderr}"
+            "ruff format rejected the generated epistemic_operations module: "
+            f"{result.stderr}"
         )
     return result.stdout
 
