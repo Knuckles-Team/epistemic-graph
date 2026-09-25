@@ -4,7 +4,8 @@
 
 use std::collections::BTreeSet;
 
-use super::special::{excess_kurtosis, norm_cdf, norm_ppf, skew};
+use super::special::{excess_kurtosis, norm_ppf, skew};
+use crate::detkernel::kernels::{normal_cdf, normal_sf};
 
 /// One cross-validation split: training and test sample indices.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,7 +99,7 @@ pub fn deflated_sharpe_ratio(observed_sr: f64, n_trials: usize, sr_returns: &[f6
     if sr_var <= 0.0 {
         return 0.0;
     }
-    norm_cdf((observed_sr - e_max_sr) / sr_var.sqrt())
+    normal_cdf((observed_sr - e_max_sr) / sr_var.sqrt())
 }
 
 /// Probability of Backtest Overfit (López de Prado): rows are CV splits, columns
@@ -161,7 +162,7 @@ pub fn diebold_mariano(losses_a: &[f64], losses_b: &[f64], h: usize) -> DieboldM
     let statistic = d_mean / d_var.sqrt();
     DieboldMariano {
         statistic,
-        p_value: 2.0 * (1.0 - norm_cdf(statistic.abs())),
+        p_value: 2.0 * normal_sf(statistic.abs()),
         a_better: statistic < 0.0,
     }
 }
