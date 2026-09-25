@@ -13,12 +13,48 @@ and pass once both are built; they are NOT expected to pass in this session.
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import pytest
+
+from epistemic_graph.embedded import EmbeddedTransport
 
 # Relative import -- see `conftest.py`'s comment on the same import and
 # `tests/parity/__init__.py` (BUG-CX-002): this directory is now a real
 # package (`parity`), distinct from the top-level `conftest` module.
 from ._harness import assert_parity, assert_rls_isolation
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method",
+    ["CreateGraph", "AddNode", "GetNodeProperties", "HasNode", "NodeCount"],
+)
+async def test_embedded_refuses_other_principal_before_graph_dispatch(
+    monkeypatch, method
+):
+    """Every currently ported method must fail closed, including mutations
+    and counts whose native implementation has no per-call identity arg.
+    """
+    native_calls = []
+
+    class FakeEngine:
+        def __init__(self, **kwargs):
+            native_calls.append(("new", kwargs))
+
+        def create_graph(self, name):
+            native_calls.append(("create_graph", name))
+
+    monkeypatch.setitem(
+        sys.modules, "epistemic_graph.engine", SimpleNamespace(Engine=FakeEngine)
+    )
+    transport = EmbeddedTransport(persist_dir=":memory:", agent_id="owner")
+    with pytest.raises(RuntimeError, match="^ACCESS_DENIED: embedded engine"):
+        await transport._send(
+            method, {"node_id": "secret"}, graph="private", agent_id="other"
+        )
+    assert [call[0] for call in native_calls] == ["new"]
 
 
 @pytest.mark.asyncio
@@ -80,23 +116,10 @@ async def test_get_node_properties_rls_isolation(
     no grant for; `other` must see nothing reading it back, on BOTH
     transports, while `owner` sees it on both.
 
-    UPDATE (BUG-PE-022, fixed): this used to be a documented KNOWN GAP --
-    `EmbeddedTransport` bound identity at CONSTRUCTION time only, so `other`
-    and `owner` each needed their own `EmbeddedTransport`/native `Engine`,
-    and two `Engine`s can never share one `persist_dir` (`src/persist_lock
-    .rs`'s advisory flock is scoped to the OS open-file-description, not the
-    process -- a second same-process open is denied outright). Fixed by
-    `crates/eg-pyengine` (commit `b48ee56c`) adding a per-call `agent_id`
-    override to `get_node_properties`/`has_node`, and `conftest.py`'s
-    `pair_factory` now builds ONE shared `EmbeddedTransport` per test and
-    hands `owner`/`other` a `BoundEmbeddedTransport` each (`_harness.py`),
-    threading their distinct identities through as that override. This test
-    is UNCHANGED otherwise and is still not forced green (no `xfail`/`skip`,
-    GOC-70 rule 4): it now has what it needs to construct the two-principal
-    condition, but whether it actually PASSES still depends on the native
-    `epistemic_graph.engine` extension being built (`crates/eg-pyengine
-    --features python`), which this session does not do -- see the Wave 0
-    report.
+    EH-635 binds the shared embedded engine to `owner`. Its request from
+    `other` must fail with the same ACCESS_DENIED shape as the served graph
+    ACL. The focused transport test above also checks all five method names
+    so a future method cannot silently ignore the per-call identity.
     """
     owner = await pair_factory(owner_agent_id, parity_graph)
     other = await pair_factory(other_agent_id, parity_graph)

@@ -393,14 +393,9 @@ mod py {
         /// `msgpack.unpackb` exactly as it does today over the socket
         /// transport.
         ///
-        /// `agent_id`, when given, OVERRIDES the identity this `Engine` was
-        /// constructed with for this ONE call — the mechanism two principals
-        /// sharing one embedded engine need for a genuine RLS differential
-        /// test (`EG-PYENGINE-PLAN.md` §3's correctness bar, point 2; see
-        /// `authority::EmbeddedAuthority::can_see_properties`'s own doc for
-        /// why construction-time-only identity can't represent that case).
-        /// `None` (the default) falls back to the construction-time identity,
-        /// unchanged from before this parameter existed.
+        /// `agent_id`, when given, must equal this Engine's bound identity.
+        /// Native callers cannot use the old per-call override to bypass the
+        /// missing embedded graph ACL (EH-635).
         #[pyo3(signature = (graph, node_id, agent_id=None))]
         fn get_node_properties(
             &self,
@@ -412,6 +407,9 @@ mod py {
             let registry = self.registry.clone();
             let authority = self.authority.clone();
             let raw = py.detach(move || -> PyResult<Option<Vec<u8>>> {
+                authority
+                    .require_bound_caller(agent_id.as_deref())
+                    .map_err(map_engine_error)?;
                 let core = resolve_core(&registry, &graph).map_err(map_engine_error)?;
                 let props = core.get_node_properties(&node_id);
                 if !authority.can_see_properties(agent_id.as_deref(), props.as_deref()) {
@@ -435,20 +433,23 @@ mod py {
             graph: String,
             node_id: String,
             agent_id: Option<String>,
-        ) -> bool {
+        ) -> PyResult<bool> {
             let registry = self.registry.clone();
             let authority = self.authority.clone();
             py.detach(move || {
+                authority
+                    .require_bound_caller(agent_id.as_deref())
+                    .map_err(map_engine_error)?;
                 let Some(core) = registry.read().get(&graph).map(|entry| entry.core.clone()) else {
-                    return false;
+                    return Ok(false);
                 };
                 if !core.has_node(&node_id) {
-                    return false;
+                    return Ok(false);
                 }
-                authority.can_see_properties(
+                Ok(authority.can_see_properties(
                     agent_id.as_deref(),
                     core.get_node_properties(&node_id).as_deref(),
-                )
+                ))
             })
         }
 
