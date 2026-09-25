@@ -474,12 +474,7 @@ fn identity_normalized_method(
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }
         | Method::UpdateResourceHost { .. }
-        | Method::AcquireCapacity { .. }
-        | Method::RenewCapacity { .. }
-        | Method::ReleaseCapacity { .. }
-        | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. }
-        | Method::ThrottleCapacityCell { .. } => method.clone(),
+        | crate::capacity_lease_writes!() => method.clone(),
         other => return Cow::Borrowed(other),
     };
     match &mut owned {

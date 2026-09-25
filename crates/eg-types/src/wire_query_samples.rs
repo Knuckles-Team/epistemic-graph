@@ -256,8 +256,8 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
 }
 
 #[cfg(feature = "stream")]
-fn sample_cep() -> CepPatternSpec {
-    let trade = CepMatcherSpec {
+pub(super) fn sample_trade_matcher() -> CepMatcherSpec {
+    CepMatcherSpec {
         key: Some("trade".into()),
         preds: vec![
             CepAttrPredSpec::Gt {
@@ -269,7 +269,12 @@ fn sample_cep() -> CepPatternSpec {
                 value: serde_json::json!("ACME"),
             },
         ],
-    };
+    }
+}
+
+#[cfg(feature = "stream")]
+fn sample_cep() -> CepPatternSpec {
+    let trade = sample_trade_matcher();
     let cancel = CepMatcherSpec {
         key: Some("cancel".into()),
         preds: vec![CepAttrPredSpec::Exists {

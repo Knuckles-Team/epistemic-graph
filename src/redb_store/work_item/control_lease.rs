@@ -38,7 +38,7 @@ pub(super) fn load_row(
 pub(crate) fn apply_control_lease_rows(
     graph: &str,
     method: &Method,
-    nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
+    nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     match method {
@@ -57,7 +57,7 @@ pub(crate) fn apply_control_lease_rows(
 pub(crate) fn apply_issue_control_lease_row(
     graph: &str,
     request: &IssueControlLeaseRequest,
-    nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
+    nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     request.validate()?;
@@ -84,7 +84,7 @@ pub(crate) fn apply_issue_control_lease_row(
 pub(crate) fn apply_transition_control_lease_row(
     graph: &str,
     request: &TransitionControlLeaseRequest,
-    nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
+    nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     request.validate()?;

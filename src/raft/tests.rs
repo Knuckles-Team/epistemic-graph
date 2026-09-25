@@ -2478,6 +2478,14 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         )
     }
 
+    async fn dispatch_admin(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        method: Method,
+    ) -> crate::protocol::Response {
+        dispatch_on_heap(state, signed_request(id, method)).await
+    }
+
     let root = std::env::temp_dir().join(format!("eg-wire-raft-admin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ports = free_ports(2);
@@ -2535,16 +2543,14 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // basis to fabricate one. Attaching it as a learner is the real replication
     // event that gives it that knowledge, exactly like a real operator's first
     // admin call against a live cluster would.
-    let resp = dispatch_on_heap(
+    let resp = dispatch_admin(
         &leader_state,
-        signed_request(
-            1,
-            Method::RaftAddLearner {
-                group: None,
-                node_id: 2,
-                addr: addr(2),
-            },
-        ),
+        1,
+        Method::RaftAddLearner {
+            group: None,
+            node_id: 2,
+            addr: addr(2),
+        },
     )
     .await;
     assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
@@ -2563,15 +2569,13 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // follows the leader -- forwarded over the authenticated peer channel and
     // applied there -- instead of answering with a redirect. The follower's view
     // comes from real replication, as above.
-    let resp = dispatch_on_heap(
+    let resp = dispatch_admin(
         &follower_state,
-        signed_request(
-            2,
-            Method::RaftChangeMembership {
-                group: None,
-                voters: vec![1, 2],
-            },
-        ),
+        2,
+        Method::RaftChangeMembership {
+            group: None,
+            voters: vec![1, 2],
+        },
     )
     .await;
     assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
@@ -2585,15 +2589,13 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     assert_eq!(leader_multi.group_learners(gid).await, Some(vec![]));
 
     // (c) Re-sending the SAME change to the leader is an idempotent no-op.
-    let resp = dispatch_on_heap(
+    let resp = dispatch_admin(
         &leader_state,
-        signed_request(
-            3,
-            Method::RaftChangeMembership {
-                group: None,
-                voters: vec![1, 2],
-            },
-        ),
+        3,
+        Method::RaftChangeMembership {
+            group: None,
+            voters: vec![1, 2],
+        },
     )
     .await;
     assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);

@@ -19,7 +19,7 @@ use super::*;
 pub(crate) fn apply_policy_record_rows(
     graph: &str,
     method: &Method,
-    nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
+    nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let Method::PolicyEvolutionStore { request } = method else {
@@ -31,7 +31,7 @@ pub(crate) fn apply_policy_record_rows(
 fn store_policy_record_row(
     graph: &str,
     request: &StoredPolicyRecord,
-    nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
+    nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<crate::protocol::ResultPayload, String> {
     request

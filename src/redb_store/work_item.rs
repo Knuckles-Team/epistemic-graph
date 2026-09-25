@@ -13,6 +13,15 @@ use eg_storage::ScopedOwnerTableMut;
 
 use super::*;
 
+type NativeNodeRows<'a> =
+    ScopedOwnerTableMut<'a, (&'static str, &'static str), &'static [u8]>;
+type NativeEdgeRows<'a> = ScopedOwnerTableMut<
+    'a,
+    (&'static str, &'static str, &'static str, u32),
+    &'static [u8],
+>;
+type NativeSequenceRows<'a> = ScopedOwnerTableMut<'a, &'static str, u64>;
+
 /// Apply one native WorkItem transition while the MutationBatch write
 /// transaction is held. The returned payload is persisted as the batch result in
 /// that same transaction, so a retry observes the exact original claim/commit

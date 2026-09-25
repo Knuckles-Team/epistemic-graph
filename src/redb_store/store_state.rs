@@ -145,18 +145,15 @@ pub(crate) fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bo
                 batch.operations.len() == 1
                     && first.domain == DurabilityDomain::ControlPlane
                     && first.surface == MutationSurface::Job
+                    && !matches!(
+                        &first.method,
+                        Method::ClaimWorkItem { .. }
+                            | Method::RenewWorkItemLease { .. }
+                            | Method::CasWorkItemMetadata { .. }
+                    )
                     && matches!(
                         &first.method,
-                        Method::CancelWorkItem { .. }
-                            | Method::DeferWorkItem { .. }
-                            | Method::IssueControlLease { .. }
-                            | Method::TransitionControlLease { .. }
-                            | Method::PolicyEvolutionStore { .. }
-                            | Method::GapUpsert { .. }
-                            | Method::GapTransition { .. }
-                            | Method::GapSettle { .. }
-                            | Method::WorkOfferPut { .. }
-                            | Method::RetireSealedRecord { .. }
+                        work_item_kernel_writes!()
                             | work_item_resource_writes!()
                             | Method::SubmitWorkItem { .. }
                             | Method::SubmitWorkItems { .. }
