@@ -182,7 +182,17 @@ fn provenance_of(
     let Some(entry) = visible_entry(store, reader, record_id)? else {
         return Ok(None);
     };
-    let evaluations = evaluations_of(store, &reader.tenant_id, record_id)?;
+    let evaluations = store
+        .decision_artifacts_with_prefix(
+            &reader.tenant_id,
+            &format!("evaluation:{record_id}:"),
+            MAX_PROVENANCE_ROWS + 1,
+        )?
+        .into_iter()
+        .map(|(_, bytes)| {
+            decode_artifact::<StoredEvaluation>(&bytes, "decision outcome evaluation")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let resolutions = store
         .decision_artifacts_with_prefix(
             &reader.tenant_id,
