@@ -26,7 +26,7 @@ use super::stat_log::LogReader;
 use super::stat_pointer::pointer_events;
 use super::stat_retrieval::{judged_outcomes, JudgedOutcome, Scope};
 use super::stat_support::default_statistical_policy;
-use super::stat_view::{millis, relation, text, wire_name, Col};
+use super::stat_view::{millis, producer, relation, text, wire_name, Col};
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::sql_catalog_acl::relations::Relation;
 
@@ -76,9 +76,7 @@ const OUTCOME_COLUMNS: &[Col<UnitRow>] = &[
     ("verdict", ColumnType::Text, |r| {
         Value::from(verdict_name(r.verdict))
     }),
-    ("producer", ColumnType::Text, |r| {
-        Value::from(r.producer.clone())
-    }),
+    ("producer", ColumnType::Text, |r| producer(&r.producer)),
     ("recorded_at_ms", ColumnType::BigInt, |r| {
         millis(r.recorded_at_ms)
     }),

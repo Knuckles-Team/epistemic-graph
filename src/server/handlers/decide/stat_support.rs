@@ -70,6 +70,10 @@ pub(super) fn refusal(code: StatisticalErrorCode, detail: impl std::fmt::Display
     code.refusal(detail)
 }
 
+pub(super) fn invalid_parameter(detail: impl std::fmt::Display) -> String {
+    refusal(StatisticalErrorCode::ParameterInvalid, detail)
+}
+
 /// The revision a pin names, checked for tenant, kind and digest.
 pub(super) fn pinned_entry(
     store: &AgentLibraryStore,

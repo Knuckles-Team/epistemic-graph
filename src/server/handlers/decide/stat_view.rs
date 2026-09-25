@@ -43,6 +43,10 @@ pub(super) fn millis(value: u64) -> Value {
     Value::from(i64::try_from(value).unwrap_or(i64::MAX))
 }
 
+pub(super) fn producer(value: &str) -> Value {
+    Value::from(value)
+}
+
 /// The wire name of a serde value: a unit enum's string, or `tag` of a tagged one.
 pub(super) fn wire_name(value: &impl Serialize, tag: &str) -> Option<String> {
     match serde_json::to_value(value).ok()? {
@@ -110,9 +114,7 @@ const EVALUATION_COLUMNS: &[Col<StoredEvaluation>] = &[
     ("fidelity", ColumnType::Text, |r| {
         text(wire_name(&r.evaluation.fidelity, ""))
     }),
-    ("producer", ColumnType::Text, |r| {
-        Value::from(r.producer.clone())
-    }),
+    ("producer", ColumnType::Text, |r| producer(&r.producer)),
     ("success", ColumnType::Bool, |r| {
         r.evaluation.success.map_or(Value::Null, Value::Bool)
     }),
@@ -135,9 +137,7 @@ const RESOLUTION_COLUMNS: &[Col<StoredResolution>] = &[
         text(wire_name(&r.resolution.resolver, "resolver"))
     }),
     ("class", ColumnType::Text, |r| text(wire_name(&r.class, ""))),
-    ("producer", ColumnType::Text, |r| {
-        Value::from(r.producer.clone())
-    }),
+    ("producer", ColumnType::Text, |r| producer(&r.producer)),
     ("recorded_at_ms", ColumnType::BigInt, |r| {
         millis(r.recorded_at_ms)
     }),

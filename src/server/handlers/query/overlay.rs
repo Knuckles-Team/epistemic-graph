@@ -157,14 +157,13 @@ pub(crate) struct OverlaidTxn<'a> {
 /// overlaid `PlanCtx` — `TxnUnifiedQuery` executes rows; `TxnUql` runs a whole UQL
 /// statement (EH-434: one query-text surface, inside the transaction).
 #[cfg(feature = "query")]
-pub(crate) async fn run_unified_overlaid_with<T, F>(
+pub(crate) async fn run_unified_overlaid_with<T>(
     txn: OverlaidTxn<'_>,
     plan: eg_plan::Plan,
-    finish: F,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> + Send + 'static,
 ) -> Result<Result<T, String>, Response>
 where
     T: Send + 'static,
-    F: FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> + Send + 'static,
 {
     let OverlaidTxn {
         state,

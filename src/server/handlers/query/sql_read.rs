@@ -334,14 +334,10 @@ pub(crate) async fn handle_unified_query(
         Err(error) => return Ok(Response::err(req_id, error)),
     };
     #[cfg(feature = "result-cache")]
-    if let Some(bytes) = key
-        .as_ref()
-        .and_then(|(hash, dep)| cached_payload(&core, *hash, dep))
+    if let Some(response) =
+        cached_served_response::<query_results::UnifiedQuery>(req_id, &core, &key)
     {
-        return Ok(Response::ok(
-            req_id,
-            ResultPayload::of_cache_hit::<query_results::UnifiedQuery>(bytes),
-        ));
+        return Ok(response);
     }
     let (snap, version) = sql_read_snapshot(
         &core,
