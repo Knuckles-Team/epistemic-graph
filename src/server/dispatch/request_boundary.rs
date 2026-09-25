@@ -35,7 +35,9 @@ pub(super) use preflight::preflight_request_msgpack;
 #[cfg(all(test, feature = "ast"))]
 pub(super) use preflight::AstInputLimits;
 #[cfg(feature = "ast")]
-pub(super) use preflight::{ast_input_limits, decode_ast_files, validate_ast_logical_path};
+pub(super) use preflight::{
+    ast_input_limits, decode_ast_files, decode_ast_sources, validate_ast_logical_path,
+};
 #[cfg(feature = "redb")]
 use saga::replayed_response;
 pub(super) use saga::{begin_session_control_saga, finalize_dispatch_response};

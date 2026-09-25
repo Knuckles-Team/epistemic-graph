@@ -33,8 +33,9 @@ async fn index_scoped(
     files_msgpack: Vec<u8>,
     scope: IndexScope,
 ) -> Result<eg_types::ingestion_wire::IndexResult, Response> {
-    use super::super::request_boundary::{ast_input_limits, decode_ast_files};
-    let files = decode_ast_files(&files_msgpack, ast_input_limits())
+    use super::super::request_boundary::{ast_input_limits, decode_ast_sources};
+    // Entries are content-keyed: one path may name several blobs (EH-280).
+    let files = decode_ast_sources(&files_msgpack, ast_input_limits())
         .and_then(|files| validate_scope_paths(&scope).map(|()| files))
         .map_err(|error| Response::err(req_id, error))?;
     crate::server::compute::compute_off_lock(req_id, move || {

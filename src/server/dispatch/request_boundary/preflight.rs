@@ -396,11 +396,33 @@ fn take_msgpack_slice<'a>(
     Ok(value)
 }
 
+/// Decode exactly `[(logical_path, source_bytes), ...]` with every logical path
+/// unique: a path-keyed parse (ParseFiles, an unscoped IndexRepository) cannot
+/// tell two sources under one name apart.
+#[cfg(feature = "ast")]
+pub(crate) fn decode_ast_files(
+    input: &[u8],
+    limits: AstInputLimits,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let files = decode_ast_sources(input, limits)?;
+    let mut names = std::collections::HashSet::with_capacity(files.len());
+    if files.iter().all(|(name, _)| names.insert(name.as_str())) {
+        Ok(files)
+    } else {
+        Err("AST_INPUT_INVALID: duplicate source name".to_string())
+    }
+}
+
 /// Decode exactly `[(logical_path, source_bytes), ...]` without trusting container
 /// length hints to preallocate unbounded memory.  This deliberately accepts only
 /// the canonical wire shape emitted by the clients.
+///
+/// A logical path may repeat: a branch-aware (scoped) IndexRepository keys each
+/// entry on its content digest and names it by one of the paths it occurs at, so
+/// two blobs of one path that differ across refs share a name legitimately. The
+/// scoped route checks each `(path, digest)` against the scope's memberships.
 #[cfg(feature = "ast")]
-pub(crate) fn decode_ast_files(
+pub(crate) fn decode_ast_sources(
     input: &[u8],
     limits: AstInputLimits,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
@@ -415,7 +437,6 @@ pub(crate) fn decode_ast_files(
 
     let mut files = Vec::with_capacity(count);
     let mut total_bytes = 0usize;
-    let mut names = std::collections::HashSet::with_capacity(count);
     for _ in 0..count {
         if read_msgpack_array_len(input, &mut cursor)? != 2 {
             return Err(
@@ -430,9 +451,6 @@ pub(crate) fn decode_ast_files(
         let name = std::str::from_utf8(name_bytes)
             .map_err(|_| "AST_INPUT_INVALID: source name must be UTF-8".to_string())?;
         validate_ast_logical_path(name)?;
-        if !names.insert(name.to_string()) {
-            return Err("AST_INPUT_INVALID: duplicate source name".to_string());
-        }
 
         let source_len = read_msgpack_bin_len(input, &mut cursor)?;
         if source_len > limits.max_source_bytes {
