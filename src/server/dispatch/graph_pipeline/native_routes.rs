@@ -593,7 +593,7 @@ async fn route_graph_audit_and_modality(
             return Ok(dispatch_op_audit_read_event(
                 ctx.req_id,
                 ctx.graph_name,
-                ctx.verified_context.tenant(),
+                ctx.tenant_scope,
                 ctx.persistence.clone(),
                 seq,
             )
@@ -607,9 +607,15 @@ async fn route_graph_audit_and_modality(
             request_id,
             identity_chain,
         } => {
+            let authority = match crate::server::access::CarrierAuthority::from_verified(
+                ctx.verified_context,
+            ) {
+                Ok(authority) => authority,
+                Err(error) => return Ok(Response::err(ctx.req_id, error)),
+            };
             let event = crate::redb_store::OperationAuditEvent {
-                tenant: ctx.verified_context.tenant().to_string(),
-                principal: ctx.verified_context.principal_persistence_id(),
+                tenant: authority.tenant_scope().to_string(),
+                principal: authority.actor_scope().to_string(),
                 op,
                 surface,
                 params_sha256,
