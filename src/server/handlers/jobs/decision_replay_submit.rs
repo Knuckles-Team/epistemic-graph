@@ -1,8 +1,6 @@
 //! Deterministic, verified submit of a Decision replay to the durable job plane.
 
 use super::prelude_jobs::*;
-use super::prelude_server::*;
-use super::prelude_std::*;
 use super::*;
 use crate::server::auth::VerifiedRequestContext;
 use sha2::{Digest, Sha256};
@@ -68,6 +66,7 @@ pub(crate) async fn submit_decision_replay(
     };
     let scope = authority.namespace("analytics-jobs", "control");
     let identity = eg_jobs::analytics_job_scope_identity().map_err(|error| error.to_string())?;
+    let identity_tenant = identity.tenant().as_str().to_string();
     let expected = store
         .mutation_version(authority.tenant_scope(), &scope)
         .map_err(|error| error.to_string())?;
@@ -83,7 +82,7 @@ pub(crate) async fn submit_decision_replay(
             request_id: 0,
             attempt_nonce: None,
             principal: Some(authority.actor_scope()),
-            tenant: identity.tenant().as_str(),
+            tenant: &identity_tenant,
             graph: &scope,
             placement_epoch: 0,
             idempotency_key: &batch_id,
