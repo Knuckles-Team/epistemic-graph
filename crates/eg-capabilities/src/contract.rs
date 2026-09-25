@@ -113,9 +113,15 @@ fn result_schema_json(d: &MethodDescriptor, catalog: &Catalog) -> serde_json::Va
 
 fn descriptor_json(d: &MethodDescriptor, catalog: &Catalog) -> serde_json::Value {
     let id = d.id.as_str();
+    // The source registry declares whether a method is published to a served
+    // consumer. check_contract_method_reachability.py independently proves
+    // every published row reaches a Response-producing dispatch arm and is
+    // not a refusal-only stub; release qualification must run that gate.
+    let is_wire_callable = d.stability != Stability::Internal && !d.consumer_profiles.is_empty();
     serde_json::json!({
         "id": id,
         "domain": d.domain,
+        "is_wire_callable": is_wire_callable,
         "request_schema": {
             "kind": "named",
             "schema": format!("contract/schemas/method.request.json#/methods/{id}"),
