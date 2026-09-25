@@ -185,9 +185,7 @@ async fn cancelling_publication_waiter_does_not_cancel_owned_commit() {
     let (done_tx, done_rx) = tokio::sync::oneshot::channel();
     let waiter = tokio::spawn(run_publication_job(move || {
         let _ = started_tx.send(());
-        release_rx
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .map_err(|_| "publication release timed out")?;
+        release_rx.recv().map_err(|_| "publication release dropped")?;
         let result = publish(
             10,
             &carrier,
@@ -199,14 +197,15 @@ async fn cancelling_publication_waiter_does_not_cancel_owned_commit() {
         let _ = done_tx.send(result.clone());
         result
     }));
-    let started = tokio::time::timeout(std::time::Duration::from_secs(10), started_rx).await;
+    // The worker must own the job before its waiter is cancelled. A slow disk
+    // may delay either channel indefinitely without changing that ordering.
+    started_rx.await.expect("publication worker did not start");
     waiter.abort();
+    assert!(waiter.await.unwrap_err().is_cancelled());
     release_tx.send(()).unwrap();
-    assert!(started.unwrap().is_ok());
-    let result = tokio::time::timeout(std::time::Duration::from_secs(10), done_rx)
+    let result = done_rx
         .await
-        .unwrap()
-        .unwrap()
+        .expect("publication worker did not report its result")
         .unwrap();
     assert_eq!(result.affected_count, 1);
     assert_eq!(fixture.store().scan("issues").unwrap().len(), 1);
