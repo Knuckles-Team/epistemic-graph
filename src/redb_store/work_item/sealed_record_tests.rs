@@ -5,6 +5,8 @@ use eg_types::sealed_record::{RetireSealedRecordRequest, SealedRecordRetirement}
 use super::super::test_shard::{open, with_nodes, GRAPH};
 use super::*;
 
+type NodeRow = serde_json::Map<String, serde_json::Value>;
+
 fn request(digest: &str) -> RetireSealedRecordRequest {
     RetireSealedRecordRequest {
         tenant: "tenant-a".into(),

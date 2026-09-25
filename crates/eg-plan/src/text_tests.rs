@@ -248,7 +248,6 @@ fn rank_text_without_index_is_empty_not_error() {
 /// 2-candidate query). `RankText` searches within the candidate set, so BOTH surface.
 #[test]
 fn rank_text_finds_selective_candidates_behind_many_higher_scoring_noise_docs() {
-    use eg_core::compute::semantic::SemanticStore;
     use eg_core::graph::GraphCore;
 
     let core = GraphCore::new();
