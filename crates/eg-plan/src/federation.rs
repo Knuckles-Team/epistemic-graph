@@ -91,6 +91,16 @@ pub trait ForeignSource {
         self.fetch()
             .map(crate::federation_opt::ForeignRows::from_rowset)
     }
+
+    /// Execute a column plan. Non-pushdown sources fetch their mapped columns and
+    /// run the exact residual locally; source implementations may override this
+    /// to narrow the remote projection and filters first.
+    fn fetch_projected(
+        &self,
+        plan: &crate::federation_opt::ColumnPlan,
+    ) -> Result<crate::federation_opt::ForeignRows, String> {
+        self.fetch_columns().map(|rows| plan.finish(rows))
+    }
 }
 
 /// Build the right [`ForeignSource`] for a wire [`ForeignSourceSpec`]. The executor
@@ -932,6 +942,29 @@ impl ForeignSource for SqlSource<'_> {
         }
         Ok(ForeignRows::from_rows(projected))
     }
+
+    fn fetch_projected(
+        &self,
+        plan: &crate::federation_opt::ColumnPlan,
+    ) -> Result<crate::federation_opt::ForeignRows, String> {
+        let Some(dialect) = crate::sql_text::SqlDialect::from_dsn(self.dsn) else {
+            return Err("federation: unsupported SQL connection scheme".to_string());
+        };
+        let statement = crate::federation_opt::render_sql_columns(
+            self.query,
+            self.id_field,
+            self.score_field,
+            plan,
+            dialect,
+        )?;
+        let source = SqlSource {
+            dsn: self.dsn,
+            query: &statement,
+            id_field: self.id_field,
+            score_field: self.score_field,
+        };
+        source.fetch_columns().map(|rows| plan.finish(rows))
+    }
 }
 
 #[cfg(feature = "federation-sql")]
@@ -1459,6 +1492,17 @@ impl ForeignSourceRegistry {
             )),
         }
     }
+
+    pub fn resolve_projected(
+        &self,
+        name: &str,
+        plan: &crate::federation_opt::ColumnPlan,
+    ) -> Result<crate::federation_opt::ForeignRows, String> {
+        self.sources
+            .get(name)
+            .ok_or_else(|| format!("federation: no foreign source registered under name '{name}'"))?
+            .fetch_projected(plan)
+    }
 }
 
 /// CONCEPT:EG-KG.query.closure-backed-source — a registerable source backed by an owned [`ForeignSourceSpec`]. It
@@ -1477,6 +1521,13 @@ impl ForeignSource for SpecSource {
 
     fn fetch_columns(&self) -> Result<crate::federation_opt::ForeignRows, String> {
         source_for(&self.spec).fetch_columns()
+    }
+
+    fn fetch_projected(
+        &self,
+        plan: &crate::federation_opt::ColumnPlan,
+    ) -> Result<crate::federation_opt::ForeignRows, String> {
+        source_for(&self.spec).fetch_projected(plan)
     }
 }
 

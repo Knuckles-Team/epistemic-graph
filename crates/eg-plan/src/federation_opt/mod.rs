@@ -45,8 +45,11 @@ pub use capability::{
     FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
     SourceRate,
 };
+#[cfg(feature = "federation-sql")]
+pub(crate) use columns::render_sql_columns;
 pub use columns::{
-    ColumnPlan, ColumnPredicate, Comparison, ForeignRow, ForeignRows, PushdownSupport,
+    sql_filter_support, ColumnPlan, ColumnPredicate, Comparison, ForeignRow, ForeignRows,
+    PushdownSupport,
 };
 pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
 pub use session::FederationSession;
