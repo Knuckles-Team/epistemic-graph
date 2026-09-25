@@ -3,6 +3,10 @@ macro_rules! persistence_mutations {
     $next! {
     $($methods)*
         async fn record_durable(&self, graph_fname: &str, method: &Method) -> Result<(), String> {
+            // Legacy direct writes never carry a verified usage append authority.
+            // The admitted CreateNodeIfAbsent path uses a state-backed
+            // MutationBatch, not this raw writer command.
+            crate::server::mutation_batch::reject_reserved_usage_compact_method(method, false)?;
             let (done_tx, done_rx) = oneshot::channel();
             let cmd = Cmd::Mutation {
                 graph: graph_fname.to_string(),

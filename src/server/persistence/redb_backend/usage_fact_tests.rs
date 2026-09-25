@@ -33,15 +33,27 @@ async fn usage_fact_page_survives_eviction_and_restart() {
             "input_tokens": 1,
         }))
         .unwrap();
+        let method = Method::AddNode {
+            node_id: id.clone(),
+            properties_msgpack: properties.clone(),
+        };
+        assert!(backend.record_durable(graph, &method).await.is_err());
+        // Corruption/eviction fixture: inject beneath the public backend
+        // admission gate to prove the durable read scans exactly the NODES
+        // index, including rows absent from the resident projection.
+        let (done, reply) = tokio::sync::oneshot::channel();
         backend
-            .record_durable(
-                graph,
-                &Method::AddNode {
-                    node_id: id.clone(),
-                    properties_msgpack: properties.clone(),
-                },
-            )
+            .shard_for(graph)
+            .tx
+            .send(Cmd::Mutation {
+                graph: graph.to_string(),
+                method: Box::new(method),
+                done,
+            })
+            .expect("raw fixture insert enqueued");
+        reply
             .await
+            .expect("raw fixture ack")
             .expect("durable insert");
         core.add_node(id.clone(), properties);
     }
