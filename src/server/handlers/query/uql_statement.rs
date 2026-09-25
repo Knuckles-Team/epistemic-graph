@@ -169,6 +169,10 @@ mod served_tests {
 
         let unbound = uql(&state, 5, "MATCH (:Doc) |> LIMIT $k", &[]).await;
         let error = unbound.error.expect("an unbound parameter is an error");
-        assert_eq!(error, "UQL_UNBOUND_PARAMETER");
+        assert_eq!(error, "INTERNAL");
+        assert!(unbound
+            .error_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("UQL_UNBOUND_PARAMETER")));
     }
 }
