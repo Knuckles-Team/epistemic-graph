@@ -11,6 +11,7 @@
 
 use std::cmp::Ordering;
 
+use eg_types::row_predicate::cmp_op_matches;
 use eg_types::wire::{CmpOp, Pred, PredLiteral};
 use serde_json::{Map, Value};
 
@@ -57,7 +58,9 @@ pub fn holds(props: &Map<String, Value>, pred: &Pred) -> Truth {
         Pred::LtNum { prop, n } => {
             compare(props.get(prop), &PredLiteral::Num(*n)).map(|o| o == Ordering::Less)
         }
-        Pred::Cmp { prop, op, value } => compare(props.get(prop), value).map(|o| cmp_holds(*op, o)),
+        Pred::Cmp { prop, op, value } => {
+            compare(props.get(prop), value).map(|o| cmp_op_matches((*op).into(), o))
+        }
         Pred::In { prop, values } => in_list(props.get(prop), values),
         Pred::Between { prop, lo, hi } => between(props.get(prop), lo, hi),
         Pred::IsNull { prop } => Some(matches!(props.get(prop), None | Some(Value::Null))),
@@ -74,17 +77,6 @@ pub fn holds(props: &Map<String, Value>, pred: &Pred) -> Truth {
         | Pred::SpatialOverlaps { .. }
         | Pred::SpatialEquals { .. }
         | Pred::SpatialDisjoint { .. } => None,
-    }
-}
-
-fn cmp_holds(op: CmpOp, o: Ordering) -> bool {
-    match op {
-        CmpOp::Eq => o == Ordering::Equal,
-        CmpOp::Ne => o != Ordering::Equal,
-        CmpOp::Gt => o == Ordering::Greater,
-        CmpOp::Ge => o != Ordering::Less,
-        CmpOp::Lt => o == Ordering::Less,
-        CmpOp::Le => o != Ordering::Greater,
     }
 }
 
@@ -227,5 +219,24 @@ mod tests {
             prop: "gone".into(),
         };
         assert_eq!(holds(&r, &is_null), Some(true));
+    }
+
+    #[test]
+    fn relational_comparison_uses_shared_ordering_semantics() {
+        let props = row(json!({"n": 3}));
+        for (op, literal, expected) in [
+            (CmpOp::Eq, 3.0, true),
+            (CmpOp::Ne, 3.0, false),
+            (CmpOp::Lt, 4.0, true),
+            (CmpOp::Le, 3.0, true),
+            (CmpOp::Gt, 2.0, true),
+            (CmpOp::Ge, 3.0, true),
+        ] {
+            assert_eq!(
+                holds(&props, &cmp("n", op, PredLiteral::Num(literal))),
+                Some(expected),
+                "{op:?}"
+            );
+        }
     }
 }
