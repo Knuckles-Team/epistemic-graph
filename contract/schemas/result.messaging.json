@@ -320,6 +320,32 @@
         }
       ]
     },
+    "ClassVolatility": {
+      "description": "One class's resolved freshness policy.",
+      "properties": {
+        "class": {
+          "description": "The class key: a node label, a class IRI, or an IRI's local name.",
+          "type": "string"
+        },
+        "max_staleness_ms": {
+          "description": "The longest a cached answer about this class's members may be served without a fresh\ninvalidation event. `None` = unbounded (only events invalidate). `Some(0)` = never cache.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "volatility": {
+          "$ref": "#/$defs/VolatilityClass"
+        }
+      },
+      "required": [
+        "class",
+        "volatility"
+      ],
+      "type": "object"
+    },
     "ConfirmToken": {
       "description": "A publisher-confirm token (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): a\nbroker-wide monotonic `delivery_tag` identifying the publish, plus whether the broker\ndurably accepted it (`confirmed`) or nacked it (unknown exchange). Mirrors AMQP\npublisher confirms / Kafka acks.",
       "properties": {
@@ -444,6 +470,115 @@
       ],
       "type": "object"
     },
+    "ForeignSourceFreshness": {
+      "description": "A foreign source's freshness: its last reported watermark and whether it is stale.",
+      "properties": {
+        "age_ms": {
+          "default": null,
+          "description": "Milliseconds since the watermark was last reported.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_staleness_ms": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "stale": {
+          "description": "No watermark, or one older than `max_staleness_ms`. A stale source's results are never\ncached.",
+          "type": "boolean"
+        },
+        "watermark": {
+          "default": null,
+          "description": "The connector's last checkpoint, opaque to the engine. `None` = never reported.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "stale"
+      ],
+      "type": "object"
+    },
+    "FreshnessFeed": {
+      "description": "`FreshnessFeed`'s result: the graph's invalidation events after the caller's cursor, the\nclass policy when it changed, and the foreign sources' freshness.",
+      "properties": {
+        "epoch": {
+          "description": "Bumped when the graph's whole image is replaced: a changed epoch means the same as a gap.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/InvalidationEvent"
+          },
+          "type": "array"
+        },
+        "foreign": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ForeignSourceFreshness"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "description": "Events the caller had not read were dropped: invalidate everything, resume at\n`head_version`.",
+          "type": "boolean"
+        },
+        "head_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy": {
+          "default": null,
+          "description": "The class policy, present when it changed since the caller's `policy_after`.",
+          "items": {
+            "$ref": "#/$defs/ClassVolatility"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "policy_diagnostics": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "policy_version": {
+          "description": "Identifies the current class policy. Pass it back as `policy_after` to skip an unchanged\npolicy.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "events",
+        "gap",
+        "head_version",
+        "epoch",
+        "policy_version"
+      ],
+      "type": "object"
+    },
     "IdempotentPublish": {
       "description": "Outcome of an idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish).\n`confirmed` mirrors the EG-284 publisher-confirm (the exchange existed / the broker\naccepted it); `duplicate` is `true` when a `(producer_id, seq)` stamp was recognised\nas already-seen and the message was DROPPED (effectively-once — a duplicate still\nconfirms so the retrying publisher stops); `delivered` is the number of queues the\nmessage was routed to (`0` for a duplicate or an unroutable/nacked publish).",
       "properties": {
@@ -465,6 +600,53 @@
         "delivered"
       ],
       "type": "object"
+    },
+    "InvalidationEvent": {
+      "description": "One committed write's invalidation decision.",
+      "properties": {
+        "classes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "edge_types": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scope": {
+          "$ref": "#/$defs/InvalidationScope"
+        },
+        "version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "InvalidationScope": {
+      "description": "What one invalidation event retires.",
+      "oneOf": [
+        {
+          "const": "classes",
+          "description": "Entries depending on the named classes / edge types.",
+          "type": "string"
+        },
+        {
+          "const": "all",
+          "description": "Every entry cached for this graph.",
+          "type": "string"
+        }
+      ]
     },
     "TriggerInfo": {
       "description": "One trigger registration (CONCEPT:EG-KG.query.wire-codec). When a CDC change in `graph` matches\n`label` + `op`, the trigger fires its `action` (an opaque MessagePack payload the\nconsumer interprets — e.g. a notification topic / a webhook spec). Fired actions\nare recorded in a per-graph fired log a client polls with `FiredTriggers`.",
@@ -497,6 +679,31 @@
         "fire_count"
       ],
       "type": "object"
+    },
+    "VolatilityClass": {
+      "description": "How volatile a class's members are. Ordered from least to most volatile.",
+      "oneOf": [
+        {
+          "const": "immutable",
+          "description": "Never changes once written: cache until an invalidation event, with no time bound.",
+          "type": "string"
+        },
+        {
+          "const": "slow",
+          "description": "Changes rarely (default bound one day).",
+          "type": "string"
+        },
+        {
+          "const": "fast",
+          "description": "Changes often (default bound one minute).",
+          "type": "string"
+        },
+        {
+          "const": "live",
+          "description": "Changes continuously: never cache.",
+          "type": "string"
+        }
+      ]
     },
     "WatchBatch": {
       "description": "A batch returned by a `Watch` long-poll (CONCEPT:EG-KG.query.wire-codec): the matching changes\nsince the client's cursor plus the next cursor to resume from.\n\nB-8 (2026-08-13): `Watch` tails the SAME bounded, explicitly-ephemeral\n`CdcHub` ring `CdcRead` does (`src/server/cdc.rs`'s module doc) via the\nidentical `from_seq` cursor, so it can fall off the back of that ring in\nthe identical two ways `CdcReadResult` documents (within-epoch trim, or\nan epoch reset from a process restart / `ClearGraph`/`FromMsgpack`/\n`Reconcile`) — an empty `events` used to be indistinguishable from \"caught\nup\". `gap: true` makes that explicit (`events` is then always empty);\n`watermark`/`head_seq`/`epoch` carry the same meaning as on\n`CdcReadResult` so a caller resuming `Watch` can detect the gap exactly\nthe same way.",
@@ -788,6 +995,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/FiredTriggersResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FreshnessFeed": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/FreshnessFeed"
           }
         }
       },

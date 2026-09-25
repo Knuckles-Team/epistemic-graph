@@ -17,6 +17,7 @@ from ._runtime import (
     models,
 )
 from .graph_schema import (
+    GraphSchemaClassesView,
     GraphSchemaCommitted,
     GraphSchemaOp,
     GraphSchemaSourcesView,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
     OwlExplainRequest = _models.MethodOwlExplainParams
     ShaclValidateRequest = _models.MethodShaclValidateParams
     IcvConfigureRequest = _models.MethodIcvConfigureParams
+    GraphSchemaClassesRequest = _models.MethodGraphSchemaClassesParams
 
 
 async def send_run_datalog_reasoning(
@@ -530,6 +532,42 @@ async def send_graph_schema_list(
     return GraphSchemaSourcesView.model_validate(payload)
 
 
+async def send_graph_schema_classes(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> GraphSchemaClassesView:
+    """Send one engine-contract request.
+
+    Method:
+        GraphSchemaClasses
+    Authorization:
+        owl:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.reasoning.json
+        #/methods/GraphSchemaClasses
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGraphSchemaClassesParams.model_validate(params or {})
+    payload = await client._send(
+        "GraphSchemaClasses",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return GraphSchemaClassesView.model_validate(payload)
+
+
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
 _REQUEST_METHODS = frozenset(
     {
@@ -540,6 +578,7 @@ _REQUEST_METHODS = frozenset(
         "OwlExplain",
         "ShaclValidate",
         "IcvConfigure",
+        "GraphSchemaClasses",
     }
 )
 

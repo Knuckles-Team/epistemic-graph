@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExtractedEdge(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     edge_type: str
     properties: dict[str, str]
@@ -22,7 +22,7 @@ class ExtractedEdge(BaseModel):
 
 
 class ExtractedNode(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_id: str
     node_type: str
@@ -30,14 +30,14 @@ class ExtractedNode(BaseModel):
 
 
 class IndexDiagnostic(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     code: str
     message: str
 
 
 class IndexFileOutcome(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     content_digest: str
     diagnostics: BoundedVec_IndexDiagnostic_8
@@ -53,7 +53,7 @@ class IndexFileStatus(str, Enum):
 
 
 class IndexFileVersion(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     blob_digest: str
     path: str
@@ -61,7 +61,7 @@ class IndexFileVersion(BaseModel):
 
 
 class IndexRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     ref_name: str
     revision_id: str
@@ -74,7 +74,7 @@ class IndexRefStatus(str, Enum):
 
 
 class IndexRepositoryScope(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     file_versions: BoundedVec_IndexFileVersion_262144 = Field(default_factory=list)
     refs: BoundedVec_IndexRef_4096
@@ -83,7 +83,7 @@ class IndexRepositoryScope(BaseModel):
 
 
 class IndexResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     calls_resolved: Annotated[int, Field(ge=0)]
     calls_scope_resolved: Annotated[int, Field(ge=0)]
@@ -102,7 +102,7 @@ class IndexResult(BaseModel):
 
 
 class IndexTombstone(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     path: str
     prior_blob_digest: str
@@ -148,3 +148,22 @@ IndexRepositoryScope.model_rebuild()
 IndexResult.model_rebuild()
 
 IndexTombstone.model_rebuild()
+
+
+__all__ = [
+    "BoundedVec_IndexDiagnostic_8",
+    "BoundedVec_IndexFileVersion_262144",
+    "BoundedVec_IndexRef_4096",
+    "BoundedVec_IndexTombstone_262144",
+    "ExtractedEdge",
+    "ExtractedNode",
+    "IndexDiagnostic",
+    "IndexFileOutcome",
+    "IndexFileStatus",
+    "IndexFileVersion",
+    "IndexRef",
+    "IndexRefStatus",
+    "IndexRepositoryScope",
+    "IndexResult",
+    "IndexTombstone",
+]

@@ -1,6 +1,6 @@
 # Reasoning API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.reasoning.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 13 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.reasoning.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 14 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `GetRdf`
 
@@ -62,6 +62,40 @@ X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or det
 | `result` | `GraphSchemaCommitted` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/GraphSchema`, `contract/schemas/result.reasoning.json#/methods/GraphSchema`.
+
+## `GraphSchemaClasses`
+
+EH-389. One page of the classes and properties the request graph's composed schema declares, with the declaring source; the schema's own vocabulary, not graph rows and not the source documents, so an ordinary ontology read (owl:read) rather than GraphSchemaList's security:admin
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `owl:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `cursor` | string \| null | no |  |
+| `kind` | one of: `GraphSchemaTermKind` \| null | no |  |
+| `limit` | integer (uint32) | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `GraphSchemaClassesView` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GraphSchemaClasses`, `contract/schemas/result.reasoning.json#/methods/GraphSchemaClasses`.
 
 ## `GraphSchemaList`
 

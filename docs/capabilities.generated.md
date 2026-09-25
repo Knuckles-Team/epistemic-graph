@@ -130,6 +130,7 @@
 | `FinanceProbabilityBacktestOverfit` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceDieboldMariano` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceForensicReport` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceMarket` | false | None | `compute:finance` | true | false | false | None | EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority |
 | `FinanceKalmanFilter1d` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanBeta` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanVolatility` | false | None | `compute:finance` | true | false | false | None |  |
@@ -187,6 +188,7 @@
 | `ReconcileCapacity` | false | None | `capacity:read` | true | false | false | Snapshot | bounded native cells/leases reconciliation page |
 | `CapacityStatus` | false | None | `capacity:read` | true | false | false | Snapshot | exact tenant-scoped native capacity status |
 | `UpdateCapacityCell` | true | GraphRedb | `capacity:admin` | true | true | false | Atomic | controller epoch CAS for resource dimension/capacity policy |
+| `ThrottleCapacityCell` | true | GraphRedb | `capacity:throttle` | false | true | false | Atomic | EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell) |
 | `KgDelegate` | true | GraphRedb | `work:delegate` | true | true | false | Atomic | authenticated Agent Library pinned delegation lowered to native WorkItem admission |
 | `SubmitWorkItem` | true | GraphRedb | `work:submit` | true | true | false | Atomic | native tenant-scoped WorkItem command-log admission and outbox commit |
 | `SubmitWorkItems` | true | GraphRedb | `work:submit` | true | true | false | Atomic | bounded all-or-nothing WorkItem admission batch |
@@ -204,6 +206,12 @@
 | `TransitionControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | one-way active to revoked/expired, CAS on the read revision |
 | `ListControlLeases` | false | None | `lease:read` | true | false | false | Snapshot | bounded tenant-bound control-lease page filtered by kind/status/grant pairs |
 | `GetControlLease` | false | None | `lease:read` | true | false | false | Snapshot | tenant-bound native control-lease view |
+| `GapUpsert` | true | GraphRedb | `gap:write` | true | true | false | Atomic | one tenant-bound canonical Gap and its native WorkItem commit together or not at all; only unseen evidence changes or reopens it |
+| `GapTransition` | true | GraphRedb | `gap:write` | true | true | false | Atomic | legal-edge Gap lifecycle move, CAS on the read revision |
+| `GapSettle` | true | GraphRedb | `gap:write` | true | true | false | Atomic | engine-read terminal WorkItem outcome recorded as Gap evidence in the same transaction |
+| `WorkOfferPut` | true | GraphRedb | `work:offer-write` | true | true | false | Atomic | versioned derived offer on a live Gap's WorkItem citing only held evidence; engine-computed fixed-point utility rate |
+| `GapGet` | false | None | `gap:read` | true | false | false | Snapshot | tenant-bound canonical Gap view |
+| `GapList` | false | None | `gap:read` | true | false | false | Snapshot | bounded tenant-bound Gap page in row-key order; a listing, never a ranking |
 | `ReserveWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only atomic host admission and WorkItem fence validation |
 | `ReleaseWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only lifecycle release with retained tombstone |
 | `ReclaimWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only expiry/supersession reclaim with retained tombstone |
@@ -246,6 +254,8 @@
 | `Reparent` | true | GraphRedb | `scene:write` | true | true | false | Atomic |  |
 | `WorldTransform` | false | None | `scene:read` | true | false | false | Snapshot |  |
 | `SceneChildren` | false | None | `scene:read` | true | false | false | Snapshot |  |
+| `PolicyEvolution` | ~true | GraphRedb | `policy:capture-write` | true | true | true | Atomic | EH-346/EH-347 capture-first policy evolution, runtime-conditional: get is a snapshot read (policy:read); put_capability / commit_capture / register_model_policy_version / commit_training_run / commit_policy_evaluation each self-translate into ONE CreateNodeIfAbsent of an immutable content-addressed record in the request graph. The row names the capture leg; PolicyEvolutionOp::authz_action is the authority for each operation (the other writes are admin: gated) |
+| `PolicyEvolutionStore` | true | GraphRedb | `admin:policy-evolution-store` | true | true | false | Atomic | EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer |
 | `StartTrajectory` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
 | `AppendStep` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
 | `DiscountedReturn` | false | None | `memory:read` | true | false | false | Snapshot |  |
@@ -290,6 +300,7 @@
 | `DropNamedGraph` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
 | `SourceIngest` | true | GraphRedb | `source:ingest` | true | true | true | Saga | RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe |
 | `SourceIngestStatus` | false | None | `source:ingest` | true | false | false | Snapshot | read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority |
+| `TelemetryDerive` | true | GraphRedb | `telemetry:derive` | true | true | true | Atomic | EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op; a re-derivation is an idempotent upsert |
 | `ServedModality` | ~true | GraphRedb | `modality:write` | false | true | true | Atomic | runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch |
 | `ParseFile` | false | None | `compute:parse` | true | false | false | None |  |
 | `ParseFiles` | false | None | `compute:parse` | true | false | false | None |  |
@@ -340,6 +351,7 @@
 | `RegisterTrigger` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `DropTrigger` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `ListTriggers` | false | None | `cdc:read` | true | false | false | Snapshot |  |
+| `FreshnessFeed` | false | None | `cdc:read` | true | false | false | Snapshot |  |
 | `FiredTriggers` | false | None | `cdc:read` | true | false | false | Snapshot |  |
 | `CepSubscribe` | true | ControlRedb | `cep:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `CepPoll` | false | None | `cep:read` | true | false | false | Snapshot |  |
@@ -353,7 +365,7 @@
 | `GraphQl` | ~true | GraphRedb | `query:graphql` | false | true | false | Atomic | runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox |
 | `KnowledgeStream` | false | None | `query:stream` | true | false | false | Snapshot | one RequestContext/RLS/placement-bound stream with the sole native Arrow IPC projection for all seven query families |
 | `UnifiedQuery` | false | None | `query:unified` | true | false | false | Snapshot |  |
-| `UnifiedQueryText` | false | None | `query:unified` | true | false | false | Snapshot |  |
+| `Uql` | false | None | `query:unified` | true | false | false | Snapshot | UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenance` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenanceByIds` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile |
@@ -371,7 +383,9 @@
 | `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
-| `TxnUnifiedQueryText` | false | None | `txn:read` | true | false | false | Saga |  |
+| `TxnUql` | false | None | `txn:read` | true | false | false | Saga |  |
+| `EdgeIndex` | ~true | GraphRedb | `semantic:binding-write` | true | false | false | Atomic | EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it |
+| `EdgeSearch` | false | None | `semantic:binding-read` | true | false | false | Snapshot | EH-351: edge-native vector or BM25 search of the request graph; the caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal) |
 | `Decide` | false | None | `query:decide` | true | false | false | Snapshot | RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records; it commits none of them. Graph-sourced candidates are refused until graph-sourced records land |
 | `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | true | true | true | Atomic | state-backed MutationBatch commits inferred facts; operation-identity replay prevents duplicate materialization/audit/CDC |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |
@@ -385,12 +399,14 @@
 | `IcvConfigure` | true | GraphRedb | `security:admin` | true | true | true | Atomic | state-backed MutationBatch |
 | `GraphSchema` | true | GraphRedb | `security:admin` | true | true | true | Atomic | X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited, emits CDC, and is recorded in the native Raft GraphState catalog |
 | `GraphSchemaList` | false | None | `security:admin` | true | false | false | Snapshot | X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan |
+| `GraphSchemaClasses` | false | None | `owl:read` | true | false | false | Snapshot | EH-389. One page of the classes and properties the request graph's composed schema declares, with the declaring source; the schema's own vocabulary, not graph rows and not the source documents, so an ordinary ontology read (owl:read) rather than GraphSchemaList's security:admin |
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |
 | `AuditProveInclusion` | false | None | `security:audit` | true | false | false | Snapshot | provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry |
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
+| `RbacElevation` | ~true | ControlRedb | `rbac:elevation` | false | true | false | Atomic | EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX |
 | `GetIdentity` | false | None | `security:admin` | true | false | false | Snapshot | identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege |
 | `ToMsgpack` | false | None | `graph:read` | true | false | false | Snapshot |  |
 | `FromMsgpack` | true | GraphRedb | `graph:admin` | false | true | true | Atomic | state-backed MutationBatch commits the imported authoritative image |

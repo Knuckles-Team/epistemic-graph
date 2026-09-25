@@ -1,6 +1,6 @@
 # Query API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.query.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 29 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.query.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 31 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `CausalCounterfactual`
 
@@ -135,6 +135,71 @@ RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates und
 | `result` | `DecisionBatch` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/Decide`, `contract/schemas/result.query.json#/methods/Decide`.
+
+## `EdgeIndex`
+
+EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `semantic:binding-write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `EdgeIndexOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `EdgeIndexStatusView` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/EdgeIndex`, `contract/schemas/result.query.json#/methods/EdgeIndex`.
+
+## `EdgeSearch`
+
+EH-351: edge-native vector or BM25 search of the request graph; the caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal)
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `semantic:binding-read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `EdgeSearchRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `EdgeSearchView` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/EdgeSearch`, `contract/schemas/result.query.json#/methods/EdgeSearch`.
 
 ## `EpistemicStatus`
 
@@ -808,7 +873,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Stal
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnUnifiedQuery`, `contract/schemas/result.query.json#/methods/TxnUnifiedQuery`.
 
-## `TxnUnifiedQueryText`
+## `TxnUql`
 
 | Property | Value |
 |---|---|
@@ -828,6 +893,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnU
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
+| `params` | object | no |  |
 | `text` | string | yes |  |
 | `txn_id` | string | yes |  |
 
@@ -835,9 +901,9 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnU
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | array of array of any | Raw |  |
+| `result` | `UqlResult` | Raw |  |
 
-Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnUnifiedQueryText`, `contract/schemas/result.query.json#/methods/TxnUnifiedQueryText`.
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnUql`, `contract/schemas/result.query.json#/methods/TxnUql`.
 
 ## `UnifiedQuery`
 
@@ -869,7 +935,9 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TxnU
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/UnifiedQuery`, `contract/schemas/result.query.json#/methods/UnifiedQuery`.
 
-## `UnifiedQueryText`
+## `Uql`
+
+UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only
 
 | Property | Value |
 |---|---|
@@ -889,15 +957,16 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Unif
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
+| `params` | object | no |  |
 | `text` | string | yes |  |
 
 **Result**
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | array of array of any | Raw |  |
+| `result` | `UqlResult` | Raw |  |
 
-Full machine-checked schema: `contract/schemas/method.request.json#/methods/UnifiedQueryText`, `contract/schemas/result.query.json#/methods/UnifiedQueryText`.
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/Uql`, `contract/schemas/result.query.json#/methods/Uql`.
 
 ## `WhatChanged`
 

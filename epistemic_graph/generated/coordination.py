@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     ReconcileCapacityRequest = _models.MethodReconcileCapacityParams
     CapacityStatusRequest = _models.MethodCapacityStatusParams
     UpdateCapacityCellRequest = _models.MethodUpdateCapacityCellParams
+    ThrottleCapacityCellRequest = _models.MethodThrottleCapacityCellParams
     KgDelegateRequest = _models.MethodKgDelegateParams
     SubmitWorkItemRequest = _models.MethodSubmitWorkItemParams
     SubmitWorkItemsRequest = _models.MethodSubmitWorkItemsParams
@@ -43,7 +44,14 @@ if TYPE_CHECKING:
     GetWorkItemOutcomeRequest = _models.MethodGetWorkItemOutcomeParams
     IssueControlLeaseRequest = _models.MethodIssueControlLeaseParams
     TransitionControlLeaseRequest = _models.MethodTransitionControlLeaseParams
+    ListControlLeasesRequest = _models.MethodListControlLeasesParams
     GetControlLeaseRequest = _models.MethodGetControlLeaseParams
+    GapUpsertRequest = _models.MethodGapUpsertParams
+    GapTransitionRequest = _models.MethodGapTransitionParams
+    GapSettleRequest = _models.MethodGapSettleParams
+    WorkOfferPutRequest = _models.MethodWorkOfferPutParams
+    GapGetRequest = _models.MethodGapGetParams
+    GapListRequest = _models.MethodGapListParams
     ReserveWorkItemResourcesRequest = _models.MethodReserveWorkItemResourcesParams
     ReleaseWorkItemResourcesRequest = _models.MethodReleaseWorkItemResourcesParams
     ReclaimWorkItemResourcesRequest = _models.MethodReclaimWorkItemResourcesParams
@@ -468,6 +476,55 @@ def decode_update_capacity_cell(
     """Validate this method's result against its contract model."""
     return decode_result(
         "UpdateCapacityCell", models().CapacityCellUpdateResult, result
+    )
+
+
+async def send_throttle_capacity_cell(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ThrottleCapacityCell
+    Authorization:
+        capacity:throttle
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/ThrottleCapacityCell
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodThrottleCapacityCellParams.model_validate(params or {})
+    payload = await client._send(
+        "ThrottleCapacityCell",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ThrottleCapacityCell", payload)
+
+
+def decode_throttle_capacity_cell(
+    result: OpaqueResult,
+) -> _models.CapacityThrottleResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ThrottleCapacityCell", models().CapacityThrottleResult, result
     )
 
 
@@ -1158,6 +1215,47 @@ def decode_transition_control_lease(
     )
 
 
+async def send_list_control_leases(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ListControlLeases
+    Authorization:
+        lease:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/ListControlLeases
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodListControlLeasesParams.model_validate(params or {})
+    payload = await client._send(
+        "ListControlLeases",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ListControlLeases", payload)
+
+
+def decode_list_control_leases(result: OpaqueResult) -> _models.ControlLeasePage:
+    """Validate this method's result against its contract model."""
+    return decode_result("ListControlLeases", models().ControlLeasePage, result)
+
+
 async def send_get_control_lease(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1197,6 +1295,268 @@ async def send_get_control_lease(
 def decode_get_control_lease(result: OpaqueResult) -> _models.GetControlLeaseResult:
     """Validate this method's result against its contract model."""
     return decode_result("GetControlLease", models().GetControlLeaseResult, result)
+
+
+async def send_gap_upsert(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapUpsert
+    Authorization:
+        gap:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapUpsert
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodGapUpsertParams.model_validate(params or {})
+    payload = await client._send(
+        "GapUpsert",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapUpsert", payload)
+
+
+def decode_gap_upsert(result: OpaqueResult) -> _models.GapUpserted:
+    """Validate this method's result against its contract model."""
+    return decode_result("GapUpsert", models().GapUpserted, result)
+
+
+async def send_gap_transition(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapTransition
+    Authorization:
+        gap:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapTransition
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodGapTransitionParams.model_validate(params or {})
+    payload = await client._send(
+        "GapTransition",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapTransition", payload)
+
+
+def decode_gap_transition(result: OpaqueResult) -> _models.GapTransitioned:
+    """Validate this method's result against its contract model."""
+    return decode_result("GapTransition", models().GapTransitioned, result)
+
+
+async def send_gap_settle(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapSettle
+    Authorization:
+        gap:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapSettle
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodGapSettleParams.model_validate(params or {})
+    payload = await client._send(
+        "GapSettle",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapSettle", payload)
+
+
+def decode_gap_settle(result: OpaqueResult) -> _models.GapSettled:
+    """Validate this method's result against its contract model."""
+    return decode_result("GapSettle", models().GapSettled, result)
+
+
+async def send_work_offer_put(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        WorkOfferPut
+    Authorization:
+        work:offer-write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/WorkOfferPut
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodWorkOfferPutParams.model_validate(params or {})
+    payload = await client._send(
+        "WorkOfferPut",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("WorkOfferPut", payload)
+
+
+def decode_work_offer_put(result: OpaqueResult) -> _models.WorkOfferRecorded:
+    """Validate this method's result against its contract model."""
+    return decode_result("WorkOfferPut", models().WorkOfferRecorded, result)
+
+
+async def send_gap_get(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapGet
+    Authorization:
+        gap:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapGet
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGapGetParams.model_validate(params or {})
+    payload = await client._send(
+        "GapGet",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapGet", payload)
+
+
+def decode_gap_get(result: OpaqueResult) -> _models.GapGetResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GapGet", models().GapGetResult, result)
+
+
+async def send_gap_list(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapList
+    Authorization:
+        gap:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapList
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGapListParams.model_validate(params or {})
+    payload = await client._send(
+        "GapList",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapList", payload)
+
+
+def decode_gap_list(result: OpaqueResult) -> _models.GapPage:
+    """Validate this method's result against its contract model."""
+    return decode_result("GapList", models().GapPage, result)
 
 
 async def send_reserve_work_item_resources(
@@ -2122,6 +2482,7 @@ _REQUEST_METHODS = frozenset(
         "ReconcileCapacity",
         "CapacityStatus",
         "UpdateCapacityCell",
+        "ThrottleCapacityCell",
         "KgDelegate",
         "SubmitWorkItem",
         "SubmitWorkItems",
@@ -2137,7 +2498,14 @@ _REQUEST_METHODS = frozenset(
         "GetWorkItemOutcome",
         "IssueControlLease",
         "TransitionControlLease",
+        "ListControlLeases",
         "GetControlLease",
+        "GapUpsert",
+        "GapTransition",
+        "GapSettle",
+        "WorkOfferPut",
+        "GapGet",
+        "GapList",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",
         "ReclaimWorkItemResources",

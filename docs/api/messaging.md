@@ -1,6 +1,6 @@
 # Messaging API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.messaging.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 42 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.messaging.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 43 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `BindQueue`
 
@@ -641,6 +641,38 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Drop
 | `result` | `FiredTriggersResult` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/FiredTriggers`, `contract/schemas/result.messaging.json#/methods/FiredTriggers`.
+
+## `FreshnessFeed`
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `cdc:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `after_version` | integer (uint64) | yes |  |
+| `limit` | integer (uint32) | no |  |
+| `policy_after` | integer \| null | no |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `FreshnessFeed` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/FreshnessFeed`, `contract/schemas/result.messaging.json#/methods/FreshnessFeed`.
 
 ## `GetChannelMembers`
 

@@ -29,6 +29,7 @@ from .source_ingestion import (
 if TYPE_CHECKING:
     from . import models as _models
 
+    TelemetryDeriveRequest = _models.MethodTelemetryDeriveParams
     ServedModalityRequest = _models.MethodServedModalityParams
     ParseFileRequest = _models.MethodParseFileParams
     ParseFilesRequest = _models.MethodParseFilesParams
@@ -150,6 +151,51 @@ async def send_source_ingest_status(
         idempotency_key=idempotency_key,
     )
     return SourceIngestStatus.model_validate(payload)
+
+
+async def send_telemetry_derive(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TelemetryDerive
+    Authorization:
+        telemetry:derive
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.ingestion.json
+        #/methods/TelemetryDerive
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTelemetryDeriveParams.model_validate(params or {})
+    payload = await client._send(
+        "TelemetryDerive",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TelemetryDerive", payload)
+
+
+def decode_telemetry_derive(result: OpaqueResult) -> _models.TelemetryDeriveReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("TelemetryDerive", models().TelemetryDeriveReceipt, result)
 
 
 async def send_served_modality(
@@ -644,6 +690,7 @@ async def send_viz(
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
 _REQUEST_METHODS = frozenset(
     {
+        "TelemetryDerive",
         "ServedModality",
         "ParseFile",
         "ParseFiles",

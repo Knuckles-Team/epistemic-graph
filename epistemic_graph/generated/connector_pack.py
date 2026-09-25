@@ -11,30 +11,20 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ._shared import (
+    AgentLibraryMutationContext,
+    BoundedVec_string_64,
+    DeclaredLatency,
+    Digest256,
+    McpCatalogSnapshotBinding,
+    Nonce,
+)
+
 CONNECTOR_PACK_SCHEMA_VERSION = 2
 
 
-class AgentLibraryMutationContext(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    actor_scope: str
-    attempt_nonce: Nonce
-    caller_principal: str
-    created_at_ms: Annotated[int, Field(ge=0)]
-    expected_revision: Annotated[int, Field(ge=0)] | None = None
-    idempotency_key: str
-    policy_decision_id: str
-    policy_digest: str
-    policy_revision: str
-    principal: str
-    purpose_id: str
-    request_id: Annotated[int, Field(ge=0)]
-    tenant_id: str
-    trace_id: str | None = None
-
-
 class ConnectorPackBindRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     context: AgentLibraryMutationContext
@@ -42,7 +32,7 @@ class ConnectorPackBindRequest(BaseModel):
 
 
 class ConnectorPackImportRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     allow_mass_withdrawal: bool | None = None
     context: AgentLibraryMutationContext
@@ -51,7 +41,7 @@ class ConnectorPackImportRequest(BaseModel):
 
 
 class ConnectorPackIndex(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     archive: PackArchiveRef
     catalog: McpCatalogSnapshotBinding
@@ -65,49 +55,49 @@ class ConnectorPackIndex(BaseModel):
 
 
 class ConnectorPackOpStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["status"]
     request: ConnectorPackStatusRequest
 
 
 class ConnectorPackOpImport(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["import"]
     request: ConnectorPackImportRequest
 
 
 class ConnectorPackOpBind(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["bind"]
     request: ConnectorPackBindRequest
 
 
 class ConnectorPackOpUnbind(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["unbind"]
     request: ConnectorPackUnbindRequest
 
 
 class ConnectorPackOpRetire(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["retire"]
     request: ConnectorPackRetireRequest
 
 
 class ConnectorPackOpReproject(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["reproject"]
     request: ConnectorPackReprojectRequest
 
 
 class ConnectorPackOpReconcileBodies(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: Literal["reconcile_bodies"]
     request: ConnectorPackReconcileRequest
@@ -126,20 +116,20 @@ ConnectorPackOp = Annotated[
 
 
 class ConnectorPackReconcileRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     context: AgentLibraryMutationContext
 
 
 class ConnectorPackReprojectRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     context: AgentLibraryMutationContext
 
 
 class ConnectorPackRetireRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     context: AgentLibraryMutationContext
@@ -147,7 +137,7 @@ class ConnectorPackRetireRequest(BaseModel):
 
 
 class ConnectorPackStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     head: PackHeadView | None = None
@@ -161,21 +151,21 @@ class ConnectorPackStatus(BaseModel):
 
 
 class ConnectorPackStatusRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     tenant_id: str
 
 
 class ConnectorPackUnbindRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     connector: str
     context: AgentLibraryMutationContext
 
 
 class DeclaredCost(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     currency: str
     input_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
@@ -183,25 +173,8 @@ class DeclaredCost(BaseModel):
     per_call_micros: Annotated[int, Field(ge=0)] | None = None
 
 
-class DeclaredLatency(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    p50_ms: Annotated[int, Field(ge=0)]
-    p95_ms: Annotated[int, Field(ge=0)]
-
-
-class McpCatalogSnapshotBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    authorization_scope_digest: Digest256
-    catalog_generation: Annotated[int, Field(ge=0)]
-    child_connection_generation: Annotated[int, Field(ge=0)]
-    configuration_revision: Annotated[int, Field(ge=0)]
-    snapshot_digest: Digest256
-
-
 class PackAnnotations(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     contract_version: str | None = None
     cost: DeclaredCost | None = None
@@ -221,7 +194,7 @@ class PackAnnotations(BaseModel):
 
 
 class PackArchiveRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     blob_digest: str
     length: Annotated[int, Field(ge=0)]
@@ -229,7 +202,7 @@ class PackArchiveRef(BaseModel):
 
 
 class PackDispositionCounts(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     published: Annotated[int, Field(ge=0)]
     republished: Annotated[int, Field(ge=0)]
@@ -239,7 +212,7 @@ class PackDispositionCounts(BaseModel):
 
 
 class PackEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     annotations: PackAnnotations | None = None
     body: PackSection
@@ -268,14 +241,14 @@ class PackEntryKind(str, Enum):
 
 
 class PackHeadRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     binding_revision: Annotated[int, Field(ge=0)]
     pack_digest: Digest256
 
 
 class PackHeadView(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     binding_revision: Annotated[int, Field(ge=0)]
     catalog: McpCatalogSnapshotBinding
@@ -288,7 +261,7 @@ class PackHeadView(BaseModel):
 
 
 class PackImportReceipt(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     batch_id: str
     binding_revision: Annotated[int, Field(ge=0)]
@@ -306,14 +279,14 @@ class PackImportReceipt(BaseModel):
 
 
 class PackImportResultImported(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     receipt: PackImportReceipt
     result: Literal["imported"]
 
 
 class PackImportResultUnchanged(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     binding_revision: Annotated[int, Field(ge=0)]
     pack_digest: Digest256
@@ -321,7 +294,7 @@ class PackImportResultUnchanged(BaseModel):
 
 
 class PackImportResultRejected(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     budget_exhausted: bool
     pack_digest: Digest256 | None = None
@@ -336,7 +309,7 @@ PackImportResult = Annotated[
 
 
 class PackMemberCounts(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     published: Annotated[int, Field(ge=0)]
     retired: Annotated[int, Field(ge=0)]
@@ -344,7 +317,7 @@ class PackMemberCounts(BaseModel):
 
 
 class PackModelFacts(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     context_window_tokens: Annotated[int, Field(ge=0)]
     max_output_tokens: Annotated[int, Field(ge=0)]
@@ -356,26 +329,26 @@ class PackModelFacts(BaseModel):
 
 
 class PackProducer(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     name: str
     version: str
 
 
 class PackProjectionStateNone(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     projection: Literal["none"]
 
 
 class PackProjectionStatePending(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     projection: Literal["pending"]
 
 
 class PackProjectionStateApplied(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     graph: str
     graph_version: Annotated[int, Field(ge=0)]
@@ -383,7 +356,7 @@ class PackProjectionStateApplied(BaseModel):
 
 
 class PackProjectionStateFailed(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     code: str
     detail: str | None = None
@@ -400,14 +373,14 @@ PackProjectionState = Annotated[
 
 
 class PackRef(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     kind: PackEntryKind
     uri: str
 
 
 class PackSection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     length: Annotated[int, Field(ge=0)]
     offset: Annotated[int, Field(ge=0)]
@@ -420,7 +393,7 @@ class PackToolMode(str, Enum):
 
 
 class PackViolation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     code: PackViolationCode
     detail: str
@@ -456,7 +429,7 @@ class PackViolationCode(str, Enum):
 
 
 class PackWarning(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     code: PackWarningCode
     detail: str
@@ -477,25 +450,6 @@ class PackWriteErrorCode(str, Enum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
 
 
-BoundedVec_string_1024 = Annotated[list[str], Field(max_length=1024)]
-
-
-BoundedVec_string_64 = Annotated[list[str], Field(max_length=64)]
-
-
-Digest256 = Annotated[
-    str,
-    Field(
-        pattern="^[0-9a-f]{64}$",
-        min_length=64,
-        max_length=64,
-    ),
-]
-
-
-Nonce = Annotated[str, Field(pattern="^[0-9a-f]{64}$", min_length=64, max_length=64)]
-
-
 BoundedVec_PackEntry_1024 = Annotated[list[PackEntry], Field(max_length=1024)]
 
 
@@ -507,7 +461,8 @@ BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=2
 
 BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
 
-AgentLibraryMutationContext.model_rebuild()
+
+BoundedVec_string_1024 = Annotated[list[str], Field(max_length=1024)]
 
 ConnectorPackBindRequest.model_rebuild()
 
@@ -542,10 +497,6 @@ ConnectorPackStatusRequest.model_rebuild()
 ConnectorPackUnbindRequest.model_rebuild()
 
 DeclaredCost.model_rebuild()
-
-DeclaredLatency.model_rebuild()
-
-McpCatalogSnapshotBinding.model_rebuild()
 
 PackAnnotations.model_rebuild()
 
@@ -588,3 +539,50 @@ PackSection.model_rebuild()
 PackViolation.model_rebuild()
 
 PackWarning.model_rebuild()
+
+
+__all__ = [
+    "AgentLibraryMutationContext",
+    "BoundedVec_PackEntry_1024",
+    "BoundedVec_PackRef_64",
+    "BoundedVec_PackViolation_256",
+    "BoundedVec_PackWarning_256",
+    "BoundedVec_string_1024",
+    "BoundedVec_string_64",
+    "ConnectorPackBindRequest",
+    "ConnectorPackImportRequest",
+    "ConnectorPackIndex",
+    "ConnectorPackOp",
+    "ConnectorPackReconcileRequest",
+    "ConnectorPackReprojectRequest",
+    "ConnectorPackRetireRequest",
+    "ConnectorPackStatus",
+    "ConnectorPackStatusRequest",
+    "ConnectorPackUnbindRequest",
+    "DeclaredCost",
+    "DeclaredLatency",
+    "Digest256",
+    "McpCatalogSnapshotBinding",
+    "Nonce",
+    "PackAnnotations",
+    "PackArchiveRef",
+    "PackDispositionCounts",
+    "PackEntry",
+    "PackEntryKind",
+    "PackHeadRef",
+    "PackHeadView",
+    "PackImportReceipt",
+    "PackImportResult",
+    "PackMemberCounts",
+    "PackModelFacts",
+    "PackProducer",
+    "PackProjectionState",
+    "PackRef",
+    "PackSection",
+    "PackToolMode",
+    "PackViolation",
+    "PackViolationCode",
+    "PackWarning",
+    "PackWarningCode",
+    "PackWriteErrorCode",
+]

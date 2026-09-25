@@ -15,6 +15,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_GraphSchemaTermView_1000": {
+      "items": {
+        "$ref": "#/$defs/GraphSchemaTermView"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
     "DatalogReasoningResult": {
       "description": "Result of `Method::RunDatalogReasoning`: every inferred triple, each a string map\n(`subject`, `predicate`, `object`, `inference_type`), and their count.",
       "properties": {
@@ -44,6 +51,50 @@
         "schema_digests",
         "inferred_count",
         "inferred_triples"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaClassesView": {
+      "additionalProperties": false,
+      "description": "One page of the composed schema's declared terms.",
+      "properties": {
+        "composed_digest": {
+          "description": "The composition this page was read from; equal on every page of one walk.",
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "next_cursor": {
+          "default": null,
+          "description": "Pass back as `cursor` for the next page; absent on the last page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terms": {
+          "$ref": "#/$defs/BoundedVec_GraphSchemaTermView_1000"
+        },
+        "total_terms": {
+          "description": "Terms matching the request's `kind` filter, across all pages.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph",
+        "composed_digest",
+        "total_terms",
+        "terms"
       ],
       "type": "object"
     },
@@ -166,6 +217,64 @@
         "composed_digest",
         "core_sources",
         "dynamic_sources"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaTermKind": {
+      "description": "What a declared term is, by the RDF type that declares it.",
+      "oneOf": [
+        {
+          "const": "class",
+          "description": "`owl:Class` or `rdfs:Class`.",
+          "type": "string"
+        },
+        {
+          "const": "object_property",
+          "description": "`owl:ObjectProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "datatype_property",
+          "description": "`owl:DatatypeProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "annotation_property",
+          "description": "`owl:AnnotationProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "property",
+          "description": "`rdf:Property` (an RDFS property with no OWL typing).",
+          "type": "string"
+        }
+      ]
+    },
+    "GraphSchemaTermView": {
+      "additionalProperties": false,
+      "description": "One declared term of the composed schema.",
+      "properties": {
+        "iri": {
+          "description": "Absolute IRI of the term.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/GraphSchemaTermKind"
+        },
+        "local_name": {
+          "description": "The IRI's fragment, or its last path segment when it has none.",
+          "type": "string"
+        },
+        "source_id": {
+          "description": "The first source (core before dynamic, then by key) declaring the term.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "iri",
+        "local_name",
+        "kind",
+        "source_id"
       ],
       "type": "object"
     },
@@ -650,6 +759,28 @@
             "revision"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "EH-403: attached by `AttachApproved` under the named approval lease.",
+          "properties": {
+            "approval_lease_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "approved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "name",
+            "approval_lease_id"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -928,6 +1059,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/GraphSchemaCommitted"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphSchemaClasses": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GraphSchemaClassesView"
           }
         }
       },
