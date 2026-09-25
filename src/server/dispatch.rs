@@ -48,6 +48,37 @@ const IDENTITY_GRAPH: &str = "__commons__";
 const IDENTITY_GRAPH_SCOPE_ERROR: &str =
     "INVALID_ARGUMENT: GetIdentity requires the __commons__ graph";
 
+/// Resolve one graph and its caller-bound row authority under the same state view.
+pub(crate) fn authorized_graph_read(
+    state: &ServerState,
+    graph: &str,
+    verified: &VerifiedRequestContext,
+    missing_error: &str,
+) -> Result<(Arc<crate::graph::GraphCore>, GraphReadAuthority), String> {
+    let entry = state.registry.get(graph).ok_or(missing_error)?;
+    check_graph_access(
+        &state.isolation,
+        Some(verified.agent_id()),
+        graph,
+        entry.graph_type,
+        entry.owner.as_deref(),
+        AccessLevel::Read,
+    )?;
+    let authority = GraphReadAuthority::from_verified(verified, &state.isolation)?;
+    Ok((entry.core.clone(), authority))
+}
+
+/// Encode a typed method result while preserving both operation and codec errors.
+pub(crate) fn typed_response<M: eg_types::result_contract::MethodResult>(
+    req_id: u64,
+    result: Result<M::Body, String>,
+) -> Response {
+    match result.and_then(ResultPayload::of::<M>) {
+        Ok(payload) => Response::ok(req_id, payload),
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
 fn validate_get_identity_graph(request_graph: &str) -> Result<(), &'static str> {
     if request_graph == IDENTITY_GRAPH {
         Ok(())

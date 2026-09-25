@@ -4,8 +4,8 @@
 //! chokepoint at once.
 
 use super::*;
-use crate::acl::{AgentIdentity, RequestContextClaims};
-use crate::isolation::{AccessLevel, AgentRole, IsolationLayer};
+use crate::acl::RequestContextClaims;
+use crate::isolation::AccessLevel;
 use crate::protocol::{GraphType, Request};
 use eg_types::rbac_elevation::{
     ElevationAction, ElevationApproval, ElevationRequest, ElevationRevoke, ElevationScope,
@@ -17,15 +17,7 @@ const GRAPH: &str = "tenant__acme__default";
 const REQUEST_SCOPE: &str = "rbac:elevation";
 
 fn state() -> Arc<RwLock<super::super::ServerState>> {
-    let mut isolation = IsolationLayer::new();
-    for agent_id in ["alice", "bob"] {
-        isolation.register_agent(AgentIdentity {
-            agent_id: agent_id.to_string(),
-            role: AgentRole::Agent,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-    }
+    let isolation = crate::server::access::two_agent_isolation();
     Arc::new(RwLock::new(super::super::ServerState::new_for_test(
         "elevation-test-secret",
         isolation,

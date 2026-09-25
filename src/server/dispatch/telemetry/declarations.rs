@@ -31,8 +31,6 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 
 use super::super::timed_read;
-use crate::isolation::AccessLevel;
-use crate::server::access::{check_graph_access, GraphReadAuthority};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::state::ServerState;
 
@@ -60,20 +58,12 @@ pub(super) async fn read(
 ) -> Result<ReadDeclarations, String> {
     let (core, authority) = {
         let current = timed_read(state).await;
-        let entry = current
-            .registry
-            .get(graph)
-            .ok_or_else(|| format!("GRAPH_NOT_FOUND: {graph}"))?;
-        check_graph_access(
-            &current.isolation,
-            Some(verified.agent_id()),
+        crate::server::dispatch::authorized_graph_read(
+            &current,
             graph,
-            entry.graph_type,
-            entry.owner.as_deref(),
-            AccessLevel::Read,
-        )?;
-        let authority = GraphReadAuthority::from_verified(verified, &current.isolation)?;
-        (entry.core.clone(), authority)
+            verified,
+            &format!("GRAPH_NOT_FOUND: {graph}"),
+        )?
     };
     let sources = core.schema_sources();
     let types = tokio::task::spawn_blocking(move || bindable_types(&sources))

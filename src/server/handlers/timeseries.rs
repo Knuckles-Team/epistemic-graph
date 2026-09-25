@@ -740,3 +740,16 @@ mod nested_payload_tests;
 
 #[cfg(test)]
 mod derived_tests;
+
+#[cfg(test)]
+pub(crate) fn open_test_series_store(path: &std::path::Path) -> Arc<SeriesStore> {
+    Arc::new(
+        SeriesStore::open(
+            path,
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )
+        .unwrap(),
+    )
+}

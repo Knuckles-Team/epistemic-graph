@@ -87,20 +87,12 @@ async fn load_commons(
     let _registry_guard = crate::server::mutation_batch::lock_graph(REGISTRY_GRAPH).await;
     let (core, authority) = {
         let current = timed_read(state).await;
-        let entry = current
-            .registry
-            .get(REGISTRY_GRAPH)
-            .ok_or("fleet catalog authority is unavailable")?;
-        check_graph_access(
-            &current.isolation,
-            Some(verified.agent_id()),
+        crate::server::dispatch::authorized_graph_read(
+            &current,
             REGISTRY_GRAPH,
-            entry.graph_type,
-            entry.owner.as_deref(),
-            AccessLevel::Read,
-        )?;
-        let authority = GraphReadAuthority::from_verified(verified, &current.isolation)?;
-        (entry.core.clone(), authority)
+            verified,
+            "fleet catalog authority is unavailable",
+        )?
     };
     let observed_at_ms = authoritative_now_ms();
     let principal = verified.principal_persistence_id();

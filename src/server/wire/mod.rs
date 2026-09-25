@@ -4648,7 +4648,7 @@ impl WireSession {
         // `semantic_overlay` clone is paid ONLY when the txn actually staged embeddings.
         let core_for_ctx = core.clone();
         let rows = tokio::task::spawn_blocking(move || {
-            crate::server::handlers::query::run_unified_with_staged(
+            crate::server::handlers::query::run_unified_with_staged_finish(
                 plan,
                 &view,
                 &core_for_ctx,
@@ -4662,6 +4662,7 @@ impl WireSession {
                     tsdb_graph: tsdb_graph.as_deref(),
                     staged_series: Some(&staged_series),
                 },
+                crate::server::handlers::query::execute_rows,
             )
         })
         .await

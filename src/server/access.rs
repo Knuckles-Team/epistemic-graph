@@ -8,6 +8,22 @@ use crate::isolation::{AccessLevel, IsolationLayer};
 use eg_types::contract::Nonce;
 use std::sync::Arc;
 
+#[cfg(all(test, feature = "security"))]
+pub(crate) fn two_agent_isolation() -> IsolationLayer {
+    use crate::isolation::{AgentIdentity, AgentRole};
+
+    let mut isolation = IsolationLayer::new();
+    for agent_id in ["alice", "bob"] {
+        isolation.register_agent(AgentIdentity {
+            agent_id: agent_id.to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+    }
+    isolation
+}
+
 /// Verified ownership carried into stores that are not naturally graph-scoped.
 ///
 /// A method body's `tenant`, `actor`, namespace, cursor, or job id is never an
@@ -1334,15 +1350,7 @@ mod universal_row_read_tests {
                 .unwrap();
         }
 
-        let mut isolation = IsolationLayer::new();
-        for agent_id in ["alice", "bob"] {
-            isolation.register_agent(AgentIdentity {
-                agent_id: agent_id.to_string(),
-                role: AgentRole::Agent,
-                teams: Vec::new(),
-                roles: Vec::new(),
-            });
-        }
+        let isolation = super::two_agent_isolation();
         (core, isolation)
     }
 

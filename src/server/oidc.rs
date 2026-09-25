@@ -536,14 +536,18 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn validator() -> JwtValidator {
+        validator_for(ISSUER, AUDIENCE, KID)
+    }
+
+    pub(crate) fn validator_for(issuer: &str, audience: &str, kid: &str) -> JwtValidator {
         let mut keys = HashMap::new();
         let n = hex::decode(TEST_RSA_MODULUS_HEX).expect("modulus hex");
         let e = hex::decode(TEST_RSA_EXPONENT_HEX).expect("exponent hex");
         keys.insert(
-            KID.to_string(),
+            kid.to_string(),
             DecodingKey::from_rsa_raw_components(&n, &e),
         );
-        JwtValidator::from_parts(ISSUER, AUDIENCE, keys)
+        JwtValidator::from_parts(issuer, audience, keys)
     }
 
     fn base_claims() -> serde_json::Value {
