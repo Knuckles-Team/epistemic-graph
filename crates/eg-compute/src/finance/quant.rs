@@ -452,6 +452,32 @@ mod tests {
         assert!(pbo < 0.5);
     }
 
+    /// A fixture with real skill: four strategies (median rank 1.5), four
+    /// splits. The IS-best's OOS rank (0 = worst, ties do not lift it) is
+    /// 3, 2, 0 and 2, so only split 2 lands below the median: PBO = 1/4.
+    /// With three strategies the median rank is exactly 1, and a split whose
+    /// IS-best sits exactly at the OOS median is not counted (strictly below).
+    #[test]
+    fn pbo_counts_only_splits_whose_is_best_lands_below_the_oos_median() {
+        let is = vec![
+            vec![0.1, 0.9, 0.2, 0.3],
+            vec![0.5, 0.1, 0.2, 0.3],
+            vec![0.2, 0.1, 0.7, 0.3],
+            vec![0.1, 0.2, 0.3, 0.6],
+        ];
+        let oos = vec![
+            vec![0.1, 0.8, 0.2, 0.3],
+            vec![0.4, 0.1, 0.5, 0.2],
+            vec![0.3, 0.4, 0.1, 0.2],
+            vec![0.2, 0.5, 0.1, 0.5],
+        ];
+        let pbo = probability_of_backtest_overfit(&is, &oos);
+        assert!((pbo - 0.25).abs() < f64::EPSILON, "pbo {pbo}");
+        let at_median =
+            probability_of_backtest_overfit(&[vec![0.9, 0.1, 0.2]], &[vec![0.2, 0.1, 0.3]]);
+        assert!(at_median.abs() < f64::EPSILON, "at-median pbo {at_median}");
+    }
+
     #[test]
     fn test_diebold_mariano() {
         // A strictly lower loss than B ⇒ A better, significant
