@@ -22,6 +22,7 @@
 
 mod budget;
 mod capability;
+mod engine;
 mod http;
 mod limiter;
 mod remote;

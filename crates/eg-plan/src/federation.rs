@@ -194,7 +194,7 @@ impl ForeignSource for RemoteEngineSource<'_> {
         if self.uql.trim().is_empty() {
             self.fetch_cypher()
         } else {
-            self.fetch_uql()
+            self.fetch_uql_text(self.uql)
         }
     }
 }
@@ -355,6 +355,17 @@ fn read_remote_response(stream: &mut std::net::TcpStream) -> Result<Vec<u8>, Str
 }
 
 impl RemoteEngineSource<'_> {
+    pub(crate) fn from_spec(spec: &ForeignSourceSpec) -> Option<RemoteEngineSource<'_>> {
+        let ForeignSourceSpec::RemoteEngine {
+            endpoint, graph, secret, context, uql, cypher, id_field,
+        } = spec else {
+            return None;
+        };
+        Some(RemoteEngineSource {
+            endpoint, graph, secret, context, uql, cypher, id_field,
+        })
+    }
+
     fn validate_request_context(&self) -> Result<(), String> {
         if self.secret.is_empty() || self.secret.len() > 64 * 1024 {
             return Err(
@@ -449,9 +460,9 @@ impl RemoteEngineSource<'_> {
     /// query-text surface, EH-434) and returns its rows; each row's `(id, score)` is the
     /// SAME currency this engine's plans speak, so the projection is the identity. A
     /// statement that answers no rows (`EXPLAIN`) is refused — a foreign source is rows.
-    fn fetch_uql(&self) -> Result<RowSet, String> {
+    pub(crate) fn fetch_uql_text(&self, text: &str) -> Result<RowSet, String> {
         let request = self.signed_request(eg_types::protocol::Method::Uql {
-            text: self.uql.to_string(),
+            text: text.to_string(),
             params: std::collections::BTreeMap::new(),
         })?;
         let raw = self.round_trip(&request)?;
