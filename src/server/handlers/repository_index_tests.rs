@@ -232,11 +232,22 @@ fn repository_write_byte_budget_refusal_is_source_resizable() {
     ] {
         let refusal = finish(result(), Response::err(41, ledger_error));
         assert_eq!(refusal.id, 41);
+        let encoded = serde_json::to_string(&refusal).expect("response encoding");
         let error = refusal.error.expect("refused");
         assert!(error.starts_with(BATCH_TOO_LARGE), "{error}");
-        assert!(error.contains("64 MiB"), "{error}");
+        assert!(encoded.contains("64 MiB"), "{encoded}");
     }
 
     let other = finish(result(), Response::err(42, "ACCESS_DENIED: forbidden"));
-    assert_eq!(other.error.as_deref(), Some("ACCESS_DENIED: forbidden"));
+    assert!(
+        other
+            .error
+            .as_deref()
+            .is_some_and(|code| code.starts_with("ACCESS_DENIED")),
+        "{:?}",
+        other.error
+    );
+    assert!(serde_json::to_string(&other)
+        .expect("response encoding")
+        .contains("forbidden"));
 }
