@@ -288,6 +288,14 @@
           }
         ]
       },
+      "ReqDef_AccessCheck": {
+        "description": "The access `CheckAccess` asks about.",
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
       "ReqDef_AdapterFitRequest": {
         "additionalProperties": false,
         "description": "Fit an adapter from the judged retrieval outcomes of one space.",
@@ -2639,6 +2647,16 @@
           }
         ]
       },
+      "ReqDef_AllocationRule": {
+        "description": "How requests are scaled when they exceed the shared cap.",
+        "oneOf": [
+          {
+            "const": "proportional",
+            "description": "Every request is scaled by the same factor `cap / sum |request|`.",
+            "type": "string"
+          }
+        ]
+      },
       "ReqDef_AnalysisSnapshotDraft": {
         "additionalProperties": false,
         "description": "What the caller asks to seal.",
@@ -2757,13 +2775,22 @@
       },
       "ReqDef_AnomalyAlgorithm": {
         "description": "Which detector `MineAnomaly` runs (CONCEPT:EG-KG.mining.isolation-forest).",
-        "enum": [
-          "zscore",
-          "isoforest",
-          "lof",
-          "ocsvm"
-        ],
-        "type": "string"
+        "oneOf": [
+          {
+            "enum": [
+              "zscore",
+              "isoforest",
+              "lof",
+              "ocsvm"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "matrix_profile_discord",
+            "description": "The matrix-profile discord score of a 1-D `values` series (EH-529, ANALYTICS-\nHARVEST AH-09): reuses `sample_size` as the subsequence length `m` and `seed` as\nthe profile's diagonal-order seed (`eg_compute::mining::anomaly::Algorithm::\nMatrixProfileDiscord`) \u2014 no new request field, the same per-algorithm parameter\nreuse `IsolationForest`/`Lof`/`Ocsvm` already use.",
+            "type": "string"
+          }
+        ]
       },
       "ReqDef_ArrayEncoding": {
         "description": "How the elements of a referenced array are encoded.",
@@ -3011,6 +3038,144 @@
           }
         },
         "type": "object"
+      },
+      "ReqDef_AttributionInput": {
+        "description": "Where each player's value comes from.",
+        "oneOf": [
+          {
+            "const": "Score",
+            "description": "The incoming row's score (a prior RANK, WINDOW, TSSCAN, \u2026 stage).",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A numeric property of the row's node.",
+            "properties": {
+              "Property": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Property"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_AttributionMethod": {
+        "description": "How contributions are computed.",
+        "oneOf": [
+          {
+            "const": "Linear",
+            "description": "The exact split of an additive value (`SUM`); anything else is refused.",
+            "type": "string"
+          },
+          {
+            "const": "Shapley",
+            "description": "Exact Shapley over a memoised coalition table (at most 16 rows).",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Sampled Shapley: `samples` antithetic permutation pairs drawn from `seed`.",
+            "properties": {
+              "ShapleySampled": {
+                "properties": {
+                  "samples": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "seed": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "samples",
+                  "seed"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ShapleySampled"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Owen values with the rows grouped into unions by the node property `by`.",
+            "properties": {
+              "Owen": {
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Owen"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_AttributionValue": {
+        "description": "The aggregate a coalition's value is.",
+        "oneOf": [
+          {
+            "enum": [
+              "Mean",
+              "Max",
+              "Min"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "Sum",
+            "description": "Additive: the only aggregate `LINEAR` accepts.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The `p`-th percentile, `1..=99` (UQL `P<p>`, e.g. `P95`).",
+            "properties": {
+              "Percentile": {
+                "properties": {
+                  "p": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "p"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Percentile"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ReqDef_AuditDraw": {
         "additionalProperties": false,
@@ -3338,6 +3503,62 @@
           "from_open",
           "to_close",
           "bars"
+        ],
+        "type": "object"
+      },
+      "ReqDef_BayesFuseRequest": {
+        "additionalProperties": false,
+        "description": "`bayes_fuse`: fuse directional calls into `P(up)`.",
+        "properties": {
+          "default_accuracy": {
+            "default": 0.55,
+            "description": "Accuracy of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "default_weight": {
+            "default": 0.5,
+            "description": "Weight of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "directions": {
+            "additionalProperties": {
+              "format": "int8",
+              "maximum": 127,
+              "minimum": -128,
+              "type": "integer"
+            },
+            "description": "Each source's call: `1` up, `-1` down, `0` no call. Applied in name\norder, so the result does not depend on how a caller built the map.",
+            "type": "object"
+          },
+          "max_pbo": {
+            "default": 0.5,
+            "format": "double",
+            "type": "number"
+          },
+          "min_sharpe": {
+            "default": 0.0,
+            "format": "double",
+            "type": "number"
+          },
+          "prior": {
+            "default": 0.5,
+            "description": "`P(up)` before any call.",
+            "format": "double",
+            "type": "number"
+          },
+          "priors": {
+            "default": [],
+            "description": "Measured priors; a source is seeded only when it has an edge and is\nnot overfit.",
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_FusionPrior"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "directions"
         ],
         "type": "object"
       },
@@ -7200,6 +7421,13 @@
           "idempotency_key": {
             "type": "string"
           },
+          "mode": {
+            "$ref": "#/components/schemas/ReqDef_EvalMode",
+            "default": {
+              "mode": "off_policy"
+            },
+            "description": "Off-policy (the default) or a walk-forward replay (EH-528)."
+          },
           "policy": {
             "$ref": "#/components/schemas/ReqDef_DecisionPolicyRef"
           },
@@ -8113,6 +8341,22 @@
           "broader",
           "source",
           "class"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DeriveColumn": {
+        "description": "One `DERIVE` column: an expression and the channel name its values are written to.",
+        "properties": {
+          "expr": {
+            "$ref": "#/components/schemas/ReqDef_SeriesExpr"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expr",
+          "name"
         ],
         "type": "object"
       },
@@ -9890,6 +10134,43 @@
           }
         ]
       },
+      "ReqDef_EvalMode": {
+        "description": "How a `DecisionEval` job evaluates its candidate.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Off-policy and calibration evaluation into a promotion receipt.",
+            "properties": {
+              "mode": {
+                "const": "off_policy",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Walk-forward replay into a sealed [`EvaluationRun`].",
+            "properties": {
+              "mode": {
+                "const": "replay",
+                "type": "string"
+              },
+              "spec": {
+                "$ref": "#/components/schemas/ReqDef_ReplaySpec"
+              }
+            },
+            "required": [
+              "mode",
+              "spec"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_EvaluationMetrics": {
         "additionalProperties": false,
         "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
@@ -10616,6 +10897,47 @@
             "required": [
               "op",
               "draft"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_FinanceSignalModelsOp": {
+        "description": "One signal-model operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls.",
+            "properties": {
+              "op": {
+                "const": "bayes_fuse",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_BayesFuseRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The strategic insider under dynamic legal risk.",
+            "properties": {
+              "op": {
+                "const": "insider_equilibrium",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_InsiderEquilibriumRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
             ],
             "type": "object"
           }
@@ -11942,6 +12264,34 @@
         ],
         "type": "object"
       },
+      "ReqDef_FusionPrior": {
+        "additionalProperties": false,
+        "description": "A stored per-source prior: what a backtest measured for one signal.",
+        "properties": {
+          "directional_accuracy": {
+            "format": "double",
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pbo": {
+            "format": "double",
+            "type": "number"
+          },
+          "standalone_sharpe": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "directional_accuracy",
+          "standalone_sharpe",
+          "pbo"
+        ],
+        "type": "object"
+      },
       "ReqDef_GapEvidenceInput": {
         "additionalProperties": false,
         "description": "One evidence signal a caller submits.",
@@ -12686,6 +13036,65 @@
         ],
         "type": "object"
       },
+      "ReqDef_ImpactOptions": {
+        "description": "Options of the probabilistic impact models.",
+        "properties": {
+          "as_of_ms": {
+            "default": 0,
+            "description": "With writeback: the as-of time (unix ms) recorded on each assessment.\nPart of the request, so a WAL replay writes the same facts.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "assess": {
+            "default": [],
+            "description": "With writeback: assess only these node ids (the recomputed cone of an\nevent-driven run). Empty assesses every hit node.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "attribute_seeds": {
+            "default": false,
+            "description": "Report per-seed Shapley attribution for the reported path targets.",
+            "type": "boolean"
+          },
+          "hops": {
+            "default": 8,
+            "description": "Hop bound (capped at 64).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rng_seed": {
+            "default": 0,
+            "description": "Seed of the Monte Carlo stream; the run replays bit-identically.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "samples": {
+            "default": 2000,
+            "description": "Monte Carlo worlds (`independent_cascade` only).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scope": {
+            "default": "",
+            "description": "With writeback: the assessment scope recorded on, and keying, each\n`:ImpactAssessment` node (a standing impact watch's id). Empty = `adhoc`.",
+            "type": "string"
+          },
+          "top_paths": {
+            "default": 10,
+            "description": "How many of the strongest seed-to-node paths to report.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "ReqDef_IncarnationId": {
         "description": "Opaque logical-generation identity. It is never derived from a resource name.",
         "type": "string"
@@ -13112,6 +13521,86 @@
             "type": "object"
           }
         ]
+      },
+      "ReqDef_InsiderEquilibriumRequest": {
+        "additionalProperties": false,
+        "description": "`insider_equilibrium`: the equilibrium, its schedule and the policy verdict.",
+        "properties": {
+          "inputs": {
+            "$ref": "#/components/schemas/ReqDef_InsiderInputs"
+          },
+          "steps": {
+            "description": "Schedule samples over the window (`steps + 1` points).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inputs",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "ReqDef_InsiderInputs": {
+        "additionalProperties": false,
+        "description": "Primitives of the continuous-time Kyle game with dynamic legal risk, in the\npaper's normalized units.",
+        "properties": {
+          "civil_penalty_rate": {
+            "description": "Civil damages as a multiple of gross profit.",
+            "format": "double",
+            "type": "number"
+          },
+          "criminal_penalty": {
+            "description": "Expected criminal cost (fixed, hazard-scaled).",
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement": {
+            "description": "Regulator effort in `[0, 1]`.",
+            "format": "double",
+            "type": "number"
+          },
+          "gap_var": {
+            "default": null,
+            "description": "`E[(v-p)^2]`; `sigma_v^2` when absent.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "horizon": {
+            "description": "Trading window length.",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_u": {
+            "description": "Std of noise-trader flow (the cover for stealth).",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_v": {
+            "description": "Std of the fundamental value (the informational edge).",
+            "format": "double",
+            "type": "number"
+          },
+          "surveillance_kappa": {
+            "description": "How fast the detection hazard grows with activity.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sigma_v",
+          "sigma_u",
+          "enforcement",
+          "surveillance_kappa",
+          "criminal_penalty",
+          "civil_penalty_rate",
+          "horizon"
+        ],
+        "type": "object"
       },
       "ReqDef_IssueControlLeaseRequest": {
         "additionalProperties": false,
@@ -22851,78 +23340,6 @@
             "additionalProperties": false,
             "properties": {
               "method": {
-                "const": "FinanceRollingZscore",
-                "type": "string"
-              },
-              "params": {
-                "additionalProperties": false,
-                "properties": {
-                  "values": {
-                    "items": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "type": "array"
-                  },
-                  "window": {
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "values",
-                  "window"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "method",
-              "params"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "method": {
-                "const": "FinanceEwma",
-                "type": "string"
-              },
-              "params": {
-                "additionalProperties": false,
-                "properties": {
-                  "span": {
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "values": {
-                    "items": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "values",
-                  "span"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "method",
-              "params"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "method": {
                 "const": "FinanceSignalDecay",
                 "type": "string"
               },
@@ -25304,6 +25721,37 @@
           },
           {
             "additionalProperties": false,
+            "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+            "properties": {
+              "method": {
+                "const": "CheckAccess",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "$ref": "#/components/schemas/ReqDef_AccessCheck"
+                  },
+                  "agent_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "access"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the\nenum; the handler is gated behind the `security` feature (a non-security build\nfalls to the dispatch \"not available in this build\" catch-all, like EG-090's\nbackup/restore on a non-redb build).",
             "properties": {
               "method": {
@@ -27561,6 +28009,41 @@
             },
             "required": [
               "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from\n`source` \u2014 a series in the caller's own scope \u2014 by `expr`, a series expression in\nthe UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example\n`zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points\nare `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it\nfrom its checkpoint (bounded work per append; a lagging series catches up on the\nnext append or re-definition); a source point at or before the last one derived is\na revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read\nit like any series. Idempotent for the same definition (the call then catches the\nseries up); a different definition, a missing source or a cycle is refused.",
+            "properties": {
+              "method": {
+                "const": "TsDefineSeries",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "expr": {
+                    "type": "string"
+                  },
+                  "series_id": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "series_id",
+                  "source",
+                  "expr"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
             ],
             "type": "object"
           },
@@ -30628,7 +31111,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized\nPageRank over a directed weighted graph (`edges`), restarting to a `seed`\nrisk distribution instead of teleporting uniformly. With `writeback=true`\nmaterializes each node's propagated score as a typed `:RiskScore` node \u2014 a\ngraph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.",
+            "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation). The default\n`model: share` is personalized PageRank over a directed weighted graph\n(`edges`), restarting to a `seed` risk distribution instead of teleporting\nuniformly: each node's SHARE of propagated risk mass (the shares sum to 1 \u2014\na mass share, not a probability). The impact models (`noisy_or`,\n`independent_cascade`, EH-526) instead read `edges` weights as transmission\nprobabilities and `seed` as seed-hit probabilities and return `P(node is\nhit)` with hop depth, the strongest paths and per-seed attribution. With\n`writeback=true` `share` materializes `:RiskScore` nodes and the impact\nmodels `:ImpactAssessment` nodes \u2014 a graph MUTATION, WAL-replayed by\nre-propagating deterministically (the Monte Carlo stream is seeded). Gated\n`mining`.",
             "properties": {
               "method": {
                 "const": "MineRiskPropagation",
@@ -30676,6 +31159,13 @@
                     "format": "uint",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "model": {
+                    "$ref": "#/components/schemas/ReqDef_RiskModel",
+                    "default": {
+                      "kind": "share"
+                    },
+                    "description": "The propagation model (default `share`; `damping`/`tolerance`/\n`max_iterations` apply to `share` only)."
                   },
                   "nodes": {
                     "default": [],
@@ -31916,6 +32406,60 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+            "properties": {
+              "method": {
+                "const": "FinanceSignalModels",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ReqDef_FinanceSignalModelsOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+            "properties": {
+              "method": {
+                "const": "RetireSealedRecord",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "request": {
+                    "$ref": "#/components/schemas/ReqDef_RetireSealedRecordRequest"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -32016,6 +32560,110 @@
           }
         },
         "type": "object"
+      },
+      "ReqDef_MotifOp": {
+        "description": "A UQL `MOTIF` / `DISCORD` stage (EH-529): which value channel is searched, for what,\nhow many hits, and the seed of the matrix profile's anytime diagonal order.",
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "search": {
+            "$ref": "#/components/schemas/ReqDef_MotifSearch"
+          },
+          "seed": {
+            "default": 0,
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "top": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "channel",
+          "search",
+          "top"
+        ],
+        "type": "object"
+      },
+      "ReqDef_MotifSearch": {
+        "description": "What a `MOTIF` / `DISCORD` stage looks for in each series.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "`MOTIF LIKE shape`: the windows z-normalised-closest to `shape` (MASS).",
+            "properties": {
+              "like": {
+                "properties": {
+                  "shape": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "shape"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "like"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`MOTIF LENGTH m`: the closest pairs of length-`m` windows (matrix-profile minima).",
+            "properties": {
+              "pairs": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "pairs"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`DISCORD LENGTH m`: the length-`m` windows farthest from every other window\n(matrix-profile maxima).",
+            "properties": {
+              "discord": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "discord"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ReqDef_MultimodalAssetRef": {
         "additionalProperties": false,
@@ -32532,7 +33180,7 @@
       },
       "ReqDef_NamedEvaluator": {
         "additionalProperties": false,
-        "description": "The one principal a committer names to evaluate its record (EH-395).\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal join evaluations to exactly this\nrecord until it expires: it cannot read, list or count the record, and\nnothing else widens. The evaluator is never the committer.",
+        "description": "Who a committer names to evaluate its record (EH-395): ONE principal, or\nthe holders of ONE declared policy role.\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal -- or any verified principal whose signed\nrequest context carries `role`, other than the committer -- join\nevaluations to exactly this record until it expires: it cannot read, list\nor count the record, and nothing else widens. The evaluator is never the\ncommitter. Exactly one of `principal` and `role` is set.",
         "properties": {
           "expires_at_ms": {
             "description": "When the grant lapses; at most the control-lease span after commit.",
@@ -32541,12 +33189,23 @@
             "type": "integer"
           },
           "principal": {
+            "default": null,
             "description": "The evaluator's persistence id (`principal:sha256:<hex>` of its\nverified principal).",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "default": null,
+            "description": "The declared policy role whose holders may evaluate (a role name of the\nsigned request context, e.g. `decide-evaluator`).",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "principal",
           "expires_at_ms"
         ],
         "type": "object"
@@ -33055,6 +33714,55 @@
             },
             "required": [
               "Expand"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "PROPAGATE (graph, EH-526) \u2014 the probability that each node is hit when the\ncurrent rows are hit: seeds are the input rows (seed probability = the node's\n`p_seed` property when it is a number in `[0, 1]`, else 1), impact flows along\nedges in `dir` restricted to `rel` and `edge_preds` for at most `hops` hops,\nand an edge transmits with its `transmission` property (else\n`default_transmission`). Output: every hit node, most probable first, scored\nby its probability (channel `impact`).",
+            "properties": {
+              "Propagate": {
+                "properties": {
+                  "default_transmission": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "dir": {
+                    "$ref": "#/components/schemas/ReqDef_EdgeDir"
+                  },
+                  "edge_preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_Pred"
+                    },
+                    "type": "array"
+                  },
+                  "hops": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "model": {
+                    "$ref": "#/components/schemas/ReqDef_PropagateModel"
+                  },
+                  "rel": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "model",
+                  "dir",
+                  "edge_preds",
+                  "hops",
+                  "default_transmission"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Propagate"
             ],
             "type": "object"
           },
@@ -33696,6 +34404,96 @@
           },
           {
             "additionalProperties": false,
+            "description": "TRANSFORM (series, EH-522, UQL `DERIVE expr AS name {, expr AS name}`) \u2014 evaluate each\ncolumn's [`crate::series_expr::SeriesExpr`] over every series of the input in timestamp\norder (a row belongs to the series its `series@ts` id names) and write the result\nunder the column's name as an exact value channel a later `DERIVE` or `RETURN` reads.\nRows, their order and their scores pass through unchanged; a row with no value yet\n(warm-up, a skipped input) simply has no channel. The kernels are `eg_numeric::series`,\nthe same ones the SQL `eg_*` window functions and a materialised derived series run.",
+            "properties": {
+              "Derive": {
+                "properties": {
+                  "columns": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_DeriveColumn"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "columns"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Derive"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "REPORT (series, EH-522 FeatureSkill, UQL `SKILL f AGAINST y HORIZONS [..] WINDOW w\n[BOOTSTRAP n SEED s]`) \u2014 the predictive skill of value channel `feature` for the\nlater value channel `outcome`, per series: the rolling Spearman IC of `feature[t]`\nagainst `outcome[t + h]` for each horizon, summarised (mean, deviation, ICIR, a\nseeded moving-block bootstrap interval), with the breadth across horizons.\nReplaces the rows with one row per series and horizon, id `<series>:skill@<h>`,\nscore the mean IC and channels `mean_ic ic_std icir ic_lo ic_hi n n_eff ir`\n(`eg_numeric::evaluation::skill::feature_skill`).",
+            "properties": {
+              "Skill": {
+                "properties": {
+                  "spec": {
+                    "$ref": "#/components/schemas/ReqDef_SkillOp"
+                  }
+                },
+                "required": [
+                  "spec"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Skill"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "REPORT (series, EH-529 motif / discord search, UQL `MOTIF [OF c] LIKE shape [TOP k]`,\n`MOTIF [OF c] LENGTH m [TOP k] [SEED s]`, `DISCORD [OF c] LENGTH m [TOP k] [SEED s]`)\n\u2014 per series, over value channel `c` in timestamp order: the `k` non-overlapping\nwindows z-normalised-closest to `shape` (MASS query-by-example), the `k` closest\nwindow pairs, or the `k` windows farthest from all others (the SCRIMP++ matrix\nprofile, anytime under the plan's series-work budget). Replaces the rows with one\nrow per hit, id `<series>#motif@<start ts>` / `<series>#discord@<start ts>` (shape\nevents a later `CEP` matches by key `motif` / `discord`), score the distance and\nchannels `distance start end neighbor approximate` (`eg_numeric::series`).",
+            "properties": {
+              "Motif": {
+                "properties": {
+                  "spec": {
+                    "$ref": "#/components/schemas/ReqDef_MotifOp"
+                  }
+                },
+                "required": [
+                  "spec"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Motif"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "TRANSFORM (series, EH-529 shape events, UQL `EVENTS c {, c}`) \u2014 every series row\nwhose value channel `c` is non-zero (a `DERIVE` shape predicate such as\n`gt(ret(v0, 1), 0)`) becomes an event row `<series>#<c>@<ts>` carrying the row's\nvalue channels, which a later `CEP` stage matches by key `c` \u2014 the existing NFA, no\nnew pattern language. Rows that are not series rows are dropped.",
+            "properties": {
+              "Events": {
+                "properties": {
+                  "channels": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "channels"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Events"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) \u2014 run the probabilistic query `query`\nagainst each row's stored `Distribution` VALUE (the conventional `distribution`\nnode property, the tagged serde form of `eg_types::Distribution`) and SCORE the\nrow with the closed-form result \u2014 expectation / marginal probability / conditional\nposterior mean / deterministic seeded sample \u2014 re-ordering the RowSet by that score\nDESCENDING, exactly as `Rank` produces a scored order a downstream `Limit` respects.\nRows whose `distribution` is missing/invalid, or where the query does not apply\n(e.g. a `Conditional` with an unsupported conjugate pair), are DROPPED \u2014 mirroring\nhow the tensor/spatial legs narrow their input. Gated by `probabilistic` (the\ndistribution + Bayesian math lives in eg-types/eg-compute behind eg-plan's own\n`probabilistic` gate; this is the pure-serde wire variant \u2014 no RNG-from-clock, so a\nseeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.",
             "properties": {
               "Probabilistic": {
@@ -33852,6 +34650,35 @@
             },
             "required": [
               "ExplainBelief"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "TRANSFORM (EH-523, UQL `ATTRIBUTE <agg> OF <input> <method>`) \u2014 contribution\nattribution over the incoming rows as players: each row's value is `input`, a\ncoalition's value is the `value` aggregate of its members (`v(\u2205) = 0`), and every\nrow is re-scored with its contribution under `method` (linear split, exact or\nsampled Shapley, Owen), ordered descending. Contributions sum to `v(all rows)`.\nThe executor is eg-numeric's attribution kernel (eg-plan `numeric`); a build\nwithout it refuses the stage.",
+            "properties": {
+              "Attribute": {
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/ReqDef_AttributionInput"
+                  },
+                  "method": {
+                    "$ref": "#/components/schemas/ReqDef_AttributionMethod"
+                  },
+                  "value": {
+                    "$ref": "#/components/schemas/ReqDef_AttributionValue"
+                  }
+                },
+                "required": [
+                  "input",
+                  "value",
+                  "method"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Attribute"
             ],
             "type": "object"
           },
@@ -34203,6 +35030,17 @@
         "additionalProperties": false,
         "description": "Ask for the outcome aggregate.",
         "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_SlateAttributionRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Also split one slate's outcome across its components (EH-523)."
+          },
           "question_id": {
             "default": null,
             "description": "`None` aggregates every question; rows then also carry the\ncross-question total per option.",
@@ -36542,6 +37380,45 @@
           }
         ]
       },
+      "ReqDef_PropagateModel": {
+        "description": "The impact model of a [`Op::Propagate`] stage (EH-526).",
+        "oneOf": [
+          {
+            "const": "noisy_or",
+            "description": "Noisy-OR over the downstream cone (exact on a polytree cone, otherwise an\nupper bound; bounded unrolling on a cycle).",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Seeded Monte Carlo of the independent-cascade (live-edge) model.",
+            "properties": {
+              "cascade": {
+                "properties": {
+                  "samples": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "seed": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "samples",
+                  "seed"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "cascade"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_PropensitySource": {
         "description": "Where a logged propensity came from.",
         "oneOf": [
@@ -37172,6 +38049,23 @@
           }
         ]
       },
+      "ReqDef_RefitSpec": {
+        "additionalProperties": false,
+        "description": "Refit the head on each fold's training window with `DecisionFit`'s kernel.",
+        "properties": {
+          "head_kind": {
+            "$ref": "#/components/schemas/ReqDef_HeadKind"
+          },
+          "optimiser": {
+            "$ref": "#/components/schemas/ReqDef_OptimiserSpec"
+          }
+        },
+        "required": [
+          "head_kind",
+          "optimiser"
+        ],
+        "type": "object"
+      },
       "ReqDef_RegisteredServerCursor": {
         "additionalProperties": false,
         "description": "Stable continuation over one complete live registry snapshot.",
@@ -37246,6 +38140,78 @@
             "type": "string"
           }
         ]
+      },
+      "ReqDef_ReplayEnvironment": {
+        "description": "What the caller asserts about the environment the policy is replayed in.",
+        "oneOf": [
+          {
+            "const": "policy_independent",
+            "description": "An option's outcome does not depend on which option the policy chose.\nThe only environment replay evaluates.",
+            "type": "string"
+          },
+          {
+            "const": "policy_dependent",
+            "description": "The policy's choice changes what is observed. Replay refuses; the\noff-policy estimators (within the logging support) are the answer.",
+            "type": "string"
+          }
+        ]
+      },
+      "ReqDef_ReplaySpec": {
+        "additionalProperties": false,
+        "description": "A replay evaluation's parameters.",
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/ReqDef_SharedCap"
+          },
+          "env": {
+            "$ref": "#/components/schemas/ReqDef_ReplayEnvironment"
+          },
+          "folds": {
+            "$ref": "#/components/schemas/ReqDef_WalkForward"
+          },
+          "incumbent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_EvalCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The policy the candidate is compared against; `None` is the uniform\nallocation over each step's options."
+          },
+          "refit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_RefitSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`None` replays the candidate as submitted in every fold."
+          },
+          "supersedes": {
+            "default": null,
+            "description": "The digest of the run this one revises.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trials": {
+            "$ref": "#/components/schemas/ReqDef_TrialLog"
+          }
+        },
+        "required": [
+          "folds",
+          "budget",
+          "env",
+          "trials"
+        ],
+        "type": "object"
       },
       "ReqDef_RequestContext": {
         "additionalProperties": false,
@@ -37971,6 +38937,51 @@
           }
         ]
       },
+      "ReqDef_RetireSealedRecordRequest": {
+        "additionalProperties": false,
+        "description": "`RetireSealedRecord`: replace one sealed record with its audited tombstone.",
+        "properties": {
+          "digest": {
+            "description": "The record's seal, as its class's digest property stores it.",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "description": "Caller-stable retry identity for this retirement.",
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the record is retired (for example `share revoked` or `expired`).",
+            "type": "string"
+          },
+          "retired_at_ms": {
+            "description": "When the retirement takes effect, epoch milliseconds. Part of the retry\nidentity, so a retry carries the same value.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retired_by": {
+            "default": "",
+            "description": "Who retired it. The engine stamps this from the verified caller (a\nprincipal fingerprint) before the commit; a client-supplied value is replaced.",
+            "type": "string"
+          },
+          "tenant": {
+            "description": "Must equal the verified request tenant.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "node_id",
+          "digest",
+          "reason",
+          "retired_at_ms",
+          "idempotency_key"
+        ],
+        "type": "object"
+      },
       "ReqDef_RetrievalCandidateWire": {
         "description": "Wire mirror of `eg_epistemic::RetrievalCandidate` (EPI-P3-3) \u2014 one candidate in\na `Method::RankByProvenance` request, before ranking.",
         "properties": {
@@ -38227,6 +39238,51 @@
           "conformal_risk_control"
         ],
         "type": "string"
+      },
+      "ReqDef_RiskModel": {
+        "description": "Which propagation model `MineRiskPropagation` runs.\n\n`share` (the default) is personalised PageRank: each node's SHARE of the\npropagated risk mass. The shares sum to one, so they are not probabilities:\nten independent paths into a node divide mass rather than raising the\nnode's chance of being hit. `noisy_or` and `independent_cascade` return the\nprobability that each node is hit, with the edge weights read as\ntransmission probabilities and the seed values as seed-hit probabilities.",
+        "oneOf": [
+          {
+            "properties": {
+              "kind": {
+                "const": "share",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/ReqDef_ImpactOptions",
+            "description": "Noisy-OR over the seeds' downstream cone: exact on a polytree cone, an\nupper bound on other DAGs, unrolled for `hops` rounds on a cycle.",
+            "properties": {
+              "kind": {
+                "const": "noisy_or",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/ReqDef_ImpactOptions",
+            "description": "Seeded Monte Carlo of the independent-cascade (live-edge) model, with\n95% Wilson intervals per node.",
+            "properties": {
+              "kind": {
+                "const": "independent_cascade",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ReqDef_RiskStatement": {
         "additionalProperties": false,
@@ -40987,6 +42043,127 @@
         ],
         "type": "object"
       },
+      "ReqDef_SeriesExpr": {
+        "description": "One node of a series expression.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A row's value channel: `v0..vk` (a `TSSCAN` field), `score`, or a `DERIVE` alias.",
+            "properties": {
+              "Channel": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Channel"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A constant series.",
+            "properties": {
+              "Const": {
+                "properties": {
+                  "value": {
+                    "format": "double",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "value"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Const"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`func(args\u2026, params\u2026)`: `args` are series, `params` numbers (a window, a span\u2026).",
+            "properties": {
+              "Call": {
+                "properties": {
+                  "args": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_SeriesExpr"
+                    },
+                    "type": "array"
+                  },
+                  "func": {
+                    "$ref": "#/components/schemas/ReqDef_SeriesFunc"
+                  },
+                  "params": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "func",
+                  "args",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Call"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ReqDef_SeriesFunc": {
+        "description": "The fixed function table.",
+        "enum": [
+          "lag",
+          "diff",
+          "ret",
+          "logret",
+          "rmean",
+          "rstd",
+          "rsum",
+          "rmin",
+          "rmax",
+          "rrank",
+          "zscore",
+          "ewma",
+          "ewma_halflife",
+          "abs",
+          "sign",
+          "neg",
+          "clip",
+          "add",
+          "sub",
+          "mul",
+          "div",
+          "rcorr",
+          "ic",
+          "wsum",
+          "kalman",
+          "kbeta",
+          "gt",
+          "lt",
+          "greatest",
+          "least",
+          "mprofile"
+        ],
+        "type": "string"
+      },
       "ReqDef_SeriesIdentity": {
         "additionalProperties": false,
         "description": "What a bar series is: one listing, price basis, timeframe and calendar.",
@@ -41654,6 +42831,23 @@
           }
         ]
       },
+      "ReqDef_SharedCap": {
+        "additionalProperties": false,
+        "description": "One budget shared by every option of a step (capital, GPU-hours, tokens,\nlane slots): the applied amounts never sum past `cap` in absolute value.",
+        "properties": {
+          "cap": {
+            "$ref": "#/components/schemas/ReqDef_QuantisedValue"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ReqDef_AllocationRule"
+          }
+        },
+        "required": [
+          "cap",
+          "rule"
+        ],
+        "type": "object"
+      },
       "ReqDef_ShortlistProvenance": {
         "additionalProperties": false,
         "description": "How the shortlist the decision scored was produced.",
@@ -41850,6 +43044,50 @@
         ],
         "type": "object"
       },
+      "ReqDef_SkillOp": {
+        "description": "A UQL `SKILL` stage (EH-522 FeatureSkill): which channels, horizons, IC window and\nbootstrap.",
+        "properties": {
+          "feature": {
+            "type": "string"
+          },
+          "horizons": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "resamples": {
+            "default": 0,
+            "description": "Bootstrap resamples for the interval on the mean IC (`0`: none).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seed": {
+            "default": 0,
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "window": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "feature",
+          "outcome",
+          "horizons",
+          "window"
+        ],
+        "type": "object"
+      },
       "ReqDef_SkillType": {
         "description": "How a skill is run. The four values the agent ecosystem declares.",
         "enum": [
@@ -41859,6 +43097,39 @@
           "mcp_skill"
         ],
         "type": "string"
+      },
+      "ReqDef_SlateAttributionMethod": {
+        "description": "How a slate's outcome is split across its components (EH-523).",
+        "oneOf": [
+          {
+            "const": "shapley",
+            "description": "Exact Shapley values over the LOGGED sub-slates: every non-empty sub-slate of\nthe target must itself have been assembled and evaluated at `min_support`, or the\nreport is refused with `UNSUPPORTED_COALITION` (it is never interpolated).",
+            "type": "string"
+          },
+          {
+            "const": "additive",
+            "description": "The least-squares additive split over the logged sub-slates: this request IS the\ndeclared additive-reward assumption (DECIDE-LAYER \u00a76.4), so the report is advisory.",
+            "type": "string"
+          }
+        ]
+      },
+      "ReqDef_SlateAttributionRequest": {
+        "additionalProperties": false,
+        "description": "Ask for the per-component split of one assembled slate's outcome (EH-523).",
+        "properties": {
+          "graph_digest": {
+            "description": "The solved assembly's graph digest (`slate:<digest>` in the aggregate rows).",
+            "type": "string"
+          },
+          "method": {
+            "$ref": "#/components/schemas/ReqDef_SlateAttributionMethod"
+          }
+        },
+        "required": [
+          "graph_digest",
+          "method"
+        ],
+        "type": "object"
       },
       "ReqDef_SlotAssignment": {
         "additionalProperties": false,
@@ -45450,6 +46721,27 @@
         ],
         "type": "object"
       },
+      "ReqDef_TrialLog": {
+        "additionalProperties": false,
+        "description": "How many configurations the search behind this candidate tried. The\ndeflated Sharpe ratio deflates by `declared`; a declaration below the\nsearch log's own count is refused (`n_trials = 1` after a search is the\ndefect this guards).",
+        "properties": {
+          "declared": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "searched": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "declared",
+          "searched"
+        ],
+        "type": "object"
+      },
       "ReqDef_TypedParam": {
         "additionalProperties": false,
         "description": "One named parameter of a question.",
@@ -46337,6 +47629,45 @@
           "max_primitives",
           "max_bytes",
           "dataset_ref"
+        ],
+        "type": "object"
+      },
+      "ReqDef_WalkForward": {
+        "additionalProperties": false,
+        "description": "Walk-forward folds, in admitted items. Fold `k` tests the `test` items\nstarting at `train + purge + k * step`; it trains on the `train` items that\nend `purge` items before its test window, minus the `embargo` items after\nevery earlier test window (their outcomes may still be maturing).",
+        "properties": {
+          "embargo": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "purge": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "step": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "test": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "train": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "train",
+          "test",
+          "step",
+          "purge",
+          "embargo"
         ],
         "type": "object"
       },
@@ -48739,6 +50070,37 @@
             },
             "required": [
               "sub_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_CheckAccess": {
+        "additionalProperties": false,
+        "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+        "properties": {
+          "method": {
+            "const": "CheckAccess",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "access": {
+                "$ref": "#/components/schemas/ReqDef_AccessCheck"
+              },
+              "agent_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agent_id",
+              "access"
             ],
             "type": "object"
           }
@@ -52249,42 +53611,6 @@
         ],
         "type": "object"
       },
-      "Req_FinanceEwma": {
-        "additionalProperties": false,
-        "properties": {
-          "method": {
-            "const": "FinanceEwma",
-            "type": "string"
-          },
-          "params": {
-            "additionalProperties": false,
-            "properties": {
-              "span": {
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "values": {
-                "items": {
-                  "format": "double",
-                  "type": "number"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "values",
-              "span"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "method",
-          "params"
-        ],
-        "type": "object"
-      },
       "Req_FinanceExpectedPnlRate": {
         "additionalProperties": false,
         "properties": {
@@ -53831,42 +55157,6 @@
         ],
         "type": "object"
       },
-      "Req_FinanceRollingZscore": {
-        "additionalProperties": false,
-        "properties": {
-          "method": {
-            "const": "FinanceRollingZscore",
-            "type": "string"
-          },
-          "params": {
-            "additionalProperties": false,
-            "properties": {
-              "values": {
-                "items": {
-                  "format": "double",
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "window": {
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "values",
-              "window"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "method",
-          "params"
-        ],
-        "type": "object"
-      },
       "Req_FinanceSabrCalibrate": {
         "additionalProperties": false,
         "properties": {
@@ -54062,6 +55352,33 @@
             "required": [
               "signal",
               "half_life"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_FinanceSignalModels": {
+        "additionalProperties": false,
+        "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+        "properties": {
+          "method": {
+            "const": "FinanceSignalModels",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "$ref": "#/components/schemas/ReqDef_FinanceSignalModelsOp"
+              }
+            },
+            "required": [
+              "op"
             ],
             "type": "object"
           }
@@ -57778,7 +59095,7 @@
       },
       "Req_MineRiskPropagation": {
         "additionalProperties": false,
-        "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized\nPageRank over a directed weighted graph (`edges`), restarting to a `seed`\nrisk distribution instead of teleporting uniformly. With `writeback=true`\nmaterializes each node's propagated score as a typed `:RiskScore` node \u2014 a\ngraph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.",
+        "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation). The default\n`model: share` is personalized PageRank over a directed weighted graph\n(`edges`), restarting to a `seed` risk distribution instead of teleporting\nuniformly: each node's SHARE of propagated risk mass (the shares sum to 1 \u2014\na mass share, not a probability). The impact models (`noisy_or`,\n`independent_cascade`, EH-526) instead read `edges` weights as transmission\nprobabilities and `seed` as seed-hit probabilities and return `P(node is\nhit)` with hop depth, the strongest paths and per-seed attribution. With\n`writeback=true` `share` materializes `:RiskScore` nodes and the impact\nmodels `:ImpactAssessment` nodes \u2014 a graph MUTATION, WAL-replayed by\nre-propagating deterministically (the Monte Carlo stream is seeded). Gated\n`mining`.",
         "properties": {
           "method": {
             "const": "MineRiskPropagation",
@@ -57826,6 +59143,13 @@
                 "format": "uint",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "model": {
+                "$ref": "#/components/schemas/ReqDef_RiskModel",
+                "default": {
+                  "kind": "share"
+                },
+                "description": "The propagation model (default `share`; `damping`/`tolerance`/\n`max_iterations` apply to `share` only)."
               },
               "nodes": {
                 "default": [],
@@ -60900,6 +62224,33 @@
         ],
         "type": "object"
       },
+      "Req_RetireSealedRecord": {
+        "additionalProperties": false,
+        "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+        "properties": {
+          "method": {
+            "const": "RetireSealedRecord",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_RetireSealedRecordRequest"
+              }
+            },
+            "required": [
+              "request"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
       "Req_Rollback": {
         "additionalProperties": false,
         "properties": {
@@ -62453,6 +63804,41 @@
             "required": [
               "series_id",
               "left_ts_msgpack"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_TsDefineSeries": {
+        "additionalProperties": false,
+        "description": "Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from\n`source` \u2014 a series in the caller's own scope \u2014 by `expr`, a series expression in\nthe UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example\n`zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points\nare `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it\nfrom its checkpoint (bounded work per append; a lagging series catches up on the\nnext append or re-definition); a source point at or before the last one derived is\na revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read\nit like any series. Idempotent for the same definition (the call then catches the\nseries up); a different definition, a missing source or a cycle is refused.",
+        "properties": {
+          "method": {
+            "const": "TsDefineSeries",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "expr": {
+                "type": "string"
+              },
+              "series_id": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "series_id",
+              "source",
+              "expr"
             ],
             "type": "object"
           }
@@ -66193,6 +67579,45 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_BayesFusion": {
+        "additionalProperties": false,
+        "description": "The fused probability of an upward move.",
+        "properties": {
+          "posterior_up": {
+            "format": "double",
+            "type": "number"
+          },
+          "seeded": {
+            "description": "Priors that survived the edge and overfit filters.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sources": {
+            "description": "Every source that called, in the order applied.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_FusionSource"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "posterior_up",
+          "seeded",
+          "sources"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_BindingLever": {
+        "description": "Which lever constrains the insider at the equilibrium.",
+        "enum": [
+          "criminal",
+          "civil",
+          "enforcement",
+          "none"
+        ],
+        "type": "string"
+      },
       "ResDef_Compute_BoundProof": {
         "description": "The lower-bound evidence a certificate carries.",
         "oneOf": [
@@ -68275,6 +69700,34 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_FusionSource": {
+        "additionalProperties": false,
+        "description": "One source as the fusion used it.",
+        "properties": {
+          "accuracy": {
+            "format": "double",
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "seeded": {
+            "description": "Whether the source came from a measured prior (else the defaults).",
+            "type": "boolean"
+          },
+          "weight": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "weight",
+          "accuracy",
+          "seeded"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_GraphlearnPrediction": {
         "description": "The top missing links scored by a `graphlearn`-family model.",
         "properties": {
@@ -68399,6 +69852,120 @@
           "converged"
         ],
         "type": "object"
+      },
+      "ResDef_Compute_ImpactPathRow": {
+        "description": "The most probable seed-to-node path.",
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "path": {
+            "description": "Node ids, seed first.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "probability": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "node",
+          "path",
+          "probability"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_ImpactReport": {
+        "description": "The impact-model half of a `MineRiskPropagation` result.",
+        "properties": {
+          "attribution": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_SeedAttributionRow"
+            },
+            "type": "array"
+          },
+          "attribution_note": {
+            "description": "Why attribution was asked for but not produced.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "digest": {
+            "description": "`sha256:` provenance digest of the model, its options and every input.",
+            "type": "string"
+          },
+          "expected_spread": {
+            "description": "Expected number of hit nodes.",
+            "format": "double",
+            "type": "number"
+          },
+          "hops": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "paths": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_ImpactPathRow"
+            },
+            "type": "array"
+          },
+          "semantics": {
+            "$ref": "#/components/schemas/ResDef_Compute_ImpactSemantics"
+          },
+          "spread_lower": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spread_upper": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "semantics",
+          "digest",
+          "hops",
+          "expected_spread",
+          "paths",
+          "attribution"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_ImpactSemantics": {
+        "description": "What an impact probability means.",
+        "oneOf": [
+          {
+            "const": "exact",
+            "description": "Noisy-OR on a polytree cone: the exact live-edge probability.",
+            "type": "string"
+          },
+          {
+            "const": "upper_bound",
+            "description": "Noisy-OR on a DAG with shared ancestry: an upper bound.",
+            "type": "string"
+          },
+          {
+            "const": "cyclic_unroll",
+            "description": "Noisy-OR on a cyclic cone unrolled to the hop bound: an upper bound.",
+            "type": "string"
+          },
+          {
+            "const": "monte_carlo",
+            "description": "Independent-cascade Monte Carlo: an unbiased estimate with intervals.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Compute_Incumbent": {
         "additionalProperties": false,
@@ -68715,6 +70282,121 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Compute_InsiderAnalysis": {
+        "additionalProperties": false,
+        "description": "The full `insider_equilibrium` answer.",
+        "properties": {
+          "equilibrium": {
+            "$ref": "#/components/schemas/ResDef_Compute_InsiderEquilibrium"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ResDef_Compute_PenaltyPolicy"
+          },
+          "schedule": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_InsiderScheduleSample"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "equilibrium",
+          "schedule",
+          "policy"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_InsiderEquilibrium": {
+        "additionalProperties": false,
+        "description": "The insider's optimum at one enforcement level.",
+        "properties": {
+          "baseline_intensity": {
+            "description": "Kyle intensity with no legal risk.",
+            "format": "double",
+            "type": "number"
+          },
+          "binding_lever": {
+            "$ref": "#/components/schemas/ResDef_Compute_BindingLever"
+          },
+          "detection_prob": {
+            "description": "Endogenous prosecution hazard at the optimum, in `[0, 1]`.",
+            "format": "double",
+            "type": "number"
+          },
+          "expected_penalty": {
+            "format": "double",
+            "type": "number"
+          },
+          "expected_profit": {
+            "format": "double",
+            "type": "number"
+          },
+          "intensity": {
+            "description": "Optimal trade per unit of mispricing gap.",
+            "format": "double",
+            "type": "number"
+          },
+          "kyle_lambda": {
+            "description": "Market-maker price impact.",
+            "format": "double",
+            "type": "number"
+          },
+          "net_value": {
+            "format": "double",
+            "type": "number"
+          },
+          "suppressed": {
+            "description": "Legal risk drove the intensity to the zero floor.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "intensity",
+          "baseline_intensity",
+          "kyle_lambda",
+          "detection_prob",
+          "expected_profit",
+          "expected_penalty",
+          "net_value",
+          "suppressed",
+          "binding_lever"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_InsiderScheduleSample": {
+        "additionalProperties": false,
+        "description": "One schedule sample: enforcement decays with the remaining window.",
+        "properties": {
+          "detection_prob": {
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement": {
+            "format": "double",
+            "type": "number"
+          },
+          "intensity": {
+            "format": "double",
+            "type": "number"
+          },
+          "remaining": {
+            "format": "double",
+            "type": "number"
+          },
+          "t": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "t",
+          "remaining",
+          "enforcement",
+          "intensity",
+          "detection_prob"
+        ],
+        "type": "object"
       },
       "ResDef_Compute_InterClusterEdge": {
         "description": "An edge between two clusters of one served level, by array-local index into\nthat response's `clusters`.",
@@ -69357,6 +71039,67 @@
           "label"
         ],
         "type": "object"
+      },
+      "ResDef_Compute_PenaltyPolicy": {
+        "additionalProperties": false,
+        "description": "Comparative statics of the equilibrium intensity in the two penalties.",
+        "properties": {
+          "civil_only_min_intensity": {
+            "description": "Civil-only infimum of the intensity (approached, never reached).",
+            "format": "double",
+            "type": "number"
+          },
+          "criminal_intensity_floor": {
+            "description": "Criminal cost that fully suppresses the insider; `None` when no\nfinite cost does (no enforcement or no surveillance).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "d_intensity_d_civil": {
+            "format": "double",
+            "type": "number"
+          },
+          "d_intensity_d_criminal": {
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement_gated": {
+            "type": "boolean"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/ResDef_Compute_PenaltyVerdict"
+          }
+        },
+        "required": [
+          "d_intensity_d_criminal",
+          "d_intensity_d_civil",
+          "civil_only_min_intensity",
+          "enforcement_gated",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_PenaltyVerdict": {
+        "description": "The penalty-design conclusion.",
+        "oneOf": [
+          {
+            "const": "enforcement_gated",
+            "description": "Weak enforcement: civil penalties have vanishing effect.",
+            "type": "string"
+          },
+          {
+            "const": "criminal_suppresses",
+            "description": "The criminal cost is past the suppression floor: intensity is zero.",
+            "type": "string"
+          },
+          {
+            "const": "criminal_is_the_lever",
+            "description": "Criminal sanctions are the effective lever; civil damages only dampen.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Compute_PipelineClassifiedRow": {
         "description": "One classified row.",
@@ -70130,7 +71873,19 @@
           "converged": {
             "type": "boolean"
           },
+          "impact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Compute_ImpactReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present exactly for the impact models."
+          },
           "iterations": {
+            "description": "`share`: power iterations. Impact models: recurrence rounds or worlds.",
             "format": "uint",
             "minimum": 0,
             "type": "integer"
@@ -70158,12 +71913,37 @@
       "ResDef_Compute_RiskScoreRow": {
         "description": "One node's propagated risk.",
         "properties": {
+          "hops": {
+            "description": "Impact models: hops from the nearest seed.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lower": {
+            "description": "`independent_cascade`: the 95% Wilson interval.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "node": {
             "type": "string"
           },
           "score": {
+            "description": "`share`: the node's mass share. Impact models: `P(node is hit)`.",
             "format": "double",
             "type": "number"
+          },
+          "upper": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
           }
         },
         "required": [
@@ -70420,6 +72200,27 @@
           "listing_id",
           "timeframe",
           "data_status"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_SeedAttributionRow": {
+        "description": "One seed's Shapley share of one node's impact probability.",
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "seed": {
+            "type": "string"
+          },
+          "shapley": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "node",
+          "seed",
+          "shapley"
         ],
         "type": "object"
       },
@@ -72124,6 +73925,16 @@
         ],
         "type": "object"
       },
+      "ResDef_Coordination_AllocationRule": {
+        "description": "How requests are scaled when they exceed the shared cap.",
+        "oneOf": [
+          {
+            "const": "proportional",
+            "description": "Every request is scaled by the same factor `cap / sum |request|`.",
+            "type": "string"
+          }
+        ]
+      },
       "ResDef_Coordination_AnalyticsJobRecord": {
         "additionalProperties": false,
         "description": "The durable analytics-job record, as a caller sees it.",
@@ -72330,6 +74141,13 @@
         "maxItems": 64,
         "type": "array"
       },
+      "ResDef_Coordination_BoundedVec_ComponentContribution_64": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Coordination_ComponentContribution"
+        },
+        "maxItems": 64,
+        "type": "array"
+      },
       "ResDef_Coordination_BoundedVec_FeatureStandardisation_32": {
         "items": {
           "$ref": "#/components/schemas/ResDef_Coordination_FeatureStandardisation"
@@ -72349,6 +74167,13 @@
           "$ref": "#/components/schemas/ResDef_Coordination_OptionAggregate"
         },
         "maxItems": 1024,
+        "type": "array"
+      },
+      "ResDef_Coordination_BoundedVec_OptionContribution_256": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Coordination_OptionContribution"
+        },
+        "maxItems": 256,
         "type": "array"
       },
       "ResDef_Coordination_BoundedVec_PathEdge_8": {
@@ -72386,11 +74211,25 @@
         "maxItems": 32,
         "type": "array"
       },
+      "ResDef_Coordination_BoundedVec_QuantisedValue_4096": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+        },
+        "maxItems": 4096,
+        "type": "array"
+      },
       "ResDef_Coordination_BoundedVec_QuantisedValue_64": {
         "items": {
           "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
         },
         "maxItems": 64,
+        "type": "array"
+      },
+      "ResDef_Coordination_BoundedVec_ReplayFoldView_256": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Coordination_ReplayFoldView"
+        },
+        "maxItems": 256,
         "type": "array"
       },
       "ResDef_Coordination_BoundedVec_ReturnedEvidence_256": {
@@ -73458,6 +75297,27 @@
         ],
         "type": "object"
       },
+      "ResDef_Coordination_ComponentContribution": {
+        "additionalProperties": false,
+        "description": "One component's share of a slate's success rate.",
+        "properties": {
+          "component_id": {
+            "type": "string"
+          },
+          "contribution": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          },
+          "slot": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slot",
+          "component_id",
+          "contribution"
+        ],
+        "type": "object"
+      },
       "ResDef_Coordination_ComponentDependency": {
         "additionalProperties": false,
         "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
@@ -73898,6 +75758,24 @@
             "required": [
               "output",
               "receipt"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A replay evaluation's sealed run (EH-528).",
+            "properties": {
+              "output": {
+                "const": "replay",
+                "type": "string"
+              },
+              "run": {
+                "$ref": "#/components/schemas/ResDef_Coordination_EvaluationRun"
+              }
+            },
+            "required": [
+              "output",
+              "run"
             ],
             "type": "object"
           }
@@ -75651,6 +77529,103 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Coordination_EvalCandidate": {
+        "description": "What is being evaluated.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A fit job's draft artifact, pinned by content digest.",
+            "properties": {
+              "candidate": {
+                "const": "draft_artifact",
+                "type": "string"
+              },
+              "length": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sha256": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "candidate",
+              "sha256",
+              "length"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "An already-published head.",
+            "properties": {
+              "candidate": {
+                "const": "published_head",
+                "type": "string"
+              },
+              "head": {
+                "$ref": "#/components/schemas/ResDef_Coordination_ComponentDependency"
+              }
+            },
+            "required": [
+              "candidate",
+              "head"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Coordination_EvaluationRun": {
+        "additionalProperties": false,
+        "description": "A sealed replay evaluation: content-addressed, immutable; a revision is a\nnew run that names this one in `supersedes`.",
+        "properties": {
+          "contributions": {
+            "$ref": "#/components/schemas/ResDef_Coordination_BoundedVec_OptionContribution_256"
+          },
+          "dataset_digest": {
+            "type": "string"
+          },
+          "folds": {
+            "$ref": "#/components/schemas/ResDef_Coordination_BoundedVec_ReplayFoldView_256"
+          },
+          "head_digest": {
+            "type": "string"
+          },
+          "path": {
+            "$ref": "#/components/schemas/ResDef_Coordination_BoundedVec_QuantisedValue_4096",
+            "description": "The candidate's utility at every replayed step, in time order."
+          },
+          "policy_digest": {
+            "type": "string"
+          },
+          "run_digest": {
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/ResDef_Coordination_ReplaySpec"
+          },
+          "synthetic": {
+            "type": "boolean"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ResDef_Coordination_ReplayValidation"
+          }
+        },
+        "required": [
+          "run_digest",
+          "head_digest",
+          "policy_digest",
+          "dataset_digest",
+          "spec",
+          "folds",
+          "path",
+          "contributions",
+          "validation",
+          "synthetic"
+        ],
+        "type": "object"
       },
       "ResDef_Coordination_EvidenceClass": {
         "description": "The weakest class of evidence the conclusion rests on.",
@@ -77632,6 +79607,31 @@
         ],
         "type": "string"
       },
+      "ResDef_Coordination_OptimiserSpec": {
+        "additionalProperties": false,
+        "description": "Deterministic optimiser limits. The seed is part of the request, so a fit\nis reproducible from its record.",
+        "properties": {
+          "max_iterations": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seed": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tolerance": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          }
+        },
+        "required": [
+          "max_iterations",
+          "tolerance",
+          "seed"
+        ],
+        "type": "object"
+      },
       "ResDef_Coordination_OptionAggregate": {
         "additionalProperties": false,
         "description": "One aggregate row: an option (or a whole assembly slate) under one\nquestion and policy, or across every question when `question_id` is `None`.",
@@ -77753,10 +79753,42 @@
         ],
         "type": "object"
       },
+      "ResDef_Coordination_OptionContribution": {
+        "additionalProperties": false,
+        "description": "One option's share of the candidate's utility: the applied budget and the\nutility it earned, summed over every step it was offered in. The utility is\nlinear in the applied amounts, so these contributions sum to the total.",
+        "properties": {
+          "applied": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          },
+          "option_id": {
+            "type": "string"
+          },
+          "utility": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          }
+        },
+        "required": [
+          "option_id",
+          "applied",
+          "utility"
+        ],
+        "type": "object"
+      },
       "ResDef_Coordination_OutcomeAggregate": {
         "additionalProperties": false,
         "description": "The joined outcome aggregate. Rows below `min_support` report no rate;\ncounts are k-anonymised by the same floor (reported as zero below it).",
         "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_SlateAttribution"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The requested slate split (EH-523); absent when none was asked for."
+          },
           "min_support": {
             "format": "uint64",
             "minimum": 0,
@@ -78399,6 +80431,190 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Coordination_RefitSpec": {
+        "additionalProperties": false,
+        "description": "Refit the head on each fold's training window with `DecisionFit`'s kernel.",
+        "properties": {
+          "head_kind": {
+            "$ref": "#/components/schemas/ResDef_Coordination_HeadKind"
+          },
+          "optimiser": {
+            "$ref": "#/components/schemas/ResDef_Coordination_OptimiserSpec"
+          }
+        },
+        "required": [
+          "head_kind",
+          "optimiser"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_ReplayEnvironment": {
+        "description": "What the caller asserts about the environment the policy is replayed in.",
+        "oneOf": [
+          {
+            "const": "policy_independent",
+            "description": "An option's outcome does not depend on which option the policy chose.\nThe only environment replay evaluates.",
+            "type": "string"
+          },
+          {
+            "const": "policy_dependent",
+            "description": "The policy's choice changes what is observed. Replay refuses; the\noff-policy estimators (within the logging support) are the answer.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Coordination_ReplayFoldView": {
+        "additionalProperties": false,
+        "description": "One fold's outcome. Utilities are sums over the fold's test steps.",
+        "properties": {
+          "abstained": {
+            "description": "Steps where the head read a feature outside its fitted range and\nallocated nothing.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "first_test_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "head_digest": {
+            "description": "The head the fold replayed: the candidate's digest, or its refit's.",
+            "type": "string"
+          },
+          "incumbent_utility": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          },
+          "last_test_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_drawdown": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          },
+          "test_items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "train_items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "utility": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          }
+        },
+        "required": [
+          "train_items",
+          "test_items",
+          "first_test_ms",
+          "last_test_ms",
+          "head_digest",
+          "utility",
+          "incumbent_utility",
+          "max_drawdown",
+          "abstained"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_ReplaySpec": {
+        "additionalProperties": false,
+        "description": "A replay evaluation's parameters.",
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/ResDef_Coordination_SharedCap"
+          },
+          "env": {
+            "$ref": "#/components/schemas/ResDef_Coordination_ReplayEnvironment"
+          },
+          "folds": {
+            "$ref": "#/components/schemas/ResDef_Coordination_WalkForward"
+          },
+          "incumbent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_EvalCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The policy the candidate is compared against; `None` is the uniform\nallocation over each step's options."
+          },
+          "refit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_RefitSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`None` replays the candidate as submitted in every fold."
+          },
+          "supersedes": {
+            "default": null,
+            "description": "The digest of the run this one revises.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trials": {
+            "$ref": "#/components/schemas/ResDef_Coordination_TrialLog"
+          }
+        },
+        "required": [
+          "folds",
+          "budget",
+          "env",
+          "trials"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_ReplayValidation": {
+        "additionalProperties": false,
+        "description": "The run's overfitting and comparison statistics, from the engine's own\nvalidation kernels (never the caller).",
+        "properties": {
+          "deflated_sharpe": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          },
+          "diebold_mariano": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue",
+            "description": "Diebold-Mariano on the per-step losses (negated utilities), candidate\nminus incumbent: negative favours the candidate."
+          },
+          "diebold_mariano_p": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          },
+          "n_trials": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "observed_sharpe": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue",
+            "description": "Per-step Sharpe-like ratio of the candidate's utility path."
+          },
+          "probability_backtest_overfit": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue",
+            "description": "Over the folds, candidate vs incumbent, train window vs test window."
+          }
+        },
+        "required": [
+          "observed_sharpe",
+          "n_trials",
+          "deflated_sharpe",
+          "probability_backtest_overfit",
+          "diebold_mariano",
+          "diebold_mariano_p"
+        ],
+        "type": "object"
       },
       "ResDef_Coordination_ResolutionKind": {
         "description": "How the conclusion was reached.",
@@ -79894,6 +82110,118 @@
         ],
         "type": "object"
       },
+      "ResDef_Coordination_SealedRecordRetireOutcome": {
+        "description": "How a retirement resolved.",
+        "oneOf": [
+          {
+            "const": "retired",
+            "description": "The record was replaced by its tombstone.",
+            "type": "string"
+          },
+          {
+            "const": "already_retired",
+            "description": "The id already holds the tombstone of a record with this digest.",
+            "type": "string"
+          },
+          {
+            "const": "not_found",
+            "description": "No row with this id exists.",
+            "type": "string"
+          },
+          {
+            "const": "not_sealed",
+            "description": "The row is not a sealed record; nothing was written.",
+            "type": "string"
+          },
+          {
+            "const": "digest_mismatch",
+            "description": "The presented digest is not the record's seal; nothing was written.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Coordination_SealedRecordRetirement": {
+        "additionalProperties": false,
+        "description": "Result of `RetireSealedRecord`. `changed_work_item_ids` names the row the commit\nwrote, so the serving projection refreshes from authority exactly as it does for\na WorkItem transition.",
+        "properties": {
+          "changed_work_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ResDef_Coordination_SealedRecordRetireOutcome"
+          },
+          "tombstone": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_SealedRecordTombstone"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "changed_work_item_ids"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_SealedRecordTombstone": {
+        "additionalProperties": false,
+        "description": "The audited tombstone a retirement leaves in place of a sealed record.",
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "record_class": {
+            "type": "string"
+          },
+          "retired_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retired_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "record_class",
+          "digest",
+          "retired_by",
+          "retired_at_ms",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_SharedCap": {
+        "additionalProperties": false,
+        "description": "One budget shared by every option of a step (capital, GPU-hours, tokens,\nlane slots): the applied amounts never sum past `cap` in absolute value.",
+        "properties": {
+          "cap": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ResDef_Coordination_AllocationRule"
+          }
+        },
+        "required": [
+          "cap",
+          "rule"
+        ],
+        "type": "object"
+      },
       "ResDef_Coordination_ShortlistProvenance": {
         "additionalProperties": false,
         "description": "How the shortlist the decision scored was produced.",
@@ -79924,6 +82252,64 @@
           "now_ms"
         ],
         "type": "object"
+      },
+      "ResDef_Coordination_SlateAttribution": {
+        "additionalProperties": false,
+        "description": "The per-component split of one slate's success rate (EH-523). Evidence class is\nalways `claim`: an outcome is OBSERVED for the whole slate (EH-012); its split across\ncomponents is computed under an assumption and is advisory, never a label.",
+        "properties": {
+          "components": {
+            "$ref": "#/components/schemas/ResDef_Coordination_BoundedVec_ComponentContribution_64",
+            "description": "One per slot of the slate, in slot order; they sum to `grand`."
+          },
+          "digest": {
+            "description": "`sha256:` over the request, the observed coalition values and the kernel.",
+            "type": "string"
+          },
+          "evidence_class": {
+            "$ref": "#/components/schemas/ResDef_Coordination_EvidenceClass"
+          },
+          "grand": {
+            "$ref": "#/components/schemas/ResDef_Coordination_QuantisedValue",
+            "description": "The whole slate's observed success rate."
+          },
+          "graph_digest": {
+            "type": "string"
+          },
+          "method": {
+            "$ref": "#/components/schemas/ResDef_Coordination_SlateAttributionMethod"
+          },
+          "observed_coalitions": {
+            "description": "Distinct sub-slates (at `min_support`) the split was computed from.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "graph_digest",
+          "method",
+          "evidence_class",
+          "components",
+          "grand",
+          "observed_coalitions",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_SlateAttributionMethod": {
+        "description": "How a slate's outcome is split across its components (EH-523).",
+        "oneOf": [
+          {
+            "const": "shapley",
+            "description": "Exact Shapley values over the LOGGED sub-slates: every non-empty sub-slate of\nthe target must itself have been assembled and evaluated at `min_support`, or the\nreport is refused with `UNSUPPORTED_COALITION` (it is never interpolated).",
+            "type": "string"
+          },
+          {
+            "const": "additive",
+            "description": "The least-squares additive split over the logged sub-slates: this request IS the\ndeclared additive-reward assumption (DECIDE-LAYER \u00a76.4), so the report is advisory.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Coordination_SlotType": {
         "description": "The type of one slot a template binds at run time.",
@@ -80933,6 +83319,27 @@
           }
         ]
       },
+      "ResDef_Coordination_TrialLog": {
+        "additionalProperties": false,
+        "description": "How many configurations the search behind this candidate tried. The\ndeflated Sharpe ratio deflates by `declared`; a declaration below the\nsearch log's own count is refused (`n_trials = 1` after a search is the\ndefect this guards).",
+        "properties": {
+          "declared": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "searched": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "declared",
+          "searched"
+        ],
+        "type": "object"
+      },
       "ResDef_Coordination_TypedParam": {
         "additionalProperties": false,
         "description": "One named parameter of a question.",
@@ -81070,6 +83477,45 @@
         "required": [
           "numerator",
           "denominator"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_WalkForward": {
+        "additionalProperties": false,
+        "description": "Walk-forward folds, in admitted items. Fold `k` tests the `test` items\nstarting at `train + purge + k * step`; it trains on the `train` items that\nend `purge` items before its test window, minus the `embargo` items after\nevery earlier test window (their outcomes may still be maturing).",
+        "properties": {
+          "embargo": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "purge": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "step": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "test": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "train": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "train",
+          "test",
+          "step",
+          "purge",
+          "embargo"
         ],
         "type": "object"
       },
@@ -87881,6 +90327,14 @@
           }
         ]
       },
+      "ResDef_Query_AccessCheck": {
+        "description": "The access `CheckAccess` asks about.",
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_AdapterFitRequest": {
         "additionalProperties": false,
         "description": "Fit an adapter from the judged retrieval outcomes of one space.",
@@ -90232,6 +92686,16 @@
           }
         ]
       },
+      "ResDef_Query_AllocationRule": {
+        "description": "How requests are scaled when they exceed the shared cap.",
+        "oneOf": [
+          {
+            "const": "proportional",
+            "description": "Every request is scaled by the same factor `cap / sum |request|`.",
+            "type": "string"
+          }
+        ]
+      },
       "ResDef_Query_AnalysisSnapshotDraft": {
         "additionalProperties": false,
         "description": "What the caller asks to seal.",
@@ -90350,13 +92814,22 @@
       },
       "ResDef_Query_AnomalyAlgorithm": {
         "description": "Which detector `MineAnomaly` runs (CONCEPT:EG-KG.mining.isolation-forest).",
-        "enum": [
-          "zscore",
-          "isoforest",
-          "lof",
-          "ocsvm"
-        ],
-        "type": "string"
+        "oneOf": [
+          {
+            "enum": [
+              "zscore",
+              "isoforest",
+              "lof",
+              "ocsvm"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "matrix_profile_discord",
+            "description": "The matrix-profile discord score of a 1-D `values` series (EH-529, ANALYTICS-\nHARVEST AH-09): reuses `sample_size` as the subsequence length `m` and `seed` as\nthe profile's diagonal-order seed (`eg_compute::mining::anomaly::Algorithm::\nMatrixProfileDiscord`) \u2014 no new request field, the same per-algorithm parameter\nreuse `IsolationForest`/`Lof`/`Ocsvm` already use.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Query_ArrayEncoding": {
         "description": "How the elements of a referenced array are encoded.",
@@ -90604,6 +93077,144 @@
           }
         },
         "type": "object"
+      },
+      "ResDef_Query_AttributionInput": {
+        "description": "Where each player's value comes from.",
+        "oneOf": [
+          {
+            "const": "Score",
+            "description": "The incoming row's score (a prior RANK, WINDOW, TSSCAN, \u2026 stage).",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A numeric property of the row's node.",
+            "properties": {
+              "Property": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Property"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_AttributionMethod": {
+        "description": "How contributions are computed.",
+        "oneOf": [
+          {
+            "const": "Linear",
+            "description": "The exact split of an additive value (`SUM`); anything else is refused.",
+            "type": "string"
+          },
+          {
+            "const": "Shapley",
+            "description": "Exact Shapley over a memoised coalition table (at most 16 rows).",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Sampled Shapley: `samples` antithetic permutation pairs drawn from `seed`.",
+            "properties": {
+              "ShapleySampled": {
+                "properties": {
+                  "samples": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "seed": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "samples",
+                  "seed"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "ShapleySampled"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Owen values with the rows grouped into unions by the node property `by`.",
+            "properties": {
+              "Owen": {
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Owen"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_AttributionValue": {
+        "description": "The aggregate a coalition's value is.",
+        "oneOf": [
+          {
+            "enum": [
+              "Mean",
+              "Max",
+              "Min"
+            ],
+            "type": "string"
+          },
+          {
+            "const": "Sum",
+            "description": "Additive: the only aggregate `LINEAR` accepts.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The `p`-th percentile, `1..=99` (UQL `P<p>`, e.g. `P95`).",
+            "properties": {
+              "Percentile": {
+                "properties": {
+                  "p": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "p"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Percentile"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Query_AuditDraw": {
         "additionalProperties": false,
@@ -90954,6 +93565,62 @@
           "from_open",
           "to_close",
           "bars"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_BayesFuseRequest": {
+        "additionalProperties": false,
+        "description": "`bayes_fuse`: fuse directional calls into `P(up)`.",
+        "properties": {
+          "default_accuracy": {
+            "default": 0.55,
+            "description": "Accuracy of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "default_weight": {
+            "default": 0.5,
+            "description": "Weight of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "directions": {
+            "additionalProperties": {
+              "format": "int8",
+              "maximum": 127,
+              "minimum": -128,
+              "type": "integer"
+            },
+            "description": "Each source's call: `1` up, `-1` down, `0` no call. Applied in name\norder, so the result does not depend on how a caller built the map.",
+            "type": "object"
+          },
+          "max_pbo": {
+            "default": 0.5,
+            "format": "double",
+            "type": "number"
+          },
+          "min_sharpe": {
+            "default": 0.0,
+            "format": "double",
+            "type": "number"
+          },
+          "prior": {
+            "default": 0.5,
+            "description": "`P(up)` before any call.",
+            "format": "double",
+            "type": "number"
+          },
+          "priors": {
+            "default": [],
+            "description": "Measured priors; a source is seeded only when it has an edge and is\nnot overfit.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_FusionPrior"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "directions"
         ],
         "type": "object"
       },
@@ -95073,6 +97740,13 @@
           "idempotency_key": {
             "type": "string"
           },
+          "mode": {
+            "$ref": "#/components/schemas/ResDef_Query_EvalMode",
+            "default": {
+              "mode": "off_policy"
+            },
+            "description": "Off-policy (the default) or a walk-forward replay (EH-528)."
+          },
           "policy": {
             "$ref": "#/components/schemas/ResDef_Query_DecisionPolicyRef"
           },
@@ -95986,6 +98660,22 @@
           "broader",
           "source",
           "class"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DeriveColumn": {
+        "description": "One `DERIVE` column: an expression and the channel name its values are written to.",
+        "properties": {
+          "expr": {
+            "$ref": "#/components/schemas/ResDef_Query_SeriesExpr"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expr",
+          "name"
         ],
         "type": "object"
       },
@@ -97973,6 +100663,43 @@
           }
         ]
       },
+      "ResDef_Query_EvalMode": {
+        "description": "How a `DecisionEval` job evaluates its candidate.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Off-policy and calibration evaluation into a promotion receipt.",
+            "properties": {
+              "mode": {
+                "const": "off_policy",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Walk-forward replay into a sealed [`EvaluationRun`].",
+            "properties": {
+              "mode": {
+                "const": "replay",
+                "type": "string"
+              },
+              "spec": {
+                "$ref": "#/components/schemas/ResDef_Query_ReplaySpec"
+              }
+            },
+            "required": [
+              "mode",
+              "spec"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_EvaluationMetrics": {
         "additionalProperties": false,
         "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
@@ -99527,6 +102254,47 @@
           }
         ]
       },
+      "ResDef_Query_FinanceSignalModelsOp": {
+        "description": "One signal-model operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls.",
+            "properties": {
+              "op": {
+                "const": "bayes_fuse",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_BayesFuseRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The strategic insider under dynamic legal risk.",
+            "properties": {
+              "op": {
+                "const": "insider_equilibrium",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_InsiderEquilibriumRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_FittedClassifier": {
         "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit\u2192blob\u2192predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire \u2014\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
         "oneOf": [
@@ -100848,6 +103616,34 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_FusionPrior": {
+        "additionalProperties": false,
+        "description": "A stored per-source prior: what a backtest measured for one signal.",
+        "properties": {
+          "directional_accuracy": {
+            "format": "double",
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pbo": {
+            "format": "double",
+            "type": "number"
+          },
+          "standalone_sharpe": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "directional_accuracy",
+          "standalone_sharpe",
+          "pbo"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_GapEvidenceInput": {
         "additionalProperties": false,
         "description": "One evidence signal a caller submits.",
@@ -101592,6 +104388,65 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_ImpactOptions": {
+        "description": "Options of the probabilistic impact models.",
+        "properties": {
+          "as_of_ms": {
+            "default": 0,
+            "description": "With writeback: the as-of time (unix ms) recorded on each assessment.\nPart of the request, so a WAL replay writes the same facts.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "assess": {
+            "default": [],
+            "description": "With writeback: assess only these node ids (the recomputed cone of an\nevent-driven run). Empty assesses every hit node.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "attribute_seeds": {
+            "default": false,
+            "description": "Report per-seed Shapley attribution for the reported path targets.",
+            "type": "boolean"
+          },
+          "hops": {
+            "default": 8,
+            "description": "Hop bound (capped at 64).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rng_seed": {
+            "default": 0,
+            "description": "Seed of the Monte Carlo stream; the run replays bit-identically.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "samples": {
+            "default": 2000,
+            "description": "Monte Carlo worlds (`independent_cascade` only).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scope": {
+            "default": "",
+            "description": "With writeback: the assessment scope recorded on, and keying, each\n`:ImpactAssessment` node (a standing impact watch's id). Empty = `adhoc`.",
+            "type": "string"
+          },
+          "top_paths": {
+            "default": 10,
+            "description": "How many of the strongest seed-to-node paths to report.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "ResDef_Query_IncarnationId": {
         "description": "Opaque logical-generation identity. It is never derived from a resource name.",
         "type": "string"
@@ -102065,6 +104920,86 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Query_InsiderEquilibriumRequest": {
+        "additionalProperties": false,
+        "description": "`insider_equilibrium`: the equilibrium, its schedule and the policy verdict.",
+        "properties": {
+          "inputs": {
+            "$ref": "#/components/schemas/ResDef_Query_InsiderInputs"
+          },
+          "steps": {
+            "description": "Schedule samples over the window (`steps + 1` points).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inputs",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_InsiderInputs": {
+        "additionalProperties": false,
+        "description": "Primitives of the continuous-time Kyle game with dynamic legal risk, in the\npaper's normalized units.",
+        "properties": {
+          "civil_penalty_rate": {
+            "description": "Civil damages as a multiple of gross profit.",
+            "format": "double",
+            "type": "number"
+          },
+          "criminal_penalty": {
+            "description": "Expected criminal cost (fixed, hazard-scaled).",
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement": {
+            "description": "Regulator effort in `[0, 1]`.",
+            "format": "double",
+            "type": "number"
+          },
+          "gap_var": {
+            "default": null,
+            "description": "`E[(v-p)^2]`; `sigma_v^2` when absent.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "horizon": {
+            "description": "Trading window length.",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_u": {
+            "description": "Std of noise-trader flow (the cover for stealth).",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_v": {
+            "description": "Std of the fundamental value (the informational edge).",
+            "format": "double",
+            "type": "number"
+          },
+          "surveillance_kappa": {
+            "description": "How fast the detection hazard grows with activity.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sigma_v",
+          "sigma_u",
+          "enforcement",
+          "surveillance_kappa",
+          "criminal_penalty",
+          "civil_penalty_rate",
+          "horizon"
+        ],
+        "type": "object"
       },
       "ResDef_Query_IssueControlLeaseRequest": {
         "additionalProperties": false,
@@ -112033,78 +114968,6 @@
             "additionalProperties": false,
             "properties": {
               "method": {
-                "const": "FinanceRollingZscore",
-                "type": "string"
-              },
-              "params": {
-                "additionalProperties": false,
-                "properties": {
-                  "values": {
-                    "items": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "type": "array"
-                  },
-                  "window": {
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "values",
-                  "window"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "method",
-              "params"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "method": {
-                "const": "FinanceEwma",
-                "type": "string"
-              },
-              "params": {
-                "additionalProperties": false,
-                "properties": {
-                  "span": {
-                    "format": "uint",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "values": {
-                    "items": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "values",
-                  "span"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "method",
-              "params"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "method": {
                 "const": "FinanceSignalDecay",
                 "type": "string"
               },
@@ -114486,6 +117349,37 @@
           },
           {
             "additionalProperties": false,
+            "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+            "properties": {
+              "method": {
+                "const": "CheckAccess",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "$ref": "#/components/schemas/ResDef_Query_AccessCheck"
+                  },
+                  "agent_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "access"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the\nenum; the handler is gated behind the `security` feature (a non-security build\nfalls to the dispatch \"not available in this build\" catch-all, like EG-090's\nbackup/restore on a non-redb build).",
             "properties": {
               "method": {
@@ -116743,6 +119637,41 @@
             },
             "required": [
               "method"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Define a MATERIALISED DERIVED SERIES (EH-524): `series_id` is maintained from\n`source` \u2014 a series in the caller's own scope \u2014 by `expr`, a series expression in\nthe UQL `DERIVE` sub-grammar over the source's fields `v0..vk` (for example\n`zscore(ewma(v0, 12), 60)` or `div(wsum(v0, v1, 20), rsum(v1, 20))`). Its points\nare `[value, revision, known_at_ms]`. Every `TsAppend` to the source advances it\nfrom its checkpoint (bounded work per append; a lagging series catches up on the\nnext append or re-definition); a source point at or before the last one derived is\na revision and appends new versions, never an edit. `TSSCAN`, PromQL and SQL read\nit like any series. Idempotent for the same definition (the call then catches the\nseries up); a different definition, a missing source or a cycle is refused.",
+            "properties": {
+              "method": {
+                "const": "TsDefineSeries",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "expr": {
+                    "type": "string"
+                  },
+                  "series_id": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "series_id",
+                  "source",
+                  "expr"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
             ],
             "type": "object"
           },
@@ -119810,7 +122739,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized\nPageRank over a directed weighted graph (`edges`), restarting to a `seed`\nrisk distribution instead of teleporting uniformly. With `writeback=true`\nmaterializes each node's propagated score as a typed `:RiskScore` node \u2014 a\ngraph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.",
+            "description": "Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation). The default\n`model: share` is personalized PageRank over a directed weighted graph\n(`edges`), restarting to a `seed` risk distribution instead of teleporting\nuniformly: each node's SHARE of propagated risk mass (the shares sum to 1 \u2014\na mass share, not a probability). The impact models (`noisy_or`,\n`independent_cascade`, EH-526) instead read `edges` weights as transmission\nprobabilities and `seed` as seed-hit probabilities and return `P(node is\nhit)` with hop depth, the strongest paths and per-seed attribution. With\n`writeback=true` `share` materializes `:RiskScore` nodes and the impact\nmodels `:ImpactAssessment` nodes \u2014 a graph MUTATION, WAL-replayed by\nre-propagating deterministically (the Monte Carlo stream is seeded). Gated\n`mining`.",
             "properties": {
               "method": {
                 "const": "MineRiskPropagation",
@@ -119858,6 +122787,13 @@
                     "format": "uint",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "model": {
+                    "$ref": "#/components/schemas/ResDef_Query_RiskModel",
+                    "default": {
+                      "kind": "share"
+                    },
+                    "description": "The propagation model (default `share`; `damping`/`tolerance`/\n`max_iterations` apply to `share` only)."
                   },
                   "nodes": {
                     "default": [],
@@ -121098,6 +124034,60 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+            "properties": {
+              "method": {
+                "const": "FinanceSignalModels",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ResDef_Query_FinanceSignalModelsOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+            "properties": {
+              "method": {
+                "const": "RetireSealedRecord",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "request": {
+                    "$ref": "#/components/schemas/ResDef_Query_RetireSealedRecordRequest"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -121225,6 +124215,110 @@
           }
         },
         "type": "object"
+      },
+      "ResDef_Query_MotifOp": {
+        "description": "A UQL `MOTIF` / `DISCORD` stage (EH-529): which value channel is searched, for what,\nhow many hits, and the seed of the matrix profile's anytime diagonal order.",
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "search": {
+            "$ref": "#/components/schemas/ResDef_Query_MotifSearch"
+          },
+          "seed": {
+            "default": 0,
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "top": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "channel",
+          "search",
+          "top"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_MotifSearch": {
+        "description": "What a `MOTIF` / `DISCORD` stage looks for in each series.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "`MOTIF LIKE shape`: the windows z-normalised-closest to `shape` (MASS).",
+            "properties": {
+              "like": {
+                "properties": {
+                  "shape": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "shape"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "like"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`MOTIF LENGTH m`: the closest pairs of length-`m` windows (matrix-profile minima).",
+            "properties": {
+              "pairs": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "pairs"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`DISCORD LENGTH m`: the length-`m` windows farthest from every other window\n(matrix-profile maxima).",
+            "properties": {
+              "discord": {
+                "properties": {
+                  "length": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "discord"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Query_MultimodalAssetRef": {
         "additionalProperties": false,
@@ -121741,7 +124835,7 @@
       },
       "ResDef_Query_NamedEvaluator": {
         "additionalProperties": false,
-        "description": "The one principal a committer names to evaluate its record (EH-395).\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal join evaluations to exactly this\nrecord until it expires: it cannot read, list or count the record, and\nnothing else widens. The evaluator is never the committer.",
+        "description": "Who a committer names to evaluate its record (EH-395): ONE principal, or\nthe holders of ONE declared policy role.\n\nA record visible only to its committer (a graph-sourced or declared one)\ncould otherwise never be judged independently. Naming an evaluator issues\na control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]\nthat lets exactly that principal -- or any verified principal whose signed\nrequest context carries `role`, other than the committer -- join\nevaluations to exactly this record until it expires: it cannot read, list\nor count the record, and nothing else widens. The evaluator is never the\ncommitter. Exactly one of `principal` and `role` is set.",
         "properties": {
           "expires_at_ms": {
             "description": "When the grant lapses; at most the control-lease span after commit.",
@@ -121750,12 +124844,23 @@
             "type": "integer"
           },
           "principal": {
+            "default": null,
             "description": "The evaluator's persistence id (`principal:sha256:<hex>` of its\nverified principal).",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "default": null,
+            "description": "The declared policy role whose holders may evaluate (a role name of the\nsigned request context, e.g. `decide-evaluator`).",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "principal",
           "expires_at_ms"
         ],
         "type": "object"
@@ -122264,6 +125369,55 @@
             },
             "required": [
               "Expand"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "PROPAGATE (graph, EH-526) \u2014 the probability that each node is hit when the\ncurrent rows are hit: seeds are the input rows (seed probability = the node's\n`p_seed` property when it is a number in `[0, 1]`, else 1), impact flows along\nedges in `dir` restricted to `rel` and `edge_preds` for at most `hops` hops,\nand an edge transmits with its `transmission` property (else\n`default_transmission`). Output: every hit node, most probable first, scored\nby its probability (channel `impact`).",
+            "properties": {
+              "Propagate": {
+                "properties": {
+                  "default_transmission": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "dir": {
+                    "$ref": "#/components/schemas/ResDef_Query_EdgeDir"
+                  },
+                  "edge_preds": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_Pred"
+                    },
+                    "type": "array"
+                  },
+                  "hops": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "model": {
+                    "$ref": "#/components/schemas/ResDef_Query_PropagateModel"
+                  },
+                  "rel": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "model",
+                  "dir",
+                  "edge_preds",
+                  "hops",
+                  "default_transmission"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Propagate"
             ],
             "type": "object"
           },
@@ -122905,6 +126059,96 @@
           },
           {
             "additionalProperties": false,
+            "description": "TRANSFORM (series, EH-522, UQL `DERIVE expr AS name {, expr AS name}`) \u2014 evaluate each\ncolumn's [`crate::series_expr::SeriesExpr`] over every series of the input in timestamp\norder (a row belongs to the series its `series@ts` id names) and write the result\nunder the column's name as an exact value channel a later `DERIVE` or `RETURN` reads.\nRows, their order and their scores pass through unchanged; a row with no value yet\n(warm-up, a skipped input) simply has no channel. The kernels are `eg_numeric::series`,\nthe same ones the SQL `eg_*` window functions and a materialised derived series run.",
+            "properties": {
+              "Derive": {
+                "properties": {
+                  "columns": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_DeriveColumn"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "columns"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Derive"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "REPORT (series, EH-522 FeatureSkill, UQL `SKILL f AGAINST y HORIZONS [..] WINDOW w\n[BOOTSTRAP n SEED s]`) \u2014 the predictive skill of value channel `feature` for the\nlater value channel `outcome`, per series: the rolling Spearman IC of `feature[t]`\nagainst `outcome[t + h]` for each horizon, summarised (mean, deviation, ICIR, a\nseeded moving-block bootstrap interval), with the breadth across horizons.\nReplaces the rows with one row per series and horizon, id `<series>:skill@<h>`,\nscore the mean IC and channels `mean_ic ic_std icir ic_lo ic_hi n n_eff ir`\n(`eg_numeric::evaluation::skill::feature_skill`).",
+            "properties": {
+              "Skill": {
+                "properties": {
+                  "spec": {
+                    "$ref": "#/components/schemas/ResDef_Query_SkillOp"
+                  }
+                },
+                "required": [
+                  "spec"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Skill"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "REPORT (series, EH-529 motif / discord search, UQL `MOTIF [OF c] LIKE shape [TOP k]`,\n`MOTIF [OF c] LENGTH m [TOP k] [SEED s]`, `DISCORD [OF c] LENGTH m [TOP k] [SEED s]`)\n\u2014 per series, over value channel `c` in timestamp order: the `k` non-overlapping\nwindows z-normalised-closest to `shape` (MASS query-by-example), the `k` closest\nwindow pairs, or the `k` windows farthest from all others (the SCRIMP++ matrix\nprofile, anytime under the plan's series-work budget). Replaces the rows with one\nrow per hit, id `<series>#motif@<start ts>` / `<series>#discord@<start ts>` (shape\nevents a later `CEP` matches by key `motif` / `discord`), score the distance and\nchannels `distance start end neighbor approximate` (`eg_numeric::series`).",
+            "properties": {
+              "Motif": {
+                "properties": {
+                  "spec": {
+                    "$ref": "#/components/schemas/ResDef_Query_MotifOp"
+                  }
+                },
+                "required": [
+                  "spec"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Motif"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "TRANSFORM (series, EH-529 shape events, UQL `EVENTS c {, c}`) \u2014 every series row\nwhose value channel `c` is non-zero (a `DERIVE` shape predicate such as\n`gt(ret(v0, 1), 0)`) becomes an event row `<series>#<c>@<ts>` carrying the row's\nvalue channels, which a later `CEP` stage matches by key `c` \u2014 the existing NFA, no\nnew pattern language. Rows that are not series rows are dropped.",
+            "properties": {
+              "Events": {
+                "properties": {
+                  "channels": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "channels"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Events"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) \u2014 run the probabilistic query `query`\nagainst each row's stored `Distribution` VALUE (the conventional `distribution`\nnode property, the tagged serde form of `eg_types::Distribution`) and SCORE the\nrow with the closed-form result \u2014 expectation / marginal probability / conditional\nposterior mean / deterministic seeded sample \u2014 re-ordering the RowSet by that score\nDESCENDING, exactly as `Rank` produces a scored order a downstream `Limit` respects.\nRows whose `distribution` is missing/invalid, or where the query does not apply\n(e.g. a `Conditional` with an unsupported conjugate pair), are DROPPED \u2014 mirroring\nhow the tensor/spatial legs narrow their input. Gated by `probabilistic` (the\ndistribution + Bayesian math lives in eg-types/eg-compute behind eg-plan's own\n`probabilistic` gate; this is the pure-serde wire variant \u2014 no RNG-from-clock, so a\nseeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.",
             "properties": {
               "Probabilistic": {
@@ -123061,6 +126305,35 @@
             },
             "required": [
               "ExplainBelief"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "TRANSFORM (EH-523, UQL `ATTRIBUTE <agg> OF <input> <method>`) \u2014 contribution\nattribution over the incoming rows as players: each row's value is `input`, a\ncoalition's value is the `value` aggregate of its members (`v(\u2205) = 0`), and every\nrow is re-scored with its contribution under `method` (linear split, exact or\nsampled Shapley, Owen), ordered descending. Contributions sum to `v(all rows)`.\nThe executor is eg-numeric's attribution kernel (eg-plan `numeric`); a build\nwithout it refuses the stage.",
+            "properties": {
+              "Attribute": {
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/ResDef_Query_AttributionInput"
+                  },
+                  "method": {
+                    "$ref": "#/components/schemas/ResDef_Query_AttributionMethod"
+                  },
+                  "value": {
+                    "$ref": "#/components/schemas/ResDef_Query_AttributionValue"
+                  }
+                },
+                "required": [
+                  "input",
+                  "value",
+                  "method"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Attribute"
             ],
             "type": "object"
           },
@@ -123412,6 +126685,17 @@
         "additionalProperties": false,
         "description": "Ask for the outcome aggregate.",
         "properties": {
+          "attribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_SlateAttributionRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Also split one slate's outcome across its components (EH-523)."
+          },
           "question_id": {
             "default": null,
             "description": "`None` aggregates every question; rows then also carry the\ncross-question total per option.",
@@ -125790,6 +129074,45 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_PropagateModel": {
+        "description": "The impact model of a [`Op::Propagate`] stage (EH-526).",
+        "oneOf": [
+          {
+            "const": "noisy_or",
+            "description": "Noisy-OR over the downstream cone (exact on a polytree cone, otherwise an\nupper bound; bounded unrolling on a cycle).",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Seeded Monte Carlo of the independent-cascade (live-edge) model.",
+            "properties": {
+              "cascade": {
+                "properties": {
+                  "samples": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "seed": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "samples",
+                  "seed"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "cascade"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_PropensitySource": {
         "description": "Where a logged propensity came from.",
         "oneOf": [
@@ -126544,6 +129867,23 @@
           }
         ]
       },
+      "ResDef_Query_RefitSpec": {
+        "additionalProperties": false,
+        "description": "Refit the head on each fold's training window with `DecisionFit`'s kernel.",
+        "properties": {
+          "head_kind": {
+            "$ref": "#/components/schemas/ResDef_Query_HeadKind"
+          },
+          "optimiser": {
+            "$ref": "#/components/schemas/ResDef_Query_OptimiserSpec"
+          }
+        },
+        "required": [
+          "head_kind",
+          "optimiser"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_RegisteredServerCursor": {
         "additionalProperties": false,
         "description": "Stable continuation over one complete live registry snapshot.",
@@ -126618,6 +129958,78 @@
             "type": "string"
           }
         ]
+      },
+      "ResDef_Query_ReplayEnvironment": {
+        "description": "What the caller asserts about the environment the policy is replayed in.",
+        "oneOf": [
+          {
+            "const": "policy_independent",
+            "description": "An option's outcome does not depend on which option the policy chose.\nThe only environment replay evaluates.",
+            "type": "string"
+          },
+          {
+            "const": "policy_dependent",
+            "description": "The policy's choice changes what is observed. Replay refuses; the\noff-policy estimators (within the logging support) are the answer.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Query_ReplaySpec": {
+        "additionalProperties": false,
+        "description": "A replay evaluation's parameters.",
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/ResDef_Query_SharedCap"
+          },
+          "env": {
+            "$ref": "#/components/schemas/ResDef_Query_ReplayEnvironment"
+          },
+          "folds": {
+            "$ref": "#/components/schemas/ResDef_Query_WalkForward"
+          },
+          "incumbent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_EvalCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The policy the candidate is compared against; `None` is the uniform\nallocation over each step's options."
+          },
+          "refit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_RefitSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`None` replays the candidate as submitted in every fold."
+          },
+          "supersedes": {
+            "default": null,
+            "description": "The digest of the run this one revises.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trials": {
+            "$ref": "#/components/schemas/ResDef_Query_TrialLog"
+          }
+        },
+        "required": [
+          "folds",
+          "budget",
+          "env",
+          "trials"
+        ],
+        "type": "object"
       },
       "ResDef_Query_RequestContext": {
         "additionalProperties": false,
@@ -127432,6 +130844,51 @@
           }
         ]
       },
+      "ResDef_Query_RetireSealedRecordRequest": {
+        "additionalProperties": false,
+        "description": "`RetireSealedRecord`: replace one sealed record with its audited tombstone.",
+        "properties": {
+          "digest": {
+            "description": "The record's seal, as its class's digest property stores it.",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "description": "Caller-stable retry identity for this retirement.",
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the record is retired (for example `share revoked` or `expired`).",
+            "type": "string"
+          },
+          "retired_at_ms": {
+            "description": "When the retirement takes effect, epoch milliseconds. Part of the retry\nidentity, so a retry carries the same value.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retired_by": {
+            "default": "",
+            "description": "Who retired it. The engine stamps this from the verified caller (a\nprincipal fingerprint) before the commit; a client-supplied value is replaced.",
+            "type": "string"
+          },
+          "tenant": {
+            "description": "Must equal the verified request tenant.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "node_id",
+          "digest",
+          "reason",
+          "retired_at_ms",
+          "idempotency_key"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_RetrievalCandidateWire": {
         "description": "Wire mirror of `eg_epistemic::RetrievalCandidate` (EPI-P3-3) \u2014 one candidate in\na `Method::RankByProvenance` request, before ranking.",
         "properties": {
@@ -127688,6 +131145,51 @@
           "conformal_risk_control"
         ],
         "type": "string"
+      },
+      "ResDef_Query_RiskModel": {
+        "description": "Which propagation model `MineRiskPropagation` runs.\n\n`share` (the default) is personalised PageRank: each node's SHARE of the\npropagated risk mass. The shares sum to one, so they are not probabilities:\nten independent paths into a node divide mass rather than raising the\nnode's chance of being hit. `noisy_or` and `independent_cascade` return the\nprobability that each node is hit, with the edge weights read as\ntransmission probabilities and the seed values as seed-hit probabilities.",
+        "oneOf": [
+          {
+            "properties": {
+              "kind": {
+                "const": "share",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Query_ImpactOptions",
+            "description": "Noisy-OR over the seeds' downstream cone: exact on a polytree cone, an\nupper bound on other DAGs, unrolled for `hops` rounds on a cycle.",
+            "properties": {
+              "kind": {
+                "const": "noisy_or",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Query_ImpactOptions",
+            "description": "Seeded Monte Carlo of the independent-cascade (live-edge) model, with\n95% Wilson intervals per node.",
+            "properties": {
+              "kind": {
+                "const": "independent_cascade",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Query_RiskStatement": {
         "additionalProperties": false,
@@ -130448,6 +133950,127 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_SeriesExpr": {
+        "description": "One node of a series expression.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A row's value channel: `v0..vk` (a `TSSCAN` field), `score`, or a `DERIVE` alias.",
+            "properties": {
+              "Channel": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Channel"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A constant series.",
+            "properties": {
+              "Const": {
+                "properties": {
+                  "value": {
+                    "format": "double",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "value"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Const"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "`func(args\u2026, params\u2026)`: `args` are series, `params` numbers (a window, a span\u2026).",
+            "properties": {
+              "Call": {
+                "properties": {
+                  "args": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_SeriesExpr"
+                    },
+                    "type": "array"
+                  },
+                  "func": {
+                    "$ref": "#/components/schemas/ResDef_Query_SeriesFunc"
+                  },
+                  "params": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "func",
+                  "args",
+                  "params"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Call"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Query_SeriesFunc": {
+        "description": "The fixed function table.",
+        "enum": [
+          "lag",
+          "diff",
+          "ret",
+          "logret",
+          "rmean",
+          "rstd",
+          "rsum",
+          "rmin",
+          "rmax",
+          "rrank",
+          "zscore",
+          "ewma",
+          "ewma_halflife",
+          "abs",
+          "sign",
+          "neg",
+          "clip",
+          "add",
+          "sub",
+          "mul",
+          "div",
+          "rcorr",
+          "ic",
+          "wsum",
+          "kalman",
+          "kbeta",
+          "gt",
+          "lt",
+          "greatest",
+          "least",
+          "mprofile"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_SeriesIdentity": {
         "additionalProperties": false,
         "description": "What a bar series is: one listing, price basis, timeframe and calendar.",
@@ -131115,6 +134738,23 @@
           }
         ]
       },
+      "ResDef_Query_SharedCap": {
+        "additionalProperties": false,
+        "description": "One budget shared by every option of a step (capital, GPU-hours, tokens,\nlane slots): the applied amounts never sum past `cap` in absolute value.",
+        "properties": {
+          "cap": {
+            "$ref": "#/components/schemas/ResDef_Query_QuantisedValue"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/ResDef_Query_AllocationRule"
+          }
+        },
+        "required": [
+          "cap",
+          "rule"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_ShortlistProvenance": {
         "additionalProperties": false,
         "description": "How the shortlist the decision scored was produced.",
@@ -131311,6 +134951,50 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_SkillOp": {
+        "description": "A UQL `SKILL` stage (EH-522 FeatureSkill): which channels, horizons, IC window and\nbootstrap.",
+        "properties": {
+          "feature": {
+            "type": "string"
+          },
+          "horizons": {
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "resamples": {
+            "default": 0,
+            "description": "Bootstrap resamples for the interval on the mean IC (`0`: none).",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seed": {
+            "default": 0,
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "window": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "feature",
+          "outcome",
+          "horizons",
+          "window"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_SkillType": {
         "description": "How a skill is run. The four values the agent ecosystem declares.",
         "enum": [
@@ -131320,6 +135004,39 @@
           "mcp_skill"
         ],
         "type": "string"
+      },
+      "ResDef_Query_SlateAttributionMethod": {
+        "description": "How a slate's outcome is split across its components (EH-523).",
+        "oneOf": [
+          {
+            "const": "shapley",
+            "description": "Exact Shapley values over the LOGGED sub-slates: every non-empty sub-slate of\nthe target must itself have been assembled and evaluated at `min_support`, or the\nreport is refused with `UNSUPPORTED_COALITION` (it is never interpolated).",
+            "type": "string"
+          },
+          {
+            "const": "additive",
+            "description": "The least-squares additive split over the logged sub-slates: this request IS the\ndeclared additive-reward assumption (DECIDE-LAYER \u00a76.4), so the report is advisory.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Query_SlateAttributionRequest": {
+        "additionalProperties": false,
+        "description": "Ask for the per-component split of one assembled slate's outcome (EH-523).",
+        "properties": {
+          "graph_digest": {
+            "description": "The solved assembly's graph digest (`slate:<digest>` in the aggregate rows).",
+            "type": "string"
+          },
+          "method": {
+            "$ref": "#/components/schemas/ResDef_Query_SlateAttributionMethod"
+          }
+        },
+        "required": [
+          "graph_digest",
+          "method"
+        ],
+        "type": "object"
       },
       "ResDef_Query_SlotAssignment": {
         "additionalProperties": false,
@@ -135005,6 +138722,27 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_TrialLog": {
+        "additionalProperties": false,
+        "description": "How many configurations the search behind this candidate tried. The\ndeflated Sharpe ratio deflates by `declared`; a declaration below the\nsearch log's own count is refused (`n_trials = 1` after a search is the\ndefect this guards).",
+        "properties": {
+          "declared": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "searched": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "declared",
+          "searched"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_TypedParam": {
         "additionalProperties": false,
         "description": "One named parameter of a question.",
@@ -135594,11 +139332,11 @@
         ]
       },
       "ResDef_Query_UqlRow": {
-        "description": "One result row of a UQL statement (UQL-08): `id`, the final `score`, and the value of\neach requested score channel (aligned to [`UqlResult`]'s `columns`; `None` where no\nstage produced that channel for the row).",
+        "description": "One result row of a UQL statement (UQL-08): `id`, the final `score`, and the value of\neach requested channel (aligned to [`UqlResult`]'s `columns`; `None` where no stage\nproduced that channel for the row). Channels are `f64` (EH-521): a series value channel\n(`TSSCAN`'s `v0..vk`, a `DERIVE` alias) is exact; a score channel is its `f32` widened.",
         "properties": {
           "channels": {
             "items": {
-              "format": "float",
+              "format": "double",
               "type": [
                 "number",
                 "null"
@@ -136334,6 +140072,45 @@
           "max_primitives",
           "max_bytes",
           "dataset_ref"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_WalkForward": {
+        "additionalProperties": false,
+        "description": "Walk-forward folds, in admitted items. Fold `k` tests the `test` items\nstarting at `train + purge + k * step`; it trains on the `train` items that\nend `purge` items before its test window, minus the `embargo` items after\nevery earlier test window (their outcomes may still be maturing).",
+        "properties": {
+          "embargo": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "purge": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "step": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "test": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "train": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "train",
+          "test",
+          "step",
+          "purge",
+          "embargo"
         ],
         "type": "object"
       },
@@ -137977,6 +141754,39 @@
           "predicate",
           "object",
           "object_kind"
+        ],
+        "type": "object"
+      },
+      "ResDef_Security_AccessCheck": {
+        "description": "The access `CheckAccess` asks about.",
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
+      "ResDef_Security_AccessDecision": {
+        "additionalProperties": false,
+        "description": "`CheckAccess`'s answer: would `agent_id`'s request of `access` on `graph`\nbe admitted right now, by the same isolation/RBAC decision EG applies to\nthat principal's own requests. An unregistered or revoked principal is\n`allowed: false`.",
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/ResDef_Security_AccessCheck"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "graph": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "graph",
+          "access",
+          "allowed"
         ],
         "type": "object"
       },
@@ -142422,6 +146232,57 @@
           "broader",
           "source",
           "class"
+        ],
+        "type": "object"
+      },
+      "ResDef_Storage_DerivedSeriesReceipt": {
+        "description": "What `TsDefineSeries` answers (EH-524): the definition, its lineage and provenance,\nand how far maintenance got.",
+        "properties": {
+          "appended": {
+            "description": "Derived points appended by this call.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "caught_up": {
+            "description": "Whether every source point is reflected (`false`: the work budget stopped this\ncall; the next append or definition continues).",
+            "type": "boolean"
+          },
+          "derived_from": {
+            "description": "Lineage: the series this one is derived from (`:DerivedSeries derivedFrom :Series`).",
+            "type": "string"
+          },
+          "digest": {
+            "description": "`sha256:` over the canonical spelling and the kernel generation.",
+            "type": "string"
+          },
+          "expr": {
+            "description": "The expression's canonical UQL spelling.",
+            "type": "string"
+          },
+          "kernel_version": {
+            "type": "string"
+          },
+          "last_ts": {
+            "description": "The last source timestamp reflected.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "series_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_id",
+          "derived_from",
+          "expr",
+          "digest",
+          "kernel_version",
+          "appended",
+          "caught_up"
         ],
         "type": "object"
       },
@@ -147296,14 +151157,6 @@
         "type": "number",
         "x-encoding": "Float"
       },
-      "Res_compute_FinanceEwma": {
-        "items": {
-          "format": "double",
-          "type": "number"
-        },
-        "type": "array",
-        "x-encoding": "Raw"
-      },
       "Res_compute_FinanceExpectedPnlRate": {
         "format": "double",
         "type": "number",
@@ -147572,14 +151425,6 @@
         "$ref": "#/components/schemas/ResDef_Compute_OptimizationResult",
         "x-encoding": "Json"
       },
-      "Res_compute_FinanceRollingZscore": {
-        "items": {
-          "format": "double",
-          "type": "number"
-        },
-        "type": "array",
-        "x-encoding": "Raw"
-      },
       "Res_compute_FinanceSabrCalibrate": {
         "$ref": "#/components/schemas/ResDef_Compute_SabrFit",
         "x-encoding": "Raw"
@@ -147604,6 +151449,21 @@
         },
         "type": "array",
         "x-encoding": "Raw"
+      },
+      "Res_compute_FinanceSignalModels": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_BayesFusion",
+            "x-body": "bayes_fuse",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_InsiderAnalysis",
+            "x-body": "insider_equilibrium",
+            "x-encoding": "Raw"
+          }
+        ],
+        "x-selected-by": "op"
       },
       "Res_compute_FinanceSpreadReversion": {
         "$ref": "#/components/schemas/ResDef_Compute_SpreadReversion",
@@ -148276,6 +152136,10 @@
       },
       "Res_coordination_ResourceStatsPage": {
         "$ref": "#/components/schemas/ResDef_Coordination_ResourceSnapshot",
+        "x-encoding": "Json"
+      },
+      "Res_coordination_RetireSealedRecord": {
+        "$ref": "#/components/schemas/ResDef_Coordination_SealedRecordRetirement",
         "x-encoding": "Json"
       },
       "Res_coordination_Statechart": {
@@ -149698,6 +153562,10 @@
         "$ref": "#/components/schemas/ResDef_Security_AuditReport",
         "x-encoding": "Raw"
       },
+      "Res_security_CheckAccess": {
+        "$ref": "#/components/schemas/ResDef_Security_AccessDecision",
+        "x-encoding": "Json"
+      },
       "Res_security_GetIdentity": {
         "anyOf": [
           {
@@ -150186,6 +154054,10 @@
         "type": "array",
         "x-encoding": "Raw"
       },
+      "Res_storage_TsDefineSeries": {
+        "$ref": "#/components/schemas/ResDef_Storage_DerivedSeriesReceipt",
+        "x-encoding": "Raw"
+      },
       "Res_storage_TsDeleteSeries": {
         "format": "uint64",
         "minimum": 0,
@@ -150413,7 +154285,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 454 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 456 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -154875,63 +158747,6 @@
         "x-txn-participation": "None"
       }
     },
-    "/rpc/compute/FinanceEwma": {
-      "post": {
-        "operationId": "FinanceEwma",
-        "requestBody": {
-          "content": {
-            "application/msgpack": {
-              "schema": {
-                "$ref": "#/components/schemas/Req_FinanceEwma"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/msgpack": {
-                "schema": {
-                  "$ref": "#/components/schemas/Res_compute_FinanceEwma"
-                }
-              }
-            },
-            "description": "`FinanceEwma` result."
-          },
-          "default": {
-            "content": {
-              "application/msgpack": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Typed engine error (one of `x-error-set`)."
-          }
-        },
-        "summary": "FinanceEwma",
-        "tags": [
-          "compute"
-        ],
-        "x-audited": false,
-        "x-authz-action": "compute:finance",
-        "x-consumer-profiles": [
-          "python"
-        ],
-        "x-durability-domain": "None",
-        "x-emits-cdc": false,
-        "x-error-set": [
-          "INVALID_ARGUMENT",
-          "ACCESS_DENIED"
-        ],
-        "x-idempotent": true,
-        "x-mutates": false,
-        "x-replay-class": "NotReplayable",
-        "x-stability": "stable",
-        "x-txn-participation": "None"
-      }
-    },
     "/rpc/compute/FinanceExpectedPnlRate": {
       "post": {
         "operationId": "FinanceExpectedPnlRate",
@@ -156984,63 +160799,6 @@
         "x-txn-participation": "None"
       }
     },
-    "/rpc/compute/FinanceRollingZscore": {
-      "post": {
-        "operationId": "FinanceRollingZscore",
-        "requestBody": {
-          "content": {
-            "application/msgpack": {
-              "schema": {
-                "$ref": "#/components/schemas/Req_FinanceRollingZscore"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/msgpack": {
-                "schema": {
-                  "$ref": "#/components/schemas/Res_compute_FinanceRollingZscore"
-                }
-              }
-            },
-            "description": "`FinanceRollingZscore` result."
-          },
-          "default": {
-            "content": {
-              "application/msgpack": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Typed engine error (one of `x-error-set`)."
-          }
-        },
-        "summary": "FinanceRollingZscore",
-        "tags": [
-          "compute"
-        ],
-        "x-audited": false,
-        "x-authz-action": "compute:finance",
-        "x-consumer-profiles": [
-          "python"
-        ],
-        "x-durability-domain": "None",
-        "x-emits-cdc": false,
-        "x-error-set": [
-          "INVALID_ARGUMENT",
-          "ACCESS_DENIED"
-        ],
-        "x-idempotent": true,
-        "x-mutates": false,
-        "x-replay-class": "NotReplayable",
-        "x-stability": "stable",
-        "x-txn-participation": "None"
-      }
-    },
     "/rpc/compute/FinanceSabrCalibrate": {
       "post": {
         "operationId": "FinanceSabrCalibrate",
@@ -157248,6 +161006,63 @@
           }
         },
         "summary": "FinanceSignalDecay",
+        "tags": [
+          "compute"
+        ],
+        "x-audited": false,
+        "x-authz-action": "compute:finance",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "None",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED"
+        ],
+        "x-idempotent": true,
+        "x-mutates": false,
+        "x-replay-class": "NotReplayable",
+        "x-stability": "stable",
+        "x-txn-participation": "None"
+      }
+    },
+    "/rpc/compute/FinanceSignalModels": {
+      "post": {
+        "operationId": "FinanceSignalModels",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_FinanceSignalModels"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_compute_FinanceSignalModels"
+                }
+              }
+            },
+            "description": "`FinanceSignalModels` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request; informational only, never an order authority",
         "tags": [
           "compute"
         ],
@@ -162542,6 +166357,67 @@
         "x-replay-class": "NotReplayable",
         "x-stability": "stable",
         "x-txn-participation": "None"
+      }
+    },
+    "/rpc/coordination/RetireSealedRecord": {
+      "post": {
+        "operationId": "RetireSealedRecord",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_RetireSealedRecord"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_coordination_RetireSealedRecord"
+                }
+              }
+            },
+            "description": "`RetireSealedRecord` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "digest-checked replacement of a sealed record by its audited tombstone in the WorkItem MutationBatch; generic writes may not change or remove a sealed row",
+        "tags": [
+          "coordination"
+        ],
+        "x-audited": true,
+        "x-authz-action": "record:retire",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED",
+          "CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
+          "REDIRECTED",
+          "READ_ONLY"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
       }
     },
     "/rpc/coordination/Statechart": {
@@ -173191,6 +177067,63 @@
         "x-txn-participation": "Snapshot"
       }
     },
+    "/rpc/security/CheckAccess": {
+      "post": {
+        "operationId": "CheckAccess",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_CheckAccess"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_security_CheckAccess"
+                }
+              }
+            },
+            "description": "`CheckAccess` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "confused-deputy-safe executor re-check: would this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read; never the identity or the policy",
+        "tags": [
+          "security"
+        ],
+        "x-audited": false,
+        "x-authz-action": "security:check",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "None",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED"
+        ],
+        "x-idempotent": true,
+        "x-mutates": false,
+        "x-replay-class": "NotReplayable",
+        "x-stability": "stable",
+        "x-txn-participation": "Snapshot"
+      }
+    },
     "/rpc/security/GetIdentity": {
       "post": {
         "operationId": "GetIdentity",
@@ -175388,6 +179321,67 @@
         "x-replay-class": "NotReplayable",
         "x-stability": "stable",
         "x-txn-participation": "Snapshot"
+      }
+    },
+    "/rpc/storage/TsDefineSeries": {
+      "post": {
+        "operationId": "TsDefineSeries",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_TsDefineSeries"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_storage_TsDefineSeries"
+                }
+              }
+            },
+            "description": "`TsDefineSeries` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-524 materialised derived series: one native MutationBatch in series.redb commits the derived points and the definition/checkpoint in the series metadata; idempotent for the same definition (a re-definition only catches up)",
+        "tags": [
+          "storage"
+        ],
+        "x-audited": false,
+        "x-authz-action": "timeseries:write",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "SeriesRedb",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED",
+          "CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
+          "REDIRECTED",
+          "READ_ONLY"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
       }
     },
     "/rpc/storage/TsDeleteSeries": {

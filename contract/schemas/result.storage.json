@@ -3942,6 +3942,57 @@
       ],
       "type": "object"
     },
+    "DerivedSeriesReceipt": {
+      "description": "What `TsDefineSeries` answers (EH-524): the definition, its lineage and provenance,\nand how far maintenance got.",
+      "properties": {
+        "appended": {
+          "description": "Derived points appended by this call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "caught_up": {
+          "description": "Whether every source point is reflected (`false`: the work budget stopped this\ncall; the next append or definition continues).",
+          "type": "boolean"
+        },
+        "derived_from": {
+          "description": "Lineage: the series this one is derived from (`:DerivedSeries derivedFrom :Series`).",
+          "type": "string"
+        },
+        "digest": {
+          "description": "`sha256:` over the canonical spelling and the kernel generation.",
+          "type": "string"
+        },
+        "expr": {
+          "description": "The expression's canonical UQL spelling.",
+          "type": "string"
+        },
+        "kernel_version": {
+          "type": "string"
+        },
+        "last_ts": {
+          "description": "The last source timestamp reflected.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "series_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_id",
+        "derived_from",
+        "expr",
+        "digest",
+        "kernel_version",
+        "appended",
+        "caught_up"
+      ],
+      "type": "object"
+    },
     "Digest256": {
       "description": "32 bytes of SHA-256 as lowercase hexadecimal",
       "maxLength": 64,
@@ -8192,6 +8243,18 @@
               ]
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsDefineSeries": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DerivedSeriesReceipt"
           }
         }
       },

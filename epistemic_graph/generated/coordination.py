@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     WorkOfferPutRequest = _models.MethodWorkOfferPutParams
     GapGetRequest = _models.MethodGapGetParams
     GapListRequest = _models.MethodGapListParams
+    RetireSealedRecordRequest = _models.MethodRetireSealedRecordParams
     ReserveWorkItemResourcesRequest = _models.MethodReserveWorkItemResourcesParams
     ReleaseWorkItemResourcesRequest = _models.MethodReleaseWorkItemResourcesParams
     ReclaimWorkItemResourcesRequest = _models.MethodReclaimWorkItemResourcesParams
@@ -1559,6 +1560,51 @@ def decode_gap_list(result: OpaqueResult) -> _models.GapPage:
     return decode_result("GapList", models().GapPage, result)
 
 
+async def send_retire_sealed_record(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        RetireSealedRecord
+    Authorization:
+        record:retire
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/RetireSealedRecord
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodRetireSealedRecordParams.model_validate(params or {})
+    payload = await client._send(
+        "RetireSealedRecord",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("RetireSealedRecord", payload)
+
+
+def decode_retire_sealed_record(result: OpaqueResult) -> _models.SealedRecordRetirement:
+    """Validate this method's result against its contract model."""
+    return decode_result("RetireSealedRecord", models().SealedRecordRetirement, result)
+
+
 async def send_reserve_work_item_resources(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -2506,6 +2552,7 @@ _REQUEST_METHODS = frozenset(
         "WorkOfferPut",
         "GapGet",
         "GapList",
+        "RetireSealedRecord",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",
         "ReclaimWorkItemResources",

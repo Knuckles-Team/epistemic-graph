@@ -1,6 +1,6 @@
 # Storage API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.storage.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 39 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.storage.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 40 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AgentAssemble`
 
@@ -1082,6 +1082,41 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TsAp
 | `result` | array of number \| null | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/TsAsofJoin`, `contract/schemas/result.storage.json#/methods/TsAsofJoin`.
+
+## `TsDefineSeries`
+
+EH-524 materialised derived series: one native MutationBatch in series.redb commits the derived points and the definition/checkpoint in the series metadata; idempotent for the same definition (a re-definition only catches up)
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `timeseries:write` |
+| Mutates | `true` |
+| Durability domain | `SeriesRedb` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `expr` | string | yes |  |
+| `series_id` | string | yes |  |
+| `source` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `DerivedSeriesReceipt` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/TsDefineSeries`, `contract/schemas/result.storage.json#/methods/TsDefineSeries`.
 
 ## `TsDeleteSeries`
 
