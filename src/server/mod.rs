@@ -789,6 +789,7 @@ pub(crate) fn test_state_with_services(
     std::sync::Arc::new(tokio::sync::RwLock::new(state))
 }
 
+pub use request_replay::seal_request_replay_ledger;
 pub use transport::{
     handle_connection, prepare_tcp_tls, run_idle_watcher, serve_tcp, PreparedTcpTls,
     ShutdownCoordinator, TcpTlsConfig,

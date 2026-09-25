@@ -128,6 +128,12 @@ pub(super) fn detect_capacity_and_log_startup(
 /// barrier once the accept loop has exited.
 pub(super) fn flush_durable_state(persistence: Persistence) {
     info!("Accept loop stopped — flushing durable state");
+    match server::seal_request_replay_ledger() {
+        Ok(handed_off) => info!("Request replay window handed off ({handed_off} nonces)"),
+        Err(error) => tracing::warn!(
+            "Request replay handoff failed; the next start refuses the last accepted second: {error}"
+        ),
+    }
     if let Some(p) = &persistence {
         p.shutdown();
     }
