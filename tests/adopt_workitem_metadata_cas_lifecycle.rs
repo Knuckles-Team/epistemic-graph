@@ -72,7 +72,8 @@ const SECRET: &str = "adopt-workitem-cas-lifecycle-secret";
 // so the on-disk fname equals this literal (same convention as
 // `graphql_crossmodal_durable.rs`'s `GRAPH` constant).
 const GRAPH: &str = "adoptcaslifecycle";
-const TENANT: &str = "adopt-cas-tenant";
+// common::signed_request binds the carrier to the integration tenant.
+const TENANT: &str = "integration-test-tenant";
 const WORK_ITEM: &str = "wi-adopt-cas-1";
 const WORKER_A: &str = "worker-a";
 const WORKER_B: &str = "worker-b";
@@ -237,6 +238,17 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     // ── 1. Submit ──────────────────────────────────────────────────────────
     let add = test_support::dispatch(&state, req(1, add_work_item(1_000))).await;
     assert_eq!(add.error, None, "AddNode failed: {add:?}");
+
+    let mut foreign_claim = claim_request(WORKER_A, 1_000, 5_000);
+    let Method::ClaimWorkItem { request } = &mut foreign_claim else {
+        unreachable!("claim_request constructs ClaimWorkItem")
+    };
+    request.tenant_ref = "other-tenant".to_string();
+    let denied = test_support::dispatch(&state, req(10, foreign_claim)).await;
+    assert_eq!(
+        denied.error.as_deref(),
+        Some("ACCESS_DENIED: request tenant must match verified request tenant")
+    );
 
     // ── 2. Claim (worker-a) ───────────────────────────────────────────────
     let claim_a =
