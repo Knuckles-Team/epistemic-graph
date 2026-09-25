@@ -10,6 +10,7 @@ use super::*;
 mod authorization;
 #[cfg(feature = "raft")]
 mod consensus;
+mod method_errors;
 mod preflight;
 mod saga;
 mod screen;
@@ -130,7 +131,7 @@ pub(crate) async fn dispatch_authenticated_broker_actor(
         Ok(context) => context,
         Err(error) => {
             crate::metrics::auth_failure();
-            return Response::err(request_id, error);
+            return method_errors::enforce((&req.method).into(), Response::err(request_id, error));
         }
     };
     dispatch_with_context(state, req, Some(context)).await
@@ -144,7 +145,9 @@ pub(crate) async fn dispatch_authenticated_local_query(
 ) -> Response {
     let context = match VerifiedRequestContext::authenticated_local_query(req.id) {
         Ok(context) => context,
-        Err(error) => return Response::err(req.id, error),
+        Err(error) => {
+            return method_errors::enforce((&req.method).into(), Response::err(req.id, error));
+        }
     };
     dispatch_with_context(state, req, Some(context)).await
 }
@@ -157,9 +160,10 @@ pub(super) async fn dispatch_with_context(
     // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query descriptor, captured BEFORE the method is moved
     // into `dispatch_inner`. `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS
     // enabled it AND this is a query method.
+    let method: &'static str = (&req.method).into();
     let slow = crate::slow_query::describe(&req.method);
     #[cfg(feature = "metrics")]
-    let op: &'static str = (&req.method).into();
+    let op: &'static str = method;
 
     // Time the request when EITHER Prometheus metrics OR slow-query logging needs
     // it. When both are off (metrics feature disabled AND the threshold unset) we
@@ -176,7 +180,7 @@ pub(super) async fn dispatch_with_context(
             slow.log_if_slow(elapsed);
         }
     }
-    resp
+    method_errors::enforce(method, resp)
 }
 
 #[cfg(feature = "cost")]
