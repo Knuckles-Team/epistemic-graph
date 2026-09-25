@@ -720,7 +720,9 @@ pub(crate) struct CommitResponseOptions {
 }
 
 pub(crate) fn tag_commit_response(response: Response, options: CommitResponseOptions) -> Response {
-    let Response { id, result, error } = response;
+    let Response {
+        id, result, error, ..
+    } = response;
     if let Some(error) = error {
         return Response::err(id, error);
     }

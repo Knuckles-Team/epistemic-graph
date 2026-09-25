@@ -11,6 +11,7 @@ closed_error_codes! {
         Conflict => "CONFLICT",
         IdempotencyConflict => "IDEMPOTENCY_CONFLICT",
         Redirected => "REDIRECTED",
+        OperationRedirected => "OPERATION_REDIRECTED",
         ReadOnly => "READ_ONLY",
         AuthTenantMismatch => "AUTH_TENANT_MISMATCH",
         AuthAudienceMismatch => "AUTH_AUDIENCE_MISMATCH",

@@ -385,9 +385,34 @@ fn test_response_ok() {
 #[test]
 fn test_response_err() {
     let resp = Response::err(2, "node not found");
+    assert_eq!(resp.error.as_deref(), Some("node not found"));
+    assert!(resp.error_detail.is_none());
     let json = serde_json::to_string(&resp).unwrap();
     assert!(json.contains("node not found"));
     assert!(!json.contains("result"));
+}
+
+#[test]
+fn declared_response_error_separates_code_and_detail() {
+    let response = Response::err(
+        3,
+        "AUTH_TENANT_MISMATCH: request context tenant does not match graph tenant",
+    );
+    assert_eq!(response.error.as_deref(), Some("AUTH_TENANT_MISMATCH"));
+    assert_eq!(
+        response.error_detail.as_deref(),
+        Some("request context tenant does not match graph tenant")
+    );
+    let encoded = serde_json::to_vec(&response).unwrap();
+    let decoded: Response = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded.error, response.error);
+    assert_eq!(decoded.error_detail, response.error_detail);
+    let unknown = Response::err(4, "NOT_A_DECLARED_CODE: raw refusal");
+    assert_eq!(
+        unknown.error.as_deref(),
+        Some("NOT_A_DECLARED_CODE: raw refusal")
+    );
+    assert!(unknown.error_detail.is_none());
 }
 
 #[test]

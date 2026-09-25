@@ -17,6 +17,7 @@ pub use collections::{BoundedVec, RecordBytes};
 pub use crypto::{Digest256, Ed25519Signature, Nonce};
 pub use engine_error_code::EngineErrorCode;
 pub(crate) use error_code::closed_error_codes;
+pub use error_code::declared_error_code;
 pub use identifiers::{
     ActorId, AdmissionOutcome, AudienceId, DecisionOutcome, EffectState, IdempotencyKey,
     IngressSurface, MethodId, MutationDisposition, MutationDomain, OpaqueId, Operation,

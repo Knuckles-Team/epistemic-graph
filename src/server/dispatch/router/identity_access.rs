@@ -309,7 +309,9 @@ async fn dispatch_identity_and_access_methods_arm_3(
     }
 }
 fn multisig_mutation_response(response: Response) -> Response {
-    let Response { id, result, error } = response;
+    let Response {
+        id, result, error, ..
+    } = response;
     if let Some(error) = error {
         return Response::err(id, error);
     }
