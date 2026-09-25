@@ -436,13 +436,19 @@ def test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes(
         for index, text in enumerate(source_lines, 1)
         if "fn dispatch_kind" in text
     )
+    shape = terms.dispatch_shape("\n".join(source_lines), line)
+    assert shape is not None and shape.arms >= 20 and shape.catch_alls == 0
+    # This is a synthetic CCCC report. Keep one decision point beyond the
+    # source's current arm count so the accepted residual stays positive when
+    # the dispatcher gains a new exhaustive arm.
+    cyclomatic = shape.arms + shape.absent + 1
     functions = [
         {
             "name": "dispatch_kind",
             "kind": "method",
             "line": line,
             "cognitive": 1,
-            "cyclomatic": 32,
+            "cyclomatic": cyclomatic,
         }
     ]
     report.write_text(
@@ -453,14 +459,14 @@ def test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes(
                         "src/server/wire/mod.rs",
                         functions=functions,
                         cognitive=1,
-                        cyclomatic=32,
+                        cyclomatic=cyclomatic,
                     )
                 ],
                 "summary": _native_summary(
                     1,
                     1,
                     cognitive=_metric_summary(1),
-                    cyclomatic=_metric_summary(32),
+                    cyclomatic=_metric_summary(cyclomatic),
                 ),
             }
         ),
