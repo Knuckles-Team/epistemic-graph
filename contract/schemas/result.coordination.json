@@ -2094,7 +2094,7 @@
       "type": "object"
     },
     "ControlLeaseTransitionOutcome": {
-      "description": "How a transition resolved.",
+      "description": "Outcome of a tenant-scoped control lease transition at an expected revision.",
       "oneOf": [
         {
           "enum": [
