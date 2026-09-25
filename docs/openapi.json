@@ -27797,6 +27797,33 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+            "properties": {
+              "method": {
+                "const": "RetireSealedRecord",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "request": {
+                    "$ref": "#/components/schemas/ReqDef_RetireSealedRecordRequest"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -32673,6 +32700,51 @@
             "type": "object"
           }
         ]
+      },
+      "ReqDef_RetireSealedRecordRequest": {
+        "additionalProperties": false,
+        "description": "`RetireSealedRecord`: replace one sealed record with its audited tombstone.",
+        "properties": {
+          "digest": {
+            "description": "The record's seal, as its class's digest property stores it.",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "description": "Caller-stable retry identity for this retirement.",
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the record is retired (for example `share revoked` or `expired`).",
+            "type": "string"
+          },
+          "retired_at_ms": {
+            "description": "When the retirement takes effect, epoch milliseconds. Part of the retry\nidentity, so a retry carries the same value.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retired_by": {
+            "default": "",
+            "description": "Who retired it. The engine stamps this from the verified caller (a\nprincipal fingerprint) before the commit; a client-supplied value is replaced.",
+            "type": "string"
+          },
+          "tenant": {
+            "description": "Must equal the verified request tenant.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "node_id",
+          "digest",
+          "reason",
+          "retired_at_ms",
+          "idempotency_key"
+        ],
+        "type": "object"
       },
       "ReqDef_RetrievalCandidateWire": {
         "description": "Wire mirror of `eg_epistemic::RetrievalCandidate` (EPI-P3-3) \u2014 one candidate in\na `Method::RankByProvenance` request, before ranking.",
@@ -53216,6 +53288,33 @@
         ],
         "type": "object"
       },
+      "Req_RetireSealedRecord": {
+        "additionalProperties": false,
+        "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+        "properties": {
+          "method": {
+            "const": "RetireSealedRecord",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_RetireSealedRecordRequest"
+              }
+            },
+            "required": [
+              "request"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
       "Req_Rollback": {
         "additionalProperties": false,
         "properties": {
@@ -68581,6 +68680,101 @@
         "required": [
           "option_id",
           "score"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_SealedRecordRetireOutcome": {
+        "description": "How a retirement resolved.",
+        "oneOf": [
+          {
+            "const": "retired",
+            "description": "The record was replaced by its tombstone.",
+            "type": "string"
+          },
+          {
+            "const": "already_retired",
+            "description": "The id already holds the tombstone of a record with this digest.",
+            "type": "string"
+          },
+          {
+            "const": "not_found",
+            "description": "No row with this id exists.",
+            "type": "string"
+          },
+          {
+            "const": "not_sealed",
+            "description": "The row is not a sealed record; nothing was written.",
+            "type": "string"
+          },
+          {
+            "const": "digest_mismatch",
+            "description": "The presented digest is not the record's seal; nothing was written.",
+            "type": "string"
+          }
+        ]
+      },
+      "ResDef_Coordination_SealedRecordRetirement": {
+        "additionalProperties": false,
+        "description": "Result of `RetireSealedRecord`. `changed_work_item_ids` names the row the commit\nwrote, so the serving projection refreshes from authority exactly as it does for\na WorkItem transition.",
+        "properties": {
+          "changed_work_item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ResDef_Coordination_SealedRecordRetireOutcome"
+          },
+          "tombstone": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_SealedRecordTombstone"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "outcome",
+          "changed_work_item_ids"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_SealedRecordTombstone": {
+        "additionalProperties": false,
+        "description": "The audited tombstone a retirement leaves in place of a sealed record.",
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "record_class": {
+            "type": "string"
+          },
+          "retired_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retired_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "record_class",
+          "digest",
+          "retired_by",
+          "retired_at_ms",
+          "reason"
         ],
         "type": "object"
       },
@@ -103686,6 +103880,33 @@
               "params"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Retire one sealed record: the owning op, and the only way to remove a\nsealed record's content. With the record's digest it replaces the row by\nan audited tombstone (class, digest, who, when, why) in one durable,\nidempotent native transaction; generic node writes may not change or\nremove a sealed row. `request.tenant` must equal the verified request\ntenant, and the engine stamps `retired_by` from the verified caller. See\n[`crate::sealed_record`].",
+            "properties": {
+              "method": {
+                "const": "RetireSealedRecord",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "request": {
+                    "$ref": "#/components/schemas/ResDef_Query_RetireSealedRecordRequest"
+                  }
+                },
+                "required": [
+                  "request"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -108802,6 +109023,51 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Query_RetireSealedRecordRequest": {
+        "additionalProperties": false,
+        "description": "`RetireSealedRecord`: replace one sealed record with its audited tombstone.",
+        "properties": {
+          "digest": {
+            "description": "The record's seal, as its class's digest property stores it.",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "description": "Caller-stable retry identity for this retirement.",
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the record is retired (for example `share revoked` or `expired`).",
+            "type": "string"
+          },
+          "retired_at_ms": {
+            "description": "When the retirement takes effect, epoch milliseconds. Part of the retry\nidentity, so a retry carries the same value.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retired_by": {
+            "default": "",
+            "description": "Who retired it. The engine stamps this from the verified caller (a\nprincipal fingerprint) before the commit; a client-supplied value is replaced.",
+            "type": "string"
+          },
+          "tenant": {
+            "description": "Must equal the verified request tenant.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "node_id",
+          "digest",
+          "reason",
+          "retired_at_ms",
+          "idempotency_key"
+        ],
+        "type": "object"
       },
       "ResDef_Query_RetrievalCandidateWire": {
         "description": "Wire mirror of `eg_epistemic::RetrievalCandidate` (EPI-P3-3) \u2014 one candidate in\na `Method::RankByProvenance` request, before ranking.",
@@ -125905,6 +126171,10 @@
         "$ref": "#/components/schemas/ResDef_Coordination_ResourceSnapshot",
         "x-encoding": "Json"
       },
+      "Res_coordination_RetireSealedRecord": {
+        "$ref": "#/components/schemas/ResDef_Coordination_SealedRecordRetirement",
+        "x-encoding": "Json"
+      },
       "Res_coordination_Statechart": {
         "oneOf": [
           {
@@ -127972,7 +128242,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 437 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 438 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -139690,6 +139960,67 @@
         "x-replay-class": "NotReplayable",
         "x-stability": "stable",
         "x-txn-participation": "None"
+      }
+    },
+    "/rpc/coordination/RetireSealedRecord": {
+      "post": {
+        "operationId": "RetireSealedRecord",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_RetireSealedRecord"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_coordination_RetireSealedRecord"
+                }
+              }
+            },
+            "description": "`RetireSealedRecord` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "digest-checked replacement of a sealed record by its audited tombstone in the WorkItem MutationBatch; generic writes may not change or remove a sealed row",
+        "tags": [
+          "coordination"
+        ],
+        "x-audited": true,
+        "x-authz-action": "record:retire",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED",
+          "CONFLICT",
+          "IDEMPOTENCY_CONFLICT",
+          "REDIRECTED",
+          "READ_ONLY"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
       }
     },
     "/rpc/coordination/Statechart": {
