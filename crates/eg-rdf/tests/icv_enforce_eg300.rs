@@ -12,6 +12,7 @@
 //!    violation(s) with their SPARQL witness;
 //!  * the policy ACCEPTS a clean change set (it commits);
 //!  * an empty registry fails closed.
+#![cfg(feature = "sparql")]
 
 use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome};
 use eg_rdf::update::{execute_str, MapStore, UpdateError};
