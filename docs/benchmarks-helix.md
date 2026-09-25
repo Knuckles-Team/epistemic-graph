@@ -23,7 +23,9 @@ pipelines' job.
 | Corpus | seed 20260924: 20,000 `Doc` nodes (16 categories, year 2000–2025, 24-word Zipf text body, 32-dim unit embedding clustered by category), 99,985 `CITES` edges. Every doc cites up to 5 earlier docs, so the graph is a DAG. Corpus sha256 `0c4b9989…51c1` |
 | Query set | seeded separately (seed + 1). sha256 `f38f5d9c…2974` |
 | Spec | [`benches/helix_compare/spec.json`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/benches/helix_compare/spec.json) holds both digests, workload sizes, the plan (gate 100 ops, warm-up 200, cold 50, concurrency 1 and 8) and CPU pinning (server CPUs 0–3, client CPUs 4–7) |
-| Result | [`benches/helix_compare/results/2026-09-24-reference.json`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/benches/helix_compare/results/2026-09-24-reference.json) (the full report) and its rendered `.md` |
+| Result | [`benches/helix_compare/results/2026-09-24-reference.json.gz`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/benches/helix_compare/results/2026-09-24-reference.json.gz) (the complete, losslessly compressed report) and its rendered `.md` |
+
+The archived report decompresses with `gzip -dc benches/helix_compare/results/2026-09-24-reference.json.gz`. Its uncompressed SHA-256 is `bb0b585d3a73cb8aa89c69d97ba47ae51d4fded0704c22b73f4384dec9dbf913`; the values and JSON structure are byte-for-byte the original measured result.
 
 `tests/test_bench_helix_compare.py` regenerates the corpus and the query set and fails
 if either digest drifts.
