@@ -197,7 +197,7 @@ async fn every_native_store_is_reachable_through_its_scope_selector() {
         )
         .await,
     );
-    assert!(sql.starts_with("OUTBOX_OWNER_UNKNOWN:"), "{sql}");
+    assert_eq!(sql, "OUTBOX_OWNER_UNKNOWN");
     let unknown = super::refused(
         "unknown semantic binding",
         outbox(
@@ -212,7 +212,7 @@ async fn every_native_store_is_reachable_through_its_scope_selector() {
         )
         .await,
     );
-    assert!(unknown.starts_with("OUTBOX_OWNER_UNKNOWN:"), "{unknown}");
+    assert_eq!(unknown, "OUTBOX_OWNER_UNKNOWN");
     let mismatched = super::refused(
         "tenant scope on a semantic index",
         outbox(
@@ -222,5 +222,5 @@ async fn every_native_store_is_reachable_through_its_scope_selector() {
         )
         .await,
     );
-    assert!(mismatched.contains("does not address"), "{mismatched}");
+    assert_eq!(mismatched, "OUTBOX_SCOPE_MISMATCH");
 }

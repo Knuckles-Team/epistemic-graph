@@ -345,7 +345,7 @@ mod keyed_recovery_window_tests {
             response
                 .error
                 .as_deref()
-                .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+                .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
             "exact keyed commit retry must be rejected by the kernel: {response:?}"
         );
     }

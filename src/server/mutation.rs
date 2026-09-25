@@ -1338,7 +1338,7 @@ mod tests {
         assert!(response
             .error
             .as_deref()
-            .is_some_and(|e| e.contains("REPLAY_NONCE_CONSUMED")));
+            .is_some_and(|e| e == "REPLAY_NONCE_CONSUMED"));
 
         let changed = Method::RemoveNode {
             node_id: "different-node".to_string(),
@@ -1463,7 +1463,7 @@ mod tests {
         assert!(response
             .error
             .as_deref()
-            .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")));
+            .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"));
 
         let changed = Method::CypherQuery {
             query: "CREATE (n:ReplayProbe {id: 'n2'})".to_string(),

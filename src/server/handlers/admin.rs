@@ -859,7 +859,11 @@ mod agent_library_security_tests {
             missing_write_response
                 .error
                 .as_deref()
-                .is_some_and(|error| error.contains("agent:library-write")),
+                .is_some_and(|error| error == "ACCESS_DENIED")
+                && missing_write_response
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("agent:library-write")),
             "{missing_write_response:?}"
         );
 
@@ -885,7 +889,11 @@ mod agent_library_security_tests {
             missing_read_response
                 .error
                 .as_deref()
-                .is_some_and(|error| error.contains("agent:library-read")),
+                .is_some_and(|error| error == "ACCESS_DENIED")
+                && missing_read_response
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("agent:library-read")),
             "{missing_read_response:?}"
         );
     }

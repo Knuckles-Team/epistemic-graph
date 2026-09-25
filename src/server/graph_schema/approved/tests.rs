@@ -217,7 +217,11 @@ async fn no_approval_a_pending_approval_or_another_candidates_approval_is_refuse
         .approval("action_approval:pending", &candidate(), false)
         .await;
     let pending = served.attach_approved("action_approval:pending").await;
-    assert!(refusal(&pending).contains("still pending"));
+    assert_eq!(refusal(&pending), "SCHEMA_APPROVAL_REQUIRED");
+    assert!(pending
+        .error_detail
+        .as_deref()
+        .is_some_and(|detail| detail.contains("still pending")));
 
     let other = approved_candidate_digest(SOURCE, &contract_with("title"));
     served.approval("action_approval:other", &other, true).await;

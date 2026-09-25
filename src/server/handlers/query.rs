@@ -1305,7 +1305,7 @@ mod dispatch_write_tests {
         .await;
         assert!(
             disguised_write
-                .error
+                .error_detail
                 .as_deref()
                 .is_some_and(|message| message.contains("declared mode")),
             "write declared as read must fail closed: {:?}",
@@ -1325,7 +1325,7 @@ mod dispatch_write_tests {
         .await;
         assert!(
             mislabeled_read
-                .error
+                .error_detail
                 .as_deref()
                 .is_some_and(|message| message.contains("declared mode")),
             "read declared as write must fail closed: {:?}",
@@ -1468,7 +1468,7 @@ mod dispatch_write_tests {
         .await;
         assert!(
             denied
-                .error
+                .error_detail
                 .as_deref()
                 .is_some_and(|error| error.contains("does not exist")),
             "ungranted actor must not resolve the property graph: {:?}",
@@ -1556,7 +1556,7 @@ mod dispatch_write_tests {
             first
                 .error
                 .as_deref()
-                .is_some_and(|error| error.contains("SQL_OWNER_REPAIR_PENDING")),
+                .is_some_and(|error| error == "SQL_OWNER_REPAIR_PENDING"),
             "owner catalog fault must surface after physical commit: {:?}",
             first.error
         );
@@ -1630,7 +1630,7 @@ mod dispatch_write_tests {
             guest_alter
                 .error
                 .as_deref()
-                .is_some_and(|error| error.contains(crate::server::sql_catalog_acl::ACCESS_DENIED)),
+                .is_some_and(|error| error == crate::server::sql_catalog_acl::ACCESS_DENIED),
             "same-tenant non-owner must remain denied after repair: {:?}",
             guest_alter.error
         );

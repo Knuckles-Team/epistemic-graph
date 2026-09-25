@@ -1887,7 +1887,7 @@ mod dispatch_pipeline_tests {
 
     fn refused(label: &str, response: Response) -> String {
         response
-            .error
+            .error_detail
             .unwrap_or_else(|| panic!("{label} was accepted but must be refused"))
     }
 

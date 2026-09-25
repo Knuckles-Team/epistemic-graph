@@ -57,7 +57,7 @@ async fn udf_ids_are_owner_scoped_through_dispatch() {
 
     let refused = dispatch_as(&state, 931, "worker2", run(b"probe")).await;
     let err = refused
-        .error
+        .error_detail
         .expect("principal B must not run principal A's UDF");
     assert_eq!(
         err, "udf ABI error: no UDF registered under id 'shared_id'",

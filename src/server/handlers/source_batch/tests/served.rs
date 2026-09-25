@@ -72,7 +72,10 @@ fn committed(response: &Response) -> SqlSourceBatchResult {
 
 fn refusal(response: &Response) -> &str {
     assert!(response.result.is_none());
-    response.error.as_deref().expect("request must be refused")
+    response
+        .error_detail
+        .as_deref()
+        .expect("request must be refused")
 }
 
 #[tokio::test]

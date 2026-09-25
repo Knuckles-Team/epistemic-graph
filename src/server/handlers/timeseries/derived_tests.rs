@@ -218,7 +218,7 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
     ];
     for (series, source, expr, why) in refusals {
         let response = fx.define(TENANT, series, source, expr).await;
-        let error = response.error.unwrap_or_default();
+        let error = response.error_detail.unwrap_or_default();
         assert!(error.contains(why), "{series} over {source}: {error}");
     }
     // A deployment serves one tenant: a request context for another tenant is refused
@@ -228,7 +228,7 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
     // test pins the prose AND that nothing of the foreign tenant is written or read.
     const FOREIGN_TENANT: &str = "request context tenant does not match graph tenant";
     let foreign = fx.define("tenant-other", "px_z2", "px", EXPR).await;
-    let error = foreign.error.unwrap_or_default();
+    let error = foreign.error_detail.unwrap_or_default();
     assert!(error.contains(FOREIGN_TENANT), "foreign define: {error}");
     let foreign_range = fx
         .call(
@@ -244,7 +244,7 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
         foreign_range.result.is_none(),
         "a foreign tenant reads nothing"
     );
-    let error = foreign_range.error.unwrap_or_default();
+    let error = foreign_range.error_detail.unwrap_or_default();
     assert!(error.contains(FOREIGN_TENANT), "foreign range: {error}");
     assert_eq!(
         fx.tenants_with_series().await.len(),

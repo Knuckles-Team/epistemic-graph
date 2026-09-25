@@ -282,7 +282,7 @@ mod tests {
 
         assert!(response.result.is_none());
         assert_eq!(
-            response.error.as_deref(),
+            response.error_detail.as_deref(),
             Some("fork node 'bad' has an invalid property blob")
         );
     }
@@ -304,7 +304,7 @@ mod tests {
 
         assert!(response.result.is_none());
         assert_eq!(
-            response.error.as_deref(),
+            response.error_detail.as_deref(),
             Some("fork edge 'n1' -> 'n2' has an invalid property blob")
         );
     }

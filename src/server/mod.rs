@@ -2019,7 +2019,7 @@ mod tests {
             ),
         )
         .await;
-        let err = resp.error.expect("malformed UQL must error");
+        let err = resp.error_detail.expect("malformed UQL must error");
         assert!(
             err.contains("UQL_UNKNOWN_STAGE") && err.contains("pipeline stage"),
             "expected a coded UQL parse error, got: {err}"
@@ -2469,7 +2469,7 @@ mod tests {
             ),
         )
         .await;
-        let err = resp.error.expect(
+        let err = resp.error_detail.expect(
             "an unregistered foreign source must ERROR, never silently degrade to the \
              local candidate set",
         );
@@ -2494,7 +2494,7 @@ mod tests {
         )
         .await;
         let err = resp
-            .error
+            .error_detail
             .expect("an unregistered FOREIGN \"<name>\" marker must error");
         assert!(
             err.contains("typo_docs"),
@@ -2778,7 +2778,8 @@ mod tests {
         let mut req = request(1, "__commons__", None, Method::Ping);
         req.auth_token = "bogus".to_string();
         let resp = dispatch_on_heap(&state, req).await;
-        assert_eq!(resp.error.as_deref(), Some("Authentication failed"));
+        assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(resp.error_detail.as_deref(), Some("Authentication failed"));
     }
 
     /// Feature-gating contract: a gated-out domain's Method variant still exists
@@ -3234,7 +3235,11 @@ mod tests {
         // g_hot is saturated → its WRITE is shed BUSY at the per-graph cap.
         let r_hot = round_trip(&mut client, &request(1, "g_hot", None, add_node("h1"))).await;
         assert!(
-            r_hot.error.as_deref().unwrap_or("").contains("at capacity"),
+            r_hot
+                .error_detail
+                .as_deref()
+                .unwrap_or("")
+                .contains("at capacity"),
             "hot graph write must be shed BUSY, got {:?}",
             r_hot
         );
@@ -5707,7 +5712,10 @@ mod tests {
             resp.error
         );
         assert!(
-            resp.error.as_deref().unwrap_or("").contains("isolation"),
+            resp.error_detail
+                .as_deref()
+                .unwrap_or("")
+                .contains("isolation"),
             "error should name the isolation problem: {:?}",
             resp.error
         );
