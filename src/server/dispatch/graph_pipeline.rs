@@ -1239,6 +1239,15 @@ mod admin_scope_tests {
         )
     }
 
+    fn assert_admin_capability_denial(response: &Response) {
+        assert_eq!(response.error.as_deref(), Some("ACCESS_DENIED"));
+        let detail = response.error_detail.as_deref().unwrap_or_default();
+        assert!(
+            detail.contains("admin capability"),
+            "unexpected denial message: {detail}"
+        );
+    }
+
     async fn register_identity(
         state: &Arc<RwLock<ServerState>>,
         id: u64,
@@ -1373,12 +1382,7 @@ mod admin_scope_tests {
         let state = state_min();
         // alice (no roles, no grants, not System) tries to register "bob".
         let r = register_identity(&state, 3, Some("alice"), "bob", AgentRole::Agent).await;
-        assert_eq!(r.error.as_deref(), Some("ACCESS_DENIED"));
-        let msg = r.error_detail.as_deref().unwrap_or_default();
-        assert!(
-            msg.contains("admin capability"),
-            "unexpected denial message: {msg}"
-        );
+        assert_admin_capability_denial(&r);
     }
 
     /// A `System`-role caller (root) always holds admin capability — WITH the
@@ -1559,12 +1563,7 @@ mod admin_scope_tests {
             ),
         )
         .await;
-        assert_eq!(r.error.as_deref(), Some("ACCESS_DENIED"));
-        let msg = r.error_detail.as_deref().unwrap_or_default();
-        assert!(
-            msg.contains("admin capability"),
-            "unexpected denial message: {msg}"
-        );
+        assert_admin_capability_denial(&r);
     }
 
     /// The fixed graph boundary must not replace the existing `security:admin`
