@@ -18,6 +18,7 @@ fn bindings<'a>(
         candidates,
         policies,
         values,
+        graph: "tenant-a/replay".into(),
         source: DatasetSource::Logged {
             question_id: "q".into(),
         },
@@ -69,6 +70,7 @@ fn approved_spelling_binds_to_decision_eval_replay() {
     assert_eq!((spec.folds.purge, spec.folds.embargo), (5, 5));
     assert_eq!(spec.budget.cap.value, 1_000_000_000_000);
     assert_eq!(spec.env, ReplayEnvironment::PolicyIndependent);
+    assert_eq!(spec.graph, "tenant-a/replay");
     assert_eq!(spec.trials.searched, 4);
 }
 
@@ -117,4 +119,17 @@ fn unbound_names_and_trailing_clauses_are_refused() {
     )
     .unwrap_err();
     assert_eq!(error.kind, DecideTextErrorKind::Syntax);
+}
+
+#[test]
+fn replay_requires_a_bounded_graph_anchor() {
+    let (candidates, policies, values) = maps();
+    for graph in [String::new(), "g".repeat(257)] {
+        let mut bound = bindings(&candidates, &policies, &values);
+        bound.graph = graph;
+        assert_eq!(
+            parse_replay(TEXT, "t", bound).unwrap_err().kind,
+            DecideTextErrorKind::ParameterType
+        );
+    }
 }

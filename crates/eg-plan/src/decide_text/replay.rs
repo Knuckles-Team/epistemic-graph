@@ -23,6 +23,8 @@ pub struct ReplayBindings<'a> {
     pub candidates: &'a BTreeMap<String, EvalCandidate>,
     pub policies: &'a BTreeMap<String, DecisionPolicyRef>,
     pub values: &'a BTreeMap<String, TypedValue>,
+    /// Graph whose ACL and bitemporal snapshots the evaluation will use.
+    pub graph: String,
     pub source: DatasetSource,
     pub gold_set_digest: Option<String>,
     pub trials: TrialLog,
@@ -227,6 +229,12 @@ impl ReplayParser<'_> {
                 "tenant and idempotency key are required",
             ));
         }
+        if bindings.graph.trim().is_empty() || bindings.graph.len() > 256 {
+            return Err(self.error(
+                DecideTextErrorKind::ParameterType,
+                "a nonempty graph anchor of at most 256 bytes is required",
+            ));
+        }
         Ok(DecisionEvalRequest {
             tenant_id: tenant_id.to_string(),
             idempotency_key: bindings.idempotency_key,
@@ -238,6 +246,7 @@ impl ReplayParser<'_> {
             source: bindings.source,
             mode: EvalMode::Replay {
                 spec: Box::new(ReplaySpec {
+                    graph: bindings.graph,
                     folds: WalkForward {
                         train,
                         test,
