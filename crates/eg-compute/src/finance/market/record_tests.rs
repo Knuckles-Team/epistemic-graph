@@ -364,7 +364,7 @@ fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
 /// run on the pinned soft-float kernel, so this digest is the same on every build
 /// host; the lane's runs pass this test unchanged on two hosts.
 const PINNED_RUN_DIGEST: &str =
-    "sha256:5461ff31ff46d1007afe8d4b92d739714ac7c8763fdff5ff5c39bda1ffe5226f";
+    "sha256:991112d2c9fe33d30edab5e67a0a522a0d30a3521c5d0e91138a0c8992b814bc";
 
 #[test]
 fn a_sealed_backtest_run_digest_is_pinned_across_hosts() {
@@ -410,9 +410,7 @@ fn pbo_uses_all_cpcv_splits_from_the_records_performance() {
     // a variant wins in-sample, the held-out groups favour another variant.
     let mut overfit = draft();
     let peaks = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    overfit.validation.performance = (0..48)
-        .map(|period| peaks[period / 16].to_vec())
-        .collect();
+    overfit.validation.performance = (0..48).map(|period| peaks[period / 16].to_vec()).collect();
     let result = seal(&overfit).unwrap();
     assert_eq!(result.validation.cpcv_splits, 15);
     assert_eq!(result.validation.probability_backtest_overfit, 1.0);

@@ -150,7 +150,9 @@ fn validation_outputs(draft: &BacktestRunDraft) -> MarketResult<BacktestValidati
         .min()
         .unwrap_or(0);
     if min_train == 0 || splits.iter().any(|split| split.test.is_empty()) {
-        return Err(refuse("purged CPCV leaves a split without training or test data"));
+        return Err(refuse(
+            "purged CPCV leaves a split without training or test data",
+        ));
     }
     let insample: Vec<Vec<f64>> = splits
         .iter()
