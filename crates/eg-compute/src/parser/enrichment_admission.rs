@@ -8,7 +8,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use eg_types::epistemic_operations::RequestContext;
 use eg_types::ingestion_wire::{IndexFileOutcome, IndexFileStatus};
+use eg_types::native_control::{
+    NativeControlSchemaVersion, SubmitWorkItemRequest, SubmitWorkItemsRequest, MAX_SUBMIT_BATCH,
+};
+use sha2::{Digest, Sha256};
 
 const MAX_OUTCOMES: usize = 4_096;
 const MAX_CANDIDATES: usize = 1_024;
@@ -78,6 +83,133 @@ pub struct AdmissionPlan {
 pub enum AdmissionError {
     TooManyOutcomes,
     InvalidBudget,
+}
+
+/// Engine-bound inputs required to submit one plan through the native,
+/// all-or-nothing `SubmitWorkItems` transaction. `input_refs` must resolve to
+/// durable source bytes; the content digest alone is not a worker payload.
+pub struct QueueBinding {
+    pub context: RequestContext,
+    pub input_refs: BTreeMap<UnitKey, String>,
+    pub policy_digest: String,
+    pub catalog_digest: String,
+    pub model_digest: String,
+    pub source_commit_ref: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum QueueBindingError {
+    ExceedsAtomicBatch,
+    EmptyPlan,
+    MissingInput,
+    MissingAuthority,
+}
+
+fn queue_digest(fields: &[&str]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"eg/repository-enrichment-work-item/v1");
+    for field in fields {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
+
+/// Lower one admitted plan to the existing native atomic queue command.
+///
+/// This does not submit or authenticate the command. The served adapter must
+/// bind `QueueBinding` to the verified carrier and committed source rows, then
+/// dispatch the result through the native WorkItem route. Refuse plans above
+/// its atomic limit rather than silently split them into separate commits.
+pub fn to_native_submit_batch(
+    plan: &AdmissionPlan,
+    binding: &QueueBinding,
+) -> Result<SubmitWorkItemsRequest, QueueBindingError> {
+    if plan.candidates.is_empty() {
+        return Err(QueueBindingError::EmptyPlan);
+    }
+    if plan.candidates.len() > MAX_SUBMIT_BATCH {
+        return Err(QueueBindingError::ExceedsAtomicBatch);
+    }
+    if binding.context.tenant_id.trim().is_empty()
+        || binding.context.graph.trim().is_empty()
+        || binding.policy_digest.trim().is_empty()
+        || binding.catalog_digest.trim().is_empty()
+        || binding.model_digest.trim().is_empty()
+        || binding.source_commit_ref.trim().is_empty()
+    {
+        return Err(QueueBindingError::MissingAuthority);
+    }
+    let mut requests = Vec::with_capacity(plan.candidates.len());
+    for candidate in &plan.candidates {
+        let input_ref = binding
+            .input_refs
+            .get(&candidate.unit)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(QueueBindingError::MissingInput)?;
+        let digest = queue_digest(&[
+            &binding.context.tenant_id,
+            &binding.context.graph,
+            &candidate.unit.content_digest,
+            &candidate.unit.parser_capability_digest,
+            candidate.stage.work_kind(),
+            input_ref,
+            &binding.policy_digest,
+            &binding.catalog_digest,
+            &binding.model_digest,
+            &binding.source_commit_ref,
+            &candidate.reserved_compute_units.to_string(),
+            if candidate.demanded {
+                "demanded"
+            } else {
+                "queued"
+            },
+        ]);
+        let mut metadata = BTreeMap::new();
+        metadata.insert(
+            "content_digest".into(),
+            candidate.unit.content_digest.clone().into(),
+        );
+        metadata.insert(
+            "parser_capability_digest".into(),
+            candidate.unit.parser_capability_digest.clone().into(),
+        );
+        metadata.insert(
+            "reserved_compute_units".into(),
+            candidate.reserved_compute_units.into(),
+        );
+        requests.push(SubmitWorkItemRequest {
+            schema_version: NativeControlSchemaVersion::V1,
+            context: binding.context.clone(),
+            work_item_id: None,
+            idempotency_key: format!("repository-enrichment:{digest}"),
+            command_digest: digest,
+            kind: candidate.stage.work_kind().into(),
+            priority: if candidate.demanded { 1 } else { 0 },
+            depends_on: Vec::new(),
+            input_ref: input_ref.clone(),
+            policy_digest: binding.policy_digest.clone(),
+            catalog_digest: binding.catalog_digest.clone(),
+            model_digest: binding.model_digest.clone(),
+            max_attempts: 3,
+            deadline_unix: None,
+            metadata,
+            provenance_refs: vec![binding.source_commit_ref.clone()],
+            max_tenant_in_flight: 0,
+        });
+    }
+    let mut keys: Vec<_> = requests
+        .iter()
+        .map(|request| request.idempotency_key.as_str())
+        .collect();
+    keys.sort_unstable();
+    let batch_digest = queue_digest(&keys);
+    Ok(SubmitWorkItemsRequest {
+        schema_version: NativeControlSchemaVersion::V1,
+        context: binding.context.clone(),
+        idempotency_key: format!("repository-enrichment-batch:{batch_digest}"),
+        requests,
+    })
 }
 
 /// Plan a bounded queue from successful native parse outcomes.
@@ -157,6 +289,9 @@ pub fn plan_enrichment(
 mod tests {
     use super::*;
     use eg_types::contract::BoundedVec;
+    use eg_types::epistemic_operations::{
+        RequestContextAuthenticationMethod, RequestContextSchemaVersion,
+    };
 
     fn outcome(digest: &str, status: IndexFileStatus) -> IndexFileOutcome {
         IndexFileOutcome {
@@ -173,6 +308,82 @@ mod tests {
             content_digest: digest.into(),
             parser_capability_digest: "grammar:v1".into(),
         }
+    }
+
+    fn binding() -> QueueBinding {
+        QueueBinding {
+            context: RequestContext {
+                schema_version: RequestContextSchemaVersion::V2,
+                request_id: "request".into(),
+                subject_id: "subject".into(),
+                tenant_id: "tenant".into(),
+                agent_id: "indexer".into(),
+                scopes: vec!["work:submit".into()],
+                audience: "graph".into(),
+                authentication_method: RequestContextAuthenticationMethod::LocalProcess,
+                policy_version: "policy:v1".into(),
+                graph: "code".into(),
+                placement_epoch: None,
+                trace_id: "trace".into(),
+                issued_at_ms: 1,
+                expires_at_ms: 2,
+            },
+            input_refs: BTreeMap::from([(key("a"), "blob:durable-a".into())]),
+            policy_digest: "policy:digest".into(),
+            catalog_digest: "catalog:digest".into(),
+            model_digest: "model:digest".into(),
+            source_commit_ref: "commit:123".into(),
+        }
+    }
+
+    #[test]
+    fn native_batch_identity_is_stable_and_requires_durable_input() {
+        let plan = plan_enrichment(
+            &[outcome("a", IndexFileStatus::Success)],
+            &BTreeMap::from([(
+                key("a"),
+                UnitAdmission {
+                    abstained_through: 2,
+                    allowed: true,
+                    compute_units: 7,
+                },
+            )]),
+            &BTreeSet::new(),
+            7,
+        )
+        .unwrap();
+        let mut binding = binding();
+        let first = to_native_submit_batch(&plan, &binding).unwrap();
+        assert_eq!(first, to_native_submit_batch(&plan, &binding).unwrap());
+        assert_eq!(first.requests.len(), 1);
+        assert_eq!(first.requests[0].command_digest.len(), 64);
+        assert_eq!(first.requests[0].input_ref, "blob:durable-a");
+        assert_eq!(first.requests[0].kind, "enrichment.classical");
+        binding.input_refs.clear();
+        assert_eq!(
+            to_native_submit_batch(&plan, &binding).unwrap_err(),
+            QueueBindingError::MissingInput
+        );
+    }
+
+    #[test]
+    fn native_batch_refuses_to_split_an_atomic_plan() {
+        let candidate = EnrichmentCandidate {
+            unit: key("a"),
+            stage: EnrichmentStage::Classical,
+            demanded: false,
+            reserved_compute_units: 1,
+        };
+        let plan = AdmissionPlan {
+            candidates: vec![candidate; MAX_SUBMIT_BATCH + 1],
+            reserved_compute_units: (MAX_SUBMIT_BATCH + 1) as u64,
+            deferred_for_budget: 0,
+            deferred_for_capacity: 0,
+        };
+        assert_eq!(
+            to_native_submit_batch(&plan, &binding()).unwrap_err(),
+            QueueBindingError::ExceedsAtomicBatch
+        );
     }
 
     #[test]
