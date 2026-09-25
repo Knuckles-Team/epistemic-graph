@@ -11,6 +11,10 @@ use crate::decision::{
 };
 
 use crate::decision::jobs::DatasetSource;
+use crate::decision::replay::{
+    AllocationRule, EvalMode, RefitSpec, ReplayEnvironment, ReplaySpec, SharedCap, TrialLog,
+    WalkForward,
+};
 use crate::decision::statistical::dataset::{
     ItemLabel, LabelSource, LabelledDataset, LabelledItem, LoggedOutcome, OutcomeEvaluation,
     OutcomeFidelity, PropensitySource, LABELLED_DATASET_SCHEMA_VERSION,
@@ -241,7 +245,14 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
                     source: DatasetSource::Logged {
                         question_id: "route.ingestion".to_string(),
                     },
+                    mode: EvalMode::OffPolicy,
                 }),
+            },
+        ),
+        (
+            "DecisionEval.submit_replay",
+            DecisionEvalOp::Submit {
+                request: Box::new(replay_request()),
             },
         ),
         (
@@ -254,6 +265,59 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
             },
         ),
     ]
+}
+
+/// A walk-forward replay submission over an inline gold set (EH-528).
+fn replay_request() -> DecisionEvalRequest {
+    let q32 = |value: i64| QuantisedValue {
+        scale: QuantScaleTag::Q32,
+        value,
+    };
+    DecisionEvalRequest {
+        tenant_id: "tenant-a".to_string(),
+        idempotency_key: "replay-1".to_string(),
+        candidate: EvalCandidate::DraftArtifact {
+            sha256: digest_text(0xb4),
+            length: 4_096,
+        },
+        policy: DecisionPolicyRef::Default,
+        estimators: bounded(Vec::new()),
+        gold_set_digest: Some(digest_text(0xb5)),
+        window: window(),
+        source: DatasetSource::Logged {
+            question_id: "route.ingestion".to_string(),
+        },
+        mode: EvalMode::Replay {
+            spec: Box::new(ReplaySpec {
+                folds: WalkForward {
+                    train: 252,
+                    test: 21,
+                    step: 21,
+                    purge: 5,
+                    embargo: 5,
+                },
+                budget: SharedCap {
+                    cap: q32(1 << 32),
+                    rule: AllocationRule::Proportional,
+                },
+                env: ReplayEnvironment::PolicyIndependent,
+                refit: Some(RefitSpec {
+                    head_kind: HeadKind::ListwiseLogistic,
+                    optimiser: OptimiserSpec {
+                        max_iterations: 60,
+                        tolerance: q32(1 << 12),
+                        seed: 7,
+                    },
+                }),
+                trials: TrialLog {
+                    declared: 12,
+                    searched: 12,
+                },
+                incumbent: Some(published_head_candidate()),
+                supersedes: Some(digest_text(0xb6)),
+            }),
+        },
+    }
 }
 
 /// The other evaluation candidate shape, so both arms are exercised.

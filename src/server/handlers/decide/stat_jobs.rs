@@ -13,12 +13,13 @@ use std::time::Instant;
 
 use tracing::Instrument;
 
-use eg_numeric::decision::admission::{admit, AdmissionRules, Regime};
+use eg_numeric::decision::admission::{admit, AdmissionRules, Admitted, Regime};
 use eg_numeric::decision::evaluate::{evaluate, EvalSpec};
 use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::agent_component::AgentComponentKind;
 use eg_types::decision::digest::digest_text;
-use eg_types::decision::jobs::{DatasetSource, DecisionEvalReceipt, LabelRegime};
+use eg_types::decision::jobs::{DatasetSource, LabelRegime};
+use eg_types::decision::replay::{EvalMode, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
 use eg_types::decision::statistical::dataset::LabelledDataset;
 use eg_types::decision::statistical::features::FeatureSchemaBody;
@@ -162,9 +163,9 @@ fn fit_regime(request: &DecisionFitRequest, dataset: &LabelledDataset) -> Result
 }
 
 /// Decision-artifact rows to commit with a job: `(key, encoded bytes)`.
-type ArtifactRows = Vec<(String, Vec<u8>)>;
+pub(super) type ArtifactRows = Vec<(String, Vec<u8>)>;
 /// What a job run yields: its output and the artifact rows it commits.
-type JobRun = Result<(DecisionJobOutput, ArtifactRows), String>;
+pub(super) type JobRun = Result<(DecisionJobOutput, ArtifactRows), String>;
 
 fn is_inline(source: &DatasetSource) -> bool {
     matches!(source, DatasetSource::Inline { .. })
@@ -226,7 +227,7 @@ fn run_fit(store: &AgentLibraryStore, reader: &LogReader, request: &DecisionFitR
     ))
 }
 
-fn candidate_head(
+pub(super) fn candidate_head(
     store: &AgentLibraryStore,
     tenant_id: &str,
     candidate: &EvalCandidate,
@@ -278,11 +279,31 @@ fn eval_regime(request: &DecisionEvalRequest, dataset: &LabelledDataset) -> Resu
     }
 }
 
-fn run_eval(
+/// What both evaluation modes read: the candidate head, the dataset it is
+/// evaluated on, the resolved policy and the label regime.
+pub(super) struct EvalInputs {
+    pub(super) head: DecisionHeadBody,
+    pub(super) dataset: LabelledDataset,
+    pub(super) policy: ResolvedPolicy,
+    pub(super) regime: Regime,
+}
+
+impl EvalInputs {
+    /// The dataset's items admitted under this job's window and policy.
+    pub(super) fn admitted(&self, window: eg_types::decision::RecordWindow) -> Admitted<'_> {
+        let approved = self.policy.statistical.approved_commit_principals.as_slice();
+        admit(
+            &self.dataset,
+            &rules(self.regime, window, &self.policy, approved),
+        )
+    }
+}
+
+fn eval_inputs(
     store: &AgentLibraryStore,
     reader: &LogReader,
     request: &DecisionEvalRequest,
-) -> Result<(DecisionEvalReceipt, ArtifactRows), String> {
+) -> Result<EvalInputs, String> {
     let head = candidate_head(store, &request.tenant_id, &request.candidate)?;
     let dataset = resolve_dataset(store, reader, &request.source, &head.feature_schema_digest)?;
     if dataset.feature_schema_digest != head.feature_schema_digest {
@@ -297,23 +318,80 @@ fn run_eval(
         .map_err(|detail| refusal(StatisticalErrorCode::DatasetInvalid, detail))?;
     let policy = resolve_policy(store, &request.tenant_id, &request.policy)?;
     let regime = eval_regime(request, &dataset)?;
-    let approved = policy.statistical.approved_commit_principals.as_slice();
-    let admitted = admit(&dataset, &rules(regime, request.window, &policy, approved));
-    let head_digest = content_digest_of(&canonical_body_bytes(&head)?);
-    let spec = EvalSpec {
+    Ok(EvalInputs {
+        head,
+        dataset,
+        policy,
         regime,
-        statistical: &policy.statistical,
+    })
+}
+
+fn run_eval(inputs: &EvalInputs, request: &DecisionEvalRequest) -> JobRun {
+    let admitted = inputs.admitted(request.window);
+    let head_digest = content_digest_of(&canonical_body_bytes(&inputs.head)?);
+    let spec = EvalSpec {
+        regime: inputs.regime,
+        statistical: &inputs.policy.statistical,
         estimators: request.estimators.as_slice(),
         head_digest: &head_digest,
-        policy_digest: &policy.digest,
+        policy_digest: &inputs.policy.digest,
     };
-    let receipt = evaluate(&head, &dataset, &admitted.items, admitted.exclusions, &spec)
-        .map_err(|r| r.render())?;
+    let receipt = evaluate(
+        &inputs.head,
+        &inputs.dataset,
+        &admitted.items,
+        admitted.exclusions,
+        &spec,
+    )
+    .map_err(|r| r.render())?;
     let row = (
         receipt_key(&receipt.receipt_digest),
         encode_artifact(&receipt)?,
     );
-    Ok((receipt, vec![row]))
+    Ok((
+        DecisionJobOutput::Eval {
+            receipt: Box::new(receipt),
+        },
+        vec![row],
+    ))
+}
+
+/// A replay evaluation (EH-528). Its overfitting statistics are the finance
+/// validation kernels', so a build without `finance` refuses it by name.
+#[cfg(feature = "finance")]
+fn run_replay(
+    store: &AgentLibraryStore,
+    inputs: &EvalInputs,
+    request: &DecisionEvalRequest,
+    spec: &ReplaySpec,
+) -> JobRun {
+    super::stat_walk_forward::run(store, inputs, request, spec)
+}
+
+#[cfg(not(feature = "finance"))]
+fn run_replay(
+    _store: &AgentLibraryStore,
+    _inputs: &EvalInputs,
+    _request: &DecisionEvalRequest,
+    _spec: &ReplaySpec,
+) -> JobRun {
+    Err(refusal(
+        StatisticalErrorCode::ReplaySpecInvalid,
+        "replay evaluation requires the `finance` feature (its validation kernels)",
+    ))
+}
+
+/// Run one evaluation job in the mode its request names.
+fn run_eval_job(
+    store: &AgentLibraryStore,
+    reader: &LogReader,
+    request: &DecisionEvalRequest,
+) -> JobRun {
+    let inputs = eval_inputs(store, reader, request)?;
+    match &request.mode {
+        EvalMode::OffPolicy => run_eval(&inputs, request),
+        EvalMode::Replay { spec } => run_replay(store, &inputs, request, spec),
+    }
 }
 
 fn terminal(outcome: JobRun) -> (DecisionJobState, ArtifactRows) {
@@ -343,6 +421,7 @@ fn submit_job(
     match &job.state {
         DecisionJobState::Succeeded { output } => match output.as_ref() {
             DecisionJobOutput::Eval { receipt } => telemetry::evaluated(receipt, started),
+            DecisionJobOutput::Replay { run } => telemetry::replayed(run, started),
             DecisionJobOutput::Fit { draft, .. } => {
                 telemetry::fitted(draft.n_training, draft.calibration.is_some(), started)
             }
@@ -423,16 +502,7 @@ async fn serve_eval(
                 now_ms,
             );
             let job = crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
-                submit_job(&store, &id, || {
-                    run_eval(&store, &reader, &request).map(|(receipt, rows)| {
-                        (
-                            DecisionJobOutput::Eval {
-                                receipt: Box::new(receipt),
-                            },
-                            rows,
-                        )
-                    })
-                })
+                submit_job(&store, &id, || run_eval_job(&store, &reader, &request))
             })
             .await?;
             ResultPayload::of::<DecisionEvalSubmit>(job)
