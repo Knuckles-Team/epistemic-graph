@@ -69,8 +69,13 @@ pub struct Anomalies {
     pub threshold: f64,
 }
 
-/// The default flag threshold for an algorithm when the caller passes none.
-pub fn default_threshold(algorithm: Algorithm) -> f64 {
+/// The default flag threshold for an algorithm when the caller passes none. Every
+/// algorithm but `MatrixProfileDiscord` has a UNIVERSAL cutoff independent of the data
+/// (each one's score is already self-normalised by construction); a z-normalised
+/// matrix-profile distance is not — it needs `scores`, this run's own distribution, the
+/// same way [`zscore_mad`] itself derives a threshold from ITS input's spread rather
+/// than from a fitted constant.
+pub fn default_threshold(algorithm: Algorithm, scores: &[f64]) -> f64 {
     match algorithm {
         // Iglewicz–Hoaglin: |modified z| > 3.5 is a potential outlier.
         Algorithm::ZScoreMad => 3.5,
@@ -80,18 +85,31 @@ pub fn default_threshold(algorithm: Algorithm) -> f64 {
         Algorithm::Lof { .. } => 1.5,
         // OCSVM score = −f(x); a point outside the boundary has f(x) < 0 ⇒ score > 0.
         Algorithm::OneClassSvm { .. } => 0.0,
-        // A z-normalised distance is bounded by √(2m); flag the upper quarter of that
-        // theoretical range — a conservative, documented default, not a fitted cutoff
-        // (like the three constants above, override with an explicit `threshold`).
-        Algorithm::MatrixProfileDiscord { m, .. } => (2.0 * m as f64).sqrt() * 0.75,
+        Algorithm::MatrixProfileDiscord { .. } => discord_threshold(scores),
     }
+}
+
+/// `mean + 2·std` over the run's own FINITE discord scores (zero — no full window, or
+/// no non-trivial neighbour in range — is excluded as "not evaluated", not "flat"): a
+/// z-normalised distance is bounded by √(2m), but real discords rarely approach that
+/// theoretical bound, so a fixed fraction of it is either far too strict (never fires)
+/// or arbitrary; deriving the cutoff from the distribution itself, like
+/// [`zscore_mad`]'s own median+MAD, is not.
+fn discord_threshold(scores: &[f64]) -> f64 {
+    let vals: Vec<f64> = scores.iter().copied().filter(|s| *s > 0.0).collect();
+    if vals.len() < 2 {
+        return f64::INFINITY;
+    }
+    let mean = vals.iter().sum::<f64>() / vals.len() as f64;
+    let variance = vals.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / vals.len() as f64;
+    mean + 2.0 * variance.sqrt()
 }
 
 /// Run the chosen detector over `points`. `threshold` overrides the per-algorithm
 /// default. An empty input yields an empty result (never a panic).
 pub fn detect(points: &[Point], algorithm: Algorithm, threshold: Option<f64>) -> Anomalies {
-    let thr = threshold.unwrap_or_else(|| default_threshold(algorithm));
     if points.is_empty() {
+        let thr = threshold.unwrap_or_else(|| default_threshold(algorithm, &[]));
         return Anomalies {
             scores: Vec::new(),
             is_anomaly: Vec::new(),
@@ -109,6 +127,7 @@ pub fn detect(points: &[Point], algorithm: Algorithm, threshold: Option<f64>) ->
         Algorithm::OneClassSvm { kernel, nu } => one_class_svm(points, kernel, nu),
         Algorithm::MatrixProfileDiscord { m, seed } => matrix_profile_discord(points, m, seed),
     };
+    let thr = threshold.unwrap_or_else(|| default_threshold(algorithm, &scores));
     // OCSVM's boundary is a strict sign test (f(x) < 0); everything else is score ≥ thr.
     let is_anomaly = match algorithm {
         Algorithm::OneClassSvm { .. } => scores.iter().map(|&s| s > thr).collect(),
@@ -774,7 +793,16 @@ mod tests {
             "anomaly_max={anomaly_max} normal_max={normal_max} scores={:?}",
             out.scores
         );
-        assert!(out.is_anomaly[16] || out.is_anomaly[17], "scores={:?}", out.scores);
+        // The self-calibrating threshold clears at least one window inside the planted
+        // region (which one is a matter of exactly where the exclusion zone lets a
+        // neighbour in, not something this test should pin to a single index).
+        assert!(
+            (13..=19).any(|i| out.is_anomaly[i]),
+            "threshold={} is_anomaly={:?} scores={:?}",
+            out.threshold,
+            out.is_anomaly,
+            out.scores
+        );
     }
 
     #[test]

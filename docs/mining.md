@@ -301,7 +301,7 @@ Five interchangeable detectors, each returning a per-row `anomaly_score` (**high
 | `isoforest` | Isolation Forest — path-length score (CONCEPT:EG-KG.mining.isolation-forest) | `n_trees`, `sample_size`, `seed` | 0.6 |
 | `lof` | Local Outlier Factor — k-neighbor density ratio (CONCEPT:EG-KG.mining.lof-local-density) | `k` | 1.5 |
 | `ocsvm` | One-Class ν-SVM boundary via SMO (CONCEPT:EG-KG.mining.oneclass-svm) | `nu`, `kernel`, `gamma` | 0.0 |
-| `matrix_profile_discord` | The matrix-profile discord score of a **1-D `values` series** — the subsequence farthest from its nearest neighbour (EH-529, ANALYTICS-HARVEST AH-09) | `sample_size` (the subsequence length `m`), `seed` | `√(2·m)·0.75` |
+| `matrix_profile_discord` | The matrix-profile discord score of a **1-D `values` series** — the subsequence farthest from its nearest neighbour (EH-529, ANALYTICS-HARVEST AH-09) | `sample_size` (the subsequence length `m`), `seed` | `mean + 2·std` of this run's own scores |
 
 `matrix_profile_discord` only makes sense over `values` (a single scalar series in
 timestamp order) — it reuses `sample_size`/`seed` rather than adding two
