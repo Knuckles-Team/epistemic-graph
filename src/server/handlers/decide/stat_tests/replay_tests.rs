@@ -74,11 +74,15 @@ async fn fitted(h: &Harness) -> Fitted {
     for (i, item) in items.iter_mut().enumerate() {
         item.recorded_at_ms = 10_000 + i as u64;
         // `dataset` jitters every candidate row alike, which a linear logit's
-        // softmax cannot see; nudge the gold row alone so the replayed utility
-        // varies from step to step.
-        let mut row: Vec<i64> = item.features.iter().copied().collect();
-        row[0] += ((i % 5) as i64) << 26;
-        item.features = BoundedVec::new(row).unwrap();
+        // softmax cannot see, so a confident head earns the same utility on
+        // every item. Label noise -- one item in five accepts the second
+        // option -- makes the replayed utility path vary, as real gold sets do.
+        if i % 5 == 0 {
+            item.label = ItemLabel::Gold {
+                acceptable: BoundedVec::new(vec![ids[1].clone()]).unwrap(),
+                source: LabelSource::SyntheticConstruction,
+            };
+        }
     }
     data.items = BoundedVec::new(items).unwrap();
     let gold = super::super::stat_jobs::dataset_digest(&data).unwrap();
@@ -199,7 +203,10 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     // 240 items: tests start at 105 and step 40 -> 105..145, 145..185, 185..225.
     assert_eq!(run.folds.len(), 3);
     assert_eq!(run.path.len(), 120);
-    assert!(run.folds.iter().all(|fold| fold.first_test_ms < fold.last_test_ms));
+    assert!(run
+        .folds
+        .iter()
+        .all(|fold| fold.first_test_ms < fold.last_test_ms));
     assert_eq!(run.folds.as_slice()[0].first_test_ms, 10_105);
     // Refits differ from the submitted draft (they see only their window).
     let EvalCandidate::DraftArtifact { sha256, .. } = &fitted.draft else {
@@ -234,7 +241,10 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     revised.supersedes = Some(run.run_digest.clone());
     revised.trials.declared = 4;
     let next = sealed(&submit(&h, replay_request(&fitted, "replay-2", revised)).await);
-    assert_eq!(next.spec.supersedes.as_deref(), Some(run.run_digest.as_str()));
+    assert_eq!(
+        next.spec.supersedes.as_deref(),
+        Some(run.run_digest.as_str())
+    );
     assert_ne!(next.run_digest, run.run_digest);
     let mut dangling = spec();
     dangling.supersedes = Some(format!("sha256:{}", "0".repeat(64)));
