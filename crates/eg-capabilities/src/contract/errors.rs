@@ -49,36 +49,52 @@ fn families() -> [(&'static str, Vec<&'static str>); 7] {
     ]
 }
 
+const CODE_CLASSES: &[(&str, &str)] = &[
+    ("AUTH_TENANT_MISMATCH", "auth"),
+    ("AUTH_AUDIENCE_MISMATCH", "auth"),
+    ("AUTH_POLICY_VERSION_MISMATCH", "auth"),
+    ("NODE_MISMATCH", "auth"),
+    ("ACCESS_DENIED", "policy"),
+    ("POLICY_NATIVE_AUTHORITY_REQUIRED", "policy"),
+    ("CAPACITY_DENIED", "capacity"),
+    ("ENGINE_RESOURCE_EXHAUSTED", "capacity"),
+    ("UQL_BUDGET_EXCEEDED", "capacity"),
+    ("REDIRECTED", "availability"),
+    ("ENGINE_UNAVAILABLE", "availability"),
+    ("ENGINE_DEADLINE_EXCEEDED", "availability"),
+    ("CANCELLED", "availability"),
+    ("TELEMETRY_UNAVAILABLE", "availability"),
+    ("CAPACITY_UNAVAILABLE", "availability"),
+    ("DECISIONS", "availability"),
+    ("CONFLICT", "conflict"),
+    ("IDEMPOTENCY_CONFLICT", "conflict"),
+    ("READ_ONLY", "conflict"),
+    ("AUTHENTICATION_REQUIRED", "auth"),
+    ("BUSY", "capacity"),
+    ("INTERNAL", "internal"),
+    ("ELEVATION_ACTOR_UNSTAMPED", "internal"),
+    ("SCHEMA_INCONSISTENT", "schema"),
+];
+
+const FAMILY_CLASSES: &[(&str, &str)] = &[
+    ("engine", "validation"),
+    ("decision", "decision"),
+    ("schema", "schema"),
+    ("connector", "connector"),
+    ("solve", "solve"),
+    ("server", "server"),
+];
+
 fn class(code: &str, family: &str) -> &'static str {
-    match code {
-        "AUTH_TENANT_MISMATCH"
-        | "AUTH_AUDIENCE_MISMATCH"
-        | "AUTH_POLICY_VERSION_MISMATCH"
-        | "NODE_MISMATCH" => "auth",
-        "ACCESS_DENIED" | "POLICY_NATIVE_AUTHORITY_REQUIRED" => "policy",
-        "CAPACITY_DENIED" | "ENGINE_RESOURCE_EXHAUSTED" | "UQL_BUDGET_EXCEEDED" => "capacity",
-        "REDIRECTED"
-        | "ENGINE_UNAVAILABLE"
-        | "ENGINE_DEADLINE_EXCEEDED"
-        | "CANCELLED"
-        | "TELEMETRY_UNAVAILABLE"
-        | "CAPACITY_UNAVAILABLE"
-        | "DECISIONS" => "availability",
-        "CONFLICT" | "IDEMPOTENCY_CONFLICT" | "READ_ONLY" => "conflict",
-        "AUTHENTICATION_REQUIRED" => "auth",
-        "BUSY" => "capacity",
-        "INTERNAL" | "ELEVATION_ACTOR_UNSTAMPED" => "internal",
-        "SCHEMA_INCONSISTENT" => "schema",
-        _ => match family {
-            "engine" => "validation",
-            "decision" => "decision",
-            "schema" => "schema",
-            "connector" => "connector",
-            "solve" => "solve",
-            "server" => "server",
-            _ => unreachable!("closed family"),
-        },
-    }
+    CODE_CLASSES
+        .iter()
+        .find_map(|(token, class)| (*token == code).then_some(*class))
+        .or_else(|| {
+            FAMILY_CLASSES
+                .iter()
+                .find_map(|(name, class)| (*name == family).then_some(*class))
+        })
+        .expect("closed error family")
 }
 
 fn retryable(code: &str) -> bool {
@@ -94,31 +110,41 @@ fn retryable(code: &str) -> bool {
     )
 }
 
+const HTTP_HINTS: &[(&str, u16)] = &[
+    ("AUTH_TENANT_MISMATCH", 403),
+    ("AUTH_AUDIENCE_MISMATCH", 403),
+    ("AUTH_POLICY_VERSION_MISMATCH", 403),
+    ("NODE_MISMATCH", 403),
+    ("ACCESS_DENIED", 403),
+    ("POLICY_NATIVE_AUTHORITY_REQUIRED", 403),
+    ("REDIRECTED", 307),
+    ("ENGINE_UNAVAILABLE", 503),
+    ("READ_ONLY", 503),
+    ("ENGINE_DEADLINE_EXCEEDED", 504),
+    ("CAPACITY_DENIED", 429),
+    ("ENGINE_RESOURCE_EXHAUSTED", 429),
+    ("UQL_BUDGET_EXCEEDED", 429),
+    ("CONFLICT", 409),
+    ("IDEMPOTENCY_CONFLICT", 409),
+    ("AUTHENTICATION_REQUIRED", 401),
+    ("BUSY", 429),
+    ("TIMEOUT", 504),
+    ("INTERNAL", 500),
+    ("CANCELLED", 408),
+    ("TELEMETRY_UNAVAILABLE", 503),
+    ("CAPACITY_UNAVAILABLE", 503),
+    ("DECISIONS", 503),
+    ("ELEVATION_ACTOR_UNSTAMPED", 500),
+    ("SCHEMA_INCONSISTENT", 409),
+    ("GRAPH_NOT_FOUND", 404),
+    ("TELEMETRY_WINDOW_TOO_LARGE", 413),
+];
+
 fn http_status_hint(code: &str) -> u16 {
-    match code {
-        "AUTH_TENANT_MISMATCH"
-        | "AUTH_AUDIENCE_MISMATCH"
-        | "AUTH_POLICY_VERSION_MISMATCH"
-        | "NODE_MISMATCH"
-        | "ACCESS_DENIED"
-        | "POLICY_NATIVE_AUTHORITY_REQUIRED" => 403,
-        "REDIRECTED" => 307,
-        "ENGINE_UNAVAILABLE" | "READ_ONLY" => 503,
-        "ENGINE_DEADLINE_EXCEEDED" => 504,
-        "CAPACITY_DENIED" | "ENGINE_RESOURCE_EXHAUSTED" | "UQL_BUDGET_EXCEEDED" => 429,
-        "CONFLICT" | "IDEMPOTENCY_CONFLICT" => 409,
-        "AUTHENTICATION_REQUIRED" => 401,
-        "BUSY" => 429,
-        "TIMEOUT" => 504,
-        "INTERNAL" => 500,
-        "CANCELLED" => 408,
-        "TELEMETRY_UNAVAILABLE" | "CAPACITY_UNAVAILABLE" | "DECISIONS" => 503,
-        "ELEVATION_ACTOR_UNSTAMPED" => 500,
-        "SCHEMA_INCONSISTENT" => 409,
-        "GRAPH_NOT_FOUND" => 404,
-        "TELEMETRY_WINDOW_TOO_LARGE" => 413,
-        _ => 400,
-    }
+    HTTP_HINTS
+        .iter()
+        .find_map(|(token, hint)| (*token == code).then_some(*hint))
+        .unwrap_or(400)
 }
 
 pub(super) fn catalog_json() -> Vec<u8> {
@@ -143,39 +169,41 @@ pub(super) fn catalog_json() -> Vec<u8> {
     }))
 }
 
-/// Include shared boundary refusals and the typed codes that a method's
-/// handler family can return. A sorted set keeps the generated API stable.
-pub(super) fn method_error_set(d: &MethodDescriptor) -> Vec<&'static str> {
-    let mut codes: BTreeSet<_> = d.error_set.iter().copied().collect();
-    for code in EngineErrorCode::ALL {
-        let token = code.as_str();
-        let shared = matches!(
-            token,
-            "INVALID_ARGUMENT"
-                | "ACCESS_DENIED"
-                | "AUTH_TENANT_MISMATCH"
-                | "AUTH_AUDIENCE_MISMATCH"
-                | "AUTH_POLICY_VERSION_MISMATCH"
-                | "NODE_MISMATCH"
-                | "CAPACITY_DENIED"
-                | "ENGINE_UNAVAILABLE"
-                | "ENGINE_RESOURCE_EXHAUSTED"
-                | "ENGINE_DEADLINE_EXCEEDED"
-        );
-        if shared || (token.starts_with("UQL_") && d.domain == "query") {
-            codes.insert(token);
-        }
-    }
-    let id = d.id.as_str();
-    let routed: &[&str] = if id.starts_with("Source") {
+/// Shared refusals apply before the request reaches its method handler.
+const SHARED_ENGINE_ERRORS: &[&str] = &[
+    "INVALID_ARGUMENT",
+    "ACCESS_DENIED",
+    "AUTH_TENANT_MISMATCH",
+    "AUTH_AUDIENCE_MISMATCH",
+    "AUTH_POLICY_VERSION_MISMATCH",
+    "NODE_MISMATCH",
+    "CAPACITY_DENIED",
+    "ENGINE_UNAVAILABLE",
+    "ENGINE_RESOURCE_EXHAUSTED",
+    "ENGINE_DEADLINE_EXCEEDED",
+];
+const SHARED_SERVER_ERRORS: &[&str] = &[
+    "AUTHENTICATION_REQUIRED",
+    "BUSY",
+    "CANCELLED",
+    "INTERNAL",
+    "TIMEOUT",
+];
+
+/// A method-specific family wins over the wider domain family.
+const METHOD_PREFIXES: &[(&str, &[&str])] = &[
+    (
+        "Source",
         &[
             "SOURCE_",
             "CONNECTOR_SCHEMA_",
             "STALE_MAPPING_",
             "UNKNOWN_MAPPING_",
             "UNKNOWN_RELATIONSHIP_",
-        ]
-    } else if id == "ConnectorPack" {
+        ],
+    ),
+    (
+        "ConnectorPack",
         &[
             "PACK_",
             "CONNECTOR_PACK_",
@@ -189,37 +217,102 @@ pub(super) fn method_error_set(d: &MethodDescriptor) -> Vec<&'static str> {
             "UNKNOWN_PACK_ENTRY",
             "CORRUPT_CONNECTOR_",
             "COMPONENT_BODY_",
-        ]
-    } else if id.starts_with("GraphSchema") {
+        ],
+    ),
+    (
+        "GraphSchema",
         &[
             "ATTACH_PACK_",
             "PACK_PROJECTION_",
             "OWL_",
             "REASONING_",
             "STALE_RECOMPUTE_",
-        ]
-    } else if id.starts_with("Decision") || id.starts_with("Decide") {
-        &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"]
-    } else {
-        match d.domain {
-            "cluster" => &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"],
-            "query" => &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE"],
-            "transactions" => &["CHANGE_BATCH_", "REPLAY_NONCE_", "STALE_GRAPH_"],
-            _ => &[],
-        }
-    };
-    for code in ServerErrorCode::ALL {
+        ],
+    ),
+    (
+        "Decision",
+        &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"],
+    ),
+    ("Decide", &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"]),
+];
+const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
+    ("cluster", &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"]),
+    ("query", &["AST_", "SQL_OWNER_", "RESULT_TOO_LARGE"]),
+    (
+        "transactions",
+        &["CHANGE_BATCH_", "REPLAY_NONCE_", "STALE_GRAPH_"],
+    ),
+];
+const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    ("ApplyChangeEnvelopes", &["ABORTED_ATOMIC_GRAPH_BATCH"]),
+    (
+        "RegisterForeignSource",
+        &["FOREIGN_SOURCE_POLICY_UNBOOTSTRAPPED"],
+    ),
+    (
+        "MutationOutbox",
+        &[
+            "CORRUPT_OUTBOX",
+            "OUTBOX_OWNER_UNAVAILABLE",
+            "OUTBOX_OWNER_UNKNOWN",
+            "OUTBOX_SCOPE_MISMATCH",
+        ],
+    ),
+    ("AgentLibrary", &["STALE_AGENT_LIBRARY_REVISION"]),
+    ("WriteBack", &["CORRUPT_WRITE_BACK"]),
+    ("TxnPlanWriteback", &["CORRUPT_WRITE_BACK"]),
+    (
+        "TelemetryDerive",
+        &[
+            "TELEMETRY_UNAVAILABLE",
+            "TELEMETRY_WINDOW_TOO_LARGE",
+            "SCHEMA_INCONSISTENT",
+            "GRAPH_NOT_FOUND",
+        ],
+    ),
+    ("RbacElevation", &["ELEVATION_ACTOR_UNSTAMPED"]),
+    (
+        "Decide",
+        &["DECISIONS", "UNSUPPORTED_COALITION", "CAPACITY_UNAVAILABLE"],
+    ),
+];
+
+fn add_engine_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
+    for code in EngineErrorCode::ALL {
         let token = code.as_str();
-        if matches!(
-            token,
-            "AUTHENTICATION_REQUIRED" | "BUSY" | "CANCELLED" | "INTERNAL" | "TIMEOUT"
-        ) || routed.iter().any(|prefix| token.starts_with(prefix))
+        if SHARED_ENGINE_ERRORS.contains(&token)
+            || (d.domain == "query" && token.starts_with("UQL_"))
         {
             codes.insert(token);
         }
     }
-    // These codes arise after routing, so their owning method or durability
-    // domain is more precise than the family prefixes above.
+}
+
+fn server_prefixes(d: &MethodDescriptor) -> &'static [&'static str] {
+    METHOD_PREFIXES
+        .iter()
+        .find_map(|(method, prefixes)| d.id.as_str().starts_with(method).then_some(*prefixes))
+        .or_else(|| {
+            DOMAIN_PREFIXES
+                .iter()
+                .find_map(|(domain, prefixes)| (d.domain == *domain).then_some(*prefixes))
+        })
+        .unwrap_or(&[])
+}
+
+fn add_server_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
+    let prefixes = server_prefixes(d);
+    for code in ServerErrorCode::ALL {
+        let token = code.as_str();
+        if SHARED_SERVER_ERRORS.contains(&token)
+            || prefixes.iter().any(|prefix| token.starts_with(prefix))
+        {
+            codes.insert(token);
+        }
+    }
+}
+
+fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     if d.policy.is_durable() {
         codes.insert("CORRUPT_MUTATION_LEDGER");
     }
@@ -229,46 +322,18 @@ pub(super) fn method_error_set(d: &MethodDescriptor) -> Vec<&'static str> {
     if d.domain == "security" {
         codes.insert("POLICY_NATIVE_AUTHORITY_REQUIRED");
     }
-    if id.starts_with("Blob") {
+    if d.id.as_str().starts_with("Blob") {
         codes.insert("BODY_DIGEST_MISMATCH");
     }
-    for (method, extras) in [
-        ("ApplyChangeEnvelopes", &["ABORTED_ATOMIC_GRAPH_BATCH"][..]),
-        (
-            "RegisterForeignSource",
-            &["FOREIGN_SOURCE_POLICY_UNBOOTSTRAPPED"][..],
-        ),
-        (
-            "MutationOutbox",
-            &[
-                "CORRUPT_OUTBOX",
-                "OUTBOX_OWNER_UNAVAILABLE",
-                "OUTBOX_OWNER_UNKNOWN",
-                "OUTBOX_SCOPE_MISMATCH",
-            ][..],
-        ),
-        ("AgentLibrary", &["STALE_AGENT_LIBRARY_REVISION"][..]),
-        ("WriteBack", &["CORRUPT_WRITE_BACK"][..]),
-        ("TxnPlanWriteback", &["CORRUPT_WRITE_BACK"][..]),
-        (
-            "TelemetryDerive",
-            &[
-                "TELEMETRY_UNAVAILABLE",
-                "TELEMETRY_WINDOW_TOO_LARGE",
-                "SCHEMA_INCONSISTENT",
-                "GRAPH_NOT_FOUND",
-            ][..],
-        ),
-        ("RbacElevation", &["ELEVATION_ACTOR_UNSTAMPED"][..]),
-        (
-            "Decide",
-            &["DECISIONS", "UNSUPPORTED_COALITION", "CAPACITY_UNAVAILABLE"][..],
-        ),
-    ] {
-        if id == method {
+    for (method, extras) in EXACT_METHOD_ERRORS {
+        if d.id.as_str() == *method {
             codes.extend(extras.iter().copied());
         }
     }
+}
+
+fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
+    let id = d.id.as_str();
     if id.starts_with("Decision") || id.starts_with("Decide") {
         codes.extend(typed_codes(
             DecisionErrorCode::ALL,
@@ -294,6 +359,16 @@ pub(super) fn method_error_set(d: &MethodDescriptor) -> Vec<&'static str> {
     if id == "Solve" {
         codes.extend(typed_codes(SolveErrorCode::ALL, SolveErrorCode::as_str));
     }
+}
+
+/// Include shared boundary refusals and the typed codes that a method's
+/// handler family can return. A sorted set keeps the generated API stable.
+pub(super) fn method_error_set(d: &MethodDescriptor) -> Vec<&'static str> {
+    let mut codes: BTreeSet<_> = d.error_set.iter().copied().collect();
+    add_engine_errors(d, &mut codes);
+    add_server_errors(d, &mut codes);
+    add_owner_errors(d, &mut codes);
+    add_typed_handler_errors(d, &mut codes);
     codes.into_iter().collect()
 }
 
