@@ -2478,6 +2478,38 @@ fn cep_pattern_from_spec(p: &eg_types::wire::CepNodeSpec) -> eg_stream::CepPatte
 
 // ── the relational FILTER leg — real DataFusion via eg-query ────────────────────
 
+/// The largest candidate set the SQL leg receives as an `id IN (…)` list. Planning a
+/// literal list costs time linear in its length on every query, and the list never
+/// changes the answer: `filter_op` intersects the SQL ids with its non-empty input
+/// anyway. Above this size the list is dropped and the intersection does the work.
+const SQL_IN_LIST_MAX: usize = 1_024;
+
+/// The relational leg's matching ids (EH-565): the `id =` point lookup, then the
+/// candidate-restricted string-equality scan, else DataFusion. Predicates are
+/// validated exactly as the SQL leg validates them, so a malformed predicate errs the
+/// same way whichever path answers.
+fn relational_ids(
+    view: &GraphView,
+    relational: &[Pred],
+    restrict: Option<&[String]>,
+) -> Result<Vec<String>, String> {
+    if let [Pred::Eq { prop, value }] = relational {
+        if prop == "id" {
+            return Ok(point_lookup_ids(view, value, restrict));
+        }
+    }
+    where_clause(relational)?;
+    let scanned = restrict.and_then(|ids| string_eq::string_eq_ids(view, relational, ids));
+    match scanned {
+        Some(ids) => Ok(ids),
+        None => sql_filter_ids(
+            view,
+            relational,
+            restrict.filter(|ids| ids.len() <= SQL_IN_LIST_MAX),
+        ),
+    }
+}
+
 /// The O(1) fast-path RESULT for a lone `id = <id>` equality predicate
 /// (CONCEPT:EG-KG.query.point-lookup-fast-path) — BYTE-IDENTICAL to what
 /// `sql_filter_ids(view, &[Pred::Eq{prop:"id", value:id.into()}], restrict_to)` would
