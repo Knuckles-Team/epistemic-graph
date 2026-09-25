@@ -150,7 +150,7 @@ mod tests {
             },
         ] {
             assert_eq!(
-                string_eq_ids(&view, &[pred.clone()], &candidates),
+                string_eq_ids(&view, std::slice::from_ref(&pred), &candidates),
                 None,
                 "{pred:?}"
             );
