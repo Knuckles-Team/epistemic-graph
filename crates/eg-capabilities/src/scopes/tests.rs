@@ -115,6 +115,7 @@ fn the_rulings_hold_in_the_registry() {
         "finance:alerts",
         "finance:track",
         "finance:backfill",
+        "finance:paper-trade",
         "finance:propose-order",
     ] {
         assert_eq!(
@@ -143,6 +144,7 @@ fn the_rulings_hold_in_the_registry() {
 fn graph_os_scope_classes_and_owners_match_the_api_contract() {
     for (scope, class, owner) in [
         ("finance:read", ScopeClass::Domain, "finance"),
+        ("finance:paper-trade", ScopeClass::Domain, "finance"),
         ("fleet:read", ScopeClass::User, "graph-os"),
         ("fleet:control", ScopeClass::Admin, "graph-os"),
         ("loops:read", ScopeClass::User, "graph-os"),

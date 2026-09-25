@@ -117,6 +117,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("finance:alerts", Domain, "finance"),
     entry("finance:approve-live-order", Approver, "finance"),
     entry("finance:backfill", Domain, "finance"),
+    entry("finance:paper-trade", Domain, "finance"),
     entry("finance:propose-order", Domain, "finance"),
     entry("finance:read", Domain, "finance"),
     entry("finance:track", Domain, "finance"),
