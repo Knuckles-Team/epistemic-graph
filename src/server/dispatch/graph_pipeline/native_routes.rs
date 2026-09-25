@@ -591,7 +591,8 @@ async fn route_graph_audit_and_modality(
     let method = match method {
         Method::AuditReadEvent { seq } => {
             return Ok(dispatch_op_audit_read_event(
-                ctx.req_id, ctx.graph_name, ctx.persistence.clone(), seq,
+                ctx.req_id, ctx.graph_name, ctx.verified_context.tenant(),
+                ctx.persistence.clone(), seq,
             ).await);
         }
         Method::AuditAppend {

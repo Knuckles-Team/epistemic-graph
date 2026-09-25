@@ -597,13 +597,14 @@ mod security_tests {
         event.status = "error".into();
         assert!(operation_audit_append(&db, &mut tail, "g", &event)
             .unwrap_err().contains("AUDIT_IDEMPOTENCY_CONFLICT"));
-        assert!(operation_audit_read(&db, "g", outcome.seq).unwrap().chain_verified);
+        assert!(operation_audit_read(&db, "g", "tenant-a", outcome.seq).unwrap().chain_verified);
+        assert!(operation_audit_read(&db, "g", "tenant-b", outcome.seq).is_err());
         drop(db);
         let reopened = open_db(&dir);
         let mut cold_tail = AuditTailCache::new();
         event.status = "ok".into();
         assert!(operation_audit_append(&reopened, &mut cold_tail, "g", &event).unwrap().replayed);
-        let proof = operation_audit_read(&reopened, "g", reserved.seq).unwrap();
+        let proof = operation_audit_read(&reopened, "g", "tenant-a", reserved.seq).unwrap();
         assert!(proof.chain_verified);
         assert!(proof.event_line.contains("status=reserved"));
         event.request_id = "never-reserved".into();

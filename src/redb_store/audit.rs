@@ -186,6 +186,7 @@ pub(crate) fn operation_audit_append(
 pub(crate) fn operation_audit_read(
     shard: &Shard,
     graph: &str,
+    verified_tenant: &str,
     seq: u64,
 ) -> Result<crate::protocol::AuditEventProof, String> {
     let handle = shard.graph(graph)?;
@@ -197,7 +198,7 @@ pub(crate) fn operation_audit_read(
     let (previous, hash, line) = crate::audit::decode_entry(entry.value())
         .ok_or_else(|| "AUDIT_EVENT_CORRUPT".to_string())?;
     let event_line = std::str::from_utf8(line).map_err(|_| "AUDIT_EVENT_CORRUPT")?;
-    if !event_line.starts_with("OP_AUDIT|v1|") {
+    if !event_line.starts_with(&format!("OP_AUDIT|v1|tenant={verified_tenant}|")) {
         return Err("AUDIT_EVENT_NOT_FOUND".to_string());
     }
     let proof = crate::protocol::AuditEventProof {
