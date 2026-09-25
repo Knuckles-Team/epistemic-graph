@@ -41,15 +41,7 @@ impl Fixture {
                 .as_nanos()
         ));
         let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation("system"));
-        state.tsdb_store = Some(Arc::new(
-            eg_tsdb::store::SeriesStore::open(
-                &path,
-                crate::store_authority::process_verifier(),
-                crate::store_authority::process_authority().principal(),
-                &crate::store_authority::process_authority().proof(),
-            )
-            .unwrap(),
-        ));
+        state.tsdb_store = Some(super::open_test_series_store(&path));
         Self {
             state: Arc::new(RwLock::new(state)),
             path,

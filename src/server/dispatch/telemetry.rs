@@ -39,7 +39,7 @@ use tokio::sync::RwLock;
 
 use super::graph_pipeline::dispatch_graph_op;
 use super::timed_read;
-use crate::protocol::{Method, Response, ResultPayload};
+use crate::protocol::{Method, Response};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::obs::ObsState;
 use crate::server::state::ServerState;
@@ -75,13 +75,10 @@ pub(super) async fn handle_telemetry_derive(
     request: DeriveRequest,
 ) -> Response {
     let req_id = target.req_id;
-    match derive(state, &target, request).await {
-        Ok(receipt) => match ResultPayload::of::<TelemetryDeriveResult>(receipt) {
-            Ok(payload) => Response::ok(req_id, payload),
-            Err(error) => Response::err(req_id, error),
-        },
-        Err(error) => Response::err(req_id, error),
-    }
+    crate::server::dispatch::typed_response::<TelemetryDeriveResult>(
+        req_id,
+        derive(state, &target, request).await,
+    )
 }
 
 async fn derive(

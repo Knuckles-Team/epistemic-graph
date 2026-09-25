@@ -293,36 +293,10 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
     }
 }
 
-/// Run `plan` over `view` with `core`'s maintained indexes bound (and the
-/// caller's owner-scoped foreign registry, EH-373, when bound), against `core`'s
-/// semantic store with `staged` embeddings overlaid (read-your-own-writes). No
-/// staged embedding ⇒ the COMMITTED store is searched through a guard -- no
-/// clone, no forced HNSW rebuild (CONCEPT:EG-KG.query.served-vector-index-
-/// binding); only a txn that actually staged embeddings pays for the
-/// `semantic_overlay` copy. Off-txn callers pass no staged embeddings.
-#[cfg(feature = "query")]
-pub(crate) fn run_unified_with_staged(
-    plan: eg_plan::Plan,
-    view: &crate::graph::GraphView,
-    core: &Arc<GraphCore>,
-    staged: &[(String, Vec<f32>)],
-    #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
-    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
-) -> Result<Vec<(String, Option<f32>)>, String> {
-    run_unified_with_staged_finish(
-        plan,
-        view,
-        core,
-        staged,
-        #[cfg(feature = "federation")]
-        foreign,
-        #[cfg(feature = "tsdb")]
-        tsdb_ctx,
-        execute_rows,
-    )
-}
-
-/// [`run_unified_with_staged`] with a caller-chosen finisher (see [`run_unified_with`]).
+/// Run `plan` over the staged view with core indexes, committed and staged
+/// embeddings, and the caller's governed foreign and time-series legs bound.
+/// With no staged embeddings, the committed store is searched through a guard.
+/// The caller chooses the row projection through `finish`.
 #[cfg(feature = "query")]
 pub(crate) fn run_unified_with_staged_finish<T>(
     plan: eg_plan::Plan,

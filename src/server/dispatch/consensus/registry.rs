@@ -274,16 +274,12 @@ pub(in crate::server::dispatch) async fn handle_list_registered_servers(
     let live = live_registered_servers(&raw_core, observed_at_ms, |node_id, properties| {
         read_authority.can_see_node(properties, raw_core.is_schema_node(node_id))
     });
-    match registered_server_page(&live, &request, observed_at_ms, registry_revision) {
-        Ok(page) => match ResultPayload::of::<
-            eg_types::result_contract::cluster::ListRegisteredServers,
-        >(page)
-        {
-            Ok(payload) => Response::ok(req_id, payload),
-            Err(error) => Response::err(req_id, error),
-        },
-        Err(error) => Response::err(req_id, error),
-    }
+    crate::server::dispatch::typed_response::<
+        eg_types::result_contract::cluster::ListRegisteredServers,
+    >(
+        req_id,
+        registered_server_page(&live, &request, observed_at_ms, registry_revision),
+    )
 }
 
 /// One `RegisterServer` call's typed inputs, as the router unpacked them.
@@ -624,8 +620,6 @@ mod list_registered_servers_tests {
     #[cfg(feature = "security")]
     #[test]
     fn hidden_server_row_is_absent_from_count_and_snapshot_digest() {
-        use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
-
         let core = crate::graph::GraphCore::new();
         core.add_node(
             "srv:alice-server".to_string(),
@@ -635,15 +629,7 @@ mod list_registered_servers_tests {
             "srv:bob-server".to_string(),
             private_row("bob-server", "bob"),
         );
-        let mut isolation = IsolationLayer::new();
-        for agent_id in ["alice", "bob"] {
-            isolation.register_agent(AgentIdentity {
-                agent_id: agent_id.to_string(),
-                role: AgentRole::Agent,
-                teams: Vec::new(),
-                roles: Vec::new(),
-            });
-        }
+        let isolation = crate::server::access::two_agent_isolation();
         let context = VerifiedRequestContext::verified_for_test("alice");
         let authority = GraphReadAuthority::from_verified(&context, &isolation).unwrap();
         let visible = live_registered_servers(&core, 50_000, |node_id, properties| {

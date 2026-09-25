@@ -750,14 +750,8 @@ mod eg318_dispatch_tests {
         ));
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(Arc::new(
-                eg_tsdb::store::SeriesStore::open(
-                    &path,
-                    crate::store_authority::process_verifier(),
-                    crate::store_authority::process_authority().principal(),
-                    &crate::store_authority::process_authority().proof(),
-                )
-                .unwrap(),
+            s.tsdb_store = Some(crate::server::handlers::timeseries::open_test_series_store(
+                &path,
             ));
             // RBAC (`feature = "security"`) is the mandatory current access decision
             // for a non-System identity — `check_access` ignores `graph_owner`
@@ -919,14 +913,8 @@ mod eg318_dispatch_tests {
         ));
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(Arc::new(
-                eg_tsdb::store::SeriesStore::open(
-                    &path,
-                    crate::store_authority::process_verifier(),
-                    crate::store_authority::process_authority().principal(),
-                    &crate::store_authority::process_authority().proof(),
-                )
-                .unwrap(),
+            s.tsdb_store = Some(crate::server::handlers::timeseries::open_test_series_store(
+                &path,
             ));
             #[cfg(feature = "security")]
             {
@@ -1167,14 +1155,8 @@ mod eg318_dispatch_tests {
         ));
         {
             let mut s = state.write().await;
-            s.tsdb_store = Some(Arc::new(
-                eg_tsdb::store::SeriesStore::open(
-                    &path,
-                    crate::store_authority::process_verifier(),
-                    crate::store_authority::process_authority().principal(),
-                    &crate::store_authority::process_authority().proof(),
-                )
-                .unwrap(),
+            s.tsdb_store = Some(crate::server::handlers::timeseries::open_test_series_store(
+                &path,
             ));
             s.isolation.add_role(Role::new("reader-acme-private"));
             s.isolation.add_grant(Grant {
