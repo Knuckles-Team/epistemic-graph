@@ -195,6 +195,68 @@ impl ColumnPlan {
     }
 }
 
+/// SQL's column capability is deliberately narrow: a string equality over a
+/// selected column may be evaluated remotely as a superset (collation can make
+/// it broader), and the local lexical residual still decides exact membership.
+/// Numeric and ordered comparisons need typed SQL column decoding first.
+pub fn sql_filter_support(predicate: &ColumnPredicate) -> PushdownSupport {
+    if predicate.comparison == Comparison::Eq && predicate.value.is_string() {
+        PushdownSupport::Inexact
+    } else {
+        PushdownSupport::Unsupported
+    }
+}
+
+/// Wrap an already registered read-only SQL statement in a column projection and
+/// conservative string-equality predicates. The SQL source re-validates the
+/// entire composed statement and DSN before opening a connection. Fields are
+/// CAST to lexical text because the existing bounded column reader decodes text.
+#[cfg(feature = "federation-sql")]
+pub(crate) fn render_sql_columns(
+    base: &str,
+    id_field: &str,
+    score_field: Option<&str>,
+    plan: &ColumnPlan,
+    dialect: crate::sql_text::SqlDialect,
+) -> Result<String, String> {
+    use crate::sql_text::{quote_identifier, render_literal, SqlDialect};
+
+    let mut fields: BTreeSet<String> = plan.remote_projection.iter().cloned().collect();
+    fields.insert(id_field.to_string());
+    if let Some(score) = score_field {
+        fields.insert(score.to_string());
+    }
+    let cast_type = match dialect {
+        SqlDialect::Postgres => "TEXT",
+        SqlDialect::MySql => "CHAR",
+    };
+    let projection = fields
+        .iter()
+        .map(|field| {
+            let quoted = quote_identifier(field, dialect)?;
+            Ok(format!("CAST(eg_fed.{quoted} AS {cast_type}) AS {quoted}"))
+        })
+        .collect::<Result<Vec<_>, String>>()?
+        .join(", ");
+    let predicates = plan
+        .remote_filters
+        .iter()
+        .filter(|pred| sql_filter_support(pred) != PushdownSupport::Unsupported)
+        .map(|pred| {
+            let quoted = quote_identifier(&pred.column, dialect)?;
+            let value = render_literal(pred.value.as_str().unwrap_or_default(), false, dialect)?;
+            Ok(format!("CAST(eg_fed.{quoted} AS {cast_type}) = {value}"))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let body = base.trim_end().trim_end_matches(';').trim_end();
+    let mut statement = format!("SELECT {projection} FROM ({body}) AS eg_fed");
+    if !predicates.is_empty() {
+        statement.push_str(" WHERE ");
+        statement.push_str(&predicates.join(" AND "));
+    }
+    Ok(statement)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,5 +347,32 @@ mod tests {
         assert!(rows.rows()[0].columns.is_empty());
         assert_eq!(rows.into_rowset().ids(), vec!["a"]);
         assert!(registry.resolve_columns("unbound").is_err());
+    }
+
+    #[cfg(feature = "federation-sql")]
+    #[test]
+    fn sql_projection_and_filter_quote_identifiers_and_literals() {
+        use crate::sql_text::SqlDialect;
+        let exposed = BTreeSet::from(["id".into(), "name".into(), "age".into()]);
+        let pred = ColumnPredicate {
+            column: "name".into(),
+            comparison: Comparison::Eq,
+            value: json!("O'Brien"),
+        };
+        let plan =
+            ColumnPlan::new(&exposed, &["age".into()], &[pred], true, sql_filter_support).unwrap();
+        let rendered = render_sql_columns(
+            "SELECT id, name, age FROM people",
+            "id",
+            None,
+            &plan,
+            SqlDialect::Postgres,
+        )
+        .unwrap();
+        assert!(rendered.contains("CAST(eg_fed.\"age\" AS TEXT) AS \"age\""));
+        assert!(rendered.contains("CAST(eg_fed.\"name\" AS TEXT) = 'O''Brien'"));
+        assert!(
+            render_sql_columns("SELECT 1", "id; DROP", None, &plan, SqlDialect::Postgres).is_err()
+        );
     }
 }
