@@ -149,6 +149,9 @@ impl EngineRemote<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
     use eg_types::acl::RequestContextClaims;
     use eg_types::wire::ForeignSourceSpec;
 
@@ -225,5 +228,74 @@ mod tests {
             if matches!(&preds[..], [eg_types::wire::Pred::In { values, .. }]
                 if values == &vec![eg_types::wire::PredLiteral::Str(key)]))
         );
+    }
+
+    #[test]
+    fn framed_peer_serves_equivalent_rows_with_less_transfer() {
+        use eg_types::protocol::{Method, Request, Response, ResultPayload};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = listener.local_addr().unwrap().to_string();
+        let server = std::thread::spawn(move || {
+            let fixture = crate::fixture::build();
+            let ctx = PlanCtx::new(&fixture.view, &fixture.semantic);
+            let mut served = Vec::new();
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut header = [0u8; 4];
+                stream.read_exact(&mut header).unwrap();
+                let mut body = vec![0; u32::from_be_bytes(header) as usize];
+                stream.read_exact(&mut body).unwrap();
+                let request: Request = rmp_serde::from_slice(&body).unwrap();
+                assert!(request.auth_token.starts_with("eg2."));
+                let Method::Uql { text, params } = request.method else {
+                    panic!("the peer must receive UQL");
+                };
+                assert!(params.is_empty());
+                let statement = crate::uql::parse_statement(&text, &params).unwrap();
+                let result = crate::uql::serve::run_statement(&statement, &ctx).unwrap();
+                let eg_types::wire::UqlResult::Rows { rows, .. } = &result else {
+                    panic!("rows expected");
+                };
+                served.push(rows.len());
+                let response = Response::ok(request.id, ResultPayload::raw(&result));
+                let encoded = rmp_serde::to_vec_named(&response).unwrap();
+                stream
+                    .write_all(&(encoded.len() as u32).to_be_bytes())
+                    .unwrap();
+                stream.write_all(&encoded).unwrap();
+            }
+            served
+        });
+
+        let mut spec = remote("MATCH (:Doc) |> WHERE year > 2023");
+        let ForeignSourceSpec::RemoteEngine {
+            endpoint: host,
+            context,
+            ..
+        } = &mut spec
+        else {
+            unreachable!()
+        };
+        *host = endpoint;
+        context.principal = "agent:peer-test".into();
+        context.agent_id = "agent:peer-test".into();
+        context.tenant = "tenant-test".into();
+        context.audience = "epistemic-graph".into();
+        context.policy_version = "test".into();
+        let peer = EngineRemote::new(&spec, Identity::of_spec(&spec, None));
+        let full = peer.fetch(&RemoteRequest::full()).unwrap();
+        let selected = peer
+            .fetch(&RemoteRequest::keys(vec!["d2".into(), "d4".into()]))
+            .unwrap();
+        let limited = peer
+            .fetch(&RemoteRequest {
+                limit: Some(2),
+                ..RemoteRequest::full()
+            })
+            .unwrap();
+        assert_eq!(selected.ids(), vec!["d2", "d4"]);
+        assert_eq!(limited.ids(), full.ids()[..2]);
+        assert_eq!(server.join().unwrap(), vec![full.len(), 2, 2]);
     }
 }
