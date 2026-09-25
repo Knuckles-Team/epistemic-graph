@@ -2193,15 +2193,15 @@ mod tests {
             ),
             (
                 |c| c.audience = "other".into(),
-                Some("request context audience does not match deployment"),
+                Some("AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment"),
             ),
             (
                 |c| c.tenant = "tenant-b".into(),
-                Some("request context tenant does not match graph tenant"),
+                Some("AUTH_TENANT_MISMATCH: request context tenant does not match graph tenant"),
             ),
             (
                 |c| c.policy_version = "policy-6".into(),
-                Some("request context policy version is not active"),
+                Some("AUTH_POLICY_VERSION_MISMATCH: request context policy version is not active"),
             ),
         ];
         for (index, (mutate, expected)) in cases.into_iter().enumerate() {
