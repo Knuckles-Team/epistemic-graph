@@ -53,6 +53,16 @@ fn msgpack_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Str
     rmp_serde::to_vec_named(value).map_err(|error| format!("result serialization failed: {error}"))
 }
 
+#[cfg(feature = "query")]
+fn parse_served_statement(
+    req_id: u64,
+    text: &str,
+    params: &std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
+) -> Result<eg_plan::uql::Statement, Response> {
+    eg_plan::uql::parse_statement(text, params)
+        .map_err(|error| Response::err(req_id, error.render(text)))
+}
+
 /// Encode a [`eg_query::TypedQueryResult`] as the wire `Sql` response:
 /// msgpack every cell, or fail the whole response if one cell can't encode.
 /// The plain, cancellable, and graph-table-backed typed-SQL execution paths

@@ -46,7 +46,7 @@ use serde_json::Value;
 
 use super::stat_log::{executed_option, joined, LogReader, MAX_LOG_ROWS};
 use super::stat_slate::evaluated_slates;
-use super::stat_support::{default_statistical_policy, pinned_body};
+use super::stat_support::{default_statistical_policy, materialize_matrix, pinned_body};
 use super::stat_view::{relation, Col};
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::sql_catalog_acl::relations::Relation;
@@ -196,11 +196,7 @@ fn matrix_of(entry: &DecisionLogEntry) -> Option<FeatureMatrix> {
     else {
         return None;
     };
-    Some(FeatureMatrix {
-        candidate_ids: candidate_ids.iter().cloned().collect(),
-        feature_names: feature_names.iter().cloned().collect(),
-        values: values.iter().copied().collect(),
-    })
+    Some(materialize_matrix(candidate_ids, feature_names, values))
 }
 
 /// The record's forecast of its own executed option, when its head gives one.

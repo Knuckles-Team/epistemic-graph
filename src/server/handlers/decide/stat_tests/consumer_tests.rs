@@ -25,14 +25,7 @@ fn declared(id: &str, score: i64) -> DeclaredOption {
 fn score_schema() -> FeatureSchemaBody {
     FeatureSchemaBody {
         schema_version: FEATURE_SCHEMA_VERSION,
-        features: BoundedVec::new(vec![FeatureSpec {
-            name: "score".to_string(),
-            kind: FeatureKind::Number {
-                key: "score".to_string(),
-            },
-            missing: MissingValue::Abstain,
-        }])
-        .unwrap(),
+        features: BoundedVec::new(vec![number_feature("score")]).unwrap(),
     }
 }
 
@@ -97,6 +90,15 @@ pub(super) async fn declared_abstention(h: &Harness) -> StatisticalDecisionRecor
     batch.records.as_slice()[0].clone()
 }
 
+async fn logged_abstention(h: &Harness) -> DecisionLogCommitted {
+    let record = declared_abstention(h).await;
+    let commit = DecisionLogOp::Commit {
+        record: Box::new(record),
+        evaluator: None,
+    };
+    decode(log_op(h, "decider", commit).await).unwrap()
+}
+
 #[tokio::test]
 async fn declared_options_decide_as_claims_under_the_declaring_principal() {
     let h = Harness::new().await;
@@ -152,12 +154,7 @@ async fn declared_options_decide_as_claims_under_the_declaring_principal() {
 #[tokio::test]
 async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
     let h = Harness::new().await;
-    let record = declared_abstention(&h).await;
-    let commit = DecisionLogOp::Commit {
-        record: Box::new(record.clone()),
-        evaluator: None,
-    };
-    let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+    let logged = logged_abstention(&h).await;
     let id = logged.record_id.as_str();
     let model = || AbstentionResolver::Model {
         producer: "au-escalation".to_string(),
@@ -368,12 +365,7 @@ async fn decision_record_views_answer_only_from_visible_rows() {
     use serde_json::json;
 
     let h = Harness::new().await;
-    let record = declared_abstention(&h).await;
-    let commit = DecisionLogOp::Commit {
-        record: Box::new(record.clone()),
-        evaluator: None,
-    };
-    let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+    let logged = logged_abstention(&h).await;
     let human = AbstentionResolver::Human;
     resolve(&h, resolution(&logged.record_id, "r-1", "plan-deep", human))
         .await

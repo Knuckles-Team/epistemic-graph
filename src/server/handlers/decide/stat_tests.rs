@@ -172,6 +172,17 @@ fn rational(n: u64, d: u64) -> UnitRationalWire {
     UnitRationalWire::new(n, d).unwrap()
 }
 
+fn fit_optimiser() -> OptimiserSpec {
+    OptimiserSpec {
+        max_iterations: 60,
+        tolerance: QuantisedValue {
+            scale: QuantScaleTag::Q32,
+            value: 1 << 12,
+        },
+        seed: 0,
+    }
+}
+
 fn schema() -> FeatureSchemaBody {
     FeatureSchemaBody {
         schema_version: FEATURE_SCHEMA_VERSION,
@@ -187,6 +198,31 @@ fn schema() -> FeatureSchemaBody {
         ])
         .unwrap(),
     }
+}
+
+fn number_feature(key: &str) -> FeatureSpec {
+    FeatureSpec {
+        name: key.to_string(),
+        kind: FeatureKind::Number {
+            key: key.to_string(),
+        },
+        missing: MissingValue::Abstain,
+    }
+}
+
+fn publish_route_schema(h: &Harness) -> (ComponentDependency, String) {
+    let body = schema();
+    let pin = h
+        .publish(
+            "schema-route",
+            AgentComponentKind::FeatureSchema,
+            "route features",
+            Some(&body),
+            None,
+        )
+        .unwrap();
+    let digest = encode_body(&body).unwrap().content_digest;
+    (pin, digest)
 }
 
 fn request(
@@ -313,17 +349,7 @@ async fn route_fixture(h: &Harness) -> RouteFixture {
         None,
     )
     .unwrap();
-    let body = schema();
-    let schema_pin = h
-        .publish(
-            "schema-route",
-            AgentComponentKind::FeatureSchema,
-            "route features",
-            Some(&body),
-            None,
-        )
-        .unwrap();
-    let schema_digest = encode_body(&body).unwrap().content_digest;
+    let (schema_pin, schema_digest) = publish_route_schema(h);
 
     // No head under the default (deterministic-only) policy: abstain, with the
     // matrix recorded exactly and the record digest reproducible.
@@ -388,14 +414,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
             gold_set_digest: gold.clone(),
         },
         window: window(),
-        optimiser: OptimiserSpec {
-            max_iterations: 60,
-            tolerance: QuantisedValue {
-                scale: QuantScaleTag::Q32,
-                value: 1 << 12,
-            },
-            seed: 0,
-        },
+        optimiser: fit_optimiser(),
         source: DatasetSource::Inline {
             dataset: Box::new(data.clone()),
         },
@@ -665,13 +684,7 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
     let body = FeatureSchemaBody {
         schema_version: FEATURE_SCHEMA_VERSION,
         features: BoundedVec::new(vec![
-            FeatureSpec {
-                name: "score".to_string(),
-                kind: FeatureKind::Number {
-                    key: "score".to_string(),
-                },
-                missing: MissingValue::Abstain,
-            },
+            number_feature("score"),
             eg_types::test_support::decision::summary_text_feature(),
         ])
         .unwrap(),

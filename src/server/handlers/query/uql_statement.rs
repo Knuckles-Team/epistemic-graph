@@ -20,9 +20,9 @@ pub(crate) async fn handle_uql(
     params: std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
-    let stmt = match eg_plan::uql::parse_statement(&text, &params) {
+    let stmt = match parse_served_statement(req_id, &text, &params) {
         Ok(stmt) => stmt,
-        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+        Err(response) => return Ok(response),
     };
     let binding = eg_plan::uql::serve::binding_plan(&stmt);
     let legs = match ctx.served_legs(&binding).await {

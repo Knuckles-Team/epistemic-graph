@@ -22,7 +22,7 @@ use super::stat_classes::current_rules;
 use super::stat_executor::{
     pinned_inputs, recorded_explanation, run_on_matrix, Executed, ExecutionContext, MatrixInputs,
 };
-use super::stat_support::{refusal, resolve_policy};
+use super::stat_support::{materialize_matrix, refusal, resolve_policy};
 
 fn mismatch(detail: &str) -> String {
     format!(
@@ -47,11 +47,7 @@ fn stored_matrix(record: &StatisticalDecisionRecord) -> Result<FeatureMatrix, St
     if values.is_empty() {
         return Err(mismatch("the record stores no feature values to replay"));
     }
-    Ok(FeatureMatrix {
-        candidate_ids: candidate_ids.iter().cloned().collect(),
-        feature_names: feature_names.iter().cloned().collect(),
-        values: values.iter().copied().collect(),
-    })
+    Ok(materialize_matrix(candidate_ids, feature_names, values))
 }
 
 /// An executed decision is logged so an outcome can evaluate it; an

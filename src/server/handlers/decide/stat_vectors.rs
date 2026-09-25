@@ -9,7 +9,7 @@ use std::sync::Arc;
 use eg_core::graph::GraphCore;
 use eg_types::decision::statistical::StatisticalErrorCode;
 
-use super::stat_support::refusal;
+use super::stat_support::readable_graph;
 use crate::isolation::IsolationLayer;
 
 /// Over-fetch factor of a visibility-filtered probe.
@@ -94,24 +94,16 @@ pub(super) async fn graph_vectors(
     agent_id: &str,
     graph: &str,
 ) -> Result<GraphVectors, String> {
-    let guard = state.read().await;
-    let entry = guard.registry.get(graph).ok_or_else(|| {
-        refusal(
-            StatisticalErrorCode::ParameterInvalid,
-            format!("unknown graph {graph}"),
-        )
-    })?;
-    crate::server::access::check_graph_access(
-        &guard.isolation,
-        Some(agent_id),
+    let (core, isolation) = readable_graph(
+        state,
+        agent_id,
         graph,
-        entry.graph_type,
-        entry.owner.as_deref(),
-        crate::isolation::AccessLevel::Read,
-    )?;
+        StatisticalErrorCode::ParameterInvalid,
+    )
+    .await?;
     Ok(GraphVectors {
-        core: Arc::clone(&entry.core),
-        isolation: guard.isolation.clone(),
+        core,
+        isolation,
         caller: agent_id.to_string(),
     })
 }

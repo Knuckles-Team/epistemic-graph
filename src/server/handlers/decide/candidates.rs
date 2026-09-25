@@ -351,26 +351,20 @@ pub(super) async fn filtered_graph_view(
     let CandidateSource::Graph { graph, .. } = source else {
         return Ok(None);
     };
-    let guard = state.read().await;
-    let entry = guard.registry.get(graph).ok_or_else(|| {
-        refusal(
-            StatisticalErrorCode::CandidatePlanRefused,
-            format!("unknown graph {graph}"),
-        )
-    })?;
-    crate::server::access::check_graph_access(
-        &guard.isolation,
-        Some(agent_id),
+    let (core, isolation) = super::stat_support::readable_graph(
+        state,
+        agent_id,
         graph,
-        entry.graph_type,
-        entry.owner.as_deref(),
-        crate::isolation::AccessLevel::Read,
-    )?;
-    let view = entry.core.analysis_snapshot();
+        StatisticalErrorCode::CandidatePlanRefused,
+    )
+    .await?;
+    #[cfg(not(feature = "security"))]
+    let _ = isolation;
+    let view = core.analysis_snapshot();
     #[cfg(feature = "security")]
     let view = {
         let mut view = view;
-        guard.isolation.filter_view(agent_id, &mut view);
+        isolation.filter_view(agent_id, &mut view);
         view
     };
     Ok(Some(view))
