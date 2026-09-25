@@ -6,11 +6,12 @@ impl RedbBackend {
     pub fn audit_read_event_blocking(
         &self,
         graph_fname: &str,
+        verified_tenant: &str,
         seq: u64,
     ) -> Result<crate::protocol::AuditEventProof, String> {
         let writer = self.shard_for(graph_fname);
         let shard = writer.shard.upgrade().ok_or("redb writer thread is gone")?;
-        crate::redb_store::operation_audit_read(&shard, graph_fname, seq)
+        crate::redb_store::operation_audit_read(&shard, graph_fname, verified_tenant, seq)
     }
     #[cfg(feature = "security")]
     pub fn audit_append_blocking(
