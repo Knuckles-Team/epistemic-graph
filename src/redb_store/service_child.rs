@@ -166,8 +166,8 @@ pub(crate) fn service_child_reserve(
     }
     let record_id = binding.record_id();
     let members = shard.graph_members(&[graph])?;
-    let (group, batches) =
-        shard.admit_maintenance(&members, &format!("service_child/reserve/{record_id}"))?;
+    let operation = format!("service_child/reserve/{record_id}");
+    let (group, batches) = shard.admit_maintenance(&members, &operation)?;
     let write = ShardWrite::open(shard, &group, &members, &batches)?;
     let applied = (|| {
         let request_identity = format!(
@@ -185,8 +185,11 @@ pub(crate) fn service_child_reserve(
         let audit_seq = audit_record.seq;
         let audit_entry_sha256 = hex::encode(audit_record.entry_hash);
         let mut children = write.graph(graph)?.open_scoped_table(SERVICE_CHILDREN)?;
-        if let Some(row) = children.get((graph, record_id.as_str()))? {
-            let existing = decode(row.value())?;
+        let existing = {
+            let row = children.get((graph, record_id.as_str()))?;
+            row.map(|guard| decode(guard.value())).transpose()?
+        };
+        if let Some(existing) = existing {
             if existing.binding != binding
                 || existing.audit_seq != audit_seq
                 || existing.audit_entry_sha256 != audit_entry_sha256
@@ -276,15 +279,17 @@ pub(crate) fn service_child_finish(
         _ => {}
     }
     let members = shard.graph_members(&[graph])?;
-    let (group, batches) =
-        shard.admit_maintenance(&members, &format!("service_child/finish/{record_id}"))?;
+    let operation = format!("service_child/finish/{record_id}");
+    let (group, batches) = shard.admit_maintenance(&members, &operation)?;
     let write = ShardWrite::open(shard, &group, &members, &batches)?;
     let applied = (|| {
         let mut children = write.graph(graph)?.open_scoped_table(SERVICE_CHILDREN)?;
-        let row = children
-            .get((graph, record_id))?
-            .ok_or("SERVICE_CHILD_NOT_FOUND")?;
-        let mut record = decode(row.value())?;
+        let mut record = {
+            let row = children
+                .get((graph, record_id))?
+                .ok_or("SERVICE_CHILD_NOT_FOUND")?;
+            decode(row.value())?
+        };
         if record.binding.tenant != verified_tenant
             || record.binding.owner_principal != verified_owner
         {
