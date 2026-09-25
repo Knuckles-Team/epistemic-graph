@@ -77,6 +77,8 @@ const JOB_PUBLICATION_PLAN_VERSION: u16 = 1;
 const MAX_JOB_PUBLICATION_PLAN_BYTES: usize = 16 * 1024 * 1024;
 
 mod core;
+#[cfg(all(feature = "decide", feature = "finance"))]
+mod decision_replay_submit;
 mod executor_claim;
 mod executor_loop;
 mod executor_program;
@@ -104,6 +106,8 @@ use core::{
     compile_job_batch, job_record, job_response, job_store, owned_job, parse_algorithm,
     reproducibility_manifest,
 };
+#[cfg(all(feature = "decide", feature = "finance"))]
+pub(crate) use decision_replay_submit::submit_decision_replay;
 use executor_claim::*;
 use executor_loop::*;
 use executor_program::*;
