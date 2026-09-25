@@ -52,6 +52,8 @@ pub(crate) const AUDIT_CHAIN: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("audit_chain");
 pub(crate) const AUDIT_REQUESTS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("audit_requests");
+pub(crate) const SERVICE_CHILDREN: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("service_children");
 pub(crate) const PROVENANCE_ANCHOR_MEMBERS: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("provenance_anchor_members");
 pub(crate) const GRAPH_META: TableDefinition<'static, &str, &[u8]> =
@@ -246,6 +248,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::SERIES_META);
         $visit!(shard::SERIES_PROJECTION_STATE);
         $visit!(shard::STORAGE_SCRUB_CURSOR);
+        $visit!(shard::SERVICE_CHILDREN);
     }};
 }
 pub(crate) use visit_graph_shard_tables;
@@ -306,9 +309,10 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
     "series_chunks",
     "series_meta",
     "series_projection_state",
-    // Appended last so the layout before the node-payload scrub is exactly the
-    // prefix without it (`GRAPH_SHARD_BEFORE_STORAGE_SCRUB`).
+    // Append new owner tables in layout-generation order so lineage can name
+    // each predecessor by an exact prefix.
     "storage_scrub_cursor",
+    "service_children",
 ];
 
 /// The eight tables of the shard's retired private mutation ledger.
@@ -386,6 +390,7 @@ fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
         | "development_lane_invocations" => Some("(&str,&str,&str)"),
         "nodes"
         | "audit_requests"
+        | "service_children"
         | "resource_reservations"
         | "resource_hosts"
         | "resource_exclusivity"

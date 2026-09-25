@@ -106,8 +106,12 @@ pub const SQL_BEFORE_DURABLE_ANN: LayoutPredecessor = LayoutPredecessor {
 const SQL_DATA_LOST: &str = "its SQL catalog and rows are not migrated; re-ingest the sources";
 
 /// The graph-shard owner tables before the background node-payload scrub's
-/// file-wide cursor (EH-384): the current census without its last table.
+/// file-wide cursor (EH-384): the current census without its last two tables.
 const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] =
+    GRAPH_SHARD_TABLES.split_at(GRAPH_SHARD_TABLES.len() - 2).0;
+
+/// The graph-shard owner tables before the durable service-child journal.
+const GRAPH_SHARD_TABLES_BEFORE_SERVICE_CHILDREN: &[&str] =
     GRAPH_SHARD_TABLES.split_at(GRAPH_SHARD_TABLES.len() - 1).0;
 
 /// A graph shard file from before the background node-payload scrub (EH-384;
@@ -116,6 +120,15 @@ pub const GRAPH_SHARD_BEFORE_STORAGE_SCRUB: LayoutPredecessor = LayoutPredecesso
     layout: OwnerLayout::GraphShard,
     label: "graph shard store before the background node-payload scrub",
     owner_tables: GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB,
+    data_lost: "its graphs are not migrated; re-ingest the sources",
+    file_name: "graph-*.redb",
+};
+
+/// A graph shard file from before the durable service-child journal (EH-611).
+pub const GRAPH_SHARD_BEFORE_SERVICE_CHILDREN: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard store before the durable service-child journal",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_SERVICE_CHILDREN,
     data_lost: "its graphs are not migrated; re-ingest the sources",
     file_name: "graph-*.redb",
 };
@@ -142,7 +155,10 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
         | OwnerLayout::TenantCatalog
         | OwnerLayout::NodeInfo
         | OwnerLayout::ClusterHierarchy => &[],
-        OwnerLayout::GraphShard => &[GRAPH_SHARD_BEFORE_STORAGE_SCRUB],
+        OwnerLayout::GraphShard => &[
+            GRAPH_SHARD_BEFORE_STORAGE_SCRUB,
+            GRAPH_SHARD_BEFORE_SERVICE_CHILDREN,
+        ],
     }
 }
 

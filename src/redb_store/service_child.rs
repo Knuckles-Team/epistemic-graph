@@ -7,7 +7,6 @@
 
 use super::shard::{Shard, ShardWrite};
 use super::*;
-use eg_storage::ScopedOwnerTableMut;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
