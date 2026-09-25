@@ -87,14 +87,14 @@ def parity_graph() -> str:
 
 
 @pytest.fixture
-def embedded_persist_dir(tmp_path) -> str:
-    """A real, per-test persistence directory for `EmbeddedTransport` -- never
-    the ambient `GRAPH_SERVICE_PERSIST_DIR` the shared session server also
-    uses (plan §1.9: an explicit, test-owned directory, not a silently-shared
-    ambient one)."""
-    path = tmp_path / "embedded-persist"
-    path.mkdir()
-    return str(path)
+def embedded_persist_dir() -> str:
+    """The explicit in-memory choice for `EmbeddedTransport` -- never the
+    ambient `GRAPH_SERVICE_PERSIST_DIR` the shared session server also uses
+    (plan §1.9: an explicit, test-owned choice, not a silently-shared ambient
+    one). `crates/eg-pyengine` has no durable storage wiring yet and refuses a
+    real directory (BUG-PE-003); these tests compare what the two transports
+    return, not what survives a restart."""
+    return ":memory:"
 
 
 @pytest.fixture

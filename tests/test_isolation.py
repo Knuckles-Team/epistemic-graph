@@ -5,8 +5,6 @@ initializes its first identity through the signed current bootstrap gate.
 """
 
 import os
-import subprocess
-import time
 
 import pytest
 from conftest import (
@@ -15,7 +13,10 @@ from conftest import (
     bootstrap_context,
     find_server_binary,
     request_context,
+    spawn_server,
+    stop_server,
     strict_server_env,
+    wait_for_server,
 )
 
 from epistemic_graph.client import SyncEpistemicGraphClient
@@ -48,7 +49,8 @@ def isolation_server(tmp_path_factory):
     # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
     persist_dir = str(runtime / "persist")
     os.makedirs(persist_dir, exist_ok=True)
-    proc = subprocess.Popen(
+    log_path = runtime / "server.log"
+    proc = spawn_server(
         [SERVER_BIN, "--socket-path", sock],
         env={
             **os.environ,
@@ -56,13 +58,9 @@ def isolation_server(tmp_path_factory):
                 str(runtime / "security"), auth_secret=SECRET, persist_dir=persist_dir
             ),
         },
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        log_path=log_path,
     )
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and not os.path.exists(sock):
-        time.sleep(0.05)
-    assert os.path.exists(sock), "isolation test server did not start"
+    wait_for_server(proc, sock, name="isolation server", log_path=log_path)
     bootstrap = SyncEpistemicGraphClient.connect(
         socket_path=sock,
         auth_secret=SECRET,
@@ -77,8 +75,7 @@ def isolation_server(tmp_path_factory):
     finally:
         bootstrap.close()
     yield sock
-    proc.terminate()
-    proc.wait(timeout=10)
+    stop_server(proc, name="isolation server", log_path=log_path)
 
 
 def _client(sock, agent_id=TEST_AGENT_ID, graph_name="__commons__"):

@@ -22,10 +22,9 @@ already-built `full` binary the session fixture built -- mirrors the
 from __future__ import annotations
 
 import os
-import signal
-import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 import pytest
 from conftest import (
@@ -34,7 +33,10 @@ from conftest import (
     bootstrap_context,
     find_server_binary,
     request_context,
+    spawn_server,
+    stop_server,
     strict_server_env,
+    wait_for_server,
 )
 
 from epistemic_graph.client import SyncEpistemicGraphClient
@@ -70,23 +72,11 @@ def anchor_service():
         "EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS": "1",
     }
 
-    proc = subprocess.Popen(
-        [_SERVER_BIN, "--socket-path", socket_path],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    log_path = Path(tmpdir) / "server.log"
+    proc = spawn_server(
+        [_SERVER_BIN, "--socket-path", socket_path], env=env, log_path=log_path
     )
-
-    for _ in range(50):
-        if os.path.exists(socket_path):
-            break
-        time.sleep(0.1)
-    else:
-        out, err = proc.communicate(timeout=5)
-        proc.kill()
-        pytest.fail(
-            f"anchor_service failed to start within 5s\nstdout={out!r}\nstderr={err!r}"
-        )
+    wait_for_server(proc, socket_path, name="anchor_service", log_path=log_path)
 
     bootstrap = SyncEpistemicGraphClient.connect(
         socket_path=socket_path,
@@ -104,11 +94,7 @@ def anchor_service():
 
     yield {"socket_path": socket_path, "auth_secret": secret}
 
-    proc.send_signal(signal.SIGTERM)
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    stop_server(proc, name="anchor_service", log_path=log_path)
     import shutil
 
     shutil.rmtree(tmpdir, ignore_errors=True)

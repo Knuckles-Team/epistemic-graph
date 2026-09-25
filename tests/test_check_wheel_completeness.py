@@ -13,6 +13,7 @@ import hashlib
 import inspect
 import io
 import os
+import subprocess
 import zipfile
 from collections.abc import Set as AbstractSet
 from pathlib import Path
@@ -333,7 +334,14 @@ def test_main_reports_every_incomplete_wheel(tmp_path: Path, capsys) -> None:
 def test_static_wheel_suite_selection_does_not_start_engine(
     request, start_epistemic_graph_server
 ) -> None:
-    """The complete static module is selected as no-engine by the real fixture."""
+    """The complete static module is selected as no-engine by the real fixture.
+
+    Run on its own, this module never starts the shared engine. Run inside a
+    larger session, the fixture starts it exactly when some OTHER selected
+    test needs it -- the one predicate both decisions come from.
+    """
+
+    import conftest
 
     module_path = Path(__file__).resolve()
     selected = [
@@ -343,7 +351,9 @@ def test_static_wheel_suite_selection_does_not_start_engine(
     ]
     assert selected
     assert all(item.get_closest_marker("no_engine") is not None for item in selected)
-    assert start_epistemic_graph_server is None
+    assert not conftest.selection_needs_engine(selected)
+    session_needs_engine = conftest.selection_needs_engine(request.session.items)
+    assert (start_epistemic_graph_server is not None) is session_needs_engine
 
 
 def test_engine_selected_control_still_enters_startup(
@@ -369,10 +379,13 @@ def test_engine_selected_control_still_enters_startup(
             return path
 
     class _Process:
+        def poll(self) -> None:
+            return None
+
         def terminate(self) -> None:
             events.append("terminate")
 
-        def wait(self) -> None:
+        def wait(self, timeout: float | None = None) -> None:
             events.append("wait")
 
     class _Bootstrap:
@@ -407,8 +420,14 @@ def test_engine_selected_control_still_enters_startup(
     monkeypatch.setattr(
         conftest,
         "subprocess",
-        SimpleNamespace(PIPE=object(), run=_run, Popen=_popen),
+        SimpleNamespace(
+            PIPE=object(),
+            run=_run,
+            Popen=_popen,
+            TimeoutExpired=subprocess.TimeoutExpired,
+        ),
     )
+    monkeypatch.setattr(conftest, "_socket_accepts", lambda _path: True)
     monkeypatch.setattr(conftest.os.path, "exists", lambda _path: True)
     monkeypatch.setattr(conftest.os, "remove", lambda _path: None)
 
