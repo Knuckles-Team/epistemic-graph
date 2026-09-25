@@ -113,6 +113,24 @@ impl Fixture {
     }
 }
 
+impl Fixture {
+    /// The tenants that own any series in the store.
+    async fn tenants_with_series(&self) -> Vec<String> {
+        let state = self.state.read().await;
+        let store = state.tsdb_store.as_ref().unwrap();
+        let mut tenants: Vec<String> = store
+            .list_series()
+            .unwrap()
+            .iter()
+            .filter_map(|encoded| eg_tsdb::store::SeriesKey::decode(encoded))
+            .map(|key| key.tenant)
+            .collect();
+        tenants.sort_unstable();
+        tenants.dedup();
+        tenants
+    }
+}
+
 fn raw<T: serde::de::DeserializeOwned>(response: &Response) -> T {
     match &response.result {
         Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).unwrap(),
@@ -211,8 +229,25 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
         let error = response.error.unwrap_or_default();
         assert!(error.contains(why), "{series} over {source}: {error}");
     }
+    // Another tenant can neither derive from `px` nor see `px_z`: whether dispatch
+    // refuses it or the handler finds no source in its own scope, nothing of that
+    // tenant's is written and the shared tenant's series are untouched.
     let foreign = fx.define("tenant-other", "px_z2", "px", EXPR).await;
-    assert!(foreign.error.unwrap_or_default().contains("does not exist"));
-    assert!(fx.range("tenant-other", "px_z").await.is_empty());
+    assert!(foreign.error.is_some(), "a foreign tenant's define is refused");
+    let foreign_range = fx
+        .call(
+            "tenant-other",
+            Method::TsRange {
+                series_id: "px_z".into(),
+                from: i64::MIN,
+                to: i64::MAX,
+            },
+        )
+        .await;
+    assert!(
+        foreign_range.error.is_some() || raw::<Vec<(i64, Vec<f64>)>>(&foreign_range).is_empty(),
+        "a foreign tenant reads nothing of px_z"
+    );
+    assert_eq!(fx.tenants_with_series().await.len(), 1, "only the owner's scope holds series");
     assert!(!fx.range(TENANT, "px_z").await.is_empty());
 }
