@@ -6,12 +6,13 @@ impl IsolationLayer {
         &self.rbac
     }
 
+    /// The engine's System identity has not bootstrapped yet, and the policy
+    /// holds nothing but what the identity store projects (an initialized
+    /// store must never close the System bootstrap).
     #[cfg(feature = "security")]
     pub fn identity_bootstrap_pending(&self) -> bool {
         self.identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
-            && self.agents.is_empty()
-            && self.rbac.roles().next().is_none()
-            && self.rbac.grants().is_empty()
+            && super::layer_store::store_owns_everything(&self.rbac, self.agents.keys())
     }
 
     #[cfg(not(feature = "security"))]

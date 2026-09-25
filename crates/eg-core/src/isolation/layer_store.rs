@@ -85,9 +85,19 @@ pub(super) fn holds_only_identity_store_state(
     rbac: &crate::rbac::RbacPolicy,
     identities: &std::collections::BTreeMap<String, AgentIdentity>,
 ) -> bool {
+    store_owns_everything(rbac, identities.keys())
+}
+
+/// Whether every principal in `principals`, every role and every grant is
+/// the identity store's own projection (vacuously true when all are empty).
+#[cfg(feature = "security")]
+pub(super) fn store_owns_everything<'a>(
+    rbac: &crate::rbac::RbacPolicy,
+    mut principals: impl Iterator<Item = &'a String>,
+) -> bool {
     let owned = |name: &str| name.starts_with(eg_types::identity::RBAC_ROLE_PREFIX);
     let store = rbac.identity_store();
-    identities.keys().all(|principal| store.manages(principal))
+    principals.all(|principal| store.manages(principal))
         && rbac.roles().all(|role| owned(&role.name))
         && rbac.grants().iter().all(|grant| owned(&grant.role))
 }
