@@ -638,7 +638,8 @@ async fn route_graph_audit_and_modality(
                 ctx.verified_context,
                 ctx.persistence.clone(),
                 op,
-            ).await);
+            )
+            .await);
         }
         method => method,
     };

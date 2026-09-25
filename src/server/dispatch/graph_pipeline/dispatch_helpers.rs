@@ -208,7 +208,9 @@ fn service_child_receipt(
     let state = match record.outcome {
         crate::redb_store::service_child::ServiceChildOutcome::Reserved => "reserved",
         crate::redb_store::service_child::ServiceChildOutcome::Succeeded { .. } => "succeeded",
-        crate::redb_store::service_child::ServiceChildOutcome::OutcomeUnknown { .. } => "outcome_unknown",
+        crate::redb_store::service_child::ServiceChildOutcome::OutcomeUnknown { .. } => {
+            "outcome_unknown"
+        }
     };
     eg_types::result_contract::security::ServiceChildReceipt {
         record_id: record.record_id.clone(),
@@ -238,7 +240,10 @@ pub(super) async fn dispatch_op_service_child(
         Err(error) => return Response::err(req_id, error),
     };
     let scopes = &verified_context.claims().scopes;
-    if !scopes.iter().any(|scope| scope == "security:audit-write" || scope == "*") {
+    if !scopes
+        .iter()
+        .any(|scope| scope == "security:audit-write" || scope == "*")
+    {
         return Response::err(req_id, "ACCESS_DENIED: security:audit-write required");
     }
     let Some(redb) = persistence.as_ref().and_then(|backend| backend.as_redb()) else {
@@ -265,25 +270,62 @@ pub(super) async fn dispatch_op_service_child(
                 registry_revision: binding.registry_revision,
                 scopes_sha256: binding.scopes_sha256,
             };
-            redb.service_child_reserve(&graph, binding, authority.tenant_scope(), authority.actor_scope(), &audit_ref)
-                .await.map(|reservation| Some(service_child_receipt(reservation.record, tenant, reservation.created)))
+            redb.service_child_reserve(
+                &graph,
+                binding,
+                authority.tenant_scope(),
+                authority.actor_scope(),
+                &audit_ref,
+            )
+            .await
+            .map(|reservation| {
+                Some(service_child_receipt(
+                    reservation.record,
+                    tenant,
+                    reservation.created,
+                ))
+            })
         }
-        crate::protocol::ServiceChildOp::Get { record_id } => {
-            redb.service_child_get(&graph, &record_id, authority.tenant_scope(), authority.actor_scope())
-                .await.map(|record| record.map(|record| service_child_receipt(record, tenant, false)))
-        }
-        crate::protocol::ServiceChildOp::Finish { record_id, outcome, result_sha256, reason_code } => {
+        crate::protocol::ServiceChildOp::Get { record_id } => redb
+            .service_child_get(
+                &graph,
+                &record_id,
+                authority.tenant_scope(),
+                authority.actor_scope(),
+            )
+            .await
+            .map(|record| record.map(|record| service_child_receipt(record, tenant, false))),
+        crate::protocol::ServiceChildOp::Finish {
+            record_id,
+            outcome,
+            result_sha256,
+            reason_code,
+        } => {
             let outcome = match (outcome.as_str(), result_sha256, reason_code) {
-                ("succeeded", Some(result_sha256), None) => ServiceChildOutcome::Succeeded { result_sha256 },
-                ("outcome_unknown", None, Some(reason_code)) => ServiceChildOutcome::OutcomeUnknown { reason_code },
+                ("succeeded", Some(result_sha256), None) => {
+                    ServiceChildOutcome::Succeeded { result_sha256 }
+                }
+                ("outcome_unknown", None, Some(reason_code)) => {
+                    ServiceChildOutcome::OutcomeUnknown { reason_code }
+                }
                 _ => return Response::err(req_id, "SERVICE_CHILD_INVALID_OUTCOME"),
             };
-            redb.service_child_finish(&graph, &record_id, authority.tenant_scope(), authority.actor_scope(), outcome)
-                .await.map(|record| Some(service_child_receipt(record, tenant, false)))
+            redb.service_child_finish(
+                &graph,
+                &record_id,
+                authority.tenant_scope(),
+                authority.actor_scope(),
+                outcome,
+            )
+            .await
+            .map(|record| Some(service_child_receipt(record, tenant, false)))
         }
     };
     match result {
-        Ok(receipt) => Response::ok(req_id, ResultPayload::of::<eg_types::result_contract::security::ServiceChild>(receipt)),
+        Ok(receipt) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::security::ServiceChild>(receipt),
+        ),
         Err(error) => Response::err(req_id, error),
     }
 }
