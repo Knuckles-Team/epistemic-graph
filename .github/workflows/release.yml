@@ -397,7 +397,7 @@ jobs:
       - name: Test (every other workspace crate, all features)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
       - name: Test (pyo3 crates, every feature except python)
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
 
   # ── EH-468: the root Python suite (`tests/*.py`, 2,800+ cases) previously had
   # NO release step at all. `gates` above only runs `crates/eg-numeric/tests/*`
