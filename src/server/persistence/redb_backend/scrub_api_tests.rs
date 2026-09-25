@@ -12,6 +12,44 @@ use crate::server::persistence::PersistenceBackend;
 const GRAPH: &str = "scrub_backend_graph";
 const CORRUPT: &str = "n2";
 
+#[cfg(feature = "security")]
+struct NoEncryptionKeyEnv(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+#[cfg(feature = "security")]
+impl NoEncryptionKeyEnv {
+    // The caller holds the crate-wide environment WRITE lock until this guard
+    // drops. Other tests may already have provisioned the shared at-rest key.
+    fn set() -> Self {
+        let names = [
+            crate::crypto::ENCRYPTION_KEY_ENV,
+            crate::crypto::ENCRYPTION_KEY_ID_ENV,
+            crate::crypto::ENCRYPTION_KEY_VERSION_ENV,
+            crate::crypto::ENCRYPTION_REQUIRED_ENV,
+        ];
+        let previous = names
+            .into_iter()
+            .map(|name| (name, std::env::var_os(name)))
+            .collect();
+        for name in names {
+            std::env::remove_var(name);
+        }
+        std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, "off");
+        Self(previous)
+    }
+}
+
+#[cfg(feature = "security")]
+impl Drop for NoEncryptionKeyEnv {
+    fn drop(&mut self) {
+        for (name, value) in self.0.drain(..) {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+}
+
 fn node(id: &str) -> Method {
     let properties_msgpack = if id == CORRUPT {
         // Sealed framing with no configured key: unreadable, and nothing on
@@ -41,7 +79,8 @@ async fn step(backend: &RedbBackend) -> (u64, Vec<NodeUnreadable>, ScrubCursor) 
 #[cfg(feature = "security")]
 #[tokio::test(flavor = "multi_thread")]
 async fn scrub_cursor_survives_reopen_and_the_walk_skips_nothing() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _no_key = NoEncryptionKeyEnv::set();
     let dir = std::env::temp_dir().join(format!("eg-scrub-backend-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let dir_s = dir.to_string_lossy().to_string();
