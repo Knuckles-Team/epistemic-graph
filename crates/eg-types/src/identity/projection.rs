@@ -135,8 +135,14 @@ impl IdentityStore {
         })
     }
 
-    /// Whether `principal_id` has a confirmed second factor.
+    /// Whether `principal_id` has a confirmed second factor (a confirmed
+    /// TOTP factor or any WebAuthn credential).
     pub(crate) fn mfa_enrolled(&self, principal_id: &str) -> bool {
+        self.totp_confirmed(principal_id) || self.has_webauthn(principal_id)
+    }
+
+    /// Whether `principal_id` has a confirmed TOTP factor.
+    pub(crate) fn totp_confirmed(&self, principal_id: &str) -> bool {
         self.totp
             .get(principal_id)
             .is_some_and(|record| record.confirmed_at_ms.is_some())

@@ -278,6 +278,9 @@ fn derive_token(op: &mut TokenOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>)
         TokenOp::VerifyApiKey { request } => {
             stamp.token_hashes = vec![take_token(&mut request.secret, Floor::Lookup)?];
         }
+        TokenOp::IssuePasswordReset { request } => {
+            stamp.token_hashes = vec![take_token(&mut request.token, Floor::Issue)?];
+        }
         TokenOp::RevokeApiKey { .. } => {}
     }
     Ok(())
@@ -292,8 +295,33 @@ fn totp_step_for(env: &StampEnv<'_>, session_hash: &str, code: &str) -> Option<u
     secrets::totp_step(&secret, code, env.now_ms / 1_000)
 }
 
+/// The WebAuthn ops carry no secret beyond the session: graph-os verified
+/// the signature; only the session token is hashed and cleared.
+fn derive_webauthn(op: &mut MfaOp, stamp: &mut IdentityStamp) -> Derived {
+    let session = match op {
+        MfaOp::RegisterWebauthn { request } => &mut request.session_token,
+        MfaOp::VerifyWebauthn { request } => &mut request.session_token,
+        MfaOp::WebauthnCredentials { request } => {
+            request.code.take();
+            &mut request.session_token
+        }
+        MfaOp::RemoveWebauthn { .. }
+        | MfaOp::EnrollTotp { .. }
+        | MfaOp::ConfirmTotp { .. }
+        | MfaOp::VerifyTotp { .. }
+        | MfaOp::SetRecoveryCodes { .. }
+        | MfaOp::ConsumeRecoveryCode { .. } => return Ok(()),
+    };
+    stamp.token_hashes = vec![take_token(session, Floor::Lookup)?];
+    Ok(())
+}
+
 fn derive_mfa(op: &mut MfaOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>) -> Derived {
     match op {
+        MfaOp::RegisterWebauthn { .. }
+        | MfaOp::WebauthnCredentials { .. }
+        | MfaOp::VerifyWebauthn { .. }
+        | MfaOp::RemoveWebauthn { .. } => return derive_webauthn(op, stamp),
         MfaOp::EnrollTotp { request } => {
             stamp.token_hashes = vec![take_token(&mut request.session_token, Floor::Lookup)?];
             let secret = request.secret_base32.take();

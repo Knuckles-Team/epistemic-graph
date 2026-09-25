@@ -4,18 +4,27 @@
 use std::collections::BTreeSet;
 
 use super::super::audit::IdentityEvent;
-use super::super::model::{ApiKeyRecord, OneTimeToken, TokenPurpose};
+use super::super::model::{ApiKeyRecord, OneTimeToken, TokenPurpose, UserKind, UserStatus};
 use super::super::ops::TokenOp;
-use super::super::requests::{ApiKeyIssue, OneTimeTokenIssue, TokenRedeem};
+use super::super::requests::{ApiKeyIssue, OneTimeTokenIssue, PasswordResetIssue, TokenRedeem};
 use super::super::scope::ScopeClassifier;
 use super::super::stamp::IdentityStamp;
 use super::super::text::identifier;
-use super::super::views::IdentityReply;
+use super::super::views::{IdentityReply, ResetDelivery};
 use super::super::{
-    IdentityRefusal, MAX_API_KEYS_PER_USER, MAX_API_KEY_LIFETIME_MS, MAX_ONE_TIME_TOKENS,
-    MAX_ONE_TIME_TOKEN_LIFETIME_MS,
+    normalize_username, IdentityRefusal, MAX_API_KEYS_PER_USER, MAX_API_KEY_LIFETIME_MS,
+    MAX_ONE_TIME_TOKENS, MAX_ONE_TIME_TOKEN_LIFETIME_MS,
 };
-use super::{ApplyContext, IdentityStore};
+use super::{digest_hex, ApplyContext, IdentityStore};
+
+/// The throttle key of self-service reset requests for one username: a
+/// one-way digest, so the table never holds a typed-in username.
+fn reset_throttle_key(username: &str) -> String {
+    format!(
+        "reset:{}",
+        digest_hex(b"eg/identity-reset-throttle/v1\0", username)
+    )
+}
 
 /// Which purposes must name a principal.
 fn purpose_names_principal(purpose: TokenPurpose) -> bool {
@@ -44,21 +53,106 @@ impl IdentityStore {
                 Ok(IdentityReply::Resolution(resolution))
             }
             TokenOp::RevokeApiKey { request } => {
-                let key = self
-                    .api_keys
-                    .get_mut(&request.id)
-                    .ok_or(IdentityRefusal::NotFound)?;
-                let changed = key.revoked_at_ms.is_none();
-                key.revoked_at_ms.get_or_insert(ctx.now_ms);
-                self.audit_event(
-                    stamp,
-                    ctx.now_ms,
-                    IdentityEvent::ApiKeyRevoked,
-                    Some(&request.id),
-                );
-                Ok(IdentityReply::Done { changed })
+                self.revoke_api_key(&request.id, stamp, ctx.now_ms)
+            }
+            TokenOp::IssuePasswordReset { request } => {
+                self.issue_password_reset(request, stamp, ctx.now_ms)
             }
         }
+    }
+
+    fn revoke_api_key(
+        &mut self,
+        key_id: &str,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        let key = self
+            .api_keys
+            .get_mut(key_id)
+            .ok_or(IdentityRefusal::NotFound)?;
+        let changed = key.revoked_at_ms.is_none();
+        key.revoked_at_ms.get_or_insert(now_ms);
+        self.audit_event(stamp, now_ms, IdentityEvent::ApiKeyRevoked, Some(key_id));
+        Ok(IdentityReply::Done { changed })
+    }
+
+    /// Drop spent and expired tokens; refuse when the table is still full.
+    fn prune_one_time(&mut self, now_ms: u64) -> Result<(), IdentityRefusal> {
+        self.one_time
+            .retain(|_, token| token.used_at_ms.is_none() && token.expires_at_ms > now_ms);
+        if self.one_time.len() >= MAX_ONE_TIME_TOKENS {
+            return Err(IdentityRefusal::Full);
+        }
+        Ok(())
+    }
+
+    fn insert_one_time(&mut self, token: OneTimeToken) -> Result<(), IdentityRefusal> {
+        if self.one_time.contains_key(&token.token_hash) {
+            return Err(IdentityRefusal::Collision);
+        }
+        self.one_time.insert(token.token_hash.clone(), token);
+        Ok(())
+    }
+
+    /// A signed-out user's reset link. Every validation and the throttle
+    /// run BEFORE the account is looked up, and every account that cannot
+    /// receive a link (unknown, no e-mail, not an active or pending-reset
+    /// human, no local sign-in in this mode, throttled) answers the same
+    /// `email: None`: the answer never tells whether an account exists. A new
+    /// link replaces the principal's outstanding ones.
+    fn issue_password_reset(
+        &mut self,
+        request: &PasswordResetIssue,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        if !(1..=MAX_ONE_TIME_TOKEN_LIFETIME_MS).contains(&request.ttl_ms) {
+            return Err(IdentityRefusal::InvalidRequest);
+        }
+        let hash = stamp.token_hash(0)?.to_string();
+        self.prune_one_time(now_ms)?;
+        let name =
+            normalize_username(&request.username).unwrap_or_else(|_| request.username.clone());
+        let key = reset_throttle_key(&name);
+        let throttled = self.throttled_until(&key, now_ms).is_some();
+        self.record_failure(key, now_ms);
+        let target = self.reset_target(&name).filter(|_| !throttled);
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::PasswordResetRequested,
+            target.as_ref().map(|(principal, _)| principal.as_str()),
+        );
+        let Some((principal, email)) = target else {
+            return Ok(IdentityReply::ResetDelivery(ResetDelivery { email: None }));
+        };
+        self.one_time.retain(|_, token| {
+            token.purpose != TokenPurpose::PasswordReset
+                || token.principal_id.as_deref() != Some(principal.as_str())
+        });
+        self.insert_one_time(OneTimeToken {
+            token_hash: hash,
+            purpose: TokenPurpose::PasswordReset,
+            principal_id: Some(principal),
+            expires_at_ms: now_ms.saturating_add(request.ttl_ms),
+            used_at_ms: None,
+            created_by: stamp.actor.principal_id.clone(),
+        })?;
+        Ok(IdentityReply::ResetDelivery(ResetDelivery {
+            email: Some(email),
+        }))
+    }
+
+    /// The principal and e-mail a self-service reset may reach.
+    fn reset_target(&self, username: &str) -> Option<(String, String)> {
+        let principal = self.usernames.get(username)?;
+        let user = self.users.get(principal)?;
+        let eligible = user.kind == UserKind::Human
+            && matches!(user.status, UserStatus::Active | UserStatus::PendingReset)
+            && self.local_sign_in_allowed(principal);
+        let email = user.email.clone().filter(|_| eligible)?;
+        Some((principal.clone(), email))
     }
 
     /// Issue a token for an administrator's live session. Token hash 0 is
@@ -81,25 +175,15 @@ impl IdentityStore {
             self.users.get(principal).ok_or(IdentityRefusal::NotFound)?;
         }
         let hash = stamp.token_hash(1)?.to_string();
-        self.one_time
-            .retain(|_, token| token.used_at_ms.is_none() && token.expires_at_ms > now_ms);
-        if self.one_time.len() >= MAX_ONE_TIME_TOKENS {
-            return Err(IdentityRefusal::Full);
-        }
-        if self.one_time.contains_key(&hash) {
-            return Err(IdentityRefusal::Collision);
-        }
-        self.one_time.insert(
-            hash.clone(),
-            OneTimeToken {
-                token_hash: hash,
-                purpose: request.purpose,
-                principal_id: request.principal_id.clone(),
-                expires_at_ms: now_ms.saturating_add(request.ttl_ms),
-                used_at_ms: None,
-                created_by: issuer,
-            },
-        );
+        self.prune_one_time(now_ms)?;
+        self.insert_one_time(OneTimeToken {
+            token_hash: hash,
+            purpose: request.purpose,
+            principal_id: request.principal_id.clone(),
+            expires_at_ms: now_ms.saturating_add(request.ttl_ms),
+            used_at_ms: None,
+            created_by: issuer,
+        })?;
         self.audit_event(
             stamp,
             now_ms,

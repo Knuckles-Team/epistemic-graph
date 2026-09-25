@@ -170,6 +170,27 @@ pub struct TotpRecord {
     pub last_step: u64,
 }
 
+/// A WebAuthn (passkey / security key) credential. graph-os verifies every
+/// attestation and assertion signature with a vetted library; the store
+/// keeps the PUBLIC credential and enforces the signature counter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebauthnRecord {
+    pub credential_id: String,
+    pub principal_id: String,
+    /// The COSE public key, base64url.
+    pub public_key_cose: String,
+    pub sign_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aaguid: Option<String>,
+    #[serde(default)]
+    pub transports: Vec<String>,
+    pub name: String,
+    pub created_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_at_ms: Option<u64>,
+}
+
 /// A link from an identity-provider subject to a principal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

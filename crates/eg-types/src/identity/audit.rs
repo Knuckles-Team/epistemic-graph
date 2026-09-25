@@ -58,6 +58,10 @@ pub enum IdentityEvent {
     UserProvisioned,
     UserDeprovisioned,
     DirectoryGroupChanged,
+    /// A second factor was removed (WebAuthn credential).
+    MfaRemoved,
+    /// A signed-out user asked for a password reset (issued or not).
+    PasswordResetRequested,
 }
 
 /// One tamper-evident entry.

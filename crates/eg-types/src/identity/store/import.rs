@@ -35,9 +35,10 @@ const IMPORTERS: [(&str, Importer); 11] = [
 
 /// Relations a dump carries that a restore deliberately does not replay.
 /// Directory groups are owned by the directory: its next SCIM push or LDAP
-/// sync re-creates them.
-const NOT_RESTORED: [&str; 5] = [
+/// sync re-creates them. Credentials (API keys, WebAuthn) are never carried.
+const NOT_RESTORED: [&str; 6] = [
     "api_keys",
+    "webauthn_credentials",
     "audit",
     "config",
     "directory_groups",

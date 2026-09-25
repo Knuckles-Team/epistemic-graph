@@ -13,8 +13,9 @@ use super::access::IdpConfig;
 use super::config::ModeTransition;
 use super::requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
-    InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordSet,
-    RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange, UserUpdate,
+    InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordResetIssue,
+    PasswordSet, RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange,
+    UserUpdate, WebauthnCredential, WebauthnUse,
 };
 use super::requests_admin::{
     GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, RoleUpsert, SqlDump,
@@ -65,6 +66,9 @@ pub enum OpAuthority {
     /// a provisioner only to the `kind=scim` IdP whose
     /// `config_json.provisioner` names it, the broker only to `kind=ldap`.
     Provision,
+    /// `identity:self` acting on its own principal, or `identity:admin`
+    /// (direct) acting on anyone's.
+    SelfOrAdmin,
 }
 
 impl OpAuthority {
@@ -89,6 +93,7 @@ impl OpAuthority {
                 IDENTITY_AUTHENTICATE_SCOPE,
             ],
             Self::Provision => &[IDENTITY_PROVISION_SCOPE, IDENTITY_AUTHENTICATE_SCOPE],
+            Self::SelfOrAdmin => &[IDENTITY_SELF_SCOPE, IDENTITY_ADMIN_SCOPE],
         }
     }
 
@@ -218,23 +223,62 @@ pub enum SessionOp {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum TokenOp {
-    IssueOneTime { request: OneTimeTokenIssue },
-    RedeemOneTime { request: TokenRedeem },
-    IssueApiKey { request: ApiKeyIssue },
-    VerifyApiKey { request: ApiKeyUse },
-    RevokeApiKey { request: ObjectRef },
+    IssueOneTime {
+        request: OneTimeTokenIssue,
+    },
+    RedeemOneTime {
+        request: TokenRedeem,
+    },
+    IssueApiKey {
+        request: ApiKeyIssue,
+    },
+    VerifyApiKey {
+        request: ApiKeyUse,
+    },
+    RevokeApiKey {
+        request: ObjectRef,
+    },
+    /// A signed-out user's reset link (uniform answer, throttled).
+    IssuePasswordReset {
+        request: PasswordResetIssue,
+    },
 }
 
-/// Second factors (TOTP and recovery codes). WebAuthn is IDM-09.
+/// Second factors: TOTP, recovery codes and WebAuthn (IDM-09).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MfaOp {
-    EnrollTotp { request: TotpEnroll },
-    ConfirmTotp { request: SessionTouch },
-    VerifyTotp { request: SessionTouch },
-    SetRecoveryCodes { request: RecoveryCodesSet },
-    ConsumeRecoveryCode { request: SessionTouch },
+    EnrollTotp {
+        request: TotpEnroll,
+    },
+    ConfirmTotp {
+        request: SessionTouch,
+    },
+    VerifyTotp {
+        request: SessionTouch,
+    },
+    SetRecoveryCodes {
+        request: RecoveryCodesSet,
+    },
+    ConsumeRecoveryCode {
+        request: SessionTouch,
+    },
+    RegisterWebauthn {
+        request: WebauthnCredential,
+    },
+    /// The credentials of the session's principal (a pending session too:
+    /// the broker needs them to verify the assertion that completes it).
+    WebauthnCredentials {
+        request: SessionTouch,
+    },
+    VerifyWebauthn {
+        request: WebauthnUse,
+    },
+    /// Remove one credential by id: its owner, or an administrator.
+    RemoveWebauthn {
+        request: ObjectRef,
+    },
 }
 
 /// Roles, groups and bindings.
@@ -392,6 +436,9 @@ impl TokenOp {
             Self::IssueApiKey { .. } => meta("issue_api_key", true, OpAuthority::Broker),
             Self::VerifyApiKey { .. } => meta("verify_api_key", true, OpAuthority::Broker),
             Self::RevokeApiKey { .. } => meta("revoke_api_key", true, OpAuthority::Admin),
+            Self::IssuePasswordReset { .. } => {
+                meta("issue_password_reset", true, OpAuthority::Broker)
+            }
         }
     }
 }
@@ -406,6 +453,12 @@ impl MfaOp {
             Self::ConsumeRecoveryCode { .. } => {
                 meta("consume_recovery_code", true, OpAuthority::Broker)
             }
+            Self::RegisterWebauthn { .. } => meta("register_webauthn", true, OpAuthority::Broker),
+            Self::WebauthnCredentials { .. } => {
+                meta("webauthn_credentials", false, OpAuthority::Broker)
+            }
+            Self::VerifyWebauthn { .. } => meta("verify_webauthn", true, OpAuthority::Broker),
+            Self::RemoveWebauthn { .. } => meta("remove_webauthn", true, OpAuthority::SelfOrAdmin),
         }
     }
 }

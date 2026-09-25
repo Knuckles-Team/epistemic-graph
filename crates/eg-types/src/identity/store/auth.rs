@@ -125,7 +125,7 @@ impl IdentityStore {
     }
 
     /// Whether the mode lets a local password sign in `principal_id`.
-    fn local_sign_in_allowed(&self, principal_id: &str) -> bool {
+    pub(super) fn local_sign_in_allowed(&self, principal_id: &str) -> bool {
         let Some(config) = self.config.as_ref() else {
             return false;
         };

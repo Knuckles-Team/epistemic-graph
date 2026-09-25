@@ -17,6 +17,7 @@ use super::audit::{AuditRecord, AuditTrail, IdentityEvent};
 use super::config::IdentityConfig;
 use super::model::{
     ApiKeyRecord, ExternalIdentity, OneTimeToken, PasswordCredential, SessionRecord, TotpRecord,
+    WebauthnRecord,
 };
 use super::ops::{IdentityOp, OpAuthority};
 use super::requests_provision::DirectoryGroup;
@@ -37,6 +38,7 @@ mod sessions;
 mod throttle;
 mod tokens;
 mod users;
+mod webauthn;
 
 pub use throttle::ThrottleEntry;
 
@@ -85,6 +87,9 @@ pub struct IdentityStore {
     pub(super) totp: BTreeMap<String, TotpRecord>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) recovery: BTreeMap<String, Vec<RecoveryCode>>,
+    /// Credential id → WebAuthn credential.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) webauthn: BTreeMap<String, WebauthnRecord>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) roles: BTreeMap<String, RoleRecord>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -244,6 +249,7 @@ impl IdentityStore {
         let holds_one = authority.scopes().iter().any(|scope| actor.holds(scope));
         let standing = match authority {
             OpAuthority::SelfService => self.is_active(&actor.principal_id),
+            OpAuthority::SelfOrAdmin => self.self_or_admin(actor),
             OpAuthority::Admin
             | OpAuthority::Read
             | OpAuthority::Broker
@@ -285,6 +291,14 @@ impl IdentityStore {
 
     fn require_initialized(&self) -> Result<&IdentityConfig, IdentityRefusal> {
         self.config.as_ref().ok_or(IdentityRefusal::NotInitialized)
+    }
+
+    /// `identity:admin` from a direct actor, or `identity:self` from an
+    /// active principal (the op then acts only on the actor's own records).
+    fn self_or_admin(&self, actor: &super::stamp::IdentityActor) -> bool {
+        let admin = actor.holds(super::ops::IDENTITY_ADMIN_SCOPE) && !actor.delegated;
+        admin
+            || (actor.holds(super::ops::IDENTITY_SELF_SCOPE) && self.is_active(&actor.principal_id))
     }
 
     pub(crate) fn is_active(&self, principal_id: &str) -> bool {

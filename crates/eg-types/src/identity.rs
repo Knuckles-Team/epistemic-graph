@@ -56,7 +56,7 @@ pub use config::{
 pub use denials::{DenialSample, DenialSampler, MAX_DENIAL_SAMPLES};
 pub use model::{
     ApiKeyRecord, ExternalIdentity, OneTimeToken, PasswordCredential, SessionRecord, TokenPurpose,
-    TotpRecord, UserKind, UserRecord, UserStatus,
+    TotpRecord, UserKind, UserRecord, UserStatus, WebauthnRecord,
 };
 pub use ops::{
     AccessOp, ConfigOp, CredentialOp, IdentityOp, IdpOp, MfaOp, OpAuthority, OpMeta, SessionOp,
@@ -68,8 +68,9 @@ pub use projection::{rbac_role_name, PrincipalResolution, RbacProjection};
 pub use relations::{SqlRelation, SqlType};
 pub use requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
-    InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordSet,
-    RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange, UserUpdate,
+    InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordResetIssue,
+    PasswordSet, RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange,
+    UserUpdate, WebauthnCredential, WebauthnUse,
 };
 pub use requests_admin::{
     BindingChange, GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate,
@@ -87,7 +88,10 @@ pub use text::{
     check_recovery_code, check_token, check_totp_secret, normalize_username, validate_principal_id,
     MIN_RECOVERY_CODE_CHARS, MIN_TOTP_SECRET_CHARS,
 };
-pub use views::{AuthenticateOutcome, AuthenticateResult, IdentityReply, SessionView, UserView};
+pub use views::{
+    AuthenticateOutcome, AuthenticateResult, IdentityReply, ResetDelivery, SessionView, UserView,
+    WebauthnCredentialView,
+};
 
 /// The principal id of the built-in bootstrap user (§2.2.3).
 pub const BOOTSTRAP_PRINCIPAL: &str = "usr:bootstrap";
@@ -112,6 +116,8 @@ pub const RBAC_ROLE_PREFIX: &str = "idm:";
 pub const MAX_USERS: usize = 10_000;
 /// Most live sessions one principal holds; the oldest is evicted beyond it.
 pub const MAX_SESSIONS_PER_USER: usize = 32;
+/// Most WebAuthn credentials one principal holds.
+pub const MAX_WEBAUTHN_PER_USER: usize = 16;
 /// Most live API keys one principal holds.
 pub const MAX_API_KEYS_PER_USER: usize = 16;
 /// Most outstanding one-time tokens one store holds.

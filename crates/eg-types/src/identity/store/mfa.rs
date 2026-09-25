@@ -20,6 +20,10 @@ impl IdentityStore {
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
         match op {
+            MfaOp::RegisterWebauthn { .. }
+            | MfaOp::WebauthnCredentials { .. }
+            | MfaOp::VerifyWebauthn { .. }
+            | MfaOp::RemoveWebauthn { .. } => self.apply_webauthn(op, stamp, ctx),
             MfaOp::EnrollTotp { .. } => self.enroll_totp(stamp, ctx.now_ms),
             MfaOp::ConfirmTotp { .. } => self.confirm_totp(stamp, ctx.now_ms),
             MfaOp::VerifyTotp { .. } => Ok(IdentityReply::Authenticate(
@@ -44,7 +48,7 @@ impl IdentityStore {
             .sealed_secret
             .clone()
             .ok_or(IdentityRefusal::Unstamped)?;
-        if self.mfa_enrolled(&principal) {
+        if self.totp_confirmed(&principal) {
             return Err(IdentityRefusal::Collision);
         }
         self.totp.insert(
@@ -88,7 +92,7 @@ impl IdentityStore {
     }
 
     /// The principal of a live session still owing its second factor.
-    fn pending_session_principal(
+    pub(super) fn pending_session_principal(
         &self,
         stamp: &IdentityStamp,
         now_ms: u64,
@@ -103,7 +107,7 @@ impl IdentityStore {
     }
 
     /// Mark a pending session complete by `method`.
-    fn complete_session(&mut self, hash: &str, method: &str, now_ms: u64) {
+    pub(super) fn complete_session(&mut self, hash: &str, method: &str, now_ms: u64) {
         if let Some(session) = self.sessions.get_mut(hash) {
             session.mfa_pending = false;
             session.mfa_at_ms = Some(now_ms);
@@ -113,7 +117,7 @@ impl IdentityStore {
 
     /// A wrong second factor answers `bad` (not a refusal), so the failure
     /// count it adds is kept.
-    fn second_factor_failed(
+    pub(super) fn second_factor_failed(
         &mut self,
         stamp: &IdentityStamp,
         principal: &str,
@@ -124,7 +128,21 @@ impl IdentityStore {
         AuthenticateResult::bad()
     }
 
-    fn second_factor_ok(&self, principal: String) -> AuthenticateResult {
+    /// `Throttled` while `principal`'s account backoff runs.
+    pub(super) fn second_factor_throttled(
+        &self,
+        principal: &str,
+        now_ms: u64,
+    ) -> Option<AuthenticateResult> {
+        let until = self.throttled_until(&account_key(principal), now_ms)?;
+        Some(AuthenticateResult {
+            outcome: AuthenticateOutcome::Throttled,
+            principal_id: None,
+            retry_after_ms: Some(until - now_ms),
+        })
+    }
+
+    pub(super) fn second_factor_ok(&self, principal: String) -> AuthenticateResult {
         AuthenticateResult {
             outcome: AuthenticateOutcome::Ok,
             principal_id: Some(principal),
@@ -138,14 +156,10 @@ impl IdentityStore {
         now_ms: u64,
     ) -> Result<AuthenticateResult, IdentityRefusal> {
         let (hash, principal) = self.pending_session_principal(stamp, now_ms)?;
-        if let Some(until) = self.throttled_until(&account_key(&principal), now_ms) {
-            return Ok(AuthenticateResult {
-                outcome: AuthenticateOutcome::Throttled,
-                principal_id: None,
-                retry_after_ms: Some(until - now_ms),
-            });
+        if let Some(throttled) = self.second_factor_throttled(&principal, now_ms) {
+            return Ok(throttled);
         }
-        let confirmed = self.mfa_enrolled(&principal);
+        let confirmed = self.totp_confirmed(&principal);
         let Some(step) = stamp.totp_step.filter(|_| confirmed) else {
             return Ok(self.second_factor_failed(stamp, &principal, now_ms));
         };

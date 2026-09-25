@@ -7,6 +7,7 @@ use super::*;
 
 mod access;
 mod auth;
+mod factors;
 mod modes;
 mod provision;
 mod tokens;

@@ -308,3 +308,48 @@ async fn the_broker_reads_idps_and_a_bound_provisioner_provisions_through_the_bo
         Some("scim:okta-scim")
     );
 }
+
+fn forgot(token: &str) -> IdentityOp {
+    IdentityOp::Token(TokenOp::IssuePasswordReset {
+        request: PasswordResetIssue {
+            username: "nobody".to_string(),
+            token: Secret::new(token),
+            ttl_ms: 3_600_000,
+        },
+    })
+}
+
+#[tokio::test]
+async fn a_signed_out_reset_request_is_broker_only_and_its_token_meets_the_floor() {
+    let state = state();
+    assert!(send(&state, broker(), initialize(PASSWORD))
+        .await
+        .error
+        .is_none());
+    let weak = send(&state, broker(), forgot("short")).await;
+    assert!(
+        weak.error
+            .as_deref()
+            .unwrap_or("")
+            .contains("IDENTITY_INVALID"),
+        "{:?}",
+        weak.error
+    );
+    let outsider = send(
+        &state,
+        context("usr:x", &[IDENTITY_SELF_SCOPE]),
+        forgot(SESSION),
+    )
+    .await;
+    assert!(
+        outsider.error.is_some(),
+        "only the broker issues reset links"
+    );
+    let uniform = send(&state, broker(), forgot(SESSION)).await;
+    assert!(uniform.error.is_none(), "{:?}", uniform.error);
+    let image = serde_json::to_string(state.read().await.isolation.rbac()).unwrap();
+    assert!(
+        !image.contains(SESSION),
+        "the reset token never reaches the image"
+    );
+}

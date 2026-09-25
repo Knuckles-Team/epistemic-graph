@@ -148,6 +148,26 @@ impl AuthenticateResult {
     }
 }
 
+/// A WebAuthn credential as the broker needs it to verify an assertion.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct WebauthnCredentialView {
+    pub credential_id: String,
+    pub public_key_cose: String,
+    pub sign_count: u32,
+    pub transports: Vec<String>,
+    pub name: String,
+}
+
+/// Where a self-service reset link goes (`None`: nowhere, uniformly).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ResetDelivery {
+    pub email: Option<String>,
+}
+
 /// Every identity op's answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
@@ -176,4 +196,8 @@ pub enum IdentityReply {
     Provisioned(Vec<ProvisionedUser>),
     DirectoryGroup(DirectoryGroup),
     DirectoryGroups(Vec<DirectoryGroup>),
+    /// `webauthn_credentials`.
+    WebauthnCredentials(Vec<WebauthnCredentialView>),
+    /// `issue_password_reset`.
+    ResetDelivery(ResetDelivery),
 }

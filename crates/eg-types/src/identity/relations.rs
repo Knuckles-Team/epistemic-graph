@@ -101,6 +101,16 @@ pub const API_KEYS: &[(&str, SqlType)] = &[
     ("last_used_at_ms", Integer),
     ("revoked_at_ms", Integer),
 ];
+pub const WEBAUTHN: &[(&str, SqlType)] = &[
+    ("credential_id", Text),
+    ("principal_id", Text),
+    ("name", Text),
+    ("sign_count", Integer),
+    ("aaguid", Text),
+    ("transports", Text),
+    ("created_at_ms", Integer),
+    ("last_used_at_ms", Integer),
+];
 pub const IDPS: &[(&str, SqlType)] = &[
     ("idp_id", Text),
     ("kind", Text),
@@ -193,6 +203,7 @@ impl IdentityStore {
             relation("user_roles", USER_ROLES, self.user_role_rows()),
             relation("sessions", SESSIONS, self.session_rows()),
             relation("api_keys", API_KEYS, self.api_key_rows()),
+            relation("webauthn_credentials", WEBAUTHN, self.webauthn_rows()),
             relation("idps", IDPS, self.idp_rows()),
             relation("idp_rules", IDP_RULES, self.idp_rule_rows()),
             relation("links", LINKS, self.link_rows()),
@@ -229,7 +240,7 @@ impl IdentityStore {
                     json!(user.disabled_at_ms),
                     json!(user.last_login_at_ms),
                     json!(self.passwords.contains_key(&user.principal_id)),
-                    json!(self.mfa_enrolled(&user.principal_id)),
+                    json!(self.totp_confirmed(&user.principal_id)),
                 ]
             })
             .collect()
@@ -359,6 +370,26 @@ impl IdentityStore {
                     json!(key.expires_at_ms),
                     json!(key.last_used_at_ms),
                     json!(key.revoked_at_ms),
+                ]
+            })
+            .collect()
+    }
+
+    /// Public credential metadata; the COSE key is left out (the relation
+    /// is for operators, the broker reads keys through its own op).
+    fn webauthn_rows(&self) -> Vec<Vec<Value>> {
+        self.webauthn
+            .values()
+            .map(|record| {
+                vec![
+                    json!(record.credential_id),
+                    json!(record.principal_id),
+                    json!(record.name),
+                    json!(record.sign_count),
+                    json!(record.aaguid),
+                    json!(record.transports.join(" ")),
+                    json!(record.created_at_ms),
+                    json!(record.last_used_at_ms),
                 ]
             })
             .collect()

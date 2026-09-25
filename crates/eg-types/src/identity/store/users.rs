@@ -60,7 +60,7 @@ impl IdentityStore {
     fn facts_of(&self, principal_id: &str) -> CredentialFacts {
         CredentialFacts {
             has_password: self.passwords.contains_key(principal_id),
-            totp_enrolled: self.mfa_enrolled(principal_id),
+            totp_enrolled: self.totp_confirmed(principal_id),
             recovery_codes_left: self.recovery.get(principal_id).map_or(0, |codes| {
                 codes
                     .iter()

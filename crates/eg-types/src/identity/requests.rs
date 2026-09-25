@@ -156,6 +156,48 @@ pub struct TokenRedeem {
     pub link: Option<LinkRequest>,
 }
 
+/// `register_webauthn`: store a credential graph-os verified at
+/// registration. The live session proves the person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct WebauthnCredential {
+    pub session_token: Secret,
+    /// base64url.
+    pub credential_id: String,
+    /// The COSE public key, base64url.
+    pub public_key_cose: String,
+    pub sign_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aaguid: Option<String>,
+    #[serde(default)]
+    pub transports: Vec<String>,
+    pub name: String,
+}
+
+/// `verify_webauthn`: graph-os verified an assertion by `credential_id`;
+/// the store completes the pending session when the counter moved forward.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct WebauthnUse {
+    pub session_token: Secret,
+    pub credential_id: String,
+    pub new_sign_count: u32,
+}
+
+/// `issue_password_reset`: a signed-out user asked for a reset link. The
+/// answer is uniform: the e-mail to send `token` to, or none -- for an
+/// unknown, e-mail-less, inactive or throttled account alike.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PasswordResetIssue {
+    pub username: String,
+    pub token: Secret,
+    pub ttl_ms: u64,
+}
+
 /// An identity-provider subject to link to a principal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

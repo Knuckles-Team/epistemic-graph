@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn sign_in(username: &str) -> IdentityOp {
+pub(super) fn sign_in(username: &str) -> IdentityOp {
     sign_in_from(username, Some("10.0.0.0/24"))
 }
 
@@ -18,7 +18,7 @@ fn sign_in_from(username: &str, ip_prefix: Option<&str>) -> IdentityOp {
     })
 }
 
-fn verdict(principal: Option<&str>, matched: bool, session: &str) -> IdentityStamp {
+pub(super) fn verdict(principal: Option<&str>, matched: bool, session: &str) -> IdentityStamp {
     let mut stamp = broker();
     stamp.password_check = Some(PasswordCheck {
         principal_id: principal.map(str::to_string),
@@ -29,14 +29,14 @@ fn verdict(principal: Option<&str>, matched: bool, session: &str) -> IdentitySta
     stamp
 }
 
-fn outcome(reply: IdentityReply) -> AuthenticateResult {
+pub(super) fn outcome(reply: IdentityReply) -> AuthenticateResult {
     match reply {
         IdentityReply::Authenticate(result) => result,
         other => panic!("expected an authenticate reply, got {other:?}"),
     }
 }
 
-fn with_password(store: &mut IdentityStore, username: &str) -> String {
+pub(super) fn with_password(store: &mut IdentityStore, username: &str) -> String {
     let principal = create(store, username, UserKind::Human).unwrap();
     let mut stamp = admin();
     stamp.password_hash = Some("$argon2id$user".to_string());
