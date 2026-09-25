@@ -192,7 +192,7 @@ impl DerivedState {
         let value = self.program.step(&|name| field(point, name));
         self.last_ts = Some(point.ts);
         self.seen += 1;
-        if self.seen % CHECKPOINT_EVERY == 0 {
+        if self.seen.is_multiple_of(CHECKPOINT_EVERY) {
             self.checkpoints.push(Checkpoint {
                 ts: point.ts,
                 seen: self.seen,

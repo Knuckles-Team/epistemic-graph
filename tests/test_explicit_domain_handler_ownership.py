@@ -22,6 +22,8 @@ WORK_ITEM_METHODS = {
     # graph-os EG-2: native control-lease writes share the WorkItem kernel.
     "IssueControlLease",
     "TransitionControlLease",
+    # EH-346: the engine-internal policy-record store shares the kernel.
+    "PolicyEvolutionStore",
     "GapUpsert",
     "GapTransition",
     "GapSettle",
