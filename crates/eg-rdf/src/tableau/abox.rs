@@ -15,10 +15,10 @@
 //! unbounded time (the tableau is exponential in the worst case).
 
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
-use oxrdf::Triple;
+use oxrdf::{NamedOrBlankNode, Term, Triple};
 
 use super::{build_tbox, parse_dl_ontology, Completion, Dl, DlOntology, RoleInfo};
 use crate::owl::{BudgetExhausted, DerivationBudget};
@@ -78,6 +78,9 @@ pub enum BoundedCheckRefusal {
 /// class) and then the full-ABox tableau, each within `max_steps` deterministic steps —
 /// the same verdict on every host.
 pub fn check_pack_ontology(triples: &[Triple], max_steps: u64) -> Result<(), BoundedCheckRefusal> {
+    if explicit_subclass_pairs_exceed(triples, max_steps) {
+        return Err(BoundedCheckRefusal::BudgetExceeded { steps: max_steps });
+    }
     let budget = DerivationBudget::new(max_steps);
     let exceeded = |_: BudgetExhausted| BoundedCheckRefusal::BudgetExceeded { steps: max_steps };
     let classification = crate::owl::Reasoner::from_triples(triples)
@@ -91,6 +94,51 @@ pub fn check_pack_ontology(triples: &[Triple], max_steps: u64) -> Result<(), Bou
         Some(witness) => Err(BoundedCheckRefusal::Inconsistent { witness }),
         None => Ok(()),
     }
+}
+
+/// Each distinct reachable pair of named classes requires one subsumption fact in
+/// the EL completion (including pairs asserted directly). Count only pairs forced
+/// by explicit subclass edges; other OWL axioms may add steps, never remove these.
+/// Stop as soon as this lower bound proves the classification budget insufficient.
+fn explicit_subclass_pairs_exceed(triples: &[Triple], max_steps: u64) -> bool {
+    const SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+    let mut edges: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut nodes = HashSet::new();
+    for triple in triples {
+        if triple.predicate.as_str() != SUBCLASS_OF {
+            continue;
+        }
+        let (NamedOrBlankNode::NamedNode(sub), Term::NamedNode(sup)) =
+            (&triple.subject, &triple.object)
+        else {
+            continue;
+        };
+        edges.entry(sub.as_str()).or_default().push(sup.as_str());
+        nodes.extend([sub.as_str(), sup.as_str()]);
+    }
+    if (edges.len() as u64).saturating_mul(nodes.len().saturating_sub(1) as u64) <= max_steps {
+        return false;
+    }
+    let mut pairs = 0_u64;
+    for start in edges.keys() {
+        let mut seen = HashSet::new();
+        let mut queue = VecDeque::from([*start]);
+        seen.insert(*start);
+        while let Some(class) = queue.pop_front() {
+            if let Some(supers) = edges.get(class) {
+                for &sup in supers {
+                    if seen.insert(sup) {
+                        queue.push_back(sup);
+                        pairs += 1;
+                        if pairs > max_steps {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// The first inconsistent ABox component's least individual (`owl:Thing` for an
@@ -444,6 +492,28 @@ mod tests {
             check_pack_ontology(&clean, 1),
             Err(BoundedCheckRefusal::BudgetExceeded { steps: 1 })
         );
+    }
+
+    #[test]
+    fn explicit_subclass_preflight_counts_only_forced_distinct_pairs() {
+        let mut ttl = String::from("@prefix ex: <http://example.org/> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n");
+        for i in 0..20 {
+            ttl.push_str(&format!("ex:C{i} rdfs:subClassOf ex:C{} .\n", i + 1));
+        }
+        let chain = crate::mapping::parse_turtle(&ttl).unwrap();
+        assert!(explicit_subclass_pairs_exceed(&chain, 209));
+        assert!(!explicit_subclass_pairs_exceed(&chain, 210));
+        assert_eq!(
+            check_pack_ontology(&chain, 209),
+            Err(BoundedCheckRefusal::BudgetExceeded { steps: 209 })
+        );
+
+        let independent = crate::mapping::parse_turtle(
+            "@prefix ex: <http://example.org/> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\nex:A rdfs:subClassOf ex:B . ex:C rdfs:subClassOf ex:D .",
+        )
+        .unwrap();
+        assert!(!explicit_subclass_pairs_exceed(&independent, 2));
+        assert!(explicit_subclass_pairs_exceed(&independent, 1));
     }
 
     /// EH-363: `owl:AllDisjointClasses` reaches the tableau (pairwise), and its axiom
