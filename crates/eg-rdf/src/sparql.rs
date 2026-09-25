@@ -4414,6 +4414,60 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         assert!(service.0.lock().unwrap()[1].contains("LIMIT 1"));
     }
 
+    #[test]
+    fn service_bind_join_matches_full_fetch_oracle() {
+        use std::sync::Mutex;
+
+        struct GraphBackedService {
+            queries: Mutex<Vec<String>>,
+            reject_values: bool,
+        }
+        impl RemoteSparql for GraphBackedService {
+            fn select(&self, _endpoint: &str, query: &str) -> Result<SparqlResult, String> {
+                self.queries.lock().unwrap().push(query.to_string());
+                if self.reject_values && query.contains("VALUES") {
+                    return Err("VALUES unsupported".into());
+                }
+                let view = loaded_view();
+                let ds = Dataset::new(&view, Vec::new());
+                match execute(&ds, query, &Projection::raw(), None)? {
+                    QueryOutcome::Solutions(result) => Ok(result),
+                    _ => Err("expected SELECT".into()),
+                }
+            }
+        }
+
+        let view = loaded_view();
+        let ds = Dataset::new(&view, Vec::new());
+        let query = r#"PREFIX ex: <http://example.org/>
+            SELECT ?p ?name ?age WHERE {
+                ?p ex:name ?name .
+                SERVICE <http://remote/e> { ?p ex:age ?age }
+            }"#;
+        let run = |reject_values| {
+            let service = GraphBackedService {
+                queries: Mutex::new(Vec::new()),
+                reject_values,
+            };
+            let QueryOutcome::Solutions(result) =
+                query_dataset_service(&ds, query, &Projection::raw(), Some(&service)).unwrap()
+            else {
+                panic!()
+            };
+            let mut rows: Vec<_> = result.solutions.iter().map(canonical_solution).collect();
+            rows.sort();
+            (rows, service.queries.into_inner().unwrap())
+        };
+        let (optimized, requests) = run(false);
+        let (naive, fallback_requests) = run(true);
+        assert_eq!(optimized, naive);
+        assert_eq!(optimized.len(), 3);
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].contains("VALUES"));
+        assert_eq!(fallback_requests.len(), 2);
+        assert!(!fallback_requests[1].contains("VALUES"));
+    }
+
     /// (b) SILENT swallows a remote error to ONE empty solution → the local side passes
     /// through (the three people bound by the BGP survive the join unchanged).
     #[test]
