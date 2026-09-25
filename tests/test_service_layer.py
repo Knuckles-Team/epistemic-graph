@@ -344,9 +344,14 @@ def test_service_channel_group(service, client_factory):
         members = await client_a.channels.get_members("channel:group:test")
         assert len(members) == 2
 
-        await client_b.channels.leave("channel:group:test", "agent:b")
+        departure = await client_b.channels.leave("channel:group:test", "agent:b")
+        assert departure == "left"
         members = await client_a.channels.get_members("channel:group:test")
         assert len(members) == 1
+
+        await client_b.channels.join("channel:group:test", "agent:b")
+        members = await client_a.channels.get_members("channel:group:test")
+        assert len(members) == 2
 
     asyncio.run(_test())
 

@@ -55,6 +55,45 @@ enum AdminSagaResultContract {
     BeliefMaterialization,
 }
 
+/// The public wire result is untagged. Persist its variant separately: a
+/// `Json("left")` channel departure otherwise reloads as `String("left")`.
+#[cfg(feature = "redb")]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "value")]
+enum DurableAdminResult {
+    Bool(bool),
+    Count(u64),
+    Text(String),
+    Raw(Vec<u8>),
+    Json(serde_json::Value),
+}
+
+#[cfg(feature = "redb")]
+impl DurableAdminResult {
+    fn from_result(result: &crate::protocol::ResultPayload) -> Result<Self, String> {
+        use crate::protocol::ResultPayload;
+        match result {
+            ResultPayload::Bool(value) => Ok(Self::Bool(*value)),
+            ResultPayload::Count(value) => Ok(Self::Count(*value)),
+            ResultPayload::String(value) => Ok(Self::Text(value.clone())),
+            ResultPayload::Raw(value) => Ok(Self::Raw(value.clone())),
+            ResultPayload::Json(value) => Ok(Self::Json(value.clone())),
+            _ => Err("admin saga result has no durable encoding".to_string()),
+        }
+    }
+
+    fn into_result(self) -> crate::protocol::ResultPayload {
+        use crate::protocol::ResultPayload;
+        match self {
+            Self::Bool(value) => ResultPayload::Bool(value),
+            Self::Count(value) => ResultPayload::Count(value),
+            Self::Text(value) => ResultPayload::String(value),
+            Self::Raw(value) => ResultPayload::Raw(value),
+            Self::Json(value) => ResultPayload::Json(value),
+        }
+    }
+}
+
 #[cfg(feature = "redb")]
 impl AdminSagaResultContract {
     fn for_method(method: &Method) -> Result<Self, String> {
@@ -348,7 +387,7 @@ fn resolve_admin_saga_step(
 ) -> Result<(Option<crate::protocol::ResultPayload>, bool), String> {
     match step {
         eg_transaction::SagaBegin::Committed(record) => {
-            let (record, result) = decode_admin_commit(record, identity, true)?;
+            let (record, result) = decode_admin_commit(record, identity, true, expected_contract)?;
             expected_contract.validate(&result)?;
             *batch = record.batch;
             Ok((Some(result), false))
@@ -620,7 +659,7 @@ fn resume_committed_admin_saga(
     identity: &MutationScopeIdentity,
     result_contract: AdminSagaResultContract,
 ) -> Result<AdminSaga, String> {
-    let (record, result) = decode_admin_commit(record, identity, true)?;
+    let (record, result) = decode_admin_commit(record, identity, true, result_contract)?;
     result_contract.validate(&result)?;
     Ok(AdminSaga {
         batch: AdminSagaBatch {
@@ -663,9 +702,11 @@ pub(crate) fn finish_admin_saga(
         "admin saga recovery requires an explicit original result contract".to_string()
     })?;
     result_contract.validate(&result)?;
-    let encoded = rmp_serde::to_vec_named(&result).map_err(|error| error.to_string())?;
+    let encoded = rmp_serde::to_vec_named(&DurableAdminResult::from_result(&result)?)
+        .map_err(|error| error.to_string())?;
     let (record, replayed) = backend.admin_saga_end(&batch.durable, encoded, committed_at_ms)?;
-    let (_, durable_result) = decode_admin_commit(record, &batch.identity, replayed)?;
+    let (_, durable_result) =
+        decode_admin_commit(record, &batch.identity, replayed, result_contract)?;
     result_contract.validate(&durable_result)?;
     Ok(durable_result)
 }
@@ -695,6 +736,7 @@ fn decode_admin_commit(
     record: MutationBatchRecord,
     expected_identity: &MutationScopeIdentity,
     replayed: bool,
+    result_contract: AdminSagaResultContract,
 ) -> Result<(MutationBatchRecord, crate::protocol::ResultPayload), String> {
     let commit = MutationBatchCommit {
         record,
@@ -707,8 +749,33 @@ fn decode_admin_commit(
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed admin saga has no result".to_string())?;
-    let result = rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?;
+    let result = decode_admin_result(bytes, result_contract)?;
     Ok((commit.record, result))
+}
+
+#[cfg(feature = "redb")]
+fn decode_admin_result(
+    bytes: &[u8],
+    result_contract: AdminSagaResultContract,
+) -> Result<crate::protocol::ResultPayload, String> {
+    let result = match rmp_serde::from_slice::<DurableAdminResult>(bytes) {
+        Ok(result) => result.into_result(),
+        Err(_) => {
+            // Receipts written before the tagged encoding used the untagged
+            // wire enum. Its only declared scalar JSON result is a channel
+            // departure; recover that exact legacy representation.
+            let legacy: crate::protocol::ResultPayload =
+                rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?;
+            match (result_contract, legacy) {
+                (
+                    AdminSagaResultContract::ChannelDeparture,
+                    crate::protocol::ResultPayload::String(value),
+                ) => crate::protocol::ResultPayload::Json(serde_json::Value::String(value)),
+                (_, result) => result,
+            }
+        }
+    };
+    Ok(result)
 }
 
 #[cfg(feature = "redb")]

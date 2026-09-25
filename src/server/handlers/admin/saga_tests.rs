@@ -70,6 +70,28 @@ fn saga_keys_separate_tenant_principal_and_authenticated_idempotency() {
 }
 
 #[test]
+fn channel_departure_receipt_keeps_json_string_variant() {
+    let departure = crate::protocol::ResultPayload::Json(serde_json::json!("left"));
+    let encoded =
+        rmp_serde::to_vec_named(&DurableAdminResult::from_result(&departure).unwrap()).unwrap();
+    let decoded = decode_admin_result(&encoded, AdminSagaResultContract::ChannelDeparture).unwrap();
+    assert!(matches!(decoded, crate::protocol::ResultPayload::Json(ref value) if value == "left"));
+    AdminSagaResultContract::ChannelDeparture
+        .validate(&decoded)
+        .unwrap();
+
+    let legacy = rmp_serde::to_vec_named(&departure).unwrap();
+    let recovered =
+        decode_admin_result(&legacy, AdminSagaResultContract::ChannelDeparture).unwrap();
+    assert!(
+        matches!(recovered, crate::protocol::ResultPayload::Json(ref value) if value == "left")
+    );
+    AdminSagaResultContract::ChannelDeparture
+        .validate(&recovered)
+        .unwrap();
+}
+
+#[test]
 fn admin_replay_rejects_wrong_json_body_and_scalar_arm() {
     let method = Method::Reshard {
         graph: "g".into(),
