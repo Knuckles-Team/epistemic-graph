@@ -256,6 +256,10 @@ fn update_policy_is_epoch_guarded_and_bounded() {
                 registration_policy: Some(RegistrationPolicy::Invite),
                 local_fallback: None,
                 password_min_chars: Some(min),
+                idle_ms: None,
+                absolute_ms: None,
+                privileged_idle_ms: None,
+                privileged_absolute_ms: None,
             },
         })
     };
@@ -271,4 +275,41 @@ fn update_policy_is_epoch_guarded_and_bounded() {
     let config = store.config().unwrap();
     assert_eq!(config.password_min_chars, 14);
     assert_eq!(config.registration_policy, RegistrationPolicy::Invite);
+}
+
+#[test]
+fn session_policy_is_bounded_and_revokes_old_sessions() {
+    let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
+    let update = |idle_ms| {
+        IdentityOp::Config(ConfigOp::UpdatePolicy {
+            request: PolicyUpdate {
+                expected_epoch: 1,
+                registration_policy: None,
+                local_fallback: None,
+                password_min_chars: None,
+                idle_ms: Some(idle_ms),
+                absolute_ms: None,
+                privileged_idle_ms: None,
+                privileged_absolute_ms: None,
+            },
+        })
+    };
+    assert_eq!(
+        apply_kept(&mut store, &update(30_000), &admin(), NOW),
+        Err(IdentityRefusal::InvalidRequest)
+    );
+    let accepted = apply_kept(&mut store, &update(4 * 60 * 60 * 1000), &admin(), NOW).unwrap();
+    assert!(
+        matches!(accepted, IdentityReply::Config(ref config) if config.idle_ms == 4 * 60 * 60 * 1000)
+    );
+    let sessions = IdentityOp::Session(SessionOp::List {
+        request: ObjectRef {
+            id: BOOTSTRAP_PRINCIPAL.to_string(),
+        },
+    });
+    assert_eq!(
+        apply_kept(&mut store, &sessions, &admin(), NOW),
+        Ok(IdentityReply::Sessions(Vec::new()))
+    );
 }

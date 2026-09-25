@@ -424,6 +424,41 @@ impl IdentityStore {
             .registration_policy
             .unwrap_or(config.registration_policy);
         config.local_fallback = request.local_fallback.unwrap_or(config.local_fallback);
+        let session_policy_changed = request.idle_ms.is_some()
+            || request.absolute_ms.is_some()
+            || request.privileged_idle_ms.is_some()
+            || request.privileged_absolute_ms.is_some();
+        config.idle_ms = request.idle_ms.unwrap_or(config.idle_ms);
+        config.absolute_ms = request.absolute_ms.unwrap_or(config.absolute_ms);
+        config.privileged_idle_ms = request
+            .privileged_idle_ms
+            .unwrap_or(config.privileged_idle_ms);
+        config.privileged_absolute_ms = request
+            .privileged_absolute_ms
+            .unwrap_or(config.privileged_absolute_ms);
+        const MIN_SESSION_MS: u64 = 60_000;
+        const MAX_SESSION_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+        let bounds = [
+            config.idle_ms,
+            config.absolute_ms,
+            config.privileged_idle_ms,
+            config.privileged_absolute_ms,
+        ];
+        if bounds
+            .iter()
+            .any(|value| !(MIN_SESSION_MS..=MAX_SESSION_MS).contains(value))
+            || config.idle_ms > config.absolute_ms
+            || config.privileged_idle_ms > config.privileged_absolute_ms
+            || config.privileged_idle_ms > config.idle_ms
+            || config.privileged_absolute_ms > config.absolute_ms
+        {
+            return Err(IdentityRefusal::InvalidRequest);
+        }
+        if session_policy_changed {
+            // Existing sessions were opened under the previous bounds. Revoke
+            // them so a shorter policy takes effect immediately.
+            self.revoke_all_sessions();
+        }
         config.epoch += 1;
         self.config = Some(config.clone());
         self.audit_event(stamp, now_ms, IdentityEvent::PolicyUpdated, None);

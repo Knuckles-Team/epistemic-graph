@@ -89,6 +89,14 @@ pub struct PolicyUpdate {
     pub local_fallback: Option<LocalFallback>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password_min_chars: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absolute_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privileged_idle_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privileged_absolute_ms: Option<u64>,
 }
 
 /// A read or admin op naming one object.
