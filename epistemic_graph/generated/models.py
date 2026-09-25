@@ -1303,11 +1303,32 @@ class AttributionValuePercentileBody(BaseModel):
     p: Annotated[int, Field(ge=0, le=255)]
 
 
+class AuditAppendReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry_sha256: str
+    graph: str
+    replayed: bool
+    seq: Annotated[int, Field(ge=0)]
+
+
 class AuditDraw(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     inclusion_probability: UnitRationalWire
     sampled: bool
+
+
+class AuditEventProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chain_entries: Annotated[int, Field(ge=0)]
+    chain_verified: bool
+    entry_sha256: str
+    event_line: str
+    graph: str
+    previous_sha256: str
+    seq: Annotated[int, Field(ge=0)]
 
 
 class AuditReport(BaseModel):
@@ -3169,6 +3190,23 @@ class DecisionLogOpGet(BaseModel):
     tenant_id: str
 
 
+class DecisionLogOpList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after: str | None = None
+    limit: Annotated[int, Field(ge=0)]
+    op: Literal["list"]
+    tenant_id: str
+
+
+class DecisionLogOpProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["provenance"]
+    record_id: str
+    tenant_id: str
+
+
 class DecisionLogOpAggregate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -3213,6 +3251,8 @@ DecisionLogOp = Annotated[
     DecisionLogOpCommit
     | DecisionLogOpEvaluate
     | DecisionLogOpGet
+    | DecisionLogOpList
+    | DecisionLogOpProvenance
     | DecisionLogOpAggregate
     | DecisionLogOpCompact
     | DecisionLogOpVerify
@@ -3220,6 +3260,21 @@ DecisionLogOp = Annotated[
     | DecisionLogOpLearn,
     Field(discriminator="op"),
 ]
+
+
+class DecisionLogPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entries: list[DecisionLogEntry]
+    next_cursor: str | None = None
+
+
+class DecisionLogProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry: DecisionLogEntry
+    evaluations: list[StoredEvaluation]
+    resolutions: list[StoredResolution]
 
 
 class DecisionLogVerificationVerified(BaseModel):
@@ -7036,6 +7091,13 @@ class MethodGetNodeProperties(BaseModel):
     params: MethodGetNodePropertiesParams
 
 
+class MethodUsageFacts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["UsageFacts"]
+    params: MethodUsageFactsParams
+
+
 class MethodCompareAndSetNodeFields(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -7982,6 +8044,20 @@ class MethodAuditVerify(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     method: Literal["AuditVerify"]
+
+
+class MethodAuditAppend(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["AuditAppend"]
+    params: MethodAuditAppendParams
+
+
+class MethodAuditReadEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["AuditReadEvent"]
+    params: MethodAuditReadEventParams
 
 
 class MethodAuditProveInclusion(BaseModel):
@@ -10155,6 +10231,7 @@ Method = Annotated[
     | MethodGetNodes
     | MethodGetNodesByLabel
     | MethodGetNodeProperties
+    | MethodUsageFacts
     | MethodCompareAndSetNodeFields
     | MethodClaimNext
     | MethodDeclareExchange
@@ -10293,6 +10370,8 @@ Method = Annotated[
     | MethodClearLedger
     | MethodApplyLedger
     | MethodAuditVerify
+    | MethodAuditAppend
+    | MethodAuditReadEvent
     | MethodAuditProveInclusion
     | MethodGetSubgraph
     | MethodFork
@@ -10737,11 +10816,28 @@ class MethodAsrParams(BaseModel):
     op: AsrOp
 
 
+class MethodAuditAppendParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    identity_chain: bool
+    op: str
+    params_sha256: str
+    request_id: str
+    status: str
+    surface: str
+
+
 class MethodAuditProveInclusionParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     anchor_seq: Annotated[int, Field(ge=0)] | None = None
     node_id: str
+
+
+class MethodAuditReadEventParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    seq: Annotated[int, Field(ge=0)]
 
 
 class MethodBackupParams(BaseModel):
@@ -13818,6 +13914,18 @@ class MethodUqlParams(BaseModel):
 
     params: dict[str, UqlParam] | None = None
     text: str
+
+
+class MethodUsageFactsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after: str | None = None
+    from_ms: int | None = None
+    limit: Annotated[int, Field(ge=0)]
+    mode: str
+    model_ref: str | None = None
+    origin: str | None = None
+    to_ms: int | None = None
 
 
 class MethodVerifyWorkItemClaimCapabilityParams(BaseModel):
@@ -20191,6 +20299,44 @@ class UqlStageReport(BaseModel):
     stage: str
 
 
+class UsageEventRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cache_creation_tokens: Annotated[int, Field(ge=0)]
+    cache_read_tokens: Annotated[int, Field(ge=0)]
+    cost_microusd: Annotated[int, Field(ge=0)] | None = None
+    event_ref: str
+    input_tokens: Annotated[int, Field(ge=0)]
+    model_ref: str | None = None
+    occurred_at: str
+    origin: str
+    output_tokens: Annotated[int, Field(ge=0)]
+    reasoning_tokens: Annotated[int, Field(ge=0)]
+    run_ref: str
+
+
+class UsageFactTotals(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cache_creation_tokens: Annotated[int, Field(ge=0)]
+    cache_read_tokens: Annotated[int, Field(ge=0)]
+    cost_microusd: Annotated[int, Field(ge=0)]
+    event_count: Annotated[int, Field(ge=0)]
+    input_tokens: Annotated[int, Field(ge=0)]
+    output_tokens: Annotated[int, Field(ge=0)]
+    reasoning_tokens: Annotated[int, Field(ge=0)]
+
+
+class UsageFactsPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    events: list[UsageEventRow]
+    has_more: bool
+    next_after: str | None = None
+    scanned: Annotated[int, Field(ge=0)]
+    totals: UsageFactTotals
+
+
 class UtcOffsetSpan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -22173,7 +22319,9 @@ __all__ = [
     "AttributionValue",
     "AttributionValuePercentile",
     "AttributionValuePercentileBody",
+    "AuditAppendReceipt",
     "AuditDraw",
+    "AuditEventProof",
     "AuditReport",
     "AuthorityContext",
     "AuthorityPolicyWire",
@@ -22590,8 +22738,12 @@ __all__ = [
     "DecisionLogOpEvaluate",
     "DecisionLogOpGet",
     "DecisionLogOpLearn",
+    "DecisionLogOpList",
+    "DecisionLogOpProvenance",
     "DecisionLogOpResolve",
     "DecisionLogOpVerify",
+    "DecisionLogPage",
+    "DecisionLogProvenance",
     "DecisionLogVerification",
     "DecisionLogVerificationInputsRetired",
     "DecisionLogVerificationVerified",
@@ -23265,8 +23417,12 @@ __all__ = [
     "MethodApplyMutationParams",
     "MethodAsr",
     "MethodAsrParams",
+    "MethodAuditAppend",
+    "MethodAuditAppendParams",
     "MethodAuditProveInclusion",
     "MethodAuditProveInclusionParams",
+    "MethodAuditReadEvent",
+    "MethodAuditReadEventParams",
     "MethodAuditVerify",
     "MethodBackup",
     "MethodBackupParams",
@@ -24103,6 +24259,8 @@ __all__ = [
     "MethodUpdateResourceHostParams",
     "MethodUql",
     "MethodUqlParams",
+    "MethodUsageFacts",
+    "MethodUsageFactsParams",
     "MethodVerifyWorkItemClaimCapability",
     "MethodVerifyWorkItemClaimCapabilityParams",
     "MethodVf2SubgraphMatch",
@@ -25120,6 +25278,9 @@ __all__ = [
     "UqlRow",
     "UqlRowProof",
     "UqlStageReport",
+    "UsageEventRow",
+    "UsageFactTotals",
+    "UsageFactsPage",
     "UtcOffsetSpan",
     "ValidationInputs",
     "VarId",

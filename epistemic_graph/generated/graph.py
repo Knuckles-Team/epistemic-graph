@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     RemoveNodeRequest = _models.MethodRemoveNodeParams
     HasNodeRequest = _models.MethodHasNodeParams
     GetNodesByLabelRequest = _models.MethodGetNodesByLabelParams
+    UsageFactsRequest = _models.MethodUsageFactsParams
     GetNodePropertiesRequest = _models.MethodGetNodePropertiesParams
     CompareAndSetNodeFieldsRequest = _models.MethodCompareAndSetNodeFieldsParams
     CreateSummaryNodeRequest = _models.MethodCreateSummaryNodeParams
@@ -329,6 +330,47 @@ async def send_get_nodes_by_label(
         idempotency_key=idempotency_key,
     )
     return expect_nodelist("GetNodesByLabel", payload)
+
+
+async def send_usage_facts(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        UsageFacts
+    Authorization:
+        usage:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.graph.json
+        #/methods/UsageFacts
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodUsageFactsParams.model_validate(params or {})
+    payload = await client._send(
+        "UsageFacts",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("UsageFacts", payload)
+
+
+def decode_usage_facts(result: OpaqueResult) -> _models.UsageFactsPage:
+    """Validate this method's result against its contract model."""
+    return decode_result("UsageFacts", models().UsageFactsPage, result)
 
 
 async def send_get_node_properties(
@@ -2740,6 +2782,7 @@ _REQUEST_METHODS = frozenset(
         "RemoveNode",
         "HasNode",
         "GetNodesByLabel",
+        "UsageFacts",
         "GetNodeProperties",
         "CompareAndSetNodeFields",
         "CreateSummaryNode",

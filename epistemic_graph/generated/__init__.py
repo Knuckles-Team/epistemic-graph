@@ -93,7 +93,9 @@ SEND_BY_METHOD = {
     "ApplyMultisigMutation": transactions.send_apply_multisig_mutation,
     "ApplyMutation": graph.send_apply_mutation,
     "Asr": ingestion.send_asr,
+    "AuditAppend": security.send_audit_append,
     "AuditProveInclusion": security.send_audit_prove_inclusion,
+    "AuditReadEvent": security.send_audit_read_event,
     "AuditVerify": security.send_audit_verify,
     "Backup": storage.send_backup,
     "BatchL2Normalize": compute.send_batch_l2_normalize,
@@ -508,6 +510,7 @@ SEND_BY_METHOD = {
     "UpdateDevelopmentLaneQuota": coordination.send_update_development_lane_quota,
     "UpdateResourceHost": coordination.send_update_resource_host,
     "Uql": query.send_uql,
+    "UsageFacts": graph.send_usage_facts,
     "VerifyWorkItemClaimCapability": (
         coordination.send_verify_work_item_claim_capability
     ),

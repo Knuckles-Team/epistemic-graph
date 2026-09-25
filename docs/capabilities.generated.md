@@ -238,6 +238,7 @@
 | `HasNode` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `GetNodes` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `GetNodesByLabel` | false | None | `node:read` | true | false | false | Snapshot |  |
+| `UsageFacts` | false | None | `usage:read` | true | true | false | Snapshot | tenant from verified carrier; bounded page with keyset cursor |
 | `GetNodeProperties` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `CompareAndSetNodeFields` | true | GraphRedb | `node:write` | true | true | true | Atomic |  |
 | `CreateSummaryNode` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
@@ -403,6 +404,8 @@
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |
+| `AuditAppend` | true | GraphRedb | `security:audit-write` | true | true | false | Atomic | tenant-bound operation audit append with request-id/op idempotency and no raw params |
+| `AuditReadEvent` | false | None | `security:audit` | true | false | false | Snapshot | read one privacy-safe operation event with a full-chain verification result |
 | `AuditProveInclusion` | false | None | `security:audit` | true | false | false | Snapshot | provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry |
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
