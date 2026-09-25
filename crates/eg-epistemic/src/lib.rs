@@ -24,6 +24,7 @@
 //! never double-count.
 
 mod adapter;
+pub mod fusion;
 #[cfg(feature = "epistemic-tms")]
 mod incremental;
 mod model;

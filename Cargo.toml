@@ -183,7 +183,7 @@ otel = [
     "dep:tracing-opentelemetry",
     "server",
 ]
-finance = ["eg-compute/finance", "eg-types/finance"]
+finance = ["eg-compute/finance", "eg-types/finance", "dep:eg-epistemic"]
 ast = ["eg-compute/ast"]
 # Extended-language grammar tier (CONCEPT:KG-2.106), folded into `full`.
 ast-extended = ["eg-compute/ast-extended"]

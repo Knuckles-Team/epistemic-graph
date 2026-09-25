@@ -7,8 +7,6 @@
 //! clamped to `[0, 1]` (the Python let `accuracy * sharpe > 1` push the
 //! posterior outside `[0, 1]`). Pure compute; informational only.
 
-use std::collections::BTreeMap;
-
 pub use eg_types::compute_result::signal_models::*;
 
 use super::market::{MarketError, MarketResult, INVALID_REQUEST};
@@ -17,98 +15,12 @@ fn refuse(detail: impl Into<String>) -> MarketError {
     MarketError::new(INVALID_REQUEST, detail)
 }
 
-fn require_probability(name: &str, value: f64) -> MarketResult<()> {
-    if (0.0..=1.0).contains(&value) {
-        Ok(())
-    } else {
-        Err(refuse(format!("{name} must be a probability in [0, 1]")))
-    }
-}
-
 fn require_finite(name: &str, value: f64) -> MarketResult<()> {
     if value.is_finite() {
         Ok(())
     } else {
         Err(refuse(format!("{name} must be finite")))
     }
-}
-
-// ── Bayesian fusion ─────────────────────────────────────────────────────────
-
-fn seeds(request: &BayesFuseRequest) -> MarketResult<BTreeMap<String, FusionSource>> {
-    let mut seeded = BTreeMap::new();
-    for prior in &request.priors {
-        require_probability("directional_accuracy", prior.directional_accuracy)?;
-        require_finite("standalone_sharpe", prior.standalone_sharpe)?;
-        require_finite("pbo", prior.pbo)?;
-        let has_edge = prior.standalone_sharpe > request.min_sharpe;
-        if prior.name.is_empty() || prior.pbo > request.max_pbo || !has_edge {
-            continue;
-        }
-        let weight = (prior.directional_accuracy * prior.standalone_sharpe).clamp(0.0, 1.0);
-        let source = FusionSource {
-            name: prior.name.clone(),
-            weight,
-            accuracy: prior.directional_accuracy,
-            seeded: true,
-        };
-        seeded.insert(prior.name.clone(), source);
-    }
-    Ok(seeded)
-}
-
-/// One weighted Bayes step: `prior` moved toward `P(up | call)` by `weight`.
-fn update(prior: f64, direction: i8, source: &FusionSource) -> f64 {
-    if direction == 0 {
-        return prior;
-    }
-    let accuracy = source.accuracy;
-    let (likely_up, likely_down) = if direction > 0 {
-        (accuracy, 1.0 - accuracy)
-    } else {
-        (1.0 - accuracy, accuracy)
-    };
-    let evidence = likely_up * prior + likely_down * (1.0 - prior);
-    if evidence == 0.0 {
-        return prior;
-    }
-    let posterior = likely_up * prior / evidence;
-    prior + source.weight * (posterior - prior)
-}
-
-fn validate_fuse(request: &BayesFuseRequest) -> MarketResult<()> {
-    require_probability("prior", request.prior)?;
-    require_probability("default_weight", request.default_weight)?;
-    require_probability("default_accuracy", request.default_accuracy)?;
-    require_finite("min_sharpe", request.min_sharpe)?;
-    require_finite("max_pbo", request.max_pbo)?;
-    match request.directions.values().find(|call| call.abs() > 1) {
-        Some(call) => Err(refuse(format!("a call is -1, 0 or 1, not {call}"))),
-        None => Ok(()),
-    }
-}
-
-/// Fuse every call into `P(up)`, sources in name order.
-pub fn bayes_fuse(request: &BayesFuseRequest) -> MarketResult<BayesFusion> {
-    validate_fuse(request)?;
-    let seeded = seeds(request)?;
-    let mut posterior = request.prior;
-    let mut sources = Vec::with_capacity(request.directions.len());
-    for (name, &direction) in &request.directions {
-        let source = seeded.get(name).cloned().unwrap_or_else(|| FusionSource {
-            name: name.clone(),
-            weight: request.default_weight,
-            accuracy: request.default_accuracy,
-            seeded: false,
-        });
-        posterior = update(posterior, direction, &source);
-        sources.push(source);
-    }
-    Ok(BayesFusion {
-        posterior_up: posterior,
-        seeded: u32::try_from(seeded.len()).unwrap_or(u32::MAX),
-        sources,
-    })
 }
 
 // ── The strategic insider under dynamic legal risk ──────────────────────────
@@ -373,53 +285,6 @@ mod tests {
             steps: 1,
         })
         .unwrap_err();
-        assert_eq!(refused.code, INVALID_REQUEST);
-    }
-
-    fn prior(name: &str, accuracy: f64, sharpe: f64, pbo: f64) -> FusionPrior {
-        FusionPrior {
-            name: name.to_string(),
-            directional_accuracy: accuracy,
-            standalone_sharpe: sharpe,
-            pbo,
-        }
-    }
-
-    fn fuse_request(directions: &[(&str, i8)], priors: Vec<FusionPrior>) -> BayesFuseRequest {
-        BayesFuseRequest {
-            prior: 0.5,
-            priors,
-            directions: directions
-                .iter()
-                .map(|(name, call)| ((*name).to_string(), *call))
-                .collect(),
-            min_sharpe: 0.0,
-            max_pbo: 0.5,
-            default_weight: 0.5,
-            default_accuracy: 0.55,
-        }
-    }
-
-    #[test]
-    fn fusion_matches_the_python_reference_and_drops_overfit_priors() {
-        let priors = vec![prior("a", 0.7, 0.8, 0.2), prior("b", 0.6, 0.5, 0.9)];
-        let out = bayes_fuse(&fuse_request(&[("a", 1), ("c", -1)], priors)).unwrap();
-        close(out.posterior_up, 0.587_710_310_965_630_1);
-        assert_eq!(out.seeded, 1);
-        let names: Vec<&str> = out.sources.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, ["a", "c"]);
-        assert!(out.sources[0].seeded && !out.sources[1].seeded);
-    }
-
-    #[test]
-    fn fusion_is_bounded_and_rejects_malformed_calls() {
-        let strong = vec![prior("a", 0.9, 5.0, 0.0)];
-        let out = bayes_fuse(&fuse_request(&[("a", 1)], strong)).unwrap();
-        assert!((0.0..=1.0).contains(&out.posterior_up));
-        assert!((out.sources[0].weight - 1.0).abs() < f64::EPSILON);
-        let silent = bayes_fuse(&fuse_request(&[("a", 0)], Vec::new())).unwrap();
-        close(silent.posterior_up, 0.5);
-        let refused = bayes_fuse(&fuse_request(&[("a", 2)], Vec::new())).unwrap_err();
         assert_eq!(refused.code, INVALID_REQUEST);
     }
 }
