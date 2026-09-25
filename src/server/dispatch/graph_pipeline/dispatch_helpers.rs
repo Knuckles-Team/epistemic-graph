@@ -168,7 +168,7 @@ pub(super) async fn dispatch_op_audit_read_event(
 ) -> Response {
     let fname = crate::persist::sanitize(graph_name);
     match persistence.as_ref().and_then(|p| p.as_redb()) {
-        Some(redb) => match redb.audit_read_event_blocking(&fname, verified_tenant, seq) {
+        Some(redb) => match redb.audit_read_event(&fname, verified_tenant, seq).await {
             Ok(proof) => Response::ok(
                 req_id,
                 ResultPayload::of::<eg_types::result_contract::security::AuditReadEvent>(proof),
@@ -188,7 +188,7 @@ pub(super) async fn dispatch_op_audit_append(
 ) -> Response {
     let fname = crate::persist::sanitize(graph_name);
     match persistence.as_ref().and_then(|p| p.as_redb()) {
-        Some(redb) => match redb.audit_append_blocking(&fname, event) {
+        Some(redb) => match redb.audit_append(&fname, event).await {
             Ok(receipt) => Response::ok(
                 req_id,
                 ResultPayload::of::<eg_types::result_contract::security::AuditAppend>(receipt),
