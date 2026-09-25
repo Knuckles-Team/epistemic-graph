@@ -10,56 +10,33 @@ impl Default for SemanticStore {
 
 impl SemanticStore {
     pub fn new() -> Self {
+        Self::from_arena(
+            EmbeddingArena::default(),
+            None,
+            crate::compute::semantic::GenerationStamp::fresh(),
+        )
+    }
+
+    pub(super) fn from_arena(
+        arena: EmbeddingArena,
+        space: Option<EmbeddingSpaceRef>,
+        generation: crate::compute::semantic::GenerationStamp,
+    ) -> Self {
         Self {
-            arena: EmbeddingArena::default(),
-            space: None,
+            arena,
+            space,
             index: RwLock::new(None),
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
-            generation: crate::compute::semantic::GenerationStamp::fresh(),
+            generation,
         }
     }
 
-    /// The content stamp (EH-393): equal stamps mean identical vectors, space and active ANN
-    /// generation.
-    pub fn generation(&self) -> u64 {
-        self.generation.get()
-    }
-
-    /// Create an empty store pinned to one exact model/preprocessing space.
-    pub fn new_in_space(space: EmbeddingSpaceRef) -> Result<Self, String> {
-        let mut store = Self::new();
-        store.declare_space(space)?;
-        Ok(store)
-    }
-
-    /// Declare the immutable space used by model-produced queries. Existing raw
-    /// rows may be adopted only when their width matches the declaration.
-    pub fn declare_space(&mut self, space: EmbeddingSpaceRef) -> Result<(), String> {
-        space.validate()?;
-        if let Some(current) = self.space.as_ref() {
-            if current.digest == space.digest {
-                return Ok(());
-            }
-            return Err(format!(
-                "semantic store already declares embedding space `{}`; cannot replace it with `{}`",
-                current.digest, space.digest
-            ));
-        }
-        if self.arena.dim != 0 && self.arena.dim != space.dimensions {
-            return Err(format!(
-                "semantic store rows carry {} dimensions; declared space `{}` requires {}",
-                self.arena.dim, space.digest, space.dimensions
-            ));
-        }
-        self.space = Some(space);
-        self.generation.bump();
-        Ok(())
-    }
-
-    /// Declared model/preprocessing space, if this is not a legacy raw store.
-    pub fn space(&self) -> Option<&EmbeddingSpaceRef> {
-        self.space.as_ref()
+    pub(in crate::compute::semantic) fn mismatched_row_dim(
+        &self,
+        requested: usize,
+    ) -> Option<usize> {
+        (self.arena.dim != 0 && self.arena.dim != requested).then_some(self.arena.dim)
     }
 
     /// True once a fresh ANN index is resident and current.

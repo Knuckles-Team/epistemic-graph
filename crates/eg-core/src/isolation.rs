@@ -358,15 +358,10 @@ pub fn stamp_owner_id_if_absent(blob: &[u8], caller_agent_id: &str) -> Option<Ve
         return None;
     }
     let mut map: std::collections::BTreeMap<String, serde_json::Value> =
-        eg_types::msgpack::decode_bounded(
-            blob,
-            eg_types::msgpack::MsgpackLimits::new(
-                eg_types::msgpack::MAX_PROPERTY_BYTES,
-                eg_types::msgpack::MAX_PROPERTY_ITEMS,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
-            ),
-        )
-        .ok()?;
+        eg_types::msgpack::decode_property_object(blob)
+            .ok()?
+            .into_iter()
+            .collect();
     if map.contains_key(RLS_OWNER_KEY) || map.contains_key(RLS_OWNER_ID_KEY) {
         return None;
     }

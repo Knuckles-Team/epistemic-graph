@@ -154,6 +154,18 @@ pub struct IndexDescriptor {
     pub serves_lookup: bool,
 }
 
+impl IndexDescriptor {
+    /// Register an index served by its own search API, outside predicate
+    /// equality lookup and column coverage.
+    pub fn discoverable_only(kind: IndexKind) -> Self {
+        Self {
+            kind,
+            columns: IndexColumns::NonColumnar,
+            serves_lookup: false,
+        }
+    }
+}
+
 /// What columns an index covers, for discovery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexColumns {
@@ -189,14 +201,18 @@ pub trait SecondaryIndex: Send + Sync + 'static {
     /// Does this index cover `predicate` (could resolve it via `lookup`)? Cheap,
     /// state-free — a planner calls this before committing to a `lookup`. An index
     /// with `serves_lookup == false` always returns `false`.
-    fn covers(&self, predicate: &Predicate) -> bool;
+    fn covers(&self, _predicate: &Predicate) -> bool {
+        false
+    }
 
     /// Resolve `predicate` to the matching node ids via this index's cache,
     /// building/extending it lazily over `core`. Returns:
     ///   * `Some(ids)` — resolved through the index (possibly empty).
     ///   * `None` — this index can NOT resolve `predicate` under its policy (e.g.
     ///     the bounded property cap is full for a new key) ⇒ the caller full-scans.
-    fn lookup(&self, core: &GraphCore, predicate: &Predicate) -> Option<Vec<String>>;
+    fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
+        None
+    }
 
     /// Does this index derive its state from node CONTENT — the property blob of an
     /// added/updated node — rather than from ids/removals alone
@@ -386,19 +402,7 @@ impl SecondaryIndex for OntologyIndexDescriptor {
     }
 
     fn descriptor(&self) -> IndexDescriptor {
-        IndexDescriptor {
-            kind: IndexKind::Ontology,
-            columns: IndexColumns::NonColumnar,
-            serves_lookup: false,
-        }
-    }
-
-    fn covers(&self, _predicate: &Predicate) -> bool {
-        false
-    }
-
-    fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
-        None
+        IndexDescriptor::discoverable_only(IndexKind::Ontology)
     }
 
     fn apply_delta(&self, _core: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
@@ -424,19 +428,7 @@ impl SecondaryIndex for VectorIndexDescriptor {
     }
 
     fn descriptor(&self) -> IndexDescriptor {
-        IndexDescriptor {
-            kind: IndexKind::Vector,
-            columns: IndexColumns::NonColumnar,
-            serves_lookup: false,
-        }
-    }
-
-    fn covers(&self, _predicate: &Predicate) -> bool {
-        false
-    }
-
-    fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
-        None
+        IndexDescriptor::discoverable_only(IndexKind::Vector)
     }
 
     /// Incremental vector-store maintenance for a committed batch
@@ -838,14 +830,6 @@ mod tests {
             }
         }
 
-        fn covers(&self, _predicate: &Predicate) -> bool {
-            false
-        }
-
-        fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
-            None
-        }
-
         fn manifest(&self) -> IndexManifest {
             *self.manifest.lock().unwrap()
         }
@@ -1202,12 +1186,6 @@ mod tests {
                 serves_lookup: false,
             }
         }
-        fn covers(&self, _p: &Predicate) -> bool {
-            false
-        }
-        fn lookup(&self, _c: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
-            None
-        }
         fn needs_content(&self) -> bool {
             self.needs
         }
@@ -1385,12 +1363,6 @@ mod tests {
                 columns: IndexColumns::NonColumnar,
                 serves_lookup: false,
             }
-        }
-        fn covers(&self, _p: &Predicate) -> bool {
-            false
-        }
-        fn lookup(&self, _c: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
-            None
         }
         fn apply_delta(&self, _c: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
             Ok(())

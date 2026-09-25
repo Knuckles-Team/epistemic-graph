@@ -66,6 +66,39 @@ fn next_embedding_generation() -> u64 {
 }
 
 impl SemanticStore {
+    /// Equal stamps mean the same vectors, declared space and active index generation.
+    pub fn generation(&self) -> u64 {
+        self.generation.get()
+    }
+
+    /// Create an empty store pinned to one exact model/preprocessing space.
+    pub fn new_in_space(space: eg_types::EmbeddingSpaceRef) -> Result<Self, String> {
+        let mut store = Self::new();
+        store.declare_space(space)?;
+        Ok(store)
+    }
+
+    /// Declared model/preprocessing space, if this is not a legacy raw store.
+    pub fn space(&self) -> Option<&eg_types::EmbeddingSpaceRef> {
+        self.space.as_ref()
+    }
+
+    /// Declare the immutable space used by model-produced queries. Existing raw
+    /// rows may be adopted only when their width matches the declaration.
+    pub fn declare_space(&mut self, space: eg_types::EmbeddingSpaceRef) -> Result<(), String> {
+        if validate_space_declaration(self.space.as_ref(), &space)? {
+            return Ok(());
+        }
+        if let Some(dim) = self.mismatched_row_dim(space.dimensions) {
+            return Err(format!(
+                "semantic store rows carry {dim} dimensions; declared space `{}` requires {}",
+                space.digest, space.dimensions
+            ));
+        }
+        commit_space_declaration(&mut self.space, &self.generation, space);
+        Ok(())
+    }
+
     /// EXACT cosine top-`n_results` over exactly the `candidates` that hold an embedding
     /// (EH-564/EH-565, CONCEPT:EG-KG.query.filtered-vector-rank), best first, ties by id.
     /// Cost is O(|candidates| · dim): each candidate's row is looked up by id, never an
@@ -97,6 +130,42 @@ impl SemanticStore {
         scored.truncate(n_results);
         scored
     }
+}
+
+/// Return true when this exact space was already declared; refuse replacing a
+/// different model space before either backend inspects its row layout.
+fn validate_space_declaration(
+    current: Option<&eg_types::EmbeddingSpaceRef>,
+    requested: &eg_types::EmbeddingSpaceRef,
+) -> Result<bool, String> {
+    requested.validate()?;
+    match current {
+        Some(existing) if existing.digest == requested.digest => Ok(true),
+        Some(existing) => Err(format!(
+            "semantic store already declares embedding space `{}`; cannot replace it with `{}`",
+            existing.digest, requested.digest
+        )),
+        None => Ok(false),
+    }
+}
+
+/// Apply a validated declaration once the backend has checked its own row layout.
+fn commit_space_declaration(
+    slot: &mut Option<eg_types::EmbeddingSpaceRef>,
+    generation: &GenerationStamp,
+    space: eg_types::EmbeddingSpaceRef,
+) {
+    *slot = Some(space);
+    generation.bump();
+}
+
+/// A clone keeps both its declared coordinate space and content stamp. Its
+/// backend index is reconstructed separately and does not define identity.
+fn carry_space_identity(
+    space: &Option<eg_types::EmbeddingSpaceRef>,
+    generation: &GenerationStamp,
+) -> (Option<eg_types::EmbeddingSpaceRef>, GenerationStamp) {
+    (space.clone(), generation.carry())
 }
 
 /// Euclidean norm; NaN for a non-finite vector, 0 for an empty one.

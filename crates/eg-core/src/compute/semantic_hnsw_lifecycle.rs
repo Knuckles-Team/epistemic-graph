@@ -18,50 +18,14 @@ impl SemanticStore {
         }
     }
 
-    /// The content stamp (EH-393): equal stamps mean identical vectors and space.
-    pub fn generation(&self) -> u64 {
-        self.generation.get()
-    }
-
-    /// Create an empty store pinned to one exact model/preprocessing space.
-    pub fn new_in_space(space: EmbeddingSpaceRef) -> Result<Self, String> {
-        let mut store = Self::new();
-        store.declare_space(space)?;
-        Ok(store)
-    }
-
-    /// Declare the immutable space used by model-produced queries. Existing raw
-    /// rows may be adopted only when their width matches the declaration.
-    pub fn declare_space(&mut self, space: EmbeddingSpaceRef) -> Result<(), String> {
-        space.validate()?;
-        if let Some(current) = self.space.as_ref() {
-            if current.digest == space.digest {
-                return Ok(());
-            }
-            return Err(format!(
-                "semantic store already declares embedding space `{}`; cannot replace it with `{}`",
-                current.digest, space.digest
-            ));
-        }
-        if let Some(dim) = self
-            .embeddings
+    pub(in crate::compute::semantic) fn mismatched_row_dim(
+        &self,
+        requested: usize,
+    ) -> Option<usize> {
+        self.embeddings
             .values()
             .map(Vec::len)
-            .find(|&dim| dim != space.dimensions)
-        {
-            return Err(format!(
-                "semantic store rows carry {dim} dimensions; declared space `{}` requires {}",
-                space.digest, space.dimensions
-            ));
-        }
-        self.space = Some(space);
-        self.generation.bump();
-        Ok(())
-    }
-
-    /// Declared model/preprocessing space, if this is not a legacy raw store.
-    pub fn space(&self) -> Option<&EmbeddingSpaceRef> {
-        self.space.as_ref()
+            .find(|&dim| dim != requested)
     }
 
     /// Returns the number of stored embeddings.

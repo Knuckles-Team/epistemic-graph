@@ -55,14 +55,11 @@ impl<'de> Deserialize<'de> for SemanticStore {
         }
         let arena = EmbeddingArena::from_flat(raw.dim, raw.ids, raw.data)
             .map_err(serde::de::Error::custom)?;
-        Ok(Self {
+        Ok(Self::from_arena(
             arena,
-            space: raw.space,
-            index: RwLock::new(None),
-            built_len: RwLock::new(0),
-            state: AtomicU8::new(STATE_COLD),
-            generation: crate::compute::semantic::GenerationStamp::fresh(),
-        })
+            raw.space,
+            crate::compute::semantic::GenerationStamp::fresh(),
+        ))
     }
 }
 
