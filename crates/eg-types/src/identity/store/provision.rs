@@ -130,7 +130,11 @@ impl IdentityStore {
             | IdpOp::Remove { .. }
             | IdpOp::Link { .. }
             | IdpOp::Unlink { .. }
-            | IdpOp::List => Err(IdentityRefusal::InvalidRequest),
+            | IdpOp::List
+            | IdpOp::UpsertScimClient { .. }
+            | IdpOp::GetScimClient { .. }
+            | IdpOp::ListScimClients
+            | IdpOp::RemoveScimClient { .. } => Err(IdentityRefusal::InvalidRequest),
         }
     }
 

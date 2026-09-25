@@ -19,7 +19,7 @@ use super::requests::{
 };
 use super::requests_admin::{
     GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, PrincipalListQuery,
-    RoleUpsert, SqlDump, UserRoleChange, UserSearch,
+    RoleUpsert, ScimClientBinding, SqlDump, UserRoleChange, UserSearch,
 };
 use super::requests_provision::{
     DirectoryGroup, DirectoryGroupQuery, DirectoryGroupRef, ProvisionSubject, ProvisionedQuery,
@@ -339,6 +339,16 @@ pub enum IdpOp {
         request: LinkRequest,
     },
     List,
+    UpsertScimClient {
+        request: ScimClientBinding,
+    },
+    GetScimClient {
+        request: ObjectRef,
+    },
+    ListScimClients,
+    RemoveScimClient {
+        request: ObjectRef,
+    },
     /// Directory provisioning (SCIM `Users`, LDAP sync).
     Provision {
         request: ProvisionSubject,
@@ -524,6 +534,10 @@ impl IdpOp {
             Self::Link { .. } => meta("link_identity", true, OpAuthority::Admin),
             Self::Unlink { .. } => meta("unlink_identity", true, OpAuthority::Admin),
             Self::List => meta("list_idps", false, OpAuthority::Directory),
+            Self::UpsertScimClient { .. } => meta("upsert_scim_client", true, OpAuthority::Admin),
+            Self::GetScimClient { .. } => meta("get_scim_client", false, OpAuthority::Read),
+            Self::ListScimClients => meta("list_scim_clients", false, OpAuthority::Read),
+            Self::RemoveScimClient { .. } => meta("remove_scim_client", true, OpAuthority::Admin),
             Self::Provision { .. } => meta("provision", true, OpAuthority::Provision),
             Self::ListProvisioned { .. } => meta("list_provisioned", false, OpAuthority::Provision),
             Self::ProvisionGroup { .. } => meta("provision_group", true, OpAuthority::Provision),

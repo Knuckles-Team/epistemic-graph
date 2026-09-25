@@ -34,6 +34,7 @@ mod invariants;
 mod mfa;
 mod modes;
 mod provision;
+mod scim_clients;
 mod sessions;
 mod throttle;
 mod tokens;

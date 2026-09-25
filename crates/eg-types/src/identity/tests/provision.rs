@@ -93,6 +93,71 @@ fn provisioned_user(reply: IdentityReply) -> UserView {
     }
 }
 
+#[test]
+fn scim_client_admin_binding_is_typed_and_revocable() {
+    let mut store = directory_store();
+    let service = create(&mut store, "scim-client", UserKind::Service).unwrap();
+    let human = create(&mut store, "human", UserKind::Human).unwrap();
+    let upsert = |principal_id| {
+        IdentityOp::Idp(IdpOp::UpsertScimClient {
+            request: ScimClientBinding {
+                idp_id: "scim".to_string(),
+                principal_id,
+            },
+        })
+    };
+    assert_eq!(
+        apply_kept(&mut store, &upsert(human), &admin(), NOW),
+        Err(IdentityRefusal::KindMismatch)
+    );
+    assert_eq!(
+        apply_kept(&mut store, &upsert(service.clone()), &admin(), NOW),
+        Ok(IdentityReply::Done { changed: true })
+    );
+    let get = IdentityOp::Idp(IdpOp::GetScimClient {
+        request: ObjectRef {
+            id: "scim".to_string(),
+        },
+    });
+    let reader = IdentityStamp::for_actor(actor("usr:reader", &[IDENTITY_READ_SCOPE]));
+    let IdentityReply::ScimClient(binding) = apply_kept(&mut store, &get, &reader, NOW).unwrap()
+    else {
+        panic!("expected binding")
+    };
+    assert_eq!(binding.principal_id, service);
+    let IdentityReply::ScimClients(all) = apply_kept(
+        &mut store,
+        &IdentityOp::Idp(IdpOp::ListScimClients),
+        &reader,
+        NOW,
+    )
+    .unwrap() else {
+        panic!("expected bindings")
+    };
+    assert!(all
+        .iter()
+        .any(|row| row.idp_id == "scim" && row.principal_id == service));
+    let directory_write = provision(subject("scim", "bound", true));
+    assert!(apply_kept(&mut store, &directory_write, &provisioner(&service), NOW).is_ok());
+    let remove = IdentityOp::Idp(IdpOp::RemoveScimClient {
+        request: ObjectRef {
+            id: "scim".to_string(),
+        },
+    });
+    assert_eq!(
+        apply_kept(&mut store, &remove, &admin(), NOW),
+        Ok(IdentityReply::Done { changed: true })
+    );
+    assert_eq!(
+        apply_kept(&mut store, &get, &reader, NOW),
+        Err(IdentityRefusal::NotFound)
+    );
+    assert_eq!(
+        apply_kept(&mut store, &directory_write, &provisioner(&service), NOW),
+        Err(IdentityRefusal::NotAuthorized)
+    );
+}
+
 fn group(members: &[&str]) -> IdentityOp {
     IdentityOp::Idp(IdpOp::ProvisionGroup {
         request: DirectoryGroup {

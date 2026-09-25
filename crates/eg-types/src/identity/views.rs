@@ -121,6 +121,16 @@ pub struct ApiKeyView {
     pub revoked_at_ms: Option<u64>,
 }
 
+/// The service principal permitted to provision one SCIM IdP.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ScimClientView {
+    pub idp_id: String,
+    pub principal_id: String,
+    pub enabled: bool,
+}
+
 impl ApiKeyView {
     pub(crate) fn of(key: &ApiKeyRecord) -> Self {
         Self {
@@ -215,6 +225,8 @@ pub enum IdentityReply {
     Authenticate(AuthenticateResult),
     Sessions(Vec<SessionView>),
     ApiKeys(Vec<ApiKeyView>),
+    ScimClient(ScimClientView),
+    ScimClients(Vec<ScimClientView>),
     Roles(Vec<RoleRecord>),
     Groups(Vec<GroupRecord>),
     Idps(Vec<IdpConfig>),

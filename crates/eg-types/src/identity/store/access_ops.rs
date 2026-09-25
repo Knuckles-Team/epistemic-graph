@@ -199,7 +199,11 @@ impl IdentityStore {
             | IdpOp::Remove { .. }
             | IdpOp::Link { .. }
             | IdpOp::Unlink { .. }
-            | IdpOp::List => self.apply_idp_admin(op, stamp, ctx),
+            | IdpOp::List
+            | IdpOp::UpsertScimClient { .. }
+            | IdpOp::GetScimClient { .. }
+            | IdpOp::ListScimClients
+            | IdpOp::RemoveScimClient { .. } => self.apply_idp_admin(op, stamp, ctx),
             IdpOp::Provision { .. }
             | IdpOp::ListProvisioned { .. }
             | IdpOp::ProvisionGroup { .. }
@@ -247,6 +251,14 @@ impl IdentityStore {
             }
             IdpOp::Unlink { request } => self.unlink(request, stamp, now_ms),
             IdpOp::List => Ok(IdentityReply::Idps(self.idps.values().cloned().collect())),
+            IdpOp::UpsertScimClient { request } => self.upsert_scim_client(request, stamp, now_ms),
+            IdpOp::GetScimClient { request } => {
+                Ok(IdentityReply::ScimClient(self.scim_client(&request.id)?))
+            }
+            IdpOp::ListScimClients => Ok(IdentityReply::ScimClients(self.scim_clients())),
+            IdpOp::RemoveScimClient { request } => {
+                self.remove_scim_client(&request.id, stamp, now_ms)
+            }
             IdpOp::Provision { .. }
             | IdpOp::ListProvisioned { .. }
             | IdpOp::ProvisionGroup { .. }

@@ -140,6 +140,15 @@ pub struct PrincipalListQuery {
     pub limit: u32,
 }
 
+/// Bind one SCIM IdP to a service principal. Its API key is issued separately.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ScimClientBinding {
+    pub idp_id: String,
+    pub principal_id: String,
+}
+
 /// `import_sql`: an administrator's dump (see `sql_dump`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
