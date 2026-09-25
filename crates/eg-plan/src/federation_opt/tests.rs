@@ -159,6 +159,26 @@ fn ids(rows: &RowSet) -> Vec<String> {
     rows.ids()
 }
 
+fn execute_federated(
+    fx: &crate::fixture::Fixture,
+    session: &FederationSession,
+    plan: Plan,
+) -> Result<RowSet, String> {
+    let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_federation(session);
+    execute(&plan, &ctx)
+}
+
+fn source_plan(spec: ForeignSourceSpec, limit: Option<usize>) -> Plan {
+    let mut ops = vec![Op::ForeignScan {
+        source: Box::new(spec),
+        join: false,
+    }];
+    if let Some(k) = limit {
+        ops.push(Op::Limit { k });
+    }
+    Plan::new(ops)
+}
+
 // ── (E)+(B): HTTP through the executor ──────────────────────────────────────────
 
 #[test]
@@ -180,7 +200,6 @@ fn a_foreign_join_ships_local_ids_instead_of_fetching_the_source() {
         .collect();
 
     let session = FederationSession::from_env();
-    let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_federation(&session);
     let plan = Plan::new(vec![
         Op::Scan {
             label: "Doc".into(),
@@ -190,7 +209,7 @@ fn a_foreign_join_ships_local_ids_instead_of_fetching_the_source() {
             join: true,
         },
     ]);
-    let joined = execute(&plan, &ctx).unwrap();
+    let joined = execute_federated(&fx, &session, plan).unwrap();
 
     assert_eq!(
         ids(&joined),
@@ -218,12 +237,8 @@ fn a_paged_source_is_read_to_its_end_not_truncated_to_page_one() {
 
     let fx = crate::fixture::build();
     let session = FederationSession::from_env();
-    let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_federation(&session);
-    let plan = Plan::new(vec![Op::ForeignScan {
-        source: Box::new(spec),
-        join: false,
-    }]);
-    let rows = execute(&plan, &ctx).unwrap();
+    let plan = source_plan(spec, None);
+    let rows = execute_federated(&fx, &session, plan).unwrap();
     assert_eq!(ids(&rows), catalog(250), "(E) every page, in source order");
     assert_eq!(session.trace()[0].strategy, FetchStrategy::Paged);
 }
@@ -235,15 +250,8 @@ fn a_following_limit_is_pushed_into_the_source() {
     let spec = api.spec("?limit={limit}");
     let fx = crate::fixture::build();
     let session = FederationSession::from_env();
-    let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_federation(&session);
-    let plan = Plan::new(vec![
-        Op::ForeignScan {
-            source: Box::new(spec),
-            join: false,
-        },
-        Op::Limit { k: 5 },
-    ]);
-    let rows = execute(&plan, &ctx).unwrap();
+    let plan = source_plan(spec, Some(5));
+    let rows = execute_federated(&fx, &session, plan).unwrap();
     assert_eq!(
         ids(&rows),
         catalog(500)[..5].to_vec(),
@@ -284,12 +292,8 @@ fn the_request_budget_refuses_instead_of_returning_partial_rows() {
         max_requests: 2,
         ..FederationBudget::default()
     });
-    let ctx = PlanCtx::new(&fx.view, &fx.semantic).with_federation(&session);
-    let plan = Plan::new(vec![Op::ForeignScan {
-        source: Box::new(api.spec("?page={page}&limit={limit}")),
-        join: false,
-    }]);
-    let err = execute(&plan, &ctx).unwrap_err();
+    let plan = source_plan(api.spec("?page={page}&limit={limit}"), None);
+    let err = execute_federated(&fx, &session, plan).unwrap_err();
     assert!(
         err.starts_with(&format!("{BUDGET_EXCEEDED}:requests")),
         "{err}"
