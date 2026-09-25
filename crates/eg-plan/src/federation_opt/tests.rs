@@ -336,7 +336,10 @@ fn uql_profile_reports_remote_fragments_and_caller_hint_refuses_partial_results(
     assert_eq!(api.requests(), 2);
     assert_eq!(session.budget().max_requests, 2);
 
-    let session = FederationSession::new(FederationBudget::default());
+    let session = FederationSession::new(FederationBudget {
+        max_requests: 5,
+        ..FederationBudget::default()
+    });
     let ctx = PlanCtx::new(&fx.view, &fx.semantic)
         .with_foreign(&source)
         .with_federation(&session);
@@ -352,6 +355,11 @@ fn uql_profile_reports_remote_fragments_and_caller_hint_refuses_partial_results(
         panic!("PROFILE expected")
     };
     assert_eq!(rows.len(), 2);
+    assert_eq!(
+        session.budget().max_requests,
+        5,
+        "a caller cannot raise the server ceiling"
+    );
     assert_eq!(federation.len(), 1);
     assert!(federation[0].contains("requests="), "{}", federation[0]);
     assert!(federation[0].contains("fetched="), "{}", federation[0]);
