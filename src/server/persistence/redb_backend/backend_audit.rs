@@ -23,7 +23,9 @@ impl RedbBackend {
         self.shard_for(graph_fname)
             .tx
             .send(Cmd::AuditAppend {
-                graph: graph_fname.to_string(), event, reply,
+                graph: graph_fname.to_string(),
+                event,
+                reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
         await_writer_reply(&rx, "audit_append")?

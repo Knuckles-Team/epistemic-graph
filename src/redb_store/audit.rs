@@ -62,7 +62,9 @@ impl OperationAuditEvent {
         fn token(value: &str, max: usize) -> bool {
             !value.is_empty()
                 && value.len() <= max
-                && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-/".contains(&b))
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._:-/".contains(&b))
         }
         if !token(&self.tenant, 128)
             || !token(&self.principal, 256)
@@ -104,7 +106,11 @@ pub(crate) fn operation_audit_append(
         "{}\0{}\0{}\0{}",
         event.tenant, event.principal, event.request_id, event.op
     );
-    let phase = if event.status == "reserved" { "reserve" } else { "outcome" };
+    let phase = if event.status == "reserved" {
+        "reserve"
+    } else {
+        "outcome"
+    };
     let key = hex::encode(Sha256::digest(format!("{request_identity}\0{phase}")));
     let reserve_key = hex::encode(Sha256::digest(format!("{request_identity}\0reserve")));
     let context_fingerprint: crate::audit::Hash = Sha256::digest(format!(
@@ -116,7 +122,8 @@ pub(crate) fn operation_audit_append(
         event.surface,
         event.params_sha256,
         event.identity_chain,
-    )).into();
+    ))
+    .into();
     let line = format!(
         "OP_AUDIT|v1|tenant={}|principal={}|op={}|surface={}|params_sha256={}|status={}|request_id={}|identity={}",
         event.tenant,
@@ -160,7 +167,12 @@ pub(crate) fn operation_audit_append(
         let mut audit = write.graph(graph)?.open_scoped_table(AUDIT)?;
         let (seq, entry_hash) =
             append_audit_entry_with_line(&mut audit, &mut staged_tail, graph, line.as_bytes())?;
-        let record = AuditRequestRecord { fingerprint, context_fingerprint, seq, entry_hash };
+        let record = AuditRequestRecord {
+            fingerprint,
+            context_fingerprint,
+            seq,
+            entry_hash,
+        };
         let encoded = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
         requests.insert((graph, key.as_str()), encoded.as_slice())?;
         Ok((seq, entry_hash, false))
@@ -175,7 +187,10 @@ pub(crate) fn operation_audit_append(
     shard.commit_drain(group, &batches, 0)?;
     *tail = staged_tail;
     Ok(crate::protocol::AuditAppendReceipt {
-        graph: graph.to_string(), seq, entry_sha256: hex::encode(hash), replayed,
+        graph: graph.to_string(),
+        seq,
+        entry_sha256: hex::encode(hash),
+        replayed,
     })
 }
 

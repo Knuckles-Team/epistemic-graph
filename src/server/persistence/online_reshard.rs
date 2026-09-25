@@ -79,8 +79,6 @@ use super::tenant_catalog::TenantCatalog;
 use crate::protocol::GraphType;
 use crate::redb_store::shard::{Shard, ShardWrite};
 #[cfg(feature = "security")]
-use crate::redb_store::{AUDIT, AUDIT_REQUESTS};
-#[cfg(feature = "security")]
 use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
 use crate::redb_store::{capacity_lease, development_lane};
 use crate::redb_store::{
@@ -88,6 +86,8 @@ use crate::redb_store::{
     CHANGE_BLOBS, CHANGE_CURSORS, CHANGE_ENVELOPES, CHANGE_EVIDENCE, CHANGE_FEATURES,
     CHANGE_LINEAGE, CHANGE_POLICIES, CONTENT_VERSIONS, EDGES, GRAPH_META, LEDGER, NODES, SEMANTIC,
 };
+#[cfg(feature = "security")]
+use crate::redb_store::{AUDIT, AUDIT_REQUESTS};
 use crate::redb_store::{
     RESOURCE_ANTI_AFFINITY, RESOURCE_CONCURRENCY, RESOURCE_DISK_POLICIES, RESOURCE_EXCLUSIVITY,
     RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
