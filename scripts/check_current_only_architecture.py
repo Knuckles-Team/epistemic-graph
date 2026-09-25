@@ -299,6 +299,12 @@ def _check_query_contract(
     )
 
     require(
+        "Op::Foreign { name } => crate::federation_opt::foreign_named(op, name, ctx)"
+        in plan_exec
+        and ".foreign" in plan_exec,
+        "FOREIGN no longer routes through the registry-backed implementation",
+    )
+    require(
         '"FOREIGN requires a bound foreign-source registry"' in plan_exec,
         "FOREIGN does not fail when its registry is absent",
     )
@@ -1061,7 +1067,15 @@ def main() -> None:
     sql_exec = read("crates/eg-query/src/sql/exec.rs")
     sql_mod = read("crates/eg-query/src/sql/mod.rs")
     query_lib = read("crates/eg-query/src/lib.rs")
-    plan_exec = read("crates/eg-plan/src/exec.rs")
+    # The executor facade owns TensorOp; its compiler-declared dispatch child
+    # routes FOREIGN, and federation_opt/run.rs performs the registry refusal.
+    # Inspect all three links so a missing registry cannot be hidden by moving
+    # only the error string away from the routed implementation.
+    plan_exec = read_sources((
+        "crates/eg-plan/src/exec.rs",
+        "crates/eg-plan/src/exec/dispatch.rs",
+        "crates/eg-plan/src/federation_opt/run.rs",
+    ))
     transport = read("src/server/transport.rs")
     server = read("src/server/mod.rs")
     server_main = read("src/main.rs")
