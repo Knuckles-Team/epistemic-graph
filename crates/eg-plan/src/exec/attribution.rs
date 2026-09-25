@@ -31,15 +31,22 @@ pub(crate) struct AttributeSpec<'s> {
     pub(crate) method: &'s AttributionMethod,
 }
 
-/// Run one `ATTRIBUTE` stage over `rows`.
+/// Run one `ATTRIBUTE` stage over `rows`. Without `numeric` there is no kernel: the
+/// refusal names the exact stage (as UQL) that could not run.
 #[cfg(not(feature = "numeric"))]
 pub(crate) fn attribute(
     _ctx: &PlanCtx,
     _rows: RowSet,
-    _spec: AttributeSpec<'_>,
+    spec: AttributeSpec<'_>,
 ) -> Result<Attributed, String> {
+    let stage = eg_types::wire::Op::Attribute {
+        input: spec.input.clone(),
+        value: spec.value,
+        method: spec.method.clone(),
+    };
+    let printed = eg_types::wire::uql_op(&stage).unwrap_or_else(|e| format!("ATTRIBUTE ({e})"));
     Err(format!(
-        "{}: ATTRIBUTE needs the `numeric` feature",
+        "{}: `{printed}` needs the `numeric` feature",
         super::dispatch::UNSUPPORTED_MODALITY_OP
     ))
 }
