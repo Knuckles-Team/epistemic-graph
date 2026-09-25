@@ -114,7 +114,7 @@ async fn a_fully_logged_slate_splits_by_exact_shapley() {
     );
     assert!((value(report.grand) - 0.9).abs() < 1e-6);
     assert!(report.digest.starts_with("sha256:"));
-    assert_eq!(report.components[0].component_id, "comp-a");
+    assert_eq!(report.components.as_slice()[0].component_id, "comp-a");
 }
 
 #[tokio::test]
