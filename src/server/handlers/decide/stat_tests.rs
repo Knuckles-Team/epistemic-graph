@@ -27,8 +27,9 @@ use eg_types::decision::statistical::features::{
     FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,
 };
 use eg_types::decision::statistical::log::{
-    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation, EntryInputs,
-    OutcomeAggregate, OutcomeAggregateRequest, StoredEvaluation,
+    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionLogPage, DecisionLogProvenance,
+    DecisionOutcomeEvaluation, EntryInputs, OutcomeAggregate, OutcomeAggregateRequest,
+    StoredEvaluation,
 };
 use eg_types::decision::statistical::FeatureMatrixRef;
 use eg_types::decision::statistical::StatisticalDecisionRecord;

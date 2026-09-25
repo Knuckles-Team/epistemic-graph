@@ -21,9 +21,9 @@ use eg_types::decision::statistical::dataset::{
 };
 use eg_types::decision::statistical::features::{FeatureKind, FeatureSchemaBody};
 use eg_types::decision::statistical::log::{
-    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation, EntryInputs,
-    OutcomeAggregate, OutcomeAggregateRequest, RecordVisibility, StoredEvaluation,
-    DECISION_LOG_SCHEMA_VERSION,
+    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionLogPage, DecisionLogProvenance,
+    DecisionOutcomeEvaluation, EntryInputs, OutcomeAggregate, OutcomeAggregateRequest,
+    RecordVisibility, StoredEvaluation, StoredResolution, DECISION_LOG_SCHEMA_VERSION,
 };
 use eg_types::decision::statistical::{
     FeatureMatrixRef, StatisticalDecisionRecord, StatisticalErrorCode, StatisticalOutcome,
@@ -49,6 +49,8 @@ use crate::server::{
 
 /// Most log rows one read walks before refusing as unbounded.
 pub(super) const MAX_LOG_ROWS: usize = 100_000;
+const MAX_DECISION_PAGE: u32 = 256;
+const MAX_PROVENANCE_ROWS: usize = 256;
 
 /// Who is reading or writing the log.
 pub(super) struct LogReader {
@@ -135,6 +137,69 @@ pub(super) fn evaluations_of(
         .into_iter()
         .map(|(_, bytes)| decode_artifact(&bytes, "decision outcome evaluation"))
         .collect()
+}
+
+fn list_visible(
+    store: &AgentLibraryStore,
+    reader: &LogReader,
+    after: Option<&str>,
+    limit: u32,
+) -> Result<DecisionLogPage, String> {
+    if !(1..=MAX_DECISION_PAGE).contains(&limit) {
+        return Err(format!(
+            "INVALID_ARGUMENT: DecisionLog.list limit must be 1..={MAX_DECISION_PAGE}"
+        ));
+    }
+    let mut entries = visible_entries(store, reader)?;
+    entries.sort_by(|left, right| left.record.record_id.cmp(&right.record.record_id));
+    let mut page = entries
+        .into_iter()
+        .filter(|entry| after.is_none_or(|cursor| entry.record.record_id.as_str() > cursor))
+        .take(limit as usize + 1)
+        .collect::<Vec<_>>();
+    let has_more = page.len() > limit as usize;
+    if has_more {
+        page.pop();
+    }
+    let next_cursor = has_more.then(|| {
+        page.last()
+            .expect("nonempty bounded page")
+            .record
+            .record_id
+            .clone()
+    });
+    Ok(DecisionLogPage {
+        entries: page,
+        next_cursor,
+    })
+}
+
+fn provenance_of(
+    store: &AgentLibraryStore,
+    reader: &LogReader,
+    record_id: &str,
+) -> Result<Option<DecisionLogProvenance>, String> {
+    let Some(entry) = visible_entry(store, reader, record_id)? else {
+        return Ok(None);
+    };
+    let evaluations = evaluations_of(store, &reader.tenant_id, record_id)?;
+    let resolutions = store
+        .decision_artifacts_with_prefix(
+            &reader.tenant_id,
+            &format!("resolution:{record_id}:"),
+            MAX_PROVENANCE_ROWS + 1,
+        )?
+        .into_iter()
+        .map(|(_, bytes)| decode_artifact::<StoredResolution>(&bytes, "abstention resolution"))
+        .collect::<Result<Vec<_>, _>>()?;
+    if evaluations.len() > MAX_PROVENANCE_ROWS || resolutions.len() > MAX_PROVENANCE_ROWS {
+        return Err("DECISION_LOG_TOO_LARGE: provenance evidence exceeds page bound".to_string());
+    }
+    Ok(Some(DecisionLogProvenance {
+        entry,
+        evaluations,
+        resolutions,
+    }))
 }
 
 fn visibility_of(record: &StatisticalDecisionRecord, principal: &str) -> RecordVisibility {
@@ -443,7 +508,8 @@ fn dispatch(
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
         DecisionLogAggregate, DecisionLogCommit, DecisionLogCompact, DecisionLogEvaluate,
-        DecisionLogGet, DecisionLogResolve, DecisionLogVerify,
+        DecisionLogGet, DecisionLogList, DecisionLogProvenanceRead, DecisionLogResolve,
+        DecisionLogVerify,
     };
     match op {
         DecisionLogOp::Commit { record, evaluator } => ResultPayload::of::<DecisionLogCommit>(
@@ -454,6 +520,14 @@ fn dispatch(
         }
         DecisionLogOp::Get { record_id, .. } => {
             ResultPayload::of::<DecisionLogGet>(visible_entry(ctx.store, reader, &record_id)?)
+        }
+        DecisionLogOp::List { after, limit, .. } => ResultPayload::of::<DecisionLogList>(
+            list_visible(ctx.store, reader, after.as_deref(), limit)?,
+        ),
+        DecisionLogOp::Provenance { record_id, .. } => {
+            ResultPayload::of::<DecisionLogProvenanceRead>(provenance_of(
+                ctx.store, reader, &record_id,
+            )?)
         }
         DecisionLogOp::Aggregate { request } => {
             ResultPayload::of::<DecisionLogAggregate>(aggregate_log(ctx.store, reader, &request)?)

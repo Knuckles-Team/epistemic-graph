@@ -136,6 +136,25 @@ pub struct DecisionLogEntry {
     pub inputs: EntryInputs,
 }
 
+/// One bounded page of records visible to the verified caller.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionLogPage {
+    pub entries: Vec<DecisionLogEntry>,
+    pub next_cursor: Option<String>,
+}
+
+/// The visible record and its independent evidence trail.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionLogProvenance {
+    pub entry: DecisionLogEntry,
+    pub evaluations: Vec<StoredEvaluation>,
+    pub resolutions: Vec<StoredResolution>,
+}
+
 /// Most entries one compaction call touches.
 pub const MAX_COMPACT_PER_CALL: u32 = 256;
 
@@ -373,6 +392,18 @@ pub enum DecisionLogOp {
         tenant_id: String,
         record_id: String,
     },
+    /// Page through records visible to the caller, ordered by record id.
+    List {
+        tenant_id: String,
+        #[serde(default)]
+        after: Option<String>,
+        limit: u32,
+    },
+    /// Read a visible record and its evaluations and resolutions.
+    Provenance {
+        tenant_id: String,
+        record_id: String,
+    },
     /// Read the outcome aggregate.
     Aggregate { request: OutcomeAggregateRequest },
     /// Apply the policy's retention to at most `limit` entries: compact the
@@ -436,7 +467,11 @@ impl DecisionLogOp {
             Self::Commit { .. } => LogOpClass::Write,
             Self::Evaluate { .. } | Self::Resolve { .. } => LogOpClass::Evaluate,
             Self::Compact { .. } => LogOpClass::Admin,
-            Self::Get { .. } | Self::Aggregate { .. } | Self::Verify { .. } => LogOpClass::Read,
+            Self::Get { .. }
+            | Self::List { .. }
+            | Self::Provenance { .. }
+            | Self::Aggregate { .. }
+            | Self::Verify { .. } => LogOpClass::Read,
             Self::Learn { write, .. } => write.class(),
         }
     }
@@ -457,6 +492,8 @@ impl DecisionLogOp {
             Self::Commit { record, .. } => &record.tenant_id,
             Self::Evaluate { tenant_id, .. }
             | Self::Get { tenant_id, .. }
+            | Self::List { tenant_id, .. }
+            | Self::Provenance { tenant_id, .. }
             | Self::Compact { tenant_id, .. }
             | Self::Verify { tenant_id, .. }
             | Self::Resolve { tenant_id, .. }
