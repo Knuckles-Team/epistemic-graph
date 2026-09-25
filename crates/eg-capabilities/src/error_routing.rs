@@ -95,7 +95,10 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
-    ("CreateGraph", &["REPLAY_NONCE_CONSUMED"]),
+    (
+        "CreateGraph",
+        &["REPLAY_NONCE_CONSUMED", "RESERVED_GRAPH_NAME"],
+    ),
     ("AddNode", &["REPLAY_NONCE_CONSUMED"]),
     ("CypherQuery", &["REPLAY_NONCE_CONSUMED"]),
     ("GraphQl", &["REPLAY_NONCE_CONSUMED"]),
@@ -287,6 +290,8 @@ mod tests {
             "CLUSTER_CONFIGURATION_INVALID"
         ));
         assert!(method_allows_error("KgDelegate", "REPLAY_NONCE_CONSUMED"));
+        assert!(method_allows_error("CreateGraph", "RESERVED_GRAPH_NAME"));
+        assert!(!method_allows_error("AddNode", "RESERVED_GRAPH_NAME"));
         assert!(!method_allows_error(
             "SubmitWorkItem",
             "CLUSTER_CONFIGURATION_INVALID"
