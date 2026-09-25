@@ -41,6 +41,7 @@ pub(crate) trait RemoteFetch {
 pub(crate) struct Identity {
     pub(crate) label: String,
     pub(crate) fingerprint: Fingerprint,
+    pub(crate) cache_name: Option<String>,
 }
 
 impl Identity {
@@ -68,7 +69,11 @@ impl Identity {
             Some(name) => format!("{kind}:{name}#{}", short(&fingerprint)),
             None => format!("{kind}#{}", short(&fingerprint)),
         };
-        Self { label, fingerprint }
+        Self {
+            label,
+            fingerprint,
+            cache_name: name.map(str::to_owned),
+        }
     }
 }
 
@@ -153,9 +158,9 @@ fn from_spec<'a>(spec: &'a ForeignSourceSpec, name: Option<&'a str>) -> Box<dyn 
         } => Box::new(super::http::HttpRemote::new(
             url, json_path, field_map, identity,
         )),
-        ForeignSourceSpec::RemoteEngine { .. } => Box::new(super::engine::EngineRemote::new(
-            spec, identity,
-        )),
+        ForeignSourceSpec::RemoteEngine { .. } => {
+            Box::new(super::engine::EngineRemote::new(spec, identity))
+        }
         other => Box::new(Opaque {
             source: OpaqueSource::Spec(crate::federation::source_for(other)),
             identity,

@@ -614,6 +614,10 @@ pub(crate) fn run_unified_bind_foreign<'a>(
     foreign_registry: Option<&'a eg_plan::federation::ForeignSourceRegistry>,
     federation: Option<&'a eg_plan::federation_opt::FederationSession>,
 ) -> eg_plan::PlanCtx<'a> {
+    if let Some(session) = federation {
+        session
+            .set_cache_scope(foreign_registry.and_then(|registry| registry.cache_scope().cloned()));
+    }
     let ctx = match foreign_registry {
         Some(registry) => ctx.with_foreign(registry),
         None => ctx,
@@ -772,11 +776,16 @@ impl ServedPlanLegs {
 
     /// Decide the watermark leg for `plan` against the queried graph's watermark nodes.
     #[cfg(feature = "result-cache")]
-    fn with_watermarks(self, core: &GraphCore, plan: &eg_plan::Plan) -> Self {
-        Self {
-            watermarks: ForeignWatermarks::for_ops(core, &plan.ops),
-            ..self
+    fn with_watermarks(mut self, core: &GraphCore, plan: &eg_plan::Plan) -> Self {
+        self.watermarks = ForeignWatermarks::for_ops(core, &plan.ops);
+        #[cfg(feature = "federation")]
+        if let (Some(foreign), Some(sources)) = (
+            self.foreign.as_mut(),
+            ForeignWatermarks::fragment_sources(core, &plan.ops),
+        ) {
+            foreign.install_fragment_cache(sources);
         }
+        self
     }
 
     #[cfg(not(feature = "result-cache"))]

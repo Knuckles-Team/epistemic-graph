@@ -357,12 +357,25 @@ fn read_remote_response(stream: &mut std::net::TcpStream) -> Result<Vec<u8>, Str
 impl RemoteEngineSource<'_> {
     pub(crate) fn from_spec(spec: &ForeignSourceSpec) -> Option<RemoteEngineSource<'_>> {
         let ForeignSourceSpec::RemoteEngine {
-            endpoint, graph, secret, context, uql, cypher, id_field,
-        } = spec else {
+            endpoint,
+            graph,
+            secret,
+            context,
+            uql,
+            cypher,
+            id_field,
+        } = spec
+        else {
             return None;
         };
         Some(RemoteEngineSource {
-            endpoint, graph, secret, context, uql, cypher, id_field,
+            endpoint,
+            graph,
+            secret,
+            context,
+            uql,
+            cypher,
+            id_field,
         })
     }
 
@@ -1267,12 +1280,23 @@ pub struct ForeignSourceRegistry {
     /// The self-describing spec behind each `register_spec` entry — what lets the federation
     /// optimizer push keys / limits into a named source (EH-563).
     specs: HashMap<String, ForeignSourceSpec>,
+    cache_scope: Option<Arc<crate::federation_opt::FragmentCacheScope>>,
 }
 
 impl ForeignSourceRegistry {
     /// A new, empty registry (no foreign sources bound). CONCEPT:EG-KG.query.closure-backed-source.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bound only by the served, verified owner registry after EH-400 checks the
+    /// queried graph's named-source checkpoints.
+    pub fn set_cache_scope(&mut self, scope: Arc<crate::federation_opt::FragmentCacheScope>) {
+        self.cache_scope = Some(scope);
+    }
+
+    pub fn cache_scope(&self) -> Option<&Arc<crate::federation_opt::FragmentCacheScope>> {
+        self.cache_scope.as_ref()
     }
 
     /// Register (or replace) a source under `name`. CONCEPT:EG-KG.query.closure-backed-source.
