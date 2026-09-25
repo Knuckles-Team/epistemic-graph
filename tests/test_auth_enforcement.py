@@ -146,6 +146,17 @@ def test_removed_insecure_env_does_not_enable_unauthenticated_start(tmp_path):
     assert not os.path.exists(sock)
 
 
+def _assert_oidc_startup_refusal(proc: subprocess.Popen, sock: str) -> None:
+    try:
+        proc.wait(timeout=server_timeout())
+    finally:
+        proc.kill()
+    assert proc.returncode == 1
+    stderr = proc.stderr.read().decode()
+    assert "EPISTEMIC_GRAPH_REQUIRE_OIDC" in stderr, stderr
+    assert not os.path.exists(sock)
+
+
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_oidc_required_by_default_refuses_to_start_without_issuer(tmp_path):
     """SECURE BY DEFAULT since 2026-07-22 (closes the Identity boundary seam,
@@ -164,14 +175,7 @@ def test_oidc_required_by_default_refuses_to_start_without_issuer(tmp_path):
         auth_secret="test-request-secret",
         EPISTEMIC_GRAPH_REQUIRE_OIDC=None,  # truly unset: exercise the real default
     )
-    try:
-        proc.wait(timeout=server_timeout())
-    finally:
-        proc.kill()
-    assert proc.returncode == 1
-    stderr = proc.stderr.read().decode()
-    assert "EPISTEMIC_GRAPH_REQUIRE_OIDC" in stderr, stderr
-    assert not os.path.exists(sock)
+    _assert_oidc_startup_refusal(proc, sock)
 
 
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
@@ -185,14 +189,7 @@ def test_oidc_required_explicitly_also_refuses_to_start_without_issuer(tmp_path)
         auth_secret="test-request-secret",
         EPISTEMIC_GRAPH_REQUIRE_OIDC="true",
     )
-    try:
-        proc.wait(timeout=server_timeout())
-    finally:
-        proc.kill()
-    assert proc.returncode == 1
-    stderr = proc.stderr.read().decode()
-    assert "EPISTEMIC_GRAPH_REQUIRE_OIDC" in stderr, stderr
-    assert not os.path.exists(sock)
+    _assert_oidc_startup_refusal(proc, sock)
 
 
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")

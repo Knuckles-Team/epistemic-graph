@@ -21,9 +21,9 @@ use spargebra::algebra::GraphPattern;
 use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 
 use super::{
-    column_filters_for_compares, is_numeric_datatype, materialize_row, template_columns_into,
-    FilterContext, ForeignRow, ObdaCompare, ObdaFilter, ObdaSource, ObjectMap, TriplesMap,
-    VirtualGraph, RDF_TYPE_IRI,
+    column_filters_for_compares, is_numeric_datatype, materialize_row, query_pattern,
+    template_columns_into, FilterContext, ForeignRow, ObdaCompare, ObdaFilter, ObdaSource,
+    ObjectMap, TriplesMap, VirtualGraph, RDF_TYPE_IRI,
 };
 
 /// The most keys one semi-join scan carries (`key IN (…)`); larger key sets are batched.
@@ -50,13 +50,7 @@ impl QueryShape {
     /// Collect every triple pattern of `query` (SERVICE bodies excluded: they never read the
     /// virtual graph).
     pub(super) fn from_query(query: &spargebra::Query) -> Self {
-        use spargebra::Query;
-        let pattern = match query {
-            Query::Select { pattern, .. }
-            | Query::Construct { pattern, .. }
-            | Query::Describe { pattern, .. }
-            | Query::Ask { pattern, .. } => pattern,
-        };
+        let pattern = query_pattern(query);
         let mut shape = Self::default();
         shape.walk(pattern, Scope::Required);
         shape
