@@ -66,6 +66,23 @@ pub struct KnowledgeStreamContext {
     pub evidence_set_ref: OpaqueRef,
 }
 
+impl KnowledgeStreamContext {
+    /// Construct the seven governed context references in wire field order.
+    pub fn from_refs(
+        [tenant_ref, access_policy_ref, placement_ref, snapshot_ref, query_ref, derivation_ref, evidence_set_ref]: [OpaqueRef; 7],
+    ) -> Self {
+        Self {
+            tenant_ref,
+            access_policy_ref,
+            placement_ref,
+            snapshot_ref,
+            query_ref,
+            derivation_ref,
+            evidence_set_ref,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResultStreamCursor {
     pub family: ServedResultFamily,
@@ -488,15 +505,16 @@ mod tests {
     }
 
     fn context() -> KnowledgeStreamContext {
-        KnowledgeStreamContext {
-            tenant_ref: r("tenant", 1),
-            access_policy_ref: r("policy", 2),
-            placement_ref: r("placement", 7),
-            snapshot_ref: r("snapshot", 3),
-            query_ref: r("query", 4),
-            derivation_ref: r("derivation", 5),
-            evidence_set_ref: r("evidenceset", 6),
-        }
+        let refs = [
+            ("tenant", 1),
+            ("policy", 2),
+            ("placement", 7),
+            ("snapshot", 3),
+            ("query", 4),
+            ("derivation", 5),
+            ("evidenceset", 6),
+        ];
+        KnowledgeStreamContext::from_refs(refs.map(|(namespace, suffix)| r(namespace, suffix)))
     }
 
     fn row(index: usize) -> KnowledgeBatchRow {

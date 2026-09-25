@@ -63,15 +63,15 @@ fn reference(namespace: &str, suffix: u8) -> OpaqueRef {
 }
 
 fn context() -> KnowledgeStreamContext {
-    KnowledgeStreamContext {
-        tenant_ref: reference("tenant", 1),
-        access_policy_ref: reference("policy", 2),
-        placement_ref: reference("placement", 7),
-        snapshot_ref: reference("snapshot", 3),
-        query_ref: reference("query", 4),
-        derivation_ref: reference("derivation", 5),
-        evidence_set_ref: reference("evidenceset", 6),
-    }
+    KnowledgeStreamContext::from_refs([
+        reference("tenant", 1),
+        reference("policy", 2),
+        reference("placement", 7),
+        reference("snapshot", 3),
+        reference("query", 4),
+        reference("derivation", 5),
+        reference("evidenceset", 6),
+    ])
 }
 
 struct CountingRows {
