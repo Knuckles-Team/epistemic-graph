@@ -1,0 +1,1002 @@
+{
+  "contract_version": 1,
+  "errors": [
+    {
+      "class": "server",
+      "code": "ABORTED_ATOMIC_GRAPH_BATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "policy",
+      "code": "ACCESS_DENIED",
+      "http_status_hint": 403,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ARCHIVE_DIGEST_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ARCHIVE_MISSING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "ASSEMBLY_INPUTS_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "ASSEMBLY_MODEL_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "AST_INPUT_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "AST_INPUT_LIMIT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ATTACH_PACK_CLUSTER_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ATTACH_PACK_HEAD_NOT_VISIBLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ATTACH_PACK_HEAD_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "ATTACH_PACK_RESOLVER_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ATTACH_PACK_SCHEMA_AMBIGUOUS",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ATTACH_PACK_SCHEMA_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ATTACH_PACK_SCHEMA_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ATTACH_PACK_SCHEMA_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "auth",
+      "code": "AUTHENTICATION_REQUIRED",
+      "http_status_hint": 401,
+      "retryable": false
+    },
+    {
+      "class": "auth",
+      "code": "AUTH_AUDIENCE_MISMATCH",
+      "http_status_hint": 403,
+      "retryable": false
+    },
+    {
+      "class": "auth",
+      "code": "AUTH_POLICY_VERSION_MISMATCH",
+      "http_status_hint": 403,
+      "retryable": false
+    },
+    {
+      "class": "auth",
+      "code": "AUTH_TENANT_MISMATCH",
+      "http_status_hint": 403,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "BODY_DIGEST_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "connector",
+      "code": "BODY_MISSING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "capacity",
+      "code": "BUSY",
+      "http_status_hint": 429,
+      "retryable": true
+    },
+    {
+      "class": "decision",
+      "code": "CANDIDATE_FACTS_CHANGED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "CANDIDATE_PLAN_REFUSED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "CANDIDATE_SCOPE_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "CANDIDATE_SET_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "capacity",
+      "code": "CAPACITY_DENIED",
+      "http_status_hint": 429,
+      "retryable": true
+    },
+    {
+      "class": "decision",
+      "code": "CERTIFICATE_REJECTED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CHANGE_BATCH_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CLUSTER_CONFIGURATION_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CLUSTER_DISCOVERY_INCOMPLETE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CLUSTER_DISCOVERY_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CLUSTER_DISCOVERY_LIMIT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CLUSTER_DISCOVERY_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CLUSTER_MUTATION_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "COMPONENT_BODY_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "COMPONENT_PIN_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "COMPONENT_WITHDRAWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "COMPOSED_DIGEST_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "conflict",
+      "code": "CONFLICT",
+      "http_status_hint": 409,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_PACK_PROJECTION_CLUSTER_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_PACK_PROJECTION_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_PACK_PROJECTION_SWEEP_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_PACK_RECONCILE_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_PACK_UNBOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_RELATIONSHIP_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_SCHEMA_MAPPING_AMBIGUOUS",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_SCHEMA_MAPPING_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CONNECTOR_SCHEMA_MAPPING_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CORRUPT_CONNECTOR_PACK",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CORRUPT_DECISION_ARTIFACT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CORRUPT_DECISION_RECORD",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CORRUPT_MUTATION_LEDGER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CORRUPT_OUTBOX",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "CORRUPT_WRITE_BACK",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "DATASET_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "DECISION_LOG_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "DECISION_RECORD_VERSION_UNSUPPORTED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "DECISION_REPLAY_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "DERIVATION_REJECTED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "availability",
+      "code": "ENGINE_DEADLINE_EXCEEDED",
+      "http_status_hint": 504,
+      "retryable": true
+    },
+    {
+      "class": "capacity",
+      "code": "ENGINE_RESOURCE_EXHAUSTED",
+      "http_status_hint": 429,
+      "retryable": true
+    },
+    {
+      "class": "availability",
+      "code": "ENGINE_UNAVAILABLE",
+      "http_status_hint": 503,
+      "retryable": true
+    },
+    {
+      "class": "decision",
+      "code": "EVALUATION_RECEIPT_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "EVALUATION_RECEIPT_REQUIRED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "EVAL_CANDIDATE_NOT_FOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "EXPLORATION_FORBIDDEN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "FEATURE_SCHEMA_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FLEET_CURSOR_STALE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FLEET_REVISION_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FLEET_SNAPSHOT_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "FOREIGN_SOURCE_POLICY_UNBOOTSTRAPPED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "HEAD_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "conflict",
+      "code": "IDEMPOTENCY_CONFLICT",
+      "http_status_hint": 409,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IMPORTER_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "internal",
+      "code": "INTERNAL",
+      "http_status_hint": 500,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "INVALID_ARGUMENT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "INVALID_FACTS",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "INVALID_IMPORTER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "INVALID_RETIREMENT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "JOB_NOT_FOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "MALFORMED_BODY",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "MALFORMED_INDEX",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "METHOD_NOT_YET_SERVED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "auth",
+      "code": "NODE_MISMATCH",
+      "http_status_hint": 403,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "NO_ADMISSIBLE_LABELS",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "NUMERIC_REFUSED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "ONTOLOGY_INCONSISTENT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "ONTOLOGY_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "OUTBOX_OWNER_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "OUTBOX_OWNER_UNKNOWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "OUTBOX_SCOPE_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "OWL_AUTHORITY_MISSING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "OWL_AUTHORITY_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "OWL_UNSUPPORTED_CONSTRUCT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_DIGEST_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_ENTRY_ALREADY_RETIRED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "connector",
+      "code": "PACK_HEAD_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "connector",
+      "code": "PACK_PLAN_STALE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_PROJECTION_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_PROJECTION_GRAPH_NOT_MATERIALIZED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_PROJECTION_NO_HEAD",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_PROJECTION_POLICY_UNBOOTSTRAPPED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_PROJECTION_PREVIOUSLY_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_REVISION_NOT_VISIBLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "PACK_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "PARAMETER_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "POLICY_BODY_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "POLICY_LOOSENING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "policy",
+      "code": "POLICY_NATIVE_AUTHORITY_REQUIRED",
+      "http_status_hint": 403,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "RAFT_NOT_CONFIGURED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "conflict",
+      "code": "READ_ONLY",
+      "http_status_hint": 503,
+      "retryable": true
+    },
+    {
+      "class": "server",
+      "code": "REASONING_PROJECTION_REJECT_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "RECORD_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "availability",
+      "code": "REDIRECTED",
+      "http_status_hint": 307,
+      "retryable": true
+    },
+    {
+      "class": "server",
+      "code": "REGISTRY_CURSOR_STALE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "REGISTRY_LIMIT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "REPLAY_NONCE_CONSUMED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "connector",
+      "code": "RESERVED_COMPONENT_ID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "RESULT_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "SCHEMA_SOURCES_TOO_LARGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "SCHEMA_SOURCE_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "SCHEMA_SOURCE_REGRESSION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "SCHEMA_SOURCE_RESERVED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "SHAPES_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "solve",
+      "code": "SOLVE_CERTIFICATE_REJECTED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "solve",
+      "code": "SOLVE_CONFIG_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "solve",
+      "code": "SOLVE_MODEL_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_AUTHORITATIVE_LIVE_ID_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_AUTHORITATIVE_LIVE_ID_UNKNOWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_AUTHORITATIVE_LIVE_ID_WITHDRAWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_INGESTION_REPLAY_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_INGESTION_REPLAY_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_INGESTION_STATUS_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_INGESTION_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_MAPPING_AUTHORITY_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_MAPPING_SELECTOR_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_MAPPING_SELECTOR_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RECONCILIATION_MARKER_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_ENDPOINT_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_ENDPOINT_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_ENDPOINT_TYPE_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_ENDPOINT_UNKNOWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_ENDPOINT_WITHDRAWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_IDENTITY_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_MARKER_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_RELATIONSHIP_SCHEMA_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_SCHEMA_FIELD_UNKNOWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_SCHEMA_TYPE_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SOURCE_WITHDRAWAL_UNKNOWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "SQL_OWNER_REPAIR_PENDING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "STALE_AGENT_LIBRARY_REVISION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "STALE_CATALOG",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "STALE_GRAPH_VERSION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "STALE_MAPPING_REFERENCE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "STALE_RECOMPUTE_FENCE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "TIMEOUT",
+      "http_status_hint": 504,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "UNKNOWN_MAPPING_REFERENCE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "UNKNOWN_PACK_ENTRY",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "UNKNOWN_RELATIONSHIP_REFERENCE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "capacity",
+      "code": "UQL_BUDGET_EXCEEDED",
+      "http_status_hint": 429,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_CREDENTIAL_BEARING_SPEC",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNSUPPORTED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "schema",
+      "code": "VALIDATION_BUDGET_EXCEEDED",
+      "http_status_hint": 400,
+      "retryable": false
+    }
+  ],
+  "generator": "eg-capabilities/gen_contract"
+}

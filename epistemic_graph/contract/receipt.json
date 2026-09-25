@@ -1,9 +1,10 @@
 {
   "artifact_digests": {
+    "contract/errors.json": "74791cbccc6585e962192804ad58a33c399d1aeecde1c3bf670533f918e343f5",
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/fixtures/method_body_vectors.json": "168d3bb3d28f5918b19b30ff69c64e56c28bd1a819f1cd210b57403fe51ba117",
-    "contract/methods.json": "a933253355332f7eda6b2caad76df4f558b342229e4090888bfe5d2227f21c4e",
+    "contract/methods.json": "0adad16598d9b97b852c49d79c7366c4cfe684edeaf75180d71ebe6690ec8e48",
     "contract/schemas/method.request.json": "a2c4170805e798cc9562a244c0c8e0393d2f47f901e7b1015d68f3127099d2cd",
     "contract/schemas/result.cluster.json": "0aac12793ab69a65c1326ba4471c48bfa4a87596be9eb7972eaa09fe65608c42",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
@@ -50,7 +51,7 @@
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "1030719187eddcb2c392dc6cd857d890e43996d4c16f2126f458234796b840d8",
-  "contract_digest": "459e6f1f218e9f9d5432deeb47228cc9176a70c5ad748032dea99e7641e64248",
+  "contract_digest": "80c4cfd94ce213cbf7ee3c3607b8c0ca10e1b3895a61469bad8f3aa0ed6487e5",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -594,5 +595,5 @@
     "schematized": 424,
     "unclassified": 0
   },
-  "source_tree_oid": "c82d4bda31af5a3018451da290e7694a57d83d44c7fb02cad647ba1f43a0de5e"
+  "source_tree_oid": "95abbe2a4be953419d4128c23261fdedf3ef282bb1168d11d214babd48243f54"
 }
