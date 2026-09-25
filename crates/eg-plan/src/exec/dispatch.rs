@@ -288,6 +288,7 @@ fn apply_ranking(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String
 /// RANK (lexical BM25) + FUSE (RRF) under `text`; OWL classification, BGP source and
 /// SHACL shape filter under `owl`. Two independent feature gates share one tier; every
 /// arm keeps its own `#[cfg]` exactly as it had at the top level.
+#[cfg(any(feature = "text", feature = "owl"))]
 pub(super) fn apply_text_and_owl(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         #[cfg(feature = "text")]
@@ -320,6 +321,12 @@ pub(super) fn apply_text_and_owl(op: &Op, input: RowSet, ctx: &PlanCtx) -> Resul
 
 /// Four independently-gated single-arm ops (`wasm-udf`/`federation`/`probabilistic`/
 /// `stream`) sharing one tier since none is more than one arm on its own.
+#[cfg(any(
+    feature = "wasm-udf",
+    feature = "federation",
+    feature = "probabilistic",
+    feature = "stream"
+))]
 pub(super) fn apply_single_feature_ops(
     op: &Op,
     input: RowSet,
@@ -370,6 +377,7 @@ fn apply_temporal_and_limit(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Row
 /// SOURCE/TRANSFORM (spatial, `geo`) — bbox scan, CRS reproject, constructive op; plus
 /// SOURCE/TRANSFORM (tensor, `tensor`) — layer scan and per-row tensor op. Two
 /// independent gates share one tier for the same reason as [`apply_text_and_owl`].
+#[cfg(any(feature = "geo", feature = "tensor"))]
 pub(super) fn apply_geo_and_tensor(
     op: &Op,
     input: RowSet,
