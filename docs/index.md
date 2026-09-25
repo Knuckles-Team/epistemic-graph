@@ -44,7 +44,7 @@ authority, durability, audit, CDC, and transaction properties.
 
 !!! info "Capability truth is part of the product"
     Status is generated from the same method contracts the engine serves. Check
-    [current status](status.md) and the [capability matrix](capabilities.md)
+    [current status](https://github.com/Knuckles-Team/epistemic-graph/blob/main/status/status.md) and the [capability matrix](capabilities.md)
     before selecting an interface or deployment shape.
 
 ## Where this engine fits

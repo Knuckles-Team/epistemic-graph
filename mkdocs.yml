@@ -89,5 +89,5 @@ nav:
       - Quality terms: quality-gate-terms.md
       - Ecosystem glossary: glossary.md
       - Skill graph reference: reference/skill-graph.generated.md
-  - Status: status.md
+  - Status: https://github.com/Knuckles-Team/epistemic-graph/blob/main/status/status.md
   - For AI agents: https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md

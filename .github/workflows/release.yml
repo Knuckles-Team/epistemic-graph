@@ -398,7 +398,7 @@ jobs:
           python-version-file: '.python-version'
       - name: Documentation feature, ledger, and MkDocs contract
         run: python3 scripts/check_documentation_contract.py
-      - name: Status page freshness (docs/status.md vs capabilities/concept-reservations)
+      - name: Status page freshness (status/status.md vs capabilities/concept-reservations)
         run: python3 scripts/check_status_page.py
 
   # ── Lint feedback is advisory. Product behavior and the release artifact

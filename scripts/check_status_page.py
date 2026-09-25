@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Assert docs/status.md's displayed totals match its source files.
+"""Assert status/status.md's displayed totals match its source files.
 
 Lightweight advisory CI check (wired into .github/workflows/release.yml's
 `documentation-advisory` job) for the Codex/status page: fails when
-`docs/status.md` is stale relative to
+`status/status.md` is stale relative to
 `docs/capabilities.md`, `docs/capabilities.generated.md`, or
 `docs/concept_reservations.yaml`. Reuses `scripts/build_status_page.py`'s own
 render function rather than re-implementing the parsing/rendering logic — a
@@ -27,7 +27,7 @@ def main() -> int:
     rendered = render()
     if not STATUS_PATH.is_file():
         print(
-            "check_status_page: FAIL: docs/status.md is missing. "
+            "check_status_page: FAIL: status/status.md is missing. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,
         )
@@ -35,14 +35,14 @@ def main() -> int:
     current = STATUS_PATH.read_text(encoding="utf-8")
     if current != rendered:
         print(
-            "check_status_page: FAIL: docs/status.md is stale relative to "
+            "check_status_page: FAIL: status/status.md is stale relative to "
             "docs/capabilities.md / docs/capabilities.generated.md / "
             "docs/concept_reservations.yaml. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,
         )
         return 1
-    print("check_status_page: PASS (docs/status.md matches its sources)")
+    print("check_status_page: PASS (status/status.md matches its sources)")
     return 0
 
 
