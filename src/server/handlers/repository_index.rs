@@ -157,6 +157,11 @@ pub(crate) fn build_envelope(
     let mutation = ctx
         .compile(&envelope_id, methods)
         .map_err(repository_refusal)?;
+    // Refuse before the shared ChangeEnvelope route wraps an undeclared ledger
+    // error as INTERNAL. The commit ledger checks the same immutable batch.
+    mutation
+        .validate_write_budget()
+        .map_err(repository_refusal)?;
     seal(mutation, envelope_id, &digest, ctx.tenant_scope)
 }
 
@@ -211,9 +216,14 @@ pub(crate) fn respond(request_id: u64, result: IndexResult) -> Response {
 
 /// Answer the commit of a batch: its index result, or the commit's refusal.
 pub(crate) fn finish(result: IndexResult, commit: Response) -> Response {
-    match commit.error {
-        Some(error) => Response::err(commit.id, repository_refusal(error)),
-        None => respond(commit.id, result),
+    let Some(error) = commit.error.as_ref() else {
+        return respond(commit.id, result);
+    };
+    let mapped = repository_refusal(error.clone());
+    if mapped == *error {
+        commit
+    } else {
+        Response::err(commit.id, mapped)
     }
 }
 
