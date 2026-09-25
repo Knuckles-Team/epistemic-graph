@@ -7,10 +7,12 @@
 use std::collections::BTreeSet;
 
 use spargebra::algebra::{AggregateExpression, Expression, GraphPattern, OrderExpression};
-use spargebra::term::{NamedNodePattern, TermPattern};
+use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 use spargebra::Query;
 
-use super::{expand_template, DirectSelect, ObdaSourceRegistry, ObjectMap, VirtualGraph};
+use super::{
+    expand_template, DirectJoin, DirectSelect, ObdaSourceRegistry, ObjectMap, VirtualGraph,
+};
 use crate::sparql::{Binding, SparqlResult};
 
 /// Returns `None` unless the entire query can be answered without a graph evaluator.
@@ -89,6 +91,12 @@ pub(super) fn run(
     let GraphPattern::Bgp { patterns } = pattern else {
         return Ok(None);
     };
+    if let [first, second] = patterns.as_slice() {
+        if count_rename.is_none() && count_group.is_none() && order.is_none() {
+            return run_join(vg, reg, first, second, projected, limit, offset);
+        }
+        return Ok(None);
+    }
     // A one-pattern BGP is important: duplicate subject keys can create cross-row
     // joins, and pushing LIMIT through such a join is unsound.
     let [triple] = patterns.as_slice() else {
@@ -206,6 +214,122 @@ pub(super) fn run(
         }
         if projected.iter().any(|v| v == object.as_str()) {
             sol.insert(object.as_str().into(), Binding::Literal(value.clone()));
+        }
+        solutions.push(sol);
+    }
+    Ok(Some(SparqlResult {
+        vars: projected,
+        solutions,
+    }))
+}
+
+/// An exact same-source join for two column predicates sharing one subject term.
+/// Each triple pattern reads its own table alias: joining rows by key preserves
+/// combinations across duplicate source keys, which a row-wise shortcut loses.
+fn run_join(
+    vg: &VirtualGraph,
+    reg: &ObdaSourceRegistry,
+    first: &TriplePattern,
+    second: &TriplePattern,
+    projected: Option<Vec<String>>,
+    limit: Option<usize>,
+    offset: usize,
+) -> Result<Option<SparqlResult>, String> {
+    let (NamedNodePattern::NamedNode(p0), NamedNodePattern::NamedNode(p1)) =
+        (&first.predicate, &second.predicate)
+    else {
+        return Ok(None);
+    };
+    let (
+        TermPattern::Variable(s0),
+        TermPattern::Variable(s1),
+        TermPattern::Variable(o0),
+        TermPattern::Variable(o1),
+    ) = (
+        &first.subject,
+        &second.subject,
+        &first.object,
+        &second.object,
+    )
+    else {
+        return Ok(None);
+    };
+    if s0 != s1 || o0 == o1 || o0 == s0 || o1 == s0 || p0 == p1 {
+        return Ok(None);
+    }
+    let find = |predicate: &str| {
+        vg.triples_maps
+            .iter()
+            .flat_map(|map| {
+                map.predicate_object_maps
+                    .iter()
+                    .filter(move |(p, _)| p == predicate)
+                    .map(move |(_, object)| (map, object))
+            })
+            .collect::<Vec<_>>()
+    };
+    let matches0 = find(p0.as_str());
+    let matches1 = find(p1.as_str());
+    let ([(map0, obj0)], [(map1, obj1)]) = (matches0.as_slice(), matches1.as_slice()) else {
+        return Ok(None);
+    };
+    if !std::ptr::eq(*map0, *map1) {
+        return Ok(None);
+    }
+    let (ObjectMap::Column(c0) | ObjectMap::TypedColumn(c0, _)) = obj0 else {
+        return Ok(None);
+    };
+    let (ObjectMap::Column(c1) | ObjectMap::TypedColumn(c1, _)) = obj1 else {
+        return Ok(None);
+    };
+    let Some(key) = single_column_template(&map0.subject_template) else {
+        return Ok(None);
+    };
+    let projected = projected
+        .unwrap_or_else(|| vec![s0.as_str().into(), o0.as_str().into(), o1.as_str().into()]);
+    if projected
+        .iter()
+        .any(|v| v != s0.as_str() && v != o0.as_str() && v != o1.as_str())
+    {
+        return Ok(None);
+    }
+    let query = DirectJoin {
+        key: key.into(),
+        objects: [c0.clone(), c1.clone()],
+        limit,
+        offset,
+    };
+    let source = reg.resolve(&map0.logical_source)?;
+    let Some(rows) = source.direct_join(&query)? else {
+        return Ok(None);
+    };
+    let mut solutions = Vec::with_capacity(rows.len());
+    for row in rows {
+        let Some(key_value) = row.get("__obda_key") else {
+            return Err("obda: direct join omitted subject key".into());
+        };
+        let Some(v0) = row.get("__obda_obj0") else {
+            return Err("obda: direct join omitted first object".into());
+        };
+        let Some(v1) = row.get("__obda_obj1") else {
+            return Err("obda: direct join omitted second object".into());
+        };
+        if key_value.is_empty() || v0.is_empty() || v1.is_empty() {
+            return Err("obda: direct join returned an empty required term".into());
+        }
+        let source_row = super::ForeignRow::from([(key.to_owned(), key_value.clone())]);
+        let Some(iri) = expand_template(&map0.subject_template, &source_row) else {
+            return Err("obda: direct join returned an invalid subject key".into());
+        };
+        let mut sol = crate::sparql::Solution::new();
+        if projected.iter().any(|v| v == s0.as_str()) {
+            sol.insert(s0.as_str().into(), Binding::Node(format!("<{iri}>")));
+        }
+        if projected.iter().any(|v| v == o0.as_str()) {
+            sol.insert(o0.as_str().into(), Binding::Literal(v0.clone()));
+        }
+        if projected.iter().any(|v| v == o1.as_str()) {
+            sol.insert(o1.as_str().into(), Binding::Literal(v1.clone()));
         }
         solutions.push(sol);
     }

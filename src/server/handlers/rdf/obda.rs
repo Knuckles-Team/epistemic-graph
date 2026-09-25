@@ -298,6 +298,74 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
         let sql = render_obda_direct_select(&self.table, query, self.dialect)?;
         self.executor.run_select(&sql).map(Some)
     }
+
+    fn direct_join(
+        &self,
+        query: &eg_rdf::obda::DirectJoin,
+    ) -> Result<Option<Vec<eg_rdf::obda::ForeignRow>>, String> {
+        let sql = render_obda_direct_join(&self.table, query, self.dialect)?;
+        self.executor.run_select(&sql).map(Some)
+    }
+}
+
+/// Two aliases of the same source preserve cross-row joins on duplicate subject
+/// keys. Native values are rendered lexically before DISTINCT, matching the RDF
+/// triple set; a binary key comparison avoids case-insensitive SQL collations.
+#[cfg(feature = "obda")]
+pub(super) fn render_obda_direct_join(
+    table: &str,
+    query: &eg_rdf::obda::DirectJoin,
+    dialect: ObdaSqlDialect,
+) -> Result<String, String> {
+    let table = quote(table, dialect)?;
+    let key = quote(&query.key, dialect)?;
+    let object0 = quote(&query.objects[0], dialect)?;
+    let object1 = quote(&query.objects[1], dialect)?;
+    let lexical = |alias: &str, column: &str| match dialect {
+        ObdaSqlDialect::Postgres => format!("({alias}.{column}::text COLLATE \"C\")"),
+        // Binary values make both DISTINCT and nonempty checks independent of
+        // the source table's case-insensitive default collation.
+        ObdaSqlDialect::MySql => format!("CAST({alias}.{column} AS BINARY)"),
+    };
+    let binary = |alias: &str, column: &str| match dialect {
+        ObdaSqlDialect::Postgres => format!("({alias}.{column}::text COLLATE \"C\")"),
+        ObdaSqlDialect::MySql => format!("CAST({alias}.{column} AS BINARY)"),
+    };
+    let akey = lexical("a", &key);
+    let aobj = lexical("a", &object0);
+    let bobj = lexical("b", &object1);
+    let qkey = quote("__obda_key", dialect)?;
+    let qobj0 = quote("__obda_obj0", dialect)?;
+    let qobj1 = quote("__obda_obj1", dialect)?;
+    let mut sql = format!(
+        "SELECT DISTINCT {akey} AS {qkey}, {aobj} AS {qobj0}, {bobj} AS {qobj1} \
+         FROM {table} AS a JOIN {table} AS b ON {} = {} \
+         WHERE a.{key} IS NOT NULL AND {akey} <> '' \
+         AND b.{key} IS NOT NULL AND {} <> '' \
+         AND a.{object0} IS NOT NULL AND {aobj} <> '' \
+         AND b.{object1} IS NOT NULL AND {bobj} <> ''",
+        binary("a", &key),
+        binary("b", &key),
+        lexical("b", &key),
+    );
+    if let Some(limit) = query.limit {
+        sql.push_str(&format!(" LIMIT {limit}"));
+    }
+    if query.offset > 0 {
+        if query.limit.is_none() && matches!(dialect, ObdaSqlDialect::MySql) {
+            sql.push_str(" LIMIT 18446744073709551615");
+        }
+        sql.push_str(&format!(" OFFSET {}", query.offset));
+    }
+    if matches!(dialect, ObdaSqlDialect::MySql) {
+        Ok(format!(
+            "SELECT CAST({qkey} AS CHAR) AS {qkey}, \
+             CAST({qobj0} AS CHAR) AS {qobj0}, \
+             CAST({qobj1} AS CHAR) AS {qobj1} FROM ({sql}) AS eg_obda_rows"
+        ))
+    } else {
+        Ok(sql)
+    }
 }
 
 /// The exact one-table SELECT used by FO-08. SQL performs duplicate elimination
@@ -313,6 +381,9 @@ pub(super) fn render_obda_direct_select(
     if query.columns.is_empty() || query.nonempty.iter().any(|c| !query.columns.contains(c)) {
         return Err("obda: invalid direct projection".into());
     }
+    if query.order.is_some() {
+        return Err("obda: direct ORDER requires verified physical column type".into());
+    }
     let selected = query
         .columns
         .iter()
@@ -322,7 +393,13 @@ pub(super) fn render_obda_direct_select(
     let raw = query
         .columns
         .iter()
-        .map(|c| quote(c, dialect))
+        .map(|c| {
+            let q = quote(c, dialect)?;
+            Ok::<_, String>(match dialect {
+                ObdaSqlDialect::Postgres => format!("({q}::text COLLATE \"C\") AS {q}"),
+                ObdaSqlDialect::MySql => format!("CAST({q} AS BINARY) AS {q}"),
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
     // Deduplicate native values before the slice. The outer cast produces the
@@ -359,16 +436,6 @@ pub(super) fn render_obda_direct_select(
             quote("__obda_count", dialect)?
         ));
     }
-    if let Some((column, desc)) = &query.order {
-        if !query.columns.contains(column) {
-            return Err("obda: direct ORDER column is not projected".into());
-        }
-        inner.push_str(&format!(
-            " ORDER BY {} {}",
-            quote(column, dialect)?,
-            if *desc { "DESC" } else { "ASC" }
-        ));
-    }
     if let Some(limit) = query.limit {
         inner.push_str(&format!(" LIMIT {limit}"));
     }
@@ -380,15 +447,7 @@ pub(super) fn render_obda_direct_select(
         }
         inner.push_str(&format!(" OFFSET {}", query.offset));
     }
-    let mut sql = format!("SELECT {selected} FROM ({inner}) AS eg_obda_rows");
-    if let Some((column, desc)) = &query.order {
-        sql.push_str(&format!(
-            " ORDER BY eg_obda_rows.{} {}",
-            quote(column, dialect)?,
-            if *desc { "DESC" } else { "ASC" }
-        ));
-    }
-    Ok(sql)
+    Ok(format!("SELECT {selected} FROM ({inner}) AS eg_obda_rows"))
 }
 
 /// CONCEPT:EG-KG.query.obda-predicate-pushdown — render the read-only `SELECT` a [`SqlObdaSource`]
@@ -502,11 +561,11 @@ mod direct_tests {
     }
 
     #[test]
-    fn distinct_and_nonempty_precede_order_and_limit() {
+    fn lexical_distinct_and_nonempty_precede_limit() {
         let query = eg_rdf::obda::DirectSelect {
             columns: ["id".into(), "age".into()].into(),
             nonempty: ["id".into(), "age".into()].into(),
-            order: Some(("age".into(), true)),
+            order: None,
             limit: Some(5),
             offset: 2,
             count: false,
@@ -514,11 +573,8 @@ mod direct_tests {
         let sql = render_obda_direct_select("people", &query, ObdaSqlDialect::Postgres).unwrap();
         assert!(sql.contains("FROM (SELECT DISTINCT"), "{sql}");
         assert!(sql.contains("\"age\"::text <> ''"), "{sql}");
-        assert!(
-            sql.contains("ORDER BY \"age\" DESC LIMIT 5 OFFSET 2"),
-            "{sql}"
-        );
-        assert!(sql.contains("ORDER BY eg_obda_rows.\"age\" DESC"), "{sql}");
+        assert!(sql.contains("\"age\"::text COLLATE \"C\""), "{sql}");
+        assert!(sql.contains("LIMIT 5 OFFSET 2"), "{sql}");
     }
 
     #[test]
@@ -573,6 +629,29 @@ mod direct_tests {
         assert!(eg_rdf::obda::ObdaSource::direct_select(&source, &query)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn same_source_join_uses_two_aliases_and_binary_key_equality() {
+        let query = eg_rdf::obda::DirectJoin {
+            key: "id".into(),
+            objects: ["name".into(), "age".into()],
+            limit: Some(4),
+            offset: 0,
+        };
+        let pg = render_obda_direct_join("people", &query, ObdaSqlDialect::Postgres).unwrap();
+        assert!(
+            pg.contains("FROM \"people\" AS a JOIN \"people\" AS b"),
+            "{pg}"
+        );
+        assert!(pg.contains("a.\"id\"::text COLLATE \"C\""), "{pg}");
+        assert!(pg.contains("SELECT DISTINCT"), "{pg}");
+        let mysql = render_obda_direct_join("people", &query, ObdaSqlDialect::MySql).unwrap();
+        assert!(
+            mysql.contains("CAST(a.`id` AS BINARY) = CAST(b.`id` AS BINARY)"),
+            "{mysql}"
+        );
+        assert!(mysql.contains("LIMIT 4"), "{mysql}");
     }
 }
 

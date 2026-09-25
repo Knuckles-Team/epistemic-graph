@@ -54,9 +54,10 @@
 //! the RDF, then interprets the `rr:` vocabulary over the parsed triples — so typed/lang
 //! object literals now materialize as `xsd:`-typed / language-tagged terms.
 //!
-//! A narrow, exact single-pattern SELECT can use [`ObdaSource::direct_select`] to
-//! push DISTINCT, nonempty guards, scalar COUNT, and LIMIT/OFFSET to SQL and return
-//! solutions without a transient graph. Complex algebra, `rr:sqlQuery` logical views,
+//! Narrow, exact one-pattern SELECTs and same-source two-predicate joins can use
+//! [`ObdaSource::direct_select`] / [`ObdaSource::direct_join`] to push DISTINCT,
+//! nonempty guards, scalar COUNT, and LIMIT/OFFSET to SQL and return solutions
+//! without a transient graph. Complex algebra, `rr:sqlQuery` logical views,
 //! `rr:joinCondition` referencing object maps, and dynamic (`rr:template`) predicate
 //! maps still use the general path or remain follow-ups.
 //!
@@ -193,6 +194,13 @@ pub trait ObdaSource: Send + Sync {
     fn direct_select(&self, _query: &DirectSelect) -> Result<Option<Vec<ForeignRow>>, String> {
         Ok(None)
     }
+
+    /// Join two predicate maps of the same table on their subject key in the source.
+    /// The source must retain cross-row matches for duplicate keys and deduplicate
+    /// identical RDF solution tuples before applying a slice.
+    fn direct_join(&self, _query: &DirectJoin) -> Result<Option<Vec<ForeignRow>>, String> {
+        Ok(None)
+    }
 }
 
 /// The subset of a SPARQL SELECT that can be executed exactly over one OBDA table.
@@ -206,6 +214,15 @@ pub struct DirectSelect {
     pub offset: usize,
     /// Count the distinct RDF triples represented by `columns` after guards.
     pub count: bool,
+}
+
+/// A two-predicate, same-source BGP joined on one subject-template key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectJoin {
+    pub key: String,
+    pub objects: [String; 2],
+    pub limit: Option<usize>,
+    pub offset: usize,
 }
 
 /// A boxed, thread-safe [`ObdaSource`] stored by name in an [`ObdaSourceRegistry`].
@@ -1752,6 +1769,58 @@ mod tests {
         .unwrap();
         assert_eq!(result.solutions[0]["n"].as_str(), "3");
         assert!(src.seen.lock().unwrap()[0].count);
+    }
+
+    struct JoinFixture {
+        seen: std::sync::Mutex<Vec<DirectJoin>>,
+    }
+
+    impl ObdaSource for JoinFixture {
+        fn scan(&self, _: &BTreeSet<String>, _: &[ObdaFilter]) -> Result<Vec<ForeignRow>, String> {
+            panic!("same-source join must not materialize a graph")
+        }
+
+        fn direct_join(&self, query: &DirectJoin) -> Result<Option<Vec<ForeignRow>>, String> {
+            self.seen.lock().unwrap().push(query.clone());
+            let mut rows = Vec::new();
+            for name in ["Alice", "Alicia"] {
+                for age in ["30", "40"] {
+                    rows.push(ForeignRow::from([
+                        ("__obda_key".into(), "1".into()),
+                        ("__obda_obj0".into(), name.into()),
+                        ("__obda_obj1".into(), age.into()),
+                    ]));
+                }
+            }
+            Ok(Some(rows))
+        }
+    }
+
+    #[test]
+    fn fo08_join_preserves_cross_row_matches_for_duplicate_keys() {
+        let src = Arc::new(JoinFixture {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", src.clone());
+        let result = run_virtual(&people_typed_vgraph(), &reg,
+            "PREFIX ex: <http://example.org/> SELECT ?name ?age WHERE { ?p ex:name ?name . ?p ex:age ?age }")
+            .unwrap();
+        let answers: BTreeSet<_> = result
+            .solutions
+            .iter()
+            .map(|s| (s["name"].as_str().to_owned(), s["age"].as_str().to_owned()))
+            .collect();
+        assert_eq!(answers.len(), 4);
+        assert_eq!(
+            src.seen.lock().unwrap()[0],
+            DirectJoin {
+                key: "id".into(),
+                objects: ["name".into(), "age".into()],
+                limit: None,
+                offset: 0,
+            }
+        );
     }
 
     /// A `people` source: id, name, age, plus a `friend_id` reference column.
