@@ -62,7 +62,7 @@ fn is_email_token(token: &str) -> bool {
     })
 }
 
-fn validate_repository_text(value: &str) -> Result<(), String> {
+pub(super) fn validate_repository_text(value: &str) -> Result<(), String> {
     let lower = value.to_ascii_lowercase();
     let host_path = HOST_PATH_PREFIXES
         .iter()

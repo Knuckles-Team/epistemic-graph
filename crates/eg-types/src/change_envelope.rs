@@ -16,6 +16,14 @@ mod material;
 pub use material::MaterialClass;
 use material::TextRule;
 
+/// Whether `value` passes the repository-snapshot material rule (no host
+/// identity: absolute host paths, file URIs, e-mail addresses). Producers of
+/// repository-snapshot envelopes use it to redact a value before lowering
+/// instead of having the whole envelope refused.
+pub fn admits_repository_text(value: &str) -> bool {
+    material::validate_repository_text(value).is_ok()
+}
+
 pub const CHANGE_ENVELOPE_VERSION: u16 = 1;
 
 /// Server cap on the number of envelopes one `ApplyChangeEnvelopes` batch may carry.

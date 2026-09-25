@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use eg_types::change_envelope::{ChangeEnvelope, MaterialClass};
 use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
 
-use super::{lower, seal, IndexWriteSet, BATCH_TOO_LARGE};
+use super::{lower, seal, IndexWriteSet, BATCH_TOO_LARGE, REDACTED_HOST_IDENTITY};
 use crate::mutation_batch::MutationSurface;
 use crate::protocol::Method;
 use crate::server::mutation_batch::{compile_methods, CompileBatch};
@@ -161,12 +161,19 @@ fn the_same_code_is_refused_under_the_strict_attested_rule() {
     assert!(error.contains("persistence privacy policy"), "{error}");
 }
 
+/// Host identity quoted inside repository content (a `pyproject.toml` author,
+/// a docstring path) never reaches the store, and does not refuse the batch:
+/// the value is redacted at lowering, and the envelope's repository rule
+/// (unchanged) still screens every committed value.
 #[test]
-fn host_identity_inside_repository_content_is_still_refused() {
+fn host_identity_inside_repository_content_is_redacted_not_stored() {
     for leak in ["/home/alice/project/app.py", "maintainer dev@example.com"] {
-        let error = repository_envelope(&code_result(&[("doc", leak)]))
-            .expect_err("host identity is refused in every class");
-        assert!(error.contains("host identity"), "{error}");
+        let envelope = repository_envelope(&code_result(&[("doc", leak)]))
+            .expect("the batch commits without the host identity");
+        let stored = rmp_serde::to_vec_named(&envelope.mutation.operations).unwrap();
+        let rendered = String::from_utf8_lossy(&stored);
+        assert!(!rendered.contains(leak), "{leak} must not be stored");
+        assert!(rendered.contains(REDACTED_HOST_IDENTITY));
     }
 }
 
