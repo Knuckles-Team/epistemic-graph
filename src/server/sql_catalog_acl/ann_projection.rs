@@ -249,8 +249,7 @@ mod tests {
 
     fn projected_ids(dir: &Path, who: &str, sql: &str) -> Vec<String> {
         let projection =
-            authorized_read_store_for_query(&authority(who), dir, sql, None, &no_graph())
-                .unwrap();
+            authorized_read_store_for_query(&authority(who), dir, sql, None, &no_graph()).unwrap();
         let view = crate::graph::GraphView::default();
         eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
             .unwrap()
@@ -337,8 +336,7 @@ mod tests {
         let sql = "SELECT index_name, state, indexed FROM information_schema.eg_index_status \
                    ORDER BY index_name";
         let projection =
-            authorized_read_store_for_query(&authority(who), dir, sql, None, &no_graph())
-                .unwrap();
+            authorized_read_store_for_query(&authority(who), dir, sql, None, &no_graph()).unwrap();
         let view = crate::graph::GraphView::default();
         eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
             .unwrap()
