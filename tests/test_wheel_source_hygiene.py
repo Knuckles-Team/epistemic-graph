@@ -163,7 +163,16 @@ def _seed_fixture_crate(
 
 
 def _build_server_wheel(fixture: Path, dist: Path) -> Path:
-    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    # The fixture's `fn main() {}` binary is named `epistemic-graph-server`. An
+    # inherited `CARGO_TARGET_DIR` would land it in the SHARED target's
+    # `release/`, where `conftest.find_server_binary()` then hands that stub to
+    # every module that spawns its own engine (it exits 0 at once, never binds
+    # a socket). The fixture builds into a target of its own.
+    environment = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "CARGO_TARGET_DIR": str(fixture.parent / "cargo-target"),
+    }
     subprocess.run(
         [
             "maturin",

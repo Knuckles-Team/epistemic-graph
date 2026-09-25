@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-import time
 
 import pytest
 from conftest import (
@@ -11,7 +10,10 @@ from conftest import (
     bootstrap_context,
     find_server_binary,
     request_context,
+    server_timeout,
+    stop_server,
     strict_server_env,
+    wait_for_server,
 )
 
 from epistemic_graph.client import SyncEpistemicGraphClient
@@ -75,21 +77,12 @@ def _spawn(socket_path, *extra_args, auth_secret="", **env_overrides):
     )
 
 
-def _wait_for_socket(socket_path, timeout=10.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if os.path.exists(socket_path):
-            return True
-        time.sleep(0.05)
-    return False
-
-
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
 def test_empty_secret_refuses_to_start(tmp_path):
     sock = str(tmp_path / "no-secret.sock")
     proc = _spawn(sock)
     try:
-        proc.wait(timeout=10)
+        proc.wait(timeout=server_timeout())
     finally:
         proc.kill()
     assert proc.returncode == 2
@@ -108,7 +101,7 @@ def test_removed_insecure_flag_is_rejected(tmp_path):
     sock = str(tmp_path / "removed-flag.sock")
     proc = _spawn(sock, "--allow-insecure", auth_secret="test-request-secret")
     try:
-        proc.wait(timeout=10)
+        proc.wait(timeout=server_timeout())
     finally:
         proc.kill()
     assert proc.returncode == 2
@@ -120,7 +113,7 @@ def test_removed_insecure_env_does_not_enable_unauthenticated_start(tmp_path):
     sock = str(tmp_path / "removed-env.sock")
     proc = _spawn(sock, EPISTEMIC_GRAPH_ALLOW_INSECURE="1")
     try:
-        proc.wait(timeout=10)
+        proc.wait(timeout=server_timeout())
     finally:
         proc.kill()
     assert proc.returncode == 2
@@ -146,7 +139,7 @@ def test_oidc_required_by_default_refuses_to_start_without_issuer(tmp_path):
         EPISTEMIC_GRAPH_REQUIRE_OIDC=None,  # truly unset: exercise the real default
     )
     try:
-        proc.wait(timeout=15)
+        proc.wait(timeout=server_timeout())
     finally:
         proc.kill()
     assert proc.returncode == 1
@@ -167,7 +160,7 @@ def test_oidc_required_explicitly_also_refuses_to_start_without_issuer(tmp_path)
         EPISTEMIC_GRAPH_REQUIRE_OIDC="true",
     )
     try:
-        proc.wait(timeout=15)
+        proc.wait(timeout=server_timeout())
     finally:
         proc.kill()
     assert proc.returncode == 1
@@ -190,7 +183,7 @@ def test_oidc_explicit_opt_out_allows_hmac_only_start(tmp_path):
         EPISTEMIC_GRAPH_REQUIRE_OIDC="false",
     )
     try:
-        assert _wait_for_socket(sock)
+        wait_for_server(proc, sock, name="auth server")
 
         bootstrap = SyncEpistemicGraphClient.connect(
             socket_path=sock,
@@ -216,8 +209,7 @@ def test_oidc_explicit_opt_out_allows_hmac_only_start(tmp_path):
         finally:
             good.close()
     finally:
-        proc.terminate()
-        proc.wait(timeout=10)
+        stop_server(proc, name="auth server")
 
 
 @pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
@@ -225,7 +217,7 @@ def test_wrong_secret_is_rejected(tmp_path):
     sock = str(tmp_path / "secret.sock")
     proc = _spawn(sock, auth_secret="right-secret")
     try:
-        assert _wait_for_socket(sock)
+        wait_for_server(proc, sock, name="auth server")
 
         bootstrap = SyncEpistemicGraphClient.connect(
             socket_path=sock,
@@ -262,5 +254,4 @@ def test_wrong_secret_is_rejected(tmp_path):
         finally:
             bad.close()
     finally:
-        proc.terminate()
-        proc.wait(timeout=10)
+        stop_server(proc, name="auth server")

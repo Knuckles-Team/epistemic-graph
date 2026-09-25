@@ -479,6 +479,11 @@ jobs:
       - name: Build the pyengine extension into the working tree (mounted/editable path)
         run: python3 scripts/build_pyengine_kernel.py
 
+      # The build script only WARNS when it cannot load what it built (it also
+      # serves cross-builds). Here the interpreter that runs pytest must load it.
+      - name: Prove the pytest interpreter imports the pyengine extension
+        run: python3 -c "import epistemic_graph.engine as e; assert e.__engine__ == 'eg-pyengine', e.__engine__; print(e.__file__)"
+
       - name: Build the full-featured engine binary once
         run: cargo build --locked --features full --bin epistemic-graph-server
 
@@ -499,6 +504,7 @@ jobs:
             PYTHONPATH="$EG_DIST_INFO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
             python3 -m pytest tests/ -p no:cacheprovider -n "$W" --timeout=900 --basetemp="$BT" -q -rfEs
           rc=$?
+          chmod -R u+w "$BT" 2>/dev/null
           rm -rf "$BT"
           exit $rc
 

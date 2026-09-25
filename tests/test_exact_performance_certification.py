@@ -391,9 +391,12 @@ def test_exact_binary_probe_entrypoint_uses_declared_contract_owner(
 ) -> None:
     probe_source, _module_sources = compiled_probe_sources
     main_source = (ROOT / "src" / "main.rs").read_text(encoding="utf-8")
+    startup_source = (ROOT / "src" / "server_startup.rs").read_text(encoding="utf-8")
     assert "mod performance_probe;" in main_source
-    assert "exact_performance_probe" in main_source
-    assert "performance_probe::run_stdio(root)?" in main_source
+    assert "mod server_startup;" in main_source
+    assert "if args.exact_performance_probe {" in main_source
+    assert "server_startup::run_exact_performance_probe(" in main_source
+    assert "super::performance_probe::run_stdio(root)?" in startup_source
     assert "contract::scenario_contract(&request.scenario_id)" in probe_source
     assert "contract::probe_row(" in probe_source
 
