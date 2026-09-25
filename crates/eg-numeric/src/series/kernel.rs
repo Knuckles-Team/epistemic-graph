@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 
 use super::kalman::Kalman;
+use super::streaming::{RollingMoments, RollingPairs};
 use super::window::{pearson, ranks, Extremum, Moments, Side, Sorted, STD_FLOOR};
 use super::{Arith, Map, PairStat, Rolling, Shift, Smoothing, Spec};
 use crate::detkernel::math;
@@ -127,13 +128,13 @@ impl ShiftState {
     }
 }
 
-/// A rolling statistic over the last `w` valid observations.
+/// A rolling statistic over the last `w` valid observations; the moment statistics are
+/// O(1) per step (EH-562, [`super::streaming`]).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RollingState {
     Moments {
         op: Rolling,
-        window: usize,
-        values: VecDeque<f64>,
+        stats: RollingMoments,
     },
     Extremum(Extremum),
     Rank(Sorted),
@@ -148,8 +149,7 @@ impl RollingState {
             Rolling::Mean | Rolling::Std | Rolling::Sum | Rolling::Zscore => {
                 RollingState::Moments {
                     op,
-                    window,
-                    values: VecDeque::with_capacity(window + 1),
+                    stats: RollingMoments::new(window),
                 }
             }
         }
@@ -159,15 +159,8 @@ impl RollingState {
         match self {
             RollingState::Extremum(e) => e.step(x),
             RollingState::Rank(r) => r.step(x),
-            RollingState::Moments { op, window, values } => {
-                values.push_back(x);
-                if values.len() > *window {
-                    values.pop_front();
-                }
-                let full = values.len() == *window;
-                full.then(|| Moments::of(values.iter().copied()))
-                    .flatten()
-                    .and_then(|m| moment_stat(*op, &m, x))
+            RollingState::Moments { op, stats } => {
+                stats.step(x).and_then(|m| moment_stat(*op, &m, x))
             }
         }
     }
@@ -219,30 +212,36 @@ impl EwmaState {
     }
 }
 
-/// A windowed statistic of a pair of series.
+/// A windowed statistic of a pair of series. Correlation and the weighted sum are O(1)
+/// per step (EH-562); the rank correlation ranks the window, O(w log w).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PairState {
     op: PairStat,
-    window: usize,
-    pairs: VecDeque<(f64, f64)>,
+    window: RollingPairs,
 }
 
 impl PairState {
     fn new(op: PairStat, window: usize) -> Self {
         Self {
             op,
-            window,
-            pairs: VecDeque::with_capacity(window + 1),
+            window: RollingPairs::new(window),
         }
     }
 
     fn step(&mut self, x: f64, y: f64) -> Option<f64> {
-        self.pairs.push_back((x, y));
-        if self.pairs.len() > self.window {
-            self.pairs.pop_front();
+        self.window.push(x, y).then_some(())?;
+        match (self.op, self.window.sums()) {
+            (PairStat::RankCorr, _) | (_, None) => self.two_pass(),
+            (PairStat::Corr, Some(_)) if self.window.has_flat_side() => None,
+            (PairStat::Corr, Some(sums)) => sums.correlation(self.window.pairs().len()),
+            (PairStat::WeightedSum, Some(sums)) => Some(sums.product_sum()),
         }
-        (self.pairs.len() == self.window).then_some(())?;
-        let (xs, ys): (Vec<f64>, Vec<f64>) = self.pairs.iter().copied().unzip();
+    }
+
+    /// The statistic recomputed from the window's pairs: the rank correlation always, the
+    /// others while a non-finite pair is in the window.
+    fn two_pass(&self) -> Option<f64> {
+        let (xs, ys): (Vec<f64>, Vec<f64>) = self.window.pairs().iter().copied().unzip();
         match self.op {
             PairStat::Corr => pearson(&xs, &ys),
             PairStat::RankCorr => pearson(&ranks(&xs), &ranks(&ys)),
