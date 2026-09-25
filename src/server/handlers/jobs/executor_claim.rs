@@ -36,6 +36,17 @@ pub(super) async fn execute_claim(
                 min_confidence,
                 algorithm,
             } => (transactions, min_support, min_confidence, algorithm),
+            JobKind::DecisionReplay { request_ref } => {
+                #[cfg(all(feature = "decide", feature = "finance"))]
+                {
+                    return execute_replay_claim(state, store, claim, payload, request_ref).await;
+                }
+                #[cfg(not(all(feature = "decide", feature = "finance")))]
+                {
+                    let _ = request_ref;
+                    return Err("decision replay requires decide and finance".to_string());
+                }
+            }
             #[cfg(feature = "program-optimization")]
             JobKind::ProgramOptimize { request_msgpack } => {
                 return execute_program_claim(

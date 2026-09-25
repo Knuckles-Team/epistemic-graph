@@ -190,6 +190,10 @@ fn default_max_attempts() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum JobKind {
+    /// Replay a tenant-scoped, immutable DecisionEval request artifact. Only
+    /// its content-addressed key enters jobs.redb; the worker resolves and
+    /// verifies the request under the job's verified tenant before execution.
+    DecisionReplay { request_ref: String },
     /// Association-rule mining over explicit transactions (mirrors
     /// `Method::MineAssociate`'s non-graph-derived path).
     MineAssociate {
