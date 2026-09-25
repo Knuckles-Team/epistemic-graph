@@ -75,7 +75,7 @@ fn batch(operations: serde_json::Value) -> Method {
 
 fn refused(response: &Response) -> bool {
     response
-        .error
+        .error_detail
         .as_deref()
         .is_some_and(|error| error.contains("create-only"))
 }
@@ -242,7 +242,7 @@ async fn retirement_is_the_owning_op_and_leaves_an_audited_tombstone() {
     let forge = served.send(add_node("other", forged)).await;
     assert!(
         forge
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|e| e.contains("owning op")),
         "forge: {:?}",

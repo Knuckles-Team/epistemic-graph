@@ -221,7 +221,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     .await;
     assert!(
         exact_commit
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
         "exact GraphQL commit retry must be rejected by the kernel: {:?}",
@@ -350,7 +350,7 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         exact_begin
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
         "exact GraphQL begin replay must be rejected by the kernel: {:?}",
@@ -414,7 +414,7 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         exact_stage
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
         "exact GraphQL stage replay must be rejected by the kernel: {:?}",
@@ -446,7 +446,7 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         changed_stage
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("IDEMPOTENCY_CONFLICT")),
         "changed GraphQL stage body must conflict under the same key: {:?}",
@@ -484,7 +484,7 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         stale_stage
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("volatile staging state is unavailable")),
         "multi-root stage replay must refuse when only its second handle was retired: {:?}",
@@ -503,7 +503,7 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         exact_rollback
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
         "exact GraphQL rollback replay must be rejected by the kernel: {:?}",
@@ -521,7 +521,7 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         fresh_rollback
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("volatile staging state is unavailable")),
         "a rollback receipt cannot replay success after its volatile handle was removed: {:?}",

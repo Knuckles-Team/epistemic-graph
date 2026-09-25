@@ -140,7 +140,7 @@ async fn t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger() {
     );
     let second = Box::pin(test_support::dispatch(&state, request.clone())).await;
     let refusal = second
-        .error
+        .error_detail
         .as_deref()
         .expect("replaying the identical signed envelope must be refused");
     assert!(
@@ -553,11 +553,12 @@ async fn t17_txn_begin_add_node_commit_fails_without_encryption_key() {
         },
     )
     .await;
+    assert_eq!(commit.error.as_deref(), Some("INTERNAL"));
     assert_eq!(
-        commit.error.as_deref(),
+        commit.error_detail.as_deref(),
         Some("transaction durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured"),
         "Commit without an encryption key configured: {:?}",
-        commit.error
+        commit.error_detail
     );
 }
 

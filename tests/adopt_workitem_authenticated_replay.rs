@@ -252,7 +252,7 @@ async fn authenticated_submit_dispatch_replays_once_in_redb() {
     let exact = test_support::dispatch(&state, first_request).await;
     assert!(
         exact
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
         "exact authenticated retry must consume its nonce: {exact:?}"
@@ -279,7 +279,7 @@ async fn authenticated_submit_dispatch_replays_once_in_redb() {
     .await;
     assert!(
         conflict
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("IDEMPOTENCY_CONFLICT")),
         "same key with changed submit payload must conflict: {conflict:?}"
@@ -318,7 +318,7 @@ async fn authenticated_claim_dispatch_replays_once_in_redb() {
     let exact = test_support::dispatch(&state, first_request).await;
     assert!(
         exact
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
         "exact authenticated claim retry must consume its nonce: {exact:?}"
@@ -345,7 +345,7 @@ async fn authenticated_claim_dispatch_replays_once_in_redb() {
     .await;
     assert!(
         conflict
-            .error
+            .error_detail
             .as_deref()
             .is_some_and(|error| error.contains("IDEMPOTENCY_CONFLICT")),
         "same key with changed claim payload must conflict: {conflict:?}"
