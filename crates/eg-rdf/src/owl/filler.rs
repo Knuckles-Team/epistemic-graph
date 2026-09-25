@@ -327,6 +327,7 @@ fn refined_filler(reasoner: &mut Reasoner, b: &str, classes: &BTreeSet<String>) 
         }
     }
     subsumers.extend(inherited);
+    reasoner.fresh.insert(name.clone(), subsumers.clone());
     reasoner.s.insert(name.clone(), subsumers);
     reasoner
         .refined
