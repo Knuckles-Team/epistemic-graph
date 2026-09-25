@@ -114,7 +114,9 @@ pub fn spec_of(func: SeriesFunc, params: &[f64]) -> Spec {
 enum Node {
     Channel(String),
     Const(f64),
-    Kernel { state: State, args: Vec<Node> },
+    // Boxed: a kernel state (e.g. the matrix-profile `LeftProfile`) is large, and a
+    // box serialises exactly as the value, so the checkpoint format is unchanged.
+    Kernel { state: Box<State>, args: Vec<Node> },
 }
 
 impl Node {
@@ -123,7 +125,7 @@ impl Node {
             SeriesExpr::Channel { name } => Node::Channel(name.clone()),
             SeriesExpr::Const { value } => Node::Const(*value),
             SeriesExpr::Call { func, args, params } => Node::Kernel {
-                state: State::new(spec_of(*func, params)).map_err(|e| e.to_string())?,
+                state: Box::new(State::new(spec_of(*func, params)).map_err(|e| e.to_string())?),
                 args: args.iter().map(Node::compile).collect::<Result<_, _>>()?,
             },
         })

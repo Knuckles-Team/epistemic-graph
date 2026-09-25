@@ -150,6 +150,7 @@ mod dispatch_reachability_tests {
         "DecisionFit.submit",
         "DecisionFit.status",
         "DecisionEval.submit",
+        "DecisionEval.submit:replay",
         "DecisionEval.status",
         "DecisionLog.evaluate",
         "DecisionLog.get",

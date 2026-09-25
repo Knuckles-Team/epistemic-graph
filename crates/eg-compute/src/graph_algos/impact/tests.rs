@@ -173,10 +173,10 @@ fn cascade_converges_to_the_exact_live_edge_probability() {
         };
         let out = independent_cascade(&graph, &seeds, &[], &spec);
         let exact = brute_force(n, &edges, &seeds, 3);
-        for v in 0..n {
-            let se = (exact[v] * (1.0 - exact[v]) / 20_000.0).sqrt();
+        for (v, &want) in exact.iter().enumerate().take(n) {
+            let se = (want * (1.0 - want) / 20_000.0).sqrt();
             assert!(
-                (out.probability[v] - exact[v]).abs() <= 4.0 * se + 1e-9,
+                (out.probability[v] - want).abs() <= 4.0 * se + 1e-9,
                 "node {v}"
             );
             assert!(out.lower[v] <= out.probability[v] && out.probability[v] <= out.upper[v]);
