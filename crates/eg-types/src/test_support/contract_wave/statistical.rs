@@ -250,7 +250,7 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
             },
         ),
         (
-            "DecisionEval.submit_replay",
+            "DecisionEval.submit:replay",
             DecisionEvalOp::Submit {
                 request: Box::new(replay_request()),
             },

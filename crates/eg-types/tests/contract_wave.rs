@@ -67,13 +67,15 @@ fn every_contract_wave_sample_round_trips_through_both_codecs() {
     }
 }
 
-/// An op tag is exactly the snake-case token the contract documents.
+/// An op tag is exactly the snake-case token the contract documents. A second
+/// sample of the same op names its variant after a colon (`DecisionEval.submit:replay`).
 #[test]
 fn every_op_sample_carries_the_documented_op_tag() {
     for (label, method) in contract_wave_samples() {
-        let Some((_, op_tag)) = label.split_once('.') else {
+        let Some((_, op_label)) = label.split_once('.') else {
             continue;
         };
+        let op_tag = op_label.split(':').next().unwrap_or(op_label);
         let encoded = serde_json::to_value(&method).expect("a sample encodes as JSON");
         // `Method` is adjacently tagged, so an op-carrying variant nests its op
         // one level down: `params.op` (or `params.request` for the component
