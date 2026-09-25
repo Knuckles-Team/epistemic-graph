@@ -280,6 +280,8 @@ def main() -> None:
     sqlite_file = read("src/server/handlers/sqlite_file.rs")
     timeseries = read("src/server/handlers/timeseries.rs")
     plan_exec = read("crates/eg-plan/src/exec.rs")
+    plan_tsdb_dispatch = read("crates/eg-plan/src/exec/dispatch.rs")
+    plan_tsdb_scan = read("crates/eg-plan/src/exec/tsscan.rs")
     plan_tsdb_tests = read("crates/eg-plan/src/tsdb_scan_tests.rs")
     streaming = read("src/server/handlers/streaming.rs")
     cep = read("src/server/cep.rs")
@@ -687,7 +689,9 @@ def main() -> None:
                 'carrier.namespace("timeseries-graph", graph)' in query,
                 "with_tsdb_scope(tenant, graph)" in query,
                 "pub fn with_tsdb_scope" in plan_exec,
-                "SeriesKey::new(tenant, graph, sid)" in plan_exec,
+                "Op::TsScan { series, from, to } => Ok(tsdb_scan_op(" in plan_tsdb_dispatch,
+                "SeriesKey::new(tenant, graph, series)" in plan_tsdb_scan,
+                ".range_scoped(" in plan_tsdb_scan,
                 "tsdb_scan_honors_verified_actor_and_tenant_scope" in plan_tsdb_tests,
                 "let authority = self.carrier_authority()?;" in wire,
                 'authority.namespace("timeseries-graph", graph)' in wire,
