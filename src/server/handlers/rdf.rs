@@ -147,6 +147,7 @@ mod obda_pushdown_tests {
             op: eg_rdf::obda::ObdaCompare::Gt,
             value: "28".into(),
             numeric: true,
+            values: Vec::new(),
         }];
         let sql = render_obda_select(
             "people",
@@ -171,6 +172,7 @@ mod obda_pushdown_tests {
             op: eg_rdf::obda::ObdaCompare::Ge,
             value: "18".into(),
             numeric: true,
+            values: Vec::new(),
         }];
         let sql =
             render_obda_select("t", &needed(&["age"]), &filters, ObdaSqlDialect::MySql).unwrap();
@@ -187,6 +189,7 @@ mod obda_pushdown_tests {
             op: eg_rdf::obda::ObdaCompare::Eq,
             value: "O'Brien".into(),
             numeric: false,
+            values: Vec::new(),
         }];
         let sql = render_obda_select(
             "people",
@@ -212,6 +215,26 @@ mod obda_pushdown_tests {
         )
         .unwrap_err();
         assert!(err.contains("invalid SQL identifier"), "{err}");
+    }
+
+    /// EH-563 FO-04 — a semi-join key batch renders as an escaped `IN` list.
+    #[test]
+    fn render_obda_select_renders_semi_join_in_list() {
+        let filters = vec![eg_rdf::obda::ObdaFilter {
+            column: "id".into(),
+            op: eg_rdf::obda::ObdaCompare::In,
+            value: String::new(),
+            numeric: false,
+            values: vec!["1".into(), "O'3".into()],
+        }];
+        let sql = render_obda_select(
+            "people",
+            &needed(&["name"]),
+            &filters,
+            ObdaSqlDialect::Postgres,
+        )
+        .unwrap();
+        assert!(sql.ends_with("WHERE \"id\" IN ('1', 'O''3')"), "{sql}");
     }
 
     /// CONCEPT:EG-KG.query.obda-predicate-pushdown — ACCEPTANCE: SPARQL over a virtual EXTERNAL

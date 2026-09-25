@@ -342,7 +342,9 @@ pub(super) fn apply_single_feature_ops(
         #[cfg(feature = "wasm-udf")]
         Op::Udf { id } => udf_transform(ctx, &input, id),
         #[cfg(feature = "federation")]
-        Op::ForeignScan { source, join } => foreign_scan(input, source, *join, ctx),
+        Op::ForeignScan { source, join } => {
+            crate::federation_opt::foreign_scan(op, input, source, *join, ctx)
+        }
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => Ok(probabilistic_op(ctx.view, input, query)),
         #[cfg(feature = "stream")]
@@ -374,7 +376,10 @@ fn apply_temporal_and_limit(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Row
         // FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness / EG-073) —
         // the name MARKER the UQL clause lowers to; resolves through the ctx registry
         // (`federation` build) or errors cleanly; foreign-source intent is never discarded.
-        Op::Foreign { name } => foreign_named(name, input, ctx),
+        #[cfg(feature = "federation")]
+        Op::Foreign { name } => crate::federation_opt::foreign_named(op, name, ctx),
+        #[cfg(not(feature = "federation"))]
+        Op::Foreign { .. } => Err("FOREIGN requires federation support in this build".to_string()),
         Op::Limit { k } => Ok(input.limit(*k)),
         _ => unreachable!("apply routed a non temporal/limit Op here"),
     }
