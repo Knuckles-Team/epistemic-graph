@@ -22,15 +22,9 @@ fn status_relation(store: &TableStore) -> Vec<Vec<Value>> {
 
 fn docs_without_index(rows: usize) -> TableStore {
     let (store, _path) = TableStore::open_temp().unwrap();
-    let schema = TableSchema::new(
-        "docs",
-        vec![
-            Column::new("id", ColumnType::BigInt, false, true),
-            Column::new("owner", ColumnType::Text, true, false),
-            Column::new("emb", ColumnType::Vector(Some(DIM)), true, false),
-        ],
-    );
-    store.create_table(&schema, false).unwrap();
+    store
+        .create_table(&vector_table_schema("docs"), false)
+        .unwrap();
     insert(&store, 0, &vectors(rows, 90));
     store
 }

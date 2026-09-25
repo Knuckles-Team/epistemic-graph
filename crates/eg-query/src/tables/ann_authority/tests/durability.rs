@@ -13,16 +13,6 @@ fn far_vector() -> Vec<f32> {
     vec![9.0; DIM]
 }
 
-fn every_method() -> [AnnIndexPlan; 5] {
-    [
-        plan(AnnMethod::Hnsw, VectorMetric::L2),
-        plan(AnnMethod::Hnsw, VectorMetric::Cosine),
-        plan(AnnMethod::IvfFlat, VectorMetric::L2),
-        plan(AnnMethod::IvfFlat, VectorMetric::Cosine),
-        plan(AnnMethod::IvfFlat, VectorMetric::InnerProduct),
-    ]
-}
-
 fn reopen(path: &std::path::Path) -> TableStore {
     TableStore::open(path, dev_verifier(), DEV_PRINCIPAL, DEV_PROOF).unwrap()
 }
@@ -174,10 +164,7 @@ fn recall_holds_after_incremental_updates() {
         for query in &queries {
             let answer = top(&store, &index, query, 10, None);
             assert_eq!(answer.receipt.path, maintained(2), "{index:?}");
-            total += recall(
-                &ids(&answer.rows),
-                &exact_ids(&store, &index, query, 10, None),
-            );
+            total += observed_recall(&store, &index, query, &answer);
         }
         let mean = total / queries.len() as f64;
         assert!(mean >= 0.9, "{index:?}: mean recall@10 {mean} < 0.9");
@@ -185,27 +172,15 @@ fn recall_holds_after_incremental_updates() {
 }
 
 fn open_notes(store: &TableStore, index: &AnnIndexPlan, rows: &[Vec<f32>]) {
-    let schema = TableSchema::new(
-        "notes",
-        vec![
-            Column::new("id", ColumnType::BigInt, false, true),
-            Column::new("owner", ColumnType::Text, true, false),
-            Column::new("emb", ColumnType::Vector(Some(DIM)), true, false),
-        ],
-    );
-    store.create_table(&schema, false).unwrap();
+    store
+        .create_table(&vector_table_schema("notes"), false)
+        .unwrap();
     insert_notes(store, 0, rows);
     store.put_ann_index(index).unwrap();
 }
 
 fn insert_notes(store: &TableStore, first_id: i64, rows: &[Vec<f32>]) {
-    let columns = vec!["id".to_string(), "owner".to_string(), "emb".to_string()];
-    let values: Vec<Vec<Value>> = rows
-        .iter()
-        .zip(first_id..)
-        .map(|(vector, id)| vec![json!(id), owner_of(id), json!(vector)])
-        .collect();
-    store.insert_rows("notes", &columns, &values).unwrap();
+    insert_into(store, "notes", first_id, rows);
 }
 
 #[test]

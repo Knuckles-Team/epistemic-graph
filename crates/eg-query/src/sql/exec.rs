@@ -996,17 +996,16 @@ fn narrow_user_table(pushdown: &AnnPushdown, user_tables: &mut [UserTable]) -> R
 
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
 /// graph table functions, then collect the query.
-fn run(
+type NodeBatch = (SchemaRef, arrow::record_batch::RecordBatch);
+
+fn collect_sql_batches(
     view: &GraphView,
-    nodes: (
-        arrow::datatypes::SchemaRef,
-        arrow::record_batch::RecordBatch,
-    ),
+    nodes: NodeBatch,
     user_tables: Vec<UserTable>,
     catalog: StoreCatalog,
     sql: &str,
     cancel: &CancellationToken,
-) -> Result<QueryResult, String> {
+) -> Result<Vec<arrow::record_batch::RecordBatch>, String> {
     // The graph table functions run their kernel over an owned snapshot; clone the
     // topology+ids once (cheap relative to the algorithm) so they don't borrow `view`.
     // `EdgesTableProvider` reuses this SAME snapshot (built_ctx below), so `edges`
@@ -1055,9 +1054,26 @@ fn run(
         .await?;
         super::index_status::register(&ctx, &catalog.index_status)?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = super::spill::collect_default(df, cancel).await?;
-        batches_to_result(&batches)
+        super::spill::collect_default(df, cancel).await
     })
+}
+
+fn run(
+    view: &GraphView,
+    nodes: (SchemaRef, arrow::record_batch::RecordBatch),
+    user_tables: Vec<UserTable>,
+    catalog: StoreCatalog,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<QueryResult, String> {
+    batches_to_result(&collect_sql_batches(
+        view,
+        nodes,
+        user_tables,
+        catalog,
+        sql,
+        cancel,
+    )?)
 }
 
 /// Run `sql` over `view` and return the result as real Arrow batches — no per-row
@@ -1102,51 +1118,18 @@ pub fn exec_sql_arrow_cancellable(
 /// them into rows — see [`exec_sql_arrow`] above.
 fn run_arrow(
     view: &GraphView,
-    nodes: (
-        arrow::datatypes::SchemaRef,
-        arrow::record_batch::RecordBatch,
-    ),
+    nodes: NodeBatch,
     user_tables: Vec<UserTable>,
     catalog: StoreCatalog,
     sql: &str,
     cancel: &CancellationToken,
 ) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
-    let snap = Arc::new(view.clone());
-    let mut nodes = nodes;
-    let mut user_tables = user_tables;
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("runtime build: {e}"))?;
-
-    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
-    let sql = super::funcs::expand_functions(&sql, &catalog.functions)?;
-    apply_ann_pushdown(&sql, &catalog.ann_indexes, &mut nodes, &mut user_tables)?;
-    let sql = super::classify::desugar_vector_ops(&sql);
-    rt.block_on(async move {
-        let built = build_ctx(snap, nodes, user_tables)?;
-        let ctx = built.ctx;
-        register_views(&ctx, &catalog.views, &catalog.functions).await?;
-        register_system_catalogs(
-            &ctx,
-            &built.nodes_schema,
-            &built.edges_schema,
-            &built.user_relations,
-            &catalog.views,
-            &catalog.functions,
-            &catalog.property_graphs,
-        )
-        .await?;
-        super::index_status::register(&ctx, &catalog.index_status)?;
-        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = super::spill::collect_default(df, cancel).await?;
-        let schema = batches
-            .first()
-            .map(|b| b.schema())
-            .unwrap_or_else(|| Arc::new(arrow::datatypes::Schema::empty()));
-        Ok((schema, batches))
-    })
+    let batches = collect_sql_batches(view, nodes, user_tables, catalog, sql, cancel)?;
+    let schema = batches
+        .first()
+        .map(|b| b.schema())
+        .unwrap_or_else(|| Arc::new(arrow::datatypes::Schema::empty()));
+    Ok((schema, batches))
 }
 
 /// Register each durable view as a DataFusion logical view (CONCEPT:EG-KG.query.durable-views): plan its
@@ -1189,52 +1172,20 @@ async fn register_views(
 /// the pgwire read path is the SAME engine path as `Method::Sql`.
 fn run_typed(
     view: &GraphView,
-    nodes: (
-        arrow::datatypes::SchemaRef,
-        arrow::record_batch::RecordBatch,
-    ),
+    nodes: NodeBatch,
     user_tables: Vec<UserTable>,
     catalog: StoreCatalog,
     sql: &str,
     cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
-    let snap = Arc::new(view.clone());
-    let mut nodes = nodes;
-    let mut user_tables = user_tables;
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("runtime build: {e}"))?;
-
-    // CONCEPT:EG-KG.query.route-create-view-create — see `run`: strip `pg_catalog.` off catalog function calls first.
-    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
-    // CONCEPT:EG-KG.query.create-drop-function — see `run`: expand SQL stored-function calls before desugar/planning.
-    let sql = super::funcs::expand_functions(&sql, &catalog.functions)?;
-    // CONCEPT:EG-KG.query.real-pgvector-ann-top — see `run`: real pgvector ANN top-k pushdown on the pre-desugar SQL.
-    apply_ann_pushdown(&sql, &catalog.ann_indexes, &mut nodes, &mut user_tables)?;
-    // CONCEPT:EG-KG.query.view-pgvector-operators — see `run`: desugar the pgvector operators before planning.
-    let sql = super::classify::desugar_vector_ops(&sql);
-    rt.block_on(async move {
-        let built = build_ctx(snap, nodes, user_tables)?;
-        let ctx = built.ctx;
-        register_views(&ctx, &catalog.views, &catalog.functions).await?;
-        // CONCEPT:EG-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` (see `run`).
-        register_system_catalogs(
-            &ctx,
-            &built.nodes_schema,
-            &built.edges_schema,
-            &built.user_relations,
-            &catalog.views,
-            &catalog.functions,
-            &catalog.property_graphs,
-        )
-        .await?;
-        super::index_status::register(&ctx, &catalog.index_status)?;
-        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = super::spill::collect_default(df, cancel).await?;
-        batches_to_typed(&batches)
-    })
+    batches_to_typed(&collect_sql_batches(
+        view,
+        nodes,
+        user_tables,
+        catalog,
+        sql,
+        cancel,
+    )?)
 }
 
 /// Map an Arrow column `DataType` to a coarse pg-mappable [`PgColType`]. Anything
@@ -1270,19 +1221,7 @@ pub(super) fn batches_to_typed(
         None => Vec::new(),
     };
 
-    let mut rows: Vec<Vec<serde_json::Value>> = Vec::new();
-    'outer: for batch in batches {
-        for r in 0..batch.num_rows() {
-            if rows.len() >= super::spill::MAX_ROWS {
-                break 'outer;
-            }
-            let mut cells: Vec<serde_json::Value> = Vec::with_capacity(batch.num_columns());
-            for c in 0..batch.num_columns() {
-                cells.push(cell_to_json(batch.column(c), r)?);
-            }
-            rows.push(cells);
-        }
-    }
+    let rows = decode_rows(batches, Ok)?;
     Ok(TypedQueryResult { columns, rows })
 }
 
@@ -1301,7 +1240,21 @@ pub(super) fn batches_to_result(
         None => Vec::new(),
     };
 
-    let mut rows: Vec<Vec<u8>> = Vec::new();
+    let rows = decode_rows(batches, |cells| {
+        rmp_serde::to_vec(&cells).map_err(|e| format!("encode row: {e}"))
+    })?;
+
+    Ok(QueryResult { columns, rows })
+}
+
+fn decode_rows<T, F>(
+    batches: &[arrow::record_batch::RecordBatch],
+    mut encode: F,
+) -> Result<Vec<T>, String>
+where
+    F: FnMut(Vec<serde_json::Value>) -> Result<T, String>,
+{
+    let mut rows = Vec::new();
     'outer: for batch in batches {
         for r in 0..batch.num_rows() {
             if rows.len() >= super::spill::MAX_ROWS {
@@ -1311,12 +1264,11 @@ pub(super) fn batches_to_result(
             for c in 0..batch.num_columns() {
                 cells.push(cell_to_json(batch.column(c), r)?);
             }
-            let blob = rmp_serde::to_vec(&cells).map_err(|e| format!("encode row: {e}"))?;
-            rows.push(blob);
+            rows.push(encode(cells)?);
         }
     }
 
-    Ok(QueryResult { columns, rows })
+    Ok(rows)
 }
 
 /// One cell at `(col, row)` to a `serde_json::Value` (CONCEPT:EG-KG.query.concept-11).

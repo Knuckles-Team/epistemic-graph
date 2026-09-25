@@ -18,8 +18,12 @@
 #![cfg(feature = "numeric")]
 
 use eg_core::graph::GraphCore;
-use eg_query::{exec_sql, QueryResult};
+use eg_query::exec_sql;
 use serde_json::json;
+
+#[path = "common/query_rows.rs"]
+mod query_rows;
+use query_rows::rows;
 
 /// A 6-node graph in TWO communities, each node carrying:
 ///   * `x`   — a graph/relational scalar attribute (1..6),
@@ -46,13 +50,6 @@ fn graph() -> GraphCore {
     core
 }
 
-fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
-    r.rows
-        .iter()
-        .map(|b| rmp_serde::from_slice::<Vec<serde_json::Value>>(b).unwrap())
-        .collect()
-}
-
 /// The TIMESERIES modality as an inline relation: two time-stamped readings per node,
 /// engineered so the per-node average is exactly `2·x`. As a SQL CTE it JOINs the resident
 /// graph on node id — the timeseries leg of the cross-modal join.
@@ -66,6 +63,13 @@ const READINGS_CTE: &str = "\
         ('n6', 1, 11.0), ('n6', 2, 13.0)), \
     ts AS (SELECT nid, avg(reading) AS avg_reading FROM readings GROUP BY nid)";
 
+fn joined_rows(projection: &str) -> Vec<Vec<serde_json::Value>> {
+    let snap = graph().analysis_snapshot();
+    let sql =
+        format!("WITH {READINGS_CTE} SELECT {projection} FROM nodes n JOIN ts t ON n.id = t.nid");
+    rows(&exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap())
+}
+
 /// **The cross-modal covariance** (CONCEPT:EG-KG.query.eg-3): `covariance` over a column from the
 /// GRAPH modality (`x`) and a column from the TIMESERIES modality (`avg_reading`), aligned
 /// by the graph⋈timeseries JOIN — a statistic that spans two modalities and is computed
@@ -76,14 +80,7 @@ const READINGS_CTE: &str = "\
 /// both modalities out into arrays and aligning them by hand.
 #[test]
 fn cross_modal_covariance_graph_join_timeseries() {
-    let snap = graph().analysis_snapshot();
-    let sql = format!(
-        "WITH {READINGS_CTE} \
-         SELECT covariance(json_get_f64(n.props, 'x'), t.avg_reading) AS xcov \
-         FROM nodes n JOIN ts t ON n.id = t.nid"
-    );
-    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
-    let v = rows(&r);
+    let v = joined_rows("covariance(json_get_f64(n.props, 'x'), t.avg_reading) AS xcov");
     assert!(
         (v[0][0].as_f64().unwrap() - 7.0).abs() < 1e-9,
         "cross-modal cov(x, avg_reading) should be 7.0, got {:?}",
@@ -97,14 +94,7 @@ fn cross_modal_covariance_graph_join_timeseries() {
 /// into two balanced clusters of three — the "cluster the joined result in-engine" proof.
 #[test]
 fn cross_modal_kmeans_over_join() {
-    let snap = graph().analysis_snapshot();
-    let sql = format!(
-        "WITH {READINGS_CTE} \
-         SELECT kmeans(json_get(n.props, 'emb'), 2) AS clusters \
-         FROM nodes n JOIN ts t ON n.id = t.nid"
-    );
-    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
-    let v = rows(&r);
+    let v = joined_rows("kmeans(json_get(n.props, 'emb'), 2) AS clusters");
     let labels: Vec<i64> = v[0][0]
         .as_array()
         .expect("kmeans → JSON array of Int64 labels")
@@ -130,14 +120,7 @@ fn cross_modal_kmeans_over_join() {
 /// result.
 #[test]
 fn cross_modal_pca_over_join() {
-    let snap = graph().analysis_snapshot();
-    let sql = format!(
-        "WITH {READINGS_CTE} \
-         SELECT pca(json_get(n.props, 'emb'), 1) AS pcs \
-         FROM nodes n JOIN ts t ON n.id = t.nid"
-    );
-    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
-    let v = rows(&r);
+    let v = joined_rows("pca(json_get(n.props, 'emb'), 1) AS pcs");
     let pcs = v[0][0].as_array().expect("pca → list of components");
     assert_eq!(pcs.len(), 1, "{pcs:?}");
     let pc0 = pcs[0].as_array().expect("component → vector");
@@ -156,15 +139,10 @@ fn cross_modal_pca_over_join() {
 /// single projection over the joined result — the full "impossible in numpy" pipeline.
 #[test]
 fn cross_modal_join_pca_kmeans_covariance_one_query() {
-    let snap = graph().analysis_snapshot();
-    let sql = format!(
-        "WITH {READINGS_CTE} \
-         SELECT kmeans(json_get(n.props, 'emb'), 2) AS clusters, \
-                covariance(json_get_f64(n.props, 'x'), t.avg_reading) AS xcov \
-         FROM nodes n JOIN ts t ON n.id = t.nid"
+    let v = joined_rows(
+        "kmeans(json_get(n.props, 'emb'), 2) AS clusters, \
+         covariance(json_get_f64(n.props, 'x'), t.avg_reading) AS xcov",
     );
-    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
-    let v = rows(&r);
     // Clustering result (vector modality over the join).
     let labels: Vec<i64> = v[0][0]
         .as_array()

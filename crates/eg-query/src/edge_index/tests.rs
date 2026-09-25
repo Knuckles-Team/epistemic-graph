@@ -93,6 +93,10 @@ fn key(source: &str, target: &str, ordinal: u32) -> EdgeKey {
     }
 }
 
+fn ranked_parallel_keys() -> Vec<EdgeKey> {
+    vec![key("a", "b", 1), key("a", "c", 0), key("a", "b", 0)]
+}
+
 fn search(
     core: &GraphCore,
     name: &str,
@@ -184,7 +188,7 @@ fn parallel_edges_keep_distinct_stable_identities() {
     assert_eq!(answer.path, Ok(1));
     assert_eq!(
         keys(&answer),
-        vec![key("a", "b", 1), key("a", "c", 0), key("a", "b", 0)],
+        ranked_parallel_keys(),
         "parallel a->b edges are three distinct results, told apart by ordinal"
     );
     assert!(
@@ -210,7 +214,7 @@ fn text_search_ranks_edges_by_bm25() {
     assert_eq!(answer.path, Ok(1));
     assert_eq!(
         keys(&answer),
-        vec![key("a", "b", 1), key("a", "c", 0), key("a", "b", 0)],
+        ranked_parallel_keys(),
         "BM25 order; the edge with no query term is not a match"
     );
     assert!(answer
