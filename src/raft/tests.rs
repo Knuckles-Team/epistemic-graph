@@ -2482,8 +2482,14 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         state: &Arc<RwLock<ServerState>>,
         id: u64,
         method: Method,
-    ) -> crate::protocol::Response {
-        dispatch_on_heap(state, signed_request(id, method)).await
+    ) {
+        let response = dispatch_on_heap(state, signed_request(id, method)).await;
+        assert!(
+            response.error.is_none(),
+            "dispatch error: {:?}",
+            response.error
+        );
+        assert!(matches!(response.result, Some(ResultPayload::Bool(true))));
     }
 
     let root = std::env::temp_dir().join(format!("eg-wire-raft-admin-{}", std::process::id()));
@@ -2543,7 +2549,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // basis to fabricate one. Attaching it as a learner is the real replication
     // event that gives it that knowledge, exactly like a real operator's first
     // admin call against a live cluster would.
-    let resp = dispatch_admin(
+    dispatch_admin(
         &leader_state,
         1,
         Method::RaftAddLearner {
@@ -2553,8 +2559,6 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         },
     )
     .await;
-    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
-    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
     assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
     assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
 
@@ -2569,7 +2573,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // follows the leader -- forwarded over the authenticated peer channel and
     // applied there -- instead of answering with a redirect. The follower's view
     // comes from real replication, as above.
-    let resp = dispatch_admin(
+    dispatch_admin(
         &follower_state,
         2,
         Method::RaftChangeMembership {
@@ -2578,8 +2582,6 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         },
     )
     .await;
-    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
-    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
     let promoted = wait_until(Duration::from_secs(15), || {
         let leader_multi = leader_multi.clone();
         async move { leader_multi.group_membership(gid).await == Some(vec![1, 2]) }
@@ -2589,7 +2591,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     assert_eq!(leader_multi.group_learners(gid).await, Some(vec![]));
 
     // (c) Re-sending the SAME change to the leader is an idempotent no-op.
-    let resp = dispatch_admin(
+    dispatch_admin(
         &leader_state,
         3,
         Method::RaftChangeMembership {
@@ -2598,8 +2600,6 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         },
     )
     .await;
-    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
-    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
 
     // (c) An engine with no live MultiRaft answers a clean typed error, never a
     // silent no-op or a panic.
