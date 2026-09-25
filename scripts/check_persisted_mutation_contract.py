@@ -127,9 +127,11 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # an admitted policy-evolution record.
     # 103 -> 107: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
     # `GapSettle`, `WorkOfferPut` (WorkItem kernel).
+    # 107 -> 109: EH-404 `RbacElevation` (Identity) and EH-406
+    # `ThrottleCapacityCell` (WorkItem kernel).
     require(
-        len(entries) == 107,
-        f"native method catalog must contain 107 entries, observed {len(entries)}",
+        len(entries) == 109,
+        f"native method catalog must contain 109 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
