@@ -288,6 +288,13 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
         &self,
         query: &eg_rdf::obda::DirectSelect,
     ) -> Result<Option<Vec<eg_rdf::obda::ForeignRow>>, String> {
+        // R2RML's numeric datatype does not prove the SQL column has a numeric
+        // physical type. Ordering a text column in SQL can disagree with the
+        // SPARQL evaluator's numeric comparison, so keep that query on the
+        // existing evaluator until the source can prove its physical type.
+        if query.order.is_some() {
+            return Ok(None);
+        }
         let sql = render_obda_direct_select(&self.table, query, self.dialect)?;
         self.executor.run_select(&sql).map(Some)
     }
@@ -338,6 +345,19 @@ pub(super) fn render_obda_direct_select(
                 .collect::<Result<Vec<_>, _>>()?
                 .join(" AND "),
         );
+    }
+    if query.count {
+        if query.order.is_some() {
+            return Err("obda: direct COUNT cannot order source rows".into());
+        }
+        let aggregate = match dialect {
+            ObdaSqlDialect::Postgres => "COUNT(*)::text",
+            ObdaSqlDialect::MySql => "CAST(COUNT(*) AS CHAR)",
+        };
+        return Ok(format!(
+            "SELECT {aggregate} AS {} FROM ({inner}) AS eg_obda_rows",
+            quote("__obda_count", dialect)?
+        ));
     }
     if let Some((column, desc)) = &query.order {
         if !query.columns.contains(column) {
@@ -474,6 +494,13 @@ fn literal(value: &str, numeric: bool, dialect: ObdaSqlDialect) -> Result<String
 mod direct_tests {
     use super::*;
 
+    struct RejectQuery;
+    impl ObdaSqlExecutor for RejectQuery {
+        fn run_select(&self, _: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+            panic!("ordered query must stay on the SPARQL evaluator")
+        }
+    }
+
     #[test]
     fn distinct_and_nonempty_precede_order_and_limit() {
         let query = eg_rdf::obda::DirectSelect {
@@ -482,6 +509,7 @@ mod direct_tests {
             order: Some(("age".into(), true)),
             limit: Some(5),
             offset: 2,
+            count: false,
         };
         let sql = render_obda_direct_select("people", &query, ObdaSqlDialect::Postgres).unwrap();
         assert!(sql.contains("FROM (SELECT DISTINCT"), "{sql}");
@@ -501,8 +529,50 @@ mod direct_tests {
             order: Some(("age".into(), false)),
             limit: Some(1),
             offset: 0,
+            count: false,
         };
         assert!(render_obda_direct_select("people", &query, ObdaSqlDialect::Postgres).is_err());
+    }
+
+    #[test]
+    fn count_runs_over_distinct_guarded_source_rows() {
+        let query = eg_rdf::obda::DirectSelect {
+            columns: ["id".into(), "age".into()].into(),
+            nonempty: ["id".into(), "age".into()].into(),
+            order: None,
+            limit: Some(1),
+            offset: 0,
+            count: true,
+        };
+        let sql = render_obda_direct_select("people", &query, ObdaSqlDialect::Postgres).unwrap();
+        assert!(
+            sql.starts_with("SELECT COUNT(*)::text AS \"__obda_count\" FROM (SELECT DISTINCT"),
+            "{sql}"
+        );
+        assert!(
+            !sql.contains("LIMIT 1"),
+            "a SPARQL slice applies after COUNT: {sql}"
+        );
+    }
+
+    #[test]
+    fn unverified_numeric_sql_column_declines_order_pushdown() {
+        let source = SqlObdaSource {
+            table: "people".into(),
+            dialect: ObdaSqlDialect::Postgres,
+            executor: std::sync::Arc::new(RejectQuery),
+        };
+        let query = eg_rdf::obda::DirectSelect {
+            columns: ["id".into(), "age".into()].into(),
+            nonempty: ["id".into(), "age".into()].into(),
+            order: Some(("age".into(), false)),
+            limit: Some(1),
+            offset: 0,
+            count: false,
+        };
+        assert!(eg_rdf::obda::ObdaSource::direct_select(&source, &query)
+            .unwrap()
+            .is_none());
     }
 }
 

@@ -55,7 +55,7 @@
 //! object literals now materialize as `xsd:`-typed / language-tagged terms.
 //!
 //! A narrow, exact single-pattern SELECT can use [`ObdaSource::direct_select`] to
-//! push DISTINCT, nonempty guards, numeric ORDER, and LIMIT/OFFSET to SQL and return
+//! push DISTINCT, nonempty guards, scalar COUNT, and LIMIT/OFFSET to SQL and return
 //! solutions without a transient graph. Complex algebra, `rr:sqlQuery` logical views,
 //! `rr:joinCondition` referencing object maps, and dynamic (`rr:template`) predicate
 //! maps still use the general path or remain follow-ups.
@@ -204,6 +204,8 @@ pub struct DirectSelect {
     pub order: Option<(String, bool)>,
     pub limit: Option<usize>,
     pub offset: usize,
+    /// Count the distinct RDF triples represented by `columns` after guards.
+    pub count: bool,
 }
 
 /// A boxed, thread-safe [`ObdaSource`] stored by name in an [`ObdaSourceRegistry`].
@@ -1690,6 +1692,12 @@ mod tests {
 
         fn direct_select(&self, query: &DirectSelect) -> Result<Option<Vec<ForeignRow>>, String> {
             self.seen.lock().unwrap().push(query.clone());
+            if query.count {
+                return Ok(Some(vec![ForeignRow::from([(
+                    "__obda_count".into(),
+                    "3".into(),
+                )])]));
+            }
             // The fixture represents the result AFTER source-side distinct,
             // nonempty checks, numeric ordering and slicing.
             Ok(Some(vec![ForeignRow::from([
@@ -1724,8 +1732,26 @@ mod tests {
                 order: Some(("age".into(), true)),
                 limit: Some(1),
                 offset: 0,
+                count: false,
             }]
         );
+    }
+
+    #[test]
+    fn fo08_direct_count_counts_distinct_rdf_triples() {
+        let src = Arc::new(DirectFixture {
+            seen: std::sync::Mutex::new(Vec::new()),
+        });
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", src.clone());
+        let result = run_virtual(
+            &people_typed_vgraph(),
+            &reg,
+            "PREFIX ex: <http://example.org/> SELECT (COUNT(*) AS ?n) WHERE { ?p ex:age ?age }",
+        )
+        .unwrap();
+        assert_eq!(result.solutions[0]["n"].as_str(), "3");
+        assert!(src.seen.lock().unwrap()[0].count);
     }
 
     /// A `people` source: id, name, age, plus a `friend_id` reference column.

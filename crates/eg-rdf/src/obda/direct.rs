@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use spargebra::algebra::{Expression, GraphPattern, OrderExpression};
+use spargebra::algebra::{AggregateExpression, Expression, GraphPattern, OrderExpression};
 use spargebra::term::{NamedNodePattern, TermPattern};
 use spargebra::Query;
 
@@ -34,6 +34,8 @@ pub(super) fn run(
     let mut offset = 0;
     let mut projected = None;
     let mut order = None;
+    let mut count_rename = None;
+    let mut count_group = None;
     loop {
         match pattern {
             GraphPattern::Slice {
@@ -59,6 +61,26 @@ pub(super) fn run(
                     return Ok(None);
                 }
                 order = Some(&expression[0]);
+                pattern = inner.as_ref();
+            }
+            GraphPattern::Extend {
+                inner,
+                variable,
+                expression: Expression::Variable(from),
+            } if count_rename.is_none() => {
+                count_rename = Some((variable.as_str().to_string(), from.as_str().to_string()));
+                pattern = inner.as_ref();
+            }
+            GraphPattern::Group {
+                inner,
+                variables,
+                aggregates,
+            } if count_group.is_none()
+                && variables.is_empty()
+                && aggregates.len() == 1
+                && matches!(&aggregates[0].1, AggregateExpression::CountSolutions { .. }) =>
+            {
+                count_group = Some(aggregates[0].0.as_str().to_string());
                 pattern = inner.as_ref();
             }
             _ => break,
@@ -102,11 +124,20 @@ pub(super) fn run(
     let Some(key_column) = single_column_template(&map.subject_template) else {
         return Ok(None);
     };
+    let count_output = match (&count_rename, &count_group) {
+        (None, None) => None,
+        (Some((output, internal)), Some(group)) if internal == group => Some(output.as_str()),
+        _ => return Ok(None),
+    };
     let projected =
         projected.unwrap_or_else(|| vec![subject.as_str().into(), object.as_str().into()]);
-    if projected
-        .iter()
-        .any(|v| v != subject.as_str() && v != object.as_str())
+    if count_output.is_some() && (projected.len() != 1 || projected[0] != count_output.unwrap()) {
+        return Ok(None);
+    }
+    if count_output.is_none()
+        && projected
+            .iter()
+            .any(|v| v != subject.as_str() && v != object.as_str())
     {
         return Ok(None);
     }
@@ -132,11 +163,33 @@ pub(super) fn run(
         order,
         limit,
         offset,
+        count: count_output.is_some(),
     };
     let source = reg.resolve(&map.logical_source)?;
     let Some(rows) = source.direct_select(&plan)? else {
         return Ok(None);
     };
+    if let Some(output) = count_output {
+        // A scalar aggregate has one solution (unless the outer SPARQL slice
+        // removes it). The SQL adapter always returns COUNT as lexical text.
+        let Some(row) = rows.first() else {
+            return Err("obda: direct COUNT source returned no aggregate row".into());
+        };
+        let Some(value) = row.get("__obda_count") else {
+            return Err("obda: direct COUNT source omitted the aggregate".into());
+        };
+        let mut solution = crate::sparql::Solution::new();
+        solution.insert(output.to_string(), Binding::Literal(value.clone()));
+        let solutions = if offset > 0 || limit == Some(0) {
+            Vec::new()
+        } else {
+            vec![solution]
+        };
+        return Ok(Some(SparqlResult {
+            vars: projected,
+            solutions,
+        }));
+    }
     let mut solutions = Vec::with_capacity(rows.len());
     for row in rows {
         // A source promising `direct_select` must have applied the guards. Validate
