@@ -29,6 +29,32 @@ fn version_pragma_and_modes() {
 }
 
 #[test]
+fn federation_budget_hint_round_trips_and_rejects_invalid_dimensions() {
+    let text =
+        "PROFILE FEDERATION BUDGET (REQUESTS 2, ROWS 7, BIND_KEYS 3, WALL_MS 99) MATCH (:Doc)";
+    let parsed = parse_statement(text, &Params::new());
+    if !cfg!(feature = "federation") {
+        assert_eq!(parsed.unwrap_err().code, UqlCode::FeatureNotInBuild);
+        return;
+    }
+    let parsed = parsed.unwrap();
+    let hint = parsed.federation_budget.as_ref().unwrap();
+    assert_eq!(
+        (hint.requests, hint.rows, hint.bind_keys, hint.wall_ms),
+        (Some(2), Some(7), Some(3), Some(99))
+    );
+    let printed = statement_to_uql(&parsed).unwrap();
+    assert_eq!(stmt(&printed), parsed);
+    for bad in [
+        "PROFILE FEDERATION BUDGET (ROWS 0) MATCH ()",
+        "PROFILE FEDERATION BUDGET (ROWS 1, ROWS 2) MATCH ()",
+        "PROFILE FEDERATION BUDGET (HOST 1) MATCH ()",
+    ] {
+        assert!(parse_statement(bad, &Params::new()).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn let_from_join_builds_a_dag_in_first_reference_order() {
     let s = stmt(
         "LET docs = MATCH (:Doc) WHERE year > 2020;\n\

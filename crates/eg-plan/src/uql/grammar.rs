@@ -122,8 +122,11 @@ use Role::*;
 pub const PRODUCTIONS: &[Production] = &[
     // ── statements ──
     p("statement", Aux, &[], None,
-      "[ \"UQL\" int \";\" ] [ \"EXPLAIN\" | \"PROFILE\" ] { binding } pipeline [ annotations ]",
-      "Statement { mode, body, annotations }", ""),
+      "[ \"UQL\" int \";\" ] [ \"EXPLAIN\" | \"PROFILE\" ] [ federation_budget ] { binding } pipeline [ annotations ]",
+      "Statement { mode, federation_budget, body, annotations }", ""),
+    p("federation_budget", Aux, &[], Some(Federation),
+      "\"FEDERATION\" \"BUDGET\" \"(\" dimension positive_int { \",\" dimension positive_int } \")\"",
+      "caller limits for REQUESTS, ROWS, BIND_KEYS, WALL_MS; only narrows the server budget", ""),
     p("annotations", Aux, &["WITH"], None, "\"WITH\" annotation { \",\" annotation }",
       "Annotations { proof, knowledge } (row annotations)", ""),
     p("annotation", Aux, &[], None,

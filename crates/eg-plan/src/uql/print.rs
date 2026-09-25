@@ -123,6 +123,24 @@ pub fn statement_to_uql(stmt: &Statement) -> Result<String, UqlPrintError> {
         Body::Dag(nodes) => dag_to_uql(nodes)?,
     };
     let body = format!("{body}{}", annotations_to_uql(&stmt.annotations));
+    let body = if let Some(hint) = &stmt.federation_budget {
+        let mut limits = Vec::new();
+        if let Some(n) = hint.requests {
+            limits.push(format!("REQUESTS {n}"));
+        }
+        if let Some(n) = hint.rows {
+            limits.push(format!("ROWS {n}"));
+        }
+        if let Some(n) = hint.bind_keys {
+            limits.push(format!("BIND_KEYS {n}"));
+        }
+        if let Some(n) = hint.wall_ms {
+            limits.push(format!("WALL_MS {n}"));
+        }
+        format!("FEDERATION BUDGET ({}) {body}", limits.join(", "))
+    } else {
+        body
+    };
     Ok(match stmt.mode {
         Mode::Run => body,
         Mode::Explain => format!("EXPLAIN {body}"),

@@ -15,7 +15,10 @@ use std::time::Instant;
 
 use eg_types::wire::{Op, UqlResult, UqlStageReport};
 
-use super::{micros_since, record_channel, returned_channels, rows_of, stage_text, ChannelTable};
+use super::{
+    measured_federation, micros_since, planned_federation, record_channel, returned_channels,
+    rows_of, stage_text, ChannelTable,
+};
 use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
 use crate::exec::{apply_with_channels, PlanCtx};
 use crate::rowset::RowSet;
@@ -62,6 +65,7 @@ pub(super) fn explain(
         stages,
         incremental: false,
         incremental_note: DAG_NOTE.to_string(),
+        federation: planned_federation(&node_ops(nodes)),
         warnings,
     })
 }
@@ -78,6 +82,7 @@ pub(super) fn profile(
         rows: rows_of(&trace.rows, &columns, &trace.table),
         columns,
         stages: reports(nodes, ctx, Some(&trace.stages)),
+        federation: measured_federation(ctx),
         warnings,
     })
 }

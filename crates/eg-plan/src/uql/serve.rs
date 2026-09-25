@@ -48,6 +48,16 @@ pub fn binding_plan(stmt: &Statement) -> Plan {
 
 /// Run `stmt` over `ctx`.
 pub fn run_statement(stmt: &Statement, ctx: &PlanCtx) -> Result<UqlResult, String> {
+    #[cfg(feature = "federation")]
+    if let (Some(hint), Some(session)) = (&stmt.federation_budget, ctx.federation) {
+        let ceiling = session.budget();
+        session.narrow_budget(crate::federation_opt::FederationBudget {
+            max_requests: hint.requests.unwrap_or(ceiling.max_requests),
+            max_rows: hint.rows.unwrap_or(ceiling.max_rows),
+            max_bind_keys: hint.bind_keys.unwrap_or(ceiling.max_bind_keys),
+            max_wall_ms: hint.wall_ms.unwrap_or(ceiling.max_wall_ms),
+        });
+    }
     let warnings: Vec<String> = stmt
         .warnings
         .iter()
@@ -134,6 +144,10 @@ struct Traced {
 
 fn traced(plan: &Plan, ctx: &PlanCtx) -> Result<Traced, String> {
     let optimized = plan_optimize(plan.clone(), ctx);
+    #[cfg(feature = "federation")]
+    if let Some(session) = ctx.federation {
+        session.prepare(&optimized.ops);
+    }
     let mut cur = RowSet::new();
     let mut table = ChannelTable::new();
     let mut stages = Vec::with_capacity(optimized.ops.len());
@@ -197,6 +211,37 @@ fn stage_text(op: &Op) -> String {
     eg_types::wire::uql_op(op).unwrap_or_else(|e| format!("<unprintable: {e}>"))
 }
 
+/// EXPLAIN names planned remote work without exposing an inline source's URL or DSN.
+fn planned_federation(ops: &[Op]) -> Vec<String> {
+    #[cfg(feature = "federation")]
+    return ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::Foreign { name } => Some(format!("remote registered source {name}")),
+            Op::ForeignScan { join, .. } => Some(format!("remote inline source join={join}")),
+            _ => None,
+        })
+        .collect();
+    #[cfg(not(feature = "federation"))]
+    {
+        let _ = ops;
+        Vec::new()
+    }
+}
+
+/// PROFILE gives the actual fragment measurements recorded by the executor.
+fn measured_federation(ctx: &PlanCtx) -> Vec<String> {
+    #[cfg(feature = "federation")]
+    if let Some(session) = ctx.federation {
+        return session
+            .trace()
+            .iter()
+            .map(|t| crate::federation_opt::render_trace(std::slice::from_ref(t)))
+            .collect();
+    }
+    Vec::new()
+}
+
 fn explain(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResult, String> {
     let optimized = plan_optimize(plan.clone(), ctx);
     let stages = optimized
@@ -220,6 +265,7 @@ fn explain(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResul
         stages,
         incremental,
         incremental_note,
+        federation: planned_federation(&optimized.ops),
         warnings,
     })
 }
@@ -243,6 +289,7 @@ fn profile(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResul
         rows: rows_of(&traced.rows, &columns, &traced.table),
         columns,
         stages,
+        federation: measured_federation(ctx),
         warnings,
     })
 }

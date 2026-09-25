@@ -33,6 +33,15 @@ pub enum Mode {
     Profile,
 }
 
+/// Caller limits for one federated query. Omitted dimensions retain the server limit.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FederationBudgetHint {
+    pub requests: Option<u32>,
+    pub rows: Option<usize>,
+    pub bind_keys: Option<usize>,
+    pub wall_ms: Option<u64>,
+}
+
 /// One node of a program DAG: the op and the node ids it consumes (empty ⇒ source; two
 /// or more ⇒ the multi-input intersect-join of `dag_exec`).
 #[derive(Clone, Debug, PartialEq)]
@@ -72,6 +81,7 @@ impl Annotations {
 pub struct Statement {
     pub version: u32,
     pub mode: Mode,
+    pub federation_budget: Option<FederationBudgetHint>,
     pub body: Body,
     pub annotations: Annotations,
     pub warnings: Vec<UqlWarning>,
@@ -96,10 +106,11 @@ pub(in crate::uql) struct Chain {
 }
 
 impl<'a> Parser<'a> {
-    /// `statement = [ UQL int ; ] [ EXPLAIN | PROFILE ] { binding } pipeline [ annotations ]`.
+    /// `statement = [ UQL int ; ] [ EXPLAIN | PROFILE ] [ FEDERATION BUDGET (...) ] { binding } pipeline [ annotations ]`.
     pub(in crate::uql) fn statement(&mut self) -> Result<Statement, UqlError> {
         let version = self.version_pragma()?;
         let mode = self.mode();
+        let federation_budget = self.federation_budget()?;
         while self.eat_kw("LET") {
             self.binding()?;
         }
@@ -118,10 +129,84 @@ impl<'a> Parser<'a> {
         Ok(Statement {
             version,
             mode,
+            federation_budget,
             body,
             annotations,
             warnings: self.take_warnings(),
         })
+    }
+
+    /// A bounded caller hint, before the first binding or pipeline stage.
+    fn federation_budget(&mut self) -> Result<Option<FederationBudgetHint>, UqlError> {
+        if !self.eat_kw("FEDERATION") {
+            return Ok(None);
+        }
+        if !cfg!(feature = "federation") {
+            return Err(self.not_built("federation"));
+        }
+        self.expect_kw("BUDGET")?;
+        self.expect(&Tok::LParen, "`(` after FEDERATION BUDGET")?;
+        let mut hint = FederationBudgetHint::default();
+        loop {
+            let span = self.cur_span();
+            let key = self
+                .name("a federation budget dimension")?
+                .to_ascii_uppercase();
+            match key.as_str() {
+                "REQUESTS" if hint.requests.is_none() => {
+                    hint.requests = Some(self.parse_number("a positive request limit")?);
+                    if hint.requests == Some(0) {
+                        return Err(UqlError::new(
+                            UqlCode::InvalidRange,
+                            "REQUESTS must be positive".into(),
+                            span,
+                        ));
+                    }
+                }
+                "ROWS" if hint.rows.is_none() => {
+                    hint.rows = Some(self.parse_number("a positive row limit")?);
+                    if hint.rows == Some(0) {
+                        return Err(UqlError::new(
+                            UqlCode::InvalidRange,
+                            "ROWS must be positive".into(),
+                            span,
+                        ));
+                    }
+                }
+                "BIND_KEYS" if hint.bind_keys.is_none() => {
+                    hint.bind_keys = Some(self.parse_number("a positive bind-key limit")?);
+                    if hint.bind_keys == Some(0) {
+                        return Err(UqlError::new(
+                            UqlCode::InvalidRange,
+                            "BIND_KEYS must be positive".into(),
+                            span,
+                        ));
+                    }
+                }
+                "WALL_MS" if hint.wall_ms.is_none() => {
+                    hint.wall_ms = Some(self.parse_number("a positive wall-time limit")?);
+                    if hint.wall_ms == Some(0) {
+                        return Err(UqlError::new(
+                            UqlCode::InvalidRange,
+                            "WALL_MS must be positive".into(),
+                            span,
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(UqlError::new(
+                        UqlCode::UnexpectedToken,
+                        format!("unknown or repeated federation budget dimension `{key}`"),
+                        span,
+                    ))
+                }
+            }
+            if !self.eat(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RParen, "`)` after FEDERATION BUDGET")?;
+        Ok(Some(hint))
     }
 
     /// `annotations = WITH annotation { , annotation }`; none without `WITH`.
