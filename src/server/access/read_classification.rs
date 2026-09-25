@@ -345,6 +345,8 @@ pub(super) const REASON_DECISION_LOG_VISIBILITY: &str =
 // the caller's `IsolationLayer::can_see_row` before they are reported.
 pub(super) const REASON_FRESHNESS_METADATA: &str =
     "handlers::query::freshness_feed reads the DepClock invalidation log (versions + class/edge-type names, no row ids or content) and schema-class volatility annotations; the only instance rows it reports, ForeignSourceWatermark nodes, pass IsolationLayer::can_see_row for the caller first";
+pub(super) const REASON_FOREIGN_COLUMN_OWNER_SCOPE: &str =
+    "handlers::federation::query_columns builds ForeignSourceCatalog::registry_for from the verified CarrierAuthority and IsolationLayer share grants before reading a registered SQL source; it never reads a local GraphView row, and ColumnPlan rejects columns outside the owner's registered mapping before fetch";
 
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_DECIDE_LIBRARY_SNAPSHOT
@@ -353,6 +355,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("DecisionLog", REASON_DECISION_LOG_VISIBILITY),
     // REASON_FRESHNESS_METADATA
     ("FreshnessFeed", REASON_FRESHNESS_METADATA),
+    // REASON_FOREIGN_COLUMN_OWNER_SCOPE
+    ("QueryForeignColumns", REASON_FOREIGN_COLUMN_OWNER_SCOPE),
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
     ("AgentAssemble", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     // REASON_SOLVE_PURE_COMPUTE

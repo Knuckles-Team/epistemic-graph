@@ -279,6 +279,32 @@ pub struct CepPatternSpec {
     pub window: CepWindowSpec,
 }
 
+/// A comparison over one owner-registered foreign SQL column (EH-572).
+#[cfg(feature = "federation")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ForeignColumnComparison {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+/// A typed column residual. Its value is a JSON scalar; the executor refuses
+/// unmapped columns before fetching from the registered source.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignColumnPredicate {
+    pub column: String,
+    pub comparison: ForeignColumnComparison,
+    pub value: serde_json::Value,
+}
+
 /// A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`
 /// (CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE
 /// the local engine and composes them with the local graph/vector/SQL ops — so a

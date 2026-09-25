@@ -414,6 +414,16 @@ $($variants)*
         source: crate::wire::ForeignSourceSpec,
     },
 
+    /// Query owner-visible, registered SQL columns with local residuals after
+    /// conservative source pushdown. This does not change UQL row-set semantics.
+    #[cfg(feature = "federation")]
+    QueryForeignColumns {
+        name: String,
+        columns: Vec<String>,
+        #[serde(default)]
+        predicates: Vec<crate::wire::ForeignColumnPredicate>,
+    },
+
 
     // ── WASM-sandboxed UDF / extension model (CONCEPT:EG-KG.query.rowset-execution) ─────────────
     // An agent pushes a custom compute function as a WebAssembly module the engine
