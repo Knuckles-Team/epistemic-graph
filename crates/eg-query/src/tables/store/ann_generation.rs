@@ -229,23 +229,15 @@ impl TableStore {
         if artifact_bytes > MAX_GENERATION_BYTES {
             return Err("ANN generation exceeds durable artifact byte bound".to_string());
         }
-        let mut part_rows = Vec::new();
         let mut descriptors = Vec::new();
-        for (name, bytes) in parts {
+        for (name, bytes) in &parts {
             let chunks = bytes.len().div_ceil(PART_CHUNK_BYTES).max(1);
             descriptors.push(PartManifest {
-                name: name.to_string(),
+                name: (*name).to_string(),
                 bytes: bytes.len(),
                 chunks,
-                sha256: hash(&bytes),
+                sha256: hash(bytes),
             });
-            if bytes.is_empty() {
-                part_rows.push((part_key(name, 0), Vec::new()));
-            } else {
-                for (number, chunk) in bytes.chunks(PART_CHUNK_BYTES).enumerate() {
-                    part_rows.push((part_key(name, number), chunk.to_vec()));
-                }
-            }
         }
         descriptors.sort_by(|left, right| left.name.cmp(&right.name));
         let key = Self::ann_index_key(plan);
@@ -309,13 +301,20 @@ impl TableStore {
                 drop(table);
                 clear_ann_generation_rows_in(write, &key)?;
                 let mut table = write.open_table(SQL_ANN_GENERATIONS)?;
-                for (part, bytes) in &part_rows {
-                    table
-                        .insert(
-                            (key.as_str(), metadata.generation, part.as_str()),
-                            bytes.as_slice(),
-                        )
-                        .map_err(map_err)?;
+                for (name, bytes) in parts {
+                    if bytes.is_empty() {
+                        let part = part_key(name, 0);
+                        table
+                            .insert((key.as_str(), metadata.generation, part.as_str()), &[][..])
+                            .map_err(map_err)?;
+                    } else {
+                        for (number, chunk) in bytes.chunks(PART_CHUNK_BYTES).enumerate() {
+                            let part = part_key(name, number);
+                            table
+                                .insert((key.as_str(), metadata.generation, part.as_str()), chunk)
+                                .map_err(map_err)?;
+                        }
+                    }
                 }
                 table
                     .insert((key.as_str(), 0, LIVE), pointer_bytes.as_slice())
