@@ -1274,7 +1274,7 @@ mod tests {
             ),
             (
                 "finance",
-                "96586d0b324ea5b7d5d20e56127463f037e2f8338819e4eadf0a645a6175f452",
+                "9cadbbd05049f96cdc4766dec4d1f70ca70ea3a3c5ada0bb2257610339930e01",
             ),
             (
                 "finance-shapes",

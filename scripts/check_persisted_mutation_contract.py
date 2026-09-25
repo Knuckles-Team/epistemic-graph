@@ -161,7 +161,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
             "Transaction": 15,
             # +2 control leases, +1 PolicyEvolutionStore; +4 EH-348 GapUpsert,
             # GapTransition, GapSettle, WorkOfferPut; +1 EH-558 RetireSealedRecord
-            "WorkItem": 26,
+            "WorkItem": 27,
             "Blob": 6,
             "KeyValue": 3,
             "TimeSeries": 4,  # +1 TsDefineSeries (EH-524)
@@ -169,7 +169,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
             "Statechart": 1,
             "SqliteCatalog": 1,
             "SessionControl": 13,
-            "Identity": 2,
+            "Identity": 3,
             "ClusterAdmin": 11,
             "GraphLifecycle": 2,
             "Multisig": 1,

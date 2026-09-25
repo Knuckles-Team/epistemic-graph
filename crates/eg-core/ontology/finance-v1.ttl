@@ -277,6 +277,7 @@
     rdfs:label "analysis digest" ;
     rdfs:comment "sha256 of the canonical analysis-snapshot record; re-deriving it verifies the record." ;
     rdfs:domain :AnalysisSnapshot ;
+    rdfs:range xsd:string .
 
 # ── Strategies, signals, orders and positions (folded from company_infra, EH-517) ──
 #

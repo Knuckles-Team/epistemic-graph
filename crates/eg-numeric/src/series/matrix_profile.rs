@@ -141,7 +141,7 @@ impl Scrimp<'_> {
         let mut qt = 0.0;
         for i in from..to {
             let j = i + k;
-            qt = if (i - from) % ANCHOR_EVERY == 0 {
+            qt = if (i - from).is_multiple_of(ANCHOR_EVERY) {
                 dot(&xs[i..i + m], &xs[j..j + m])
             } else {
                 qt - xs[i - 1] * xs[j - 1] + xs[i + m - 1] * xs[j + m - 1]
