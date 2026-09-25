@@ -1,11 +1,11 @@
 //! EH-563 served-path proofs: every served plan that touches a foreign source runs through
-//! the federation optimizer (`run_unified` binds a session), and a foreign∩local join over a
+//! the federation optimizer (`run_unified_with` binds a session), and a foreign∩local join over a
 //! registered source keeps its exact answer. No network: the refusals below happen before
 //! any request, which the naive full-fetch path could not produce.
 
 #[cfg(feature = "tsdb")]
 use super::TsdbLegBind;
-use super::{run_unified, ServedIndexes};
+use super::{execute_rows, run_unified_with, ServedIndexes};
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::GraphCore;
 use eg_plan::federation::ForeignSourceRegistry;
@@ -30,7 +30,7 @@ fn run(
         foreign: registry,
         ..ServedIndexes::default()
     };
-    run_unified(
+    run_unified_with(
         eg_plan::Plan::new(ops),
         &view,
         &semantic,
@@ -42,6 +42,7 @@ fn run(
             tsdb_graph: None,
             staged_series: None,
         },
+        execute_rows,
     )
 }
 
