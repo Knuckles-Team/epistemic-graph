@@ -531,9 +531,11 @@ def _admission_anchors_for_layer(
 ) -> set[str]:
     """Admission anchors for ONE layer: its own admission step, nothing wider.
 
-    A function is an anchor when it carries the layer's entry type and either
-    opens the admitted write itself, or is called DIRECTLY by a function that
-    does.  See `_admitted_writes` for why the second form exists.
+    A function is an anchor when it carries the layer's entry type, receives
+    the admitting transaction, and either opens the write itself or is called
+    DIRECTLY by a function that does. A read helper returning an entry and a
+    replay helper accepting one are not admission steps. A separate writer for
+    an unpinned record must not lend its reads to pin-bearing component writes.
 
     The entry type is matched on word boundaries.  A substring match let
     `AgentLibraryEntryDraft` -- which the TEMPLATE layer's admission also
@@ -543,7 +545,11 @@ def _admission_anchors_for_layer(
     """
 
     marker = re.compile(rf"\bAgent{layer.capitalize()}Entry\b")
-    carries = {name for name, body in bodies.items() if marker.search(body)}
+    carries = {
+        name
+        for name, body in bodies.items()
+        if marker.search(body) and re.search(r"\btxn\s*:\s*&", body)
+    }
     anchors = opens_write & carries
     for name in opens_write:
         anchors |= set(_CALL.findall(bodies[name])) & carries
@@ -553,8 +559,8 @@ def _admission_anchors_for_layer(
 def _admitted_writes(bodies: dict[str, str], layers: set[str]) -> dict[str, set[str]]:
     """Each layer's admitted write: where a record carrying pins is committed.
 
-    The two markers -- the entry type and the `open_write` call that commits
-    it -- used to live in one function's own text. A write-opening function
+    The entry type, admitted transaction parameter, and `open_write` call that
+    commits it used to live in one function's own text. A write-opening function
     that hands the entry-typed work to a `prepare_*` / `commit_*` step is an
     ordinary split of that one function: the entry type moves exactly ONE call
     away, into a function the write-opener calls by name.  So a function counts
