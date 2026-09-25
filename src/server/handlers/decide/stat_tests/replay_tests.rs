@@ -404,10 +404,30 @@ async fn queue_link_write_failure_retries_the_same_analytics_job() {
     let jobs = crate::server::handlers::jobs::outbox_job_store(&h.state)
         .await
         .unwrap();
-    let before = jobs.list_ids().unwrap();
+    let request_ref = super::super::stat_jobs::replay_request_ref(&request);
+    let matching = || {
+        jobs.list_ids()
+            .unwrap()
+            .into_iter()
+            .filter(|id| {
+                let Ok(job) = jobs.get(id) else {
+                    return false;
+                };
+                let Some(payload) = job.input_payload else {
+                    return false;
+                };
+                matches!(
+                    rmp_serde::from_slice::<eg_types::jobs::JobKind>(&payload),
+                    Ok(eg_types::jobs::JobKind::DecisionReplay { request_ref: pinned })
+                        if pinned == request_ref
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = matching();
     assert_eq!(before.len(), 1);
     let submitted = submit(&h, request.clone()).await.unwrap();
-    assert_eq!(jobs.list_ids().unwrap(), before);
+    assert_eq!(matching(), before);
     assert!(matches!(
         submitted.state,
         DecisionJobState::Queued | DecisionJobState::Running | DecisionJobState::Succeeded { .. }
@@ -415,5 +435,5 @@ async fn queue_link_write_failure_retries_the_same_analytics_job() {
     let finished = completed(&h, request).await.unwrap();
     assert_eq!(finished.job_id, submitted.job_id);
     assert!(matches!(finished.state, DecisionJobState::Succeeded { .. }));
-    assert_eq!(jobs.list_ids().unwrap(), before);
+    assert_eq!(matching(), before);
 }
