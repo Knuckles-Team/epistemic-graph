@@ -6,6 +6,7 @@
 //! ANN generation are reads of the source of record, never a second copy of it.
 
 use eg_types::RowPredicate;
+use redb::ReadableTable;
 
 use super::{
     decode_stored, get_schema_read, map_err, row_map, DirtyReadTable, RowsReadTable, TableStore,
