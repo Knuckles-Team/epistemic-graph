@@ -198,16 +198,7 @@ where
     // RECONCILE (CONCEPT:EG-KG.query.native-time-series): the committed tsdb `SeriesStore` for `Op::TsScan`
     // fusion inside the txn, so an in-txn UQL reads COMMITTED series.
     #[cfg(feature = "tsdb")]
-    let tsdb = if tsdb_scope.is_some() {
-        state.read().await.tsdb_store.clone()
-    } else {
-        None
-    };
-    #[cfg(feature = "tsdb")]
-    let (tsdb_tenant, tsdb_graph_scope) = match tsdb_scope {
-        Some((tenant, graph)) => (Some(tenant), Some(graph)),
-        None => (None, None),
-    };
+    let (tsdb, tsdb_tenant, tsdb_graph_scope) = bound_tsdb_leg(state, tsdb_scope).await;
     // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S owner-scoped foreign
     // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
     // resolves only sources the caller (tenant+principal) registered.

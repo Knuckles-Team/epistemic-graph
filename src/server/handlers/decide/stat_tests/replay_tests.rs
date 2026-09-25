@@ -38,17 +38,7 @@ async fn fitted(h: &Harness) -> Fitted {
         h.publish(id, AgentComponentKind::Tool, summary, None::<&()>, None)
             .unwrap();
     }
-    let body = schema();
-    let schema_pin = h
-        .publish(
-            "schema-route",
-            AgentComponentKind::FeatureSchema,
-            "route features",
-            Some(&body),
-            None,
-        )
-        .unwrap();
-    let schema_digest = encode_body(&body).unwrap().content_digest;
+    let (schema_pin, schema_digest) = publish_route_schema(h);
     let batch = decide(
         h,
         request(

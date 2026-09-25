@@ -17,14 +17,7 @@ fn scorer_fit(fixture: &RouteFixture, data: &LabelledDataset) -> DecisionFitOp {
                 gold_set_digest: super::super::stat_jobs::dataset_digest(data).unwrap(),
             },
             window: window(),
-            optimiser: OptimiserSpec {
-                max_iterations: 60,
-                tolerance: QuantisedValue {
-                    scale: QuantScaleTag::Q32,
-                    value: 1 << 12,
-                },
-                seed: 0,
-            },
+            optimiser: fit_optimiser(),
             source: DatasetSource::Inline {
                 dataset: Box::new(data.clone()),
             },

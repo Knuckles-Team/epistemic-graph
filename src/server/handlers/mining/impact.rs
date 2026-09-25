@@ -157,6 +157,25 @@ fn semantics_of(semantics: Semantics) -> ImpactSemantics {
     }
 }
 
+fn score_rows(
+    nodes: &[String],
+    probability: &[f64],
+    depth: &[Option<u32>],
+    bounds: Option<(&[f64], &[f64])>,
+) -> Vec<RiskScoreRow> {
+    nodes
+        .iter()
+        .enumerate()
+        .map(|(i, id)| RiskScoreRow {
+            node: id.clone(),
+            score: probability[i],
+            hops: depth[i],
+            lower: bounds.map(|(lower, _)| lower[i]),
+            upper: bounds.map(|(_, upper)| upper[i]),
+        })
+        .collect()
+}
+
 fn noisy_or_run(
     graph: &ImpactGraph,
     seeds: &[Seed],
@@ -164,18 +183,7 @@ fn noisy_or_run(
     inputs: &ImpactInputs<'_>,
 ) -> ImpactRun {
     let out = noisy_or(graph, seeds, inputs.options.hops);
-    let rows = inputs
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, id)| RiskScoreRow {
-            node: id.clone(),
-            score: out.probability[i],
-            hops: out.depth[i],
-            lower: None,
-            upper: None,
-        })
-        .collect();
+    let rows = score_rows(inputs.nodes, &out.probability, &out.depth, None);
     let mut report = empty_report(semantics_of(out.semantics), out.probability.iter().sum());
     if inputs.options.attribute_seeds {
         match noisy_or_attribution(graph, seeds, targets, inputs.options.hops) {
@@ -216,18 +224,12 @@ fn cascade_run(
     };
     let out = independent_cascade(graph, seeds, attributed, &spec);
     let depth = eg_compute::graph_algos::impact::hop_depths(graph, seeds, options.hops);
-    let rows = inputs
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, id)| RiskScoreRow {
-            node: id.clone(),
-            score: out.probability[i],
-            hops: depth[i],
-            lower: Some(out.lower[i]),
-            upper: Some(out.upper[i]),
-        })
-        .collect();
+    let rows = score_rows(
+        inputs.nodes,
+        &out.probability,
+        &depth,
+        Some((&out.lower, &out.upper)),
+    );
     let mut report = empty_report(ImpactSemantics::MonteCarlo, out.expected_spread);
     report.spread_lower = Some(out.spread_lower);
     report.spread_upper = Some(out.spread_upper);

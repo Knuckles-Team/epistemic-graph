@@ -7,7 +7,9 @@
 //! of its retained revisions must carry the pinned definition digest. The body
 //! is then re-hashed against the revision's content digest.
 
+use eg_numeric::decision::features::FeatureMatrix;
 use serde::de::DeserializeOwned;
+use std::sync::Arc;
 
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind, ComponentDependency};
 use eg_types::decision::digest::policy_digest;
@@ -20,6 +22,48 @@ use eg_types::decision::{
 };
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
+
+/// Open a graph for one caller before exposing its data to a statistical read.
+pub(super) async fn readable_graph(
+    state: &Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
+    agent_id: &str,
+    graph: &str,
+    missing_code: StatisticalErrorCode,
+) -> Result<
+    (
+        Arc<eg_core::graph::GraphCore>,
+        crate::isolation::IsolationLayer,
+    ),
+    String,
+> {
+    let guard = state.read().await;
+    let entry = guard
+        .registry
+        .get(graph)
+        .ok_or_else(|| refusal(missing_code, format!("unknown graph {graph}")))?;
+    crate::server::access::check_graph_access(
+        &guard.isolation,
+        Some(agent_id),
+        graph,
+        entry.graph_type,
+        entry.owner.as_deref(),
+        crate::isolation::AccessLevel::Read,
+    )?;
+    Ok((Arc::clone(&entry.core), guard.isolation.clone()))
+}
+
+/// Copy a pinned inline matrix into the numeric decision kernel's row format.
+pub(super) fn materialize_matrix(
+    candidate_ids: &[String],
+    feature_names: &[String],
+    values: &[i64],
+) -> FeatureMatrix {
+    FeatureMatrix {
+        candidate_ids: candidate_ids.to_vec(),
+        feature_names: feature_names.to_vec(),
+        values: values.to_vec(),
+    }
+}
 
 /// The refusal text of a statistical-surface failure.
 pub(super) fn refusal(code: StatisticalErrorCode, detail: impl std::fmt::Display) -> String {

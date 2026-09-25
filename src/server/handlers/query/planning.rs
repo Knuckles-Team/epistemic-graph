@@ -905,16 +905,7 @@ where
         ..
     } = legs;
     #[cfg(feature = "tsdb")]
-    let tsdb = if tsdb_scope.is_some() {
-        state.read().await.tsdb_store.clone()
-    } else {
-        None
-    };
-    #[cfg(feature = "tsdb")]
-    let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
-        Some((tenant, graph)) => (Some(tenant), Some(graph)),
-        None => (None, None),
-    };
+    let (tsdb, tsdb_tenant, tsdb_graph) = bound_tsdb_leg(state, tsdb_scope).await;
     #[cfg(not(feature = "tsdb"))]
     let _ = state;
     compute_off_lock(req_id, move || {
@@ -942,6 +933,24 @@ where
         )
     })
     .await
+}
+
+#[cfg(feature = "tsdb")]
+pub(crate) async fn bound_tsdb_leg(
+    state: &Arc<RwLock<ServerState>>,
+    scope: Option<(String, String)>,
+) -> (
+    Option<Arc<eg_tsdb::store::SeriesStore>>,
+    Option<String>,
+    Option<String>,
+) {
+    let store = if scope.is_some() {
+        state.read().await.tsdb_store.clone()
+    } else {
+        None
+    };
+    let (tenant, graph) = scope.map_or((None, None), |(tenant, graph)| (Some(tenant), Some(graph)));
+    (store, tenant, graph)
 }
 
 /// Wrap `finish` so it runs over a ctx with the caller's decision log bound (EH-066).
