@@ -30,6 +30,7 @@ use crate::flat::Metric;
 use crate::ivfpq::SearchResult;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+pub mod artifact;
 mod search;
 
 /// One graph node: its external id, its full vector, and its per-layer adjacency
