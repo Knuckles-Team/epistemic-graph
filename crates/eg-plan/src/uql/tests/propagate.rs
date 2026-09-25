@@ -1,6 +1,7 @@
 //! `PROPAGATE` (EH-526): impact probabilities over the resident graph, served by the
 //! same kernel as `MineRiskPropagation`.
 
+use super::blob;
 use eg_compute::graph_algos::impact::{noisy_or, ImpactGraph, Seed};
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::GraphCore;
@@ -10,10 +11,6 @@ use serde_json::json;
 use crate::exec::PlanCtx;
 use crate::uql::serve::run_statement;
 use crate::uql::{parse_statement, Params};
-
-fn blob(v: serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(&v).unwrap()
-}
 
 /// api, cache and web depend (transitively) on db; web's edge carries no transmission.
 fn fixture(db_p_seed: Option<f64>) -> (eg_core::graph::GraphView, SemanticStore) {

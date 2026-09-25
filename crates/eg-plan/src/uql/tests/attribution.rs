@@ -4,6 +4,7 @@
 
 #[cfg(feature = "numeric")]
 mod served {
+    use super::super::blob;
     use eg_core::compute::semantic::SemanticStore;
     use eg_core::graph::GraphCore;
     use eg_types::wire::{UqlResult, UqlRow};
@@ -12,10 +13,6 @@ mod served {
     use crate::exec::PlanCtx;
     use crate::uql::serve::run_statement;
     use crate::uql::{parse_statement, Params};
-
-    fn blob(v: serde_json::Value) -> Vec<u8> {
-        rmp_serde::to_vec_named(&v).unwrap()
-    }
 
     /// Five services on two pods, each with a p95 latency; `s5` has no latency.
     fn fixture() -> (eg_core::graph::GraphView, SemanticStore) {

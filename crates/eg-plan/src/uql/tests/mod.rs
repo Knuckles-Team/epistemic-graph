@@ -2,6 +2,11 @@
 //! obligations (UQL-06/UQL-10); `roundtrip` the printer ⇄ parser property.
 
 #[cfg(feature = "query")]
+fn blob(value: serde_json::Value) -> Vec<u8> {
+    rmp_serde::to_vec_named(&value).unwrap()
+}
+
+#[cfg(feature = "query")]
 mod annotations;
 #[cfg(feature = "query")]
 mod attribution;

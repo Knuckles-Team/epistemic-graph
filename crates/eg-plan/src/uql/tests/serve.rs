@@ -1,6 +1,7 @@
 //! Running statements (UQL-07/08/09): channels coexist, EXPLAIN/PROFILE, DAGs (with
 //! EXPLAIN/PROFILE/RETURN, EH-449), budgets.
 
+use super::blob;
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::GraphCore;
 use eg_types::wire::{UqlParam, UqlResult};
@@ -10,10 +11,6 @@ use crate::budget::Budget;
 use crate::exec::PlanCtx;
 use crate::uql::serve::run_statement;
 use crate::uql::{parse_statement, Params};
-
-fn blob(v: serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(&v).unwrap()
-}
 
 /// d1 → d2 → d3 (CITES), d4 isolated; d2 and d3 are cited once each.
 fn fixture() -> (eg_core::graph::GraphView, SemanticStore) {
