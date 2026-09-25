@@ -38,6 +38,7 @@ fn head() -> DecisionHeadBody {
         training_records_digest: "sha256:training".to_string(),
         n_training: 12,
         synthetic: true,
+        scorer: None,
     }
 }
 

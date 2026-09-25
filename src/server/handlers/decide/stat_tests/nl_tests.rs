@@ -51,6 +51,7 @@ fn nl_request(schema: &ComponentDependency, params: Vec<TypedParam>) -> DecideRe
         policy: DecisionPolicyRef::Default,
         params: BoundedVec::new(params).unwrap(),
         max_records: None,
+        belief_as_of: BoundedVec::default(),
     }
 }
 
