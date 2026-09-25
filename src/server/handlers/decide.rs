@@ -96,6 +96,8 @@ pub(crate) use assemble::handle_agent_assemble;
 pub(crate) use commit::handle_decision_commit;
 pub(crate) use jobs::{handle_decision_eval, handle_decision_fit};
 pub(crate) use log::handle_decision_log;
+#[cfg(all(feature = "decide", feature = "finance"))]
+pub(crate) use stat_jobs::{replay_request_ref, run_replay_job};
 pub(crate) use statistical::handle_decide;
 
 /// The caller's read-only SQL relations — the decision record views (EH-066) — when
