@@ -62,7 +62,76 @@ pub fn run_statement(stmt: &Statement, ctx: &PlanCtx) -> Result<UqlResult, Strin
         (Body::Dag(nodes), Mode::Profile) => dag::profile(nodes, ctx, warnings),
     }?;
     annotate::annotate(&mut result, stmt, ctx)?;
+    attach_provenance(&mut result, stmt, ctx)?;
     Ok(result)
+}
+
+/// Bind a row result to its canonical, parameter-expanded query and read revision.
+/// The row bytes also distinguish non-versioned graph snapshots with changed data.
+fn attach_provenance(
+    result: &mut UqlResult,
+    stmt: &Statement,
+    ctx: &PlanCtx,
+) -> Result<(), String> {
+    let rows = match result {
+        UqlResult::Rows { rows, .. } | UqlResult::Profile { rows, .. } => rows,
+        UqlResult::Explain { .. } => return Ok(()),
+    };
+    let canonical = match &stmt.body {
+        Body::Pipeline(plan) => plan.to_uql().map_err(|e| e.to_string())?,
+        Body::Dag(nodes) => super::print::dag_to_uql(nodes).map_err(|e| e.to_string())?,
+    };
+    let row_bytes = rmp_serde::to_vec_named(rows.as_slice()).map_err(|e| e.to_string())?;
+    let revision = series_revision(stmt, ctx)?;
+    #[cfg(feature = "timeseries")]
+    let kernel_version = eg_tsdb::derive::KERNEL_VERSION;
+    #[cfg(not(feature = "timeseries"))]
+    let kernel_version = concat!("eg-plan/", env!("CARGO_PKG_VERSION"));
+    let digest = eg_types::contract::Digest256::framed(
+        b"eg/uql-result-provenance/v1",
+        &[
+            canonical.as_bytes(),
+            revision.as_bytes(),
+            kernel_version.as_bytes(),
+            &row_bytes,
+        ],
+    )?;
+    match result {
+        UqlResult::Rows {
+            provenance_digest, ..
+        }
+        | UqlResult::Profile {
+            provenance_digest, ..
+        } => {
+            *provenance_digest = format!("sha256:{digest}");
+        }
+        UqlResult::Explain { .. } => unreachable!(),
+    }
+    Ok(())
+}
+
+#[cfg(feature = "timeseries")]
+fn series_revision(stmt: &Statement, ctx: &PlanCtx) -> Result<String, String> {
+    let has_scan = binding_plan(stmt)
+        .ops
+        .iter()
+        .any(|op| matches!(op, Op::TsScan { .. }));
+    if !has_scan {
+        return Ok(String::new());
+    }
+    let (Some(store), Some(tenant), Some(graph)) = (ctx.tsdb, ctx.tsdb_tenant, ctx.tsdb_graph)
+    else {
+        return Ok("unbound-series-store".to_string());
+    };
+    store
+        .mutation_version(tenant, graph)
+        .map(|version| format!("{tenant}/{graph}@{version}"))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "timeseries"))]
+fn series_revision(_stmt: &Statement, _ctx: &PlanCtx) -> Result<String, String> {
+    Ok(String::new())
 }
 
 /// The channels the LAST `RETURN` names (empty without one).
@@ -114,6 +183,7 @@ fn run(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResult, S
             rows: rows_of(&rows, &columns, &ChannelTable::new()),
             columns,
             warnings,
+            provenance_digest: String::new(),
         });
     }
     let traced = traced(plan, ctx)?;
@@ -121,6 +191,7 @@ fn run(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResult, S
         rows: rows_of(&traced.rows, &columns, &traced.table),
         columns,
         warnings,
+        provenance_digest: String::new(),
     })
 }
 
@@ -233,5 +304,6 @@ fn profile(plan: &Plan, ctx: &PlanCtx, warnings: Vec<String>) -> Result<UqlResul
         columns,
         stages,
         warnings,
+        provenance_digest: String::new(),
     })
 }

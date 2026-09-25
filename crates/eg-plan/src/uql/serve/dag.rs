@@ -45,6 +45,7 @@ pub(super) fn run(
         rows: rows_of(&rows, &columns, &table),
         columns,
         warnings,
+        provenance_digest: String::new(),
     })
 }
 
@@ -79,6 +80,7 @@ pub(super) fn profile(
         columns,
         stages: reports(nodes, ctx, Some(&trace.stages)),
         warnings,
+        provenance_digest: String::new(),
     })
 }
 

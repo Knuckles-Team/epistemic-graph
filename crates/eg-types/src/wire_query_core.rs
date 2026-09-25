@@ -784,6 +784,10 @@ pub enum UqlResult {
         columns: Vec<String>,
         rows: Vec<UqlRow>,
         warnings: Vec<String>,
+        /// Domain-separated digest of the canonical query, source revision, kernel,
+        /// and returned rows (EH-522).
+        #[serde(default)]
+        provenance_digest: String,
     },
     /// `EXPLAIN`: the canonical and the optimized plan, per-stage estimates, and
     /// whether the plan is incrementally maintainable (with the reason when not).
@@ -801,5 +805,8 @@ pub enum UqlResult {
         rows: Vec<UqlRow>,
         stages: Vec<UqlStageReport>,
         warnings: Vec<String>,
+        /// The same provenance contract as `Rows`; profiling time is excluded.
+        #[serde(default)]
+        provenance_digest: String,
     },
 }

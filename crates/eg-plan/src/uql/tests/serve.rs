@@ -33,6 +33,48 @@ fn run(src: &str, params: &Params, ctx: &PlanCtx) -> Result<UqlResult, String> {
     run_statement(&stmt, ctx)
 }
 
+fn provenance(result: UqlResult) -> String {
+    match result {
+        UqlResult::Rows {
+            provenance_digest, ..
+        }
+        | UqlResult::Profile {
+            provenance_digest, ..
+        } => provenance_digest,
+        UqlResult::Explain { .. } => panic!("row result expected"),
+    }
+}
+
+#[test]
+fn row_provenance_binds_query_parameters_and_rows() {
+    let (view, semantic) = fixture();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let query = "MATCH (:Doc) WHERE year >= $min |> RETURN mentions";
+    let low: Params = [("min".into(), UqlParam::Num(2021.0))].into();
+    let high: Params = [("min".into(), UqlParam::Num(2022.0))].into();
+    let first = provenance(run(query, &low, &ctx).unwrap());
+    assert!(first.starts_with("sha256:") && first.len() == 71);
+    assert_eq!(first, provenance(run(query, &low, &ctx).unwrap()));
+    assert_eq!(
+        first,
+        provenance(run(&format!("PROFILE {query}"), &low, &ctx).unwrap())
+    );
+    assert_ne!(first, provenance(run(query, &high, &ctx).unwrap()));
+    assert_ne!(
+        first,
+        provenance(run("MATCH (:Doc)", &Params::new(), &ctx).unwrap())
+    );
+}
+
+#[test]
+fn dag_row_provenance_is_stable_across_profile_mode() {
+    let (view, semantic) = fixture();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let plain = provenance(run(PROGRAM, &Params::new(), &ctx).unwrap());
+    let profiled = provenance(run(&format!("PROFILE {PROGRAM}"), &Params::new(), &ctx).unwrap());
+    assert_eq!(plain, profiled);
+}
+
 #[test]
 fn two_scoring_stages_keep_both_channels() {
     let (view, semantic) = fixture();
