@@ -1,5 +1,6 @@
 //! Walk-forward folds with a purge gap and a post-test embargo.
 
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 use eg_types::decision::replay::{WalkForward, MAX_REPLAY_FOLDS};
@@ -8,7 +9,7 @@ use eg_types::decision::statistical::StatisticalErrorCode;
 use crate::decision::refusal::{Refusal, RefusalResult};
 
 /// One fold: the step indices it trains on and the window it tests.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fold {
     pub train: Vec<usize>,
     pub test: Range<usize>,
