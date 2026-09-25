@@ -21,7 +21,7 @@ use serde_json::{Map, Value};
 
 use super::dto::{push_dto_imports, surface_closure, validate_digest_specs};
 use super::dto_surfaces::{DtoSurface, DTO_SURFACES};
-use super::models::render_owned;
+use super::models::{member_classes, render_owned};
 use super::HEADER;
 
 /// The generated module holding the definitions two or more surfaces reach.
@@ -33,6 +33,8 @@ pub(super) struct Surfaces<'a> {
     definitions: &'a Map<String, Value>,
     closures: BTreeMap<&'static str, BTreeSet<String>>,
     owners: BTreeMap<String, &'static str>,
+    /// Each tagged-union variant class, keyed to the union definition that renders it.
+    members: BTreeMap<String, String>,
 }
 
 impl<'a> Surfaces<'a> {
@@ -52,16 +54,37 @@ impl<'a> Surfaces<'a> {
             }
             closures.insert(surface.module, names);
         }
+        let members = definitions
+            .iter()
+            .flat_map(|(name, node)| {
+                member_classes(name, node)
+                    .into_iter()
+                    .map(move |class| (class, name.clone()))
+            })
+            .filter(|(class, _)| !definitions.contains_key(class))
+            .collect();
         Self {
             definitions,
             closures,
             owners,
+            members,
         }
     }
 
-    /// The module that renders `name`.
+    /// `names` plus the variant classes of every tagged union among them.
+    fn with_members(&self, names: &BTreeSet<String>) -> BTreeSet<String> {
+        let variants = self
+            .members
+            .iter()
+            .filter(|(_, union)| names.contains(*union))
+            .map(|(class, _)| class.clone());
+        names.iter().cloned().chain(variants).collect()
+    }
+
+    /// The module that renders `name` (a variant class: its union's module).
     fn owner(&self, name: &str) -> &'static str {
-        self.owners.get(name).copied().unwrap_or(MODELS_MODULE)
+        let definition = self.members.get(name).map_or(name, String::as_str);
+        self.owners.get(definition).copied().unwrap_or(MODELS_MODULE)
     }
 
     /// Whether `surface`'s roots are declared, so its module is generated.
@@ -107,6 +130,7 @@ impl<'a> Surfaces<'a> {
         exported: &BTreeSet<String>,
     ) -> String {
         let body = render_owned(self.definitions, &|name| self.owner(name) == module);
+        let exported = &self.with_members(exported);
         let mut foreign: BTreeMap<&str, Vec<String>> = BTreeMap::new();
         for name in exported {
             let owner = self.owner(name);
