@@ -185,7 +185,10 @@ fn validation(outcome: &ReplayOutcome, trials: TrialLog) -> Result<ReplayValidat
     })
 }
 
-fn fold_views(outcome: &ReplayOutcome, steps: &[ReplayStep]) -> Result<Vec<ReplayFoldView>, String> {
+fn fold_views(
+    outcome: &ReplayOutcome,
+    steps: &[ReplayStep],
+) -> Result<Vec<ReplayFoldView>, String> {
     outcome
         .folds
         .iter()
@@ -220,8 +223,12 @@ fn contributions(outcome: &ReplayOutcome) -> Result<Vec<OptionContribution>, Str
 }
 
 fn bounded<T, const N: usize>(values: Vec<T>, what: &str) -> Result<BoundedVec<T, N>, String> {
-    BoundedVec::new(values)
-        .map_err(|detail| refusal(StatisticalErrorCode::ReplaySpecInvalid, format!("{what}: {detail}")))
+    BoundedVec::new(values).map_err(|detail| {
+        refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            format!("{what}: {detail}"),
+        )
+    })
 }
 
 /// Seal the run: every output derived here, the digest over all of it.

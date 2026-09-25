@@ -62,7 +62,10 @@ fn walk_forward_purges_embargoes_and_never_overlaps_tests() {
         assert!(pair[0].test.end <= pair[1].test.start);
     }
     for fold in &folds {
-        assert!(fold.train.iter().all(|&i| i + 2 < fold.test.start), "purged");
+        assert!(
+            fold.train.iter().all(|&i| i + 2 < fold.test.start),
+            "purged"
+        );
     }
 }
 
@@ -103,11 +106,21 @@ fn the_oracle_beats_uniform_and_contributions_sum_to_the_path() {
         prepared: Vec::new(),
     };
     let mut uniform = Uniform { steps: &data };
-    let outcome = replay(&data, &spec(20, 10, 10, 1, 1), 1.0, &mut oracle, &mut uniform).unwrap();
+    let outcome = replay(
+        &data,
+        &spec(20, 10, 10, 1, 1),
+        1.0,
+        &mut oracle,
+        &mut uniform,
+    )
+    .unwrap();
     assert_eq!(outcome.folds.len(), 3);
     let path = outcome.path();
     assert!(path.iter().all(|&u| (u - 1.0).abs() < 1e-15), "capped at 1");
-    assert!(outcome.incumbent_path().iter().all(|&u| (u - 0.5).abs() < 1e-15));
+    assert!(outcome
+        .incumbent_path()
+        .iter()
+        .all(|&u| (u - 0.5).abs() < 1e-15));
     let credited: f64 = outcome.contributions.values().map(|(_, u)| u).sum();
     assert!((credited - path.iter().sum::<f64>()).abs() < 1e-12);
     assert_eq!(outcome.folds[0].head_digest, "oracle-20");
