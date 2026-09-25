@@ -38,4 +38,5 @@ owner_domains!(
     ClusterHierarchyOwner => ClusterHierarchy,
     GraphShardOwner => GraphShard,
     AgentLibraryOwner => AgentLibrary,
+    ForeignCatalogOwner => ForeignCatalog,
 );

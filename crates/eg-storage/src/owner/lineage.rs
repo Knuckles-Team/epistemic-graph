@@ -140,6 +140,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
         | OwnerLayout::VizProvenance
         | OwnerLayout::ColdTier
         | OwnerLayout::TenantCatalog
+        | OwnerLayout::ForeignCatalog
         | OwnerLayout::NodeInfo
         | OwnerLayout::ClusterHierarchy => &[],
         OwnerLayout::GraphShard => &[GRAPH_SHARD_BEFORE_STORAGE_SCRUB],
@@ -147,7 +148,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
 }
 
 /// Every layout, in registry order.
-pub const ALL_LAYOUTS: [OwnerLayout; 18] = [
+pub const ALL_LAYOUTS: [OwnerLayout; 19] = [
     OwnerLayout::LedgerOnly,
     OwnerLayout::Rbac,
     OwnerLayout::Jobs,
@@ -166,6 +167,7 @@ pub const ALL_LAYOUTS: [OwnerLayout; 18] = [
     OwnerLayout::ClusterHierarchy,
     OwnerLayout::GraphShard,
     OwnerLayout::AgentLibrary,
+    OwnerLayout::ForeignCatalog,
 ];
 
 /// The digest each layout had when its lineage was last declared, hex.
@@ -215,6 +217,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
         OwnerLayout::AgentLibrary => {
             "7ea9bcde54e8961cedaa586b3520f890100c5f53f9f5f9574a30dea02c882445"
         }
+        OwnerLayout::ForeignCatalog => "FOREIGN_CATALOG_DIGEST_PENDING_REMOTE_TEST",
     }
 }
 
