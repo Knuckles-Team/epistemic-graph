@@ -19,7 +19,8 @@
 //! [`reads_graph_rows_server_side`] is an exhaustive, no-wildcard match proving
 //! (at compile time — a new `JobKind` variant without an arm here fails to
 //! build) that no shipped `JobKind` reads a node/edge property from `core`.
-//! `MineAssociate` mines only caller-supplied `transactions`; `ProgramOptimize`
+//! `MineAssociate` mines only caller-supplied `transactions`; `DecisionReplay`
+//! resolves a tenant-scoped Agent Library control artifact; `ProgramOptimize`
 //! submits an opaque request a REMOTE WORKER later claims and executes under
 //! its OWN independently authenticated session (see "Distributed execution
 //! contract" below) — this handler never touches the worker's read path.
@@ -79,6 +80,7 @@ mod core;
 mod executor_claim;
 mod executor_loop;
 mod executor_program;
+mod executor_replay;
 #[cfg(test)]
 mod graph_tests;
 mod helpers;
@@ -90,6 +92,7 @@ mod program_validation;
 mod publication;
 mod results_association;
 mod results_program;
+mod results_replay;
 mod submit;
 mod worker_publish;
 mod worker_requests;
@@ -103,6 +106,7 @@ use core::{
 use executor_claim::*;
 use executor_loop::*;
 use executor_program::*;
+use executor_replay::*;
 use helpers::*;
 use native_validation::*;
 use program_validation::*;
@@ -117,6 +121,7 @@ pub(crate) use publication::{
 };
 use results_association::*;
 use results_program::*;
+use results_replay::*;
 use submit::*;
 use worker_publish::*;
 use worker_requests::*;
@@ -405,6 +410,8 @@ mod jobs_read_rls_architecture;
 ///   its OWN independently authenticated session (see the module doc's
 ///   "Distributed execution contract") — this handler never reads graph rows
 ///   on that worker's behalf.
+/// - `DecisionReplay` submits only an opaque request artifact key. The worker
+///   resolves it under the durable job's verified tenant and checks its digest.
 ///
 /// `handle_submit` calls this BEFORE it does anything else with `kind`, and
 /// fails closed (an error response, not a debug-only assert) if a future
@@ -413,6 +420,9 @@ mod jobs_read_rls_architecture;
 fn reads_graph_rows_server_side(kind: &JobKind) -> bool {
     match kind {
         JobKind::MineAssociate { .. } => false,
+        // The worker resolves an Agent Library control artifact by the
+        // job's verified tenant; Submit reads no graph node or edge rows.
+        JobKind::DecisionReplay { .. } => false,
         #[cfg(feature = "program-optimization")]
         JobKind::ProgramOptimize { .. } => false,
     }
@@ -576,6 +586,9 @@ fn govern_job_kind(
             min_confidence,
             algorithm,
         ),
+        JobKind::DecisionReplay { request_ref } => {
+            submit_job_decision_replay(req_id, request_ref, required_capabilities)
+        }
         #[cfg(feature = "program-optimization")]
         JobKind::ProgramOptimize { request_msgpack } => submit_job_program_optimize(
             authority,
@@ -703,6 +716,11 @@ mod read_rls_tests {
             min_support: 0.1,
             min_confidence: 0.5,
             algorithm: "fpgrowth".to_string(),
+        }));
+        assert!(!reads_graph_rows_server_side(&JobKind::DecisionReplay {
+            request_ref:
+                "replay-request:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
         }));
         #[cfg(feature = "program-optimization")]
         assert!(!reads_graph_rows_server_side(&JobKind::ProgramOptimize {

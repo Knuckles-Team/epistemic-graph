@@ -54,6 +54,10 @@ use super::*;
 /// enforces exactly this ordering at runtime too).
 const NON_ROW_SCOPED_JOB_KINDS: &[(&str, &str)] = &[
     (
+        "DecisionReplay",
+        "submits a content-addressed Agent Library request reference; the worker resolves that control artifact under the verified job tenant and reads no graph node or edge rows",
+    ),
+    (
         "MineAssociate",
         "mines only the `transactions` field the CALLER supplied inline in \
          the request; `handle_submit`'s JobKind::MineAssociate arm hashes \
@@ -86,6 +90,7 @@ fn every_job_kind_is_classified_and_matches_the_live_guard() {
     // undocumented variant is the hard failure, mirroring
     // `server::access::read_rls_coverage_tests`'s UNDOCUMENTED gate.
     let shipped: &[&str] = &[
+        "DecisionReplay",
         "MineAssociate",
         #[cfg(feature = "program-optimization")]
         "ProgramOptimize",
@@ -119,6 +124,11 @@ fn every_job_kind_is_classified_and_matches_the_live_guard() {
          verify handle_submit actually projects the row through \
          GraphReadAuthority before this assertion changes"
     );
+    assert!(!reads_graph_rows_server_side(&JobKind::DecisionReplay {
+        request_ref:
+            "replay-request:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
+    }));
     #[cfg(feature = "program-optimization")]
     assert!(
         !reads_graph_rows_server_side(&JobKind::ProgramOptimize {

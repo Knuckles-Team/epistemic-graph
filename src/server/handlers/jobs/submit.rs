@@ -314,6 +314,86 @@ pub(super) fn submit_job_mine_associate(
     ))
 }
 
+/// Admit only a content-addressed, tenant-scoped replay request reference.
+/// The request body remains in Agent Library and is rechecked by the worker.
+pub(super) fn submit_job_decision_replay(
+    req_id: u64,
+    request_ref: String,
+    required_capabilities: &mut Vec<String>,
+) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+    #[cfg(not(all(feature = "decide", feature = "finance")))]
+    {
+        let _ = (request_ref, required_capabilities);
+        return Err(Response::err(
+            req_id,
+            "decision replay requires decide and finance",
+        ));
+    }
+    #[cfg(all(feature = "decide", feature = "finance"))]
+    {
+        let Some(digest) = request_ref.strip_prefix("replay-request:") else {
+            return Err(Response::err(
+                req_id,
+                "decision replay request reference is invalid",
+            ));
+        };
+        if digest.len() != 64
+            || !digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(Response::err(
+                req_id,
+                "decision replay request reference is invalid",
+            ));
+        }
+        if !required_capabilities
+            .iter()
+            .any(|capability| capability == "decision.replay")
+        {
+            if required_capabilities.len() >= 64 {
+                return Err(Response::err(
+                    req_id,
+                    "analytics job has no room for its required native capability",
+                ));
+            }
+            required_capabilities.push("decision.replay".to_string());
+        }
+        let params = serde_json::json!({ "request_ref": request_ref });
+        Ok((
+            JobKind::DecisionReplay { request_ref },
+            "decision.replay".to_string(),
+            "walk_forward".to_string(),
+            params,
+        ))
+    }
+}
+
+#[cfg(all(test, feature = "decide", feature = "finance"))]
+mod replay_submit_tests {
+    use super::*;
+
+    #[test]
+    fn replay_ref_is_bounded_and_capability_is_mandatory() {
+        let mut capabilities = Vec::new();
+        assert!(
+            submit_job_decision_replay(1, "replay-request:../other".into(), &mut capabilities)
+                .is_err()
+        );
+        assert!(capabilities.is_empty());
+        let request_ref = format!("replay-request:{}", "a".repeat(64));
+        let (kind, family, algorithm, params) =
+            submit_job_decision_replay(1, request_ref.clone(), &mut capabilities).unwrap();
+        assert!(
+            matches!(kind, JobKind::DecisionReplay { request_ref: ref value } if value == &request_ref)
+        );
+        assert_eq!(family, "decision.replay");
+        assert_eq!(algorithm, "walk_forward");
+        assert_eq!(params["request_ref"], request_ref);
+        assert_eq!(capabilities, ["decision.replay"]);
+    }
+}
+
 /// The `JobKind::ProgramOptimize` arm of [`handle_submit`]'s kind-governance
 /// match: bounded-decode the request, rebind its policy to the verified
 /// caller, re-encode it, and ensure the native capability is required.

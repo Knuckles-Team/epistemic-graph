@@ -52,6 +52,8 @@ pub(super) async fn worker_loop(
     ];
     #[cfg(feature = "program-optimization")]
     capabilities.push(opaque_worker_capability("program.optimization"));
+    #[cfg(all(feature = "decide", feature = "finance"))]
+    capabilities.push(opaque_worker_capability("decision.replay"));
     let quota = tenant_worker_quota();
     loop {
         match store.claim_next(&worker_ref, &capabilities, unix_ms(), 60_000, quota) {
