@@ -2,6 +2,8 @@
 //! mode fits, replays and seals an `EvaluationRun`, and refuses what replay
 //! cannot answer honestly.
 
+#![cfg(feature = "jobs")]
+
 use super::*;
 use crate::server::persistence::decision_jobs::evaluation_run_key;
 use eg_types::decision::replay::{
@@ -174,11 +176,57 @@ fn replay_request(fitted: &Fitted, key: &str, spec: ReplaySpec) -> DecisionEvalR
     }
 }
 
-async fn submit(h: &Harness, request: DecisionEvalRequest) -> DecisionJobRecord {
+async fn queue_harness() -> Harness {
+    let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
+    h.state
+        .write()
+        .await
+        .registry
+        .create_graph("g", crate::protocol::GraphType::Team, None)
+        .unwrap();
+    h
+}
+
+fn replay_verified() -> VerifiedRequestContext {
+    VerifiedRequestContext::verified_for_test_with_scopes(
+        "decider",
+        TENANT,
+        &["kg:read", "kg:write", "admin:decision-eval"],
+    )
+}
+
+async fn submit(h: &Harness, request: DecisionEvalRequest) -> Result<DecisionJobRecord, String> {
     let op = DecisionEvalOp::Submit {
         request: Box::new(request),
     };
-    decode(super::super::jobs::handle_decision_eval(&h.state, 41, &verified(), op).await).unwrap()
+    decode(super::super::jobs::handle_decision_eval(&h.state, 41, &replay_verified(), op).await)
+}
+
+async fn completed(h: &Harness, request: DecisionEvalRequest) -> Result<DecisionJobRecord, String> {
+    let submitted = submit(h, request).await?;
+    for _ in 0..300 {
+        let status = DecisionEvalOp::Status {
+            request: eg_types::decision::DecisionJobStatusRequest {
+                tenant_id: TENANT.to_string(),
+                job_id: submitted.job_id.clone(),
+            },
+        };
+        let row: Option<DecisionJobRecord> = decode(
+            super::super::jobs::handle_decision_eval(&h.state, 42, &replay_verified(), status)
+                .await,
+        )?;
+        let row = row.ok_or_else(|| "queued replay job disappeared".to_string())?;
+        if matches!(
+            &row.state,
+            DecisionJobState::Succeeded { .. }
+                | DecisionJobState::Failed { .. }
+                | DecisionJobState::Cancelled
+        ) {
+            return Ok(row);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Err("queued replay did not finish within the test bound".into())
 }
 
 fn sealed(job: &DecisionJobRecord) -> EvaluationRun {
@@ -197,9 +245,13 @@ fn failed(job: &DecisionJobRecord) -> &str {
 
 #[tokio::test]
 async fn a_replay_is_sealed_stored_and_supersedable() {
-    let h = Harness::new().await;
+    let h = queue_harness().await;
     let fitted = fitted(&h).await;
-    let run = sealed(&submit(&h, replay_request(&fitted, "replay-1", spec())).await);
+    let run = sealed(
+        &completed(&h, replay_request(&fitted, "replay-1", spec()))
+            .await
+            .unwrap(),
+    );
 
     // 240 items: tests start at 105 and step 40 -> 105..145, 145..185, 185..225.
     assert_eq!(run.folds.len(), 3);
@@ -245,7 +297,11 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     let mut revised = spec();
     revised.supersedes = Some(run.run_digest.clone());
     revised.trials.declared = 4;
-    let next = sealed(&submit(&h, replay_request(&fitted, "replay-2", revised)).await);
+    let next = sealed(
+        &completed(&h, replay_request(&fitted, "replay-2", revised))
+            .await
+            .unwrap(),
+    );
     assert_eq!(
         next.spec.supersedes.as_deref(),
         Some(run.run_digest.as_str())
@@ -253,7 +309,9 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     assert_ne!(next.run_digest, run.run_digest);
     let mut dangling = spec();
     dangling.supersedes = Some(format!("sha256:{}", "0".repeat(64)));
-    let refused = submit(&h, replay_request(&fitted, "replay-3", dangling)).await;
+    let refused = completed(&h, replay_request(&fitted, "replay-3", dangling))
+        .await
+        .unwrap();
     assert!(failed(&refused).starts_with("REPLAY_SPEC_INVALID"));
 
     // A row under the expected key is insufficient: supersedes must verify
@@ -267,37 +325,49 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
         .unwrap();
     let mut corrupt_parent = spec();
     corrupt_parent.supersedes = Some(run.run_digest.clone());
-    let refused = submit(
+    let refused = completed(
         &h,
         replay_request(&fitted, "replay-corrupt-parent", corrupt_parent),
     )
-    .await;
+    .await
+    .unwrap();
     assert!(failed(&refused).starts_with("REPLAY_SPEC_INVALID"));
 }
 
 #[tokio::test]
 async fn replay_refuses_what_it_cannot_answer() {
-    let h = Harness::new().await;
+    let h = queue_harness().await;
     let fitted = fitted(&h).await;
+
+    let mut missing_graph = spec();
+    missing_graph.graph.clear();
+    let error = submit(&h, replay_request(&fitted, "missing-graph", missing_graph))
+        .await
+        .unwrap_err();
+    assert!(error.starts_with("REPLAY_SPEC_INVALID"));
 
     let mut understated = spec();
     understated.trials = TrialLog {
         declared: 1,
         searched: 20,
     };
-    let job = submit(&h, replay_request(&fitted, "understated", understated)).await;
-    assert!(failed(&job).starts_with("TRIALS_UNDERSTATED"));
+    let error = submit(&h, replay_request(&fitted, "understated", understated))
+        .await
+        .unwrap_err();
+    assert!(error.starts_with("TRIALS_UNDERSTATED"));
 
     let mut dependent = spec();
     dependent.env = ReplayEnvironment::PolicyDependent;
-    let job = submit(&h, replay_request(&fitted, "dependent", dependent)).await;
-    assert!(failed(&job).starts_with("REPLAY_POLICY_DEPENDENT"));
+    let error = submit(&h, replay_request(&fitted, "dependent", dependent))
+        .await
+        .unwrap_err();
+    assert!(error.starts_with("REPLAY_POLICY_DEPENDENT"));
 
     // No gold pin: the bandit regime, whose outcomes depend on the executed option.
     let mut bandit = replay_request(&fitted, "bandit", spec());
     bandit.gold_set_digest = None;
-    let job = submit(&h, bandit).await;
-    assert!(failed(&job).starts_with("REPLAY_POLICY_DEPENDENT"));
+    let error = submit(&h, bandit).await.unwrap_err();
+    assert!(error.starts_with("REPLAY_POLICY_DEPENDENT"));
 
     // Mutation: items 95..=110 share one instant, so fold 0's last training
     // items (95..100) were recorded no earlier than its first test item (105):
@@ -314,6 +384,36 @@ async fn replay_refuses_what_it_cannot_answer() {
         dataset: Box::new(future),
     };
     look_ahead.gold_set_digest = Some(gold);
-    let job = submit(&h, look_ahead).await;
+    let job = completed(&h, look_ahead).await.unwrap();
     assert!(failed(&job).starts_with("LOOK_AHEAD"), "{}", failed(&job));
+}
+
+#[tokio::test]
+async fn queue_link_write_failure_retries_the_same_analytics_job() {
+    let h = queue_harness().await;
+    let fitted = fitted(&h).await;
+    let request = replay_request(&fitted, "replay-link-retry", spec());
+    let failure = super::super::stat_jobs::fail_replay_link_write_for_test(
+        &h.state,
+        &replay_verified(),
+        &request,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(failure, "injected Agent Library queue-link write failure");
+    let jobs = crate::server::handlers::jobs::outbox_job_store(&h.state)
+        .await
+        .unwrap();
+    let before = jobs.list_ids().unwrap();
+    assert_eq!(before.len(), 1);
+    let submitted = submit(&h, request.clone()).await.unwrap();
+    assert_eq!(jobs.list_ids().unwrap(), before);
+    assert!(matches!(
+        submitted.state,
+        DecisionJobState::Queued | DecisionJobState::Running | DecisionJobState::Succeeded { .. }
+    ));
+    let finished = completed(&h, request).await.unwrap();
+    assert_eq!(finished.job_id, submitted.job_id);
+    assert!(matches!(finished.state, DecisionJobState::Succeeded { .. }));
+    assert_eq!(jobs.list_ids().unwrap(), before);
 }
