@@ -12,16 +12,22 @@ impl RedbBackend {
         audit_ref: &str,
     ) -> Result<crate::redb_store::service_child::ServiceChildReservation, String> {
         let (reply, rx) = std::sync::mpsc::sync_channel(1);
-        self.enqueue(graph_fname, Cmd::ServiceChildReserve {
-            graph: graph_fname.to_string(),
-            binding,
-            verified_tenant: verified_tenant.to_string(),
-            verified_owner: verified_owner.to_string(),
-            audit_ref: audit_ref.to_string(),
-            reply,
-        }, "service_child_reserve").await?;
+        self.enqueue(
+            graph_fname,
+            Cmd::ServiceChildReserve {
+                graph: graph_fname.to_string(),
+                binding,
+                verified_tenant: verified_tenant.to_string(),
+                verified_owner: verified_owner.to_string(),
+                audit_ref: audit_ref.to_string(),
+                reply,
+            },
+            "service_child_reserve",
+        )
+        .await?;
         tokio::task::spawn_blocking(move || await_writer_reply(&rx, "service_child_reserve"))
-            .await.map_err(|error| format!("service_child_reserve join error: {error}"))??
+            .await
+            .map_err(|error| format!("service_child_reserve join error: {error}"))??
     }
 
     #[cfg(feature = "security")]
@@ -38,7 +44,8 @@ impl RedbBackend {
         let owner = verified_owner.to_string();
         self.read_snapshot(graph_fname, move |shard, _| {
             crate::redb_store::service_child::service_child_get(shard, &graph, &id, &tenant, &owner)
-        }).await
+        })
+        .await
     }
 
     #[cfg(feature = "security")]
@@ -51,16 +58,22 @@ impl RedbBackend {
         outcome: crate::redb_store::service_child::ServiceChildOutcome,
     ) -> Result<crate::redb_store::service_child::ServiceChildRecord, String> {
         let (reply, rx) = std::sync::mpsc::sync_channel(1);
-        self.enqueue(graph_fname, Cmd::ServiceChildFinish {
-            graph: graph_fname.to_string(),
-            record_id: record_id.to_string(),
-            verified_tenant: verified_tenant.to_string(),
-            verified_owner: verified_owner.to_string(),
-            outcome,
-            reply,
-        }, "service_child_finish").await?;
+        self.enqueue(
+            graph_fname,
+            Cmd::ServiceChildFinish {
+                graph: graph_fname.to_string(),
+                record_id: record_id.to_string(),
+                verified_tenant: verified_tenant.to_string(),
+                verified_owner: verified_owner.to_string(),
+                outcome,
+                reply,
+            },
+            "service_child_finish",
+        )
+        .await?;
         tokio::task::spawn_blocking(move || await_writer_reply(&rx, "service_child_finish"))
-            .await.map_err(|error| format!("service_child_finish join error: {error}"))??
+            .await
+            .map_err(|error| format!("service_child_finish join error: {error}"))??
     }
 
     #[cfg(feature = "security")]

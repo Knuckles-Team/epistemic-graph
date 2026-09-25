@@ -186,7 +186,9 @@ pub(crate) enum Cmd {
         verified_tenant: String,
         verified_owner: String,
         audit_ref: String,
-        reply: std::sync::mpsc::SyncSender<Result<crate::redb_store::service_child::ServiceChildReservation, String>>,
+        reply: std::sync::mpsc::SyncSender<
+            Result<crate::redb_store::service_child::ServiceChildReservation, String>,
+        >,
     },
     #[cfg(feature = "security")]
     ServiceChildFinish {
@@ -195,7 +197,9 @@ pub(crate) enum Cmd {
         verified_tenant: String,
         verified_owner: String,
         outcome: crate::redb_store::service_child::ServiceChildOutcome,
-        reply: std::sync::mpsc::SyncSender<Result<crate::redb_store::service_child::ServiceChildRecord, String>>,
+        reply: std::sync::mpsc::SyncSender<
+            Result<crate::redb_store::service_child::ServiceChildRecord, String>,
+        >,
     },
     /// TEST-ONLY tamper of one audit entry (see `test_tamper_audit_entry`).
     #[cfg(all(test, feature = "security"))]
