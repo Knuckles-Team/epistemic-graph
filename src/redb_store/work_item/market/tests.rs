@@ -32,7 +32,7 @@ fn apply(shard: &Shard, tag: &str, method: Method, now_ms: u64) -> Result<Result
     let admitted = ShardWrite::open(shard, &group, &members, &batches).unwrap();
     let outcome = {
         let member = admitted.graph(GRAPH).unwrap();
-        let mut graph = GraphRowTables::open(&member).unwrap();
+        let mut graph = GraphRowTables::open(member).unwrap();
         let (mut holds, index, mut counters, mut pressure, policies) =
             open_native_operation_lane_tables(&admitted, GRAPH).unwrap();
         apply_work_item_rows(WorkItemApplyRequest {
