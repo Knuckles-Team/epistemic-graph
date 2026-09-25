@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use super::generation::AnnGeneration;
-use super::{lock, read, write, AnnIndexStatus, AnnSlot};
+use super::{lock, read, write, AnnIndexStatus, AnnSlot, UserAnnAuthority};
 use crate::sql::{AnnIndexPlan, AnnMethod};
 use crate::tables::TableStore;
 
@@ -65,6 +65,20 @@ impl Drop for BuildTicket<'_> {
 }
 
 impl TableStore {
+    /// Reopen only complete owner-validated generations. A corrupt/stale
+    /// artifact leaves its registration on the bounded exact path and records
+    /// the reason in status; it never becomes a serving graph.
+    pub(crate) fn restore_ann_generations(&self) -> Result<(), String> {
+        for plan in self.list_ann_indexes()? {
+            let key = TableStore::ann_index_key(&plan);
+            match self.restore_ann_generation(&plan) {
+                Ok(Some(generation)) => self.ann_authority().restore(key, generation),
+                Ok(None) => {}
+                Err(reason) => self.ann_authority().restore_failed(key, reason),
+            }
+        }
+        Ok(())
+    }
     /// Bring every registered ANN index's live generation up to the current
     /// source epoch, and forget generations whose registration was dropped. The
     /// maintenance worker's entry point; a query never calls it.
@@ -135,10 +149,23 @@ impl TableStore {
         };
         let built = self
             .ann_source_rows(&plan.table, &plan.column, limits.build_rows)
-            .map(|source| {
-                AnnGeneration::build(ticket.generation, plan.method, plan.metric, source)
+            .and_then(|source| {
+                let generation =
+                    AnnGeneration::build(ticket.generation, plan.method, plan.metric, source);
+                self.persist_ann_generation(plan, &generation)?;
+                Ok(generation)
             });
         slot.finish_build(ticket, index, built)
+    }
+}
+
+impl UserAnnAuthority {
+    fn restore(&self, index: String, generation: AnnGeneration) {
+        self.slot(&index).activate(generation, index);
+    }
+
+    fn restore_failed(&self, index: String, reason: String) {
+        lock(&self.slot(&index).maintenance).last_failure = Some(reason);
     }
 }
 
@@ -195,6 +222,7 @@ impl AnnSlot {
     /// already is: activation never moves an index backwards in source time.
     pub(super) fn activate(&self, generation: AnnGeneration, index: String) -> AnnRefreshOutcome {
         let built_epoch = generation.built_epoch;
+        let number = generation.generation;
         let outcome = AnnRefreshOutcome::Activated {
             index: index.clone(),
             generation: generation.generation,
@@ -211,7 +239,9 @@ impl AnnSlot {
             }
             *live = Some(Arc::new(generation));
         }
-        lock(&self.maintenance).last_failure = None;
+        let mut maintenance = lock(&self.maintenance);
+        maintenance.generations_built = maintenance.generations_built.max(number);
+        maintenance.last_failure = None;
         outcome
     }
 }

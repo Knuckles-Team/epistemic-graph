@@ -3,7 +3,7 @@
 //! maintained probe is exact over what it returns, within recall of the exact
 //! top-k, filters inside the probe (CX-022: an unresolved visibility identity is
 //! denied), honours tombstones and post-build inserts, stays inside its resource
-//! bounds, reports its lag, and recovers after a restart by rebuilding.
+//! bounds, reports its lag, and reopens durable generations after a restart.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -662,7 +662,7 @@ fn dropping_a_table_removes_its_ann_registration() {
 }
 
 #[test]
-fn a_restart_serves_exactly_while_building_then_rebuilds_the_generation() {
+fn a_restart_reopens_the_hnsw_generation_without_rebuild() {
     let index = hnsw_l2();
     let rows = vectors(90, 20);
     let (store, path) = open_docs(&rows, &index);
@@ -674,26 +674,43 @@ fn a_restart_serves_exactly_while_building_then_rebuilds_the_generation() {
     let reopened = TableStore::open(&path, dev_verifier(), DEV_PRINCIPAL, DEV_PROOF).unwrap();
     assert_eq!(
         reopened.ann_index_status().unwrap()[0].state,
-        AnnGenerationState::Building
+        AnnGenerationState::Live
     );
     let during = top(&reopened, &index, &query, 5, None);
-    assert_eq!(
-        during.receipt.path,
-        exact(AnnFallbackReason::GenerationBuilding)
-    );
+    assert_eq!(during.receipt.path, maintained(1));
     assert_eq!(ids(&during.rows), before);
 
     assert!(matches!(
         refresh(&reopened).as_slice(),
-        [AnnRefreshOutcome::Activated {
-            generation: 1,
-            rows: 90,
-            ..
-        }]
+        [AnnRefreshOutcome::Current { generation: 1, .. }]
     ));
     let after = top(&reopened, &index, &query, 5, None);
     assert_eq!(after.receipt.path, maintained(1));
     assert_eq!(ids(&after.rows), before);
+}
+
+#[test]
+fn a_restart_reopens_the_ivf_generation_without_retraining() {
+    let index = plan(AnnMethod::IvfFlat, VectorMetric::Cosine);
+    let rows = vectors(90, 31);
+    let (store, path) = open_docs(&rows, &index);
+    refresh(&store);
+    let query = vectors(1, 32).remove(0);
+    let before = ids(&top(&store, &index, &query, 5, None).rows);
+    drop(store);
+
+    let reopened = TableStore::open(&path, dev_verifier(), DEV_PRINCIPAL, DEV_PROOF).unwrap();
+    assert_eq!(
+        reopened.ann_index_status().unwrap()[0].state,
+        AnnGenerationState::Live
+    );
+    let served = top(&reopened, &index, &query, 5, None);
+    assert_eq!(served.receipt.path, maintained(1));
+    assert_eq!(ids(&served.rows), before);
+    assert!(matches!(
+        refresh(&reopened).as_slice(),
+        [AnnRefreshOutcome::Current { generation: 1, .. }]
+    ));
 }
 
 fn literal(vector: &[f32]) -> String {

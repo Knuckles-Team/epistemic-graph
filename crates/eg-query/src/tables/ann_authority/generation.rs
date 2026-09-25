@@ -9,6 +9,8 @@
 //! exactly on its current vector by the probe either way.
 
 use eg_ann::{HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::sql::{isqrt, metric_to_ann, AnnMethod, VectorMetric};
 use crate::tables::store::AnnSourceRows;
@@ -32,6 +34,7 @@ const IVF_REFINE_FACTOR: usize = 4;
 pub(crate) struct AnnGeneration {
     pub(super) generation: u64,
     pub(super) method: AnnMethod,
+    pub(super) metric: VectorMetric,
     /// The vector width, when the snapshot held any vector.
     pub(super) dim: Option<usize>,
     /// The tenant SQL source epoch the snapshot observed.
@@ -41,6 +44,17 @@ pub(crate) struct AnnGeneration {
     /// Rows this generation indexes.
     pub(super) rows: usize,
     graph: AnnGraph,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GenerationMetadata {
+    pub(crate) generation: u64,
+    pub(crate) method: AnnMethod,
+    pub(crate) metric: VectorMetric,
+    pub(crate) dim: Option<usize>,
+    pub(crate) built_epoch: u64,
+    pub(crate) max_rowid: Option<u64>,
+    pub(crate) rows: usize,
 }
 
 enum AnnGraph {
@@ -54,7 +68,7 @@ enum AnnGraph {
 }
 
 /// The Euclidean space an IVF generation is trained in.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 enum IvfSpace {
     /// L2 as-is.
     Euclidean,
@@ -66,6 +80,17 @@ enum IvfSpace {
 }
 
 impl AnnGeneration {
+    pub(crate) fn metadata(&self) -> GenerationMetadata {
+        GenerationMetadata {
+            generation: self.generation,
+            method: self.method,
+            metric: self.metric,
+            dim: self.dim,
+            built_epoch: self.built_epoch,
+            max_rowid: self.max_rowid,
+            rows: self.rows,
+        }
+    }
     /// Build generation number `generation` from one source snapshot.
     pub(super) fn build(
         generation: u64,
@@ -82,12 +107,140 @@ impl AnnGeneration {
         Self {
             generation,
             method,
+            metric,
             dim: source.dim,
             built_epoch: source.epoch,
             max_rowid: source.max_rowid,
             rows: source.rows.len(),
             graph,
         }
+    }
+
+    /// Exact graph bytes for one immutable generation. The SQL owner stores
+    /// these under part keys and publishes its live pointer in the same write.
+    pub(crate) fn artifact_parts(&self) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+        match &self.graph {
+            AnnGraph::Empty => Ok(vec![("empty", Vec::new())]),
+            AnnGraph::Hnsw(index) => Ok(vec![(
+                "hnsw",
+                eg_ann::hnsw_artifact::encode(index).map_err(|error| error.to_string())?,
+            )]),
+            AnnGraph::Ivf { index, space, .. } => {
+                let artifact =
+                    eg_ann::durable_codes::encode(index).map_err(|error| error.to_string())?;
+                Ok(vec![
+                    ("ivf_meta", artifact.meta),
+                    ("ivf_codes", artifact.codes),
+                    ("ivf_refine", artifact.refine),
+                    (
+                        "ivf_space",
+                        rmp_serde::to_vec_named(space).map_err(|error| error.to_string())?,
+                    ),
+                ])
+            }
+        }
+    }
+
+    /// Reopen only a fully verified artifact for the current registration.
+    /// The SQL owner verifies identity, schema, epochs, part hashes and limits
+    /// before calling this graph-level decoder.
+    pub(crate) fn from_artifact_parts(
+        generation: u64,
+        method: AnnMethod,
+        metric: VectorMetric,
+        dim: Option<usize>,
+        built_epoch: u64,
+        max_rowid: Option<u64>,
+        rows: usize,
+        parts: &BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self, String> {
+        if generation == 0
+            || rows > 500_000
+            || dim.is_some_and(|width| width == 0 || width > 8_192)
+            || (rows > 0 && max_rowid.is_none())
+        {
+            return Err("ANN generation metadata is outside its bounds".to_string());
+        }
+        let graph = if rows == 0 {
+            if parts.len() != 1 || parts.get("empty").is_none_or(|bytes| !bytes.is_empty()) {
+                return Err("empty ANN generation has unexpected parts".to_string());
+            }
+            AnnGraph::Empty
+        } else {
+            let width = dim.ok_or_else(|| "ANN generation is missing a dimension".to_string())?;
+            match method {
+                AnnMethod::Hnsw => {
+                    if parts.len() != 1 {
+                        return Err("HNSW generation has unexpected parts".to_string());
+                    }
+                    let bytes = parts
+                        .get("hnsw")
+                        .ok_or_else(|| "HNSW generation is missing graph bytes".to_string())?;
+                    let index =
+                        eg_ann::hnsw_artifact::decode(bytes).map_err(|error| error.to_string())?;
+                    if index.len() != rows
+                        || index.dim != width
+                        || index.metric != metric_to_ann(metric)
+                    {
+                        return Err("HNSW generation does not match its manifest".to_string());
+                    }
+                    AnnGraph::Hnsw(index)
+                }
+                AnnMethod::IvfFlat => {
+                    if parts.len() != 4 {
+                        return Err("IVF generation has unexpected parts".to_string());
+                    }
+                    let part = |name: &str| {
+                        parts
+                            .get(name)
+                            .cloned()
+                            .ok_or_else(|| format!("IVF generation is missing {name}"))
+                    };
+                    let artifact = eg_ann::durable_codes::AnnCodeArtifact {
+                        meta: part("ivf_meta")?,
+                        codes: part("ivf_codes")?,
+                        refine: part("ivf_refine")?,
+                    };
+                    let space_bytes = parts
+                        .get("ivf_space")
+                        .ok_or_else(|| "IVF generation is missing its metric space".to_string())?;
+                    if space_bytes.len() > 128 {
+                        return Err("IVF metric-space metadata exceeds its bound".to_string());
+                    }
+                    let space: IvfSpace =
+                        rmp_serde::from_slice(space_bytes).map_err(|error| error.to_string())?;
+                    if !space.matches_metric(metric) {
+                        return Err(
+                            "IVF generation metric space does not match registration".to_string()
+                        );
+                    }
+                    let index = eg_ann::durable_codes::decode(&artifact)
+                        .map_err(|error| error.to_string())?;
+                    if index.dim != width + space.extra_dims() || index.ids.len() != rows {
+                        return Err("IVF generation does not match its manifest".to_string());
+                    }
+                    if index.ids.iter().any(|id| Some(*id) > max_rowid) {
+                        return Err("IVF generation row id exceeds high water".to_string());
+                    }
+                    let nprobe = probe_cells(index.nlist);
+                    AnnGraph::Ivf {
+                        index: Box::new(index),
+                        space,
+                        nprobe,
+                    }
+                }
+            }
+        };
+        Ok(Self {
+            generation,
+            method,
+            metric,
+            dim,
+            built_epoch,
+            max_rowid,
+            rows,
+            graph,
+        })
     }
 
     /// Up to `pool` candidate row ids nearest `query` whose rows `allow` admits.
@@ -176,6 +329,15 @@ fn probe_cells(nlist: usize) -> usize {
 }
 
 impl IvfSpace {
+    fn matches_metric(self, metric: VectorMetric) -> bool {
+        match (self, metric) {
+            (Self::Euclidean, VectorMetric::L2) | (Self::UnitSphere, VectorMetric::Cosine) => true,
+            (Self::MaxNormAugmented { max_norm_sq }, VectorMetric::InnerProduct) => {
+                max_norm_sq.is_finite() && max_norm_sq >= 0.0
+            }
+            _ => false,
+        }
+    }
     fn for_metric(metric: Metric, rows: &[(u64, Vec<f32>)]) -> Self {
         match metric {
             Metric::L2 => Self::Euclidean,

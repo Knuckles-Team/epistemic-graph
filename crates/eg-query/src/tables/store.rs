@@ -53,6 +53,7 @@ use eg_types::mutation_batch::{
 use redb::{ReadableTable, TableDefinition};
 use serde_json::Value;
 
+mod ann_generation;
 mod ann_source;
 mod authority;
 #[cfg(any(test, feature = "dev-scope-grant"))]
@@ -669,6 +670,7 @@ impl TableStore {
             ann: Arc::default(),
         };
         store.verify_schema_migrations()?;
+        store.restore_ann_generations()?;
         Ok(store)
     }
 
@@ -1855,7 +1857,9 @@ impl TableStore {
             .maintain("put-ann-index", &plan.table, |wtx| {
                 put_ann_index_in(wtx, plan)?;
                 Ok(())
-            })
+            })?;
+        self.ann.forget(&Self::ann_index_key(plan));
+        Ok(())
     }
 
     /// `DROP INDEX name` (CONCEPT:EG-KG.query.real-ann-top-k): remove every ANN index registered for
@@ -3537,6 +3541,7 @@ fn drop_catalog_entry_in<V: redb::Value + 'static>(
 
 fn put_ann_index_in(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<(), String> {
     let key = TableStore::ann_index_key(plan);
+    ann_generation::clear_ann_generation_rows_in(wtx, &key)?;
     let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
     let mut indexes = wtx.open_table(ANN_INDEXES)?;
     indexes
@@ -3623,6 +3628,7 @@ fn drop_ann_indexes_with_prefix_in(wtx: &SqlWrite<'_>, prefix: &str) -> Result<u
     }
     for key in &keys {
         indexes.remove(key.as_str()).map_err(map_err)?;
+        ann_generation::clear_ann_generation_rows_in(wtx, key)?;
     }
     Ok(keys.len())
 }

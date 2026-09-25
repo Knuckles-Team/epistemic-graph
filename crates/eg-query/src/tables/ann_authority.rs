@@ -47,7 +47,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::sql::{AnnIndexPlan, AnnMethod, VectorMetric};
-use generation::AnnGeneration;
+pub(crate) use generation::{AnnGeneration, GenerationMetadata};
 
 /// Serve receipts kept for inspection; the oldest is dropped first.
 const RECEIPT_CAPACITY: usize = 64;
@@ -249,6 +249,10 @@ impl UserAnnAuthority {
     /// Drop every slot whose registration no longer exists.
     fn retain(&self, registered: &BTreeSet<String>) {
         write(&self.slots).retain(|index, _| registered.contains(index));
+    }
+
+    pub(crate) fn forget(&self, index: &str) {
+        write(&self.slots).remove(index);
     }
 
     /// The generation a probe of `index` may serve from, else why none may.
