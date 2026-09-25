@@ -79,6 +79,11 @@ from .generated.server_registry import (
 from .ontology_pack import compile_ontology_pack, compile_ontology_proposal
 from .parser import RustASTParser
 from .policy_evolution import PolicyEvolutionClient, PolicyEvolutionRefused
+from .value_type_pack import (
+    VALUE_TYPE_PREFIXES,
+    compile_value_type_owl,
+    compile_value_type_shape,
+)
 
 
 def _add_editable_native_overlay() -> None:
@@ -107,6 +112,9 @@ __all__ = [
     "EpistemicGraphClient",
     "compile_ontology_pack",
     "compile_ontology_proposal",
+    "VALUE_TYPE_PREFIXES",
+    "compile_value_type_owl",
+    "compile_value_type_shape",
     "ConnectorPackClient",
     "ConnectorPackArchive",
     "ConnectorPackArchiveBuilder",
