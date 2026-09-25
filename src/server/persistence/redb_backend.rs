@@ -92,6 +92,8 @@ mod trait_impl;
 mod trait_mutations;
 mod trait_native;
 mod trait_outbox;
+#[cfg(test)]
+mod usage_fact_tests;
 mod work_item_read;
 mod writer_commands;
 mod writer_thread;

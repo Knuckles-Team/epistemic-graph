@@ -350,6 +350,43 @@ pub(crate) fn read_one_node(
     Ok(v)
 }
 
+/// Read a bounded keyset page of usage facts from the authoritative NODES
+/// B-tree. CreateNodeIfAbsent updates this same table in its admitted graph
+/// mutation, so the node and its ordered tenant/event index commit together.
+pub(crate) fn read_usage_fact_nodes(
+    shard: &Shard,
+    graph: &str,
+    prefix: &str,
+    after: &str,
+    limit: usize,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let handle = shard.graph(graph)?;
+    let read = shard.read(&handle)?;
+    let nodes = read.scoped_owner_table(NODES)?;
+    let mut out = Vec::with_capacity(limit);
+    // The scoped seek starts at the caller-bound tenant keyset cursor without
+    // traversing earlier tenants or previous pages.
+    for row in nodes.scope_rows_from((graph, after))? {
+        let (key, value) = row?;
+        let (_, id) = key.value();
+        if id <= after {
+            continue;
+        }
+        if !id.starts_with(prefix) {
+            if id > prefix {
+                break;
+            }
+            continue;
+        }
+        out.push((id.to_string(), crypto.unseal(value.value())?));
+        if out.len() == limit {
+            break;
+        }
+    }
+    Ok(out)
+}
+
 /// Test a batch of node ids against one MVCC snapshot. Eviction needs presence,
 /// not decrypted properties, so this avoids N transactions and N payload copies.
 /// The returned vector is positionally aligned with `node_ids`.

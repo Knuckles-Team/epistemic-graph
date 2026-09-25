@@ -28,6 +28,7 @@ use crate::redb_store::{
     read_mutation_outbox as read_mutation_outbox_records, read_one_node,
     read_resource_reservation as read_resource_reservation_record,
     read_resource_reservation_status as read_resource_reservation_status_record,
+    read_usage_fact_nodes as scan_durable_usage_fact_nodes,
 };
 use crate::server::persistence::writer_reply::await_writer_reply;
 use crate::server::persistence::PersistenceBackend;

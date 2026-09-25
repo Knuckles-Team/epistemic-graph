@@ -690,6 +690,19 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
+    /// A bounded snapshot read over the durable tenant/event node key range.
+    /// `None` means the backend has no durable node index (the RAM graph is
+    /// authoritative); redb returns `Some`, including for an empty page.
+    fn read_usage_fact_nodes(
+        &self,
+        _graph_fname: &str,
+        _prefix: &str,
+        _after: &str,
+        _limit: usize,
+    ) -> Result<Option<Vec<(String, Vec<u8>)>>, String> {
+        Ok(None)
+    }
+
     /// SYNC durable-material fetch for a lazy first-open (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
     /// DIST-P2-3): the WHOLE graph's nodes/edges/semantic-store blob, replayed into
     /// a freshly constructed `GraphCore` on catalog-only → resident promotion

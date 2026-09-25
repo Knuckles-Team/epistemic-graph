@@ -109,7 +109,15 @@ pub(crate) async fn try_handle(
     // differently from the projection it skips.
     match &method {
         Method::UsageFacts { .. } => {
-            return super::usage_facts::handle(req_id, &core, read_authority, method);
+            return super::usage_facts::handle(
+                state,
+                req_id,
+                graph_name,
+                &core,
+                read_authority,
+                method,
+            )
+            .await;
         }
         Method::HasNode { node_id } => {
             return Response::ok(
