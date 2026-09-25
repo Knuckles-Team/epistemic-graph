@@ -503,6 +503,9 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown = server::ShutdownCoordinator::new();
     server_startup::spawn_shutdown_signal_handler(shutdown.clone());
     server_startup::spawn_idle_shutdown_watcher(&shutdown, args.idle_shutdown_secs);
+    // IDM-03: sampled authorization denials reach the identity audit trail.
+    #[cfg(feature = "security")]
+    server::spawn_denial_sample_flusher(state.clone());
 
     // ── Transport ───────────────────────────────────────────────────────
     let transports = server_startup::Transports {

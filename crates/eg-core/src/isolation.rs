@@ -406,6 +406,10 @@ pub use policy_lease::{
 #[cfg(all(test, feature = "security"))]
 mod elevation_tests;
 #[cfg(all(test, feature = "security"))]
+mod identity_bootstrap_tests;
+#[cfg(all(test, feature = "security"))]
+mod identity_store_tests;
+#[cfg(all(test, feature = "security"))]
 mod structure_tests;
 
 /// Isolation policy engine.
@@ -464,8 +468,16 @@ pub use access_policy::{access_clock_ms, AccessBasis, AccessQuery};
 mod elevation_admin;
 #[cfg(feature = "security")]
 pub use elevation_admin::ElevationError;
+mod governed_admin;
 mod identity_admin;
 mod identity_query;
+mod identity_store_admin;
+#[cfg(feature = "security")]
+pub use governed_admin::GovernedError;
+#[cfg(feature = "security")]
+pub use identity_store_admin::{
+    AuditActor, IdentityStoreError, STORE_MANAGED, STORE_NAMESPACE, SYSTEM_BOOTSTRAP_PENDING,
+};
 mod layer_store;
 mod policy_admin;
 #[cfg(test)]

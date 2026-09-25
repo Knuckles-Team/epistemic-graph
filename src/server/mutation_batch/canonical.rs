@@ -489,6 +489,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::Fork
         | Method::RbacAdmin { .. }
         | Method::RbacElevation { .. }
+        | Method::Identity { .. }
+        | Method::GovernedChange { .. }
         | Method::FinanceKalmanFilter1d { .. }
         | Method::FinanceRiskParity { .. }
         | Method::ReserveDevelopmentLane { .. }

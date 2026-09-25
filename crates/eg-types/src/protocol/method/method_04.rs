@@ -446,6 +446,29 @@ $($variants)*
         actor: Option<crate::rbac_elevation::ElevationActor>,
     },
 
+    /// Governed changes (EH-560): propose, approve (two-person, exact scope,
+    /// exact digest), revoke, get or list a reserved `governed.*` change.
+    /// `actor` is SERVER-STAMPED from the verified request context at the
+    /// request boundary; a caller-supplied value is overwritten.
+    GovernedChange {
+        op: crate::governed_change::GovernedChangeOp,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        actor: Option<crate::governed_change::GovernedActor>,
+    },
+
+    /// The engine-owned identity store (IDM-01..04): principals, credentials,
+    /// sessions, second factors, roles, groups, identity providers and the
+    /// auth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary
+    /// (the verified actor plus every hash, verdict and sealed value the op
+    /// needs) and every plaintext secret in `op` is cleared there, so neither
+    /// the replicated command nor a log ever carries one; a caller-supplied
+    /// stamp is always overwritten.
+    Identity {
+        op: crate::identity::IdentityOp,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stamp: Option<crate::identity::IdentityStamp>,
+    },
+
     ApplyMultisigMutation {
         signatures: Vec<String>,
         threshold: usize,

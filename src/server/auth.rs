@@ -810,6 +810,24 @@ fn primary_oidc_validator() -> Result<Option<&'static crate::server::oidc::JwtVa
     }
 }
 
+// Test-only override for `additional_oidc_trust()`, like `TEST_OIDC_VALIDATOR`.
+#[cfg(all(feature = "oidc", test))]
+thread_local! {
+    static TEST_OIDC_TRUST: std::cell::Cell<&'static [crate::server::oidc::TrustedIssuer]> =
+        const { std::cell::Cell::new(&[]) };
+}
+
+/// The additional trusted issuers (IDM-02), empty when unconfigured.
+#[cfg(all(feature = "oidc", test))]
+fn additional_oidc_trust() -> Result<&'static [crate::server::oidc::TrustedIssuer], String> {
+    Ok(TEST_OIDC_TRUST.with(|cell| cell.get()))
+}
+
+#[cfg(all(feature = "oidc", not(test)))]
+fn additional_oidc_trust() -> Result<&'static [crate::server::oidc::TrustedIssuer], String> {
+    crate::server::oidc::additional_trust()
+}
+
 /// Config-gated MANDATORY-OIDC posture (`EPISTEMIC_GRAPH_REQUIRE_OIDC`).
 /// Shared by both [`bind_verified_identity`] variants below (the `oidc`-
 /// feature verifier path AND the no-`oidc`-feature fallback), so the default
@@ -901,7 +919,7 @@ fn require_oidc() -> bool {
 fn bind_verified_identity(
     claims: &RequestContextClaims,
     oidc_token: Option<&str>,
-) -> Result<(), String> {
+) -> Result<Option<eg_types::identity::UserKind>, String> {
     let Some(validator) = primary_oidc_validator()? else {
         // No OIDC verifier is configured. Default posture: preserve today's
         // HMAC-only behavior. MANDATORY-OIDC posture: fail closed — a
@@ -914,12 +932,18 @@ fn bind_verified_identity(
                     .to_string(),
             );
         }
-        return Ok(());
+        return Ok(None);
     };
     let token = oidc_token
         .map(str::trim)
         .filter(|t| !t.is_empty())
         .ok_or_else(|| "request context requires a verified OIDC bearer token".to_string())?;
+    // IDM-02: route the token to exactly one trusted issuer by its (unverified)
+    // `iss`; that issuer's validator does every check below, and a restricted
+    // issuer's principal kind is proven against the identity store.
+    let (validator, issuer_kind) =
+        crate::server::oidc::route(validator, additional_oidc_trust()?, token)
+            .ok_or_else(|| "OIDC bearer token issuer is not trusted".to_string())?;
     let verified = validator
         .validate_claims(token)
         .ok_or_else(|| "OIDC bearer token failed verification".to_string())?;
@@ -1002,14 +1026,14 @@ fn bind_verified_identity(
             ));
         }
     }
-    Ok(())
+    Ok(issuer_kind)
 }
 
 #[cfg(not(feature = "oidc"))]
 fn bind_verified_identity(
     _claims: &RequestContextClaims,
     _oidc_token: Option<&str>,
-) -> Result<(), String> {
+) -> Result<Option<eg_types::identity::UserKind>, String> {
     // This build has no `oidc` feature, so no verifier can ever exist. Same
     // shared `require_oidc()` posture as the `oidc`-feature variant above:
     // SECURE BY DEFAULT since 2026-07-22 — a build lacking the `oidc` feature
@@ -1026,7 +1050,7 @@ fn bind_verified_identity(
                 .to_string(),
         );
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Convert the authenticated transport nonce into the fixed-width nonce the
@@ -1074,7 +1098,7 @@ fn verify_envelope_v2_with(
         return Err("request timestamp is outside the allowed clock-skew window".to_string());
     }
     validate_context_claims(req, &envelope.context, policy)?;
-    bind_verified_identity(&envelope.context, envelope.oidc_token.as_deref())?;
+    let issuer_kind = bind_verified_identity(&envelope.context, envelope.oidc_token.as_deref())?;
     if envelope.idempotency_key.trim().is_empty() {
         return Err("request idempotency key must not be empty".to_string());
     }
@@ -1098,7 +1122,38 @@ fn verify_envelope_v2_with(
         envelope.context,
         envelope.idempotency_key,
         Some(wire_nonce),
-    ))
+    )
+    .with_issuer_kind(issuer_kind))
+}
+
+/// IDM-02: a context verified by an issuer restricted to one principal kind
+/// is admitted only when the identity store owns that principal, active, of
+/// exactly that kind (a Keycloak token for a human is refused when Keycloak
+/// is trusted for service accounts only). No published store: fail closed.
+fn enforce_issuer_kind(
+    context: &VerifiedRequestContext,
+    state_dir: Option<&str>,
+) -> Result<(), String> {
+    let Some(required) = context.issuer_kind() else {
+        return Ok(());
+    };
+    #[cfg(feature = "security")]
+    let actual =
+        crate::server::identity_view::active_principal_kind(state_dir, context.principal());
+    #[cfg(not(feature = "security"))]
+    let actual: Option<eg_types::identity::UserKind> = {
+        let _ = state_dir;
+        None
+    };
+    if actual == Some(required) {
+        Ok(())
+    } else {
+        crate::metrics::auth_failure();
+        Err(
+            "IDENTITY_ISSUER_KIND_REFUSED: the verifying issuer may not vouch for this principal"
+                .to_string(),
+        )
+    }
 }
 
 // ── policy entry point ─────────────────────────────────────────────────────
@@ -1129,6 +1184,8 @@ pub(super) fn validate_verified_context_startup(
     // secure-context config error, rather than lazily on the first request.
     #[cfg(feature = "oidc")]
     let validator = primary_oidc_validator()?;
+    #[cfg(feature = "oidc")]
+    additional_oidc_trust()?;
     #[cfg(not(feature = "oidc"))]
     let validator: Option<()> = None;
     // MANDATORY-OIDC posture (secure by default since 2026-07-22): if the
@@ -1168,7 +1225,9 @@ pub(crate) fn verify_request_with_security_dir(
     }
     let policy = request_context_policy()?;
     let replay = durable_replay_ledger(state_dir)?;
-    verify_envelope_v2_with(secret, req, policy, replay)
+    let context = verify_envelope_v2_with(secret, req, policy, replay)?;
+    enforce_issuer_kind(&context, state_dir)?;
+    Ok(context)
 }
 
 // ── Detached identity / multisig verification (NE-065 / NE-066) ───────────
@@ -2802,6 +2861,9 @@ mod tests {
     mod oidc_binding {
         use super::*;
         use jsonwebtoken::{encode, Algorithm as JwtAlgorithm, EncodingKey, Header};
+
+        // IDM-02: the multi-issuer trust list and its principal-kind restriction.
+        mod issuer_trust;
 
         const TEST_RSA_PRIVATE_KEY_PKCS1_DER_HEX: &str = "308204a30201000282010100be4725fd791744d873c4c82cc04ba74db85707a72581e4773e3f9041531b15ea57dcccda092adecbfa818521f10de4f849de2f6b359a20ad4eeec7da6aa550baf49a8f471089348b5c677a4c3d9b7f027395d3a08fa87345e4f842d3f5e6d9846f139883cb9ed94e1a868f85a741a5cb1262beaa4b395c6f9bc82fc46e65267cd50d7d752d2194b69a03ca41f3c135a9862f48d7697f74e8da8dca840cdf4f2cda9addc48ea6445574ffbc79f23144a520ba9aaa3ea8b549c25a89188a869a8ee7f05a096a66bfa4f49d4b5900f49579e88da8c25da9baea53f93cb69e744e5d80b55a41e0de41449bb437b53b57f6ef179eae0b3815a20b1df65fbdf28fc3b7020301000102820100019495093241f2381b5b62ba3f17f71a1b2785e5bfd700af1e323da027f0e2a6b6a21bdacd16b1110aa746becdc21573c67bf4f2dead700b60761fecd2d3f0040d820c7744f8e419d58e4fcd65a443fd7638f95aad0c1e20fcd23463e44d4d8ddf0a4fa0509c4f7bbeebfd31d95374981232b06e0e5539f7a75895fa50b1c061bcb1816d44e1c9155192cc37707747c6abf0af131a3b7d94a774fdc8a491d949ca0049b5845aca493b71352800d31d6f8d4e6beb352571f1586e9c9184a7a691cc556e53953ac5fc7995fed28d0fd92918b2dac30a4892595f70083f18d42a8768bb76077625bc917b347a8c3ec245db23f0eaaebeff571a7141891df5aa380102818100f6cae082d13337d73a723d4672f5a8b7113dfc820251e05380a672055c27dbab82c044f73fdb5d1a3fce5894fda55e57372fcf5f2704ee0ae927fd73c0e80eead6832d5a5938c3c63e69cab78d53e15b535d8a724e93eadf2d9ad45ce6bd2ae3653d087583fd0c7c8e9dac3c33c1f5bc651a2f69f898c379cc3722a85a163c0102818100c5607fbcc1a5a3ae9fa1a3c2469c17dd6d402515ecc724957d7fec575517254acf1dfc70c915390d8f489fae188c17372548603d442b06ad8195c74f8ee8bf51cfa22a2b4740d9e43e35d1942e4e4be545baf43127910c1c7e983f0f5ff5852f85311a56dc8d27fb1b5f669b0f7e83971f99ada964c1f4c6233299a84666dfb702818100d4186938a417d37eca4111be30e044fe07f870c13ec324fa3e8f4d60a3e1b15d46027d82cc4377512ed2e4b82f00e702277094549f51124f18300117710b3e7ebe9a7fe8acd3271581e02392fa07c39e5c1800fad9e32fb05c1e3b32182f2ce3bec6e4353298d0195febcbf0f53e553572e23d2b62b5cf1126db9f9275d1b40102818001a2a60c4b527303bc60db797d9a477c572e63e045a0f4c5a44f8e06bf36bce15ccbf3ce7f6c0497ff2aebdfc6664abef339214b00a8969a936b49467879a734275341a43027f26638b9bb6dcde06a32911c566f9dd34ed5619b23529e49eb7b944feed6ef66e000ed9e21bc81295c2fc15c459b14b1a2b48d901ac3d129830b0281807b5d9e95bf0e2892ff7ee7251fa14bec34d00c031d216c0f06dfa698407ec750e3d357e800907812a61d90281ce93320ad4a50d33364429710f249b87bc925ba89c5f675ed99229d09399943934811b25f4bac5a6cba9303dcd82ccbd31216092e1b9fe5ab1921188bd3e96256c692602be876e09c919c04735638b19646a658";
         const TEST_RSA_MODULUS_HEX: &str = "BE4725FD791744D873C4C82CC04BA74DB85707A72581E4773E3F9041531B15EA57DCCCDA092ADECBFA818521F10DE4F849DE2F6B359A20AD4EEEC7DA6AA550BAF49A8F471089348B5C677A4C3D9B7F027395D3A08FA87345E4F842D3F5E6D9846F139883CB9ED94E1A868F85A741A5CB1262BEAA4B395C6F9BC82FC46E65267CD50D7D752D2194B69A03CA41F3C135A9862F48D7697F74E8DA8DCA840CDF4F2CDA9ADDC48EA6445574FFBC79F23144A520BA9AAA3EA8B549C25A89188A869A8EE7F05A096A66BFA4F49D4B5900F49579E88DA8C25DA9BAEA53F93CB69E744E5D80B55A41E0DE41449BB437B53B57F6EF179EAE0B3815A20B1DF65FBDF28FC3B7";

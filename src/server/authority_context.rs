@@ -31,6 +31,9 @@ pub(crate) struct VerifiedRequestContext {
     wire_nonce: Option<Nonce>,
     scope_index: HashSet<String>,
     scope_wildcard_domains: HashSet<String>,
+    /// IDM-02: the principal kind the verifying OIDC issuer is restricted to
+    /// (`None`: any). Proven against the identity store at verification.
+    issuer_kind: Option<eg_types::identity::UserKind>,
 }
 
 impl VerifiedRequestContext {
@@ -58,7 +61,18 @@ impl VerifiedRequestContext {
             wire_nonce,
             scope_index,
             scope_wildcard_domains,
+            issuer_kind: None,
         }
+    }
+
+    /// Record the verifying issuer's principal-kind restriction (IDM-02).
+    pub(crate) fn with_issuer_kind(mut self, kind: Option<eg_types::identity::UserKind>) -> Self {
+        self.issuer_kind = kind;
+        self
+    }
+
+    pub(crate) fn issuer_kind(&self) -> Option<eg_types::identity::UserKind> {
+        self.issuer_kind
     }
 
     /// Reconstruct the privacy-safe authority carried by a committed Raft entry.

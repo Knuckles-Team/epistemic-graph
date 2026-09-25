@@ -423,10 +423,15 @@ const MAX_REGISTER_SERVER_TTL_SECS: u64 = 24 * 60 * 60;
 mod change_envelope;
 mod consensus;
 mod elevation;
+mod governed;
 mod graph_pipeline;
+#[cfg(feature = "security")]
+mod identity_store;
 mod policy_evolution;
 mod request_boundary;
 mod router;
+#[cfg(test)]
+mod test_support;
 
 /// Create one engine-owned global graph through the same durable lifecycle as
 /// the public `CreateGraph` method.

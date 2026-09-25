@@ -42,6 +42,24 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
+use std::time::{Duration, Instant};
+
+mod trust;
+// The engine reads the configured trust list; tests install their own.
+#[cfg(not(test))]
+pub(crate) use trust::additional_trust;
+pub(crate) use trust::{route, TrustedIssuer};
+
+/// IDM-02 key rotation: the cached key set is re-fetched once it is older
+/// than this, so a key the issuer RETIRED stops verifying within this bound
+/// (the overlap window ends) instead of verifying until the next `kid` miss.
+const KEY_REFRESH_AGE: Duration = Duration::from_secs(5 * 60);
+/// A cache this old whose refresh keeps failing is no longer trusted: every
+/// token fails closed until the issuer's key set is reachable again.
+const KEY_HARD_MAX_AGE: Duration = Duration::from_secs(60 * 60);
+/// Fetches (on age or on a `kid` miss) happen at most this often, so a flood
+/// of tokens with random `kid`s cannot turn the engine into a JWKS DoS.
+const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
@@ -215,6 +233,10 @@ pub struct JwtValidator {
     audience: String,
     jwks_url: String,
     keys: RwLock<HashMap<String, DecodingKey>>, // kid -> RSA decoding key
+    /// When the cached key set was last fetched (IDM-02 rotation).
+    fetched_at: RwLock<Option<Instant>>,
+    /// When a fetch was last attempted (rate limit).
+    attempted_at: RwLock<Option<Instant>>,
 }
 
 impl std::fmt::Debug for JwtValidator {
@@ -335,6 +357,8 @@ impl JwtValidator {
             audience,
             jwks_url,
             keys: RwLock::new(HashMap::new()),
+            fetched_at: RwLock::new(None),
+            attempted_at: RwLock::new(None),
         };
         // Prime the key cache once; a failure here is non-fatal (validate()
         // re-fetches on demand) but we log it so a misconfigured JWKS URL is
@@ -363,6 +387,80 @@ impl JwtValidator {
             audience: audience.into(),
             jwks_url: String::new(),
             keys: RwLock::new(keys),
+            fetched_at: RwLock::new(Some(Instant::now())),
+            attempted_at: RwLock::new(None),
+        }
+    }
+
+    /// A validator for one `EPISTEMIC_GRAPH_OIDC_TRUST` entry (keys are
+    /// fetched on first use).
+    pub(crate) fn from_trust_entry(issuer: String, audience: String, jwks_url: String) -> Self {
+        JwtValidator {
+            issuer,
+            audience,
+            jwks_url,
+            keys: RwLock::new(HashMap::new()),
+            fetched_at: RwLock::new(None),
+            attempted_at: RwLock::new(None),
+        }
+    }
+
+    /// Test seam: the issuer published a new key set (a rotation step).
+    #[cfg(test)]
+    pub(crate) fn replace_keys_for_test(&self, keys: HashMap<String, DecodingKey>) {
+        if let Ok(mut current) = self.keys.write() {
+            *current = keys;
+        }
+        if let Ok(mut fetched) = self.fetched_at.write() {
+            *fetched = Some(Instant::now());
+        }
+    }
+
+    /// Test seam: make the cached key set `age` old.
+    #[cfg(test)]
+    pub(crate) fn age_keys_for_test(&self, age: Duration) {
+        if let Ok(mut fetched) = self.fetched_at.write() {
+            *fetched = Instant::now().checked_sub(age);
+        }
+    }
+
+    /// The issuer this validator trusts.
+    pub(crate) fn issuer(&self) -> &str {
+        &self.issuer
+    }
+
+    fn cache_age(&self) -> Option<Duration> {
+        self.fetched_at
+            .read()
+            .ok()
+            .and_then(|fetched| fetched.map(|at| at.elapsed()))
+    }
+
+    /// Re-fetch the key set unless a fetch was attempted too recently.
+    /// Answers whether a fetch succeeded now.
+    fn refresh_rate_limited(&self) -> bool {
+        let recent = self
+            .attempted_at
+            .read()
+            .ok()
+            .and_then(|attempted| attempted.map(|at| at.elapsed() < MIN_REFRESH_INTERVAL))
+            .unwrap_or(false);
+        if recent {
+            return false;
+        }
+        if let Ok(mut attempted) = self.attempted_at.write() {
+            *attempted = Some(Instant::now());
+        }
+        self.refresh().is_ok()
+    }
+
+    /// Keep the cache fresh: past [`KEY_REFRESH_AGE`] try a fetch; past
+    /// [`KEY_HARD_MAX_AGE`] without a successful fetch, trust nothing.
+    fn cache_usable(&self) -> bool {
+        match self.cache_age() {
+            Some(age) if age < KEY_REFRESH_AGE => true,
+            Some(age) => self.refresh_rate_limited() || age < KEY_HARD_MAX_AGE,
+            None => self.refresh_rate_limited(),
         }
     }
 
@@ -386,6 +484,7 @@ impl JwtValidator {
             return Err("jwks contained no usable RSA keys".to_string());
         }
         *self.keys.write().map_err(|_| "keys lock poisoned")? = map;
+        *self.fetched_at.write().map_err(|_| "keys lock poisoned")? = Some(Instant::now());
         Ok(())
     }
 
@@ -411,6 +510,9 @@ impl JwtValidator {
         // exp is validated by default; require it to be present.
         validation.required_spec_claims = ["exp"].iter().map(|s| s.to_string()).collect();
 
+        if !self.cache_usable() {
+            return None;
+        }
         // Fast path: kid already cached.
         {
             let guard = self.keys.read().ok()?;
@@ -420,8 +522,9 @@ impl JwtValidator {
                     .map(|data| data.claims);
             }
         }
-        // kid miss ⇒ a possible signing-key rotation: re-fetch once, then retry.
-        if self.refresh().is_err() {
+        // kid miss ⇒ a possible signing-key rotation: re-fetch (rate-limited),
+        // then retry once.
+        if !self.refresh_rate_limited() {
             return None;
         }
         let guard = self.keys.read().ok()?;
@@ -625,5 +728,53 @@ pub(crate) mod tests {
         // refresh path fails closed rather than serving a stale/absent key.
         let token = sign("some-other-kid", &base_claims());
         assert!(!validator().validate(&token));
+    }
+
+    fn test_key() -> DecodingKey {
+        let n = hex::decode(TEST_RSA_MODULUS_HEX).expect("modulus hex");
+        let e = hex::decode(TEST_RSA_EXPONENT_HEX).expect("exponent hex");
+        DecodingKey::from_rsa_raw_components(&n, &e)
+    }
+
+    /// IDM-02: during the overlap both kids verify; once the issuer retires
+    /// the old kid, a token under it is refused.
+    #[test]
+    fn a_rotated_kid_verifies_during_the_overlap_and_is_refused_after() {
+        let validator = validator();
+        let old = sign(KID, &base_claims());
+        let new = sign("test-kid-2", &base_claims());
+        assert!(validator.validate(&old));
+        assert!(
+            !validator.validate(&new),
+            "the new kid is not published yet"
+        );
+        let overlap = HashMap::from([
+            (KID.to_string(), test_key()),
+            ("test-kid-2".to_string(), test_key()),
+        ]);
+        validator.replace_keys_for_test(overlap);
+        assert!(validator.validate(&old) && validator.validate(&new));
+        validator.replace_keys_for_test(HashMap::from([("test-kid-2".to_string(), test_key())]));
+        assert!(!validator.validate(&old), "the retired kid is refused");
+        assert!(validator.validate(&new));
+    }
+
+    /// IDM-02: a key set that cannot be refreshed stops verifying once it is
+    /// older than the hard bound -- a retired key cannot live forever.
+    #[test]
+    fn a_stale_unrefreshable_key_set_fails_closed() {
+        let validator = validator();
+        let token = sign(KID, &base_claims());
+        validator.age_keys_for_test(KEY_REFRESH_AGE + Duration::from_secs(1));
+        assert!(
+            validator.validate(&token),
+            "stale but inside the hard bound"
+        );
+        let fresh = self::validator();
+        fresh.age_keys_for_test(KEY_HARD_MAX_AGE + Duration::from_secs(1));
+        assert!(
+            !fresh.validate(&token),
+            "past the hard bound with no refresh"
+        );
     }
 }
