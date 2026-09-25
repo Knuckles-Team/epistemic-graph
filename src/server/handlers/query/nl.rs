@@ -63,7 +63,7 @@ pub(crate) fn handle_nl_query_plan(
     let hint = nl_schema_hint(core);
     let uql = planner
         .plan(text, &hint)
-        .map_err(|e| Response::err(req_id, format!("NlQuery planner error: {e}")))?;
+        .map_err(|e| Response::err(req_id, e))?;
     eg_plan::uql::parse(&uql).map_err(|e| {
         Response::err(
             req_id,
@@ -116,7 +116,7 @@ pub(crate) async fn handle_nl_query(
     // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
     let resp = match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
-        Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
+        Ok(Err(msg)) => Response::err(req_id, msg),
         Err(resp) => resp,
     };
     Ok(resp)

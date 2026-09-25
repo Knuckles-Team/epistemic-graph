@@ -135,7 +135,7 @@ where
     };
     match run_unified_overlaid_with(txn, plan, execute_rows).await {
         Ok(Ok(rows)) => result_response::<M>(req_id, &rows),
-        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+        Ok(Err(msg)) => Response::err(req_id, msg),
         Err(resp) => resp,
     }
 }
