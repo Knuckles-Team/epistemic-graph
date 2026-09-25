@@ -44,8 +44,6 @@ use eg_types::contract::Nonce;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-#[cfg(test)]
-use std::collections::HashMap;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -2825,7 +2823,7 @@ mod tests {
         }
 
         fn install_test_validator() -> OidcTestGuard {
-            let mut keys = HashMap::new();
+            let mut keys = std::collections::HashMap::new();
             let n = hex::decode(TEST_RSA_MODULUS_HEX).unwrap();
             let e = hex::decode(TEST_RSA_EXPONENT_HEX).unwrap();
             keys.insert(
@@ -3444,7 +3442,7 @@ mod tests {
             // exercise directly.
             use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
 
-            let mut keys = HashMap::new();
+            let mut keys = std::collections::HashMap::new();
             let n = hex::decode(ICEBERG_TEST_RSA_MODULUS_HEX).unwrap();
             let e = hex::decode(ICEBERG_TEST_RSA_EXPONENT_HEX).unwrap();
             keys.insert(

@@ -18,7 +18,6 @@ use eg_numeric::risk::barrier::{
 };
 
 use super::{InstantSample, RangeSeries, METRIC_NAME, NS_PER_SEC};
-use crate::point::Ts;
 
 /// The two barrier functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +78,7 @@ pub(super) fn evaluate(
 
 /// Nanoseconds as the `Ts` the evaluator passes, for the tests.
 #[cfg(test)]
-pub(super) const SECOND: Ts = 1_000_000_000;
+pub(super) const SECOND: crate::point::Ts = 1_000_000_000;
 
 #[cfg(test)]
 mod tests;

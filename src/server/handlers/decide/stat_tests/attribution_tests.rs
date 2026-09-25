@@ -44,6 +44,7 @@ fn commit_slate(
         graph_digest: graph.to_string(),
         slots: BoundedVec::new(slots).unwrap(),
         certificate: certificate.clone(),
+        topology: None,
     };
     let digest = record.inputs.catalog_digest.clone();
     h.store

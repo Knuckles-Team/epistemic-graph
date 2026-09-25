@@ -74,7 +74,7 @@ async fn below_the_support_floor_a_reputation_has_no_numbers() {
 
 /// `SOURCE RELIABILITY 'plan-hyde'` over one row, as `who` runs it: (belief, lo, hi).
 #[cfg(feature = "epistemic")]
-fn reliability(h: &Harness, who: &str) -> (Option<f32>, Option<f32>, Option<f32>) {
+fn reliability(h: &Harness, who: &str) -> (Option<f64>, Option<f64>, Option<f64>) {
     use eg_types::wire::UqlResult;
     let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
     let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();

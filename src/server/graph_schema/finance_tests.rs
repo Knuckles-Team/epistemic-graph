@@ -236,7 +236,7 @@ fn the_trading_classes_are_folded_out_of_company_infra() {
 #[test]
 fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
     let sources = GraphSchemaSources::default();
-    let mut triples: Vec<Triple> = validate_and_compose(&sources).unwrap().ontology;
+    let mut triples: Vec<Triple> = validate_and_compose(&sources).unwrap().ontology.to_vec();
     triples.extend(parse_scoped(
         "@prefix : <http://knuckles.team/kg#> .\n\
          @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
