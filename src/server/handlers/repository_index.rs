@@ -37,6 +37,21 @@ pub(crate) type IndexCommitContext<'a> = crate::server::mutation_batch::GraphWri
 /// at all, and the source transport halves it and re-sends.
 pub(crate) const BATCH_TOO_LARGE: &str = "REPOSITORY_BATCH_TOO_LARGE";
 
+/// The mutation ledger enforces its 64 MiB write budget after the repository
+/// write-set has been compiled. Keep that limit in the ledger, but translate
+/// its refusal at this method boundary so a source can halve and resend this
+/// atomic batch. Other commit failures retain their original diagnosis.
+fn repository_refusal(error: String) -> String {
+    let ledger_error = error
+        .strip_prefix("ApplyChangeEnvelope atomic commit failed: ")
+        .unwrap_or(&error);
+    if ledger_error == "mutation write exceeds its byte budget" {
+        format!("{BATCH_TOO_LARGE}: repository batch exceeds the 64 MiB write-byte budget; submit fewer blobs per batch")
+    } else {
+        error
+    }
+}
+
 /// The lowered, digest-keyed write-set of one scoped result.
 pub(crate) struct IndexWriteSet {
     pub envelope_id: String,
@@ -139,7 +154,9 @@ pub(crate) fn build_envelope(
         digest,
         methods,
     } = write_set;
-    let mutation = ctx.compile(&envelope_id, methods)?;
+    let mutation = ctx
+        .compile(&envelope_id, methods)
+        .map_err(repository_refusal)?;
     seal(mutation, envelope_id, &digest, ctx.tenant_scope)
 }
 
@@ -195,7 +212,7 @@ pub(crate) fn respond(request_id: u64, result: IndexResult) -> Response {
 /// Answer the commit of a batch: its index result, or the commit's refusal.
 pub(crate) fn finish(result: IndexResult, commit: Response) -> Response {
     match commit.error {
-        Some(error) => Response::err(commit.id, error),
+        Some(error) => Response::err(commit.id, repository_refusal(error)),
         None => respond(commit.id, result),
     }
 }

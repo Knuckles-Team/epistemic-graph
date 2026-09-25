@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use eg_types::change_envelope::{ChangeEnvelope, MaterialClass};
 use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
 
-use super::{lower, seal, IndexWriteSet, BATCH_TOO_LARGE};
+use super::{finish, lower, seal, IndexWriteSet, BATCH_TOO_LARGE};
 use crate::mutation_batch::MutationSurface;
-use crate::protocol::Method;
+use crate::protocol::{Method, Response};
 use crate::server::mutation_batch::{compile_methods, CompileBatch};
 
 fn node(id: &str, kind: &str, properties: &[(&str, &str)]) -> ExtractedNode {
@@ -193,6 +193,10 @@ fn large_result(symbols: usize) -> IndexResult {
 fn a_repository_sized_batch_is_one_envelope_with_a_bounded_notice() {
     let envelope = repository_envelope(&large_result(12_000)).expect("one atomic envelope");
     assert_eq!(envelope.mutation.operations.len(), 24_000);
+    envelope
+        .mutation
+        .validate_write_budget()
+        .expect("repository batch also passes the mutation write budget");
     let notice = envelope
         .mutation
         .outbox
@@ -215,4 +219,24 @@ fn a_batch_over_the_commit_budget_is_refused_whole() {
         .err()
         .expect("over-budget batch is refused");
     assert!(error.starts_with(BATCH_TOO_LARGE), "{error}");
+}
+
+/// The 64 MiB mutation write limit is enforced by the shared commit ledger.
+/// The repository method must report its source-resizable refusal at that
+/// boundary, including when the refusal arrives after envelope construction.
+#[test]
+fn repository_write_byte_budget_refusal_is_source_resizable() {
+    for ledger_error in [
+        "mutation write exceeds its byte budget",
+        "ApplyChangeEnvelope atomic commit failed: mutation write exceeds its byte budget",
+    ] {
+        let refusal = finish(result(), Response::err(41, ledger_error));
+        assert_eq!(refusal.id, 41);
+        let error = refusal.error.expect("refused");
+        assert!(error.starts_with(BATCH_TOO_LARGE), "{error}");
+        assert!(error.contains("64 MiB"), "{error}");
+    }
+
+    let other = finish(result(), Response::err(42, "ACCESS_DENIED: forbidden"));
+    assert_eq!(other.error.as_deref(), Some("ACCESS_DENIED: forbidden"));
 }
