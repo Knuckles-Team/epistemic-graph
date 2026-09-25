@@ -12,7 +12,7 @@ execution. Authorization never depends on a client-side keyword scan.
 > richer WHERE (`OR`/`IN`/`STARTS WITH`/`CONTAINS`/`IS NULL`), aggregation, `DISTINCT`, `CALL {subquery}` /
 > `CALL proc() YIELD`, and the `gds.*` graph-data-science procedures (EG-KG.query.cypher-execution/062/063/141/142/143/144). A
 > **Bolt v4.4** wire (EG-KG.query.bolt-wire-protocol) lets Neo4j drivers connect directly. See the
-> [capability matrix](../capabilities.md#cypher-eg-querycypher).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#cypher-eg-querycypher).
 
 ## Supported grammar
 
@@ -137,4 +137,4 @@ queries that mix graph traversal with vector/text/SQL, use [UQL](../uql.md).
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [SPARQL & RDF](sparql.md) · [GraphQL](graphql.md) · [Vector / ANN](vector.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SQL & pgwire](sql.md) · [SPARQL & RDF](sparql.md) · [GraphQL](graphql.md) · [Vector / ANN](vector.md) · [Connecting (per-wire guide)](connecting.md).

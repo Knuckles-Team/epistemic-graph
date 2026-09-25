@@ -151,4 +151,4 @@ reduction (the contention property), not a fixed wall-clock multiple.
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Reserved Read-Admission Lane](reserved_read_lane.md) · [Index Manager](index_manager.md) · [Master-of-all Engine](engine.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Reserved Read-Admission Lane](reserved_read_lane.md) · [Index Manager](index_manager.md) · [Master-of-all Engine](engine.md).

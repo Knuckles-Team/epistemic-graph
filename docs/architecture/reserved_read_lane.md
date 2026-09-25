@@ -230,4 +230,4 @@ ecosystem ingests continuously. Tuning guidance:
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Per-Graph Write Coalescer](write_coalescer.md) · [Engine Scaling Program](scaling_program.md) · [Cost Model & Capacity](../cost_model.md) · [Operations Runbook](../operations/runbook.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Per-Graph Write Coalescer](write_coalescer.md) · [Engine Scaling Program](scaling_program.md) · [Cost Model & Capacity](../cost_model.md) · [Operations Runbook](../operations/runbook.md).

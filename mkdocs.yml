@@ -80,8 +80,8 @@ nav:
       - Release campaigns: operations/exact-release-campaigns.md
       - Performance certification: performance_certification.md
   - Reference:
-      - Capabilities: capabilities.md
-      - Generated method ledger: capabilities.generated.md
+      - Capabilities: https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md
+      - Generated method ledger: https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.generated.md
       - Concepts: concepts.md
       - Cost and capacity: cost_model.md
       - Transport benchmarks: benchmarks.md

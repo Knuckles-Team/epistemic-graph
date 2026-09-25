@@ -462,7 +462,7 @@ eng.add_node("my_graph", "n1", br#"{"label":"Doc"}"#.to_vec())?;
 
 ---
 
-See the [capability matrix](../capabilities.md) for the operation-by-operation truth per
+See the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) for the operation-by-operation truth per
 surface and the [operations runbook](../operations/runbook.md) for the full env-var catalog,
 tiers, backup/PITR, and RBAC.
 
@@ -471,4 +471,4 @@ tiers, backup/PITR, and RBAC.
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [SPARQL & RDF](sparql.md) · [Cypher & Bolt](cypher.md) · [Messaging & Broker](messaging.md) · [Key-value & Blob](kv_blob.md) · [Client Drivers](clients.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SQL & pgwire](sql.md) · [SPARQL & RDF](sparql.md) · [Cypher & Bolt](cypher.md) · [Messaging & Broker](messaging.md) · [Key-value & Blob](kv_blob.md) · [Client Drivers](clients.md).

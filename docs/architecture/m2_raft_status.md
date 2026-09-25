@@ -242,4 +242,4 @@ validation remains the release gate:
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Catalog-driven Resharding](m3_resharding.md) · [Cluster Deployment](cluster_deployment.md) · [Distribution / Robotics / GPU](distribution_robotics_gpu.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Catalog-driven Resharding](m3_resharding.md) · [Cluster Deployment](cluster_deployment.md) · [Distribution / Robotics / GPU](distribution_robotics_gpu.md).

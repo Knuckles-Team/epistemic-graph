@@ -38,13 +38,13 @@
 
 The main build provides the connected data, semantic reasoning, analytical,
 temporal, and multimodal surfaces shown above. Compatibility is published per
-operation: the [capability matrix](capabilities.md) explains supported behavior,
-while the [generated method ledger](capabilities.generated.md) records exact
+operation: the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) explains supported behavior,
+while the [generated method ledger](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.generated.md) records exact
 authority, durability, audit, CDC, and transaction properties.
 
 !!! info "Capability truth is part of the product"
     Status is generated from the same method contracts the engine serves. Check
-    [current status](https://github.com/Knuckles-Team/epistemic-graph/blob/main/status/status.md) and the [capability matrix](capabilities.md)
+    [current status](https://github.com/Knuckles-Team/epistemic-graph/blob/main/status/status.md) and the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md)
     before selecting an interface or deployment shape.
 
 ## Where this engine fits

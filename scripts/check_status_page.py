@@ -4,7 +4,7 @@
 Lightweight advisory CI check (wired into .github/workflows/release.yml's
 `documentation-advisory` job) for the Codex/status page: fails when
 `status/status.md` is stale relative to
-`docs/capabilities.md`, `docs/capabilities.generated.md`, or
+`contract/capabilities.md`, `contract/capabilities.generated.md`, or
 `docs/concept_reservations.yaml`. Reuses `scripts/build_status_page.py`'s own
 render function rather than re-implementing the parsing/rendering logic — a
 second independent implementation is exactly how agent-utilities'
@@ -36,7 +36,7 @@ def main() -> int:
     if current != rendered:
         print(
             "check_status_page: FAIL: status/status.md is stale relative to "
-            "docs/capabilities.md / docs/capabilities.generated.md / "
+            "contract/capabilities.md / contract/capabilities.generated.md / "
             "docs/concept_reservations.yaml. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,

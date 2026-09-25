@@ -34,7 +34,6 @@ REQUIRED_FULL_FEATURES = frozenset(
 )
 
 AUTHORITATIVE_PAGES = (
-    "capabilities.generated.md",
     "architecture/request_authority.md",
     "architecture/mutation_batch.md",
     "architecture/change_envelope.md",
@@ -62,7 +61,7 @@ STALE_CLAIMS: dict[str, tuple[str, ...]] = {
         "jobs`, feature `jobs`, off by default",
         "Spatial/R-tree index pushdown is NOT wired",
     ),
-    "docs/capabilities.md": (
+    "contract/capabilities.md": (
         "epistemic-tms` (opt-in, HEAVY — not in `full`)",
         "epistemic-causal` (opt-in, HEAVY — not in `full`)",
         "`epistemic-tms`/`epistemic-causal` remain opt-in",
@@ -105,10 +104,16 @@ def check_mkdocs() -> None:
             fail(f"mkdocs navigation omits authoritative page: {page}")
         if not (ROOT / "docs" / page).is_file():
             fail(f"mkdocs authoritative page does not exist: docs/{page}")
+    for page in ("contract/capabilities.md", "contract/capabilities.generated.md"):
+        url = f"https://github.com/Knuckles-Team/epistemic-graph/blob/main/{page}"
+        if url not in config:
+            fail(f"mkdocs navigation omits authoritative source: {url}")
+        if not (ROOT / page).is_file():
+            fail(f"mkdocs authoritative source does not exist: {page}")
 
 
 def check_generated_ledger() -> None:
-    ledger = text("docs/capabilities.generated.md")
+    ledger = text("contract/capabilities.generated.md")
     for method in GENERATED_METHODS:
         if f"| `{method}` |" not in ledger:
             fail(

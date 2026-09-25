@@ -8,7 +8,7 @@ a token-hash.
 
 > Status snapshot: the tiered store (EG-185), the shared multi-instance backend (EG-186), and the HTTP
 > server + vLLM/LMCache connector (EG-KG.backend.is-configured-so-co) are shipped. Pure-Rust, in the one main build. See the
-> [capability matrix](../capabilities.md).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md).
 
 ## Where the engine sits: the caching levels (L0 GPU → L1 CPU → L2 engine)
 
@@ -124,4 +124,4 @@ contract, block key derivation, and the connector adapter, see the architecture 
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [KV-cache remote backend](../architecture/kvcache_remote_backend.md) · [Key-value & Blob](kv_blob.md) · [Client Drivers](clients.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [KV-cache remote backend](../architecture/kvcache_remote_backend.md) · [Key-value & Blob](kv_blob.md) · [Client Drivers](clients.md) · [Connecting (per-wire guide)](connecting.md).

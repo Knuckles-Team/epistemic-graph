@@ -28,7 +28,7 @@ EL/RL fast path stays default. **SWRL** user rules add a Horn-rule DSL + `swrlb:
 Confidence-weighting (per-axiom `eg:confidence`, noisy-OR), Ebbinghaus time-decay, and
 distributed/cross-shard reasoning (one closure over a unioned TBox+ABox) are supported.
 Reasoning is also a query-time op (`Op::Reason` under `owl-plan` seeds a RowSet). See
-`docs/capabilities.md` → *OWL reasoning (`eg-rdf/owl`)*.
+`contract/capabilities.md` → *OWL reasoning (`eg-rdf/owl`)*.
 
 ## The MCP way (through graph-os)
 ```

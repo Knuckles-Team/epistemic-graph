@@ -10,13 +10,13 @@ schema drove which number.
 
 Sources (never hand-typed):
 
-* ``docs/capabilities.generated.md`` — the machine-checked, compiler-enforced
+* ``contract/capabilities.generated.md`` — the machine-checked, compiler-enforced
   method ledger (CONCEPT:EG-P0-1). It is authoritative for per-method
   mutates/durability/authz facts, but it has NO status column (every listed
   method already exists in the exhaustive `MethodPolicy` match by
   construction) -- so it contributes only the total method count, as a
   cross-check figure, not a status breakdown.
-* ``docs/capabilities.md`` -- the hand-curated, but machine-parseable,
+* ``contract/capabilities.md`` -- the hand-curated, but machine-parseable,
   operation-by-operation truth table: every row's ``| Status |`` cell is one
   of the three emoji this page's vocabulary already uses (✅/🔶/🗺). This is
   therefore the actual source of the LIVE/BUILDING/ROADMAP capability counts
@@ -50,8 +50,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CAPABILITIES_MD = ROOT / "docs" / "capabilities.md"
-CAPABILITIES_GENERATED_MD = ROOT / "docs" / "capabilities.generated.md"
+CAPABILITIES_MD = ROOT / "contract" / "capabilities.md"
+CAPABILITIES_GENERATED_MD = ROOT / "contract" / "capabilities.generated.md"
 RESERVATIONS_PATH = ROOT / "docs" / "concept_reservations.yaml"
 STATUS_PATH = ROOT / "status" / "status.md"
 
@@ -99,8 +99,8 @@ PILLAR_GATE = {
 HONESTY_FRAMING = (
     "**Honesty first.** Every capability on this page is tracked "
     "operation-by-operation, verified against the source, not against "
-    "intent — the numbers below are computed from `docs/capabilities.md`, "
-    "`docs/capabilities.generated.md`, and `docs/concept_reservations.yaml` "
+    "intent — the numbers below are computed from `contract/capabilities.md`, "
+    "`contract/capabilities.generated.md`, and `docs/concept_reservations.yaml` "
     "at generation time, never hand-typed."
 )
 
@@ -247,8 +247,8 @@ def render() -> str:
     lines.append("")
     lines.append(
         "> **Generated — do not edit by hand.** Produced by "
-        "`scripts/build_status_page.py` from `docs/capabilities.md`, "
-        "`docs/capabilities.generated.md`, and "
+        "`scripts/build_status_page.py` from `contract/capabilities.md`, "
+        "`contract/capabilities.generated.md`, and "
         "`docs/concept_reservations.yaml`. See "
         '"How this page stays honest" at the bottom.'
     )
@@ -261,8 +261,8 @@ def render() -> str:
     lines.append(
         f"**{cap_counts['✅']} LIVE**, **{cap_counts['🔶']} BUILDING**, and "
         f"**{cap_counts['🗺']} ROADMAP** operations tracked in "
-        "`docs/capabilities.md`'s operation-by-operation truth table "
-        f"(cross-check: the machine-checked `docs/capabilities.generated.md` "
+        "`contract/capabilities.md`'s operation-by-operation truth table "
+        f"(cross-check: the machine-checked `contract/capabilities.generated.md` "
         f"ledger currently enumerates **{method_total} wire methods** — a "
         "different, finer granularity, since several generated-ledger "
         "methods can compose into one `capabilities.md` row; the two are "
@@ -318,7 +318,7 @@ def render() -> str:
     lines.append("")
     lines.append(
         "Defined once, here — every other table in this repo's docs "
-        "(README capability tables, `docs/capabilities.md`) should link to "
+        "(README capability tables, `contract/capabilities.md`) should link to "
         "this section instead of restating or omitting it. Existing emoji "
         "are the rendering of this vocabulary, not a separate scheme."
     )
@@ -357,7 +357,7 @@ def render() -> str:
     lines.append("")
     lines.append(
         "This page is produced by `scripts/build_status_page.py` from "
-        "`docs/capabilities.md`, `docs/capabilities.generated.md`, and "
+        "`contract/capabilities.md`, `contract/capabilities.generated.md`, and "
         "`docs/concept_reservations.yaml` — never hand-typed. Regenerate it "
         "with:"
     )
@@ -410,8 +410,8 @@ def main() -> int:
     current = STATUS_PATH.read_text(encoding="utf-8")
     if current != rendered:
         print(
-            "status/status.md is stale relative to docs/capabilities.md / "
-            "docs/capabilities.generated.md / docs/concept_reservations.yaml. "
+            "status/status.md is stale relative to contract/capabilities.md / "
+            "contract/capabilities.generated.md / docs/concept_reservations.yaml. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,
         )

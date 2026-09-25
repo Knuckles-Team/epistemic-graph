@@ -1,12 +1,12 @@
 # Status — the Codex
 
-> **Generated — do not edit by hand.** Produced by `scripts/build_status_page.py` from `docs/capabilities.md`, `docs/capabilities.generated.md`, and `docs/concept_reservations.yaml`. See "How this page stays honest" at the bottom.
+> **Generated — do not edit by hand.** Produced by `scripts/build_status_page.py` from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `docs/concept_reservations.yaml`. See "How this page stays honest" at the bottom.
 
-**Honesty first.** Every capability on this page is tracked operation-by-operation, verified against the source, not against intent — the numbers below are computed from `docs/capabilities.md`, `docs/capabilities.generated.md`, and `docs/concept_reservations.yaml` at generation time, never hand-typed.
+**Honesty first.** Every capability on this page is tracked operation-by-operation, verified against the source, not against intent — the numbers below are computed from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `docs/concept_reservations.yaml` at generation time, never hand-typed.
 
 ## Capabilities by status
 
-**265 LIVE**, **2 BUILDING**, and **0 ROADMAP** operations tracked in `docs/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `docs/capabilities.generated.md` ledger currently enumerates **429 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
+**265 LIVE**, **2 BUILDING**, and **0 ROADMAP** operations tracked in `contract/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `contract/capabilities.generated.md` ledger currently enumerates **429 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
 
 | Status | Count |
 |:------|---:|
@@ -36,7 +36,7 @@
 
 ## Status vocabulary
 
-Defined once, here — every other table in this repo's docs (README capability tables, `docs/capabilities.md`) should link to this section instead of restating or omitting it. Existing emoji are the rendering of this vocabulary, not a separate scheme.
+Defined once, here — every other table in this repo's docs (README capability tables, `contract/capabilities.md`) should link to this section instead of restating or omitting it. Existing emoji are the rendering of this vocabulary, not a separate scheme.
 
 | Status | Emoji | Meaning |
 |:------|:---:|:------|
@@ -66,7 +66,7 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 
 ## How this page stays honest
 
-This page is produced by `scripts/build_status_page.py` from `docs/capabilities.md`, `docs/capabilities.generated.md`, and `docs/concept_reservations.yaml` — never hand-typed. Regenerate it with:
+This page is produced by `scripts/build_status_page.py` from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `docs/concept_reservations.yaml` — never hand-typed. Regenerate it with:
 
 ```bash
 python scripts/build_status_page.py --write

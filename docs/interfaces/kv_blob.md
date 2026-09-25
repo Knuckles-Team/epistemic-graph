@@ -6,7 +6,7 @@ surface.
 
 > Status snapshot: the embedded engine, the blob CAS, the generic namespaced KV `get`/`put`/`scan`/`cas`
 > surface (`kv` feature, EG-022) and the Redis RESP + SQLite-dialect wires are all **supported**. See the
-> [capability matrix](../capabilities.md#key-value-embedded-redb-embedded).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#key-value-embedded-redb-embedded).
 
 ## Embedded engine (`embedded` feature)
 
@@ -63,7 +63,7 @@ participates in the same cross-modal ACID transaction as the graph mutation that
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) ·
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SQL & pgwire](sql.md) ·
 [Connecting (per-wire guide)](connecting.md) · [Messaging & Broker](messaging.md) ·
 [Object store / S3 REST](messaging.md).
 </content>

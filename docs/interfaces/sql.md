@@ -19,7 +19,7 @@ epistemic-graph speaks SQL two ways:
 > light up via `CREATE EXTENSION`. The same
 > tables are also readable as an open **Parquet + Delta + Iceberg** lakehouse with zero ETL — see
 > [lakehouse-ltap](../architecture/lakehouse_ltap.md) (EG-KG.storage.lsn-as-snapshot-returns). See the
-> [capability matrix](../capabilities.md#sql-eg-querysql-pgwire).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#sql-eg-querysql-pgwire).
 
 ## The tables
 
@@ -208,4 +208,4 @@ psql -h 127.0.0.1 -p 5433 -U agent -d epistemic
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Connecting (per-wire guide)](connecting.md) · [Cypher & Bolt](cypher.md) · [Vector / ANN](vector.md) · [Time-series](timeseries.md) · [Lakehouse LTAP](../architecture/lakehouse_ltap.md) · [Analytics Program](../architecture/analytics_program.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Connecting (per-wire guide)](connecting.md) · [Cypher & Bolt](cypher.md) · [Vector / ANN](vector.md) · [Time-series](timeseries.md) · [Lakehouse LTAP](../architecture/lakehouse_ltap.md) · [Analytics Program](../architecture/analytics_program.md).

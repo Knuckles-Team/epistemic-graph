@@ -101,10 +101,10 @@ or the catalog address is also configured.
   pyiceberg/deltalake read-parity tests, which drive the real `eg-lake` write path directly rather
   than through the gated listener.
 
-See the [capability matrix](../capabilities.md#lakehouse-interop-eg-lake-ltap) row and
+See the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#lakehouse-interop-eg-lake-ltap) row and
 [concepts](../concepts.md) `CONCEPT:EG-KG.storage.lsn-as-snapshot-returns` for the authoritative definition, and
 [subsystems](subsystems.md#lakehouse-interop) for how it composes on the one store.
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](../interfaces/sql.md) · [Analytics Program](analytics_program.md) · [Key-value & Blob](../interfaces/kv_blob.md) · [Cluster Deployment](cluster_deployment.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SQL & pgwire](../interfaces/sql.md) · [Analytics Program](analytics_program.md) · [Key-value & Blob](../interfaces/kv_blob.md) · [Cluster Deployment](cluster_deployment.md).

@@ -341,4 +341,4 @@ two different modalities are correlated in a single expression over the joined r
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Analytics Program](analytics_program.md) · [Vector / ANN](../interfaces/vector.md) · [Distribution / Robotics / GPU](distribution_robotics_gpu.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Analytics Program](analytics_program.md) · [Vector / ANN](../interfaces/vector.md) · [Distribution / Robotics / GPU](distribution_robotics_gpu.md).

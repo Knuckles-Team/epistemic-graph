@@ -33,7 +33,7 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 # distributed worker runtime.
 # CONCEPT:EG-P0-1 -- eg-capabilities: the machine-checked MethodPolicy capability-ledger
 # crate (exhaustive, no-wildcard `policy()` over eg-types::protocol::Method, generated
-# docs/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
+# contract/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
 # audit.rs/cdc.rs). A leaf crate (deps = eg-types ONLY, all its optional features on --
 # see eg-capabilities/Cargo.toml). Build/test it targeted:
 # `cargo build -p eg-capabilities` / `cargo test -p eg-capabilities` /

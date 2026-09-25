@@ -1,7 +1,7 @@
 //! The committed contract IS what the registry generates.
 //!
 //! `gen_contract --check` is the same assertion as a shell command; running it here as
-//! well means a stale `contract/`, `docs/capabilities.generated.md` or
+//! well means a stale `contract/`, `contract/capabilities.generated.md` or
 //! `epistemic_graph/generated/**` fails `cargo test`, not only the pre-push hook.
 //!
 //! It needs the schemas, so it can only exist under the generator's own profile:

@@ -10,9 +10,9 @@ is verified against the source, not against intent. Legend:
   insecure fallback), not because it is unimplemented.
 
 The **Feature** column is the Cargo feature that gates the surface; the
-[tiers page](architecture/tiers.md) shows which prebuilt binary carries it.
+[tiers page](../docs/architecture/tiers.md) shows which prebuilt binary carries it.
 
-> **Machine-checked ledger available (EG-P0-1).** [`docs/capabilities.generated.md`](capabilities.generated.md)
+> **Machine-checked ledger available (EG-P0-1).** [`contract/capabilities.generated.md`](capabilities.generated.md)
 > is generated from an exhaustive, compiler-enforced `MethodPolicy` match over every wire-protocol
 > `Method` variant (`crates/eg-capabilities`, regenerate via `cargo run -p eg-capabilities
 > --features canonical-ledger --bin gen_ledger`) and is the **authoritative** machine-checked source for per-method
@@ -37,7 +37,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Cluster replication and recovery | ✅ | `raft` | The whole envelope is one Raft command; snapshots, backup/restore, offline migration, and online reshard preserve all auxiliary authority |
 | Verified request binding | ✅ | service auth | The sole `eg2.` context binds tenant, pseudonymous principal, policy version, request id, and idempotency key; Python clients support task-local `use_verified_context(...)` overrides |
 
-See [Governed ChangeEnvelope](architecture/change_envelope.md) for the contract and failure model.
+See [Governed ChangeEnvelope](../docs/architecture/change_envelope.md) for the contract and failure model.
 
 ## Native governed modality service
 
@@ -50,7 +50,7 @@ See [Governed ChangeEnvelope](architecture/change_envelope.md) for the contract 
 | Durable privacy boundary | ✅ | `modality-serving` | A state-backed MutationBatch commits an AEAD-sealed runtime snapshot; clustered writes replicate a bounded HMAC-authenticated encrypted-state command, while source bytes and their direct hash never enter Raft, audit, CDC, status, or outbox rows |
 | Resource and TCK gate | ✅ | `modality-serving` | Pre-allocation transport ceiling, format-specific structural caps, 4,096-record posting-selectivity/recovery test; every advertised leaf must report 12 PASS, zero N/A, and a passing native codec/index/query/resource probe |
 
-See [Governed modality serving](architecture/modality_serving.md#live-graph-service) for the
+See [Governed modality serving](../docs/architecture/modality_serving.md#live-graph-service) for the
 wire, policy, durability, and resource contracts.
 
 ## Native governed result stream
@@ -62,7 +62,7 @@ wire, policy, durability, and resource contracts.
 | Cursor fencing | ✅ | `knowledge-batch` | Cursor binds schema, family, keyed tenant/policy authority, placement epoch/fence, complete result snapshot, query, derivation/evidence set, and batch size |
 | RLS and placement | ✅ | `security` / `raft` | Dispatch occurs after verified RequestContext scope, graph ACL, RLS filtering, materialization readiness, and authoritative placement resolution |
 
-See [Governed modality serving](architecture/modality_serving.md#native-streaming-result-currency)
+See [Governed modality serving](../docs/architecture/modality_serving.md#native-streaming-result-currency)
 for the wire contract and failure model.
 
 ## Atomic graph and vector batches
@@ -73,7 +73,7 @@ for the wire contract and failure model.
 | Node/edge upsert plus vector write | ✅ | `redb` | `upsert_node`, `upsert_edge`, and `add_embedding`; vectors commit in the same redb transaction as graph rows |
 | Referential cleanup | ✅ | `redb` | Node removal tombstones every incoming/outgoing durable edge and the owned semantic vector across restart/replay |
 
-See [Atomic Batch Updates](interfaces/batch_update.md) for the complete operation and response schema.
+See [Atomic Batch Updates](../docs/interfaces/batch_update.md) for the complete operation and response schema.
 
 ## SQL (`eg-query/sql` + pgwire)
 
@@ -249,7 +249,7 @@ See [Atomic Batch Updates](interfaces/batch_update.md) for the complete operatio
 Every listener is **opt-in** — it starts only when the binary is built with its feature
 AND its `EPISTEMIC_GRAPH_*_ADDR` env var (or CLI flag) is set. The SQL wires share the
 one wire-neutral `classify → dispatch → exec` core (`src/server/wire`, CONCEPT:EG-KG.compute.subsystems-reference) —
-no SQL is reimplemented per wire. See [`interfaces/connecting.md`](interfaces/connecting.md)
+no SQL is reimplemented per wire. See [`interfaces/connecting.md`](../docs/interfaces/connecting.md)
 for per-wire connect+query recipes and the full env-var/port table.
 
 | Surface | Status | Feature | Evidence |
@@ -385,7 +385,7 @@ Four dependency-light leaf crates share the universal governed artifact protocol
 build through `eg-plan/epistemic`; their component TCKs require 12/12 PASS and permit no N/A core
 dimension. That component result is necessary but not sufficient for release readiness,
 which is established by the G-14 exact-binary campaign plus same-artifact G-37 evidence.
-See [governed modality serving](architecture/modality_serving.md).
+See [governed modality serving](../docs/architecture/modality_serving.md).
 
 | Operation | Status | Feature | Evidence |
 |-----------|:------:|---------|----------|
@@ -412,7 +412,7 @@ See [governed modality serving](architecture/modality_serving.md).
 | Tiered hot/warm/cold KV-block cache (LRU + importance/recency; RAM → compressed-RAM → redb/blob; auto promote/demote) | ✅ | survives OOM by offloading (CONCEPT:EG-KG.memory.byte-bounded-tiers); warm tier uses real **zstd** (optional lz4) compression, not RLE (CONCEPT:EG-KG.storage.rle-codec-default) |
 | Shared multi-instance KV backend (content-addressed, dedup, ref-count; lookup/publish by token-hash) | ✅ | `SharedKvBackend` (CONCEPT:EG-KG.enrichment.content-address-separation) |
 | HTTP endpoint (GET/PUT/EXISTS a block by token-hash + stats) + vLLM/LMCache remote-backend connector contract | ✅ | `kvcache-server`, in the main build (CONCEPT:EG-KG.backend.is-configured-so-co) |
-| Governed connector write-back change sets and append-only attempt/reconciliation receipts | ✅ | `Method::WriteBack`; [architecture contract](architecture/write_back.md) |
+| Governed connector write-back change sets and append-only attempt/reconciliation receipts | ✅ | `Method::WriteBack`; [architecture contract](../docs/architecture/write_back.md) |
 
 ## OBDA / virtual graphs (`federation` + `eg-rdf`)
 
@@ -435,7 +435,7 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 of the one main `full` build (the measured release-binary size delta stayed inside the Pi-4 budget). The
 materialization tier and the Iceberg-REST listener remain opt-in **at runtime** (nothing runs unless
 `GRAPH_SERVICE_PERSIST_DIR` + `EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS`/`--iceberg-addr` are configured).
-See [lakehouse-ltap](architecture/lakehouse_ltap.md).
+See [lakehouse-ltap](../docs/architecture/lakehouse_ltap.md).
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
@@ -456,7 +456,7 @@ See [lakehouse-ltap](architecture/lakehouse_ltap.md).
 | Multi-group production startup (`EPISTEMIC_GRAPH_RAFT_GROUPS`) + bounded cross-shard read pages routed to each current leader over authenticated `GroupRpc`; placement ReadIndex/epoch fences, deterministic cursors, deadlines/fan-out caps, and explicit require-complete vs partial policy | ✅ | `raft`/`cluster` | `src/raft/xread.rs`/`network.rs`/`node.rs` (CONCEPT:DIST-P2-2); live harnesses cover routing, merge, and completion policy |
 | Lazy graph lifecycle: catalog-only boot, source-bounded paging, immutable incarnation/version fences, cancellation on delete/evict, per-graph lifecycle serialization, and maintained-index manifests. Operations return `PARTIAL_MATERIALIZATION` until the source view and all indexes are valid; health/list responses expose completeness/freshness. Served mode always uses positive resident and page bounds; eager/unbounded profiles do not exist. | ✅ | `redb` | `eg-core::registry`, `eg-core::index`, `src/server/persistence/{read_through,cold_offload,redb_backend}.rs`, `src/server/{dispatch,secondary_indexes}.rs` (CONCEPT:DIST-P2-3/EG-KG.sharding.lazy-graph-catalog) |
 | Durable analytics-job plane: `Method::AnalyticsJob` async submit/status/cancel/resume over a redb-backed state machine, with an immutable input-snapshot handle (graph + pinned OCC version) and a `:Claim`/`:Evidence` result-commit path | ✅ | `jobs` (in `full`) | `eg-jobs`, `src/server/handlers/jobs.rs` (CONCEPT:INT-P2-1); facade-reachable via the Python client's `client.jobs.{submit,status,cancel,resume}` sub-client (+ the general `client.cancel_request` for an in-flight RPC) |
-| Graph-native typed LM-program contract: typed signatures/modules/adapters, opaque tools/content/traces, privacy attestation, all-modality located evidence, evaluator evidence, and `ChangeEnvelope`-only promotion | ✅ | `program-optimization` (in `full`) | `eg-program`; [native program optimization](architecture/native-program-optimization.md) |
+| Graph-native typed LM-program contract: typed signatures/modules/adapters, opaque tools/content/traces, privacy attestation, all-modality located evidence, evaluator evidence, and `ChangeEnvelope`-only promotion | ✅ | `program-optimization` (in `full`) | `eg-program`; [native program optimization](../docs/architecture/native-program-optimization.md) |
 | Native program-optimization surface: labeled/bootstrap/random/KNN selection, ensemble composition, COPRO/MIPRO instruction search, SIMBA/GEPA reflection, rule inference, BetterTogether, and bootstrap finetuning | ✅ | `program-optimization` (in `full`) | Pure Rust kernels execute selection/composition; provider-dependent work emits bounded governed plan-step rows for the existing graph-similarity/model/evaluator/trainer runtimes, then materializes evidence-backed artifacts without a second provider client; all 14 modalities are preserved |
 | Governed external compute: stream an authority-, snapshot-, and placement-bound `KnowledgeBatch` over the signed `Method::KnowledgeStream` protocol, submit durable native `AnalyticsJob` work, then retrieve its evidence-bearing result through the same stream | ✅ | `jobs`/`knowledge-batch` (in `full`) | `src/server/handlers/knowledge_stream/{mod,families,stream}.rs`, `src/server/handlers/jobs.rs` (CONCEPT:INT-P2-2) |
 
@@ -490,7 +490,7 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 (CONCEPT:AU-KG.compute.numeric-kernel). Surface A accepts bounded Python built-in
 scalars or rectangular sequences and returns scalars or nested lists; it has no NumPy
 runtime dependency. Arrow is the cross-component interchange format for bounded engine
-result batches. See [numeric_kernel.md](architecture/numeric_kernel.md).
+result batches. See [numeric_kernel.md](../docs/architecture/numeric_kernel.md).
 
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
@@ -518,11 +518,11 @@ result batches. See [numeric_kernel.md](architecture/numeric_kernel.md).
 | Cross-shard 2PC (presumed-abort, crash-recoverable) | ✅ | `src/raft/cross_shard_txn/` |
 | Multi-Raft groups (N-group ring, crash-safe online reshard, hibernate/rehydrate) | ✅ | `src/raft/multi.rs` `MultiRaft`/`GroupRouter` (KG-2.266/267/268); `reshard.rs` + `placement.rs` use a replicated, integrity-checked, monotonic move journal with leader-only reconcile and pre-fence abort/post-fence roll-forward |
 | Parallel-commit + read-only-participant fast path + non-blocking (Raft-replicated decision) commit | ✅ | parallel prepare + empty-write-set skip (CONCEPT:EG-KG.txn.cross-shard) and the Paxos-Commit-lite Raft-replicated commit decision (CONCEPT:EG-KG.txn.harness-crash) over the working 2PC |
-| Full Calvin deterministic-ordering commit | ✅ | a global `CalvinSequencer` total order + Raft-replicated input log + vote-free deterministic execution + crash-replay recovery — a third commit branch opt-in via `calvin` alongside 2PC + Paxos-Commit-lite (CONCEPT:EG-KG.txn.calvin-deterministic-ordering). OLLP distributed read-lock + multi-node sequencer fan-in remain (see [roadmap](roadmap.md)) |
+| Full Calvin deterministic-ordering commit | ✅ | a global `CalvinSequencer` total order + Raft-replicated input log + vote-free deterministic execution + crash-replay recovery — a third commit branch opt-in via `calvin` alongside 2PC + Paxos-Commit-lite (CONCEPT:EG-KG.txn.calvin-deterministic-ordering). OLLP distributed read-lock + multi-node sequencer fan-in remain (see [roadmap](../docs/roadmap.md)) |
 | Cross-region async read-replica tier + capacity guardrails | ✅ | bounded-LSN replication log + `/replicate` serve + async follower apply (CONCEPT:EG-KG.sharding.follower-pull-loop); circuit-breaker + per-tenant quota + backpressure guards (CONCEPT:EG-KG.coordination.circuit-breaker). `federation-search`, in the main build |
 | Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), in the main build; activates when a foreign source is registered |
 
-See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
+See the [parity roadmap](../docs/roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
 
 ## Current enforcement invariants
 

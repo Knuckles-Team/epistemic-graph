@@ -1,6 +1,6 @@
 //! The one engine-contract generator (RF-RULING-003).
 //!
-//! Renders every committed artifact under `contract/` plus `docs/capabilities.generated.md`
+//! Renders every committed artifact under `contract/` plus `contract/capabilities.generated.md`
 //! from [`crate::method_descriptors`] — the single hand-authored registry. Nothing here
 //! reads a second source, so a generated file can never become a rival source of truth.
 //! [`check`] regenerates in memory and byte-diffs the committed copies; it replaces the
@@ -307,7 +307,7 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
             bytes: methods_json(catalog),
         },
         Artifact {
-            path: "docs/capabilities.generated.md".to_string(),
+            path: "contract/capabilities.generated.md".to_string(),
             bytes: normalize(crate::gen_ledger()),
         },
     ];

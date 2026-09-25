@@ -581,7 +581,7 @@ repos:
   # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
   # regenerates every committed artifact (`contract/methods.json`,
   # `contract/schemas/*.json`, `contract/receipt.json`,
-  # `docs/capabilities.generated.md`, `epistemic_graph/generated/*.py`) in memory and
+  # `contract/capabilities.generated.md`, `epistemic_graph/generated/*.py`) in memory and
   # byte-diffs the tree, so "is this method bound in the Python client" is answered by
   # the descriptor's `consumer_profiles` rather than by a regex over two files and a
   # baseline nobody re-reviews. It runs on the SAME pre-push/manual stage the old
