@@ -558,6 +558,24 @@ pub enum Op {
     /// (`eg_numeric::evaluation::skill::feature_skill`).
     #[cfg(feature = "timeseries")]
     Skill { spec: crate::series_expr::SkillOp },
+    /// REPORT (series, EH-529 motif / discord search, UQL `MOTIF [OF c] LIKE shape [TOP k]`,
+    /// `MOTIF [OF c] LENGTH m [TOP k] [SEED s]`, `DISCORD [OF c] LENGTH m [TOP k] [SEED s]`)
+    /// — per series, over value channel `c` in timestamp order: the `k` non-overlapping
+    /// windows z-normalised-closest to `shape` (MASS query-by-example), the `k` closest
+    /// window pairs, or the `k` windows farthest from all others (the SCRIMP++ matrix
+    /// profile, anytime under the plan's series-work budget). Replaces the rows with one
+    /// row per hit, id `<series>#motif@<start ts>` / `<series>#discord@<start ts>` (shape
+    /// events a later `CEP` matches by key `motif` / `discord`), score the distance and
+    /// channels `distance start end neighbor approximate` (`eg_numeric::series`).
+    #[cfg(feature = "timeseries")]
+    Motif { spec: crate::series_expr::MotifOp },
+    /// TRANSFORM (series, EH-529 shape events, UQL `EVENTS c {, c}`) — every series row
+    /// whose value channel `c` is non-zero (a `DERIVE` shape predicate such as
+    /// `gt(ret(v0, 1), 0)`) becomes an event row `<series>#<c>@<ts>` carrying the row's
+    /// value channels, which a later `CEP` stage matches by key `c` — the existing NFA, no
+    /// new pattern language. Rows that are not series rows are dropped.
+    #[cfg(feature = "timeseries")]
+    Events { channels: Vec<String> },
     /// TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — run the probabilistic query `query`
     /// against each row's stored `Distribution` VALUE (the conventional `distribution`
     /// node property, the tagged serde form of `eg_types::Distribution`) and SCORE the

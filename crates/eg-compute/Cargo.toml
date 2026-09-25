@@ -24,7 +24,11 @@ datascience = ["dep:rand_chacha", "eg-types/datascience"]
 # Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): pure-Rust,
 # dependency-light frequent-itemset + association-rule mining. No heavy dep — only
 # turns on the matching eg-types feature so the `MineAssociate` wire variant exists.
-mining = ["eg-types/mining", "dep:eg-geo"]
+# `dep:eg-numeric` + `eg-numeric/motif` (EH-529, ANALYTICS-HARVEST AH-09) are for
+# `MineAnomaly`'s `Algorithm::MatrixProfileDiscord` alone — every other detector in
+# `mining::anomaly` is dependency-light by design; this ONE reuses the eg-numeric
+# matrix-profile kernel rather than a second implementation.
+mining = ["eg-types/mining", "dep:eg-geo", "dep:eg-numeric", "eg-numeric/motif"]
 # Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor):
 # a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph whose
 # learned per-feature edge functions ARE queryable KG artifacts. Reuses the

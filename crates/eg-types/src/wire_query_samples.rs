@@ -174,6 +174,21 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
                 seed: 7,
             },
         },
+        #[cfg(feature = "timeseries")]
+        OpKind::Motif => Op::Motif {
+            spec: crate::series_expr::MotifOp {
+                channel: "v1".into(),
+                search: crate::series_expr::MotifSearch::Like {
+                    shape: vec![0.0, 1.5, -2.25, 4.0],
+                },
+                top: 5,
+                seed: 0,
+            },
+        },
+        #[cfg(feature = "timeseries")]
+        OpKind::Events => Op::Events {
+            channels: vec!["up_close".into(), "long_upper_wick".into()],
+        },
         #[cfg(feature = "probabilistic")]
         OpKind::Probabilistic => Op::Probabilistic {
             query: ProbQuery::Conditional {

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::exact::{ExactPairs, MomentWindow, PairSums};
 use super::kalman::Kalman;
+use super::stampi::LeftProfile;
 use super::window::{pearson, ranks, Extremum, Moments, Side, Sorted, STD_FLOOR};
 use super::{Arith, Map, PairStat, Rolling, Shift, Smoothing, Spec};
 use crate::detkernel::math;
@@ -25,6 +26,8 @@ pub enum State {
         filter: Kalman,
         regressor: bool,
     },
+    /// The streaming left matrix profile (EH-529).
+    Profile(LeftProfile),
 }
 
 impl State {
@@ -46,6 +49,7 @@ impl State {
                 filter: Kalman::beta(noise),
                 regressor: true,
             },
+            Spec::LeftProfile { m, history } => State::Profile(LeftProfile::new(m, history)),
         })
     }
 
@@ -64,6 +68,7 @@ impl State {
                 let h = if *regressor { y? } else { 1.0 };
                 Some(filter.observe(x?, h).0)
             }
+            State::Profile(profile) => profile.step(x?),
         }
     }
 }
@@ -93,6 +98,18 @@ fn arith(op: Arith, x: f64, y: f64) -> Option<f64> {
         Arith::Sub => Some(x - y),
         Arith::Mul => Some(x * y),
         Arith::Div => (y != 0.0).then(|| x / y),
+        Arith::Gt => Some(indicator(x > y)),
+        Arith::Lt => Some(indicator(x < y)),
+        Arith::Max => Some(x.max(y)),
+        Arith::Min => Some(x.min(y)),
+    }
+}
+
+fn indicator(holds: bool) -> f64 {
+    if holds {
+        1.0
+    } else {
+        0.0
     }
 }
 

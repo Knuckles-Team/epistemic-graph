@@ -58,6 +58,8 @@ kinds! {
     #[cfg(feature = "timeseries")] TsScan,
     #[cfg(feature = "timeseries")] Derive,
     #[cfg(feature = "timeseries")] Skill,
+    #[cfg(feature = "timeseries")] Motif,
+    #[cfg(feature = "timeseries")] Events,
     #[cfg(feature = "probabilistic")] Probabilistic,
     #[cfg(feature = "epistemic")] EvidenceFor,
     #[cfg(feature = "epistemic")] Contradicts,
@@ -137,6 +139,10 @@ pub fn op_kind(op: &Op) -> OpKind {
         Op::Derive { .. } => OpKind::Derive,
         #[cfg(feature = "timeseries")]
         Op::Skill { .. } => OpKind::Skill,
+        #[cfg(feature = "timeseries")]
+        Op::Motif { .. } => OpKind::Motif,
+        #[cfg(feature = "timeseries")]
+        Op::Events { .. } => OpKind::Events,
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { .. } => OpKind::Probabilistic,
         #[cfg(feature = "epistemic")]
@@ -244,7 +250,7 @@ impl OpKind {
             OpKind::Cep => None,
             // DERIVE and SKILL write named value channels, not a fixed score channel.
             #[cfg(feature = "timeseries")]
-            OpKind::Derive | OpKind::Skill => None,
+            OpKind::Derive | OpKind::Skill | OpKind::Motif | OpKind::Events => None,
             #[cfg(feature = "epistemic")]
             OpKind::EvidenceFor | OpKind::Contradicts | OpKind::SupportedBy => None,
         }
@@ -295,9 +301,12 @@ impl OpKind {
             #[cfg(feature = "stream")]
             OpKind::Cep => ProofRole::Unproved,
             #[cfg(feature = "timeseries")]
-            OpKind::SensorFuse | OpKind::SensorAlign | OpKind::TsScan | OpKind::Skill => {
-                ProofRole::Unproved
-            }
+            OpKind::SensorFuse
+            | OpKind::SensorAlign
+            | OpKind::TsScan
+            | OpKind::Skill
+            | OpKind::Motif
+            | OpKind::Events => ProofRole::Unproved,
             #[cfg(feature = "probabilistic")]
             OpKind::Probabilistic => ProofRole::Unproved,
             #[cfg(feature = "epistemic")]

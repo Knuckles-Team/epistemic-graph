@@ -224,6 +224,25 @@ pub const PRODUCTIONS: &[Production] = &[
        (rows <series>:skill@<h>; channels mean_ic ic_std icir ic_lo ic_hi n n_eff ir, EH-522)",
       "TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE ret(v0, 1) AS r \
        |> SKILL v0 AGAINST r HORIZONS [1, 5] WINDOW 30 BOOTSTRAP 200 SEED 7 |> RETURN mean_ic, icir"),
+    p("motif", Stage, &["MOTIF"], Some(Timeseries),
+      "\"MOTIF\" \"OF\" name \
+       ( \"LIKE\" \"[\" num { \",\" num } \"]\" | \"LENGTH\" int ) \"TOP\" int [ \"SEED\" int ]",
+      "Motif{spec}: query-by-example (MASS, LIKE) or matrix-profile motifs (LENGTH) over a \
+       value channel (rows <series>#motif@<start ts>; channels distance start end neighbor \
+       approximate, EH-529)",
+      "TSSCAN ['svc.p95'] FROM 0 TO 3600 |> MOTIF OF v0 LENGTH 120 TOP 5 |> RETURN distance"),
+    p("discord", Stage, &["DISCORD"], Some(Timeseries),
+      "\"DISCORD\" \"OF\" name \"LENGTH\" int \"TOP\" int [ \"SEED\" int ]",
+      "Motif{spec: Discord}: the matrix-profile discords — the subsequences farthest from \
+       their nearest neighbour (rows <series>#discord@<start ts>, EH-529)",
+      "TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DISCORD OF v0 LENGTH 120 TOP 3 |> RETURN distance"),
+    p("events", Stage, &["EVENTS"], Some(Timeseries),
+      "\"EVENTS\" name { \",\" name }",
+      "Events{channels}: every series row whose named value channel is non-zero becomes an \
+       event row a later `stream` CEP stage matches by key, e.g. \
+       `CEP SEQ ({KEY 'spike'}) WINDOW SLIDING 3` (rows <series>#<channel>@<ts>, EH-529)",
+      "TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE gt(v0, 100) AS spike \
+       |> EVENTS spike |> RETURN spike"),
     p("sexpr", Aux, &[], None,
       "signed_num | name | name \"(\" [ sexpr { \",\" sexpr } ] \")\"",
       "SeriesExpr: a constant, a value channel (v0..vk, score, an alias) or a call to lag diff \

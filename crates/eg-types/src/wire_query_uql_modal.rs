@@ -82,6 +82,35 @@ pub(super) fn skill(spec: &crate::series_expr::SkillOp) -> Printed {
     Ok(out)
 }
 
+/// `MOTIF OF c LIKE [..] TOP k` / `MOTIF OF c LENGTH m TOP k` / `DISCORD OF c LENGTH m
+/// TOP k`, then `SEED s` when non-zero (EH-529). The channel and `TOP` are always
+/// printed (the canonical form); a parsed stage without them takes `v0` and `TOP 3`.
+#[cfg(feature = "timeseries")]
+pub(super) fn motif(spec: &crate::series_expr::MotifOp) -> Printed {
+    use crate::series_expr::MotifSearch;
+    let (keyword, what) = match &spec.search {
+        MotifSearch::Like { shape } => ("MOTIF", format!("LIKE {}", list(shape, |v| uql_num(*v))?)),
+        MotifSearch::Pairs { length } => ("MOTIF", format!("LENGTH {length}")),
+        MotifSearch::Discord { length } => ("DISCORD", format!("LENGTH {length}")),
+    };
+    let mut out = format!(
+        "{keyword} OF {} {what} TOP {}",
+        uql_ident(&spec.channel),
+        spec.top
+    );
+    if spec.seed != 0 {
+        out.push_str(&format!(" SEED {}", spec.seed));
+    }
+    Ok(out)
+}
+
+/// `EVENTS c {, c}` (EH-529 shape events).
+#[cfg(feature = "timeseries")]
+pub(super) fn events(channels: &[String]) -> Printed {
+    let names: Vec<String> = channels.iter().map(|c| uql_ident(c)).collect();
+    Ok(format!("EVENTS {}", names.join(", ")))
+}
+
 /// The canonical spelling of a series expression — `func(args…, params…)`, channels as
 /// identifiers, numbers in shortest round-trip form. The digest input of a derived column.
 #[cfg(feature = "timeseries")]

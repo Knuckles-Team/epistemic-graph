@@ -23,11 +23,19 @@
 //! Transcendentals go through [`crate::detkernel::math`], so outputs are bit-identical on
 //! every release target.
 
+pub mod distance;
 mod exact;
+#[cfg(feature = "motif")]
+mod fft;
 pub mod kalman;
 mod kernel;
-pub mod window;
+#[cfg(feature = "motif")]
+pub mod mass;
+#[cfg(feature = "motif")]
+pub mod matrix_profile;
+pub mod stampi;
 mod wide;
+pub mod window;
 
 use serde::{Deserialize, Serialize};
 
@@ -79,13 +87,19 @@ pub enum Map {
     Clip { lo: f64, hi: f64 },
 }
 
-/// Pointwise arithmetic of two series (`None` on a zero divisor).
+/// Pointwise arithmetic of two series (`None` on a zero divisor). The comparisons are
+/// indicator series (`1` where the relation holds, else `0`) — the shape predicates a
+/// UQL `EVENTS` stage turns into CEP events (EH-529).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Arith {
     Add,
     Sub,
     Mul,
     Div,
+    Gt,
+    Lt,
+    Max,
+    Min,
 }
 
 /// A statistic of a PAIR of series over a sliding window of `w` valid pairs.
@@ -122,6 +136,10 @@ pub enum Spec {
     /// Dynamic regression coefficient: the random-walk `β` in `x = β·y + v`, seeded at
     /// `β = 0`, variance 1 — the Kalman beta of `x` on `y`.
     KalmanBeta(KalmanNoise),
+    /// Streaming left matrix profile (STAMPI, EH-529): the z-normalised distance of the
+    /// newest length-`m` subsequence to its nearest earlier non-trivial neighbour among
+    /// the last `history` subsequences — an incremental discord score.
+    LeftProfile { m: usize, history: usize },
 }
 
 impl Spec {
@@ -132,7 +150,8 @@ impl Spec {
             | Spec::Rolling(..)
             | Spec::Ewma(_)
             | Spec::Map(_)
-            | Spec::KalmanLevel(_) => 1,
+            | Spec::KalmanLevel(_)
+            | Spec::LeftProfile { .. } => 1,
             Spec::Arith(_) | Spec::Pair(..) | Spec::KalmanBeta(_) => 2,
         }
     }
@@ -147,6 +166,10 @@ impl Spec {
             Spec::Map(Map::Clip { lo, hi }) => clip_bounds(lo, hi),
             Spec::Map(_) | Spec::Arith(_) => Ok(()),
             Spec::KalmanLevel(noise) | Spec::KalmanBeta(noise) => kalman_noise(noise),
+            Spec::LeftProfile { m, history } => {
+                window_bound(m, distance::MIN_LENGTH)?;
+                window_bound(history, 1)
+            }
         }
     }
 }
@@ -216,3 +239,5 @@ pub fn apply_nan(spec: Spec, xs: &[f64]) -> Result<Vec<f64>> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, feature = "motif"))]
+mod motif_tests;

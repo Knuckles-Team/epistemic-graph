@@ -363,6 +363,13 @@ pub enum AnomalyAlgorithm {
     Isoforest,
     Lof,
     Ocsvm,
+    /// The matrix-profile discord score of a 1-D `values` series (EH-529, ANALYTICS-
+    /// HARVEST AH-09): reuses `sample_size` as the subsequence length `m` and `seed` as
+    /// the profile's diagonal-order seed (`eg_compute::mining::anomaly::Algorithm::
+    /// MatrixProfileDiscord`) — no new request field, the same per-algorithm parameter
+    /// reuse `IsolationForest`/`Lof`/`Ocsvm` already use.
+    #[serde(rename = "matrix_profile_discord")]
+    MatrixProfileDiscord,
 }
 
 /// One-Class SVM kernel (CONCEPT:EG-KG.mining.oneclass-svm).

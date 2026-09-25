@@ -36,6 +36,8 @@ enum Build {
     Pair(PairStat),
     /// A Kalman filter over `(q, r)`.
     Noise(fn(KalmanNoise) -> Spec),
+    /// The streaming left matrix profile over `(m, history)` (EH-529).
+    Profile,
 }
 
 use SeriesFunc as F;
@@ -68,6 +70,11 @@ const BUILDS: &[(SeriesFunc, Build)] = &[
     (F::Wsum, Build::Pair(PairStat::WeightedSum)),
     (F::Kalman, Build::Noise(Spec::KalmanLevel)),
     (F::Kbeta, Build::Noise(Spec::KalmanBeta)),
+    (F::Gt, Build::Arith(Arith::Gt)),
+    (F::Lt, Build::Arith(Arith::Lt)),
+    (F::Greatest, Build::Arith(Arith::Max)),
+    (F::Least, Build::Arith(Arith::Min)),
+    (F::Mprofile, Build::Profile),
 ];
 
 /// The kernel spec `func(…, params)` builds.
@@ -95,6 +102,10 @@ pub fn spec_of(func: SeriesFunc, params: &[f64]) -> Spec {
             q: first,
             r: params.get(1).copied().unwrap_or(first),
         }),
+        Build::Profile => Spec::LeftProfile {
+            m: count,
+            history: params.get(1).copied().unwrap_or(first) as usize,
+        },
     }
 }
 

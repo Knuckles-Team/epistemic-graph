@@ -291,7 +291,7 @@ digest of algo + sorted member ids, so replay is idempotent) linked
 
 # Anomaly detection — `action="anomaly"`
 
-Four interchangeable detectors, each returning a per-row `anomaly_score` (**higher
+Five interchangeable detectors, each returning a per-row `anomaly_score` (**higher
 = more anomalous**) so a single `threshold` (or a per-algorithm default) yields
 `is_anomaly`:
 
@@ -301,6 +301,14 @@ Four interchangeable detectors, each returning a per-row `anomaly_score` (**high
 | `isoforest` | Isolation Forest — path-length score (CONCEPT:EG-KG.mining.isolation-forest) | `n_trees`, `sample_size`, `seed` | 0.6 |
 | `lof` | Local Outlier Factor — k-neighbor density ratio (CONCEPT:EG-KG.mining.lof-local-density) | `k` | 1.5 |
 | `ocsvm` | One-Class ν-SVM boundary via SMO (CONCEPT:EG-KG.mining.oneclass-svm) | `nu`, `kernel`, `gamma` | 0.0 |
+| `matrix_profile_discord` | The matrix-profile discord score of a **1-D `values` series** — the subsequence farthest from its nearest neighbour (EH-529, ANALYTICS-HARVEST AH-09) | `sample_size` (the subsequence length `m`), `seed` | `√(2·m)·0.75` |
+
+`matrix_profile_discord` only makes sense over `values` (a single scalar series in
+timestamp order) — it reuses `sample_size`/`seed` rather than adding two
+algorithm-specific fields, exactly as `isoforest`/`lof`/`ocsvm` already reuse the
+shared parameter fields for their own algorithm-specific meaning. See UQL `DISCORD`
+(`docs/analytics_in_uql.md`) for the query-time, per-query-budgeted sibling of this
+same kernel (`eg_numeric::series::matrix_profile`) inside a plan.
 
 Rows come from **explicit `features`**, a **1-D `values` series** (each scalar → one
 row), **or** a graph-derived `source` (node embeddings). Output rows are `{id,
