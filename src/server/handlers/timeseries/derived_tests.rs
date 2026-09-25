@@ -229,11 +229,15 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
         let error = response.error.unwrap_or_default();
         assert!(error.contains(why), "{series} over {source}: {error}");
     }
-    // Another tenant can neither derive from `px` nor see `px_z`: whether dispatch
-    // refuses it or the handler finds no source in its own scope, nothing of that
-    // tenant's is written and the shared tenant's series are untouched.
+    // A deployment serves one tenant: a request context for another tenant is refused
+    // at authentication (`auth::claims::validate_deployment_binding`), before any
+    // handler runs, for the define and for a read alike. That refusal has no stable
+    // error code yet (the prose below is what `auth`'s own binding table pins), so the
+    // test pins the prose AND that nothing of the foreign tenant is written or read.
+    const FOREIGN_TENANT: &str = "request context tenant does not match graph tenant";
     let foreign = fx.define("tenant-other", "px_z2", "px", EXPR).await;
-    assert!(foreign.error.is_some(), "a foreign tenant's define is refused");
+    let error = foreign.error.unwrap_or_default();
+    assert!(error.contains(FOREIGN_TENANT), "foreign define: {error}");
     let foreign_range = fx
         .call(
             "tenant-other",
@@ -244,10 +248,9 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
             },
         )
         .await;
-    assert!(
-        foreign_range.error.is_some() || raw::<Vec<(i64, Vec<f64>)>>(&foreign_range).is_empty(),
-        "a foreign tenant reads nothing of px_z"
-    );
+    assert!(foreign_range.result.is_none(), "a foreign tenant reads nothing");
+    let error = foreign_range.error.unwrap_or_default();
+    assert!(error.contains(FOREIGN_TENANT), "foreign range: {error}");
     assert_eq!(fx.tenants_with_series().await.len(), 1, "only the owner's scope holds series");
     assert!(!fx.range(TENANT, "px_z").await.is_empty());
 }
