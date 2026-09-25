@@ -416,6 +416,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::MintWorkItemClaimCapability { .. }
         | Method::ClusterHierarchyClusters { .. }
         | Method::HasNode { .. }
+        | Method::UsageFacts { .. }
         | Method::SceneChildren { .. }
         | Method::RaftChangeMembership { .. }
         | Method::FinanceSabrSmile { .. }
