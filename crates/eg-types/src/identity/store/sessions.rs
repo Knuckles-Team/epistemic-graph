@@ -46,6 +46,7 @@ impl IdentityStore {
                 Ok(IdentityReply::Done { changed })
             }
             SessionOp::RevokeAll { request } => self.revoke_user(request, stamp, ctx.now_ms),
+            SessionOp::RevokeOne { request } => self.revoke_one(request, stamp, ctx.now_ms),
             SessionOp::List { request } => Ok(IdentityReply::Sessions(
                 self.sessions
                     .values()
@@ -148,6 +149,38 @@ impl IdentityStore {
             IdentityEvent::SessionRevoked,
             Some(&request.id),
         );
+        Ok(IdentityReply::Done { changed })
+    }
+
+    fn revoke_one(
+        &mut self,
+        request: &ObjectRef,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        // A handle is a public, one-way digest of the stored session hash.
+        // Refuse an ambiguous handle rather than revoking an arbitrary match.
+        let mut matches = self
+            .sessions
+            .values()
+            .filter(|session| SessionView::of(session).handle == request.id);
+        let hash = matches
+            .next()
+            .ok_or(IdentityRefusal::NotFound)?
+            .session_hash
+            .clone();
+        if matches.next().is_some() {
+            return Err(IdentityRefusal::Collision);
+        }
+        let changed = self.revoke_session(&hash, now_ms, "admin_revoke");
+        if changed {
+            self.audit_event(
+                stamp,
+                now_ms,
+                IdentityEvent::SessionRevoked,
+                Some(&request.id),
+            );
+        }
         Ok(IdentityReply::Done { changed })
     }
 

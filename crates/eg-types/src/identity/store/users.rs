@@ -6,7 +6,7 @@ use super::super::audit::IdentityEvent;
 use super::super::model::{PasswordCredential, UserKind, UserRecord, UserStatus};
 use super::super::ops::UserOp;
 use super::super::requests::{CreateUserRequest, UserStatusChange, UserUpdate};
-use super::super::requests_admin::{ListQuery, MAX_PAGE};
+use super::super::requests_admin::{ListQuery, UserSearch, MAX_PAGE};
 use super::super::stamp::IdentityStamp;
 use super::super::text::{bounded_opt, email, MAX_NAME_BYTES};
 use super::super::views::{CredentialFacts, IdentityReply, UserView};
@@ -43,6 +43,7 @@ impl IdentityStore {
             }
             UserOp::Get { request } => Ok(IdentityReply::User(self.view_of(&request.id)?)),
             UserOp::List { request } => Ok(IdentityReply::Users(self.list_users(request))),
+            UserOp::Search { request } => Ok(IdentityReply::Users(self.search_users(request)?)),
             UserOp::Resolve { request } => Ok(IdentityReply::Resolution(
                 self.resolve(&request.id, ctx.classifier)?,
             )),
@@ -83,6 +84,35 @@ impl IdentityStore {
             .take(limit)
             .map(|user| UserView::of(user, self.facts_of(&user.principal_id)))
             .collect()
+    }
+
+    fn search_users(&self, request: &UserSearch) -> Result<Vec<UserView>, IdentityRefusal> {
+        let query = request.query.trim().to_lowercase();
+        if query.is_empty() || query.len() > MAX_NAME_BYTES {
+            return Err(IdentityRefusal::InvalidRequest);
+        }
+        let limit = request.limit.min(MAX_PAGE) as usize;
+        Ok(self
+            .users
+            .values()
+            .filter(|user| {
+                request
+                    .after
+                    .as_deref()
+                    .is_none_or(|after| user.principal_id.as_str() > after)
+                    && [
+                        Some(user.principal_id.as_str()),
+                        Some(user.username.as_str()),
+                        user.display_name.as_deref(),
+                        user.email.as_deref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .any(|field| field.to_lowercase().contains(&query))
+            })
+            .take(limit)
+            .map(|user| UserView::of(user, self.facts_of(&user.principal_id)))
+            .collect())
     }
 
     /// Validate a new principal's id and username against the store.

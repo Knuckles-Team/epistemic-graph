@@ -131,6 +131,44 @@ fn verify_key(key_id: &str, secret_hash: &str) -> (IdentityOp, IdentityStamp) {
 }
 
 #[test]
+fn api_key_listing_is_paged_redacted_and_read_scoped() {
+    let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
+    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
+    for id in ["k1", "k2"] {
+        let (op, stamp) = api_key(&alice, id, &["kg:read"]);
+        apply_kept(&mut store, &op, &stamp, NOW).unwrap();
+    }
+    let reader = IdentityStamp::for_actor(actor("usr:reader", &[IDENTITY_READ_SCOPE]));
+    let page = |after| {
+        IdentityOp::Token(TokenOp::ListApiKeys {
+            request: PrincipalListQuery {
+                principal_id: alice.clone(),
+                after,
+                limit: 1,
+            },
+        })
+    };
+    let IdentityReply::ApiKeys(first) = apply_kept(&mut store, &page(None), &reader, NOW).unwrap()
+    else {
+        panic!("expected API keys")
+    };
+    assert_eq!(first[0].key_id, "k1");
+    let serialized = serde_json::to_string(&first).unwrap();
+    assert!(!serialized.contains("secret"));
+    let IdentityReply::ApiKeys(second) =
+        apply_kept(&mut store, &page(Some("k1".to_string())), &reader, NOW).unwrap()
+    else {
+        panic!("expected API keys")
+    };
+    assert_eq!(second[0].key_id, "k2");
+    assert_eq!(
+        apply_kept(&mut store, &page(None), &broker(), NOW),
+        Err(IdentityRefusal::NotAuthorized)
+    );
+}
+
+#[test]
 fn an_api_key_carries_only_scopes_its_owner_holds_and_narrows_with_the_owner() {
     let mut store = store_in(AuthMode::Local);
     with_admin_session(&mut store);

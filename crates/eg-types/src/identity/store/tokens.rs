@@ -7,10 +7,11 @@ use super::super::audit::IdentityEvent;
 use super::super::model::{ApiKeyRecord, OneTimeToken, TokenPurpose, UserKind, UserStatus};
 use super::super::ops::TokenOp;
 use super::super::requests::{ApiKeyIssue, OneTimeTokenIssue, PasswordResetIssue, TokenRedeem};
+use super::super::requests_admin::MAX_PAGE;
 use super::super::scope::ScopeClassifier;
 use super::super::stamp::IdentityStamp;
 use super::super::text::identifier;
-use super::super::views::{IdentityReply, ResetDelivery};
+use super::super::views::{ApiKeyView, IdentityReply, ResetDelivery};
 use super::super::{
     normalize_username, IdentityRefusal, MAX_API_KEYS_PER_USER, MAX_API_KEY_LIFETIME_MS,
     MAX_ONE_TIME_TOKENS, MAX_ONE_TIME_TOKEN_LIFETIME_MS,
@@ -54,6 +55,25 @@ impl IdentityStore {
             }
             TokenOp::RevokeApiKey { request } => {
                 self.revoke_api_key(&request.id, stamp, ctx.now_ms)
+            }
+            TokenOp::ListApiKeys { request } => {
+                if !self.users.contains_key(&request.principal_id) {
+                    return Err(IdentityRefusal::NotFound);
+                }
+                let keys = self
+                    .api_keys
+                    .values()
+                    .filter(|key| key.principal_id == request.principal_id)
+                    .filter(|key| {
+                        request
+                            .after
+                            .as_deref()
+                            .is_none_or(|after| key.key_id.as_str() > after)
+                    })
+                    .take(request.limit.min(MAX_PAGE) as usize)
+                    .map(ApiKeyView::of)
+                    .collect();
+                Ok(IdentityReply::ApiKeys(keys))
             }
             TokenOp::IssuePasswordReset { request } => {
                 self.issue_password_reset(request, stamp, ctx.now_ms)

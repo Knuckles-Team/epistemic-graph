@@ -109,6 +109,29 @@ pub struct ListQuery {
     pub limit: u32,
 }
 
+/// Search users by normalized username, display name, email or principal id.
+/// The cursor is the principal id, matching the stable user-list order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct UserSearch {
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+    pub limit: u32,
+}
+
+/// Redacted API-key listing for one principal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PrincipalListQuery {
+    pub principal_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+    pub limit: u32,
+}
+
 /// `import_sql`: an administrator's dump (see `sql_dump`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

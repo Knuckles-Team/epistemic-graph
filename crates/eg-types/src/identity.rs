@@ -74,7 +74,7 @@ pub use requests::{
 };
 pub use requests_admin::{
     BindingChange, GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate,
-    RoleGraphGrant, RoleUpsert, SqlDump, UserRoleChange, MAX_PAGE,
+    PrincipalListQuery, RoleGraphGrant, RoleUpsert, SqlDump, UserRoleChange, UserSearch, MAX_PAGE,
 };
 pub use requests_provision::{
     DirectoryGroup, DirectoryGroupQuery, DirectoryGroupRef, ProvisionSubject, ProvisionedQuery,
@@ -89,8 +89,8 @@ pub use text::{
     MIN_RECOVERY_CODE_CHARS, MIN_TOTP_SECRET_CHARS,
 };
 pub use views::{
-    AuthenticateOutcome, AuthenticateResult, IdentityReply, ResetDelivery, SessionView, UserView,
-    WebauthnCredentialView,
+    ApiKeyView, AuthenticateOutcome, AuthenticateResult, IdentityReply, ResetDelivery, SessionView,
+    UserView, WebauthnCredentialView,
 };
 
 /// The principal id of the built-in bootstrap user (§2.2.3).

@@ -18,8 +18,8 @@ use super::requests::{
     UserUpdate, WebauthnCredential, WebauthnUse,
 };
 use super::requests_admin::{
-    GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, RoleUpsert, SqlDump,
-    UserRoleChange,
+    GroupMembershipChange, GroupUpsert, ListQuery, ObjectRef, PolicyUpdate, PrincipalListQuery,
+    RoleUpsert, SqlDump, UserRoleChange, UserSearch,
 };
 use super::requests_provision::{
     DirectoryGroup, DirectoryGroupQuery, DirectoryGroupRef, ProvisionSubject, ProvisionedQuery,
@@ -175,6 +175,9 @@ pub enum UserOp {
     List {
         request: ListQuery,
     },
+    Search {
+        request: UserSearch,
+    },
     /// Effective roles, groups and scopes of one principal: what the local
     /// issuer puts in a token.
     Resolve {
@@ -220,6 +223,10 @@ pub enum SessionOp {
     RevokeAll {
         request: ObjectRef,
     },
+    /// Revoke one session by the redacted handle returned from `list`.
+    RevokeOne {
+        request: ObjectRef,
+    },
     List {
         request: ObjectRef,
     },
@@ -244,6 +251,9 @@ pub enum TokenOp {
     },
     RevokeApiKey {
         request: ObjectRef,
+    },
+    ListApiKeys {
+        request: PrincipalListQuery,
     },
     /// A signed-out user's reset link (uniform answer, throttled).
     IssuePasswordReset {
@@ -410,6 +420,7 @@ impl UserOp {
             Self::Unlock { .. } => meta("unlock_user", true, OpAuthority::Admin),
             Self::Get { .. } => meta("get_user", false, OpAuthority::Read),
             Self::List { .. } => meta("list_users", false, OpAuthority::Read),
+            Self::Search { .. } => meta("search_users", false, OpAuthority::Read),
             Self::Resolve { .. } => meta("resolve_principal", false, OpAuthority::Broker),
         }
     }
@@ -433,6 +444,7 @@ impl SessionOp {
             Self::Resolve { .. } => meta("resolve_session", true, OpAuthority::Broker),
             Self::Revoke { .. } => meta("revoke_session", true, OpAuthority::Broker),
             Self::RevokeAll { .. } => meta("revoke_user_sessions", true, OpAuthority::Admin),
+            Self::RevokeOne { .. } => meta("revoke_one_session", true, OpAuthority::Admin),
             Self::List { .. } => meta("list_sessions", false, OpAuthority::Read),
         }
     }
@@ -446,6 +458,7 @@ impl TokenOp {
             Self::IssueApiKey { .. } => meta("issue_api_key", true, OpAuthority::Broker),
             Self::VerifyApiKey { .. } => meta("verify_api_key", true, OpAuthority::Broker),
             Self::RevokeApiKey { .. } => meta("revoke_api_key", true, OpAuthority::Admin),
+            Self::ListApiKeys { .. } => meta("list_api_keys", false, OpAuthority::Read),
             Self::IssuePasswordReset { .. } => {
                 meta("issue_password_reset", true, OpAuthority::Broker)
             }

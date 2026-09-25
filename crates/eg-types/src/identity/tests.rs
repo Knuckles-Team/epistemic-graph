@@ -9,6 +9,7 @@ mod access;
 mod auth;
 mod factors;
 mod modes;
+mod ops;
 mod provision;
 mod tokens;
 

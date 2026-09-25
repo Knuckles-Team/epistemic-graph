@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::access::{GroupRecord, IdpConfig, RoleRecord};
 use super::audit::IdentityAuditEntry;
 use super::config::IdentityConfig;
-use super::model::{SessionRecord, UserKind, UserRecord, UserStatus};
+use super::model::{ApiKeyRecord, SessionRecord, UserKind, UserRecord, UserStatus};
 use super::projection::PrincipalResolution;
 use super::requests_provision::{DirectoryGroup, ProvisionedUser};
 
@@ -107,6 +107,34 @@ impl SessionView {
     }
 }
 
+/// API-key metadata. The secret hash is intentionally absent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ApiKeyView {
+    pub key_id: String,
+    pub principal_id: String,
+    pub scopes: BTreeSet<String>,
+    pub created_at_ms: u64,
+    pub expires_at_ms: u64,
+    pub last_used_at_ms: Option<u64>,
+    pub revoked_at_ms: Option<u64>,
+}
+
+impl ApiKeyView {
+    pub(crate) fn of(key: &ApiKeyRecord) -> Self {
+        Self {
+            key_id: key.key_id.clone(),
+            principal_id: key.principal_id.clone(),
+            scopes: key.scopes.clone(),
+            created_at_ms: key.created_at_ms,
+            expires_at_ms: key.expires_at_ms,
+            last_used_at_ms: key.last_used_at_ms,
+            revoked_at_ms: key.revoked_at_ms,
+        }
+    }
+}
+
 /// How a sign-in resolved. Unknown user, wrong password and disabled
 /// account all answer `bad`: a caller cannot enumerate accounts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,6 +214,7 @@ pub enum IdentityReply {
     Resolution(PrincipalResolution),
     Authenticate(AuthenticateResult),
     Sessions(Vec<SessionView>),
+    ApiKeys(Vec<ApiKeyView>),
     Roles(Vec<RoleRecord>),
     Groups(Vec<GroupRecord>),
     Idps(Vec<IdpConfig>),
