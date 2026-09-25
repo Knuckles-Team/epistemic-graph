@@ -239,10 +239,10 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::DEVELOPMENT_LANE_POLICIES);
         $visit!(shard::DEVELOPMENT_LANE_INVOCATIONS);
         $visit!(shard::ENCRYPTION_CANARY);
-        $visit!(shard::STORAGE_SCRUB_CURSOR);
         $visit!(shard::SERIES_CHUNKS);
         $visit!(shard::SERIES_META);
         $visit!(shard::SERIES_PROJECTION_STATE);
+        $visit!(shard::STORAGE_SCRUB_CURSOR);
     }};
 }
 pub(crate) use visit_graph_shard_tables;
@@ -299,10 +299,12 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
     "development_lane_policies",
     "development_lane_invocations",
     "encryption_canary",
-    "storage_scrub_cursor",
     "series_chunks",
     "series_meta",
     "series_projection_state",
+    // Appended last so the layout before the node-payload scrub is exactly the
+    // prefix without it (`GRAPH_SHARD_BEFORE_STORAGE_SCRUB`).
+    "storage_scrub_cursor",
 ];
 
 /// The eight tables of the shard's retired private mutation ledger.

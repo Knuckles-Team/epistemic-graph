@@ -74,6 +74,7 @@ mod tests {
             epoch: 7,
             policy_digest: "a".repeat(64),
             updated_at_ms: 0,
+            throttle: None,
         }
     }
 

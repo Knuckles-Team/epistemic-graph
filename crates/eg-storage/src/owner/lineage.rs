@@ -23,6 +23,7 @@
 
 use std::path::Path;
 
+use crate::owner::graph_shard::GRAPH_SHARD_TABLES;
 use crate::owner::layout::OwnerLayout;
 use crate::owner::persisted_layout::LayoutPredecessor;
 use crate::physical::incarnation::STORAGE_KERNEL_SCHEMA_VERSION;
@@ -104,6 +105,21 @@ pub const SQL_BEFORE_DURABLE_ANN: LayoutPredecessor = LayoutPredecessor {
 
 const SQL_DATA_LOST: &str = "its SQL catalog and rows are not migrated; re-ingest the sources";
 
+/// The graph-shard owner tables before the background node-payload scrub's
+/// file-wide cursor (EH-384): the current census without its last table.
+const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] =
+    GRAPH_SHARD_TABLES.split_at(GRAPH_SHARD_TABLES.len() - 1).0;
+
+/// A graph shard file from before the background node-payload scrub (EH-384;
+/// operator ruling: existing graph data is disposable).
+pub const GRAPH_SHARD_BEFORE_STORAGE_SCRUB: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard store before the background node-payload scrub",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB,
+    data_lost: "its graphs are not migrated; re-ingest the sources",
+    file_name: "graph-*.redb",
+};
+
 /// Every predecessor of `layout` this build refuses by name, oldest first.
 ///
 /// Exhaustive on purpose: a new layout must state that it has none.
@@ -125,8 +141,8 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
         | OwnerLayout::ColdTier
         | OwnerLayout::TenantCatalog
         | OwnerLayout::NodeInfo
-        | OwnerLayout::ClusterHierarchy
-        | OwnerLayout::GraphShard => &[],
+        | OwnerLayout::ClusterHierarchy => &[],
+        OwnerLayout::GraphShard => &[GRAPH_SHARD_BEFORE_STORAGE_SCRUB],
     }
 }
 
@@ -194,7 +210,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "25d465035cd1c285493e057e754e4a97f8757ffe19fb910392217fa7386de48c"
+            "ed9c0fbf94f3a1fdaa75b9e7f16aed809d4b13caf2d7ec97e8010ffe64a0e719"
         }
         OwnerLayout::AgentLibrary => {
             "7ea9bcde54e8961cedaa586b3520f890100c5f53f9f5f9574a30dea02c882445"

@@ -202,6 +202,7 @@ async fn belief_is_recorded_and_replayed(h: &Harness, record: &StatisticalDecisi
     forged.record_digest = eg_types::decision::digest::statistical_record_digest(&forged);
     let op = DecisionLogOp::Commit {
         record: Box::new(forged),
+        evaluator: None,
     };
     let refused = decode::<DecisionLogCommitted>(super::log_tests::log_op(h, "decider", op).await);
     assert!(refused.unwrap_err().starts_with("DECISION_REPLAY_MISMATCH"));
