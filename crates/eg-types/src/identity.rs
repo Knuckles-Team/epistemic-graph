@@ -100,13 +100,23 @@ pub const ADMINISTRATORS_GROUP: &str = "administrators";
 /// Built-in approver groups (the only way to hold an approver-class scope).
 pub const ELEVATION_APPROVERS_GROUP: &str = "elevation-approvers";
 pub const LIVE_ORDER_APPROVERS_GROUP: &str = "live-order-approvers";
+/// Approvers of governed action requests (separate from elevation and orders).
+pub const ACTION_APPROVERS_GROUP: &str = "action-approvers";
 /// EH-560: approvers of governed schema repairs.
 pub const SCHEMA_APPROVERS_GROUP: &str = "schema-approvers";
+/// Built-in groups whose membership can confer approver-class scopes.
+pub const BUILTIN_APPROVER_GROUPS: &[&str] = &[
+    ACTION_APPROVERS_GROUP,
+    ELEVATION_APPROVERS_GROUP,
+    LIVE_ORDER_APPROVERS_GROUP,
+    SCHEMA_APPROVERS_GROUP,
+];
 /// Built-in roles seeded at initialize.
 pub const ADMIN_ROLE: &str = "admin";
 pub const USER_ROLE: &str = "user";
 pub const ELEVATION_APPROVER_ROLE: &str = "elevation-approver";
 pub const LIVE_ORDER_APPROVER_ROLE: &str = "live-order-approver";
+pub const ACTION_APPROVER_ROLE: &str = "action-approver";
 pub const SCHEMA_APPROVER_ROLE: &str = "schema-approver";
 /// Prefix of every RBAC role the store projects, so the projection owns
 /// exactly its own roles and never touches one registered by another path.

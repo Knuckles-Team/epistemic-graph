@@ -2,6 +2,20 @@
 
 use super::*;
 
+#[test]
+fn every_builtin_approver_group_requires_mfa() {
+    let store = store_in(AuthMode::Local);
+    for group in [
+        ACTION_APPROVERS_GROUP,
+        ELEVATION_APPROVERS_GROUP,
+        LIVE_ORDER_APPROVERS_GROUP,
+        SCHEMA_APPROVERS_GROUP,
+    ] {
+        let record = store.groups.get(group).expect("built-in approver group");
+        assert!(record.builtin && record.mfa_required, "{group}");
+    }
+}
+
 fn transition(to: AuthMode, epoch: u64, ack: Option<&str>) -> IdentityOp {
     IdentityOp::Config(ConfigOp::Transition {
         request: ModeTransition {

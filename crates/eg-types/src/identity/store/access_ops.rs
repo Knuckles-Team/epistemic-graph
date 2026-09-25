@@ -13,7 +13,8 @@ use super::super::stamp::IdentityStamp;
 use super::super::text::{bounded, bounded_opt, identifier, MAX_NAME_BYTES, MAX_TEXT_BYTES};
 use super::super::views::IdentityReply;
 use super::super::{
-    IdentityRefusal, ADMINISTRATORS_GROUP, MAX_GROUPS, MAX_IDPS, MAX_MAPPING_RULES, MAX_ROLES,
+    IdentityRefusal, ADMINISTRATORS_GROUP, BUILTIN_APPROVER_GROUPS, MAX_GROUPS, MAX_IDPS,
+    MAX_MAPPING_RULES, MAX_ROLES,
 };
 use super::{link_key, ApplyContext, IdentityStore};
 
@@ -115,6 +116,9 @@ impl IdentityStore {
             builtin && existing.is_some_and(|group| group.roles != request.roles);
         if changes_builtin_roles {
             return Err(IdentityRefusal::BuiltIn);
+        }
+        if BUILTIN_APPROVER_GROUPS.contains(&request.group_id.as_str()) && !request.mfa_required {
+            return Err(IdentityRefusal::ClassViolation);
         }
         let group = GroupRecord {
             group_id: request.group_id.clone(),

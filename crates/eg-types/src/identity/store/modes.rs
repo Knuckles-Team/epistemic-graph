@@ -15,7 +15,8 @@ use super::super::stamp::IdentityStamp;
 use super::super::text::{bounded, MAX_ID_BYTES};
 use super::super::views::IdentityReply;
 use super::super::{
-    normalize_username, IdentityRefusal, ADMINISTRATORS_GROUP, ADMIN_ROLE, BOOTSTRAP_PRINCIPAL,
+    normalize_username, IdentityRefusal, ACTION_APPROVERS_GROUP, ACTION_APPROVER_ROLE,
+    ADMINISTRATORS_GROUP, ADMIN_ROLE, BOOTSTRAP_PRINCIPAL, BUILTIN_APPROVER_GROUPS,
     ELEVATION_APPROVERS_GROUP, ELEVATION_APPROVER_ROLE, LIVE_ORDER_APPROVERS_GROUP,
     LIVE_ORDER_APPROVER_ROLE, SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE, USER_ROLE,
 };
@@ -24,7 +25,7 @@ use crate::acl::{GrantEffect, RbacAction, ResourceSelector};
 
 /// Built-in roles: `(role_id, scopes)`. Administrators additionally get an
 /// allow-all graph grant for every action.
-const BUILTIN_ROLES: [(&str, &[&str]); 5] = [
+const BUILTIN_ROLES: [(&str, &[&str]); 6] = [
     (
         ADMIN_ROLE,
         &[
@@ -39,16 +40,21 @@ const BUILTIN_ROLES: [(&str, &[&str]); 5] = [
     (ELEVATION_APPROVER_ROLE, &["rbac:approve-elevation"]),
     (LIVE_ORDER_APPROVER_ROLE, &["finance:approve-live-order"]),
     (
+        ACTION_APPROVER_ROLE,
+        &["approvals:read", "approvals:decide"],
+    ),
+    (
         SCHEMA_APPROVER_ROLE,
         &["governance:approve-schema-repair", "governance:read"],
     ),
 ];
 
 /// Built-in groups: `(group_id, role_id)`.
-const BUILTIN_GROUPS: [(&str, &str); 4] = [
+const BUILTIN_GROUPS: [(&str, &str); 5] = [
     (ADMINISTRATORS_GROUP, ADMIN_ROLE),
     (ELEVATION_APPROVERS_GROUP, ELEVATION_APPROVER_ROLE),
     (LIVE_ORDER_APPROVERS_GROUP, LIVE_ORDER_APPROVER_ROLE),
+    (ACTION_APPROVERS_GROUP, ACTION_APPROVER_ROLE),
     (SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE),
 ];
 
@@ -258,7 +264,7 @@ impl IdentityStore {
                     builtin: true,
                     members: BTreeMap::new(),
                     roles: BTreeSet::from([role_id.to_string()]),
-                    mfa_required: false,
+                    mfa_required: BUILTIN_APPROVER_GROUPS.contains(&group_id),
                 },
             );
         }

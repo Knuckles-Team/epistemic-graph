@@ -130,6 +130,42 @@ fn an_approver_scope_is_held_only_through_its_built_in_group_by_a_human() {
 }
 
 #[test]
+fn action_approval_scopes_require_the_dedicated_group() {
+    let mut store = store_in(AuthMode::Local);
+    let human = create(&mut store, "action-operator", UserKind::Human).unwrap();
+    let service = create(&mut store, "action-service", UserKind::Service).unwrap();
+    assert_eq!(
+        apply_kept(
+            &mut store,
+            &join(&service, ACTION_APPROVERS_GROUP),
+            &admin(),
+            NOW,
+        ),
+        Err(IdentityRefusal::ClassViolation)
+    );
+    assert_eq!(
+        apply_kept(
+            &mut store,
+            &bind(&human, ACTION_APPROVER_ROLE, BindingChange::Add),
+            &admin(),
+            NOW,
+        ),
+        Err(IdentityRefusal::ClassViolation)
+    );
+    apply_kept(
+        &mut store,
+        &join(&human, ACTION_APPROVERS_GROUP),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
+    let scopes = &store.resolve(&human, &TestRegistry).unwrap().scopes;
+    assert!(scopes.contains("approvals:read"));
+    assert!(scopes.contains("approvals:decide"));
+    assert!(!scopes.contains("rbac:approve-elevation"));
+}
+
+#[test]
 fn a_built_in_group_keeps_its_roles_and_a_built_in_role_cannot_be_removed() {
     let mut store = store_in(AuthMode::Local);
     let rewire = IdentityOp::Access(AccessOp::UpsertGroup {
@@ -162,6 +198,18 @@ fn a_built_in_group_keeps_its_roles_and_a_built_in_role_cannot_be_removed() {
         },
     });
     assert!(apply_kept(&mut store, &require_mfa, &admin(), NOW).is_ok());
+    let remove_mfa = IdentityOp::Access(AccessOp::UpsertGroup {
+        request: GroupUpsert {
+            group_id: ACTION_APPROVERS_GROUP.to_string(),
+            name: ACTION_APPROVERS_GROUP.to_string(),
+            roles: [ACTION_APPROVER_ROLE.to_string()].into(),
+            mfa_required: false,
+        },
+    });
+    assert_eq!(
+        apply_kept(&mut store, &remove_mfa, &admin(), NOW),
+        Err(IdentityRefusal::ClassViolation)
+    );
 }
 
 #[test]
