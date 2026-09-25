@@ -20,6 +20,9 @@
 //! no modality VALUE type of their own — `ModalityContract` may simply not apply, which
 //! is a legitimate outcome, not a gap", this crate is a documented SKIP.
 
+/// EH-509: deterministic section-tree retrieval over caller-authorized rows.
+pub mod document_retrieval;
+
 #[cfg(feature = "sql")]
 pub mod sql;
 
