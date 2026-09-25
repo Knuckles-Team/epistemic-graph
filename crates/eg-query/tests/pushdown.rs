@@ -5,8 +5,11 @@
 #![cfg(feature = "sql")]
 
 use eg_core::graph::GraphCore;
-use eg_query::{exec_sql, QueryResult};
+use eg_query::exec_sql;
 use serde_json::json;
+
+#[path = "common/query_rows.rs"]
+mod query_rows;
 
 /// A graph large enough that the pushdown path is meaningfully exercised: 500 nodes
 /// across two teams and three types, each with a unique `name` and an integer `rank`.
@@ -26,18 +29,11 @@ fn graph(n: usize) -> GraphCore {
     core
 }
 
-fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
-    r.rows
-        .iter()
-        .map(|b| rmp_serde::from_slice::<Vec<serde_json::Value>>(b).unwrap())
-        .collect()
-}
-
 /// Helper: run a query, return sorted id list.
 fn ids(core: &GraphCore, sql: &str) -> Vec<String> {
     let snap = core.analysis_snapshot();
     let r = exec_sql(&snap, sql, &eg_query::CancellationToken::new()).unwrap();
-    let mut v: Vec<String> = rows(&r)
+    let mut v: Vec<String> = query_rows::rows(&r)
         .into_iter()
         .map(|row| row[0].as_str().unwrap().to_string())
         .collect();
@@ -69,7 +65,7 @@ fn pushdown_equality_matches_full_scan() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let mut truth: Vec<String> = rows(&all)
+    let mut truth: Vec<String> = query_rows::rows(&all)
         .into_iter()
         .filter(|row| row[1].as_str() == Some("blue"))
         .map(|row| row[0].as_str().unwrap().to_string())
@@ -100,7 +96,7 @@ fn pushdown_integer_equality() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let mut truth: Vec<String> = rows(&all)
+    let mut truth: Vec<String> = query_rows::rows(&all)
         .into_iter()
         .filter(|row| row[1].as_i64() == Some(3))
         .map(|row| row[0].as_str().unwrap().to_string())
@@ -125,7 +121,7 @@ fn pushdown_composite_and() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let mut truth: Vec<String> = rows(&all)
+    let mut truth: Vec<String> = query_rows::rows(&all)
         .into_iter()
         .filter(|row| row[1].as_str() == Some("blue") && row[2].as_str() == Some("Tool"))
         .map(|row| row[0].as_str().unwrap().to_string())
@@ -152,7 +148,7 @@ fn non_indexed_predicate_full_scan_fallback() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let mut truth: Vec<String> = rows(&all)
+    let mut truth: Vec<String> = query_rows::rows(&all)
         .into_iter()
         .filter(|row| {
             row[1]
@@ -173,7 +169,7 @@ fn non_indexed_predicate_full_scan_fallback() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let mut truth2: Vec<String> = rows(&all2)
+    let mut truth2: Vec<String> = query_rows::rows(&all2)
         .into_iter()
         .filter(|row| row[1].as_i64().map(|r| r > 4).unwrap_or(false))
         .map(|row| row[0].as_str().unwrap().to_string())
@@ -198,7 +194,7 @@ fn pushdown_mixed_equality_and_inequality() {
         &eg_query::CancellationToken::new(),
     )
     .unwrap();
-    let mut truth: Vec<String> = rows(&all)
+    let mut truth: Vec<String> = query_rows::rows(&all)
         .into_iter()
         .filter(|row| {
             row[1].as_str() == Some("red") && row[2].as_i64().map(|r| r > 3).unwrap_or(false)
