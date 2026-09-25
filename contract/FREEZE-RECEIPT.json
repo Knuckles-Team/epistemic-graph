@@ -1,8 +1,8 @@
 {
-  "cargo_lock_sha256": "dc69e86a2b041c1eaeffa83c7be5e1129a0a2c274109843adbc5ba2d01192abd",
-  "commit": "1bb67d84bb159d01eba1747d2b4e151834ccf97a",
-  "commit_short": "1bb67d84b",
-  "contract_digest": "4f3de4aa89116184c5038ea8653b1c6c5f67fcea86bf3581dff829e6ae9812af",
+  "cargo_lock_sha256": "1030719187eddcb2c392dc6cd857d890e43996d4c16f2126f458234796b840d8",
+  "commit": "38ade682cc0c8a7345990d7818abadbd82fb2ba8",
+  "commit_short": "38ade682c",
+  "contract_digest": "459e6f1f218e9f9d5432deeb47228cc9176a70c5ad748032dea99e7641e64248",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -17,48 +17,39 @@
     "viz"
   ],
   "freeze": "epistemic-graph contract freeze",
-  "frozen_at_utc": "2026-09-15T03:54:21+00:00",
-  "method_count": 414,
+  "frozen_at_utc": "2026-09-25T03:29:36+00:00",
+  "method_count": 437,
   "result_classification": {
     "declared_dynamic": 12,
     "mixed": 1,
-    "schematized": 401,
+    "schematized": 424,
     "unclassified": 0
   },
-  "source_commit_tree": "dc9c69e751b363f1af64fc253eeee53e0c94ba79",
-  "source_tree_oid": "b4776ba7e17c63c43496979f8fb2da13abdf27609f9344b35cb92c052a8bb4b2",
+  "source_commit_tree": "6f23eda7281ca113edaf5068c267fb486432b42c",
+  "source_tree_oid": "c82d4bda31af5a3018451da290e7694a57d83d44c7fb02cad647ba1f43a0de5e",
   "verified": {
-    "contract_check": "PASS: 34 generated artifacts match; both receipt copies are byte-identical",
-    "final_main_pre_push": "NOT RUN: required before publication; recorded in the current program checkpoint after completion",
-    "final_source_binaries": {
-      "epistemic-graph-server": "041c9aee8c14470e9d68376ca5198378ff3a4e6d53ecbb7405ec80e84f56b1f6",
-      "lake-fixture-export": "b7c8d30202c0b63098484cd5f8656f4d7332d40a6f1635e683c77eb8b292f495"
-    },
-    "final_source_focused_tests": [
-      "PASS: server::tests::txn_commit_applies_staged_writes",
-      "PASS: sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outcomes"
-    ],
+    "contract_check": "PASS: generated-artifact check inside the train-3 land gate (release.yml gates job, fan-out core group)",
+    "final_main_pre_push": "NOT RUN: recorded after the push in plans/refactor (train-3 landing)",
+    "final_source_binaries": "NOT RUN: the land gate built debug profiles only; no release binary hashes recorded",
+    "final_source_focused_tests": [],
     "full_feature_lib": {
-      "failed": 0,
-      "ignored": 3,
-      "passed": 1576,
-      "scope": "transaction-authentication repair before the semantically equivalent CCCC expression cleanup; final-source focused tests below passed"
+      "scope": "release.yml gates-facade job, fan-out facade group land-gate-facade-20260924203115-73069c650 (exit 0, tmpfs scratch)"
     },
     "generated_artifact_counts": {
-      "body_digest_artifacts": 31,
-      "catalog_digest": 1,
-      "self_receipts": 2,
-      "total_outputs": 34
+      "artifact_digests": 48
     },
-    "pre_commit_all_files": "PASS: complete standardized hook set after final validator source; 23m49s, 633.8 MiB peak",
+    "land_gate": {
+      "core": "PASS land-gate-core-20260924172833-73069c650 and re-gate land-gate-core-20260924220213-38ade682c",
+      "crates": "FAIL (environmental, EH-582): eg-plan million_row_scan_streams_with_flat_memory measures process-wide RSS; 5/5 isolated PASS; also red on main 2a0d6eae0",
+      "facade": "PASS land-gate-facade-20260924203115-73069c650",
+      "quality": "PASS land-gate-quality-20260924212412-78e5f2103 (kiss fork 7f1c6785 pin)",
+      "rust_groups_at": "73069c650 (the two later commits change CI/scripts/config only; no .rs)",
+      "variants": "PASS land-gate-variants-20260924172853-73069c650"
+    },
+    "pre_commit_all_files": "NOT RUN as a single invocation: the land gate runs every release.yml run: step verbatim (ci_gate_replica --all-blocking)",
     "publication_and_runtime": "NOT RUN: this contract freeze is not a deployment or runtime qualification receipt",
-    "source_commit_hooks": "PASS: all required hooks for the 136-path source commit",
-    "strict_external_lake_parity": {
-      "failed": 0,
-      "passed": 19,
-      "runtime_seconds": 13.03,
-      "scope": "real PyIceberg/Delta/pandas readers using the exact final-source binaries"
-    }
+    "source_commit_hooks": "NOT RUN per commit: lanes commit --no-verify; the land gate is the blocking check",
+    "strict_external_lake_parity": "NOT RUN in this freeze"
   },
   "what_to_pin": {
     "for_admission_identity": "contract_digest: folds hand-written generator inputs and all body artifact digests; source-only changes can move it without changing wire bytes",
@@ -68,19 +59,19 @@
     ]
   },
   "wire_surface_digests": {
-    "contract/methods.json": "e7f63200a4dbf0c69add159f136a0961524759b8caa5533f08ab8f52cff89ff6",
-    "contract/schemas/method.request.json": "1b641bce8438c3840f6a2b60029cfaa186807465e082fd3a6311e2b0a6e10f59",
-    "contract/schemas/result.cluster.json": "daa015c68e2a0e7780d0e24bfecc1c9ce7bd3288c6c05fc974098a022e03a8d4",
-    "contract/schemas/result.compute.json": "c1ba1544c6611818120f91b13a64dd6f45c8a4fdb6bad8b9cebc7fb3c61a3351",
-    "contract/schemas/result.coordination.json": "5d3a4c9f90a91c5843a76e9486beab8514bb70967807b1f966561be8e4e78400",
+    "contract/methods.json": "a933253355332f7eda6b2caad76df4f558b342229e4090888bfe5d2227f21c4e",
+    "contract/schemas/method.request.json": "a2c4170805e798cc9562a244c0c8e0393d2f47f901e7b1015d68f3127099d2cd",
+    "contract/schemas/result.cluster.json": "0aac12793ab69a65c1326ba4471c48bfa4a87596be9eb7972eaa09fe65608c42",
+    "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
+    "contract/schemas/result.coordination.json": "c3863706aa6f7fabc596421ff33073c469faabffdd858623adb2b9993323e4ae",
     "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
-    "contract/schemas/result.ingestion.json": "7621f1ee96abd6a69da48adffca7fe3df8091f3c147a2d244ea861a3af6216f3",
+    "contract/schemas/result.ingestion.json": "746d7ad20ae4a2554e4fc56ec4ea10a0c486c1f471a233333792152b2d2007ea",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "37946690afb843a740a0aeb3209b7445d078e56502b421965ef073914ab23040",
-    "contract/schemas/result.reasoning.json": "8fd557235e519a9013be36e38d485b856c9a5e83e0a30bd5d5a8335a46a7ac1f",
+    "contract/schemas/result.query.json": "e776ddcabae3abeb4a3618ff98fa59dc30878570d752ca8caed0453267e5d376",
+    "contract/schemas/result.reasoning.json": "9cbf90b03971898c92e4f960f6fe80030bb13857bf5b7a894227a3aa0896a74c",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
-    "contract/schemas/result.storage.json": "1bb21d5bce442aa94feb5b44d2cedf80ac42a84d7ab3f226b668e63a9183786c",
-    "contract/schemas/result.transactions.json": "838fd317479843c0085bd8367ccbf310e0f2c0c7fcb10bcc3ee78db9fefe3cb5"
+    "contract/schemas/result.storage.json": "ae1cbce4612b388120ef6130017cd7c6deecfa9425952b2d966fff39b8584a78",
+    "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033"
   }
 }

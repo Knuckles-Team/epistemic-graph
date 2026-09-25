@@ -60,6 +60,7 @@ use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
 mod budget;
 pub(crate) mod disjoint;
 mod filler;
+mod fresh;
 
 pub use budget::{BudgetExhausted, DerivationBudget};
 
@@ -1292,6 +1293,8 @@ pub struct Reasoner {
     refined: filler::RefinedFillers,
     /// Derivation steps charged against an optional [`DerivationBudget`].
     meter: budget::StepMeter,
+    /// `S(A)` members CR-sub/CR-some⁺ have not yet run over (`owl/fresh.rs`).
+    fresh: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Reasoner {
@@ -1406,9 +1409,10 @@ impl Reasoner {
         let sub_roles = self.ont.sub_roles.clone();
         let nothing = iri(OWL_NOTHING);
 
+        self.fresh = self.s.clone();
         let mut changed = true;
         let mut guard = 0;
-        while changed && guard < 100_000 {
+        while changed && guard < 100_000 && !self.meter.exhausted() {
             guard += 1;
             changed = false;
 
@@ -1461,20 +1465,14 @@ impl Reasoner {
         (sub_index, conj_axioms, some_rhs, some_lhs)
     }
 
-    /// CR-sub (`B ⊑ C`) and CR-some⁺ (`B ⊑ ∃r.D`) for class `a`, given its current `S(a)`.
+    /// CR-sub (`B ⊑ C`) and CR-some⁺ (`B ⊑ ∃r.D`) for class `a`, over its fresh `S(a)`.
     fn apply_cr_sub_and_some_plus(
         &mut self,
         a: &str,
         sub_index: &HashMap<String, Vec<RhsAxiom>>,
         some_rhs: &HashMap<String, Vec<SomeRhsAxiom>>,
     ) -> bool {
-        let s_a: Vec<String> = self
-            .s
-            .get(a)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        let s_a = self.fresh.remove(a).unwrap_or_default();
         let mut changed = false;
         for b in &s_a {
             changed |= self.apply_cr_sub_for(a, b, sub_index);
@@ -1797,7 +1795,7 @@ impl Reasoner {
                 self.conf.entry(key).or_insert(combined);
             }
         }
-        changed
+        self.note_fresh(a, b, changed)
     }
 
     /// Add (or raise the confidence of) a role pair `(r,(a,b))`.

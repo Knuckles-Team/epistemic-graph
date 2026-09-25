@@ -118,6 +118,11 @@ def self_signed_cert(tmp_path):
     return str(cert), str(key)
 
 
+#: A real, engine-decodable unit method this mock never answers, so the request
+#: stays genuinely in flight (the client refuses an undecodable one locally).
+HANG_METHOD = "Metrics"
+
+
 class _EchoHealthServer:
     """A minimal length-prefixed msgpack echo server (Ping/Health only)."""
 
@@ -147,7 +152,7 @@ class _EchoHealthServer:
                 msg_len = int.from_bytes(len_buf, byteorder="big")
                 body = await reader.readexactly(msg_len)
                 req = msgpack.unpackb(body, raw=False)
-                if req["method"] == "Hang":
+                if req["method"] == HANG_METHOD:
                     # Deliberately never reply -- keeps this specific request
                     # genuinely in-flight (used by the "close during an
                     # in-flight request" test).
@@ -774,7 +779,7 @@ async def test_close_during_in_flight_request_fails_it_cleanly():
         )
         # A method the mock server never replies to leaves the request
         # genuinely in-flight until something fails it.
-        pending = asyncio.ensure_future(client._send("Hang"))
+        pending = asyncio.ensure_future(client._send(HANG_METHOD))
         await asyncio.sleep(0.05)
         assert not pending.done()
 
@@ -820,7 +825,7 @@ async def test_cancelled_request_releases_pending_and_close_is_clean(
         monkeypatch.setattr(writer, "close", _counting_close)
         monkeypatch.setattr(writer, "wait_closed", _counting_wait_closed)
 
-        pending = asyncio.ensure_future(client._send("Hang"))
+        pending = asyncio.ensure_future(client._send(HANG_METHOD))
         await asyncio.sleep(0.05)
         assert not pending.done()
 

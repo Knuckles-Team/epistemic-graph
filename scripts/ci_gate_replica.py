@@ -169,6 +169,7 @@ from ci_replica.drift import (
     DriftReport,
     consistency_check,
 )
+from ci_replica.pytest_temp import with_short_basetemp
 from ci_replica.registry import (
     ARTIFACT_IO_ACTIONS,
     BUILD_AFFECTING_FILE_PATTERNS,
@@ -398,6 +399,8 @@ def _run_step(
     env = _build_step_env(job_env, cargo_build_jobs, env_path, out_path, path_path)
     # A step's own `env:` is scoped to that step, as on a runner.
     env.update(_resolved_step_env(step_env))
+    # AF_UNIX: engine sockets under pytest's temp must fit 108 bytes here too.
+    env = with_short_basetemp(env)
     status, elapsed = _execute_step(cmd_text, env, working_directory)
 
     # Thread $GITHUB_ENV / $GITHUB_PATH additions forward to later steps in
@@ -946,25 +949,32 @@ def main() -> int:
     return _run_gate(args, all_plan, docs, cargo_build_jobs)
 
 
+def _job_family(job: str) -> str:
+    """`job#leg` -> `job`; a plain job name is its own family."""
+    return job.split("#", 1)[0]
+
+
+def _jobs_named(plan: list[dict], jobs: str) -> list[dict]:
+    """The rows `--jobs` names; fails closed on a job no workflow defines."""
+    wanted = {job.strip() for job in jobs.split(",") if job.strip()}
+    legs = {row["job"] for row in plan}
+    unknown = sorted(wanted - (legs | {_job_family(job) for job in legs}))
+    if unknown:
+        raise ValueError(
+            f"--jobs names job(s) no registered workflow defines: {unknown}"
+        )
+    return [
+        row for row in plan if row["job"] in wanted or _job_family(row["job"]) in wanted
+    ]
+
+
 def select_plan(
     plan: list[dict], jobs: str | None, *, all_blocking: bool = False
 ) -> list[dict]:
     """Restrict the plan to the named jobs -- `job` selects every matrix leg,
     `job#leg` one leg -- and, for a landing gate, make every row blocking."""
     if jobs:
-        wanted = {job.strip() for job in jobs.split(",") if job.strip()}
-        legs = {row["job"] for row in plan}
-        present = legs | {job.split("#", 1)[0] for job in legs}
-        unknown = sorted(wanted - present)
-        if unknown:
-            raise ValueError(
-                f"--jobs names job(s) no registered workflow defines: {unknown}"
-            )
-        plan = [
-            row
-            for row in plan
-            if row["job"] in wanted or row["job"].split("#", 1)[0] in wanted
-        ]
+        plan = _jobs_named(plan, jobs)
     if all_blocking:
         plan = [{**row, "blocking": True} for row in plan]
     return plan

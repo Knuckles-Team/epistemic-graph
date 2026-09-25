@@ -443,29 +443,44 @@ fn emit_alias<'a>(
     body.push_str(text);
 }
 
+/// Whether a character of a Python expression sits inside a double-quoted
+/// string literal (with backslash escapes).
+#[derive(Default)]
+struct QuoteState {
+    quoted: bool,
+    escaped: bool,
+}
+
+impl QuoteState {
+    /// Advance over `character`; true when it lies outside every literal.
+    fn outside(&mut self, character: char) -> bool {
+        if self.quoted && character == '\\' && !self.escaped {
+            self.escaped = true;
+            return false;
+        }
+        if character == '"' && !self.escaped {
+            self.quoted = !self.quoted;
+        }
+        self.escaped = false;
+        !self.quoted
+    }
+}
+
 /// The identifiers of a Python expression, skipping string literals.
 fn identifiers(expression: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut start = None;
-    let mut quoted = false;
-    let mut escaped = false;
+    let mut quotes = QuoteState::default();
     for (index, character) in expression.char_indices() {
-        if quoted && character == '\\' && !escaped {
-            escaped = true;
-            continue;
-        }
-        if character == '"' && !escaped {
-            quoted = !quoted;
-        }
-        escaped = false;
-        let part = !quoted && (character.is_ascii_alphanumeric() || character == '_');
+        let part = quotes.outside(character)
+            && (character.is_ascii_alphanumeric() || character == '_');
         match (part, start) {
             (true, None) => start = Some(index),
             (false, Some(begin)) => {
                 out.push(&expression[begin..index]);
                 start = None;
             }
-            _ => {}
+            (true, Some(_)) | (false, None) => {}
         }
     }
     if let Some(begin) = start {

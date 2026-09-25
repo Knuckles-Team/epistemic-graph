@@ -96,6 +96,7 @@ from typing import NamedTuple
 
 from rust_exhaustive_match import (
     dispatch_shape,
+    effective_cyclomatic,
     exhaustive_dispatch_exempt,
 )
 from scanner_contract import (
@@ -547,19 +548,20 @@ def _rust_source(path: str) -> str | None:
         return None
 
 
-def _residual(source: str | None, row: Metrics) -> int | None:
-    """Cyclomatic minus match-arm count, for a row already known exempt.
+def _residual(source: str | None, row: Metrics, max_cyc: int) -> int | None:
+    """The row's effective cyclomatic value, for a row already known exempt:
+    its full-build cyclomatic when that is within the cap, else cyclomatic
+    minus match-arm count.
 
     ``exhaustive_dispatch_exempt`` already proved ``dispatch_shape`` returns a
-    usable shape with at least one arm for this exact row -- that is one of
-    its four conditions -- so a ``None`` or zero-arm shape here would mean the
+    usable shape for this exact row, so a ``None`` shape here would mean the
     two functions disagree, and this fails closed (no residual) rather than
-    dividing by an assumption.
+    assuming one.
     """
     shape = dispatch_shape(source, row.line) if source is not None else None
-    if shape is None or shape.arms <= 0:
+    if shape is None:
         return None
-    return row.cyclomatic - shape.arms
+    return effective_cyclomatic(shape, row.cyclomatic, max_cyc)
 
 
 def _stamp_row(row: Metrics, source: str | None, max_cyc: int, max_cog: int) -> Metrics:
@@ -572,7 +574,7 @@ def _stamp_row(row: Metrics, source: str | None, max_cyc: int, max_cog: int) -> 
     exempt = exhaustive_dispatch_exempt(
         source, row.line, row.cyclomatic, row.cognitive, max_cyc, max_cog
     )
-    residual = _residual(source, row) if exempt else None
+    residual = _residual(source, row, max_cyc) if exempt else None
     return row._replace(exempt=exempt, residual=residual)
 
 

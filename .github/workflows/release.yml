@@ -649,7 +649,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/epistemic-graph-scanners
-          key: eg-scanners-${{ runner.os }}-cccc-cli-d728759323be5d9977b7390a27133e8eaf481f26-kiss-ai-0.4.10-dupehound-0.1.2-arch-lint-cli-0.5.0-jscpd-5.0.16-dependency-cruiser-18.2.0
+          key: eg-scanners-${{ runner.os }}-cccc-cli-d728759323be5d9977b7390a27133e8eaf481f26-kiss-ai-7f1c6785697d3fe9a41ceb8b8e5d0f615fb1f3d9-dupehound-0.1.2-arch-lint-cli-0.5.0-jscpd-5.0.16-dependency-cruiser-18.2.0
 
       - name: Provision pinned scanner toolchain
         if: ${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}
@@ -659,7 +659,9 @@ jobs:
           scanner_root="$RUNNER_TEMP/epistemic-graph-scanners"
           mkdir -p "$scanner_root"
           cargo install --locked --git https://github.com/moznion/cccc --rev d728759323be5d9977b7390a27133e8eaf481f26 --root "$scanner_root/cccc" cccc-cli
-          cargo install --locked --version 0.4.10 --root "$scanner_root/kiss" kiss-ai
+          # kiss: upstream 0.4.12 + the inline-module fix, from the fork build
+          # (scripts/kiss_fork.py); crates.io 0.4.12 aborts the census.
+          cargo install --locked --git https://github.com/Knucklessg1/kiss --rev 7f1c6785697d3fe9a41ceb8b8e5d0f615fb1f3d9 --root "$scanner_root/kiss" kiss-ai
           cargo install --locked --version 0.1.2 --root "$scanner_root/dupehound" dupehound
           cargo install --locked --version 0.5.0 --root "$scanner_root/arch-lint" arch-lint-cli
           npm install --prefix "$scanner_root/npm" --no-package-lock --ignore-scripts --no-save --no-audit --no-fund \
@@ -682,7 +684,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(cccc --version)" = "cccc 1.6.0"
-          test "$(kiss --version)" = "kiss 0.4.10"
+          test "$(kiss --version)" = "kiss 0.4.12"
+          python3 scripts/kiss_fork.py "$(command -v kiss)"
           test "$(dupehound --version)" = "dupehound 0.1.2"
           test "$(jscpd --version)" = "cpd 5.0.16"
           test "$(depcruise --version)" = "18.2.0"
