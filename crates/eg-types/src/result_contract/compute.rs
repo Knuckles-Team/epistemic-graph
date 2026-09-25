@@ -8,10 +8,10 @@ use crate::compute_result::datascience;
 use crate::compute_result::distributed;
 #[cfg(feature = "finance")]
 use crate::compute_result::finance;
-#[cfg(feature = "finance")]
-use crate::compute_result::market;
 #[cfg(feature = "graphlearn")]
 use crate::compute_result::graphlearn;
+#[cfg(feature = "finance")]
+use crate::compute_result::market;
 #[cfg(feature = "mining")]
 use crate::compute_result::mining;
 #[cfg(feature = "ml-pipeline")]
