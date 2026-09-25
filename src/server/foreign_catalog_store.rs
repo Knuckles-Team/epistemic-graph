@@ -154,7 +154,20 @@ impl ForeignCatalogStore {
         let source_version = match begun {
             Begin::Replay(_) => {
                 txn.abort()?;
-                return Err("FOREIGN_SOURCE_REPLAY: registration was already committed".to_string());
+                let committed = self.load()?.into_iter().any(|existing| {
+                    existing.owner_scope == row.owner_scope
+                        && existing.name == row.name
+                        && existing.owner_agent == row.owner_agent
+                        && existing.spec == row.spec
+                });
+                return if committed {
+                    Ok(())
+                } else {
+                    Err(
+                        "FOREIGN_SOURCE_REPLAY_CONFLICT: committed registration differs"
+                            .to_string(),
+                    )
+                };
             }
             Begin::Apply { source_version } => source_version,
         };
@@ -279,6 +292,7 @@ mod tests {
             let store =
                 ForeignCatalogStore::open_with_cipher(path, "test-tenant", Some(key.clone()))
                     .unwrap();
+            store.register(&owner, 42, "source-a", &spec).unwrap();
             store.register(&owner, 42, "source-a", &spec).unwrap();
             assert_eq!(store.load().unwrap().len(), 1);
         }
