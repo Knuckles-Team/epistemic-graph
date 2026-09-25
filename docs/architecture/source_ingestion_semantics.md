@@ -21,3 +21,10 @@ deviation records, and deterministic graph projections. A caller supplies the
 reference model; a worker checks traces against it without deriving a model
 from those same traces. AU currently commits the resulting graph slice through
 its existing adapter until the remaining SourceIngest cutover lands.
+
+`epistemic_graph.ingestion.embedding_admission` owns the deterministic
+content-class table, per-unit vector admission, SQL column classification,
+and exact-content deduplication. The SQL field filter requires the caller's
+protected structural and priority field set. AU supplies that set from its
+current text projection; this keeps EG free of AU imports while preserving
+the projection's field policy during the migration.
