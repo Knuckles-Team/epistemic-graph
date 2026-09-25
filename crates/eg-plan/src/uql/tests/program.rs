@@ -1,6 +1,6 @@
 //! Statements (UQL-11): version pragma, EXPLAIN/PROFILE, LET/FROM/JOIN DAGs.
 
-use crate::uql::print::dag_to_uql;
+use crate::uql::print::{dag_to_uql, statement_to_uql};
 use crate::uql::{parse, parse_statement, Body, DagNode, Mode, Params, UqlCode};
 use eg_types::wire::Op;
 
