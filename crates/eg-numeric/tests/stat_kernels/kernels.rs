@@ -2,7 +2,8 @@
 
 use crate::common::{assert_close, fnv1a64, level};
 use eg_numeric::detkernel::kernels::{
-    entropy, log_sigmoid, log_softmax, log_sum_exp, logit, sigmoid, softmax, softplus,
+    entropy, log_sigmoid, log_softmax, log_sum_exp, logit, normal_cdf, normal_sf, sigmoid,
+    softmax, softplus,
 };
 use eg_numeric::detkernel::math;
 use eg_numeric::detkernel::optimise::{minimise_convex_bounded, minimise_convex_unbounded};
@@ -87,6 +88,25 @@ fn entropy_sigmoid_softplus_and_logit_closed_forms() {
         "logit inverts sigmoid",
     );
     assert!(logit(0.0).is_err() && logit(1.0).is_err());
+}
+
+/// `Phi(z)` references from mpmath 1.3.0 at 50 significant digits
+/// (`mp.dps = 50; float(mpmath.ncdf(z))`), each the nearest `f64`.
+const NORMAL_CDF_REFERENCES: [(f64, f64); 4] = [
+    (-3.0, 1.349_898_031_630_094_6e-3),
+    (-6.0, 9.865_876_450_376_98e-10),
+    (-8.0, 6.220_960_574_271_784e-16),
+    (-10.0, 7.619_853_024_160_525e-24),
+];
+
+#[test]
+fn normal_tails_keep_relative_accuracy_against_mpmath() {
+    for (z, reference) in NORMAL_CDF_REFERENCES {
+        assert_close(normal_cdf(z) / reference, 1.0, 1e-12, "normal_cdf tail");
+        assert_close(normal_sf(-z) / reference, 1.0, 1e-12, "normal_sf tail");
+    }
+    assert_close(normal_cdf(0.0), 0.5, 0.0, "normal_cdf centre");
+    assert_close(normal_cdf(1.5), 0.933_192_798_731_141_9, 1e-15, "normal_cdf body");
 }
 
 #[test]

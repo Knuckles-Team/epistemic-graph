@@ -1,4 +1,5 @@
 use super::sf;
+use eg_numeric::detkernel::kernels::{normal_cdf, normal_sf};
 
 // ════════════════════════════════════════════════════════════════════════
 //  Position sizing: Kelly & Bayesian Kelly
@@ -159,7 +160,7 @@ pub fn deflated_sharpe_ratio(observed_sr: f64, n_trials: usize, sr_returns: &[f6
         return 0.0;
     }
     let z = (observed_sr - e_max_sr) / sr_var.sqrt();
-    sf::norm_cdf(z)
+    normal_cdf(z)
 }
 
 /// Probability of Backtest Overfit (López de Prado). Rows = CV splits,
@@ -246,7 +247,7 @@ pub fn diebold_mariano(losses_a: &[f64], losses_b: &[f64], h: usize) -> DieboldM
         };
     }
     let stat = d_mean / d_var.sqrt();
-    let p_value = 2.0 * (1.0 - sf::norm_cdf(stat.abs()));
+    let p_value = 2.0 * normal_sf(stat.abs());
     DieboldMariano {
         statistic: stat,
         p_value,
