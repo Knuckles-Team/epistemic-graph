@@ -179,6 +179,24 @@ pub(crate) enum Cmd {
         event: crate::redb_store::OperationAuditEvent,
         reply: std::sync::mpsc::SyncSender<Result<crate::protocol::AuditAppendReceipt, String>>,
     },
+    #[cfg(feature = "security")]
+    ServiceChildReserve {
+        graph: String,
+        binding: crate::redb_store::service_child::ServiceChildBinding,
+        verified_tenant: String,
+        verified_owner: String,
+        audit_ref: String,
+        reply: std::sync::mpsc::SyncSender<Result<crate::redb_store::service_child::ServiceChildReservation, String>>,
+    },
+    #[cfg(feature = "security")]
+    ServiceChildFinish {
+        graph: String,
+        record_id: String,
+        verified_tenant: String,
+        verified_owner: String,
+        outcome: crate::redb_store::service_child::ServiceChildOutcome,
+        reply: std::sync::mpsc::SyncSender<Result<crate::redb_store::service_child::ServiceChildRecord, String>>,
+    },
     /// TEST-ONLY tamper of one audit entry (see `test_tamper_audit_entry`).
     #[cfg(all(test, feature = "security"))]
     TestTamperAudit {

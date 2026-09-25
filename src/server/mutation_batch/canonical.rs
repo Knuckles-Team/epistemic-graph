@@ -312,7 +312,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         Method::AuditProveInclusion { .. }
         | Method::AuditVerify
         | Method::AuditReadEvent { .. }
-        | Method::AuditAppend { .. } => {
+        | Method::AuditAppend { .. }
+        | Method::ServiceChild { .. } => {
             default_mutation_domain(surface)
         }
         // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`

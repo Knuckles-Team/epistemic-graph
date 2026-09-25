@@ -347,6 +347,10 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if matches!(method, Method::AuditAppend { .. }) {
         return true;
     }
+    #[cfg(feature = "security")]
+    if let Method::ServiceChild { op } = method {
+        return !matches!(op, crate::protocol::ServiceChildOp::Get { .. });
+    }
     /// The runtime-conditional classifiers, in resolution order. A table rather
     /// than a chain of `if let`s so a sixth surface is one entry rather than
     /// one more branch in this function.

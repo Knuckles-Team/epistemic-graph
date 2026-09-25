@@ -46,6 +46,24 @@ pub struct AuditEventProof {
     pub chain_entries: u64,
 }
 
+/// One committed SERVICE child journal row. `created` is true only on the
+/// first reserve; callers may dispatch a child only for that receipt.
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ServiceChildReceipt {
+    pub record_id: String,
+    pub tenant: String,
+    pub owner_ref: String,
+    pub target: String,
+    pub subject_id: String,
+    pub audit_ref: String,
+    pub recovery_ref: String,
+    pub durable: bool,
+    pub created: bool,
+    pub state: String,
+}
+
 /// Which side of its parent a Merkle audit-path sibling sits on (provenance
 /// anchoring, CONCEPT:EG-KG.sharding.row-level-security). The verifier folds the running hash with each
 /// step's sibling on the side named here — RFC 6962 §2.1.1 Merkle audit path
@@ -194,6 +212,8 @@ method_results! {
     AuditAppend(AuditAppend) => Raw<AuditAppendReceipt>;
     #[cfg(feature = "security")]
     AuditReadEvent(AuditReadEvent) => Raw<AuditEventProof>;
+    #[cfg(feature = "security")]
+    ServiceChild(ServiceChild) => Raw<Option<ServiceChildReceipt>>;
     #[cfg(feature = "security")]
     AuditProveInclusion(AuditProveInclusion) => Raw<MerkleInclusionReport>;
     RegisterIdentity(RegisterIdentity) => Text<String>;

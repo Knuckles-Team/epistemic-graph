@@ -3,6 +3,67 @@ use crate::server::persistence::writer_reply::await_writer_reply;
 
 impl RedbBackend {
     #[cfg(feature = "security")]
+    pub(crate) async fn service_child_reserve(
+        &self,
+        graph_fname: &str,
+        binding: crate::redb_store::service_child::ServiceChildBinding,
+        verified_tenant: &str,
+        verified_owner: &str,
+        audit_ref: &str,
+    ) -> Result<crate::redb_store::service_child::ServiceChildReservation, String> {
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
+        self.enqueue(graph_fname, Cmd::ServiceChildReserve {
+            graph: graph_fname.to_string(),
+            binding,
+            verified_tenant: verified_tenant.to_string(),
+            verified_owner: verified_owner.to_string(),
+            audit_ref: audit_ref.to_string(),
+            reply,
+        }, "service_child_reserve").await?;
+        tokio::task::spawn_blocking(move || await_writer_reply(&rx, "service_child_reserve"))
+            .await.map_err(|error| format!("service_child_reserve join error: {error}"))??
+    }
+
+    #[cfg(feature = "security")]
+    pub(crate) async fn service_child_get(
+        &self,
+        graph_fname: &str,
+        record_id: &str,
+        verified_tenant: &str,
+        verified_owner: &str,
+    ) -> Result<Option<crate::redb_store::service_child::ServiceChildRecord>, String> {
+        let graph = graph_fname.to_string();
+        let id = record_id.to_string();
+        let tenant = verified_tenant.to_string();
+        let owner = verified_owner.to_string();
+        self.read_snapshot(graph_fname, move |shard, _| {
+            crate::redb_store::service_child::service_child_get(shard, &graph, &id, &tenant, &owner)
+        }).await
+    }
+
+    #[cfg(feature = "security")]
+    pub(crate) async fn service_child_finish(
+        &self,
+        graph_fname: &str,
+        record_id: &str,
+        verified_tenant: &str,
+        verified_owner: &str,
+        outcome: crate::redb_store::service_child::ServiceChildOutcome,
+    ) -> Result<crate::redb_store::service_child::ServiceChildRecord, String> {
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
+        self.enqueue(graph_fname, Cmd::ServiceChildFinish {
+            graph: graph_fname.to_string(),
+            record_id: record_id.to_string(),
+            verified_tenant: verified_tenant.to_string(),
+            verified_owner: verified_owner.to_string(),
+            outcome,
+            reply,
+        }, "service_child_finish").await?;
+        tokio::task::spawn_blocking(move || await_writer_reply(&rx, "service_child_finish"))
+            .await.map_err(|error| format!("service_child_finish join error: {error}"))??
+    }
+
+    #[cfg(feature = "security")]
     pub async fn audit_read_event(
         &self,
         graph_fname: &str,

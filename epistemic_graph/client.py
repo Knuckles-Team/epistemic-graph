@@ -6287,6 +6287,58 @@ class GraphOperationsClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
+    async def service_child_reserve(
+        self, binding: dict[str, str], *, audit_ref: str
+    ) -> dict[str, Any]:
+        """Reserve one audited SERVICE child before its sole transport attempt."""
+        receipt = (
+            await _gen.security.send_service_child(
+                self._client,
+                {"op": {"op": "reserve", "binding": binding, "audit_ref": audit_ref}},
+            )
+        ).payload
+        if not isinstance(receipt, dict) or receipt.get("durable") is not True:
+            raise RuntimeError("SERVICE_CHILD_DURABLE_RECEIPT_REQUIRED")
+        return receipt
+
+    async def service_child_get(self, record_id: str) -> dict[str, Any] | None:
+        """Read only a child owned by this verified request carrier."""
+        receipt = (
+            await _gen.security.send_service_child(
+                self._client, {"op": {"op": "get", "record_id": record_id}},
+            )
+        ).payload
+        if receipt is not None and not isinstance(receipt, dict):
+            raise RuntimeError("SERVICE_CHILD_INVALID_RECEIPT")
+        return receipt
+
+    async def service_child_finish(
+        self,
+        record_id: str,
+        *,
+        outcome: str,
+        result_sha256: str | None = None,
+        reason_code: str | None = None,
+    ) -> dict[str, Any]:
+        """Commit one terminal outcome; a different replay is rejected by EG."""
+        receipt = (
+            await _gen.security.send_service_child(
+                self._client,
+                {
+                    "op": {
+                        "op": "finish",
+                        "record_id": record_id,
+                        "outcome": outcome,
+                        "result_sha256": result_sha256,
+                        "reason_code": reason_code,
+                    }
+                },
+            )
+        ).payload
+        if not isinstance(receipt, dict) or receipt.get("durable") is not True:
+            raise RuntimeError("SERVICE_CHILD_DURABLE_RECEIPT_REQUIRED")
+        return receipt
+
     async def clear(self) -> None:
         await _gen.graph.send_clear_graph(self._client)
 

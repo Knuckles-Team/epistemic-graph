@@ -131,6 +131,24 @@ macro_rules! writer_command_arms {
             let _ = reply.send(result);
             false
         }
+        #[cfg(feature = "security")]
+        Cmd::ServiceChildReserve { graph, binding, verified_tenant, verified_owner, audit_ref, reply } => {
+            flush(pending);
+            let result = crate::redb_store::service_child::service_child_reserve(
+                shard, &graph, binding, &verified_tenant, &verified_owner, &audit_ref,
+            );
+            let _ = reply.send(result);
+            false
+        }
+        #[cfg(feature = "security")]
+        Cmd::ServiceChildFinish { graph, record_id, verified_tenant, verified_owner, outcome, reply } => {
+            flush(pending);
+            let result = crate::redb_store::service_child::service_child_finish(
+                shard, &graph, &record_id, &verified_tenant, &verified_owner, outcome,
+            );
+            let _ = reply.send(result);
+            false
+        }
         #[cfg(all(test, feature = "security"))]
         Cmd::TestTamperAudit { graph, seq, reply } => {
             flush(pending);

@@ -102,6 +102,46 @@ pub enum CypherMode {
     Write,
 }
 
+/// Caller identity in this body is only an assertion; the served route derives
+/// the tenant and owner again from the verified request carrier.
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ServiceChildBinding {
+    pub tenant: String,
+    pub owner_principal: String,
+    pub owner_ref: String,
+    pub server: String,
+    pub tool: String,
+    pub subject_id: String,
+    pub argument_sha256: String,
+    pub audit_params_sha256: String,
+    pub request_id: String,
+    pub policy_revision: String,
+    pub registry_revision: String,
+    pub scopes_sha256: String,
+}
+
+#[cfg(feature = "security")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ServiceChildOp {
+    Reserve {
+        binding: ServiceChildBinding,
+        audit_ref: String,
+    },
+    Get {
+        record_id: String,
+    },
+    Finish {
+        record_id: String,
+        outcome: String,
+        result_sha256: Option<String>,
+        reason_code: Option<String>,
+    },
+}
+
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
