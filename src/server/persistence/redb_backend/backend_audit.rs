@@ -17,7 +17,7 @@ impl RedbBackend {
         .await
     }
     #[cfg(feature = "security")]
-    pub async fn audit_append(
+    pub(crate) async fn audit_append(
         &self,
         graph_fname: &str,
         event: crate::redb_store::OperationAuditEvent,
