@@ -588,6 +588,24 @@ fn request_root_references_merge_with_result_definitions() {
 }
 
 #[test]
+fn portable_graph_schema_dtos_are_rust_derived_and_generated() {
+    let catalog = Catalog::collect();
+    let document = schema::method_request_document();
+    assert_eq!(
+        document["client_models"],
+        serde_json::json!(["GraphSchemaDefinition"])
+    );
+    let definitions = ModelSpace::build(&document, &catalog).definitions;
+    for name in ["TableDefinition", "RelDefinition", "GraphSchemaDefinition"] {
+        assert!(definitions.contains_key(name), "missing {name} schema");
+    }
+    let generated = Surfaces::new(&definitions).models_module();
+    assert!(generated.contains("class TableDefinition(BaseModel):"));
+    assert!(generated.contains("class RelDefinition(BaseModel):"));
+    assert!(generated.contains("class GraphSchemaDefinition(BaseModel):"));
+}
+
+#[test]
 fn digest_projection_names_exact_source_change_set_fields() {
     let catalog = Catalog::collect();
     let document = schema::method_request_document();

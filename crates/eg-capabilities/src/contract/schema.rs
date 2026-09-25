@@ -99,6 +99,34 @@ fn retarget_root_refs(node: &mut serde_json::Value) {
 pub(super) fn method_request_document() -> serde_json::Value {
     let mut root = to_value(schemars::schema_for!(Method));
     name_method_root(&mut root);
+    let mut defs = definitions(&root);
+    // EH-506: these portable data models have no served operation yet. Publish
+    // their Rust-derived schemas beside method definitions so the same contract
+    // generator produces client DTOs without inventing an engine method.
+    let mut portable = to_value(schemars::schema_for!(
+        eg_types::graph_schema::definition::GraphSchemaDefinition
+    ));
+    let portable_defs = definitions(&portable);
+    let portable_defs = portable_defs
+        .as_object()
+        .expect("portable schema definitions");
+    let target = defs.as_object_mut().expect("method schema definitions");
+    for (name, schema) in portable_defs {
+        assert!(
+            target.insert(name.clone(), schema.clone()).is_none(),
+            "portable graph schema definition collides with {name}"
+        );
+    }
+    let portable_root = portable.as_object_mut().expect("portable schema root");
+    for key in ["$schema", "$defs", "definitions", "title"] {
+        portable_root.remove(key);
+    }
+    assert!(
+        target
+            .insert("GraphSchemaDefinition".to_string(), portable)
+            .is_none(),
+        "portable graph schema definition collides with a method DTO"
+    );
     let mut methods: BTreeMap<String, serde_json::Value> = BTreeMap::new();
     for subschema in variant_subschemas(&root) {
         if let Some(tag) = variant_tag(&subschema, "method") {
@@ -117,7 +145,8 @@ pub(super) fn method_request_document() -> serde_json::Value {
     array of uint8 is a `serde_bytes` Vec<u8> and travels as a MessagePack `bin`, not as an \
     array of integers; a validator applied to the raw wire frame must account for that. \
     Every other type maps directly.",
-        "$defs": definitions(&root),
+        "$defs": defs,
+        "client_models": ["GraphSchemaDefinition"],
         "methods": methods,
     })
 }
