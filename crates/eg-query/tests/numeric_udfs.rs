@@ -25,19 +25,19 @@ fn graph() -> GraphCore {
     core
 }
 
+fn run_values(sql: &str) -> Vec<Vec<serde_json::Value>> {
+    let snap = graph().analysis_snapshot();
+    query_rows::rows(&exec_sql(&snap, sql, &CancellationToken::new()).unwrap())
+}
+
 #[test]
 fn cosine_sim_text_literals() {
     // Identical vectors → 1.0; orthogonal → 0.0; opposite → -1.0.
-    let snap = graph().analysis_snapshot();
-    let r = exec_sql(
-        &snap,
+    let v = run_values(
         "SELECT cosine_sim('[1,2,3]', '[1,2,3]') AS same, \
                 cosine_sim('[1,0]', '[0,1]') AS orth, \
                 cosine_sim('[1,0]', '[-1,0]') AS opp LIMIT 1",
-        &CancellationToken::new(),
-    )
-    .unwrap();
-    let v = query_rows::rows(&r);
+    );
     assert!(
         (v[0][0].as_f64().unwrap() - 1.0).abs() < 1e-9,
         "same: {:?}",
@@ -57,14 +57,7 @@ fn cosine_sim_text_literals() {
 
 #[test]
 fn cosine_sim_dim_mismatch_is_null() {
-    let snap = graph().analysis_snapshot();
-    let r = exec_sql(
-        &snap,
-        "SELECT cosine_sim('[1,2,3]', '[1,2]') AS m LIMIT 1",
-        &CancellationToken::new(),
-    )
-    .unwrap();
-    let v = query_rows::rows(&r);
+    let v = run_values("SELECT cosine_sim('[1,2,3]', '[1,2]') AS m LIMIT 1");
     assert_eq!(v[0][0], json!(null));
 }
 
@@ -88,14 +81,7 @@ fn l2_normalize_unit_vector() {
 #[test]
 fn l2_normalize_feeds_cosine_sim() {
     // Normalizing preserves direction, so cosine_sim(l2_normalize(v), v) == 1.
-    let snap = graph().analysis_snapshot();
-    let r = exec_sql(
-        &snap,
-        "SELECT cosine_sim(l2_normalize('[3,4]'), '[3,4]') AS s LIMIT 1",
-        &CancellationToken::new(),
-    )
-    .unwrap();
-    let v = query_rows::rows(&r);
+    let v = run_values("SELECT cosine_sim(l2_normalize('[3,4]'), '[3,4]') AS s LIMIT 1");
     assert!(
         (v[0][0].as_f64().unwrap() - 1.0).abs() < 1e-6,
         "{:?}",
@@ -296,27 +282,16 @@ fn kmeans_deterministic() {
 
 #[test]
 fn kmeans_empty_is_null() {
-    let snap = graph().analysis_snapshot();
-    let r = exec_sql(
-        &snap,
+    let v = run_values(
         "SELECT kmeans(json_get_f64(props, 'missing_vec'), 2) AS c FROM nodes WHERE 1 = 0",
-        &CancellationToken::new(),
-    )
-    .unwrap();
-    let v = query_rows::rows(&r);
+    );
     assert_eq!(v[0][0], json!(null));
 }
 
 #[test]
 fn svd_empty_is_null() {
     // No rows → NULL list (never an error).
-    let snap = graph().analysis_snapshot();
-    let r = exec_sql(
-        &snap,
-        "SELECT svd(json_get_f64(props, 'missing_vec')) AS s FROM nodes WHERE 1 = 0",
-        &CancellationToken::new(),
-    )
-    .unwrap();
-    let v = query_rows::rows(&r);
+    let v =
+        run_values("SELECT svd(json_get_f64(props, 'missing_vec')) AS s FROM nodes WHERE 1 = 0");
     assert_eq!(v[0][0], json!(null));
 }
