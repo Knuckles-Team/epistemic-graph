@@ -395,51 +395,10 @@ pub(crate) fn apply_native_work_item_family_operation(
         crypto,
     })?
     .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
-    if generated_result.is_some() || batch.operations.len() != 1 {
-        return Err(
-            "WorkItem MutationBatch must contain exactly one result-producing operation"
-                .to_string(),
-        );
-    }
-    *generated_result = Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
-    Ok(())
-}
-
-// GOC-19/GOC-20 (BUG-015 "B9"): split out from the shared WorkItem-family
-// helper above -- this is the ONE WorkItem terminal transition allowed to
-// co-commit additional `AddNode` provenance operations in the same batch
-// (validated once, before the operation loop, by
-// `validate_native_operations_commit_work_item_result_shape`). The
-// `batch.operations.len() != 1` sub-check is deliberately dropped here;
-// `generated_result.is_some()` alone still guarantees at most one
-// result-producing operation applies.
-pub(crate) fn apply_native_commit_work_item_result_operation(
-    graph_fname: &str,
-    batch_id: &str,
-    method: &Method,
-    tables: &mut NativeOperationTables<'_>,
-    generated_result: &mut Option<Vec<u8>>,
-    crypto: DurableCrypto<'_>,
-    committed_at_ms: u64,
-) -> Result<(), String> {
-    let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
-        graph: graph_fname,
-        batch_id,
-        method,
-        nodes: &mut tables.graph.nodes,
-        holds: &mut tables.lane_holds,
-        work_item_index: &tables.lane_work_item_index,
-        counters: &mut tables.lane_counters,
-        pressure_index: &mut tables.lane_pressure_index,
-        policies: &tables.lane_policies,
-        native_work_items: &mut tables.graph.native_work_items,
-        edges: &mut tables.graph.edges,
-        command_sequences: &mut tables.graph.command_sequences,
-        committed_at_ms,
-        crypto,
-    })?
-    .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
-    if generated_result.is_some() {
+    // CommitWorkItemResult may co-commit provenance AddNode rows. Its shape is
+    // checked before the operation loop; every other WorkItem write is singular.
+    let is_terminal = matches!(method, Method::CommitWorkItemResult { .. });
+    if generated_result.is_some() || (!is_terminal && batch.operations.len() != 1) {
         return Err(
             "WorkItem MutationBatch must contain exactly one result-producing operation"
                 .to_string(),
@@ -579,17 +538,15 @@ fn apply_one_native_operation_row(
             crypto,
             committed_at_ms,
         ),
-        method @ Method::CommitWorkItemResult { .. } => {
-            apply_native_commit_work_item_result_operation(
-                graph_fname,
-                batch.batch_id.as_str(),
-                method,
-                tables,
-                generated_result,
-                crypto,
-                committed_at_ms,
-            )
-        }
+        method @ Method::CommitWorkItemResult { .. } => apply_native_work_item_family_operation(
+            graph_fname,
+            method,
+            tables,
+            batch,
+            generated_result,
+            crypto,
+            committed_at_ms,
+        ),
         method @ (Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }

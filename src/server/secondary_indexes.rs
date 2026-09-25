@@ -388,17 +388,7 @@ impl SecondaryIndex for GraphTemporalIndex {
                 tracing::warn!("GraphTemporalIndex delete_series({sid}) failed: {e}");
             }
         }
-        for nc in &change.added_nodes {
-            if let Some(pts) = nc
-                .properties_msgpack
-                .as_deref()
-                .and_then(decode_props)
-                .and_then(|m| extract_measurements(&m))
-            {
-                self.replace(&nc.id, &pts);
-            }
-        }
-        for nc in &change.updated_nodes {
+        for nc in change.added_nodes.iter().chain(&change.updated_nodes) {
             if let Some(pts) = nc
                 .properties_msgpack
                 .as_deref()
