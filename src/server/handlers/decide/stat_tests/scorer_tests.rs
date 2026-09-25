@@ -49,6 +49,7 @@ async fn evaluated(
         source: DatasetSource::Inline {
             dataset: Box::new(data),
         },
+        mode: eg_types::decision::EvalMode::OffPolicy,
     };
     let op = DecisionEvalOp::Submit {
         request: Box::new(eval),
