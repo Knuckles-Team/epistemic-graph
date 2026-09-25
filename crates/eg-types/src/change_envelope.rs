@@ -546,7 +546,7 @@ mod validation {
     fn validate_operations(envelope: &ChangeEnvelope) -> Result<(), String> {
         let rule = envelope.material_class.value_rule();
         for operation in &envelope.mutation.operations {
-            Self::validate_operation(&operation.method, rule)
+            validate_operation(&operation.method, rule)
                 .map_err(|error| format!("operation {}: {error}", operation.ordinal))?;
         }
         Ok(())
