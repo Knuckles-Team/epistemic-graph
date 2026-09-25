@@ -67,7 +67,7 @@ pub use password_policy::check_password;
 pub use projection::{rbac_role_name, PrincipalResolution, RbacProjection};
 pub use relations::{SqlRelation, SqlType};
 pub use requests::{
-    ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
+    AdminResetIssue, ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
     InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordResetIssue,
     PasswordSet, RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange,
     UserUpdate, WebauthnCredential, WebauthnUse,

@@ -129,7 +129,9 @@ fn reshapes_authority(op: &IdentityOp) -> bool {
         }
         IdentityOp::Token(op) => matches!(
             op,
-            super::ops::TokenOp::IssueApiKey { .. } | super::ops::TokenOp::RedeemOneTime { .. }
+            super::ops::TokenOp::IssueApiKey { .. }
+                | super::ops::TokenOp::IssueAdminReset { .. }
+                | super::ops::TokenOp::RedeemOneTime { .. }
         ),
         IdentityOp::Session(_) | IdentityOp::Mfa(_) => false,
     }

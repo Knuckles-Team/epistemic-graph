@@ -169,6 +169,52 @@ fn api_key_listing_is_paged_redacted_and_read_scoped() {
 }
 
 #[test]
+fn direct_admin_reset_replaces_token_and_revokes_sessions() {
+    let mut store = store_in(AuthMode::Local);
+    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
+    open_session(&mut store, "alice", &alice, "alice-session");
+    let issue = IdentityOp::Token(TokenOp::IssueAdminReset {
+        request: AdminResetIssue {
+            principal_id: alice.clone(),
+            token: Secret::default(),
+            ttl_ms: 30 * 60 * 1000,
+        },
+    });
+    let mut stamp = admin();
+    stamp.token_hashes = vec!["reset-hash".to_string()];
+    assert_eq!(
+        apply_kept(&mut store, &issue, &broker(), NOW),
+        Err(IdentityRefusal::NotAuthorized)
+    );
+    let mut delegated = stamp.clone();
+    delegated.actor.delegated = true;
+    assert_eq!(
+        apply_kept(&mut store, &issue, &delegated, NOW),
+        Err(IdentityRefusal::NotAuthorized)
+    );
+    assert_eq!(
+        apply_kept(&mut store, &issue, &stamp, NOW),
+        Ok(IdentityReply::Done { changed: true })
+    );
+    assert_eq!(store.user(&alice).unwrap().status, UserStatus::PendingReset);
+    let session = IdentityOp::Session(SessionOp::List {
+        request: ObjectRef { id: alice.clone() },
+    });
+    let IdentityReply::Sessions(rows) = apply_kept(&mut store, &session, &admin(), NOW).unwrap()
+    else {
+        panic!("expected sessions")
+    };
+    assert!(rows.iter().all(|row| row.revoked));
+    let (redeem, broker_stamp) = redeem(TokenPurpose::AdminReset, "reset-hash");
+    assert!(apply_kept(&mut store, &redeem, &broker_stamp, NOW).is_ok());
+    assert_eq!(store.user(&alice).unwrap().status, UserStatus::Active);
+    assert_eq!(
+        apply_kept(&mut store, &redeem, &broker_stamp, NOW),
+        Err(IdentityRefusal::TokenSpent)
+    );
+}
+
+#[test]
 fn an_api_key_carries_only_scopes_its_owner_holds_and_narrows_with_the_owner() {
     let mut store = store_in(AuthMode::Local);
     with_admin_session(&mut store);

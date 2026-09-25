@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::access::IdpConfig;
 use super::config::{IssuerRotation, ModeTransition};
 use super::requests::{
-    ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
+    AdminResetIssue, ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,
     InitializeRequest, LinkRequest, OneTimeTokenIssue, PasswordChange, PasswordResetIssue,
     PasswordSet, RecoveryCodesSet, SessionTouch, TokenRedeem, TotpEnroll, UserStatusChange,
     UserUpdate, WebauthnCredential, WebauthnUse,
@@ -258,6 +258,9 @@ pub enum TokenOp {
     IssueOneTime {
         request: OneTimeTokenIssue,
     },
+    IssueAdminReset {
+        request: AdminResetIssue,
+    },
     RedeemOneTime {
         request: TokenRedeem,
     },
@@ -488,6 +491,7 @@ impl TokenOp {
     fn meta(&self) -> OpMeta {
         match self {
             Self::IssueOneTime { .. } => meta("issue_one_time_token", true, OpAuthority::Broker),
+            Self::IssueAdminReset { .. } => meta("issue_admin_reset", true, OpAuthority::Admin),
             Self::RedeemOneTime { .. } => meta("redeem_one_time_token", true, OpAuthority::Broker),
             Self::IssueApiKey { .. } => meta("issue_api_key", true, OpAuthority::Broker),
             Self::VerifyApiKey { .. } => meta("verify_api_key", true, OpAuthority::Broker),

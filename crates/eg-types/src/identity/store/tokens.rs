@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 use super::super::audit::IdentityEvent;
 use super::super::model::{ApiKeyRecord, OneTimeToken, TokenPurpose, UserKind, UserStatus};
 use super::super::ops::TokenOp;
-use super::super::requests::{ApiKeyIssue, OneTimeTokenIssue, PasswordResetIssue, TokenRedeem};
+use super::super::requests::{
+    AdminResetIssue, ApiKeyIssue, OneTimeTokenIssue, PasswordResetIssue, TokenRedeem,
+};
 use super::super::requests_admin::MAX_PAGE;
 use super::super::scope::ScopeClassifier;
 use super::super::stamp::IdentityStamp;
@@ -47,6 +49,9 @@ impl IdentityStore {
     ) -> Result<IdentityReply, IdentityRefusal> {
         match op {
             TokenOp::IssueOneTime { request } => self.issue_one_time(request, stamp, ctx),
+            TokenOp::IssueAdminReset { request } => {
+                self.issue_admin_reset(request, stamp, ctx.now_ms)
+            }
             TokenOp::RedeemOneTime { request } => self.redeem_one_time(request, stamp, ctx.now_ms),
             TokenOp::IssueApiKey { request } => self.issue_api_key(request, stamp, ctx),
             TokenOp::VerifyApiKey { request } => {
@@ -209,6 +214,62 @@ impl IdentityStore {
             now_ms,
             IdentityEvent::TokenIssued,
             request.principal_id.as_deref(),
+        );
+        Ok(IdentityReply::Done { changed: true })
+    }
+
+    fn issue_admin_reset(
+        &mut self,
+        request: &AdminResetIssue,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        const MAX_ADMIN_RESET_TTL_MS: u64 = 30 * 60 * 1000;
+        if !(1..=MAX_ADMIN_RESET_TTL_MS).contains(&request.ttl_ms) {
+            return Err(IdentityRefusal::InvalidRequest);
+        }
+        let user = self
+            .users
+            .get(&request.principal_id)
+            .ok_or(IdentityRefusal::NotFound)?;
+        if user.kind != UserKind::Human
+            || !matches!(user.status, UserStatus::Active | UserStatus::PendingReset)
+        {
+            return Err(IdentityRefusal::KindMismatch);
+        }
+        let hash = stamp.token_hash(0)?.to_string();
+        self.one_time.retain(|_, token| {
+            token.purpose != TokenPurpose::AdminReset
+                || token.principal_id.as_deref() != Some(request.principal_id.as_str())
+        });
+        self.prune_one_time(now_ms)?;
+        self.insert_one_time(OneTimeToken {
+            token_hash: hash,
+            purpose: TokenPurpose::AdminReset,
+            principal_id: Some(request.principal_id.clone()),
+            expires_at_ms: now_ms.saturating_add(request.ttl_ms),
+            used_at_ms: None,
+            created_by: stamp.actor.principal_id.clone(),
+        })?;
+        if let Some(user) = self.users.get_mut(&request.principal_id) {
+            user.status = UserStatus::PendingReset;
+        }
+        if let Some(credential) = self.passwords.get_mut(&request.principal_id) {
+            credential.must_change = true;
+        }
+        if self.revoke_principal_sessions(&request.principal_id, now_ms, "admin_reset") {
+            self.audit_event(
+                stamp,
+                now_ms,
+                IdentityEvent::SessionRevoked,
+                Some(&request.principal_id),
+            );
+        }
+        self.audit_event(
+            stamp,
+            now_ms,
+            IdentityEvent::TokenIssued,
+            Some(&request.principal_id),
         );
         Ok(IdentityReply::Done { changed: true })
     }

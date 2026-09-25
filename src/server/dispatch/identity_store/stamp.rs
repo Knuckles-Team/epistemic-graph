@@ -262,6 +262,9 @@ fn derive_token(op: &mut TokenOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>)
             let token = take_token(&mut request.token, Floor::Issue)?;
             stamp.token_hashes = vec![session, token];
         }
+        TokenOp::IssueAdminReset { request } => {
+            stamp.token_hashes = vec![take_token(&mut request.token, Floor::Issue)?];
+        }
         TokenOp::RedeemOneTime { request } => {
             let token = take_token(&mut request.token, Floor::Lookup)?;
             let principal = env.store.one_time_principal(&token).map(str::to_string);
@@ -294,6 +297,41 @@ fn derive_token(op: &mut TokenOp, stamp: &mut IdentityStamp, env: &StampEnv<'_>)
         TokenOp::RevokeApiKey { .. } | TokenOp::ListApiKeys { .. } => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod admin_reset_tests {
+    use super::*;
+    use eg_types::identity::{AdminResetIssue, IdentityActor};
+
+    #[test]
+    fn admin_reset_secret_is_checked_hashed_and_cleared() {
+        let store = IdentityStore::default();
+        let env = StampEnv {
+            store: &store,
+            service_secret: "unused",
+            now_ms: 1,
+            engine_loopback: true,
+        };
+        let mut op = TokenOp::IssueAdminReset {
+            request: AdminResetIssue {
+                principal_id: "usr:alice".to_string(),
+                token: Secret::new("a".repeat(40)),
+                ttl_ms: 1_000,
+            },
+        };
+        let mut stamp = IdentityStamp::for_actor(IdentityActor {
+            principal_id: "usr:admin".to_string(),
+            delegated: false,
+            scopes: ["identity:admin".to_string()].into(),
+        });
+        derive_token(&mut op, &mut stamp, &env).unwrap();
+        let TokenOp::IssueAdminReset { request } = op else {
+            panic!("wrong op")
+        };
+        assert!(request.token.is_empty());
+        assert_ne!(stamp.token_hash(0).unwrap(), "a".repeat(40));
+    }
 }
 
 /// The matched RFC 6238 step of `code` for the principal of `session_hash`.

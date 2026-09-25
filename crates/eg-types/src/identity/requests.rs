@@ -142,6 +142,17 @@ pub struct OneTimeTokenIssue {
     pub ttl_ms: u64,
 }
 
+/// Issue a short-lived admin reset without forwarding a browser session.
+/// The request boundary hashes and clears `token` before replication.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AdminResetIssue {
+    pub principal_id: String,
+    pub token: Secret,
+    pub ttl_ms: u64,
+}
+
 /// `redeem_one_time_token`: spend a token for its purpose. A reset purpose
 /// sets `new_password`; `link_claim` links `link`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
