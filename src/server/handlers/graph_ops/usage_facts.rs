@@ -304,6 +304,7 @@ mod tests {
         .unwrap();
         core.add_node(node_id, properties.clone());
         let read_authority = GraphReadAuthority::from_verified(&reader, &isolation).unwrap();
+        #[cfg(feature = "security")]
         assert!(!read_authority.can_see_blob(&properties));
         let method = || Method::UsageFacts {
             mode: "events".to_string(),
