@@ -18,7 +18,7 @@ use super::*;
 pub(crate) fn apply_retire_sealed_record_row(
     graph: &str,
     request: &RetireSealedRecordRequest,
-    nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
+    nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     request.validate()?;

@@ -271,3 +271,17 @@ pub use mutation_batch::{
     MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, ScopeTenantId,
     VersionExpectation, MUTATION_BATCH_VERSION,
 };
+
+/// The six native capacity writes. Keep admission, identity normalization and
+/// served dispatch on the same variant set.
+#[macro_export]
+macro_rules! capacity_lease_writes {
+    () => {
+        $crate::protocol::Method::AcquireCapacity { .. }
+            | $crate::protocol::Method::RenewCapacity { .. }
+            | $crate::protocol::Method::ReleaseCapacity { .. }
+            | $crate::protocol::Method::ReclaimExpiredCapacity { .. }
+            | $crate::protocol::Method::UpdateCapacityCell { .. }
+            | $crate::protocol::Method::ThrottleCapacityCell { .. }
+    };
+}

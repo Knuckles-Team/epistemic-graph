@@ -57,6 +57,20 @@ fn source_counts(core: &GraphCore) -> (u64, u64, u64) {
     )
 }
 
+fn read_current_index<I: SecondaryIndex, T>(
+    core: &std::sync::Arc<GraphCore>,
+    kind: IndexKind,
+    read: impl FnOnce(&I) -> T,
+) -> Option<T> {
+    let (version, nodes, edges) = source_counts(core);
+    core.indexes()
+        .with_server_index(kind, |index| {
+            let covered = index.manifest().covers_source(version, nodes, edges);
+            index.as_any().downcast_ref::<I>().filter(|_| covered).map(read)
+        })
+        .flatten()
+}
+
 // ── text (CONCEPT:EG-KG.storage.incremental-text) ────────────────────────────────────
 
 /// The conventional node fields a text index derives its document body from, in
@@ -241,17 +255,7 @@ impl ServedTextIndex {
     /// Run `read` against the registered [`GraphTextIndex`] iff its manifest covers the
     /// live source version and counts; `None` otherwise (absent or stale index).
     fn read_current<T>(&self, read: impl FnOnce(&GraphTextIndex) -> T) -> Option<T> {
-        let (source_snapshot_version, nodes, edges) = source_counts(&self.core);
-        self.core
-            .indexes()
-            .with_server_index(crate::index::IndexKind::Text, |index| {
-                let covered = index
-                    .manifest()
-                    .covers_source(source_snapshot_version, nodes, edges);
-                let text = index.as_any().downcast_ref::<GraphTextIndex>();
-                text.filter(|_| covered).map(read)
-            })
-            .flatten()
+        read_current_index(&self.core, IndexKind::Text, read)
     }
 }
 
@@ -779,31 +783,17 @@ impl ServedSpatialIndex {
     /// between pushdown and the snapshot-derived fallback; merely registering an
     /// empty/incomplete recovery or paged-lazy-open index is never sufficient.
     pub fn available(&self) -> bool {
-        let (source_snapshot_version, nodes, edges) = source_counts(&self.core);
-        self.core
-            .indexes()
-            .with_server_index(crate::index::IndexKind::Spatial, |idx| {
-                idx.as_any()
-                    .downcast_ref::<GraphSpatialIndex>()
-                    .is_some_and(|index| index.is_complete(source_snapshot_version, nodes, edges))
-            })
-            .unwrap_or(false)
+        read_current_index::<GraphSpatialIndex, _>(&self.core, IndexKind::Spatial, |_| ())
+            .is_some()
     }
 }
 
 #[cfg(feature = "geo")]
 impl eg_plan::SpatialSource for ServedSpatialIndex {
     fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
-        let (source_snapshot_version, nodes, edges) = source_counts(&self.core);
-        self.core
-            .indexes()
-            .with_server_index(crate::index::IndexKind::Spatial, |idx| {
-                idx.as_any()
-                    .downcast_ref::<GraphSpatialIndex>()
-                    .filter(|gsi| gsi.is_complete(source_snapshot_version, nodes, edges))
-                    .map(|gsi| gsi.query_bbox(layer, bbox))
-                    .unwrap_or_default()
-            })
+        read_current_index(&self.core, IndexKind::Spatial, |index: &GraphSpatialIndex| {
+            index.query_bbox(layer, bbox)
+        })
             .unwrap_or_default()
     }
 }

@@ -31,12 +31,8 @@ pub(crate) struct NativeRecordRequest<'args, 'table, 'crypto> {
     pub(crate) batch_id: &'args str,
     pub(crate) method: &'args Method,
     pub(crate) nodes: &'args mut NodeRows<'table>,
-    pub(crate) edges: &'args mut ScopedOwnerTableMut<
-        'table,
-        (&'static str, &'static str, &'static str, u32),
-        &'static [u8],
-    >,
-    pub(crate) command_sequences: &'args mut ScopedOwnerTableMut<'table, &'static str, u64>,
+    pub(crate) edges: &'args mut NativeEdgeRows<'table>,
+    pub(crate) command_sequences: &'args mut NativeSequenceRows<'table>,
     pub(crate) committed_at_ms: u64,
     pub(crate) crypto: DurableCrypto<'crypto>,
 }

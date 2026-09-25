@@ -32,12 +32,8 @@ pub(crate) struct WorkItemApplyRequest<'args, 'table, 'crypto> {
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     /// Edge and command-sequence rows, and the batch's authoritative time:
     /// what a `GapUpsert` needs to admit its WorkItem (EH-348).
-    pub(crate) edges: &'args mut ScopedOwnerTableMut<
-        'table,
-        (&'static str, &'static str, &'static str, u32),
-        &'static [u8],
-    >,
-    pub(crate) command_sequences: &'args mut ScopedOwnerTableMut<'table, &'static str, u64>,
+    pub(crate) edges: &'args mut NativeEdgeRows<'table>,
+    pub(crate) command_sequences: &'args mut NativeSequenceRows<'table>,
     pub(crate) committed_at_ms: u64,
     pub(crate) crypto: DurableCrypto<'crypto>,
 }

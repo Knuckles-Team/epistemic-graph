@@ -329,22 +329,10 @@ mod stream_tests {
     /// can carry a CEP plan.
     #[test]
     fn cep_variant_round_trips() {
-        let matcher = CepMatcherSpec {
-            key: Some("trade".into()),
-            preds: vec![
-                CepAttrPredSpec::Gt {
-                    field: "qty".into(),
-                    value: 100.0,
-                },
-                CepAttrPredSpec::Eq {
-                    field: "sym".into(),
-                    value: serde_json::json!("ACME"),
-                },
-                CepAttrPredSpec::Exists {
-                    field: "venue".into(),
-                },
-            ],
-        };
+        let mut matcher = wire_query_samples::sample_trade_matcher();
+        matcher.preds.push(CepAttrPredSpec::Exists {
+            field: "venue".into(),
+        });
         let plan = Plan::new(vec![
             Op::Scan {
                 label: "Event".into(),
