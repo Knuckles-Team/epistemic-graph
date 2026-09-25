@@ -89,7 +89,7 @@ pub(crate) async fn handle_graphql_commit_txn(
                 "data": {"commitTransaction": {"committed": committed}}
             }),
         ),
-        Err(msg) => Response::err(req_id, format!("GraphQL commitTransaction error: {msg}")),
+        Err(msg) => Response::err(req_id, msg),
     };
     Ok(resp)
 }
@@ -239,7 +239,7 @@ pub(crate) async fn handle_graphql_plain_mutation(
     .await
     {
         Ok(Ok(value)) => dynamic_response::<query_results::GraphQl, _>(req_id, &value),
-        Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
+        Ok(Err(msg)) => Response::err(req_id, msg),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -359,7 +359,7 @@ pub(crate) async fn handle_graphql(
             }
             Err(error) => Response::err(req_id, error),
         },
-        Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
+        Ok(Err(msg)) => Response::err(req_id, msg),
         Err(resp) => resp,
     };
     Ok(resp)

@@ -163,7 +163,7 @@ pub(crate) async fn exec_sql_write_insert_select(
     .await;
     let rows = match r {
         Ok(Ok(rows)) => rows,
-        Ok(Err(error)) => return Response::err(req_id, format!("SQL error: {error}")),
+        Ok(Err(error)) => return Response::err(req_id, error),
         Err(response) => return response,
     };
     let mut txn = eg_query::TableTxn::new();
@@ -366,7 +366,7 @@ pub(crate) async fn exec_sql_write_create_table(
 ) -> Response {
     let columns = match to_store_columns(&plan.columns) {
         Ok(columns) => columns,
-        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+        Err(error) => return Response::err(req_id, error),
     };
     let mut txn = eg_query::TableTxn::new();
     txn.push(eg_query::TxnOp::CreateTable {
@@ -388,7 +388,7 @@ pub(crate) async fn exec_sql_write_alter_table(
 ) -> Response {
     let op = match alter_table_txn_op(plan) {
         Ok(op) => op,
-        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+        Err(error) => return Response::err(req_id, error),
     };
     let mut txn = eg_query::TableTxn::new();
     txn.push(op);
