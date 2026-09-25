@@ -1,0 +1,88 @@
+[
+  {
+    "id": 519949193,
+    "project_id": 278964,
+    "title": "Document save_ tool action-fold exception for lifecycle actions",
+    "description": "## Summary\n\nDocument an exception to the `save_` tool naming convention in the gitlab-mcp-tool-builder skill. Tools prefixed `save_` can now fold non-field-mutation lifecycle actions (like `retry` or `cancel`) behind an `action` parameter when those actions operate on the same resource the tool creates, rather than requiring a separate dedicated tool. This pattern was discovered and used while building the `save_pipeline` MCP tool in !248323. Version bumped from 1.6.1 to 1.6.2 to satisfy the skills version check.\n\n## How to test locally\n\n1. Run `BASE_REF=origin/master scripts/lint/check-skills-version-bump.sh` and confirm it exits with status 0.\n2. Commit the change locally and verify that the pre-commit hooks pass, specifically the `skills-parity` check which confirms `.claude/skills` and `.agents/skills` remain synchronized via the symlink.",
+    "state": "opened",
+    "created_at": "2026-08-16T23:16:07.824Z",
+    "updated_at": "2026-08-16T23:22:28.664Z",
+    "merged_by": null,
+    "merge_user": null,
+    "merged_at": null,
+    "closed_by": null,
+    "closed_at": null,
+    "target_branch": "master",
+    "source_branch": "docs/save-tool-action-fold-pattern",
+    "user_notes_count": 3,
+    "upvotes": 0,
+    "downvotes": 0,
+    "author": {
+      "id": 24914773,
+      "username": "adruid",
+      "public_email": "ataha@gitlab.com",
+      "name": "Amr Taha",
+      "state": "active",
+      "locked": false,
+      "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/24914773/avatar.png",
+      "web_url": "https://gitlab.com/adruid"
+    },
+    "assignees": [],
+    "assignee": null,
+    "reviewers": [
+      {
+        "id": 21826781,
+        "username": "GitLabDuo",
+        "public_email": null,
+        "name": "GitLab Duo",
+        "state": "active",
+        "locked": false,
+        "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/21826781/duo-bot.png",
+        "web_url": "https://gitlab.com/GitLabDuo"
+      }
+    ],
+    "source_project_id": 278964,
+    "target_project_id": 278964,
+    "labels": [
+      "pipeline::tier-1"
+    ],
+    "draft": false,
+    "imported": false,
+    "imported_from": "none",
+    "work_in_progress": false,
+    "milestone": null,
+    "merge_when_pipeline_succeeds": false,
+    "merge_status": "can_be_merged",
+    "detailed_merge_status": "discussions_not_resolved",
+    "merge_after": null,
+    "sha": "8429ecb09075c7c773d0c297bc6ec50e3baa436b",
+    "merge_commit_sha": null,
+    "squash_commit_sha": null,
+    "discussion_locked": null,
+    "should_remove_source_branch": null,
+    "force_remove_source_branch": true,
+    "prepared_at": "2026-08-16T23:16:13.394Z",
+    "reference": "!250339",
+    "references": {
+      "short": "!250339",
+      "relative": "!250339",
+      "full": "gitlab-org/gitlab!250339"
+    },
+    "web_url": "https://gitlab.com/gitlab-org/gitlab/-/merge_requests/250339",
+    "time_stats": {
+      "time_estimate": 0,
+      "total_time_spent": 0,
+      "human_time_estimate": null,
+      "human_total_time_spent": null
+    },
+    "squash": true,
+    "squash_on_merge": true,
+    "task_completion_status": {
+      "count": 0,
+      "completed_count": 0
+    },
+    "has_conflicts": false,
+    "blocking_discussions_resolved": false,
+    "approvals_before_merge": null
+  }
+]

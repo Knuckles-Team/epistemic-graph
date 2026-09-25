@@ -1,0 +1,17 @@
+[
+  {
+    "id": 2764458303,
+    "iid": 6173000,
+    "project_id": 278964,
+    "sha": "37badd08f459188a0de8dc38bbb5e63396f2b413",
+    "ref": "refs/workloads/c1a9bdb4956",
+    "status": {
+      "value": "running"
+    },
+    "source": "duo_workflow",
+    "created_at": "2026-08-16T23:51:08.768Z",
+    "updated_at": "2026-08-16T23:51:09.538Z",
+    "web_url": "https://gitlab.com/gitlab-org/gitlab/-/pipelines/2764458303",
+    "name": null
+  }
+]
