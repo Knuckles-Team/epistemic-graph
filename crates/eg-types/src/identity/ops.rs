@@ -137,6 +137,11 @@ pub enum ConfigOp {
     Audit {
         request: ListQuery,
     },
+    /// A paged, chain-bearing audit export; never a whole-store SQL dump.
+    ExportAudit {
+        request: ListQuery,
+    },
+    VerifyAudit,
     /// The redacted Postgres dump of the store (backup / migration).
     ExportSql,
     /// Merge a dump produced by `export_sql` (restore / migration).
@@ -402,6 +407,8 @@ impl ConfigOp {
             Self::UpdatePolicy { .. } => meta("update_policy", true, OpAuthority::Admin),
             Self::Get => meta("get_config", false, OpAuthority::Broker),
             Self::Audit { .. } => meta("audit", false, OpAuthority::Read),
+            Self::ExportAudit { .. } => meta("export_audit", false, OpAuthority::Read),
+            Self::VerifyAudit => meta("verify_audit", false, OpAuthority::Read),
             Self::ExportSql => meta("export_sql", false, OpAuthority::Read),
             Self::ImportSql { .. } => meta("import_sql", true, OpAuthority::Admin),
             Self::RepairSystemIdentity { .. } => {

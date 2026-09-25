@@ -219,6 +219,10 @@ pub enum IdentityReply {
     Groups(Vec<GroupRecord>),
     Idps(Vec<IdpConfig>),
     Audit(Vec<IdentityAuditEntry>),
+    AuditVerification {
+        valid: bool,
+        first_broken_seq: Option<u64>,
+    },
     /// `export_sql`: the dump text.
     Sql(String),
     /// `list_provisioned`.

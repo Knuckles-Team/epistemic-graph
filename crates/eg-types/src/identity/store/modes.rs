@@ -80,7 +80,16 @@ impl IdentityStore {
             ConfigOp::Transition { request } => self.transition(request, stamp, ctx.now_ms),
             ConfigOp::UpdatePolicy { request } => self.update_policy(request, stamp, ctx.now_ms),
             ConfigOp::Get => Ok(IdentityReply::Config(self.require_initialized()?.clone())),
-            ConfigOp::Audit { request } => self.audit_page(request),
+            ConfigOp::Audit { request } | ConfigOp::ExportAudit { request } => {
+                self.audit_page(request)
+            }
+            ConfigOp::VerifyAudit => {
+                let first_broken_seq = self.audit.verify().err();
+                Ok(IdentityReply::AuditVerification {
+                    valid: first_broken_seq.is_none(),
+                    first_broken_seq,
+                })
+            }
             ConfigOp::ExportSql => Ok(IdentityReply::Sql(super::super::sql_dump::render_dump(
                 &self.sql_relations(),
             ))),

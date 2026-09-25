@@ -76,3 +76,39 @@ fn revoke_one_session_uses_public_handle_and_requires_direct_admin() {
     };
     assert_eq!(after.iter().filter(|session| session.revoked).count(), 1);
 }
+
+#[test]
+fn audit_export_is_bounded_and_verify_detects_a_broken_chain() {
+    let mut store = store_in(AuthMode::Local);
+    create(&mut store, "alice", UserKind::Human).unwrap();
+    let reader = IdentityStamp::for_actor(actor("usr:reader", &[IDENTITY_READ_SCOPE]));
+    let export = IdentityOp::Config(ConfigOp::ExportAudit {
+        request: ListQuery {
+            after: None,
+            limit: 1,
+        },
+    });
+    let IdentityReply::Audit(rows) = apply_kept(&mut store, &export, &reader, NOW).unwrap() else {
+        panic!("expected audit rows")
+    };
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].chain.is_empty());
+    let verify = IdentityOp::Config(ConfigOp::VerifyAudit);
+    assert_eq!(
+        apply_kept(&mut store, &verify, &reader, NOW),
+        Ok(IdentityReply::AuditVerification {
+            valid: true,
+            first_broken_seq: None
+        })
+    );
+    let mut raw = serde_json::to_value(&store).unwrap();
+    raw["audit"]["entries"][0]["chain"] = serde_json::json!("tampered");
+    let mut corrupt: IdentityStore = serde_json::from_value(raw).unwrap();
+    assert_eq!(
+        apply_kept(&mut corrupt, &verify, &reader, NOW),
+        Ok(IdentityReply::AuditVerification {
+            valid: false,
+            first_broken_seq: Some(rows[0].seq)
+        })
+    );
+}
