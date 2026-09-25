@@ -14,10 +14,10 @@ use crate::rbac_persist::{
 };
 use eg_types::identity::*;
 
-const NOW: u64 = 1_800_000_000_000;
+pub(super) const NOW: u64 = 1_800_000_000_000;
 const GRAPH: &str = "g-reports";
 
-struct Registry;
+pub(super) struct Registry;
 
 impl ScopeClassifier for Registry {
     fn class_of(&self, scope: &str) -> Option<ScopeClass> {
@@ -43,7 +43,7 @@ impl ScopeClassifier for Registry {
     }
 }
 
-fn stamp(scope: &str) -> IdentityStamp {
+pub(super) fn stamp(scope: &str) -> IdentityStamp {
     IdentityStamp::for_actor(IdentityActor {
         principal_id: "usr:admin".to_string(),
         delegated: false,
@@ -51,7 +51,7 @@ fn stamp(scope: &str) -> IdentityStamp {
     })
 }
 
-fn apply(
+pub(super) fn apply(
     layer: &mut IsolationLayer,
     op: IdentityOp,
     stamp: &IdentityStamp,
@@ -61,7 +61,7 @@ fn apply(
 
 /// A layer whose store is initialized (`none` mode) with `alice` holding a
 /// role that may read [`GRAPH`].
-fn seeded() -> IsolationLayer {
+pub(super) fn seeded() -> IsolationLayer {
     let mut layer = IsolationLayer::new();
     let init = IdentityOp::Config(ConfigOp::Initialize {
         request: InitializeRequest {
@@ -190,7 +190,7 @@ fn actor() -> AuditActor<'static> {
     }
 }
 
-fn agent(id: &str) -> AgentIdentity {
+pub(super) fn agent(id: &str) -> AgentIdentity {
     AgentIdentity {
         agent_id: id.to_string(),
         role: AgentRole::Agent,
@@ -327,27 +327,4 @@ fn a_denial_sample_lands_in_the_trail() {
         .collect();
     assert_eq!(denied.len(), 2);
     assert_eq!(denied[1].detail, "dropped=2");
-}
-
-#[test]
-fn initializing_the_store_leaves_the_system_bootstrap_open() {
-    let layer = seeded();
-    assert!(
-        layer.identity_bootstrap_pending(),
-        "the engine's System identity still registers through its own bootstrap"
-    );
-    let mut foreign = BTreeMap::new();
-    foreign.insert("agent:x".to_string(), agent("agent:x"));
-    assert!(super::layer_store::holds_only_identity_store_state(
-        layer.rbac(),
-        &layer
-            .agents
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect()
-    ));
-    assert!(
-        !super::layer_store::holds_only_identity_store_state(layer.rbac(), &foreign),
-        "a non-store identity before bootstrap is still corruption"
-    );
 }

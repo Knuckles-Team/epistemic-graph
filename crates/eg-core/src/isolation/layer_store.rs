@@ -77,29 +77,45 @@ impl IsolationLayer {
     }
 }
 
-/// Whether a policy image still pending its System bootstrap holds nothing but
-/// what the identity store projects (its `idm:` roles and grants and the
-/// principals it manages). Anything else before bootstrap is corruption.
+/// The durable open's CORRUPTION check: whether a policy image persisted as
+/// pending its System bootstrap holds nothing but what the identity store
+/// projects (its `idm:` roles and grants and the principals it manages).
+/// Anything else before bootstrap is corruption. It deliberately admits real
+/// store principals (a store used before the System bootstrap is legitimate)
+/// and does NOT decide whether the bootstrap is open: that is
+/// [`holds_only_identity_seed`], evaluated live on every check, so a reopened
+/// image holding a real principal comes back with the bootstrap closed.
 #[cfg(feature = "security")]
 pub(super) fn holds_only_identity_store_state(
     rbac: &crate::rbac::RbacPolicy,
     identities: &std::collections::BTreeMap<String, AgentIdentity>,
 ) -> bool {
-    store_owns_everything(rbac, identities.keys())
+    let store = rbac.identity_store();
+    identities.keys().all(|principal| store.manages(principal)) && projection_only(rbac)
 }
 
-/// Whether every principal in `principals`, every role and every grant is
-/// the identity store's own projection (vacuously true when all are empty).
+/// Whether every role and grant is the identity store's own projection.
 #[cfg(feature = "security")]
-pub(super) fn store_owns_everything<'a>(
+fn projection_only(rbac: &crate::rbac::RbacPolicy) -> bool {
+    let owned = |name: &str| name.starts_with(eg_types::identity::RBAC_ROLE_PREFIX);
+    rbac.roles().all(|role| owned(&role.name))
+        && rbac.grants().iter().all(|grant| owned(&grant.role))
+}
+
+/// Whether the policy holds nothing but the identity store's SEED (see
+/// `IdentityStore::holds_only_seed`): the built-in roles and grants and at
+/// most the credential-less bootstrap principal. This -- not
+/// [`holds_only_identity_store_state`] -- decides whether the System
+/// bootstrap is still open: a real principal, credential or grant made
+/// through the store closes it for good.
+#[cfg(feature = "security")]
+pub(super) fn holds_only_identity_seed<'a>(
     rbac: &crate::rbac::RbacPolicy,
     mut principals: impl Iterator<Item = &'a String>,
 ) -> bool {
-    let owned = |name: &str| name.starts_with(eg_types::identity::RBAC_ROLE_PREFIX);
-    let store = rbac.identity_store();
-    principals.all(|principal| store.manages(principal))
-        && rbac.roles().all(|role| owned(&role.name))
-        && rbac.grants().iter().all(|grant| owned(&grant.role))
+    principals.all(|principal| principal == eg_types::identity::BOOTSTRAP_PRINCIPAL)
+        && rbac.identity_store().holds_only_seed()
+        && projection_only(rbac)
 }
 
 /// A policy-image transition's failure: its own refusal, or the write.

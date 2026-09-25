@@ -51,6 +51,11 @@ const BUILTIN_GROUPS: [(&str, &str); 4] = [
     (SCHEMA_APPROVERS_GROUP, SCHEMA_APPROVER_ROLE),
 ];
 
+/// The direct roles `initialize` gives the bootstrap principal.
+fn seed_user_roles() -> BTreeSet<String> {
+    BTreeSet::from([USER_ROLE.to_string()])
+}
+
 fn admin_grants() -> Vec<RoleGraphGrant> {
     [RbacAction::Read, RbacAction::Write, RbacAction::Admin]
         .into_iter()
@@ -142,6 +147,49 @@ impl IdentityStore {
         })
     }
 
+    /// Whether the store holds NOTHING beyond what a credential-less
+    /// `initialize` seeds: exactly the built-in roles (with their seeded
+    /// scopes and grants) and built-in groups, and at most the bootstrap
+    /// principal with no credential of any kind. Any real principal, any
+    /// password, API key, second factor, IdP, link or directory state, and any
+    /// administrator-made role or group means a real identity exists -- the
+    /// engine's System bootstrap must then stay closed (an attacker must not
+    /// be able to claim an instance someone already set up). An uninitialized
+    /// store is trivially seed-only.
+    pub fn holds_only_seed(&self) -> bool {
+        if self.config.is_none() {
+            return true;
+        }
+        let mut seed = Self::default();
+        seed.seed_builtins();
+        if let Some(user) = self.users.get(BOOTSTRAP_PRINCIPAL) {
+            seed.seed_bootstrap(user.username.clone(), user.created_at_ms);
+        }
+        let bootstrap_only = self.users.keys().all(|p| p == BOOTSTRAP_PRINCIPAL)
+            && self
+                .users
+                .values()
+                .all(|user| user.roles == seed_user_roles());
+        bootstrap_only
+            && self.roles == seed.roles
+            && self.groups == seed.groups
+            && self.holds_no_credential_or_directory_state()
+    }
+
+    fn holds_no_credential_or_directory_state(&self) -> bool {
+        self.passwords.is_empty()
+            && self.api_keys.is_empty()
+            && self.one_time.is_empty()
+            && self.totp.is_empty()
+            && self.recovery.is_empty()
+            && self.webauthn.is_empty()
+            && self.idps.is_empty()
+            && self.links.is_empty()
+            && self.link_roles.is_empty()
+            && self.link_claims.is_empty()
+            && self.directory_groups.is_empty()
+    }
+
     fn seed_builtins(&mut self) {
         for (role_id, scopes) in BUILTIN_ROLES {
             let graph_grants = if role_id == ADMIN_ROLE {
@@ -191,7 +239,7 @@ impl IdentityStore {
                 status: UserStatus::Active,
                 is_bootstrap: true,
                 source: "local".to_string(),
-                roles: BTreeSet::from([USER_ROLE.to_string()]),
+                roles: seed_user_roles(),
                 created_at_ms: now_ms,
                 disabled_at_ms: None,
                 last_login_at_ms: None,

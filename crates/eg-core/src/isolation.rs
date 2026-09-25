@@ -411,6 +411,8 @@ pub use policy_lease::{
 #[cfg(all(test, feature = "security"))]
 mod elevation_tests;
 #[cfg(all(test, feature = "security"))]
+mod identity_bootstrap_tests;
+#[cfg(all(test, feature = "security"))]
 mod identity_store_tests;
 #[cfg(all(test, feature = "security"))]
 mod structure_tests;
