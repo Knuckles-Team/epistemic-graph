@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:mutation-batch",
+  "title": "MutationBatch",
+  "description": "Authenticated, ordered, idempotent mutation currency. Mutation material is referenced by digest instead of embedded in the control envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "MutationBatch",
+  "x-rust-type": "MutationBatch",
+  "$defs": {
+    "mutation_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "MutationOperation",
+      "x-rust-type": "MutationOperation",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain": {
+          "enum": [
+            "graph",
+            "rdf",
+            "vector",
+            "timeseries",
+            "artifact",
+            "job",
+            "work_item"
+          ]
+        },
+        "action": {
+          "enum": [
+            "upsert",
+            "delete",
+            "append",
+            "transition",
+            "link",
+            "unlink"
+          ]
+        },
+        "target_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "Content-addressed or governed object reference; never a local filesystem path."
+        },
+        "payload_digest": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_version": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "operation_id",
+        "domain",
+        "action",
+        "target_id",
+        "payload_ref",
+        "payload_digest",
+        "expected_version"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "batch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "request-context.schema.json"
+    },
+    "graph": {
+      "type": "string",
+      "minLength": 1
+    },
+    "placement_epoch": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "expected_graph_version": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/mutation_operation"
+      },
+      "minItems": 1
+    },
+    "submitted_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "batch_id",
+    "context",
+    "graph",
+    "placement_epoch",
+    "expected_graph_version",
+    "idempotency_key",
+    "operations",
+    "submitted_at_ms"
+  ]
+}

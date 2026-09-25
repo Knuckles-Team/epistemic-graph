@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:knowledge-batch",
+  "title": "KnowledgeBatch",
+  "description": "Bounded, cursor-aware streaming result currency shared by graph, SQL, RDF, vector, temporal, job, and cross-modal query surfaces.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "KnowledgeBatch",
+  "x-rust-type": "KnowledgeBatch",
+  "$defs": {
+    "knowledge_field": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "KnowledgeField",
+      "x-rust-type": "KnowledgeField",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data_type": {
+          "enum": [
+            "null",
+            "boolean",
+            "i64",
+            "u64",
+            "f64",
+            "utf8",
+            "binary",
+            "timestamp_ms",
+            "json"
+          ]
+        },
+        "nullable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "data_type",
+        "nullable"
+      ]
+    },
+    "json_value": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/json_value"
+          }
+        },
+        {
+          "type": "object",
+          "x-dynamic-map": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/json_value"
+          }
+        }
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "batch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "request-context.schema.json"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/knowledge_field"
+      }
+    },
+    "encoding": {
+      "enum": [
+        "json_rows",
+        "arrow_ipc"
+      ]
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/json_value"
+        }
+      }
+    },
+    "data_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Content-addressed Arrow IPC reference when encoding is arrow_ipc; never a local filesystem path."
+    },
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "end_of_stream": {
+      "type": "boolean"
+    },
+    "source_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "batch_id",
+    "context",
+    "fields",
+    "encoding",
+    "rows",
+    "data_ref",
+    "cursor",
+    "end_of_stream",
+    "source_refs"
+  ]
+}

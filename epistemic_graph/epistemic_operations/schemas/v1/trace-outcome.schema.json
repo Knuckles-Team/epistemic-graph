@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:trace-outcome",
+  "title": "TraceOutcome",
+  "description": "Content-free trace outcome for observability and evolution feedback. Prompts, responses, credentials, endpoints, local paths, and personal identity are excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "TraceOutcome",
+  "x-rust-type": "TraceOutcome",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "outcome_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "cancelled",
+        "denied"
+      ]
+    },
+    "started_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ended_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "input_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "output_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "x-dynamic-map": true,
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "policy_decision": {
+      "enum": [
+        "allow",
+        "deny",
+        "not_applicable"
+      ]
+    },
+    "error_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "error_detail_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Governed diagnostic-artifact reference; raw exception text is not carried in this control record."
+    },
+    "evaluation_scores": {
+      "type": "object",
+      "x-dynamic-map": true,
+      "additionalProperties": {
+        "type": "number"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "outcome_id",
+    "trace_id",
+    "context_id",
+    "operation",
+    "status",
+    "started_at_ms",
+    "ended_at_ms",
+    "input_artifact_refs",
+    "output_artifact_refs",
+    "metrics",
+    "policy_decision",
+    "error_code",
+    "error_detail_ref",
+    "evaluation_scores"
+  ]
+}

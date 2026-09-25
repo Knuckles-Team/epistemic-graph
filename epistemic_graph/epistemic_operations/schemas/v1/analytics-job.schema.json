@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:analytics-job",
+  "title": "AnalyticsJob",
+  "description": "Durable asynchronous analytics state, algorithm lineage, checkpoint, retry, and result references.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "AnalyticsJob",
+  "x-rust-type": "AnalyticsJob",
+  "$defs": {
+    "analytics_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "AnalyticsError",
+      "x-rust-type": "AnalyticsError",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "detail_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "description": "Governed diagnostic-artifact reference; raw exception text is not carried in this control record."
+        }
+      },
+      "required": [
+        "code",
+        "retryable",
+        "detail_ref"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "request-context.schema.json"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "enum": [
+        "submitted",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "input_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "parameters_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "algorithm": {
+      "type": "string",
+      "minLength": 1
+    },
+    "algorithm_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checkpoint_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "output_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "progress": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/analytics_error"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "job_id",
+    "context",
+    "kind",
+    "state",
+    "input_artifact_refs",
+    "parameters_digest",
+    "algorithm",
+    "algorithm_version",
+    "checkpoint_ref",
+    "output_artifact_refs",
+    "progress",
+    "attempt",
+    "max_attempts",
+    "created_at_ms",
+    "updated_at_ms",
+    "error"
+  ]
+}

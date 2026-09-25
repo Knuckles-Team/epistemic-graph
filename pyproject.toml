@@ -252,6 +252,7 @@ include = [
     "epistemic_graph/contract/errors.json",
     "epistemic_graph/contract/scopes.json",
     "epistemic_graph/contract/schemas/*.json",
+    "epistemic_graph/epistemic_operations/schemas/v1/*.json",
 ]
 # THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-371 — tiers
 # collapsed). `full` = every MAIN feature that builds without an external GPU/robotics

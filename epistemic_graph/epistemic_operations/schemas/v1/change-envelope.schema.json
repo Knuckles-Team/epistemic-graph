@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:change-envelope",
+  "title": "ChangeEnvelope",
+  "description": "Governed, replayable source change carrying provenance, ACL, temporal, checkpoint, and idempotency data without credentials or environment endpoints.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "ChangeEnvelope",
+  "x-rust-type": "ChangeEnvelope",
+  "$defs": {
+    "source_access": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "SourceAccess",
+      "x-rust-type": "SourceAccess",
+      "properties": {
+        "classification": {
+          "enum": [
+            "public",
+            "internal",
+            "confidential",
+            "restricted",
+            "regulated"
+          ]
+        },
+        "read_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "purpose_tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "retention_policy_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "legal_hold": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "classification",
+        "read_scopes",
+        "purpose_tags",
+        "retention_policy_id",
+        "legal_hold"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "envelope_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "request-context.schema.json"
+    },
+    "connector_kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_instance_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque configured-source identifier, not an endpoint."
+    },
+    "source_object_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "enum": [
+        "upsert",
+        "delete",
+        "snapshot_complete"
+      ]
+    },
+    "schema_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_time_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "valid_time_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "observed_time_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "payload_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Content-addressed or governed object reference; never a local filesystem path."
+    },
+    "payload_digest": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "access": {
+      "$ref": "#/$defs/source_access"
+    },
+    "provenance_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "checkpoint_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "envelope_id",
+    "context",
+    "connector_kind",
+    "source_instance_id",
+    "source_object_id",
+    "source_version",
+    "operation",
+    "schema_id",
+    "event_time_ms",
+    "valid_time_ms",
+    "observed_time_ms",
+    "artifact_refs",
+    "payload_ref",
+    "payload_digest",
+    "access",
+    "provenance_refs",
+    "checkpoint_ref",
+    "idempotency_key"
+  ]
+}

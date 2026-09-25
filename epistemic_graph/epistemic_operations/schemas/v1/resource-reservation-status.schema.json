@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:resource-reservation-status",
+  "title": "ResourceReservationStatusRequest",
+  "description": "Bounded native reservation status/reconciliation request and result.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "ResourceReservationStatusRequest",
+  "x-rust-type": "ResourceReservationStatusRequest",
+  "$defs": {
+    "resource_host_capacity_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceReservationHostCapacitySnapshot",
+      "x-rust-type": "ResourceReservationHostCapacitySnapshot",
+      "properties": {
+        "cpu_weight": {"type": "integer", "minimum": 0},
+        "memory_mib": {"type": "integer", "minimum": 0},
+        "disk_mib": {"type": "integer", "minimum": 0},
+        "process_slots": {"type": "integer", "minimum": 0}
+      },
+      "required": ["cpu_weight", "memory_mib", "disk_mib", "process_slots"]
+    },
+    "resource_disk_policy_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceReservationDiskPolicySnapshot",
+      "x-rust-type": "ResourceReservationDiskPolicySnapshot",
+      "properties": {
+        "policy_key": {"type": "string", "minLength": 1, "maxLength": 256},
+        "blocked": {"type": "boolean"},
+        "low_watermark_mib": {"type": ["integer", "null"], "minimum": 0},
+        "high_watermark_mib": {"type": ["integer", "null"], "minimum": 0},
+        "revision": {"type": "integer", "minimum": 0}
+      },
+      "required": ["policy_key", "blocked", "low_watermark_mib", "high_watermark_mib", "revision"]
+    },
+    "resource_host_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceReservationHostSnapshot",
+      "x-rust-type": "ResourceReservationHostSnapshot",
+      "properties": {
+        "host_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "revision": {"type": "integer", "minimum": 0},
+        "capacity": {"$ref": "#/$defs/resource_host_capacity_snapshot"},
+        "observed": {"$ref": "#/$defs/resource_host_capacity_snapshot"},
+        "heartbeat_at_ms": {"type": "integer", "minimum": 0},
+        "heartbeat_ttl_ms": {"type": "integer", "minimum": 1000, "maximum": 86400000},
+        "draining": {"type": "boolean"},
+        "quarantined": {"type": "boolean"},
+        "labels": {"type": "array", "maxItems": 128, "items": {"type": "string", "minLength": 1, "maxLength": 256}, "uniqueItems": true},
+        "target_kind": {"enum": ["local", "inventory_alias"]},
+        "target_alias": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "disk_used_mib": {"type": "integer", "minimum": 0},
+        "disk_capacity_mib": {"type": "integer", "minimum": 0},
+        "held_cpu_weight": {"type": "integer", "minimum": 0},
+        "held_memory_mib": {"type": "integer", "minimum": 0},
+        "held_disk_mib": {"type": "integer", "minimum": 0},
+        "held_process_slots": {"type": "integer", "minimum": 0},
+        "disk_policies": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/resource_disk_policy_snapshot"}}
+      },
+      "required": ["host_ref", "revision", "capacity", "observed", "heartbeat_at_ms", "heartbeat_ttl_ms", "draining", "quarantined", "labels", "target_kind", "target_alias", "disk_used_mib", "disk_capacity_mib", "held_cpu_weight", "held_memory_mib", "held_disk_mib", "held_process_slots", "disk_policies"]
+    },
+    "resource_reservation_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceReservationSummary",
+      "x-rust-type": "ResourceReservationSummary",
+      "properties": {
+        "reservation_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "work_item_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "attempt": {"type": "integer", "minimum": 1},
+        "host_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "profile_name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "fairness_group": {"type": "string", "minLength": 1, "maxLength": 256},
+        "state": {"enum": ["reserved", "released", "reclaimed", "expired", "superseded", "absent"]},
+        "revision": {"type": "integer", "minimum": 1},
+        "expires_at_ms": {"type": "integer", "minimum": 0},
+        "held_cpu_weight": {"type": "integer", "minimum": 0},
+        "held_memory_mib": {"type": "integer", "minimum": 0},
+        "held_disk_mib": {"type": "integer", "minimum": 0},
+        "held_process_slots": {"type": "integer", "minimum": 0},
+        "tombstone": {"type": "boolean"}
+      },
+      "required": ["reservation_id", "work_item_id", "attempt", "host_ref", "profile_name", "fairness_group", "state", "revision", "expires_at_ms", "held_cpu_weight", "held_memory_mib", "held_disk_mib", "held_process_slots", "tombstone"]
+    },
+    "resource_reservation_status_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceReservationStatusResult",
+      "x-rust-type": "ResourceReservationStatusResult",
+      "properties": {
+        "schema_version": {"const": "1"},
+        "complete": {"type": "boolean"},
+        "next_cursor": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "host_snapshot": {"oneOf": [{"$ref": "#/$defs/resource_host_snapshot"}, {"type": "null"}]},
+        "host_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "host_revision": {"type": "integer", "minimum": 0},
+        "held_cpu_weight": {"type": "integer", "minimum": 0},
+        "held_memory_mib": {"type": "integer", "minimum": 0},
+        "held_disk_mib": {"type": "integer", "minimum": 0},
+        "held_process_slots": {"type": "integer", "minimum": 0},
+        "fairness_debt": {"type": "integer", "minimum": 0},
+        "reservations": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/resource_reservation_summary"}},
+        "orphan_count": {"type": "integer", "minimum": 0},
+        "superseded_count": {"type": "integer", "minimum": 0}
+      },
+      "required": ["schema_version", "complete", "next_cursor", "host_snapshot", "host_ref", "host_revision", "held_cpu_weight", "held_memory_mib", "held_disk_mib", "held_process_slots", "fairness_debt", "reservations", "orphan_count", "superseded_count"]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1"},
+    "tenant_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+    "work_item_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "reservation_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "host_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "owner_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "fence": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "attempt": {"type": ["integer", "null"], "minimum": 1},
+    "lease_epoch": {"type": ["integer", "null"], "minimum": 0},
+    "fencing_token": {"type": ["integer", "null"], "minimum": 0},
+    "input_fingerprint": {"type": ["string", "null"], "pattern": "^v1:[0-9a-f]{64}$"},
+    "fairness_group": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
+    "cursor": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "now_ms": {"type": "integer", "minimum": 0}
+  },
+  "required": ["schema_version", "tenant_ref", "work_item_id", "reservation_id", "host_ref", "owner_id", "fence", "attempt", "lease_epoch", "fencing_token", "input_fingerprint", "fairness_group", "limit", "cursor", "now_ms"]
+}

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v2:request-context",
+  "title": "RequestContext",
+  "description": "Verified authority for one operation. Identity values are opaque and must not contain names, email addresses, credentials, or endpoint data.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "RequestContext",
+  "x-rust-type": "RequestContext",
+  "properties": {
+    "schema_version": {
+      "const": "2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subject_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque pseudonymous subject identifier; never a display name or email address."
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "audience": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authentication_method": {
+      "enum": [
+        "workload_identity",
+        "oidc",
+        "mutual_tls",
+        "local_process"
+      ]
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "graph": {
+      "type": "string",
+      "minLength": 1
+    },
+    "placement_epoch": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issued_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "expires_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "subject_id",
+    "tenant_id",
+    "agent_id",
+    "scopes",
+    "audience",
+    "authentication_method",
+    "policy_version",
+    "graph",
+    "placement_epoch",
+    "trace_id",
+    "issued_at_ms",
+    "expires_at_ms"
+  ]
+}

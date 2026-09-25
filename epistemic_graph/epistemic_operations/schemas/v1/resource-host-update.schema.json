@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:resource-host-update",
+  "title": "ResourceHostUpdateRequest",
+  "description": "Monotonic native host capacity/heartbeat/health update. Held accounting is owned by the engine and cannot be supplied by telemetry.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "ResourceHostUpdateRequest",
+  "x-rust-type": "ResourceHostUpdateRequest",
+  "$defs": {
+    "resource_host_update_capacity_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceHostUpdateCapacitySnapshot",
+      "x-rust-type": "ResourceHostUpdateCapacitySnapshot",
+      "properties": {
+        "cpu_weight": {"type": "integer", "minimum": 0},
+        "memory_mib": {"type": "integer", "minimum": 0},
+        "disk_mib": {"type": "integer", "minimum": 0},
+        "process_slots": {"type": "integer", "minimum": 0}
+      },
+      "required": ["cpu_weight", "memory_mib", "disk_mib", "process_slots"]
+    },
+    "resource_host_update_disk_policy_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceHostUpdateDiskPolicySnapshot",
+      "x-rust-type": "ResourceHostUpdateDiskPolicySnapshot",
+      "properties": {
+        "policy_key": {"type": "string", "minLength": 1, "maxLength": 256},
+        "blocked": {"type": "boolean"},
+        "low_watermark_mib": {"type": ["integer", "null"], "minimum": 0},
+        "high_watermark_mib": {"type": ["integer", "null"], "minimum": 0},
+        "revision": {"type": "integer", "minimum": 0}
+      },
+      "required": ["policy_key", "blocked", "low_watermark_mib", "high_watermark_mib", "revision"]
+    },
+    "resource_host_update_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceHostUpdateSnapshot",
+      "x-rust-type": "ResourceHostUpdateSnapshot",
+      "properties": {
+        "host_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "revision": {"type": "integer", "minimum": 0},
+        "capacity": {"$ref": "#/$defs/resource_host_update_capacity_snapshot"},
+        "observed": {"$ref": "#/$defs/resource_host_update_capacity_snapshot"},
+        "heartbeat_at_ms": {"type": "integer", "minimum": 0},
+        "heartbeat_ttl_ms": {"type": "integer", "minimum": 1000, "maximum": 86400000},
+        "draining": {"type": "boolean"},
+        "quarantined": {"type": "boolean"},
+        "labels": {"type": "array", "maxItems": 128, "items": {"type": "string", "minLength": 1, "maxLength": 256}, "uniqueItems": true},
+        "target_kind": {"enum": ["local", "inventory_alias"]},
+        "target_alias": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "disk_used_mib": {"type": "integer", "minimum": 0},
+        "disk_capacity_mib": {"type": "integer", "minimum": 0},
+        "held_cpu_weight": {"type": "integer", "minimum": 0},
+        "held_memory_mib": {"type": "integer", "minimum": 0},
+        "held_disk_mib": {"type": "integer", "minimum": 0},
+        "held_process_slots": {"type": "integer", "minimum": 0},
+        "disk_policies": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/resource_host_update_disk_policy_snapshot"}}
+      },
+      "required": ["host_ref", "revision", "capacity", "observed", "heartbeat_at_ms", "heartbeat_ttl_ms", "draining", "quarantined", "labels", "target_kind", "target_alias", "disk_used_mib", "disk_capacity_mib", "held_cpu_weight", "held_memory_mib", "held_disk_mib", "held_process_slots", "disk_policies"]
+    },
+    "resource_host_update_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceHostUpdateResult",
+      "x-rust-type": "ResourceHostUpdateResult",
+      "properties": {
+        "schema_version": {"const": "1"},
+        "accepted": {"type": "boolean"},
+        "reason": {"enum": ["accepted", "stale_host", "conflict", "not_found"]},
+        "host_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "host_snapshot": {"oneOf": [{"$ref": "#/$defs/resource_host_update_snapshot"}, {"type": "null"}]},
+        "revision": {"type": "integer", "minimum": 0},
+        "held_cpu_weight": {"type": "integer", "minimum": 0},
+        "held_memory_mib": {"type": "integer", "minimum": 0},
+        "held_disk_mib": {"type": "integer", "minimum": 0},
+        "held_process_slots": {"type": "integer", "minimum": 0},
+        "draining": {"type": "boolean"},
+        "quarantined": {"type": "boolean"}
+      },
+      "required": ["schema_version", "accepted", "reason", "host_ref", "host_snapshot", "revision", "held_cpu_weight", "held_memory_mib", "held_disk_mib", "held_process_slots", "draining", "quarantined"]
+    },
+    "resource_capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ResourceCapacity",
+      "x-rust-type": "ResourceCapacity",
+      "properties": {
+        "cpu_weight": {"type": "integer", "minimum": 0},
+        "memory_mib": {"type": "integer", "minimum": 0},
+        "disk_mib": {"type": "integer", "minimum": 0},
+        "process_slots": {"type": "integer", "minimum": 0}
+      },
+      "required": ["cpu_weight", "memory_mib", "disk_mib", "process_slots"]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1"},
+    "tenant_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+    "host_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+    "revision": {"type": "integer", "minimum": 1},
+    "capacity": {"$ref": "#/$defs/resource_capacity"},
+    "observed": {"$ref": "#/$defs/resource_capacity"},
+    "heartbeat_at_ms": {"type": "integer", "minimum": 0},
+    "heartbeat_ttl_ms": {"type": "integer", "minimum": 1000, "maximum": 86400000},
+    "now_ms": {"type": "integer", "minimum": 0},
+    "draining": {"type": "boolean"},
+    "quarantined": {"type": "boolean"},
+    "labels": {"type": "array", "maxItems": 128, "items": {"type": "string", "minLength": 1, "maxLength": 256}, "uniqueItems": true},
+    "target_kind": {"enum": ["local", "inventory_alias"]},
+    "target_alias": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "disk_used_mib": {"type": "integer", "minimum": 0},
+    "disk_capacity_mib": {"type": "integer", "minimum": 0}
+  },
+  "required": ["schema_version", "tenant_ref", "host_ref", "revision", "capacity", "observed", "heartbeat_at_ms", "heartbeat_ttl_ms", "now_ms", "draining", "quarantined", "labels", "target_kind", "target_alias", "disk_used_mib", "disk_capacity_mib"]
+}
