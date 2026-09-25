@@ -141,6 +141,44 @@ class AdamResult(BaseModel):
     v: list[float]
 
 
+class AdapterDirection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    gain_q16: int
+    unit_q30: BoundedVec_int32_4096
+
+
+class AdapterEvalReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapted_mrr_q16: int
+    adapter_digest: str
+    base_mrr_q16: int
+    graph: str
+    losses: Annotated[int, Field(ge=0)]
+    n_eval: Annotated[int, Field(ge=0)]
+    n_training: Annotated[int, Field(ge=0)]
+    passed: bool
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    space_digest: str
+    ties: Annotated[int, Field(ge=0)]
+    win_rate_lower_q16: int
+    wins: Annotated[int, Field(ge=0)]
+
+
+class AdapterFitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str
+    holdout_per_mille: Annotated[int, Field(ge=0, le=65535)]
+    max_gain_q16: int
+    min_eval_items: Annotated[int, Field(ge=0)]
+    question_id: str | None = None
+    rank: Annotated[int, Field(ge=0, le=255)]
+    space_digest: str
+    window: RecordWindow
+
+
 class AdfResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1043,6 +1081,10 @@ class Algorithm(str, Enum):
     DEPTH_FIRST_DUAL_ASCENT = "depth_first_dual_ascent"
 
 
+class AllocationRule(str, Enum):
+    PROPORTIONAL = "proportional"
+
+
 class AnalyticsJobRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1251,6 +1293,40 @@ class AuthorityScope(BaseModel):
     tenant: str | None = None
 
 
+class BacktestRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    draft: BacktestRunDraft
+    informational_only: bool
+    validation: BacktestValidation
+
+
+class BacktestRunDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    costs: CostModel
+    data_revisions: list[DataRevisionRef]
+    fill_rule: FillRule
+    fills: list[TradeFill]
+    returns: list[float]
+    signal_keys: list[str]
+    strategy: str
+    supersedes: str | None = None
+    universe: list[UniverseMember]
+    validation: ValidationInputs
+
+
+class BacktestValidation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cpcv_min_train: Annotated[int, Field(ge=0)]
+    cpcv_splits: Annotated[int, Field(ge=0)]
+    deflated_sharpe: float
+    observed_sharpe: float
+    probability_backtest_overfit: float
+
+
 class BackupReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1263,6 +1339,26 @@ class BackupReceipt(BaseModel):
     shards: Annotated[int, Field(ge=0)]
     xshard_decisions: Annotated[int, Field(ge=0)]
     xshard_prepares: Annotated[int, Field(ge=0)]
+
+
+class BarRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close: int
+    close_time: int
+    high: int
+    known_at: int
+    low: int
+    open: int
+    open_time: int
+    revision: Annotated[int, Field(ge=0)]
+    status: BarStatus
+    volume: int
+
+
+class BarStatus(str, Enum):
+    PROVISIONAL = "provisional"
+    FINAL = "final"
 
 
 class BatchUpdateReport(BaseModel):
@@ -1419,6 +1515,11 @@ CandidateSourceRecord = Annotated[
     | CandidateSourceRecordDeclared,
     Field(discriminator="source"),
 ]
+
+
+class CandleBasis(str, Enum):
+    RAW = "raw"
+    HEIKIN_ASHI = "heikin_ashi"
 
 
 class CanonicalTextAssetRef(BaseModel):
@@ -2892,6 +2993,13 @@ class CostFacts(BaseModel):
     quality: FactQuality
 
 
+class CostModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fee_bps: Annotated[int, Field(ge=0)]
+    slippage_bps: Annotated[int, Field(ge=0)]
+
+
 class CoverageDerivation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2951,6 +3059,21 @@ class CvSplit(BaseModel):
 class CypherMode(str, Enum):
     READ = "read"
     WRITE = "write"
+
+
+class DataRevisionRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    known_as_of: int
+    series_id: str
+    source_revision: str
+
+
+class DataStatus(str, Enum):
+    VALID = "valid"
+    WARMING = "warming"
+    STALE = "stale"
+    UNAVAILABLE = "unavailable"
 
 
 class DatalogReasoningResult(BaseModel):
@@ -3084,6 +3207,7 @@ class DecisionEvalRequest(BaseModel):
     estimators: BoundedVec_OpeEstimatorKind_8
     gold_set_digest: str | None = None
     idempotency_key: str
+    mode: EvalMode | None = None
     policy: DecisionPolicyRef
     source: DatasetSource
     tenant_id: str
@@ -3177,8 +3301,15 @@ class DecisionJobOutputEval(BaseModel):
     receipt: DecisionEvalReceipt
 
 
+class DecisionJobOutputReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    output: Literal["replay"]
+    run: EvaluationRun
+
+
 DecisionJobOutput = Annotated[
-    DecisionJobOutputFit | DecisionJobOutputEval,
+    DecisionJobOutputFit | DecisionJobOutputEval | DecisionJobOutputReplay,
     Field(discriminator="output"),
 ]
 
@@ -3275,6 +3406,7 @@ class DecisionLogEntry(BaseModel):
 class DecisionLogOpCommit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    evaluator: NamedEvaluator | None = None
     op: Literal["commit"]
     record: StatisticalDecisionRecord
 
@@ -3327,6 +3459,14 @@ class DecisionLogOpResolve(BaseModel):
     tenant_id: str
 
 
+class DecisionLogOpLearn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["learn"]
+    tenant_id: str
+    write: LearningWrite
+
+
 DecisionLogOp = Annotated[
     DecisionLogOpCommit
     | DecisionLogOpEvaluate
@@ -3334,7 +3474,8 @@ DecisionLogOp = Annotated[
     | DecisionLogOpAggregate
     | DecisionLogOpCompact
     | DecisionLogOpVerify
-    | DecisionLogOpResolve,
+    | DecisionLogOpResolve
+    | DecisionLogOpLearn,
     Field(discriminator="op"),
 ]
 
@@ -4180,6 +4321,11 @@ class DieboldMariano(BaseModel):
     statistic: float
 
 
+class Direction(str, Enum):
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+
+
 class DirectlyFollowsRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4333,6 +4479,13 @@ class DurabilityDomain(str, Enum):
     MULTI_GRAPH = "multi_graph"
     LIFECYCLE = "lifecycle"
     CONTROL_PLANE = "control_plane"
+
+
+class EarlyClose(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close_minute: Annotated[int, Field(ge=0, le=65535)]
+    day: int
 
 
 class EdgeDir(str, Enum):
@@ -4496,6 +4649,40 @@ EvalCandidate = Annotated[
     EvalCandidateDraftArtifact | EvalCandidatePublishedHead,
     Field(discriminator="candidate"),
 ]
+
+
+class EvalModeOffPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    mode: Literal["off_policy"]
+
+
+class EvalModeReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    mode: Literal["replay"]
+    spec: ReplaySpec
+
+
+EvalMode = Annotated[
+    EvalModeOffPolicy | EvalModeReplay,
+    Field(discriminator="mode"),
+]
+
+
+class EvaluationRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    contributions: BoundedVec_OptionContribution_256
+    dataset_digest: str
+    folds: BoundedVec_ReplayFoldView_256
+    head_digest: str
+    path: BoundedVec_QuantisedValue_4096
+    policy_digest: str
+    run_digest: str
+    spec: ReplaySpec
+    synthetic: bool
+    validation: ReplayValidation
 
 
 class EvidenceAddressWireCharacterRange(BaseModel):
@@ -4748,6 +4935,18 @@ class EvidenceTimeRange(BaseModel):
     start_ms: Annotated[int, Field(ge=0)] | None = None
 
 
+class ExchangeCalendar(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    early_closes: list[EarlyClose]
+    holidays: list[int]
+    id: str
+    offsets: list[UtcOffsetSpan]
+    session_close_minute: Annotated[int, Field(ge=0, le=65535)]
+    session_open_minute: Annotated[int, Field(ge=0, le=65535)]
+    trading_weekdays: Annotated[int, Field(ge=0, le=255)]
+
+
 class ExistenceSignalWire(str, Enum):
     SUPPORTED = "Supported"
     CONTRADICTED = "Contradicted"
@@ -4936,6 +5135,101 @@ class Fill(BaseModel):
     fill_quantity: float
     order_id: str
     side: str
+
+
+class FillRule(str, Enum):
+    NEXT_BAR_OPEN = "next_bar_open"
+    FIRST_PRICE_AFTER_KNOWN = "first_price_after_known"
+
+
+class FinalityFilter(str, Enum):
+    FINAL_ONLY = "final_only"
+    INCLUDE_PROVISIONAL = "include_provisional"
+
+
+class FinanceMarketOpEncodePoints(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["encode_points"]
+    records: list[BarRecord]
+
+
+class FinanceMarketOpResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of: int | None = None
+    finality: FinalityFilter
+    op: Literal["resolve"]
+    points: list[SeriesPoint] = Field(default_factory=list)
+    records: list[BarRecord] = Field(default_factory=list)
+
+
+class FinanceMarketOpRollup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    calendar: TradingCalendar
+    op: Literal["rollup"]
+    timeframe: Timeframe
+    watermark: int
+
+
+class FinanceMarketOpIndicators(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    op: Literal["indicators"]
+    spec: IndicatorSpec
+
+
+class FinanceMarketOpSignalReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["signal_replay"]
+    request: SignalReplayRequest
+
+
+class FinanceMarketOpSignalAdvance(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bars: list[BarRecord]
+    op: Literal["signal_advance"]
+    state: SignalState
+
+
+class FinanceMarketOpSignalScan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["signal_scan"]
+    request: ScanRequest
+
+
+class FinanceMarketOpFlipConfidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["flip_confidence"]
+    request: FlipConfidenceRequest
+
+
+class FinanceMarketOpBacktestRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    draft: BacktestRunDraft
+    op: Literal["backtest_run"]
+
+
+FinanceMarketOp = Annotated[
+    FinanceMarketOpEncodePoints
+    | FinanceMarketOpResolve
+    | FinanceMarketOpRollup
+    | FinanceMarketOpIndicators
+    | FinanceMarketOpSignalReplay
+    | FinanceMarketOpSignalAdvance
+    | FinanceMarketOpSignalScan
+    | FinanceMarketOpFlipConfidence
+    | FinanceMarketOpBacktestRun,
+    Field(discriminator="op"),
+]
 
 
 class FiredAction(BaseModel):
@@ -5421,6 +5715,127 @@ class FleetWriteReceipt(BaseModel):
     revision: Annotated[int, Field(ge=0)]
 
 
+class FlipAbstainReasonDataNotValid(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    data_status: DataStatus
+    reason: Literal["data_not_valid"]
+
+
+class FlipAbstainReasonInsufficientHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    n_min: Annotated[int, Field(ge=0)]
+    reason: Literal["insufficient_history"]
+
+
+class FlipAbstainReasonRegimeUnsupported(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    n_min: Annotated[int, Field(ge=0)]
+    reason: Literal["regime_unsupported"]
+    regime: Annotated[int, Field(ge=0)]
+
+
+class FlipAbstainReasonDrift(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    earlier_lower: float
+    earlier_upper: float
+    reason: Literal["drift"]
+    recent_rate: float
+
+
+class FlipAbstainReasonAmbiguousSet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    reason: Literal["ambiguous_set"]
+
+
+FlipAbstainReason = Annotated[
+    FlipAbstainReasonDataNotValid
+    | FlipAbstainReasonInsufficientHistory
+    | FlipAbstainReasonRegimeUnsupported
+    | FlipAbstainReasonDrift
+    | FlipAbstainReasonAmbiguousSet,
+    Field(discriminator="reason"),
+]
+
+
+class FlipConfidenceCalibrated(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    alpha_permille: Annotated[int, Field(ge=0)]
+    follows_through: bool
+    horizon_bars: Annotated[int, Field(ge=0)]
+    n_calibration: Annotated[int, Field(ge=0)]
+    outcome: Literal["calibrated"]
+    probability: float
+
+
+class FlipConfidenceAbstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    horizon_bars: Annotated[int, Field(ge=0)]
+    outcome: Literal["abstained"]
+    reason: FlipAbstainReason
+
+
+FlipConfidence = Annotated[
+    FlipConfidenceCalibrated | FlipConfidenceAbstained,
+    Field(discriminator="outcome"),
+]
+
+
+class FlipConfidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    alpha_permille: Annotated[int, Field(ge=0)]
+    asset_class: str
+    data_status: DataStatus
+    direction: Direction
+    features: FlipFeatures
+    history: list[FlipOutcomeSample]
+    horizon_bars: Annotated[int, Field(ge=0)]
+    indicator_version: str
+    n_min: Annotated[int, Field(ge=0)]
+    timeframe: Timeframe
+
+
+class FlipFeatures(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    above_200w_sma: bool
+    regime: Annotated[int, Field(ge=0)]
+    timeframe_agreement: bool
+
+
+class FlipOutcomeSample(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    direction: Direction
+    effective_at: int
+    features: FlipFeatures
+    followed_through: bool
+
+
+class FlipRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    flip: TrendFlip
+    record_id: str
+    recorded_at: int
+    revises: str | None = None
+    status: FlipRecordStatus
+
+
+class FlipRecordStatus(str, Enum):
+    EMITTED = "emitted"
+    RETRACTED = "retracted"
+
+
 class ForecastAlgorithm(str, Enum):
     ARIMA = "arima"
     HOLTWINTERS = "holtwinters"
@@ -5567,6 +5982,50 @@ class FuseStream(BaseModel):
 
     interp: FuseInterp
     layer: str
+
+
+class GenerationEvalItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active_q16: BoundedVec_int32_4096
+    record_id: str
+    shadow_q16: BoundedVec_int32_4096
+
+
+class GenerationEvalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active_graph: str
+    active_space: str
+    items: BoundedVec_GenerationEvalItem_1024
+    logical: str
+    max_score_psi_q16: int
+    min_eval_items: Annotated[int, Field(ge=0)]
+    shadow_graph: str
+    shadow_space: str
+    top_k: Annotated[int, Field(ge=0, le=65535)]
+
+
+class GenerationReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active_embedded: Annotated[int, Field(ge=0)]
+    active_graph: str
+    active_mrr_q16: int
+    active_space: str
+    logical: str
+    losses: Annotated[int, Field(ge=0)]
+    n_eval: Annotated[int, Field(ge=0)]
+    passed: bool
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    score_psi_q16: int | None = None
+    shadow_embedded: Annotated[int, Field(ge=0)]
+    shadow_graph: str
+    shadow_mrr_q16: int
+    shadow_space: str
+    ties: Annotated[int, Field(ge=0)]
+    win_rate_lower_q16: int
+    wins: Annotated[int, Field(ge=0)]
 
 
 class Grant(BaseModel):
@@ -5844,6 +6303,48 @@ class IdempotentPublish(BaseModel):
     duplicate: bool
 
 
+class ImpactOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of_ms: Annotated[int, Field(ge=0)] | None = None
+    assess: list[str] = Field(default_factory=list)
+    attribute_seeds: bool | None = None
+    hops: Annotated[int, Field(ge=0)] | None = None
+    rng_seed: Annotated[int, Field(ge=0)] | None = None
+    samples: Annotated[int, Field(ge=0)] | None = None
+    scope: str | None = None
+    top_paths: Annotated[int, Field(ge=0)] | None = None
+
+
+class ImpactPathRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    node: str
+    path: list[str]
+    probability: float
+
+
+class ImpactReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    attribution: list[SeedAttributionRow]
+    attribution_note: str | None = None
+    digest: str
+    expected_spread: float
+    hops: Annotated[int, Field(ge=0)]
+    paths: list[ImpactPathRow]
+    semantics: ImpactSemantics
+    spread_lower: float | None = None
+    spread_upper: float | None = None
+
+
+class ImpactSemantics(str, Enum):
+    EXACT = "exact"
+    UPPER_BOUND = "upper_bound"
+    CYCLIC_UNROLL = "cyclic_unroll"
+    MONTE_CARLO = "monte_carlo"
+
+
 class Incumbent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5948,6 +6449,126 @@ class IndexTombstone(BaseModel):
     prior_blob_digest: str
     ref_name: str
     successor_path: str | None = None
+
+
+class IndicatorKindAtr(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["atr"]
+    period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindSuperTrend(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr_period: Annotated[int, Field(ge=0)]
+    basis: CandleBasis
+    kind: Literal["super_trend"]
+    multiplier_milli: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindSma(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["sma"]
+    period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindEma(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["ema"]
+    period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindBand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ema_period: Annotated[int, Field(ge=0)]
+    kind: Literal["band"]
+    sma_period: Annotated[int, Field(ge=0)]
+
+
+class IndicatorKindHeikinAshi(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["heikin_ashi"]
+
+
+IndicatorKind = Annotated[
+    IndicatorKindAtr
+    | IndicatorKindSuperTrend
+    | IndicatorKindSma
+    | IndicatorKindEma
+    | IndicatorKindBand
+    | IndicatorKindHeikinAshi,
+    Field(discriminator="kind"),
+]
+
+
+class IndicatorPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close_time: int
+    open_time: int
+    value: IndicatorValue
+
+
+class IndicatorSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: IndicatorKind
+    version: Annotated[int, Field(ge=0)]
+
+
+class IndicatorValueWarming(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["warming"]
+
+
+class IndicatorValueLine(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["line"]
+    value: int
+
+
+class IndicatorValueBand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ema: int
+    kind: Literal["band"]
+    sma: int
+
+
+class IndicatorValueTrail(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr: int
+    direction: Direction
+    kind: Literal["trail"]
+    line: int
+
+
+class IndicatorValueCandle(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    close: int
+    high: int
+    kind: Literal["candle"]
+    low: int
+    open: int
+
+
+IndicatorValue = Annotated[
+    IndicatorValueWarming
+    | IndicatorValueLine
+    | IndicatorValueBand
+    | IndicatorValueTrail
+    | IndicatorValueCandle,
+    Field(discriminator="kind"),
+]
 
 
 class InputsBlob(BaseModel):
@@ -6689,6 +7310,90 @@ class LeafProofInfeasibleBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     dual: LagrangeDual
+
+
+class LearningRecordedOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    outcome: RetrievalOutcome
+    producer: str
+    recorded: Literal["outcome"]
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+
+
+class LearningRecordedFitted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter_digest: str
+    body: QueryAdapterBody
+    receipt: AdapterEvalReceipt
+    receipt_digest: str
+    recorded: Literal["fitted"]
+
+
+class LearningRecordedGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    receipt: GenerationReceipt
+    receipt_digest: str
+    recorded: Literal["generation"]
+
+
+class LearningRecordedPointer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active: PointerEvent | None = None
+    history: BoundedVec_PointerEvent_64 = Field(default_factory=list)
+    key: str
+    recorded: Literal["pointer"]
+    stack: BoundedVec_PointerEvent_64 = Field(default_factory=list)
+
+
+LearningRecorded = Annotated[
+    LearningRecordedOutcome
+    | LearningRecordedFitted
+    | LearningRecordedGeneration
+    | LearningRecordedPointer,
+    Field(discriminator="recorded"),
+]
+
+
+class LearningWriteRecordOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    outcome: RetrievalOutcome
+    write: Literal["record_outcome"]
+
+
+class LearningWriteFitAdapter(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: AdapterFitRequest
+    write: Literal["fit_adapter"]
+
+
+class LearningWriteEvaluateGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: GenerationEvalRequest
+    write: Literal["evaluate_generation"]
+
+
+class LearningWriteMovePointer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    movement: PointerMovement
+    pointer: PointerRef
+    write: Literal["move_pointer"]
+
+
+LearningWrite = Annotated[
+    LearningWriteRecordOutcome
+    | LearningWriteFitAdapter
+    | LearningWriteEvaluateGeneration
+    | LearningWriteMovePointer,
+    Field(discriminator="write"),
+]
 
 
 class LeasePriority(str, Enum):
@@ -9891,6 +10596,13 @@ class MethodGetControlLease(BaseModel):
     params: MethodGetControlLeaseParams
 
 
+class MethodFinanceMarket(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceMarket"]
+    params: MethodFinanceMarketParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -10328,7 +11040,8 @@ Method = Annotated[
     | MethodGetWorkItemOutcome
     | MethodIssueControlLease
     | MethodTransitionControlLease
-    | MethodGetControlLease,
+    | MethodGetControlLease
+    | MethodFinanceMarket,
     Field(discriminator="method"),
 ]
 
@@ -11504,6 +12217,12 @@ class MethodFinanceMarketImpactParams(BaseModel):
     order_quantity: float
 
 
+class MethodFinanceMarketParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: FinanceMarketOp
+
+
 class MethodFinanceMarkovTransitionMatrixParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12346,6 +13065,7 @@ class MethodMineRiskPropagationParams(BaseModel):
     damping: float | None = None
     edges: list[MethodMineRiskPropagationParamsEdgesItem] = Field(default_factory=list)
     max_iterations: Annotated[int, Field(ge=0)] | None = None
+    model: RiskModel | None = None
     nodes: list[str] = Field(default_factory=list)
     seed: list[float] = Field(default_factory=list)
     tolerance: float | None = None
@@ -13707,6 +14427,13 @@ class MutationSurface(str, Enum):
     OTHER = "other"
 
 
+class NamedEvaluator(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    principal: str
+
+
 class NativeControlSchemaVersion(str, Enum):
     V_1 = "1"
 
@@ -14085,6 +14812,23 @@ class OpProjectBody(BaseModel):
     channels: list[str]
 
 
+class OpPropagate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Propagate: OpPropagateBody
+
+
+class OpPropagateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    default_transmission: float
+    dir: EdgeDir
+    edge_preds: list[Pred]
+    hops: Annotated[int, Field(ge=0)]
+    model: PropagateModel
+    rel: str | None = None
+
+
 class OpRank(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14448,6 +15192,14 @@ class OptionAggregate(BaseModel):
     refused: Annotated[int, Field(ge=0)]
     successes: Annotated[int, Field(ge=0)]
     trials: Annotated[int, Field(ge=0)]
+
+
+class OptionContribution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    applied: QuantisedValue
+    option_id: str
+    utility: QuantisedValue
 
 
 class Order(BaseModel):
@@ -14973,6 +15725,21 @@ class ParseResult(BaseModel):
     symbols_extracted: Annotated[int, Field(ge=0)]
 
 
+class PathEdge(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    max_hops: Annotated[int, Field(ge=0, le=255)]
+    min_hops: Annotated[int, Field(ge=0, le=255)]
+    relationship: str
+
+
+class PathRank(str, Enum):
+    UNRANKED = "unranked"
+    VECTOR = "vector"
+    TEXT = "text"
+    FUSE_RRF = "fuse_rrf"
+
+
 class PatternEdge(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15164,6 +15931,61 @@ class Plan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     ops: list[Op]
+
+
+class PointerEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    at_ms: Annotated[int, Field(ge=0)]
+    principal: str
+    receipt_digest: str | None = None
+    target: str | None = None
+    transition: PointerTransition
+
+
+class PointerMovementActivate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    movement: Literal["activate"]
+    receipt_digest: str
+    target: str
+
+
+class PointerMovementRollback(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    movement: Literal["rollback"]
+
+
+PointerMovement = Annotated[
+    PointerMovementActivate | PointerMovementRollback,
+    Field(discriminator="movement"),
+]
+
+
+class PointerRefAdapter(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str
+    pointer: Literal["adapter"]
+
+
+class PointerRefGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    logical: str
+    pointer: Literal["generation"]
+
+
+PointerRef = Annotated[
+    PointerRefAdapter | PointerRefGeneration,
+    Field(discriminator="pointer"),
+]
+
+
+class PointerTransition(str, Enum):
+    ACTIVATED = "activated"
+    ROLLED_BACK = "rolled_back"
 
 
 class PolicyRecord(BaseModel):
@@ -15722,6 +16544,19 @@ class ProofNodeWire(BaseModel):
     sup: str
 
 
+class PropagateModelCascade(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cascade: PropagateModelCascadeBody
+
+
+class PropagateModelCascadeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    samples: Annotated[int, Field(ge=0)]
+    seed: Annotated[int, Field(ge=0)]
+
+
 class PropensitySource(str, Enum):
     EXECUTED_POLICY = "executed_policy"
     HEAD_MASS = "head_mass"
@@ -15893,6 +16728,24 @@ class QuantumRankedCandidate(BaseModel):
     probability: float
     rank: Annotated[int, Field(ge=0)]
     weight: float
+
+
+class QueryAdapterBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    dimensions: Annotated[int, Field(ge=0)]
+    directions: BoundedVec_AdapterDirection_8
+    n_training: Annotated[int, Field(ge=0)]
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    space_digest: str
+    training_digest: str
+
+
+class QueryVector(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    q16: BoundedVec_int32_4096
+    space_digest: str
 
 
 class QuestionKind(str, Enum):
@@ -16187,6 +17040,13 @@ class ReductionMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class RefitSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    head_kind: HeadKind
+    optimiser: OptimiserSpec
+
+
 class RegimeResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16253,6 +17113,48 @@ class Relation(str, Enum):
     LESS_EQUAL = "less_equal"
     GREATER_EQUAL = "greater_equal"
     EQUAL = "equal"
+
+
+class ReplayEnvironment(str, Enum):
+    POLICY_INDEPENDENT = "policy_independent"
+    POLICY_DEPENDENT = "policy_dependent"
+
+
+class ReplayFoldView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    abstained: Annotated[int, Field(ge=0)]
+    first_test_ms: Annotated[int, Field(ge=0)]
+    head_digest: str
+    incumbent_utility: QuantisedValue
+    last_test_ms: Annotated[int, Field(ge=0)]
+    max_drawdown: QuantisedValue
+    test_items: Annotated[int, Field(ge=0)]
+    train_items: Annotated[int, Field(ge=0)]
+    utility: QuantisedValue
+
+
+class ReplaySpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    budget: SharedCap
+    env: ReplayEnvironment
+    folds: WalkForward
+    incumbent: EvalCandidate | None = None
+    refit: RefitSpec | None = None
+    supersedes: str | None = None
+    trials: TrialLog
+
+
+class ReplayValidation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    deflated_sharpe: QuantisedValue
+    diebold_mariano: QuantisedValue
+    diebold_mariano_p: QuantisedValue
+    n_trials: Annotated[int, Field(ge=0)]
+    observed_sharpe: QuantisedValue
+    probability_backtest_overfit: QuantisedValue
 
 
 class RequestContext(BaseModel):
@@ -16844,6 +17746,29 @@ class RetrievalCandidateWire(BaseModel):
     source_reliability: float
 
 
+class RetrievalOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cited: BoundedVec_string_256 = Field(default_factory=list)
+    path: RetrievalPathTemplate | None = None
+    query: QueryVector | None = None
+    record_id: str
+    returned: BoundedVec_ReturnedEvidence_256 = Field(default_factory=list)
+
+
+class RetrievalPathTemplate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    anchor_class: str
+    composed_digest: str
+    edges: BoundedVec_PathEdge_8 = Field(default_factory=list)
+    policy_version: str
+    rank: PathRank
+    skill_ref: str | None = None
+    slots: BoundedVec_SlotType_8 = Field(default_factory=list)
+    task_class: str
+
+
 class RetrievalQualityMiningResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16862,6 +17787,13 @@ class RetrievalTraceSpec(BaseModel):
 
     relevant: list[str]
     retrieved: list[str]
+
+
+class ReturnedEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content_class: str | None = None
+    evidence_id: str
 
 
 class RewindTargetStart(BaseModel):
@@ -16902,10 +17834,35 @@ class RiskMetrics(BaseModel):
     volatility: float
 
 
+class RiskModelShare(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["share"]
+
+
+class RiskModelNoisyOr(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["noisy_or"]
+
+
+class RiskModelIndependentCascade(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["independent_cascade"]
+
+
+RiskModel = Annotated[
+    RiskModelShare | RiskModelNoisyOr | RiskModelIndependentCascade,
+    Field(discriminator="kind"),
+]
+
+
 class RiskPropagationMiningResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     converged: bool
+    impact: ImpactReport | None = None
     iterations: Annotated[int, Field(ge=0)]
     scores: list[RiskScoreRow]
     written_back: Annotated[int, Field(ge=0)]
@@ -16914,8 +17871,11 @@ class RiskPropagationMiningResult(BaseModel):
 class RiskScoreRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    hops: Annotated[int, Field(ge=0)] | None = None
+    lower: float | None = None
     node: str
     score: float
+    upper: float | None = None
 
 
 class RiskStatement(BaseModel):
@@ -17023,6 +17983,56 @@ class SabrFit(BaseModel):
     rmse: float
 
 
+class ScanCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bearish: Annotated[int, Field(ge=0)]
+    bullish: Annotated[int, Field(ge=0)]
+    stale: Annotated[int, Field(ge=0)]
+    total: Annotated[int, Field(ge=0)]
+    unavailable: Annotated[int, Field(ge=0)]
+    warming: Annotated[int, Field(ge=0)]
+
+
+class ScanFilter(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    direction: Direction | None = None
+    flipped_since: int | None = None
+    statuses: list[DataStatus] = Field(default_factory=list)
+    timeframe: Timeframe | None = None
+
+
+class ScanPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    counts: ScanCounts
+    rows: list[ScanRow]
+    superseded: Annotated[int, Field(ge=0)]
+
+
+class ScanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    filter: ScanFilter | None = None
+    limit: Annotated[int, Field(ge=0)]
+    states: list[SignalState]
+
+
+class ScanRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_since_flip_bps: int | None = None
+    data_status: DataStatus
+    direction: Direction | None = None
+    flip_reference_price: int | None = None
+    key_digest: str
+    last_close: int | None = None
+    last_flip_at: int | None = None
+    listing_id: str
+    timeframe: Timeframe
+
+
 class ScenePose(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17115,6 +18125,14 @@ class ScreenObservationResult(BaseModel):
     height: Annotated[int, Field(ge=0)]
     nodes: list[ExtractedNode]
     width: Annotated[int, Field(ge=0)]
+
+
+class SeedAttributionRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    node: str
+    seed: str
+    shapley: float
 
 
 class SemanticActivationTarget(BaseModel):
@@ -18106,6 +19124,22 @@ class SequentialPatternRow(BaseModel):
     support: float
 
 
+class SeriesIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    calendar_id: str
+    listing_id: str
+    price_basis: str
+    timeframe: Timeframe
+
+
+class SeriesPoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ts: int
+    values: list[float]
+
+
 class ServedModalityApplyDisposition(str, Enum):
     APPLIED = "Applied"
     IDEMPOTENTREPLAY = "IdempotentReplay"
@@ -18459,6 +19493,13 @@ class ShardReshardReport(BaseModel):
     to_shard: Annotated[int, Field(ge=0)]
 
 
+class SharedCap(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cap: QuantisedValue
+    rule: AllocationRule
+
+
 class ShexNodeResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -18483,6 +19524,58 @@ class ShortlistProvenance(BaseModel):
     now_ms: Annotated[int, Field(ge=0)]
 
 
+class SignalAdvanced(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    flips: list[TrendFlip]
+    state: SignalState
+
+
+class SignalKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    digest: str
+    indicator_version: str
+    param_hash: str
+    series: SeriesIdentity
+
+
+class SignalReplay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    current: list[TrendFlip]
+    records: list[FlipRecord]
+    state: SignalState
+
+
+class SignalReplayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    as_of: int | None = None
+    records: list[BarRecord]
+    series: SeriesIdentity
+    spec: IndicatorSpec
+    stale_after: int | None = None
+
+
+class SignalState(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr: int | None = None
+    data_status: DataStatus
+    direction: Direction | None = None
+    flip_reference_price: int | None = None
+    kernel: SuperTrendCheckpoint
+    key: SignalKey
+    last_bar_close: int | None = None
+    last_bar_open: int | None = None
+    last_close: int | None = None
+    last_flip_at: int | None = None
+    line: int | None = None
+    source_revision: str
+    spec: IndicatorSpec
+
+
 class SkillType(str, Enum):
     SKILL = "skill"
     WORKFLOW = "workflow"
@@ -18501,6 +19594,13 @@ class SlotAssignment(BaseModel):
 
     component: ComponentDependency
     slot: str
+
+
+class SlotType(str, Enum):
+    QUERY_TEXT = "query_text"
+    QUERY_VECTOR = "query_vector"
+    ANCHOR_ID = "anchor_id"
+    CLASS_IRI = "class_iri"
 
 
 class SolveModelSpec(BaseModel):
@@ -19566,6 +20666,20 @@ class SubmitWorkItemsResult(BaseModel):
     schema_version: NativeControlSchemaVersion
 
 
+class SuperTrendCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    atr: int | None = None
+    bars: Annotated[int, Field(ge=0)]
+    direction: Direction | None = None
+    ha_close: int | None = None
+    ha_open: int | None = None
+    lower: int | None = None
+    prev_close: int | None = None
+    true_range_sum: int
+    upper: int | None = None
+
+
 class SurveillanceRisk(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19737,6 +20851,44 @@ class TimeSeriesWindowRef(BaseModel):
     window_start: str
 
 
+class TimeframeMinutes(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    unit: Literal["minutes"]
+
+
+class TimeframeHours(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    n: Annotated[int, Field(ge=0)]
+    unit: Literal["hours"]
+
+
+class TimeframeDay(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    unit: Literal["day"]
+
+
+class TimeframeWeek(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    unit: Literal["week"]
+
+
+class TimeframeMonth(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    unit: Literal["month"]
+
+
+Timeframe = Annotated[
+    TimeframeMinutes | TimeframeHours | TimeframeDay | TimeframeWeek | TimeframeMonth,
+    Field(discriminator="unit"),
+]
+
+
 class ToolEffect(str, Enum):
     READ = "read"
     WRITE = "write"
@@ -19780,6 +20932,35 @@ class TraceFidelityLevel(str, Enum):
     FINAL_OUTPUT = "final_output"
 
 
+class TradeFill(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    direction: Direction
+    fill_at: int
+    fill_price: int
+    known_at: int
+    listing_id: str
+
+
+class TradingCalendarUtc24x7(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["utc24x7"]
+
+
+class TradingCalendarExchange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    calendar: ExchangeCalendar
+    kind: Literal["exchange"]
+
+
+TradingCalendar = Annotated[
+    TradingCalendarUtc24x7 | TradingCalendarExchange,
+    Field(discriminator="kind"),
+]
+
+
 class TrainTestSplitResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -19817,6 +20998,28 @@ class TreeNode(BaseModel):
     right: int
     threshold: float
     value: float
+
+
+class TrendFlip(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bar_open: int
+    bar_revision: Annotated[int, Field(ge=0)]
+    effective_at: int
+    event_id: str
+    from_: Direction = Field(..., alias="from")
+    key_digest: str
+    line: int
+    observed_at: int
+    price: int
+    to: Direction
+
+
+class TrialLog(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    declared: Annotated[int, Field(ge=0)]
+    searched: Annotated[int, Field(ge=0)]
 
 
 class TriggerInfo(BaseModel):
@@ -19894,6 +21097,14 @@ class UnitRationalWire(BaseModel):
 
     denominator: Annotated[int, Field(ge=0)]
     numerator: Annotated[int, Field(ge=0)]
+
+
+class UniverseMember(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    from_: int = Field(..., alias="from")
+    listing_id: str
+    until: int | None = None
 
 
 class UnknownCostRule(str, Enum):
@@ -20064,6 +21275,25 @@ class UqlStageReport(BaseModel):
     micros: Annotated[int, Field(ge=0)] | None = None
     rows: Annotated[int, Field(ge=0)] | None = None
     stage: str
+
+
+class UtcOffsetSpan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    from_: int = Field(..., alias="from")
+    offset_minutes: Annotated[int, Field(ge=-32768, le=32767)]
+
+
+class ValidationInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    embargo: Annotated[int, Field(ge=0)]
+    insample: list[list[float]]
+    n_groups: Annotated[int, Field(ge=0)]
+    n_test_groups: Annotated[int, Field(ge=0)]
+    n_trials: Annotated[int, Field(ge=0)]
+    oos: list[list[float]]
+    purge_window: Annotated[int, Field(ge=0)]
 
 
 class VectorSource(BaseModel):
@@ -20349,6 +21579,16 @@ class VizViewResult(BaseModel):
     row_count: Annotated[int, Field(ge=0)]
     seed: Annotated[int, Field(ge=0)] | None = None
     wall_time_ms: Annotated[int, Field(ge=0)]
+
+
+class WalkForward(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    embargo: Annotated[int, Field(ge=0)]
+    purge: Annotated[int, Field(ge=0)]
+    step: Annotated[int, Field(ge=0)]
+    test: Annotated[int, Field(ge=0)]
+    train: Annotated[int, Field(ge=0)]
 
 
 class WatchBatch(BaseModel):
@@ -20790,6 +22030,9 @@ BoundProof = BoundProofTree | BoundProofRoot
 BoundedVec_AbstainReason_64 = Annotated[list[AbstainReason], Field(max_length=64)]
 
 
+BoundedVec_AdapterDirection_8 = Annotated[list[AdapterDirection], Field(max_length=8)]
+
+
 BoundedVec_AgentComponentKind_16 = Annotated[
     list[AgentComponentKind],
     Field(
@@ -20907,6 +22150,14 @@ BoundedVec_FeatureStandardisation_32 = Annotated[
 BoundedVec_FleetCatalogRow_256 = Annotated[list[FleetCatalogRow], Field(max_length=256)]
 
 
+BoundedVec_GenerationEvalItem_1024 = Annotated[
+    list[GenerationEvalItem],
+    Field(
+        max_length=1024,
+    ),
+]
+
+
 BoundedVec_GraphSchemaSourceView_32 = Annotated[
     list[GraphSchemaSourceView],
     Field(
@@ -20970,6 +22221,14 @@ BoundedVec_OptionAggregate_1024 = Annotated[
 ]
 
 
+BoundedVec_OptionContribution_256 = Annotated[
+    list[OptionContribution],
+    Field(
+        max_length=256,
+    ),
+]
+
+
 BoundedVec_OutboxDeadLetterView_256 = Annotated[
     list[OutboxDeadLetterView],
     Field(
@@ -20990,6 +22249,12 @@ BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=2
 BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
 
 
+BoundedVec_PathEdge_8 = Annotated[list[PathEdge], Field(max_length=8)]
+
+
+BoundedVec_PointerEvent_64 = Annotated[list[PointerEvent], Field(max_length=64)]
+
+
 BoundedVec_PooledRate_64 = Annotated[list[PooledRate], Field(max_length=64)]
 
 
@@ -21000,6 +22265,9 @@ BoundedVec_PremiseRef_32 = Annotated[list[PremiseRef], Field(max_length=32)]
 
 
 BoundedVec_QuantisedValue_32 = Annotated[list[QuantisedValue], Field(max_length=32)]
+
+
+BoundedVec_QuantisedValue_4096 = Annotated[list[QuantisedValue], Field(max_length=4096)]
 
 
 BoundedVec_RawAdmissionReceipt_1024 = Annotated[
@@ -21026,10 +22294,24 @@ BoundedVec_RegisteredServerView_256 = Annotated[
 ]
 
 
+BoundedVec_ReplayFoldView_256 = Annotated[list[ReplayFoldView], Field(max_length=256)]
+
+
+BoundedVec_ReturnedEvidence_256 = Annotated[
+    list[ReturnedEvidence],
+    Field(
+        max_length=256,
+    ),
+]
+
+
 BoundedVec_ScoredOption_64 = Annotated[list[ScoredOption], Field(max_length=64)]
 
 
 BoundedVec_SlotAssignment_64 = Annotated[list[SlotAssignment], Field(max_length=64)]
+
+
+BoundedVec_SlotType_8 = Annotated[list[SlotType], Field(max_length=8)]
 
 
 BoundedVec_SourceEntityRef_16384 = Annotated[
@@ -21110,6 +22392,9 @@ BoundedVec_WhyNot_64 = Annotated[list[WhyNot], Field(max_length=64)]
 
 
 BoundedVec_float_4096 = Annotated[list[float], Field(max_length=4096)]
+
+
+BoundedVec_int32_4096 = Annotated[list[int], Field(max_length=4096)]
 
 
 BoundedVec_int64_2048 = Annotated[list[int], Field(max_length=2048)]
@@ -21879,6 +23164,7 @@ Op = (
     | OpFilter
     | OpTraverse
     | OpExpand
+    | OpPropagate
     | OpRank
     | OpRankEmbed
     | OpRankNodeDistance
@@ -22024,6 +23310,9 @@ PredLiteral = PredLiteralStr | PredLiteralNum | PredLiteralBool
 
 
 ProofNode = ProofNodeBranch | ProofNodeForced | ProofNodeLeaf
+
+
+PropagateModel = Literal["noisy_or"] | PropagateModelCascade
 
 
 RbacAdminOp = (

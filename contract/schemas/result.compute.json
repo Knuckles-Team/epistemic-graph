@@ -2575,6 +2575,120 @@
       ],
       "type": "object"
     },
+    "ImpactPathRow": {
+      "description": "The most probable seed-to-node path.",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Node ids, seed first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "probability": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "node",
+        "path",
+        "probability"
+      ],
+      "type": "object"
+    },
+    "ImpactReport": {
+      "description": "The impact-model half of a `MineRiskPropagation` result.",
+      "properties": {
+        "attribution": {
+          "items": {
+            "$ref": "#/$defs/SeedAttributionRow"
+          },
+          "type": "array"
+        },
+        "attribution_note": {
+          "description": "Why attribution was asked for but not produced.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "digest": {
+          "description": "`sha256:` provenance digest of the model, its options and every input.",
+          "type": "string"
+        },
+        "expected_spread": {
+          "description": "Expected number of hit nodes.",
+          "format": "double",
+          "type": "number"
+        },
+        "hops": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "paths": {
+          "items": {
+            "$ref": "#/$defs/ImpactPathRow"
+          },
+          "type": "array"
+        },
+        "semantics": {
+          "$ref": "#/$defs/ImpactSemantics"
+        },
+        "spread_lower": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "spread_upper": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "semantics",
+        "digest",
+        "hops",
+        "expected_spread",
+        "paths",
+        "attribution"
+      ],
+      "type": "object"
+    },
+    "ImpactSemantics": {
+      "description": "What an impact probability means.",
+      "oneOf": [
+        {
+          "const": "exact",
+          "description": "Noisy-OR on a polytree cone: the exact live-edge probability.",
+          "type": "string"
+        },
+        {
+          "const": "upper_bound",
+          "description": "Noisy-OR on a DAG with shared ancestry: an upper bound.",
+          "type": "string"
+        },
+        {
+          "const": "cyclic_unroll",
+          "description": "Noisy-OR on a cyclic cone unrolled to the hop bound: an upper bound.",
+          "type": "string"
+        },
+        {
+          "const": "monte_carlo",
+          "description": "Independent-cascade Monte Carlo: an unbiased estimate with intervals.",
+          "type": "string"
+        }
+      ]
+    },
     "Incumbent": {
       "additionalProperties": false,
       "description": "A feasible assignment and its objective value.",
@@ -4305,7 +4419,19 @@
         "converged": {
           "type": "boolean"
         },
+        "impact": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImpactReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Present exactly for the impact models."
+        },
         "iterations": {
+          "description": "`share`: power iterations. Impact models: recurrence rounds or worlds.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -4333,12 +4459,37 @@
     "RiskScoreRow": {
       "description": "One node's propagated risk.",
       "properties": {
+        "hops": {
+          "description": "Impact models: hops from the nearest seed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lower": {
+          "description": "`independent_cascade`: the 95% Wilson interval.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "node": {
           "type": "string"
         },
         "score": {
+          "description": "`share`: the node's mass share. Impact models: `P(node is hit)`.",
           "format": "double",
           "type": "number"
+        },
+        "upper": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         }
       },
       "required": [
@@ -4595,6 +4746,27 @@
         "listing_id",
         "timeframe",
         "data_status"
+      ],
+      "type": "object"
+    },
+    "SeedAttributionRow": {
+      "description": "One seed's Shapley share of one node's impact probability.",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "string"
+        },
+        "shapley": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "node",
+        "seed",
+        "shapley"
       ],
       "type": "object"
     },

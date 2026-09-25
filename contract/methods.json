@@ -8825,6 +8825,10 @@
             "dynamic": null,
             "encoding": "Raw"
           },
+          "learn": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "resolve": {
             "dynamic": null,
             "encoding": "Raw"

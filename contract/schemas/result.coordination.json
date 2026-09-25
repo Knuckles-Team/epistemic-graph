@@ -264,6 +264,105 @@
         }
       ]
     },
+    "AdapterDirection": {
+      "additionalProperties": false,
+      "description": "One direction and its gain.",
+      "properties": {
+        "gain_q16": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "unit_q30": {
+          "$ref": "#/$defs/BoundedVec_int32_4096"
+        }
+      },
+      "required": [
+        "gain_q16",
+        "unit_q30"
+      ],
+      "type": "object"
+    },
+    "AdapterEvalReceipt": {
+      "additionalProperties": false,
+      "description": "The promotion receipt of one fitted adapter: a paired sign test of the\nheld-out reciprocal rank of the best cited unit, adapted vs base.",
+      "properties": {
+        "adapted_mrr_q16": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "adapter_digest": {
+          "type": "string"
+        },
+        "base_mrr_q16": {
+          "description": "Mean reciprocal rank on the held-out items, on `Q16`.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "graph": {
+          "description": "The graph whose stored vectors it was fitted and evaluated on; the only\ngraph it may be activated for.",
+          "type": "string"
+        },
+        "losses": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_eval": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_training": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "passed": {
+          "description": "Passed: `n_eval >= min_eval_items` and the lower bound exceeds one half.",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "space_digest": {
+          "type": "string"
+        },
+        "ties": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "win_rate_lower_q16": {
+          "description": "Wilson 95% lower bound of `wins / (wins + losses)`, on `Q16`.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "wins": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "adapter_digest",
+        "graph",
+        "space_digest",
+        "n_training",
+        "n_eval",
+        "wins",
+        "losses",
+        "ties",
+        "base_mrr_q16",
+        "adapted_mrr_q16",
+        "win_rate_lower_q16",
+        "passed"
+      ],
+      "type": "object"
+    },
     "AgentComponentKind": {
       "description": "What kind of part this is.\n\nClosed on purpose. Every kind is either referenced from an agent slot —\n[`crate::agent_library::AgentLibraryEntry`],\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`] — or is catalog content an agent is VALIDATED or\nDECIDED against. Both belong to the same closed set for the same reason: a\npart nothing can name is a part nothing can reason about.",
       "oneOf": [
@@ -463,6 +562,16 @@
       ],
       "type": "object"
     },
+    "AllocationRule": {
+      "description": "How requests are scaled when they exceed the shared cap.",
+      "oneOf": [
+        {
+          "const": "proportional",
+          "description": "Every request is scaled by the same factor `cap / sum |request|`.",
+          "type": "string"
+        }
+      ]
+    },
     "AnalyticsJobRecord": {
       "additionalProperties": false,
       "description": "The durable analytics-job record, as a caller sees it.",
@@ -569,6 +678,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_AdapterDirection_8": {
+      "items": {
+        "$ref": "#/$defs/AdapterDirection"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_AgentComponentKind_16": {
       "items": {
         "$ref": "#/$defs/AgentComponentKind"
@@ -597,6 +713,27 @@
       "maxItems": 1024,
       "type": "array"
     },
+    "BoundedVec_OptionContribution_256": {
+      "items": {
+        "$ref": "#/$defs/OptionContribution"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_PathEdge_8": {
+      "items": {
+        "$ref": "#/$defs/PathEdge"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_PointerEvent_64": {
+      "items": {
+        "$ref": "#/$defs/PointerEvent"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_PooledRate_64": {
       "items": {
         "$ref": "#/$defs/PooledRate"
@@ -618,11 +755,39 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_QuantisedValue_4096": {
+      "items": {
+        "$ref": "#/$defs/QuantisedValue"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_ReplayFoldView_256": {
+      "items": {
+        "$ref": "#/$defs/ReplayFoldView"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_ReturnedEvidence_256": {
+      "items": {
+        "$ref": "#/$defs/ReturnedEvidence"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "BoundedVec_ScoredOption_64": {
       "items": {
         "$ref": "#/$defs/ScoredOption"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_SlotType_8": {
+      "items": {
+        "$ref": "#/$defs/SlotType"
+      },
+      "maxItems": 8,
       "type": "array"
     },
     "BoundedVec_TypedParam_16": {
@@ -646,6 +811,14 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_int32_4096": {
+      "items": {
+        "format": "int32",
+        "type": "integer"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
     "BoundedVec_int64_2048": {
       "items": {
         "format": "int64",
@@ -659,6 +832,13 @@
         "type": "string"
       },
       "maxItems": 16,
+      "type": "array"
+    },
+    "BoundedVec_string_256": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 256,
       "type": "array"
     },
     "BoundedVec_string_32": {
@@ -1857,6 +2037,24 @@
           "required": [
             "output",
             "receipt"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A replay evaluation's sealed run (EH-528).",
+          "properties": {
+            "output": {
+              "const": "replay",
+              "type": "string"
+            },
+            "run": {
+              "$ref": "#/$defs/EvaluationRun"
+            }
+          },
+          "required": [
+            "output",
+            "run"
           ],
           "type": "object"
         }
@@ -3611,6 +3809,103 @@
         }
       ]
     },
+    "EvalCandidate": {
+      "description": "What is being evaluated.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A fit job's draft artifact, pinned by content digest.",
+          "properties": {
+            "candidate": {
+              "const": "draft_artifact",
+              "type": "string"
+            },
+            "length": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "candidate",
+            "sha256",
+            "length"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An already-published head.",
+          "properties": {
+            "candidate": {
+              "const": "published_head",
+              "type": "string"
+            },
+            "head": {
+              "$ref": "#/$defs/ComponentDependency"
+            }
+          },
+          "required": [
+            "candidate",
+            "head"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EvaluationRun": {
+      "additionalProperties": false,
+      "description": "A sealed replay evaluation: content-addressed, immutable; a revision is a\nnew run that names this one in `supersedes`.",
+      "properties": {
+        "contributions": {
+          "$ref": "#/$defs/BoundedVec_OptionContribution_256"
+        },
+        "dataset_digest": {
+          "type": "string"
+        },
+        "folds": {
+          "$ref": "#/$defs/BoundedVec_ReplayFoldView_256"
+        },
+        "head_digest": {
+          "type": "string"
+        },
+        "path": {
+          "$ref": "#/$defs/BoundedVec_QuantisedValue_4096",
+          "description": "The candidate's utility at every replayed step, in time order."
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "run_digest": {
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "#/$defs/ReplaySpec"
+        },
+        "synthetic": {
+          "type": "boolean"
+        },
+        "validation": {
+          "$ref": "#/$defs/ReplayValidation"
+        }
+      },
+      "required": [
+        "run_digest",
+        "head_digest",
+        "policy_digest",
+        "dataset_digest",
+        "spec",
+        "folds",
+        "path",
+        "contributions",
+        "validation",
+        "synthetic"
+      ],
+      "type": "object"
+    },
     "EvidenceClass": {
       "description": "The weakest class of evidence the conclusion rests on.",
       "enum": [
@@ -3859,6 +4154,106 @@
         "acted_wrong",
         "act_risk_upper",
         "set_size_total"
+      ],
+      "type": "object"
+    },
+    "GenerationReceipt": {
+      "additionalProperties": false,
+      "description": "The receipt a generation activation must present.",
+      "properties": {
+        "active_embedded": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "active_graph": {
+          "type": "string"
+        },
+        "active_mrr_q16": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "active_space": {
+          "type": "string"
+        },
+        "logical": {
+          "type": "string"
+        },
+        "losses": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_eval": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "score_psi_q16": {
+          "default": null,
+          "description": "`None` when this build cannot compute it (no `ann`); then never passed.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shadow_embedded": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shadow_graph": {
+          "type": "string"
+        },
+        "shadow_mrr_q16": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "shadow_space": {
+          "type": "string"
+        },
+        "ties": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "win_rate_lower_q16": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "wins": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "logical",
+        "active_graph",
+        "active_space",
+        "shadow_graph",
+        "shadow_space",
+        "active_embedded",
+        "shadow_embedded",
+        "n_eval",
+        "wins",
+        "losses",
+        "ties",
+        "active_mrr_q16",
+        "shadow_mrr_q16",
+        "win_rate_lower_q16",
+        "passed"
       ],
       "type": "object"
     },
@@ -4719,6 +5114,130 @@
       ],
       "type": "object"
     },
+    "LearningRecorded": {
+      "description": "What one learning write recorded.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A stored outcome and who attested it.",
+          "properties": {
+            "outcome": {
+              "$ref": "#/$defs/RetrievalOutcome"
+            },
+            "producer": {
+              "description": "The verified principal that attested it: the record's committer.",
+              "type": "string"
+            },
+            "recorded": {
+              "const": "outcome",
+              "type": "string"
+            },
+            "recorded_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "recorded",
+            "outcome",
+            "producer",
+            "recorded_at_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A fitted adapter, its receipt and the digests they are pinned by.",
+          "properties": {
+            "adapter_digest": {
+              "type": "string"
+            },
+            "body": {
+              "$ref": "#/$defs/QueryAdapterBody"
+            },
+            "receipt": {
+              "$ref": "#/$defs/AdapterEvalReceipt"
+            },
+            "receipt_digest": {
+              "type": "string"
+            },
+            "recorded": {
+              "const": "fitted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "recorded",
+            "adapter_digest",
+            "body",
+            "receipt_digest",
+            "receipt"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A stored receipt and the digest it is pinned by.",
+          "properties": {
+            "receipt": {
+              "$ref": "#/$defs/GenerationReceipt"
+            },
+            "receipt_digest": {
+              "type": "string"
+            },
+            "recorded": {
+              "const": "generation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "recorded",
+            "receipt_digest",
+            "receipt"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A pointer, its rollback stack and its audit history.",
+          "properties": {
+            "active": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PointerEvent"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "history": {
+              "$ref": "#/$defs/BoundedVec_PointerEvent_64",
+              "default": []
+            },
+            "key": {
+              "description": "What the pointer is for (`adapter:<space digest>`, `generation:<graph>`).",
+              "type": "string"
+            },
+            "recorded": {
+              "const": "pointer",
+              "type": "string"
+            },
+            "stack": {
+              "$ref": "#/$defs/BoundedVec_PointerEvent_64",
+              "default": []
+            }
+          },
+          "required": [
+            "recorded",
+            "key"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "LeasePriority": {
       "description": "The same four priority tiers `resource_priority.py::PriorityClass` defines,\nvendored here (not imported — this crate has no Python interop and must not\ndepend on AU) so a `CapacityLease` carries the identical vocabulary the AU\nscheduler already enforces at the LLM gate. `#[derive(Ord)]` on a fieldless\nenum compares by DECLARATION ORDER, so listing `Interactive` first and\n`BackgroundIngestion` last gives `Interactive < Orchestration < Hydration <\nBackgroundIngestion`, matching `core/cognitive_scheduler.py::SchedulerPriority`'s\n\"lower value = higher priority\" convention. `Orchestration`/`Hydration` are\nNOT equal-priority under this `Ord` (AU's equal LLM-gate WEIGHT for the two\nis a separate lookup table, `_PRIORITY_WEIGHTS`, not an enum-ordinal fact —\nsee `resource_priority.py`); only `may_spend_reserved_floor` below is a\nhard cell-admission rule.",
       "enum": [
@@ -4961,6 +5480,31 @@
       ],
       "type": "string"
     },
+    "OptimiserSpec": {
+      "additionalProperties": false,
+      "description": "Deterministic optimiser limits. The seed is part of the request, so a fit\nis reproducible from its record.",
+      "properties": {
+        "max_iterations": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tolerance": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "max_iterations",
+        "tolerance",
+        "seed"
+      ],
+      "type": "object"
+    },
     "OptionAggregate": {
       "additionalProperties": false,
       "description": "One aggregate row: an option (or a whole assembly slate) under one\nquestion and policy, or across every question when `question_id` is `None`.",
@@ -5024,6 +5568,27 @@
       ],
       "type": "object"
     },
+    "OptionContribution": {
+      "additionalProperties": false,
+      "description": "One option's share of the candidate's utility: the applied budget and the\nutility it earned, summed over every step it was offered in. The utility is\nlinear in the applied amounts, so these contributions sum to the total.",
+      "properties": {
+        "applied": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "option_id": {
+          "type": "string"
+        },
+        "utility": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "option_id",
+        "applied",
+        "utility"
+      ],
+      "type": "object"
+    },
     "OutcomeAggregate": {
       "additionalProperties": false,
       "description": "The joined outcome aggregate. Rows below `min_support` report no rate;\ncounts are k-anonymised by the same floor (reported as zero below it).",
@@ -5059,6 +5624,105 @@
         "trace_incomplete",
         "outcome_uncertain",
         "cancelled"
+      ],
+      "type": "string"
+    },
+    "PathEdge": {
+      "additionalProperties": false,
+      "description": "One hop sequence of a path template.",
+      "properties": {
+        "max_hops": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_hops": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relationship": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "relationship",
+        "min_hops",
+        "max_hops"
+      ],
+      "type": "object"
+    },
+    "PathRank": {
+      "description": "How a path template orders what it reached.",
+      "oneOf": [
+        {
+          "const": "unranked",
+          "description": "Topology order only.",
+          "type": "string"
+        },
+        {
+          "const": "vector",
+          "description": "Vector similarity to the bound query.",
+          "type": "string"
+        },
+        {
+          "const": "text",
+          "description": "BM25 over the bound query text.",
+          "type": "string"
+        },
+        {
+          "const": "fuse_rrf",
+          "description": "Reciprocal-rank fusion of the vector and text legs.",
+          "type": "string"
+        }
+      ]
+    },
+    "PointerEvent": {
+      "additionalProperties": false,
+      "description": "One audited pointer move.",
+      "properties": {
+        "at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "principal": {
+          "type": "string"
+        },
+        "receipt_digest": {
+          "default": null,
+          "description": "The receipt that qualified `target`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "default": null,
+          "description": "What the pointer names after the move (an adapter digest, a graph);\n`None` = the unadapted default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transition": {
+          "$ref": "#/$defs/PointerTransition"
+        }
+      },
+      "required": [
+        "transition",
+        "principal",
+        "at_ms"
+      ],
+      "type": "object"
+    },
+    "PointerTransition": {
+      "description": "Which way an event moved a pointer.",
+      "enum": [
+        "activated",
+        "rolled_back"
       ],
       "type": "string"
     },
@@ -5325,6 +5989,65 @@
       ],
       "type": "object"
     },
+    "QueryAdapterBody": {
+      "additionalProperties": false,
+      "description": "The body of a fitted query adapter.",
+      "properties": {
+        "dimensions": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "directions": {
+          "$ref": "#/$defs/BoundedVec_AdapterDirection_8"
+        },
+        "n_training": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "space_digest": {
+          "description": "The `EmbeddingSpaceRef::digest` it applies in; any other space ignores it.",
+          "type": "string"
+        },
+        "training_digest": {
+          "description": "Digest of the admitted training items, in order.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "space_digest",
+        "dimensions",
+        "directions",
+        "training_digest",
+        "n_training"
+      ],
+      "type": "object"
+    },
+    "QueryVector": {
+      "additionalProperties": false,
+      "description": "A fixed-point query vector: component `i` is `q16[i] / 2^16`, in the\nembedding space whose `EmbeddingSpaceRef::digest` is `space_digest`.",
+      "properties": {
+        "q16": {
+          "$ref": "#/$defs/BoundedVec_int32_4096"
+        },
+        "space_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "space_digest",
+        "q16"
+      ],
+      "type": "object"
+    },
     "QuestionKind": {
       "description": "What class of question this is. The kind selects the executor; it never\nselects the guarantee.",
       "enum": [
@@ -5387,6 +6110,190 @@
           "type": "object"
         }
       ]
+    },
+    "RefitSpec": {
+      "additionalProperties": false,
+      "description": "Refit the head on each fold's training window with `DecisionFit`'s kernel.",
+      "properties": {
+        "head_kind": {
+          "$ref": "#/$defs/HeadKind"
+        },
+        "optimiser": {
+          "$ref": "#/$defs/OptimiserSpec"
+        }
+      },
+      "required": [
+        "head_kind",
+        "optimiser"
+      ],
+      "type": "object"
+    },
+    "ReplayEnvironment": {
+      "description": "What the caller asserts about the environment the policy is replayed in.",
+      "oneOf": [
+        {
+          "const": "policy_independent",
+          "description": "An option's outcome does not depend on which option the policy chose.\nThe only environment replay evaluates.",
+          "type": "string"
+        },
+        {
+          "const": "policy_dependent",
+          "description": "The policy's choice changes what is observed. Replay refuses; the\noff-policy estimators (within the logging support) are the answer.",
+          "type": "string"
+        }
+      ]
+    },
+    "ReplayFoldView": {
+      "additionalProperties": false,
+      "description": "One fold's outcome. Utilities are sums over the fold's test steps.",
+      "properties": {
+        "abstained": {
+          "description": "Steps where the head read a feature outside its fitted range and\nallocated nothing.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_test_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "head_digest": {
+          "description": "The head the fold replayed: the candidate's digest, or its refit's.",
+          "type": "string"
+        },
+        "incumbent_utility": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "last_test_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_drawdown": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "test_items": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "train_items": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "utility": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "train_items",
+        "test_items",
+        "first_test_ms",
+        "last_test_ms",
+        "head_digest",
+        "utility",
+        "incumbent_utility",
+        "max_drawdown",
+        "abstained"
+      ],
+      "type": "object"
+    },
+    "ReplaySpec": {
+      "additionalProperties": false,
+      "description": "A replay evaluation's parameters.",
+      "properties": {
+        "budget": {
+          "$ref": "#/$defs/SharedCap"
+        },
+        "env": {
+          "$ref": "#/$defs/ReplayEnvironment"
+        },
+        "folds": {
+          "$ref": "#/$defs/WalkForward"
+        },
+        "incumbent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvalCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The policy the candidate is compared against; `None` is the uniform\nallocation over each step's options."
+        },
+        "refit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`None` replays the candidate as submitted in every fold."
+        },
+        "supersedes": {
+          "default": null,
+          "description": "The digest of the run this one revises.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trials": {
+          "$ref": "#/$defs/TrialLog"
+        }
+      },
+      "required": [
+        "folds",
+        "budget",
+        "env",
+        "trials"
+      ],
+      "type": "object"
+    },
+    "ReplayValidation": {
+      "additionalProperties": false,
+      "description": "The run's overfitting and comparison statistics, from the engine's own\nvalidation kernels (never the caller).",
+      "properties": {
+        "deflated_sharpe": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "diebold_mariano": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Diebold-Mariano on the per-step losses (negated utilities), candidate\nminus incumbent: negative favours the candidate."
+        },
+        "diebold_mariano_p": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "n_trials": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_sharpe": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Per-step Sharpe-like ratio of the candidate's utility path."
+        },
+        "probability_backtest_overfit": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Over the folds, candidate vs incumbent, train window vs test window."
+        }
+      },
+      "required": [
+        "observed_sharpe",
+        "n_trials",
+        "deflated_sharpe",
+        "probability_backtest_overfit",
+        "diebold_mariano",
+        "diebold_mariano_p"
+      ],
+      "type": "object"
     },
     "ResolutionKind": {
       "description": "How the conclusion was reached.",
@@ -6696,6 +7603,122 @@
       ],
       "type": "string"
     },
+    "RetrievalOutcome": {
+      "additionalProperties": false,
+      "description": "What one retrieval run returned and cited, attested by the principal that\ncommitted its plan decision.",
+      "properties": {
+        "cited": {
+          "$ref": "#/$defs/BoundedVec_string_256",
+          "default": [],
+          "description": "The returned units the answer used; a subset of `returned`."
+        },
+        "path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrievalPathTemplate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The plan template the run executed, when it was a typed path."
+        },
+        "query": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QueryVector"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The query vector the run ranked with, for adapter fitting (EH-396)."
+        },
+        "record_id": {
+          "description": "The committed retrieval-plan record this run executed.",
+          "type": "string"
+        },
+        "returned": {
+          "$ref": "#/$defs/BoundedVec_ReturnedEvidence_256",
+          "default": []
+        }
+      },
+      "required": [
+        "record_id"
+      ],
+      "type": "object"
+    },
+    "RetrievalPathTemplate": {
+      "additionalProperties": false,
+      "description": "A typed, parameterised, data-independent retrieval plan (EH-394). It names\nschema terms and slot types only -- never a row -- so it stays valid for as\nlong as the composed schema it was proven under (`composed_digest`).",
+      "properties": {
+        "anchor_class": {
+          "type": "string"
+        },
+        "composed_digest": {
+          "description": "The composed GraphSchema identity the plan's terms resolve under.",
+          "type": "string"
+        },
+        "edges": {
+          "$ref": "#/$defs/BoundedVec_PathEdge_8",
+          "default": []
+        },
+        "policy_version": {
+          "description": "The retrieval policy version the run used.",
+          "type": "string"
+        },
+        "rank": {
+          "$ref": "#/$defs/PathRank"
+        },
+        "skill_ref": {
+          "default": null,
+          "description": "The skill component the run executed with (topology -> skill, read by\nAU's `graph.assemble()`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "slots": {
+          "$ref": "#/$defs/BoundedVec_SlotType_8",
+          "default": []
+        },
+        "task_class": {
+          "description": "The task class the run served (an IRI).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_class",
+        "composed_digest",
+        "policy_version",
+        "anchor_class",
+        "rank"
+      ],
+      "type": "object"
+    },
+    "ReturnedEvidence": {
+      "additionalProperties": false,
+      "description": "One evidence unit a retrieval returned, in rank order (index 0 = rank 1).",
+      "properties": {
+        "content_class": {
+          "default": null,
+          "description": "The ingestion content class of the unit (AU's admission table), when\nknown; read by the per-class usage aggregate.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id"
+      ],
+      "type": "object"
+    },
     "RiskMethod": {
       "description": "Which controlled procedure produced the risk statement.",
       "enum": [
@@ -6766,6 +7789,23 @@
       ],
       "type": "object"
     },
+    "SharedCap": {
+      "additionalProperties": false,
+      "description": "One budget shared by every option of a step (capital, GPU-hours, tokens,\nlane slots): the applied amounts never sum past `cap` in absolute value.",
+      "properties": {
+        "cap": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "rule": {
+          "$ref": "#/$defs/AllocationRule"
+        }
+      },
+      "required": [
+        "cap",
+        "rule"
+      ],
+      "type": "object"
+    },
     "ShortlistProvenance": {
       "additionalProperties": false,
       "description": "How the shortlist the decision scored was produced.",
@@ -6796,6 +7836,16 @@
         "now_ms"
       ],
       "type": "object"
+    },
+    "SlotType": {
+      "description": "The type of one slot a template binds at run time.",
+      "enum": [
+        "query_text",
+        "query_vector",
+        "anchor_id",
+        "class_iri"
+      ],
+      "type": "string"
     },
     "StatechartAction": {
       "description": "One action a step performed or asks the interpreter to perform.",
@@ -7706,6 +8756,27 @@
         }
       ]
     },
+    "TrialLog": {
+      "additionalProperties": false,
+      "description": "How many configurations the search behind this candidate tried. The\ndeflated Sharpe ratio deflates by `declared`; a declaration below the\nsearch log's own count is refused (`n_trials = 1` after a search is the\ndefect this guards).",
+      "properties": {
+        "declared": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "searched": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "declared",
+        "searched"
+      ],
+      "type": "object"
+    },
     "TypedParam": {
       "additionalProperties": false,
       "description": "One named parameter of a question.",
@@ -7843,6 +8914,45 @@
       "required": [
         "numerator",
         "denominator"
+      ],
+      "type": "object"
+    },
+    "WalkForward": {
+      "additionalProperties": false,
+      "description": "Walk-forward folds, in admitted items. Fold `k` tests the `test` items\nstarting at `train + purge + k * step`; it trains on the `train` items that\nend `purge` items before its test window, minus the `embargo` items after\nevery earlier test window (their outcomes may still be maturing).",
+      "properties": {
+        "embargo": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "purge": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "step": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "test": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "train": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "train",
+        "test",
+        "step",
+        "purge",
+        "embargo"
       ],
       "type": "object"
     },
@@ -8647,6 +9757,13 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        "learn": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/LearningRecorded"
           }
         },
         "resolve": {
