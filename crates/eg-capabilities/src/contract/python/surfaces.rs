@@ -84,7 +84,10 @@ impl<'a> Surfaces<'a> {
     /// The module that renders `name` (a variant class: its union's module).
     fn owner(&self, name: &str) -> &'static str {
         let definition = self.members.get(name).map_or(name, String::as_str);
-        self.owners.get(definition).copied().unwrap_or(MODELS_MODULE)
+        self.owners
+            .get(definition)
+            .copied()
+            .unwrap_or(MODELS_MODULE)
     }
 
     /// Whether `surface`'s roots are declared, so its module is generated.
