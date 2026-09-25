@@ -99,6 +99,7 @@ mod worker_requests;
 mod worker_validation;
 
 pub(crate) use core::knowledge_stream_result;
+pub(crate) use helpers::native_opaque_ref as job_opaque_ref;
 use core::{
     compile_job_batch, job_record, job_response, job_store, owned_job, parse_algorithm,
     reproducibility_manifest,

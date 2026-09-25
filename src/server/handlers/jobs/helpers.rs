@@ -1,6 +1,6 @@
 //! Private implementation module for the analytics job handler.
 
-pub(super) fn native_opaque_ref(namespace: &str, value: &str) -> String {
+pub(crate) fn native_opaque_ref(namespace: &str, value: &str) -> String {
     use sha2::{Digest, Sha256};
     format!(
         "eg:{namespace}:{}",

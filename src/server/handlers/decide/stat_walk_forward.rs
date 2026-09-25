@@ -321,7 +321,9 @@ pub(super) fn run_fenced(
 ) -> JobRun {
     check_spec(spec, inputs.regime)?;
     check_supersedes(store, &request.tenant_id, spec)?;
-    if claim.job.policy.tenant != request.tenant_id || claim.job.input_snapshot.graph != spec.graph
+    if claim.job.policy.tenant != replay_tenant_scope(&request.tenant_id)
+        || claim.job.input_snapshot.graph
+            != crate::server::handlers::jobs::job_opaque_ref("graph", &spec.graph)
     {
         return Err(refusal(
             StatisticalErrorCode::ReplaySpecInvalid,
@@ -360,6 +362,23 @@ pub(super) fn run_fenced(
 }
 
 #[cfg(feature = "jobs")]
+fn replay_tenant_scope(tenant: &str) -> String {
+    let already_scoped = tenant
+        .strip_prefix("carrier-tenant:")
+        .is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        });
+    if already_scoped {
+        tenant.to_string()
+    } else {
+        crate::server::mutation_batch::opaque_coordinator_key("carrier-tenant", "verified", tenant)
+    }
+}
+
+#[cfg(feature = "jobs")]
 fn replay_now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -367,4 +386,24 @@ fn replay_now_ms() -> i64 {
         .as_millis()
         .try_into()
         .unwrap_or(i64::MAX)
+}
+
+#[cfg(all(test, feature = "jobs"))]
+mod job_scope_tests {
+    use super::replay_tenant_scope;
+
+    #[test]
+    fn replay_tenant_scope_matches_verified_carrier_and_is_not_cross_tenant() {
+        let a = replay_tenant_scope("tenant-a");
+        assert_eq!(
+            a,
+            crate::server::mutation_batch::opaque_coordinator_key(
+                "carrier-tenant",
+                "verified",
+                "tenant-a"
+            )
+        );
+        assert_eq!(replay_tenant_scope(&a), a);
+        assert_ne!(replay_tenant_scope("tenant-b"), a);
+    }
 }
