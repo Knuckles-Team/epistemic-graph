@@ -39,6 +39,15 @@ struct FoldState<T> {
     completed: Vec<T>,
 }
 
+#[derive(Serialize)]
+struct FoldStateRef<'a, T> {
+    version: u8,
+    input_digest: &'a str,
+    params_digest: &'a str,
+    total: usize,
+    completed: &'a [T],
+}
+
 fn restored<T: DeserializeOwned>(
     checkpoint: Option<&Checkpoint>,
     input_digest: &str,
@@ -98,12 +107,12 @@ where
     for index in completed.len()..total {
         let outcome = compute(index).map_err(FoldRunError::Work)?;
         completed.push(outcome);
-        let state = FoldState {
+        let state = FoldStateRef {
             version: FOLD_STATE_VERSION,
-            input_digest: input_digest.to_string(),
-            params_digest: params_digest.to_string(),
+            input_digest,
+            params_digest,
             total,
-            completed: &completed,
+            completed: completed.as_slice(),
         };
         let blob = serde_json::to_vec(&state)
             .map_err(|_| FoldRunError::Checkpoint("fold state cannot be encoded".into()))?;
