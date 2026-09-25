@@ -84,6 +84,7 @@ pub(super) fn create_predecessor(path: &Path, prepared: bool) -> MutationBatchRe
     manifest.layout_digest = contract::PRE_CHECKPOINT_LAYOUT;
     manifest.tables = contract::predecessor_contracts().unwrap();
     write.delete_table(SQL_SOURCE_CHECKPOINTS).unwrap();
+    write.delete_table(SQL_ANN_DIRTY).unwrap();
     write
         .open_table(OWNER_MANIFEST)
         .unwrap()

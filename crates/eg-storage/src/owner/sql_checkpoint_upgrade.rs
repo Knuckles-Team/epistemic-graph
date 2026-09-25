@@ -1,14 +1,16 @@
-//! Explicit offline creation of the SQL provider-checkpoint table.
+//! Explicit offline creation of missing SQL provider-checkpoint and ANN dirty tables.
 //!
 //! Ordinary opens and recovery adoption remain current-format-only. This
-//! one-time migration accepts exactly one frozen predecessor, changes only
-//! its owner manifest and empty checkpoint table, and never reanchors a copy.
+//! one-time migration accepts two frozen predecessors, changes only its owner
+//! manifest and missing empty tables, and never reanchors a copy.
 
 use super::domain::SqlOwner;
 use super::identity::PhysicalStoreIdentity;
 use super::layout::OwnerLayout;
 use super::manifest_io::read_manifest_slot;
-use super::registry::{sql_pre_checkpoint_evidence, SQL_SOURCE_CHECKPOINTS};
+use super::registry::{
+    sql_pre_ann_dirty_evidence, sql_pre_checkpoint_evidence, SQL_ANN_DIRTY, SQL_SOURCE_CHECKPOINTS,
+};
 use super::validate_declared_tables_write;
 use crate::codec::encode_bounded;
 use crate::physical::incarnation::StoreIncarnation;
@@ -148,6 +150,29 @@ pub fn upgrade_sql_source_checkpoints(
     upgrade_opened_predecessor(token, file)
 }
 
+/// Inspect an offline SQL file from either pinned pre-ANN layout. The returned
+/// token is bound to the source descriptor and its exact content fingerprint.
+pub fn inspect_sql_ann_dirty_upgrade(
+    path: &Path,
+    expected_physical_identity: PhysicalStoreIdentity,
+    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    options: SqlSourceCheckpointInspectionOptions,
+) -> Result<ValidatedSqlSourceCheckpointUpgrade, String> {
+    inspect_sql_source_checkpoint_upgrade(
+        path,
+        expected_physical_identity,
+        private_integrity,
+        options,
+    )
+}
+
+/// Apply the inspected SQL layout transition as one immediate durable commit.
+pub fn upgrade_sql_ann_dirty(
+    token: ValidatedSqlSourceCheckpointUpgrade,
+) -> Result<(StorageKernel, SqlSourceCheckpointUpgradeReport), String> {
+    upgrade_sql_source_checkpoints(token)
+}
+
 /// Bind the exact descriptor before redb can initialize or repair any bytes.
 /// Keeping the clone lets the exclusive transaction recheck its actual file.
 fn upgrade_opened_predecessor(
@@ -212,26 +237,42 @@ fn inspect_predecessor(
         );
     }
     validate_predecessor_census(
+        &manifest,
         read.list_tables().map_err(|error| error.to_string())?,
         read.list_multimap_tables()
             .map_err(|error| error.to_string())?,
     )?;
     // Typed strict hashing is also the old-table key/value codec validation.
-    let evidence = sql_pre_checkpoint_evidence(HashSnapshot::Read(read))?;
+    let evidence = predecessor_evidence(&manifest, HashSnapshot::Read(read))?;
     let authenticate =
         |sealed: &[u8], digest: &str| authenticate_with(private_integrity, sealed, digest);
     validate_recovery_content(incarnation, read, &authenticate)?;
     Ok((manifest, evidence))
 }
 
-fn validate_predecessor_census<N, M>(normal: N, multimap: M) -> Result<(), String>
+fn predecessor_evidence(
+    manifest: &OwnerManifest,
+    source: HashSnapshot<'_>,
+) -> Result<StrictRecoveryEvidence, String> {
+    if manifest.layout_digest == contract::PRE_CHECKPOINT_LAYOUT {
+        sql_pre_checkpoint_evidence(source)
+    } else {
+        sql_pre_ann_dirty_evidence(source)
+    }
+}
+
+fn validate_predecessor_census<N, M>(
+    manifest: &OwnerManifest,
+    normal: N,
+    multimap: M,
+) -> Result<(), String>
 where
     N: IntoIterator,
     N::Item: TableHandle,
     M: IntoIterator,
     M::Item: MultimapTableHandle,
 {
-    let expected: BTreeSet<_> = contract::predecessor_contracts()?
+    let expected: BTreeSet<_> = contract::contracts_for(manifest)?
         .into_iter()
         .map(|contract| contract.table_id)
         .collect();
@@ -329,6 +370,7 @@ fn begin_checkpoint_write(
     validate_handle_write(&store_handle(token.incarnation.clone()), &write)?;
     // The actual census must precede every write-side typed open.
     validate_predecessor_census(
+        &token.manifest,
         write.list_tables().map_err(|error| error.to_string())?,
         write
             .list_multimap_tables()
@@ -351,7 +393,7 @@ fn unchanged_predecessor(
     };
     contract::validate_predecessor(&old)?;
     if old != token.manifest
-        || sql_pre_checkpoint_evidence(HashSnapshot::Write(write))? != token.evidence
+        || predecessor_evidence(&old, HashSnapshot::Write(write))? != token.evidence
     {
         return Err("SQL checkpoint predecessor changed before atomic upgrade".to_string());
     }
@@ -368,6 +410,9 @@ fn stage_checkpoint_layout(
     tests::crash_at("before_table");
     write
         .open_table(SQL_SOURCE_CHECKPOINTS)
+        .map_err(|error| error.to_string())?;
+    write
+        .open_table(SQL_ANN_DIRTY)
         .map_err(|error| error.to_string())?;
     #[cfg(test)]
     tests::crash_at("after_table");

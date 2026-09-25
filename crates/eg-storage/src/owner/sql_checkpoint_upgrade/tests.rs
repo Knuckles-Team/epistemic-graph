@@ -27,6 +27,59 @@ fn inspection_options(path: &Path) -> SqlSourceCheckpointInspectionOptions {
     .unwrap()
 }
 
+fn create_pre_ann_dirty(path: &Path) {
+    let kernel = StorageKernel::create_owner_with::<SqlOwner>(
+        path,
+        physical(),
+        None,
+        StoreOpenOptions::default()
+            .with_cache_bytes(UPGRADE_CACHE_BYTES)
+            .unwrap(),
+    )
+    .unwrap();
+    let write = kernel.store().database().begin_write().unwrap();
+    let mut manifest = kernel.store().manifest().clone();
+    manifest.layout_digest = contract::PRE_ANN_DIRTY_LAYOUT;
+    manifest.tables = contract::pre_ann_dirty_contracts().unwrap();
+    write.delete_table(SQL_ANN_DIRTY).unwrap();
+    write
+        .open_table(OWNER_MANIFEST)
+        .unwrap()
+        .insert(
+            "manifest",
+            encode_bounded(&manifest, "pre-ANN SQL manifest")
+                .unwrap()
+                .as_slice(),
+        )
+        .unwrap();
+    write.commit().unwrap();
+    drop(kernel);
+}
+
+#[test]
+fn checkpoint_bearing_store_requires_inspected_ann_dirty_upgrade() {
+    let directory = private_tempdir();
+    let path = directory.path().join("sql.redb");
+    create_pre_ann_dirty(&path);
+    assert!(StorageKernel::open_owner::<SqlOwner>(&path, physical(), None).is_err());
+    let token =
+        inspect_sql_ann_dirty_upgrade(&path, physical(), None, inspection_options(&path)).unwrap();
+    assert_eq!(token.manifest.layout_digest, contract::PRE_ANN_DIRTY_LAYOUT);
+    let (kernel, report) = upgrade_sql_ann_dirty(token).unwrap();
+    assert_eq!(report.previous_authority_epoch, 0);
+    assert_eq!(report.current_authority_epoch, 1);
+    let evidence = strict_recovery_evidence(&kernel).unwrap();
+    assert!(evidence
+        .tables
+        .iter()
+        .any(|table| table.table_id == SQL_ANN_DIRTY.name() && table.rows == 0));
+    crate::validate_recovery_store(&kernel).unwrap();
+    drop(kernel);
+    assert!(
+        inspect_sql_ann_dirty_upgrade(&path, physical(), None, inspection_options(&path)).is_err()
+    );
+}
+
 fn mutate_manifest(path: &Path, change: impl FnOnce(&mut OwnerManifest)) {
     let database = upgrade_builder().open(path).unwrap();
     let write = database.begin_write().unwrap();
@@ -54,15 +107,16 @@ fn predecessor_and_successor_layout_digests_are_pinned() {
         contract::PRE_CHECKPOINT_LAYOUT
     );
     let current = OwnerManifest::new(physical(), OwnerLayout::Sql).unwrap();
-    assert_eq!(current.tables.len(), 37);
-    assert_eq!(
-        current.layout_digest,
-        [
-            0x2d, 0x56, 0x2f, 0xab, 0xc7, 0x5b, 0x19, 0xe9, 0xc3, 0x63, 0x09, 0xb1, 0xbd, 0xa7,
-            0xfc, 0xc9, 0xa0, 0x50, 0xc6, 0x8a, 0xcb, 0xec, 0x87, 0x6f, 0xc0, 0x69, 0xd3, 0xb5,
-            0x06, 0xd9, 0x3e, 0x1e,
-        ]
-    );
+    assert_eq!(contract::pre_ann_dirty_contracts().unwrap().len(), 37);
+    assert_eq!(current.tables.len(), 38);
+    assert_ne!(current.layout_digest, contract::PRE_ANN_DIRTY_LAYOUT);
+    let dirty = current
+        .tables
+        .iter()
+        .find(|table| table.table_id == SQL_ANN_DIRTY.name())
+        .unwrap();
+    assert_eq!(dirty.key_type_id, "(&str,u64)");
+    assert_eq!(dirty.value_type_id, "u64");
     let checkpoint = current.tables.last().unwrap();
     assert_eq!(checkpoint.table_id, SQL_SOURCE_CHECKPOINTS.name());
     assert_eq!(checkpoint.key_type_id, "(&str,&str,&str)");
@@ -91,7 +145,7 @@ fn upgrade_preserves_old_owner_and_kernel_bytes_and_changes_only_layout_authorit
         report.current_authority_digest
     );
     let after = strict_recovery_evidence(&kernel).unwrap();
-    assert_eq!(after.tables.len(), before.tables.len() + 1);
+    assert_eq!(after.tables.len(), before.tables.len() + 2);
     for previous in &before.tables {
         let current = after
             .tables

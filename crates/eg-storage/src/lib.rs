@@ -62,9 +62,9 @@ pub use owner::row_key::{
     RowKey, GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
 };
 pub use owner::sql_checkpoint_upgrade::{
-    inspect_sql_source_checkpoint_upgrade, upgrade_sql_source_checkpoints,
-    SqlSourceCheckpointInspectionOptions, SqlSourceCheckpointUpgradeReport,
-    ValidatedSqlSourceCheckpointUpgrade,
+    inspect_sql_ann_dirty_upgrade, inspect_sql_source_checkpoint_upgrade, upgrade_sql_ann_dirty,
+    upgrade_sql_source_checkpoints, SqlSourceCheckpointInspectionOptions,
+    SqlSourceCheckpointUpgradeReport, ValidatedSqlSourceCheckpointUpgrade,
 };
 pub use owner::table_api::*;
 pub use payload::private_payload_digest;

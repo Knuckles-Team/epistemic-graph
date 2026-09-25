@@ -98,7 +98,7 @@ const SQL_STR_STR: [TableDefinition<'static, &str, &str>; 2] = [
 const SQL_ROWS: TableDefinition<'static, (&str, u64), &[u8]> = TableDefinition::new("__sql_rows__");
 /// Source-row changes retained until every maintained ANN generation has
 /// observed them. The value is the SQL source epoch of the row mutation.
-const SQL_ANN_DIRTY: TableDefinition<'static, (&str, u64), u64> =
+pub(crate) const SQL_ANN_DIRTY: TableDefinition<'static, (&str, u64), u64> =
     TableDefinition::new("__sql_ann_dirty__");
 const SQL_SEQ: TableDefinition<'static, &str, u64> = TableDefinition::new("__sql_seq__");
 const SQL_CATALOG_VERSIONS: TableDefinition<'static, &str, u64> =
@@ -759,7 +759,41 @@ pub(super) fn sql_pre_checkpoint_evidence(
     let mut rows = 0;
     macro_rules! hash_predecessor {
         ($table:expr) => {{
-            if $table.name() != SQL_SOURCE_CHECKPOINTS.name() {
+            if $table.name() != SQL_SOURCE_CHECKPOINTS.name()
+                && $table.name() != SQL_ANN_DIRTY.name()
+            {
+                let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
+                rows += count;
+                tables.push(StrictTableEvidence {
+                    table_id: $table.name().to_string(),
+                    rows: count,
+                    fingerprint,
+                });
+            }
+        }};
+    }
+    crate::tables::visit_ledger_tables!(hash_predecessor);
+    let ledger_rows = rows;
+    visit_owner_tables!(OwnerLayout::Sql, hash_predecessor);
+    Ok(StrictRecoveryEvidence {
+        ledger_rows,
+        owner_rows: rows - ledger_rows,
+        fingerprint: hasher.finalize().into(),
+        tables,
+    })
+}
+
+/// Exact typed evidence for the checkpoint-bearing SQL layout immediately
+/// before the ANN dirty journal was declared.
+pub(super) fn sql_pre_ann_dirty_evidence(
+    source: HashSnapshot<'_>,
+) -> Result<StrictRecoveryEvidence, String> {
+    let mut hasher = Sha256::new();
+    let mut tables = Vec::new();
+    let mut rows = 0;
+    macro_rules! hash_predecessor {
+        ($table:expr) => {{
+            if $table.name() != SQL_ANN_DIRTY.name() {
                 let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
                 rows += count;
                 tables.push(StrictTableEvidence {

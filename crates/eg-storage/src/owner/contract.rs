@@ -234,7 +234,7 @@ fn connector_owner_key_type(name: &str) -> Option<&'static str> {
 /// The SQL catalog/row store owned by `eg-query`.
 fn sql_key_type(name: &str) -> Option<&'static str> {
     match name {
-        "__sql_rows__" | "__sql_schema_catalog_order__" => Some("(&str,u64)"),
+        "__sql_rows__" | "__sql_ann_dirty__" | "__sql_schema_catalog_order__" => Some("(&str,u64)"),
         "__sql_schema_migrations__" | "__sql_source_checkpoints__" => Some("(&str,&str,&str)"),
         "__sql_schema_migration_order__" => Some("(&str,&str,u64)"),
         "__sql_schema_versions__" => Some("(&str,&str)"),
@@ -368,6 +368,7 @@ fn value_type_id(name: &str) -> &'static str {
 fn sql_value_type(name: &str) -> Option<&'static str> {
     match name {
         "__sql_seq__"
+        | "__sql_ann_dirty__"
         | "__sql_schema_catalog_versions__"
         | "__sql_schema_versions__"
         | "__sql_property_graph_seq__" => Some("u64"),
