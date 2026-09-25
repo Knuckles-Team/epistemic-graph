@@ -71,7 +71,12 @@ impl Shape {
     /// The query's distance to placement `i`, from a direct dot product (O(m)).
     pub fn distance_at(&self, i: usize) -> f64 {
         let window = &self.series[i..i + self.m];
-        znorm_distance(dot(&self.query, window), self.m, self.query_stats, self.stats.at(i))
+        znorm_distance(
+            dot(&self.query, window),
+            self.m,
+            self.query_stats,
+            self.stats.at(i),
+        )
     }
 }
 

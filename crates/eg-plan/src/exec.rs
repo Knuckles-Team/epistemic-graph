@@ -68,11 +68,11 @@ mod tsscan;
 pub(crate) mod vector_rank;
 pub(crate) use dispatch::{apply, apply_with_channels, StageChannels};
 pub(crate) use pred_sql::{sql_literal, where_clause};
-pub(crate) use vector_rank::rank_op;
 #[cfg(feature = "timeseries")]
 pub use tsscan::StagedSeries;
 #[cfg(feature = "timeseries")]
 pub(crate) use tsscan::{tsdb_scan_op, CommittedSeries};
+pub(crate) use vector_rank::rank_op;
 
 /// Everything an operator might touch, gathered from ONE consistent snapshot. In a
 /// handler this is exactly what is already available off-lock: the `GraphView`
@@ -2400,12 +2400,17 @@ fn series_event(id: &str, values: &crate::rowset::ValueChannels) -> Option<eg_st
             channels
                 .iter()
                 .filter_map(|(k, &v)| {
-                    serde_json::Number::from_f64(v).map(|n| (k.clone(), serde_json::Value::Number(n)))
+                    serde_json::Number::from_f64(v)
+                        .map(|n| (k.clone(), serde_json::Value::Number(n)))
                 })
                 .collect()
         })
         .unwrap_or_default();
-    Some(eg_stream::Event { ts, key: key.to_string(), attrs })
+    Some(eg_stream::Event {
+        ts,
+        key: key.to_string(),
+        attrs,
+    })
 }
 
 /// Map the pure-serde wire `CepWindowSpec` (eg-types) to eg-stream's `Window`.

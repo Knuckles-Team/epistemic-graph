@@ -134,17 +134,29 @@ impl Parser<'_> {
         let span = self.cur_span();
         let top = self.parse_number::<u64>("TOP k")?;
         if top == 0 {
-            return Err(UqlError::new(UqlCode::InvalidRange, "TOP needs at least 1", span));
+            return Err(UqlError::new(
+                UqlCode::InvalidRange,
+                "TOP needs at least 1",
+                span,
+            ));
         }
         let seed = if self.eat_kw("SEED") {
             self.parse_number::<u64>("a seed")?
         } else {
             0
         };
-        self.derived
-            .extend(eg_types::series_expr::MOTIF_CHANNELS.iter().map(|c| c.to_string()));
+        self.derived.extend(
+            eg_types::series_expr::MOTIF_CHANNELS
+                .iter()
+                .map(|c| c.to_string()),
+        );
         Ok(eg_types::wire::Op::Motif {
-            spec: eg_types::series_expr::MotifOp { channel, search, top, seed },
+            spec: eg_types::series_expr::MotifOp {
+                channel,
+                search,
+                top,
+                seed,
+            },
         })
     }
 

@@ -225,7 +225,8 @@ pub fn matrix_profile(xs: &[f64], options: ProfileOptions) -> Result<MatrixProfi
     };
     let whole = (l * l) as u64 / 2;
     let fits = whole <= options.max_work;
-    let complete = (fits || run.pre_scrimp() == Phase::Done) && run.scrimp(options.seed) == Phase::Done;
+    let complete =
+        (fits || run.pre_scrimp() == Phase::Done) && run.scrimp(options.seed) == Phase::Done;
     let profile = if complete {
         run.full
     } else {
@@ -249,7 +250,9 @@ pub fn select(
     extreme: Extreme,
     partner: &dyn Fn(usize) -> Option<usize>,
 ) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..distance.len()).filter(|&i| distance[i].is_finite()).collect();
+    let mut order: Vec<usize> = (0..distance.len())
+        .filter(|&i| distance[i].is_finite())
+        .collect();
     order.sort_by(|&a, &b| match extreme {
         Extreme::Nearest => distance[a].total_cmp(&distance[b]).then(a.cmp(&b)),
         Extreme::Farthest => distance[b].total_cmp(&distance[a]).then(a.cmp(&b)),
@@ -273,13 +276,19 @@ pub fn select(
 /// The top-`k` motif pairs: each hit's neighbour is its match.
 pub fn motifs(profile: &MatrixProfile, k: usize) -> Vec<Hit> {
     let partner = |i: usize| profile.neighbor[i];
-    hits(profile, select(&profile.distance, k, profile.m, Extreme::Nearest, &partner))
+    hits(
+        profile,
+        select(&profile.distance, k, profile.m, Extreme::Nearest, &partner),
+    )
 }
 
 /// The top-`k` discords: the subsequences farthest from their nearest neighbour.
 pub fn discords(profile: &MatrixProfile, k: usize) -> Vec<Hit> {
     let partner = |_: usize| None;
-    hits(profile, select(&profile.distance, k, profile.m, Extreme::Farthest, &partner))
+    hits(
+        profile,
+        select(&profile.distance, k, profile.m, Extreme::Farthest, &partner),
+    )
 }
 
 fn hits(profile: &MatrixProfile, starts: Vec<usize>) -> Vec<Hit> {

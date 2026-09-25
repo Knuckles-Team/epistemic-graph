@@ -61,7 +61,9 @@ pub(super) fn commit_prepare(
     // sealed record row. Judged here, against the serving projection, for every
     // routed mutation whether or not a durable backend is attached; the durable row
     // applier judges it again inside the write transaction.
-    if let Err(refused) = crate::sealed_guard::refuse_generic_sealed_write(method, ctx.core.as_ref()) {
+    if let Err(refused) =
+        crate::sealed_guard::refuse_generic_sealed_write(method, ctx.core.as_ref())
+    {
         return Err(Response::err(ctx.req_id, refused));
     }
 

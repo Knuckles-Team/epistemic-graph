@@ -227,7 +227,10 @@ mod tests {
 
     #[test]
     fn series_event_row_ids_round_trip() {
-        assert_eq!(series_event_row_id("svc.p95", "discord", 7), "svc.p95#discord@7");
+        assert_eq!(
+            series_event_row_id("svc.p95", "discord", 7),
+            "svc.p95#discord@7"
+        );
         assert_eq!(
             parse_series_event_row_id("svc.p95#discord@7"),
             Some(("svc.p95", "discord", 7))

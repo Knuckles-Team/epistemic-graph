@@ -339,8 +339,9 @@ eg-compute = { path = "../eg-compute", optional = true }
 # eg-types/eg-core/eg-compute (no eg-plan back-edge → no cycle), so a default/Pi build
 # links none of it.
 eg-epistemic = { path = "../eg-epistemic", optional = true }
-# The attribution kernel behind `ATTRIBUTE` (feature `numeric`, EH-523). Optional + only
-# referenced under #[cfg(feature = "numeric")]; eg-numeric depends on eg-types alone (no
+# The attribution kernel behind `ATTRIBUTE` (feature `numeric`, EH-523) and the `SKILL`
+# stage's predictive-skill report (EH-522, feature `timeseries`). Optional + only
+# referenced under those features; eg-numeric depends on eg-types alone (no
 # eg-plan back-edge → no cycle).
 eg-numeric = { path = "../eg-numeric", optional = true }
 # The pure-Rust event-stream + CEP modality (bounded NFA over sliding/tumbling windows —
@@ -356,9 +357,6 @@ eg-stream = { path = "../eg-stream", optional = true }
 # (no DataFusion); `redb-store` adds pure-Rust redb (no C dep, no pyo3). A default/Pi build
 # links none of it. eg-tsdb does NOT depend on eg-plan — no dependency cycle.
 eg-tsdb = { path = "../eg-tsdb", optional = true }
-# EH-522 — the `SKILL` stage's predictive-skill report (`eg_numeric::evaluation::skill`).
-# Already in the tree through eg-tsdb; named directly under `timeseries`.
-eg-numeric = { path = "../eg-numeric", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 # `float_roundtrip`: UQL's JSON literals (`JSON '[…]'`, JSONPath/CEP values) must parse back to
 # the EXACT f64 the printer wrote (UQL-06 print/parse identity). serde_json's default float

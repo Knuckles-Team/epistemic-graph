@@ -49,12 +49,20 @@ fn a_long_stream_re_anchors_without_drift() {
 fn a_restored_checkpoint_continues_bit_for_bit() {
     let xs = walk(260, 9);
     let spec = Spec::LeftProfile { m: 7, history: 40 };
-    let bits = |v: Vec<Option<f64>>| v.into_iter().map(|o| o.map(f64::to_bits)).collect::<Vec<_>>();
+    let bits = |v: Vec<Option<f64>>| {
+        v.into_iter()
+            .map(|o| o.map(f64::to_bits))
+            .collect::<Vec<_>>()
+    };
     let whole = bits(apply(spec, &xs).unwrap());
     for split in [0, 6, 7, 55, 259] {
         let mut state = State::new(spec).unwrap();
-        let mut got: Vec<Option<f64>> = xs[..split].iter().map(|&x| state.step(Some(x), None)).collect();
-        let mut restored: State = rmp_serde::from_slice(&rmp_serde::to_vec(&state).unwrap()).unwrap();
+        let mut got: Vec<Option<f64>> = xs[..split]
+            .iter()
+            .map(|&x| state.step(Some(x), None))
+            .collect();
+        let mut restored: State =
+            rmp_serde::from_slice(&rmp_serde::to_vec(&state).unwrap()).unwrap();
         got.extend(xs[split..].iter().map(|&x| restored.step(Some(x), None)));
         assert_eq!(bits(got), whole, "split at {split}");
     }
@@ -67,6 +75,12 @@ fn a_repeated_window_is_at_distance_zero_and_a_break_stands_out() {
     xs[80] = 40.0;
     let profile = apply(Spec::LeftProfile { m: 10, history: 60 }, &xs).unwrap();
     assert!(profile[40].is_some_and(|d| d < 1e-6), "{:?}", profile[40]);
-    let peak = profile[80..90].iter().flatten().fold(0.0f64, |a, &b| a.max(b));
-    assert!(peak > 1.0, "the break is far from every earlier window: {peak}");
+    let peak = profile[80..90]
+        .iter()
+        .flatten()
+        .fold(0.0f64, |a, &b| a.max(b));
+    assert!(
+        peak > 1.0,
+        "the break is far from every earlier window: {peak}"
+    );
 }

@@ -136,7 +136,10 @@ pub enum Spec {
     /// Streaming left matrix profile (STAMPI, EH-529): the z-normalised distance of the
     /// newest length-`m` subsequence to its nearest earlier non-trivial neighbour among
     /// the last `history` subsequences — an incremental discord score.
-    LeftProfile { m: usize, history: usize },
+    LeftProfile {
+        m: usize,
+        history: usize,
+    },
 }
 
 impl Spec {
@@ -234,7 +237,7 @@ pub fn apply_nan(spec: Spec, xs: &[f64]) -> Result<Vec<f64>> {
         .collect())
 }
 
-#[cfg(test)]
-mod tests;
 #[cfg(all(test, feature = "motif"))]
 mod motif_tests;
+#[cfg(test)]
+mod tests;

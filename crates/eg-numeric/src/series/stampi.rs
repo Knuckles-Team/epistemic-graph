@@ -61,7 +61,8 @@ impl LeftProfile {
         self.values.push_back(c);
         let moments = self.window.step(c)?;
         let newest = self.first + self.stats.len();
-        self.stats.push_back((moments.mean, moments.population_std()));
+        self.stats
+            .push_back((moments.mean, moments.population_std()));
         self.advance_row(newest);
         self.trim(newest);
         self.nearest(newest)
@@ -71,7 +72,9 @@ impl LeftProfile {
     fn advance_row(&mut self, newest: usize) {
         let rows = self.stats.len();
         if self.since_anchor >= ANCHOR_EVERY || rows < 2 || self.qt.len() + 1 != rows {
-            self.qt = (0..rows).map(|k| self.direct(newest, self.first + k)).collect();
+            self.qt = (0..rows)
+                .map(|k| self.direct(newest, self.first + k))
+                .collect();
             self.since_anchor = 0;
             return;
         }
@@ -82,7 +85,9 @@ impl LeftProfile {
         row.push_back(self.direct(newest, self.first));
         for (k, &previous) in self.qt.iter().enumerate().take(rows - 1) {
             let j = self.first + k + 1;
-            row.push_back(previous - leaving * self.value(j - 1) + entering * self.value(j + self.m - 1));
+            row.push_back(
+                previous - leaving * self.value(j - 1) + entering * self.value(j + self.m - 1),
+            );
         }
         self.qt = row;
     }
@@ -116,9 +121,7 @@ impl LeftProfile {
     fn direct(&self, a: usize, b: usize) -> f64 {
         let (a0, b0) = (a - self.first, b - self.first);
         let sub = |start: usize| self.values.range(start..start + self.m);
-        sub(a0)
-            .zip(sub(b0))
-            .fold(0.0, |acc, (x, y)| acc + x * y)
+        sub(a0).zip(sub(b0)).fold(0.0, |acc, (x, y)| acc + x * y)
     }
 }
 
@@ -134,7 +137,9 @@ pub fn left_profile_batch(xs: &[f64], m: usize, history: usize) -> Vec<Option<f6
         let hi = t.checked_sub(exclusion_zone(m) + 1);
         out[t + m - 1] = hi.and_then(|hi| {
             (lo..=hi)
-                .map(|j| znorm_distance(dot(&c[t..t + m], &c[j..j + m]), m, stats.at(t), stats.at(j)))
+                .map(|j| {
+                    znorm_distance(dot(&c[t..t + m], &c[j..j + m]), m, stats.at(t), stats.at(j))
+                })
                 .min_by(f64::total_cmp)
         });
     }
