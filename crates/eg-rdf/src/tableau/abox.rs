@@ -101,6 +101,20 @@ pub fn check_pack_ontology(triples: &[Triple], max_steps: u64) -> Result<(), Bou
 /// by explicit subclass edges; other OWL axioms may add steps, never remove these.
 /// Stop as soon as this lower bound proves the classification budget insufficient.
 fn explicit_subclass_pairs_exceed(triples: &[Triple], max_steps: u64) -> bool {
+    let (edges, node_count) = explicit_subclass_graph(triples);
+    if (edges.len() as u64).saturating_mul(node_count.saturating_sub(1) as u64) <= max_steps {
+        return false;
+    }
+    let mut pairs = 0_u64;
+    for start in edges.keys() {
+        if reachable_pairs_exceed(&edges, start, &mut pairs, max_steps) {
+            return true;
+        }
+    }
+    false
+}
+
+fn explicit_subclass_graph(triples: &[Triple]) -> (BTreeMap<&str, Vec<&str>>, usize) {
     const SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
     let mut edges: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     let mut nodes = HashSet::new();
@@ -116,24 +130,25 @@ fn explicit_subclass_pairs_exceed(triples: &[Triple], max_steps: u64) -> bool {
         edges.entry(sub.as_str()).or_default().push(sup.as_str());
         nodes.extend([sub.as_str(), sup.as_str()]);
     }
-    if (edges.len() as u64).saturating_mul(nodes.len().saturating_sub(1) as u64) <= max_steps {
-        return false;
-    }
-    let mut pairs = 0_u64;
-    for start in edges.keys() {
-        let mut seen = HashSet::new();
-        let mut queue = VecDeque::from([*start]);
-        seen.insert(*start);
-        while let Some(class) = queue.pop_front() {
-            if let Some(supers) = edges.get(class) {
-                for &sup in supers {
-                    if seen.insert(sup) {
-                        queue.push_back(sup);
-                        pairs += 1;
-                        if pairs > max_steps {
-                            return true;
-                        }
-                    }
+    (edges, nodes.len())
+}
+
+fn reachable_pairs_exceed<'a>(
+    edges: &BTreeMap<&'a str, Vec<&'a str>>,
+    start: &'a str,
+    pairs: &mut u64,
+    max_steps: u64,
+) -> bool {
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::from([start]);
+    seen.insert(start);
+    while let Some(class) = queue.pop_front() {
+        for &sup in edges.get(class).into_iter().flatten() {
+            if seen.insert(sup) {
+                queue.push_back(sup);
+                *pairs += 1;
+                if *pairs > max_steps {
+                    return true;
                 }
             }
         }

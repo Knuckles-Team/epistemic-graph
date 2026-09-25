@@ -51,6 +51,12 @@ def _object_ok(node: dict[str, Any], value: Any) -> bool:
     return all(valid(props[k], v) for k, v in value.items() if k in props)
 
 
+def _array_ok(node: dict[str, Any], value: list[Any]) -> bool:
+    if "items" not in node:
+        return True
+    return all(valid(node["items"], item) for item in value)
+
+
 def valid(node: dict[str, Any], value: Any) -> bool:
     """A small JSON-Schema subset: $ref, oneOf/anyOf, const, type, objects, arrays."""
     node = _resolve(node)
@@ -63,8 +69,8 @@ def valid(node: dict[str, Any], value: Any) -> bool:
         return False
     if isinstance(value, dict):
         return _object_ok(node, value)
-    if isinstance(value, list) and "items" in node:
-        return all(valid(node["items"], item) for item in value)
+    if isinstance(value, list):
+        return _array_ok(node, value)
     return True
 
 

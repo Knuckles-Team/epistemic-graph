@@ -12,27 +12,8 @@ fn brute_force(n: usize, edges: &[(usize, usize, f64)], seeds: &[Seed], hops: u3
     assert!(e + s <= 16, "oracle is exponential");
     let mut exact = vec![0.0; n];
     for world in 0..1usize << (e + s) {
-        let mut weight = 1.0;
-        let mut live = Vec::new();
-        for (i, &(u, v, p)) in edges.iter().enumerate() {
-            let on = world & (1 << i) != 0;
-            weight *= if on { p } else { 1.0 - p };
-            if on {
-                live.push((u, v));
-            }
-        }
-        let mut active = Vec::new();
-        for (j, seed) in seeds.iter().enumerate() {
-            let on = world & (1 << (e + j)) != 0;
-            weight *= if on {
-                seed.probability
-            } else {
-                1.0 - seed.probability
-            };
-            if on {
-                active.push(seed.node);
-            }
-        }
+        let (edge_weight, live) = live_edges(world, edges);
+        let (weight, active) = active_seeds(world >> e, seeds, edge_weight);
         for (node, hit) in reached(n, &live, &active, hops).into_iter().enumerate() {
             if hit {
                 exact[node] += weight;
@@ -40,6 +21,35 @@ fn brute_force(n: usize, edges: &[(usize, usize, f64)], seeds: &[Seed], hops: u3
         }
     }
     exact
+}
+
+fn live_edges(world: usize, edges: &[(usize, usize, f64)]) -> (f64, Vec<(usize, usize)>) {
+    let mut weight = 1.0;
+    let mut live = Vec::new();
+    for (i, &(u, v, p)) in edges.iter().enumerate() {
+        let on = world & (1 << i) != 0;
+        weight *= if on { p } else { 1.0 - p };
+        if on {
+            live.push((u, v));
+        }
+    }
+    (weight, live)
+}
+
+fn active_seeds(world: usize, seeds: &[Seed], mut weight: f64) -> (f64, Vec<usize>) {
+    let mut active = Vec::new();
+    for (i, seed) in seeds.iter().enumerate() {
+        let on = world & (1 << i) != 0;
+        weight *= if on {
+            seed.probability
+        } else {
+            1.0 - seed.probability
+        };
+        if on {
+            active.push(seed.node);
+        }
+    }
+    (weight, active)
 }
 
 fn reached(n: usize, live: &[(usize, usize)], active: &[usize], hops: u32) -> Vec<bool> {

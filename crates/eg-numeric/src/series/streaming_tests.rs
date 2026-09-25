@@ -116,27 +116,31 @@ fn rolling_pairs_match_the_two_pass_correlation_and_weighted_sum() {
     for seed in 1..=16 {
         let (xs, ys) = (series(300, seed, 1.0e3), series(300, seed + 40, 5.0));
         for window in [2, 5, 12, 40] {
-            let mut pairs = RollingPairs::new(window);
-            for i in 0..xs.len() {
-                if !pairs.push(xs[i], ys[i]) {
-                    continue;
-                }
-                let (wx, wy) = (&xs[i + 1 - window..=i], &ys[i + 1 - window..=i]);
-                let sums = pairs.sums().unwrap();
-                let want = pearson(wx, wy);
-                let got = if pairs.has_flat_side() {
-                    None
-                } else {
-                    sums.correlation(window)
-                };
-                match (got, want) {
-                    (Some(g), Some(w)) => assert!((g - w).abs() < 1e-9, "corr at {i}"),
-                    (g, w) => assert_eq!(g.is_some(), w.is_some(), "corr defined at {i}"),
-                }
-                let dot = wx.iter().zip(wy).fold(0.0, |acc, (x, y)| acc + x * y);
-                assert!(close(sums.product_sum(), dot, dot.abs()), "wsum at {i}");
-            }
+            assert_rolling_pair_window(&xs, &ys, window);
         }
+    }
+}
+
+fn assert_rolling_pair_window(xs: &[f64], ys: &[f64], window: usize) {
+    let mut pairs = RollingPairs::new(window);
+    for i in 0..xs.len() {
+        if !pairs.push(xs[i], ys[i]) {
+            continue;
+        }
+        let (wx, wy) = (&xs[i + 1 - window..=i], &ys[i + 1 - window..=i]);
+        let sums = pairs.sums().unwrap();
+        let want = pearson(wx, wy);
+        let got = if pairs.has_flat_side() {
+            None
+        } else {
+            sums.correlation(window)
+        };
+        match (got, want) {
+            (Some(g), Some(w)) => assert!((g - w).abs() < 1e-9, "corr at {i}"),
+            (g, w) => assert_eq!(g.is_some(), w.is_some(), "corr defined at {i}"),
+        }
+        let dot = wx.iter().zip(wy).fold(0.0, |acc, (x, y)| acc + x * y);
+        assert!(close(sums.product_sum(), dot, dot.abs()), "wsum at {i}");
     }
 }
 
