@@ -21,7 +21,7 @@ fn invalid(detail: impl Into<String>) -> Refusal {
 fn embargoed(index: usize, earlier_ends: &[usize], embargo: usize) -> bool {
     earlier_ends
         .iter()
-        .any(|&end| index >= end && index < end + embargo)
+        .any(|&end| index >= end && index < end.saturating_add(embargo))
 }
 
 fn fold_at(start: usize, spec: &WalkForward, earlier_ends: &[usize]) -> RefusalResult<Fold> {
@@ -48,20 +48,28 @@ pub fn walk_forward(n: usize, spec: &WalkForward) -> RefusalResult<Vec<Fold>> {
         return Err(invalid("train and test must be positive and step >= test"));
     }
     let mut folds: Vec<Fold> = Vec::new();
-    let mut start = (spec.train + spec.purge) as usize;
-    while start + spec.test as usize <= n {
+    let Some(mut start) = (spec.train as usize).checked_add(spec.purge as usize) else {
+        return Err(invalid("walk-forward window size overflows"));
+    };
+    while start
+        .checked_add(spec.test as usize)
+        .is_some_and(|end| end <= n)
+    {
         let earlier_ends: Vec<usize> = folds.iter().map(|fold| fold.test.end).collect();
         folds.push(fold_at(start, spec, &earlier_ends)?);
-        start += spec.step as usize;
+        if folds.len() > MAX_REPLAY_FOLDS {
+            return Err(invalid(format!(
+                "{} folds exceed the bound of {MAX_REPLAY_FOLDS}",
+                folds.len()
+            )));
+        }
+        let Some(next) = start.checked_add(spec.step as usize) else {
+            break;
+        };
+        start = next;
     }
     if folds.is_empty() {
         return Err(invalid(format!("{n} items leave no walk-forward fold")));
-    }
-    if folds.len() > MAX_REPLAY_FOLDS {
-        return Err(invalid(format!(
-            "{} folds exceed the bound of {MAX_REPLAY_FOLDS}",
-            folds.len()
-        )));
     }
     Ok(folds)
 }

@@ -75,6 +75,9 @@ fn walk_forward_refuses_overlapping_or_empty_folds() {
     assert!(walk_forward(40, &spec(0, 5, 5, 0, 0)).is_err());
     let refused = walk_forward(12, &spec(10, 5, 5, 0, 0)).unwrap_err();
     assert_eq!(refused.code, "REPLAY_SPEC_INVALID");
+    // Untrusted wire counts must refuse rather than overflow in a debug build
+    // or wrap into a plausible-looking small fold.
+    assert!(walk_forward(40, &spec(u32::MAX, 1, 1, u32::MAX, u32::MAX)).is_err());
 }
 
 #[test]
