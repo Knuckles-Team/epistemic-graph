@@ -43,7 +43,8 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // catalog tables `eg-query` wrote without declaring, MINUS the five
     // `__sql_mutation_*__` tables of the private ledger RF-RULING-006 retired
     // onto `MutationKernel`'s.
-    // One SQL-owned provider-checkpoint table joins the existing owner rows.
+    // Provider checkpoints, ANN dirty rows, and durable ANN generations join
+    // the SQL owner registry through explicit inspected layout transitions.
     assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 21);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
