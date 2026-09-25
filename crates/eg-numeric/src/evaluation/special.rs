@@ -1,14 +1,11 @@
 //! Special functions and moments the evaluation kernels share (EH-530, re-homed from
-//! the finance quant module's private `sf`): the standard-normal CDF and quantile, and
-//! sample skewness / excess kurtosis. Transcendentals go through the pinned
-//! [`crate::detkernel::math`], so results are bit-identical on every release target.
+//! the finance quant module's private `sf`): the standard-normal quantile and sample
+//! skewness / excess kurtosis. The CDF and survival are the ONE tail-accurate
+//! [`crate::detkernel::kernels::normal_cdf`]/[`normal_sf`](crate::detkernel::kernels::normal_sf).
+//! Transcendentals go through the pinned [`crate::detkernel::math`], so results are
+//! bit-identical on every release target.
 
 use crate::detkernel::math;
-
-/// Standard-normal CDF `Φ(x) = ½·erfc(−x/√2)` (full double precision in both tails).
-pub fn norm_cdf(x: f64) -> f64 {
-    0.5 * math::erfc(-x / std::f64::consts::SQRT_2)
-}
 
 /// Inverse standard-normal CDF (Acklam's rational approximation, relative error
 /// < 1.2e-9). `p <= 0` is `−∞`, `p >= 1` is `+∞`.
@@ -115,14 +112,14 @@ pub fn excess_kurtosis(d: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detkernel::kernels::normal_cdf;
 
     #[test]
     fn the_normal_cdf_and_quantile_invert_each_other() {
-        assert_eq!(norm_cdf(0.0), 0.5);
-        assert!((norm_cdf(1.959_963_984_540_054) - 0.975).abs() < 1e-15);
+        assert!((normal_cdf(1.959_963_984_540_054) - 0.975).abs() < 1e-15);
         for p in [1e-6, 0.01, 0.2, 0.5, 0.9, 0.999] {
             assert!(
-                (norm_cdf(norm_ppf(p)) - p).abs() < 1e-8 * p.max(1e-3),
+                (normal_cdf(norm_ppf(p)) - p).abs() < 1e-8 * p.max(1e-3),
                 "p = {p}"
             );
         }
