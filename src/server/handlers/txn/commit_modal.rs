@@ -521,6 +521,20 @@ fn build_cross_modal_plan(
     methods.extend(txn.axioms.iter().cloned());
     methods.extend(txn.constructs.iter().cloned());
     methods.extend(txn.plan_writeback.iter().cloned());
+    for method in &methods {
+        crate::server::mutation_batch::reject_reserved_usage_compact_method(method, false)?;
+    }
+    if txn
+        .vectors
+        .iter()
+        .any(|(id, _)| id.starts_with("usage:event:"))
+        || txn
+            .blob_refs
+            .iter()
+            .any(|(id, _)| id.starts_with("usage:event:"))
+    {
+        return Err("cross-modal transaction cannot change reserved usage event rows".into());
+    }
     let measurements = txn
         .measurements
         .iter()

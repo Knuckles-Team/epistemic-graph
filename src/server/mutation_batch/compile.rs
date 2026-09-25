@@ -159,7 +159,10 @@ pub(crate) fn compile_methods(
 /// Compact graph writes bypass the row-delta admission seam. Keep that
 /// durable path closed to the reserved usage namespace, including OCC children
 /// and batch rows. An append is staged and checked by GraphRowDelta first.
-fn reject_reserved_usage_compact_method(method: &Method, state_backed: bool) -> Result<(), String> {
+pub(crate) fn reject_reserved_usage_compact_method(
+    method: &Method,
+    state_backed: bool,
+) -> Result<(), String> {
     const PREFIX: &str = "usage:event:";
     let reserved = match method {
         Method::AddNode { node_id, .. }
