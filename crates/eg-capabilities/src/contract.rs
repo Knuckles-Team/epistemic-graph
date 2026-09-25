@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{ConsumerProfile, MethodDescriptor, Stability};
 
+mod errors;
 mod format_identity;
 mod method_bodies;
 mod python;
@@ -120,7 +121,7 @@ fn descriptor_json(d: &MethodDescriptor, catalog: &Catalog) -> serde_json::Value
             "schema": format!("contract/schemas/method.request.json#/methods/{id}"),
         },
         "result_schema": result_schema_json(d, catalog),
-        "error_set": d.error_set,
+        "error_set": errors::method_error_set(d),
         "policy": {
             "mutates": d.policy.mutates,
             "durability_domain": format!("{:?}", d.policy.durability_domain),
@@ -306,6 +307,10 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
         Artifact {
             path: "contract/methods.json".to_string(),
             bytes: methods_json(catalog),
+        },
+        Artifact {
+            path: "contract/errors.json".to_string(),
+            bytes: errors::catalog_json(),
         },
         Artifact {
             path: "docs/capabilities.generated.md".to_string(),
