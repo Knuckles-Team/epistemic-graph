@@ -211,7 +211,7 @@ fn preflight_source_ingestion_msgpack(method: &Method) -> Option<Result<(), &'st
         request
             .canonical_bytes()
             .map(|_| ())
-            .map_err(|_| "source ingestion batch exceeds its canonical byte bound"),
+            .map_err(|_| "SOURCE_INGESTION_BATCH_TOO_LARGE: source ingestion batch exceeds the 16 MiB request byte limit"),
     )
 }
 
@@ -227,6 +227,42 @@ pub(crate) fn preflight_request_msgpack(method: &Method) -> Result<(), &'static 
         .or_else(|| preflight_source_ingestion_msgpack(method))
         .or_else(|| preflight_feature_surface_msgpack(method))
         .unwrap_or(Ok(()))
+}
+
+#[cfg(test)]
+mod source_ingestion_limit_tests {
+    use super::preflight_request_msgpack;
+    use crate::protocol::Method;
+
+    #[test]
+    fn decoded_oversized_source_page_gets_method_limit_refusal() {
+        let mut batch = serde_json::to_value(eg_types::test_support::source_ingestion::request())
+            .expect("source request fixture");
+        let template = batch["records"][0].clone();
+        let large_payload = "x".repeat(17_000);
+        batch["records"] = serde_json::Value::Array(
+            (0..eg_types::source_ingestion::MAX_SOURCE_RECORDS)
+                .map(|index| {
+                    let mut record = template.clone();
+                    record["record_id"] = format!("item-{index}").into();
+                    record["provenance"]["source_uri"] =
+                        format!("demo://items/item-{index}").into();
+                    record["payload"]["name"] = large_payload.clone().into();
+                    record
+                })
+                .collect(),
+        );
+        let wire = rmp_serde::to_vec_named(&batch).expect("request wire");
+        let request = rmp_serde::from_slice(&wire).expect("typed request decoder");
+        let error = preflight_request_msgpack(&Method::SourceIngest {
+            request: Box::new(request),
+        })
+        .expect_err("over-bound page is refused before dispatch");
+        assert!(
+            error.starts_with("SOURCE_INGESTION_BATCH_TOO_LARGE"),
+            "{error}"
+        );
+    }
 }
 
 // AST ingestion is intentionally content-based: callers send bounded source bytes

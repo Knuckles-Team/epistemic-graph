@@ -48,6 +48,45 @@ fn request() -> SourceIngestionBatch {
     }
 }
 
+fn full_record_page(payload_bytes: usize) -> SourceIngestionBatch {
+    let mut batch = request();
+    let mut template = batch.records.as_slice()[0].clone();
+    template.payload = SourceJson::new(json!({"name": "x".repeat(payload_bytes)})).unwrap();
+    batch.records = BoundedVec::new(
+        (0..MAX_SOURCE_RECORDS)
+            .map(|index| {
+                let mut record = template.clone();
+                record.record_id = format!("item-{index}");
+                record.provenance.source_uri = format!("demo://items/item-{index}");
+                record
+            })
+            .collect(),
+    )
+    .unwrap();
+    batch
+}
+
+#[test]
+fn full_source_ingestion_page_is_admitted_with_stable_digest() {
+    let request = SourceIngestionRequest::new(full_record_page(512)).expect("full record page");
+    assert_eq!(request.as_batch().records.len(), MAX_SOURCE_RECORDS);
+    let replay = SourceIngestionRequest::new(full_record_page(512)).expect("same page replay");
+    assert_eq!(
+        request.batch_digest().unwrap(),
+        replay.batch_digest().unwrap()
+    );
+}
+
+#[test]
+fn oversized_source_ingestion_page_has_stable_resizable_refusal() {
+    let error = SourceIngestionRequest::new(full_record_page(17_000))
+        .expect_err("request larger than 16 MiB must be refused");
+    assert!(
+        error.starts_with(SOURCE_INGESTION_BATCH_TOO_LARGE),
+        "{error}"
+    );
+}
+
 #[test]
 fn canonical_digest_is_stable_across_payload_key_order() {
     let first = SourceIngestionRequest::new(request()).unwrap();

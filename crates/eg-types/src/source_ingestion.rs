@@ -26,6 +26,8 @@ pub const MAX_AUTHORITATIVE_LIVE_IDS: usize = 16_384;
 pub const MAX_SOURCE_MAPPING_RECEIPTS: usize = MAX_SOURCE_RECORDS + MAX_SOURCE_RELATIONSHIPS;
 pub const MAX_MAPPING_REFERENCE_BYTES: usize = 1_024;
 pub const MAX_SOURCE_TEXT_BYTES: usize = 8_192;
+/// Stable refusal when a source page cannot fit in one atomic ingestion request.
+pub const SOURCE_INGESTION_BATCH_TOO_LARGE: &str = "SOURCE_INGESTION_BATCH_TOO_LARGE";
 /// Shared Rust/generated-client digest marker. The generated Python model must
 /// preserve this declaration order when producing named MessagePack.
 pub const SOURCE_INGESTION_DIGEST_DOMAIN: &str = "eg/source-ingestion-batch/v2";
@@ -256,9 +258,12 @@ pub struct SourceIngestionBatch {
     pub withdrawals: SourceWithdrawals,
 }
 
-/// A request whose structural invariants and byte bound were checked during
-/// construction/deserialization.  Tenant, auth, mapping existence and the
-/// persisted cursor are deliberately server-side authority checks.
+/// A request whose structural invariants are checked during construction and
+/// deserialization. Explicit construction also checks the canonical byte
+/// bound; the served request boundary checks it after typed deserialization so
+/// an oversized page receives a stable method refusal instead of a generic
+/// transport decode error. Tenant, auth, mapping existence and the persisted
+/// cursor are deliberately server-side authority checks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -279,12 +284,16 @@ impl SourceIngestionRequest {
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, String> {
         let mut buffer = BoundedWriter::new(
             MAX_MUTATION_ENVELOPE_BYTES,
-            "source ingestion byte limit exceeded",
+            SOURCE_INGESTION_BATCH_TOO_LARGE,
         );
         let mut serializer = rmp_serde::Serializer::new(&mut buffer).with_struct_map();
         self.0
             .serialize(&mut serializer)
-            .map_err(|_| "source ingestion batch exceeds the mutation envelope byte limit")?;
+            .map_err(|_| {
+                format!(
+                    "{SOURCE_INGESTION_BATCH_TOO_LARGE}: source ingestion batch exceeds the 16 MiB request byte limit; submit fewer records per batch"
+                )
+            })?;
         Ok(buffer.into_bytes())
     }
 
@@ -298,8 +307,9 @@ impl SourceIngestionRequest {
 
 impl<'de> Deserialize<'de> for SourceIngestionRequest {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::new(SourceIngestionBatch::deserialize(deserializer)?)
-            .map_err(serde::de::Error::custom)
+        let batch = SourceIngestionBatch::deserialize(deserializer)?;
+        validate_batch(&batch).map_err(serde::de::Error::custom)?;
+        Ok(Self(batch))
     }
 }
 
