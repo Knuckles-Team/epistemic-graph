@@ -127,6 +127,7 @@ async fn fitted(h: &Harness) -> Fitted {
 
 fn spec() -> ReplaySpec {
     ReplaySpec {
+        graph: "g".to_string(),
         folds: WalkForward {
             train: 100,
             test: 40,

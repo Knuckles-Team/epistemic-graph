@@ -49,6 +49,16 @@ fn quantised(value: f64) -> Result<QuantisedValue, String> {
 
 /// The assumptions replay rests on, checked before anything is read.
 fn check_spec(spec: &ReplaySpec, regime: Regime) -> Result<(), String> {
+    if spec.graph.is_empty()
+        || spec.graph.len() > 256
+        || spec.graph.trim() != spec.graph
+        || spec.graph.bytes().any(|byte| byte.is_ascii_control())
+    {
+        return Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "replay requires an exact, bounded graph ACL anchor",
+        ));
+    }
     let dependent = spec.env == ReplayEnvironment::PolicyDependent || regime != Regime::FullLabel;
     if dependent {
         return Err(refusal(
@@ -101,28 +111,7 @@ fn replayed(
     items: &[&LabelledItem],
     steps: &[ReplayStep],
 ) -> Result<ReplayOutcome, String> {
-    let refit = spec.refit.map(|refit| FitSpec {
-        head_kind: refit.head_kind,
-        regime: Regime::FullLabel,
-        optimiser: refit.optimiser,
-        feature_schema_digest: &inputs.head.feature_schema_digest,
-        statistical: &inputs.policy.statistical,
-    });
-    let mut candidate = HeadReplay {
-        dataset: &inputs.dataset,
-        items,
-        head: inputs.head.clone(),
-        refit,
-    };
-    let mut incumbent: Box<dyn ReplayPolicy + '_> = match &spec.incumbent {
-        None => Box::new(Uniform { steps }),
-        Some(pin) => Box::new(HeadReplay {
-            dataset: &inputs.dataset,
-            items,
-            head: incumbent_head(store, inputs, &request.tenant_id, pin)?,
-            refit: None,
-        }),
-    };
+    let (mut candidate, mut incumbent) = policies(store, inputs, request, spec, items, steps)?;
     let cap = value_of(spec.budget.cap);
     rendered(replay(
         steps,
@@ -131,6 +120,39 @@ fn replayed(
         &mut candidate,
         incumbent.as_mut(),
     ))
+}
+
+fn policies<'a>(
+    store: &AgentLibraryStore,
+    inputs: &'a EvalInputs,
+    request: &DecisionEvalRequest,
+    spec: &ReplaySpec,
+    items: &'a [&'a LabelledItem],
+    steps: &'a [ReplayStep],
+) -> Result<(HeadReplay<'a>, Box<dyn ReplayPolicy + 'a>), String> {
+    let refit = spec.refit.map(|refit| FitSpec {
+        head_kind: refit.head_kind,
+        regime: Regime::FullLabel,
+        optimiser: refit.optimiser,
+        feature_schema_digest: &inputs.head.feature_schema_digest,
+        statistical: &inputs.policy.statistical,
+    });
+    let candidate = HeadReplay {
+        dataset: &inputs.dataset,
+        items,
+        head: inputs.head.clone(),
+        refit,
+    };
+    let incumbent: Box<dyn ReplayPolicy + 'a> = match &spec.incumbent {
+        None => Box::new(Uniform { steps }),
+        Some(pin) => Box::new(HeadReplay {
+            dataset: &inputs.dataset,
+            items,
+            head: incumbent_head(store, inputs, &request.tenant_id, pin)?,
+            refit: None,
+        }),
+    };
+    Ok((candidate, incumbent))
 }
 
 fn incumbent_head(
@@ -282,4 +304,67 @@ pub(super) fn run(
     let run = seal(inputs, spec, &outcome, &steps)?;
     let row = (evaluation_run_key(&run.run_digest), encode_artifact(&run)?);
     Ok((DecisionJobOutput::Replay { run: Box::new(run) }, vec![row]))
+}
+
+/// Resume a claimed replay from its durable per-fold checkpoint. The job's
+/// graph and tenant must match the exact request being replayed; the worker
+/// validates the request-ref and input-payload digest before calling this.
+/// The fold runner validates its checkpoint against that pinned job lineage.
+#[cfg(feature = "jobs")]
+pub(super) fn run_fenced(
+    store: &AgentLibraryStore,
+    inputs: &EvalInputs,
+    request: &DecisionEvalRequest,
+    spec: &ReplaySpec,
+    jobs: &eg_jobs::JobStore,
+    claim: &eg_jobs::store::WorkerClaim,
+) -> JobRun {
+    check_spec(spec, inputs.regime)?;
+    check_supersedes(store, &request.tenant_id, spec)?;
+    if claim.job.policy.tenant != request.tenant_id || claim.job.input_snapshot.graph != spec.graph
+    {
+        return Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "claimed replay does not match its tenant and graph",
+        ));
+    }
+    let admitted = inputs.admitted(request.window);
+    let items = time_ordered(&admitted.items);
+    let steps = rendered(gold_steps(&items))?;
+    let folds = rendered(eg_numeric::decision::replay::walk_forward(
+        steps.len(),
+        &spec.folds,
+    ))?;
+    let (mut candidate, mut incumbent) = policies(store, inputs, request, spec, &items, &steps)?;
+    let cap = value_of(spec.budget.cap);
+    let completed = eg_jobs::run_folds_fenced(
+        jobs,
+        claim,
+        folds.len(),
+        |index| {
+            rendered(eg_numeric::decision::replay::replay_fold(
+                &steps,
+                folds[index].clone(),
+                cap,
+                &mut candidate,
+                incumbent.as_mut(),
+            ))
+        },
+        replay_now_ms,
+    )
+    .map_err(|error| error.to_string())?;
+    let outcome = eg_numeric::decision::replay::collect_replay(completed);
+    let run = seal(inputs, spec, &outcome, &steps)?;
+    let row = (evaluation_run_key(&run.run_digest), encode_artifact(&run)?);
+    Ok((DecisionJobOutput::Replay { run: Box::new(run) }, vec![row]))
+}
+
+#[cfg(feature = "jobs")]
+fn replay_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(i64::MAX)
 }
