@@ -95,6 +95,8 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    ("GetNodes", &["RESULT_TOO_LARGE"]),
+    ("GetEdges", &["RESULT_TOO_LARGE"]),
     ("CreateGraph", &["REPLAY_NONCE_CONSUMED"]),
     ("AddNode", &["REPLAY_NONCE_CONSUMED"]),
     ("CypherQuery", &["REPLAY_NONCE_CONSUMED"]),
@@ -260,6 +262,9 @@ mod tests {
         assert!(method_allows_error("CreateGraph", "OPERATION_REDIRECTED"));
         assert!(!method_allows_error("CreateGraph", "UNSUPPORTED_COALITION"));
         assert!(!method_allows_error("NotADeclaredMethod", "ACCESS_DENIED"));
+        assert!(method_allows_error("GetNodes", "RESULT_TOO_LARGE"));
+        assert!(method_allows_error("GetEdges", "RESULT_TOO_LARGE"));
+        assert!(!method_allows_error("GetNodesByLabel", "RESULT_TOO_LARGE"));
         for method in [
             "CreateGraph",
             "AddNode",

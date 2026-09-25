@@ -50,6 +50,7 @@ EXPECTED_PATHS = {
     "src/server/dispatch/request_boundary.rs",
     "src/server/dispatch/request_boundary/authorization.rs",
     "src/server/dispatch/request_boundary/consensus.rs",
+    "src/server/dispatch/request_boundary/method_errors.rs",
     "src/server/dispatch/request_boundary/preflight.rs",
     "src/server/dispatch/request_boundary/saga.rs",
     "src/server/dispatch/request_boundary/screen.rs",
@@ -235,20 +236,24 @@ CFG_FINGERPRINT = "d0afb3c3907a87209c510992e3879cd644a5b28b67372f4605411132507e1
 # functions, 80 -> 103 tests, and 247 -> 337 assertions. These counts and
 # digests were measured from read_compiler_family on the combined Wave B tip;
 # the existing ownership, route-call, CFG, and known-bad mutation proofs remain.
-PRODUCTION_FUNCTION_COUNT = 547
+# The method-error boundary adds one module with two production functions,
+# eight compiler-visible functions, two tests, and eight assertions. These
+# pins were measured from the full compiler-declared family at the Train 4
+# candidate, not from a file glob.
+PRODUCTION_FUNCTION_COUNT = 549
 PRODUCTION_FUNCTION_DIGEST = (
-    "38fabc50562bf845858417dccdf17d0145da9d4016acacbf37030d1b6efd2f6b"
+    "bad3b1382a2988890b38d18c43da633aae93c90a59b6c1178cfc23136c3937ff"
 )
-COMPILER_FUNCTION_COUNT = 732
+COMPILER_FUNCTION_COUNT = 740
 COMPILER_FUNCTION_DIGEST = (
-    "ac1295f874deceb3f7d8abedb91ac09bd6f1fc899f14cddf373978cabd40bc26"
+    "b6c489bfcd43faba03be2d5f99ff0f8f71d4bd29f02f3156ad134deb25f3ffe2"
 )
-TEST_FUNCTION_COUNT = 103
+TEST_FUNCTION_COUNT = 105
 TEST_FUNCTION_DIGEST = (
-    "cafab3e7741de8d476520288ede05dbea2075adaa374839b073a2d9fe1d9843f"
+    "7812c74eae21a156976f22316d2f828c76e4f13f5bcd06d858ab197a835f16b8"
 )
-ASSERTION_COUNT = 337
-ASSERTION_DIGEST = "08563c0874885fa1781c535e1bd70534af19da2d4f9c12ded91b3c368cf8ed2f"
+ASSERTION_COUNT = 345
+ASSERTION_DIGEST = "e03c229920328a26d08a6655ca645b38d989bcc144a73f86fd253f18af7c7540"
 
 
 def require(condition: bool, message: str) -> None:
