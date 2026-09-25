@@ -123,9 +123,10 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # cardinality, so it moves only with a reviewed catalog change.
     # 100 -> 102: graph-os EG-2/EG-3 native records -- the tenant-bound
     # `IssueControlLease` / `TransitionControlLease` control-lease rows.
+    # 102 -> 103: EH-524 `TsDefineSeries => TimeSeries` (materialised derived series).
     require(
-        len(entries) == 102,
-        f"native method catalog must contain 102 entries, observed {len(entries)}",
+        len(entries) == 103,
+        f"native method catalog must contain 103 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -154,7 +155,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
             "WorkItem": 20,  # +2 IssueControlLease, TransitionControlLease
             "Blob": 6,
             "KeyValue": 3,
-            "TimeSeries": 3,
+            "TimeSeries": 4,  # +1 TsDefineSeries (EH-524)
             "AnalyticsJob": 1,
             "Statechart": 1,
             "SqliteCatalog": 1,
