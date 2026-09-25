@@ -15,6 +15,7 @@ mod budget;
 mod folds;
 mod head;
 
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use eg_types::decision::statistical::StatisticalErrorCode;
@@ -64,7 +65,7 @@ impl ReplayPolicy for Uniform<'_> {
 }
 
 /// One fold replayed.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FoldOutcome {
     pub fold: Fold,
     pub head_digest: String,
@@ -76,10 +77,13 @@ pub struct FoldOutcome {
     pub insample: f64,
     pub incumbent_insample: f64,
     pub abstained: u32,
+    /// Per-option credit in this fold, retained so a resumed job can rebuild
+    /// the aggregate without recomputing committed folds.
+    pub contributions: BTreeMap<String, (f64, f64)>,
 }
 
 /// A whole replay.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplayOutcome {
     pub folds: Vec<FoldOutcome>,
     /// Option id -> (applied, utility), summed over the candidate's test steps.
@@ -180,7 +184,6 @@ impl Replayer<'_> {
         &self,
         fold: Fold,
         pair: (&mut dyn ReplayPolicy, &mut dyn ReplayPolicy),
-        contributions: &mut BTreeMap<String, (f64, f64)>,
     ) -> RefusalResult<FoldOutcome> {
         let (candidate, incumbent) = pair;
         self.check_no_look_ahead(&fold)?;
@@ -193,12 +196,13 @@ impl Replayer<'_> {
             insample: self.insample(candidate, &fold.train)?,
             incumbent_insample: self.insample(incumbent, &fold.train)?,
             abstained: 0,
+            contributions: BTreeMap::new(),
             fold: fold.clone(),
         };
         for index in fold.test {
             let decided = self.decide(candidate, index)?;
             match &decided.applied {
-                Some(applied) => self.credit(contributions, index, applied),
+                Some(applied) => self.credit(&mut outcome.contributions, index, applied),
                 None => outcome.abstained += 1,
             }
             outcome.path.push(decided.utility);
@@ -207,6 +211,40 @@ impl Replayer<'_> {
                 .push(self.decide(incumbent, index)?.utility);
         }
         Ok(outcome)
+    }
+}
+
+/// Execute one fold independently; a job worker persists the returned outcome
+/// before it advances to the next fold.
+pub fn replay_fold(
+    steps: &[ReplayStep],
+    fold: Fold,
+    cap: f64,
+    candidate: &mut dyn ReplayPolicy,
+    incumbent: &mut dyn ReplayPolicy,
+) -> RefusalResult<FoldOutcome> {
+    if !(cap.is_finite() && cap > 0.0) {
+        return Err(Refusal::new(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "the shared cap must be positive",
+        ));
+    }
+    Replayer { steps, cap }.fold(fold, (candidate, incumbent))
+}
+
+/// Combine durable fold outcomes in their original order after a resume.
+pub fn collect_replay(folds: Vec<FoldOutcome>) -> ReplayOutcome {
+    let mut contributions = BTreeMap::new();
+    for fold in &folds {
+        for (option_id, (applied, utility)) in &fold.contributions {
+            let total = contributions.entry(option_id.clone()).or_insert((0.0, 0.0));
+            total.0 += *applied;
+            total.1 += *utility;
+        }
+    }
+    ReplayOutcome {
+        folds,
+        contributions,
     }
 }
 
@@ -225,17 +263,15 @@ pub fn replay(
             "the shared cap must be positive",
         ));
     }
-    let replayer = Replayer { steps, cap };
-    let mut contributions = BTreeMap::new();
     let mut folds = Vec::new();
     for fold in walk_forward(steps.len(), spec)? {
-        folds.push(replayer.fold(fold, (&mut *candidate, &mut *incumbent), &mut contributions)?);
+        folds.push(replay_fold(steps, fold, cap, candidate, incumbent)?);
     }
-    Ok(ReplayOutcome {
-        folds,
-        contributions,
-    })
+    Ok(collect_replay(folds))
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod checkpoint_tests;

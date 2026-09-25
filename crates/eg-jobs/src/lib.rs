@@ -58,6 +58,7 @@
 //! transitions and any caught-up replica can take over after leader failure.
 
 pub mod claim;
+pub mod fold_runner;
 pub mod intent;
 pub mod model;
 pub mod result;
@@ -71,6 +72,7 @@ pub mod dev_scope_grant;
 pub use claim::{
     commit_result_claim, plan_result_claim, CalibrationInput, ClaimCommitOutcome, ClaimWritePlan,
 };
+pub use fold_runner::{run_folds_fenced, FoldRunError};
 pub use intent::{cold_offload_intent, JobIntent, Trigger};
 pub use model::{
     compute_result_ref, digest_params, AlgoVersion, AnalyticsJob, Checkpoint, InputSnapshotHandle,
