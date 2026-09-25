@@ -84,9 +84,9 @@ fn check_named(evaluator: &NamedEvaluator, committer: &str) -> Result<(), String
         (None, Some(_)) => Err(invalid(
             "an evaluator role is a non-empty role name of at most 128 bytes, no wildcard",
         )),
-        (Some(_), Some(_)) | (None, None) => {
-            Err(invalid("a named evaluator is exactly one principal or one role"))
-        }
+        (Some(_), Some(_)) | (None, None) => Err(invalid(
+            "a named evaluator is exactly one principal or one role",
+        )),
     }
 }
 

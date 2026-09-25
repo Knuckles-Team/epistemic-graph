@@ -158,7 +158,9 @@ async fn a_commit_names_exactly_one_principal_or_one_plain_role() {
         let refused = commit_as_decider(&h, &record, evaluator).await;
         assert!(refused.unwrap_err().starts_with("PARAMETER_INVALID"));
     }
-    let logged = commit_as_decider(&h, &record, named(None, Some(ROLE))).await.unwrap();
+    let logged = commit_as_decider(&h, &record, named(None, Some(ROLE)))
+        .await
+        .unwrap();
     let key = format!("evaluator-lease:{}", logged.record_id);
     assert!(h.store.decision_artifact(TENANT, &key).unwrap().is_some());
 }
@@ -188,7 +190,9 @@ async fn a_role_grant_admits_its_holders_but_never_the_committer() {
     assert!(outsider.unwrap_err().starts_with("PARAMETER_INVALID"));
     let own = evaluate_holding(&h, "decider", &[ROLE], "rec-r").await;
     assert!(own.is_ok(), "the committer sees its own record");
-    let stored = evaluate_holding(&h, "judge", &[ROLE], "rec-r").await.unwrap();
+    let stored = evaluate_holding(&h, "judge", &[ROLE], "rec-r")
+        .await
+        .unwrap();
     assert_eq!(stored.producer, principal_of("judge"));
     let get = DecisionLogOp::Get {
         tenant_id: TENANT.to_string(),
