@@ -333,6 +333,9 @@ fn draft() -> BacktestRunDraft {
             purge_window: 2,
             embargo: 1,
             n_trials: 5,
+            // Adversarial on purpose: in every split the IS-best config is the
+            // OOS-worst, so PBO saturates at exactly 1.0. The non-saturated case
+            // is `quant::tests::pbo_counts_only_splits_whose_is_best_lands_below_the_oos_median`.
             insample: vec![
                 vec![0.4, 0.1, 0.3],
                 vec![0.2, 0.5, 0.1],
