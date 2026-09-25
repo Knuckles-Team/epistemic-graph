@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use tokio::sync::RwLock;
 
-use super::{GraphCore, GraphReadAuthority, Method, Response, ResultPayload};
+use super::{GraphCore, GraphReadAuthority, Method, Response, ResultPayload, ServerState};
 use eg_types::result_contract::graph::{UsageEventRow, UsageFactTotals, UsageFactsPage};
 
 const LABEL: &str = "UsageEvent";
@@ -88,8 +89,10 @@ fn add_totals(totals: &mut UsageFactTotals, row: &UsageEventRow) -> Result<(), S
     Ok(())
 }
 
-pub(super) fn handle(
+pub(super) async fn handle(
+    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    graph_name: &str,
     core: &Arc<GraphCore>,
     authority: &GraphReadAuthority,
     method: Method,
@@ -130,7 +133,25 @@ pub(super) fn handle(
         .as_ref()
         .map(|reference| format!("{prefix}{reference}"))
         .unwrap_or_else(|| prefix.clone());
-    let rows = core.get_nodes_by_label_page(LABEL, Some(&cursor), limit + 1);
+    let backend = state.read().await.persistence.clone();
+    let rows = if let Some(backend) = backend {
+        let graph = crate::persist::sanitize(graph_name);
+        let prefix_clone = prefix.clone();
+        let cursor_clone = cursor.clone();
+        match tokio::task::spawn_blocking(move || {
+            backend.read_usage_fact_nodes(&graph, &prefix_clone, &cursor_clone, limit + 1)
+        })
+        .await
+        {
+            Ok(Ok(Some(rows))) => rows,
+            Ok(Ok(None)) => core.get_nodes_by_label_page(LABEL, Some(&cursor), limit + 1),
+            Ok(Err(_)) | Err(_) => {
+                return Response::err(req_id, "ENGINE_UNAVAILABLE: usage index read failed");
+            }
+        }
+    } else {
+        core.get_nodes_by_label_page(LABEL, Some(&cursor), limit + 1)
+    };
     let has_more = rows
         .get(limit)
         .is_some_and(|(id, _)| id.starts_with(&prefix));
@@ -188,6 +209,8 @@ pub(super) fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::isolation::IsolationLayer;
+    use crate::server::auth::VerifiedRequestContext;
 
     #[test]
     fn usage_filter_and_totals_are_bounded_and_explicit() {
@@ -221,5 +244,66 @@ mod tests {
         assert_eq!(totals.cost_microusd, 12345);
         assert!(!opaque_ref("plain", "usage_dedup"));
         assert!(opaque_ref(&event.event_ref, "usage_dedup"));
+    }
+
+    #[tokio::test]
+    async fn tenant_read_crosses_private_writer_but_never_tenant_boundary() {
+        let isolation = IsolationLayer::new();
+        let state = Arc::new(RwLock::new(ServerState::new(
+            "test-secret",
+            isolation.clone(),
+        )));
+        let core = Arc::new(GraphCore::new());
+        let writer = VerifiedRequestContext::verified_for_test_in_tenant("emitter", "tenant-a");
+        let reader = VerifiedRequestContext::verified_for_test_in_tenant("graphos", "tenant-a");
+        let other = VerifiedRequestContext::verified_for_test_in_tenant("graphos", "tenant-b");
+        let writer_carrier =
+            crate::server::access::CarrierAuthority::from_verified(&writer).unwrap();
+        let event_ref = format!("pref_usage_dedup_{}", "a".repeat(64));
+        let node_id = format!("usage:event:{}:{event_ref}", writer_carrier.tenant_scope());
+        let properties = rmp_serde::to_vec_named(&serde_json::json!({
+            "type": "UsageEvent",
+            "schema": "usage-event-fact-v1",
+            "tenant_ref": writer_carrier.tenant_scope(),
+            "_owner": "emitter",
+            "_visibility": "private",
+            "event_ref": event_ref,
+            "run_ref": format!("pref_run_{}", "b".repeat(64)),
+            "origin": "runtime",
+            "occurred_at": "2026-09-25T00:00:00Z",
+            "occurred_at_ms": 1_790_294_400_000i64,
+            "input_tokens": 2,
+            "output_tokens": 3,
+            "cache_creation_tokens": 0,
+            "cache_read_tokens": 0,
+            "reasoning_tokens": 0,
+            "cost_microusd": null,
+            "model_ref": null,
+        }))
+        .unwrap();
+        core.add_node(node_id, properties.clone());
+        let read_authority = GraphReadAuthority::from_verified(&reader, &isolation).unwrap();
+        assert!(!read_authority.can_see_blob(&properties));
+        let method = || Method::UsageFacts {
+            mode: "events".to_string(),
+            after: None,
+            limit: 10,
+            from_ms: None,
+            to_ms: None,
+            origin: None,
+            model_ref: None,
+        };
+        let same_tenant = handle(&state, 1, "usage-test", &core, &read_authority, method()).await;
+        let Some(ResultPayload::Json(page)) = same_tenant.result else {
+            panic!("same-tenant usage read failed: {:?}", same_tenant.error);
+        };
+        assert_eq!(page["events"].as_array().unwrap().len(), 1);
+        assert_eq!(page["totals"]["input_tokens"], 2);
+        let other_authority = GraphReadAuthority::from_verified(&other, &isolation).unwrap();
+        let cross_tenant = handle(&state, 2, "usage-test", &core, &other_authority, method()).await;
+        let Some(ResultPayload::Json(page)) = cross_tenant.result else {
+            panic!("cross-tenant usage read failed: {:?}", cross_tenant.error);
+        };
+        assert_eq!(page["events"].as_array().unwrap().len(), 0);
     }
 }

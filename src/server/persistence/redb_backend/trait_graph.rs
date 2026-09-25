@@ -127,6 +127,26 @@ macro_rules! persistence_graph {
             read_one_node(&shard, graph_fname, node_id, crypto)
         }
 
+        fn read_usage_fact_nodes(
+            &self,
+            graph_fname: &str,
+            prefix: &str,
+            after: &str,
+            limit: usize,
+        ) -> Result<Option<Vec<(String, Vec<u8>)>>, String> {
+            let writer = self.shard_for(graph_fname);
+            let shard = writer
+                .shard
+                .upgrade()
+                .ok_or_else(|| "redb writer thread is gone".to_string())?;
+            #[cfg(feature = "security")]
+            let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
+            #[cfg(not(feature = "security"))]
+            let crypto = crate::redb_store::DurableCrypto::none();
+            scan_durable_usage_fact_nodes(&shard, graph_fname, prefix, after, limit, crypto)
+                .map(Some)
+        }
+
         fn shutdown(&self) {
             // Stop every shard's writer thread (CONCEPT:EG-KG.backend.sharded-k-way-durable).
             for shard in &self.shards {
