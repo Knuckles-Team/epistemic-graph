@@ -85,12 +85,18 @@ pub fn spearmanr(x: ArrayView1<f64>, y: ArrayView1<f64>) -> Result<(f64, f64)> {
         0.0 // perfect ±1 correlation → t = ∞ → p = 0
     } else {
         let df = (n - 2) as f64;
-        let t = rho * (df / denom).sqrt();
-        let dist = StudentsT::new(0.0, 1.0, df)
-            .map_err(|e| NumericError::linalg(format!("spearmanr: t-dist: {e}")))?;
-        (2.0 * (1.0 - dist.cdf(t.abs()))).clamp(0.0, 1.0)
+        student_t_two_sided_p(rho * (df / denom).sqrt(), df)?
     };
     Ok((rho, p))
+}
+
+/// Two-sided Student-t p-value `2·P(T > |t|)` on `df` degrees of freedom. It takes the
+/// survival directly (statrs' `sf` is `½·I_{df/(df+t²)}(df/2, ½)`), never `1 − CDF`,
+/// so a far-tail p-value keeps its relative accuracy instead of cancelling to 0.
+fn student_t_two_sided_p(t: f64, df: f64) -> Result<f64> {
+    let dist = StudentsT::new(0.0, 1.0, df)
+        .map_err(|e| NumericError::linalg(format!("spearmanr: t-dist: {e}")))?;
+    Ok((2.0 * dist.sf(t.abs())).clamp(0.0, 1.0))
 }
 
 /// The Kolmogorov distribution survival function
@@ -181,6 +187,24 @@ pub fn norm_pdf(x: f64, loc: f64, scale: f64) -> Result<f64> {
 mod tests {
     use super::*;
     use ndarray::array;
+
+    /// `2·P(T > t)` references from mpmath 1.3.0 at 50 digits
+    /// (`betainc(df/2, 1/2, 0, df/(df+t²), regularized=True)`), each the nearest `f64`.
+    const T_TWO_SIDED_REFERENCES: [(f64, f64, f64); 4] = [
+        (3.0, 10.0, 1.334_365_502_256_957_2e-2),
+        (10.0, 48.0, 2.532_907_567_735_134_5e-13),
+        (20.0, 10.0, 2.146_062_317_204_252_3e-9),
+        (40.0, 98.0, 1.663_387_720_368_579e-62),
+    ];
+
+    #[test]
+    fn student_t_two_sided_p_keeps_relative_accuracy_in_the_far_tail() {
+        for (t, df, reference) in T_TWO_SIDED_REFERENCES {
+            let p = student_t_two_sided_p(t, df).unwrap();
+            assert!((p / reference - 1.0).abs() < 1e-9, "t={t} df={df}: {p}");
+            assert_eq!(student_t_two_sided_p(-t, df).unwrap(), p, "symmetric");
+        }
+    }
 
     // Parity anchors computed with scipy 1.x (CONCEPT:EG-KG.compute.numeric-stats/EG-358).
     #[test]
