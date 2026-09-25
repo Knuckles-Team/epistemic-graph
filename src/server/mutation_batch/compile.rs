@@ -409,13 +409,19 @@ pub(crate) fn compile_crossmodal(
 fn reasoning_wakeup_payload(
     operations: &[MutationOperation],
     events: Vec<eg_epistemic::IncrementalReasoningEvent>,
+    state_backed: bool,
 ) -> Result<Vec<u8>, String> {
     let encoded = rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
-    let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
-        operations.len(),
-        hex::encode(Sha256::digest(encoded)),
-        events,
-    )?;
+    let digest = hex::encode(Sha256::digest(encoded));
+    // A state-backed batch commits opaque receipts, from which the consumer
+    // cannot re-derive events: its notice stays inline. Every other batch's
+    // events are exactly those of its committed operations, so its notice is
+    // bounded and references the batch past the inline cap.
+    let wakeup = if state_backed {
+        eg_epistemic::ReasoningProjectionWakeup::new(operations.len(), digest, events)?
+    } else {
+        eg_epistemic::ReasoningProjectionWakeup::bounded(operations.len(), digest, events)?
+    };
     rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
 }
 
@@ -530,7 +536,11 @@ fn finish_batch(
     let summary = if outbox_plan.reasoning_events.is_empty() {
         summary
     } else {
-        reasoning_wakeup_payload(&identity_operations, outbox_plan.reasoning_events)?
+        reasoning_wakeup_payload(
+            &identity_operations,
+            outbox_plan.reasoning_events,
+            ctx.authoritative_state.is_some(),
+        )?
     };
     drop(identity_operations);
     let mut scope_digest = Sha256::new();
@@ -862,7 +872,7 @@ fn projection_wakeup_payload_without_redb(
             .iter()
             .map(|operation| operation.method.clone())
             .collect::<Vec<_>>();
-        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
+        let wakeup = eg_epistemic::ReasoningProjectionWakeup::bounded(
             operations.len(),
             hex::encode(Sha256::digest(encoded_operations)),
             eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),

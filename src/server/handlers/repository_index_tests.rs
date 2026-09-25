@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use eg_types::change_envelope::{ChangeEnvelope, MaterialClass};
 use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
 
-use super::{lower, seal, IndexWriteSet};
+use super::{lower, seal, IndexWriteSet, BATCH_TOO_LARGE};
 use crate::mutation_batch::MutationSurface;
 use crate::protocol::Method;
 use crate::server::mutation_batch::{compile_methods, CompileBatch};
@@ -168,4 +168,51 @@ fn host_identity_inside_repository_content_is_still_refused() {
             .expect_err("host identity is refused in every class");
         assert!(error.contains("host identity"), "{error}");
     }
+}
+
+/// A repository-sized result: `symbols` SYMBOL nodes, each implemented by one
+/// file version (two operations per symbol).
+fn large_result(symbols: usize) -> IndexResult {
+    let nodes = (0..symbols)
+        .map(|index| node(&format!("symbol:{index}"), "SYMBOL", &[("name", "f")]))
+        .collect();
+    let edges = (0..symbols)
+        .map(|index| edge("fileversion:v", &format!("symbol:{index}"), "IMPLEMENTS"))
+        .collect();
+    IndexResult {
+        nodes,
+        edges,
+        ..Default::default()
+    }
+}
+
+/// A real repository batch (24 000 operations) commits as ONE atomic envelope:
+/// its projection notice is a bounded summary, not one event per operation,
+/// so the envelope's inline-material bound (unchanged) admits it.
+#[test]
+fn a_repository_sized_batch_is_one_envelope_with_a_bounded_notice() {
+    let envelope = repository_envelope(&large_result(12_000)).expect("one atomic envelope");
+    assert_eq!(envelope.mutation.operations.len(), 24_000);
+    let notice = envelope
+        .mutation
+        .outbox
+        .iter()
+        .find(|intent| intent.topic == "engine.projection.rebuild")
+        .expect("projection notice");
+    assert!(
+        notice.payload.len() < 4 * 1024,
+        "notice is {} bytes",
+        notice.payload.len()
+    );
+}
+
+/// Past the mutation batch's operation budget the batch is refused whole,
+/// with a code the source transport acts on, never committed in parts.
+#[test]
+fn a_batch_over_the_commit_budget_is_refused_whole() {
+    let limit = eg_types::mutation_batch::MAX_MUTATION_OPERATIONS;
+    let error = lower(&large_result(limit / 2 + 1))
+        .err()
+        .expect("over-budget batch is refused");
+    assert!(error.starts_with(BATCH_TOO_LARGE), "{error}");
 }

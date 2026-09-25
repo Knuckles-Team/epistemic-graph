@@ -108,7 +108,10 @@ mod relations;
 mod validation;
 mod wakeup;
 
-pub use events::{IncrementalReasoningEvent, ReasoningProjectionWakeup};
+pub use events::{
+    IncrementalReasoningEvent, ReasoningProjectionWakeup, WakeupEventSource,
+    MAX_INLINE_WAKEUP_EVENTS,
+};
 
 /// Stable domain-separated projection identity. Calling it with an identity that
 /// is already in this namespace is idempotent, which lets transitive dependency

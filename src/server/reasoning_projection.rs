@@ -522,7 +522,26 @@ async fn resolve_projection_wakeup(
     )
     .map_err(|_| ())?;
     validate_projection_wakeup(&wakeup, &record.batch)?;
-    Ok(wakeup)
+    committed_events(wakeup, &record.batch.operations)
+}
+
+/// A bounded notice past the inline cap names its batch instead of carrying
+/// one event per operation: derive the events from the committed operations
+/// the digest check above just bound it to (the notice's per-kind counts must
+/// match). An inline notice is used as is.
+#[cfg(feature = "redb")]
+fn committed_events(
+    wakeup: ReasoningProjectionWakeup,
+    operations: &[eg_types::mutation_batch::MutationOperation],
+) -> Result<ReasoningProjectionWakeup, ()> {
+    if wakeup.event_source == eg_epistemic::WakeupEventSource::Inline {
+        return Ok(wakeup);
+    }
+    let methods: Vec<_> = operations
+        .iter()
+        .map(|operation| operation.method.clone())
+        .collect();
+    wakeup.with_committed_events(&methods).map_err(|_| ())
 }
 
 #[cfg(feature = "redb")]
@@ -2001,5 +2020,58 @@ mod tests {
         backend.shutdown();
         drop(backend);
         let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+/// A repository-sized batch's projection notice is bounded, and the consumer
+/// still applies one event per committed operation (EH-280).
+#[cfg(all(test, feature = "redb", feature = "epistemic-tms"))]
+mod bounded_wakeup_tests {
+    use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
+
+    use super::committed_events;
+    use crate::protocol::Method;
+
+    fn operations(count: usize) -> Vec<MutationOperation> {
+        (0..count)
+            .map(|index| MutationOperation {
+                ordinal: index as u32,
+                surface: MutationSurface::Graph,
+                domain: DurabilityDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: format!("repository-node-{index}"),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"type": "Blob"}),
+                    )
+                    .unwrap(),
+                },
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_large_batch_notice_is_bounded_and_the_consumer_gets_every_change() {
+        let operations = operations(24_000);
+        let payload = crate::redb_store::projection_payload_for_operations(&operations)
+            .expect("projection notice");
+        assert!(
+            payload.len() < 4 * 1024,
+            "notice is {} bytes",
+            payload.len()
+        );
+        let notice: eg_epistemic::ReasoningProjectionWakeup =
+            rmp_serde::from_slice(&payload).unwrap();
+        assert!(notice.events.is_empty());
+
+        let resolved = committed_events(notice.clone(), &operations).expect("resolved");
+        let methods: Vec<Method> = operations.iter().map(|op| op.method.clone()).collect();
+        assert_eq!(
+            resolved.events,
+            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods)
+        );
+        assert!(
+            committed_events(notice, &operations[1..]).is_err(),
+            "a notice never resolves against a different batch"
+        );
     }
 }
