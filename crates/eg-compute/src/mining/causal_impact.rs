@@ -20,6 +20,8 @@
 // z-statistic (the same asymptotic-Normal treatment `anomaly::z_score_mad`'s
 // z-scores get elsewhere in this crate — no new statistical machinery).
 
+use eg_numeric::detkernel::kernels::normal_sf;
+
 /// The result of one causal-impact estimate.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CausalEffect {
@@ -53,27 +55,11 @@ fn variance(v: &[f64], m: f64) -> f64 {
     }
 }
 
-/// Abramowitz-Stegun rational approximation to the error function (max abs error
-/// ~1.5e-7) — pure Rust, no dependency, sufficient precision for a confidence score.
-fn erf(x: f64) -> f64 {
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x = x.abs();
-    let a1 = 0.254829592;
-    let a2 = -0.284496736;
-    let a3 = 1.421413741;
-    let a4 = -1.453152027;
-    let a5 = 1.061405429;
-    let p = 0.3275911;
-    let t = 1.0 / (1.0 + p * x);
-    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x * x).exp();
-    sign * y
-}
-
-/// Standard-Normal two-sided p-value for z-statistic `z` (`P(|Z| >= |z|)`).
+/// Standard-Normal two-sided p-value for z-statistic `z` (`P(|Z| >= |z|)`):
+/// `2 * P(Z > |z|)` from the pinned `erfc`-based survival, never `1 - erf`, so a
+/// far-tail p-value keeps its relative accuracy.
 fn two_sided_p(z: f64) -> f64 {
-    let z = z.abs();
-    // P(|Z| <= z) = erf(z / sqrt(2)); two-sided tail = 1 - that.
-    (1.0 - erf(z / std::f64::consts::SQRT_2)).clamp(0.0, 1.0)
+    (2.0 * normal_sf(z.abs())).min(1.0)
 }
 
 fn effect_from(
@@ -178,6 +164,30 @@ mod tests {
         let out = diff_in_diff(&treatment, &control, 3);
         // DiD effect = (5-1) - (2-1) = 3.0 (the trend-adjusted, treatment-specific effect).
         assert!((out.effect_size - 3.0).abs() < 1e-9);
+    }
+
+    /// `2 * Phi(-z)` from mpmath 1.3.0 at 50 significant digits
+    /// (`mp.dps = 50; float(2 * mpmath.ncdf(-z))`), each the nearest `f64`.
+    const TWO_SIDED_P_REFERENCES: [(f64, f64); 5] = [
+        (3.0, 2.699_796_063_260_189e-3),
+        (6.0, 1.973_175_290_075_396e-9),
+        (8.0, 1.244_192_114_854_356_8e-15),
+        (10.0, 1.523_970_604_832_105e-23),
+        (20.0, 5.507_248_237_212_467_5e-89),
+    ];
+
+    #[test]
+    fn two_sided_p_keeps_relative_accuracy_in_the_far_tail() {
+        // `1 - erf(z / sqrt 2)` returns 0 (or noise at the approximation's
+        // 1.5e-7 floor) out here; the erfc survival keeps every digit.
+        for (z, reference) in TWO_SIDED_P_REFERENCES {
+            for signed in [z, -z] {
+                let relative = (two_sided_p(signed) / reference - 1.0).abs();
+                assert!(relative < 1e-12, "z = {signed}: relative error {relative}");
+            }
+        }
+        assert_eq!(two_sided_p(0.0), 1.0);
+        assert_eq!(two_sided_p(f64::INFINITY), 0.0);
     }
 
     #[test]

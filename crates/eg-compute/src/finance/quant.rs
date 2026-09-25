@@ -19,9 +19,10 @@
 //  Special functions (self-contained — no scipy on the wire)
 // ════════════════════════════════════════════════════════════════════════
 mod sf {
-    /// The standard-normal CDF: the one pinned-libm implementation every surface
-    /// shares (EH-527; this module's former A&S 7.1.26 copy is retired).
-    pub use eg_numeric::stats::norm_cdf;
+    //! Normal tail probabilities come from
+    //! `eg_numeric::detkernel::kernels::{normal_cdf, normal_sf}`, which keep
+    //! their relative accuracy in the far tails (this module's former A&S
+    //! 7.1.26 `erf` copy is retired; EH-527).
 
     /// Inverse standard-normal CDF (Acklam's rational approximation).
     pub fn norm_ppf(p: f64) -> f64 {
@@ -316,8 +317,6 @@ mod tests {
 
     #[test]
     fn test_special_functions() {
-        assert!((sf::norm_cdf(0.0) - 0.5).abs() < 1e-6);
-        assert!((sf::norm_cdf(1.96) - 0.975).abs() < 1e-3);
         assert!((sf::norm_ppf(0.975) - 1.96).abs() < 1e-2);
         // Beta(2,2) is symmetric: median = 0.5, cdf(0.5)=0.5
         assert!((sf::betai(2.0, 2.0, 0.5) - 0.5).abs() < 1e-6);
