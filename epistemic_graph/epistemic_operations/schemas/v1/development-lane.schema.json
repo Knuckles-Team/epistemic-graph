@@ -1,0 +1,1963 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:epistemic-operations:v1:development-lane",
+    "title": "DevelopmentLaneIntent",
+    "description": "RMDD-28 versioned native development-lane lease/quota protocol: the immutable lane-allocation intent plus its reserve/renew/observe/finish/cleanup/query/status/quota-policy request, result, hold, and charge types.",
+    "type": "object",
+    "additionalProperties": false,
+    "x-python-model": "DevelopmentLaneIntent",
+    "x-rust-type": "DevelopmentLaneIntent",
+    "$defs": {
+        "development_lane_cleanup_intent": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneCleanupIntent",
+            "x-rust-type": "DevelopmentLaneCleanupIntent",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "hold_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "lane_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "expected_hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "hold_id",
+                "lane_id",
+                "expected_hold_revision"
+            ]
+        },
+        "development_lane_cleanup_complete_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneCleanupCompleteRequest",
+            "x-rust-type": "DevelopmentLaneCleanupCompleteRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "work_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "owner_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "lease_epoch": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "fencing_token": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "work_item_fence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "cleanup_work_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "cleanup_work_item_fence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "cleanup_attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "cleanup_lease_epoch": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "cleanup_fencing_token": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "hold_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "expected_hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "removal_proof_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "work_item_id",
+                "owner_id",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "work_item_fence",
+                "cleanup_work_item_id",
+                "cleanup_work_item_fence",
+                "cleanup_attempt",
+                "cleanup_lease_epoch",
+                "cleanup_fencing_token",
+                "hold_id",
+                "expected_hold_revision",
+                "removal_proof_ref",
+                "idempotency_key",
+                "now_ms"
+            ]
+        },
+        "development_lane_cleanup_complete_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneCleanupCompleteResult",
+            "x-rust-type": "DevelopmentLaneCleanupCompleteResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "decision": {
+                    "enum": [
+                        "accepted",
+                        "idempotent",
+                        "stale",
+                        "conflict",
+                        "input_conflict",
+                        "quota",
+                        "policy",
+                        "drained",
+                        "not_found",
+                        "wrong_kind",
+                        "wrong_tenant",
+                        "wrong_owner",
+                        "wrong_attempt",
+                        "wrong_lease_epoch",
+                        "wrong_fence",
+                        "expired",
+                        "terminal",
+                        "cleanup_required",
+                        "exclusivity",
+                        "invalid"
+                    ]
+                },
+                "hold": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_hold"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "lifecycle_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                },
+                "changed_work_item_ids": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                    },
+                    "uniqueItems": true
+                },
+                "quota_charge": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_quota_charge"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "schema_version",
+                "decision",
+                "hold",
+                "hold_revision",
+                "lifecycle_revision",
+                "tombstone",
+                "changed_work_item_ids",
+                "quota_charge"
+            ]
+        },
+        "development_lane_finish_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneFinishRequest",
+            "x-rust-type": "DevelopmentLaneFinishRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "work_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "owner_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "lease_epoch": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "fencing_token": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "work_item_fence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "hold_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "expected_hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "terminal_state": {
+                    "enum": [
+                        "succeeded",
+                        "failed",
+                        "cancelled",
+                        "dead_letter"
+                    ]
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "work_item_id",
+                "owner_id",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "work_item_fence",
+                "hold_id",
+                "expected_hold_revision",
+                "terminal_state",
+                "idempotency_key",
+                "now_ms"
+            ]
+        },
+        "development_lane_finish_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneFinishResult",
+            "x-rust-type": "DevelopmentLaneFinishResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "decision": {
+                    "enum": [
+                        "accepted",
+                        "idempotent",
+                        "stale",
+                        "conflict",
+                        "input_conflict",
+                        "quota",
+                        "policy",
+                        "drained",
+                        "not_found",
+                        "wrong_kind",
+                        "wrong_tenant",
+                        "wrong_owner",
+                        "wrong_attempt",
+                        "wrong_lease_epoch",
+                        "wrong_fence",
+                        "expired",
+                        "terminal",
+                        "cleanup_required",
+                        "exclusivity",
+                        "invalid"
+                    ]
+                },
+                "hold": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_hold"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "lifecycle_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                },
+                "changed_work_item_ids": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                    },
+                    "uniqueItems": true
+                },
+                "quota_charge": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_quota_charge"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "schema_version",
+                "decision",
+                "hold",
+                "hold_revision",
+                "lifecycle_revision",
+                "tombstone",
+                "changed_work_item_ids",
+                "quota_charge"
+            ]
+        },
+        "development_lane_hold": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneHold",
+            "x-rust-type": "DevelopmentLaneHold",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "hold_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "lane_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "request_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "work_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "owner_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "session_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "fairness_group": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "workspace_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "repository_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "base_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "base_sha": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "branch": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "worktree_locator": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "host_target_kind": {
+                    "enum": [
+                        "local",
+                        "inventory_alias"
+                    ]
+                },
+                "host_target_alias": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "host_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "quota_policy_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "quota_policy_version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "input_fingerprint": {
+                    "type": "string",
+                    "pattern": "^v1:[0-9a-f]{64}$"
+                },
+                "predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "active_count_charged": {
+                    "type": "boolean"
+                },
+                "quota_charge": {
+                    "$ref": "#/$defs/development_lane_quota_charge"
+                },
+                "state": {
+                    "enum": [
+                        "allocating",
+                        "active",
+                        "submitted",
+                        "released",
+                        "expired",
+                        "cleanup_pending",
+                        "cleaned",
+                        "aborted",
+                        "absent"
+                    ]
+                },
+                "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "lease_epoch": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "fencing_token": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "work_item_fence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "lifecycle_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "allocation_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "cleanup_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "expires_at_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "last_renewed_at_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "cleanup_work_item_id": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "cleanup_work_item_fence": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "cleanup_attempt": {
+                    "type": [
+                        "integer",
+                        "null"
+                    ],
+                    "minimum": 1
+                },
+                "cleanup_lease_epoch": {
+                    "type": [
+                        "integer",
+                        "null"
+                    ],
+                    "minimum": 0
+                },
+                "cleanup_fencing_token": {
+                    "type": [
+                        "integer",
+                        "null"
+                    ],
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "schema_version",
+                "hold_id",
+                "lane_id",
+                "tenant_ref",
+                "request_id",
+                "work_item_id",
+                "owner_id",
+                "session_id",
+                "fairness_group",
+                "workspace_ref",
+                "repository_id",
+                "base_ref",
+                "base_sha",
+                "branch",
+                "worktree_locator",
+                "host_target_kind",
+                "host_target_alias",
+                "host_ref",
+                "quota_policy_name",
+                "quota_policy_version",
+                "input_fingerprint",
+                "predicted_disk_bytes",
+                "observed_disk_bytes",
+                "retained_disk_bytes",
+                "active_count_charged",
+                "quota_charge",
+                "state",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "work_item_fence",
+                "hold_revision",
+                "lifecycle_revision",
+                "allocation_revision",
+                "cleanup_revision",
+                "expires_at_ms",
+                "last_renewed_at_ms",
+                "cleanup_work_item_id",
+                "cleanup_work_item_fence",
+                "cleanup_attempt",
+                "cleanup_lease_epoch",
+                "cleanup_fencing_token",
+                "tombstone"
+            ]
+        },
+        "development_lane_observe_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneObserveRequest",
+            "x-rust-type": "DevelopmentLaneObserveRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "work_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "owner_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "lease_epoch": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "fencing_token": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "work_item_fence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "hold_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "expected_hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "observation_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "work_item_id",
+                "owner_id",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "work_item_fence",
+                "hold_id",
+                "expected_hold_revision",
+                "observed_disk_bytes",
+                "observation_revision",
+                "idempotency_key",
+                "now_ms"
+            ]
+        },
+        "development_lane_observe_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneObserveResult",
+            "x-rust-type": "DevelopmentLaneObserveResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "decision": {
+                    "enum": [
+                        "accepted",
+                        "idempotent",
+                        "stale",
+                        "conflict",
+                        "input_conflict",
+                        "quota",
+                        "policy",
+                        "drained",
+                        "not_found",
+                        "wrong_kind",
+                        "wrong_tenant",
+                        "wrong_owner",
+                        "wrong_attempt",
+                        "wrong_lease_epoch",
+                        "wrong_fence",
+                        "expired",
+                        "terminal",
+                        "cleanup_required",
+                        "exclusivity",
+                        "invalid"
+                    ]
+                },
+                "hold": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_hold"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "lifecycle_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                },
+                "changed_work_item_ids": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                    },
+                    "uniqueItems": true
+                },
+                "quota_charge": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_quota_charge"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "schema_version",
+                "decision",
+                "hold",
+                "hold_revision",
+                "lifecycle_revision",
+                "tombstone",
+                "changed_work_item_ids",
+                "quota_charge"
+            ]
+        },
+        "development_lane_query_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneQueryRequest",
+            "x-rust-type": "DevelopmentLaneQueryRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "hold_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "hold_id",
+                "now_ms"
+            ]
+        },
+        "development_lane_query_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneQueryResult",
+            "x-rust-type": "DevelopmentLaneQueryResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "decision": {
+                    "enum": [
+                        "accepted",
+                        "idempotent",
+                        "stale",
+                        "conflict",
+                        "input_conflict",
+                        "quota",
+                        "policy",
+                        "drained",
+                        "not_found",
+                        "wrong_kind",
+                        "wrong_tenant",
+                        "wrong_owner",
+                        "wrong_attempt",
+                        "wrong_lease_epoch",
+                        "wrong_fence",
+                        "expired",
+                        "terminal",
+                        "cleanup_required",
+                        "exclusivity",
+                        "invalid"
+                    ]
+                },
+                "hold": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_hold"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "lifecycle_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "schema_version",
+                "decision",
+                "hold",
+                "hold_revision",
+                "lifecycle_revision",
+                "tombstone"
+            ]
+        },
+        "development_lane_quota_charge": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneQuotaCharge",
+            "x-rust-type": "DevelopmentLaneQuotaCharge",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tenant_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tenant_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tenant_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "policy_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_count",
+                "owner_count",
+                "session_count",
+                "workspace_count",
+                "repository_count",
+                "host_count",
+                "global_count",
+                "tenant_predicted_disk_bytes",
+                "owner_predicted_disk_bytes",
+                "session_predicted_disk_bytes",
+                "workspace_predicted_disk_bytes",
+                "repository_predicted_disk_bytes",
+                "host_predicted_disk_bytes",
+                "global_predicted_disk_bytes",
+                "tenant_observed_disk_bytes",
+                "owner_observed_disk_bytes",
+                "session_observed_disk_bytes",
+                "workspace_observed_disk_bytes",
+                "repository_observed_disk_bytes",
+                "host_observed_disk_bytes",
+                "global_observed_disk_bytes",
+                "tenant_retained_disk_bytes",
+                "owner_retained_disk_bytes",
+                "session_retained_disk_bytes",
+                "workspace_retained_disk_bytes",
+                "repository_retained_disk_bytes",
+                "host_retained_disk_bytes",
+                "global_retained_disk_bytes",
+                "revision",
+                "policy_revision"
+            ]
+        },
+        "development_lane_quota_policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneQuotaPolicy",
+            "x-rust-type": "DevelopmentLaneQuotaPolicy",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "policy_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "policy_version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "tenant_count_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_count_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_count_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_count_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_count_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_count_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_count_limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tenant_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_predicted_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tenant_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_observed_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tenant_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "owner_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "session_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "workspace_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "repository_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "host_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "global_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "min_ttl_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "max_ttl_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "max_observation_staleness_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "drain_only": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "schema_version",
+                "policy_name",
+                "policy_version",
+                "tenant_count_limit",
+                "owner_count_limit",
+                "session_count_limit",
+                "workspace_count_limit",
+                "repository_count_limit",
+                "host_count_limit",
+                "global_count_limit",
+                "tenant_predicted_disk_bytes",
+                "owner_predicted_disk_bytes",
+                "session_predicted_disk_bytes",
+                "workspace_predicted_disk_bytes",
+                "repository_predicted_disk_bytes",
+                "host_predicted_disk_bytes",
+                "global_predicted_disk_bytes",
+                "tenant_observed_disk_bytes",
+                "owner_observed_disk_bytes",
+                "session_observed_disk_bytes",
+                "workspace_observed_disk_bytes",
+                "repository_observed_disk_bytes",
+                "host_observed_disk_bytes",
+                "global_observed_disk_bytes",
+                "tenant_retained_disk_bytes",
+                "owner_retained_disk_bytes",
+                "session_retained_disk_bytes",
+                "workspace_retained_disk_bytes",
+                "repository_retained_disk_bytes",
+                "host_retained_disk_bytes",
+                "global_retained_disk_bytes",
+                "min_ttl_ms",
+                "max_ttl_ms",
+                "max_observation_staleness_ms",
+                "drain_only"
+            ]
+        },
+        "development_lane_quota_update_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneQuotaUpdateRequest",
+            "x-rust-type": "DevelopmentLaneQuotaUpdateRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "policy": {
+                    "$ref": "#/$defs/development_lane_quota_policy"
+                },
+                "expected_policy_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "expected_policy_version": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "policy",
+                "expected_policy_revision",
+                "expected_policy_version",
+                "idempotency_key",
+                "now_ms"
+            ]
+        },
+        "development_lane_quota_update_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneQuotaUpdateResult",
+            "x-rust-type": "DevelopmentLaneQuotaUpdateResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "decision": {
+                    "enum": [
+                        "accepted",
+                        "idempotent",
+                        "stale",
+                        "conflict",
+                        "quota",
+                        "policy",
+                        "drained",
+                        "invalid"
+                    ]
+                },
+                "policy": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_quota_policy"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "counters": {
+                    "$ref": "#/$defs/development_lane_quota_charge"
+                },
+                "policy_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "decision",
+                "policy",
+                "counters",
+                "policy_revision"
+            ]
+        },
+        "development_lane_renew_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneRenewRequest",
+            "x-rust-type": "DevelopmentLaneRenewRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "work_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "owner_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "lease_epoch": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "fencing_token": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "work_item_fence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "hold_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "expected_hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "ttl_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "work_item_id",
+                "owner_id",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "work_item_fence",
+                "hold_id",
+                "expected_hold_revision",
+                "ttl_ms",
+                "idempotency_key",
+                "now_ms"
+            ]
+        },
+        "development_lane_renew_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneRenewResult",
+            "x-rust-type": "DevelopmentLaneRenewResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "decision": {
+                    "enum": [
+                        "accepted",
+                        "idempotent",
+                        "stale",
+                        "conflict",
+                        "input_conflict",
+                        "quota",
+                        "policy",
+                        "drained",
+                        "not_found",
+                        "wrong_kind",
+                        "wrong_tenant",
+                        "wrong_owner",
+                        "wrong_attempt",
+                        "wrong_lease_epoch",
+                        "wrong_fence",
+                        "expired",
+                        "terminal",
+                        "cleanup_required",
+                        "exclusivity",
+                        "invalid"
+                    ]
+                },
+                "hold": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_hold"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "lifecycle_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                },
+                "changed_work_item_ids": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                    },
+                    "uniqueItems": true
+                },
+                "quota_charge": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_quota_charge"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "schema_version",
+                "decision",
+                "hold",
+                "hold_revision",
+                "lifecycle_revision",
+                "tombstone",
+                "changed_work_item_ids",
+                "quota_charge"
+            ]
+        },
+        "development_lane_reserve_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneReserveRequest",
+            "x-rust-type": "DevelopmentLaneReserveRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "work_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "owner_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "attempt": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "lease_epoch": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "fencing_token": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "work_item_fence": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "intent": {
+                    "$ref": "#"
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "work_item_id",
+                "owner_id",
+                "attempt",
+                "lease_epoch",
+                "fencing_token",
+                "work_item_fence",
+                "intent",
+                "idempotency_key",
+                "now_ms"
+            ]
+        },
+        "development_lane_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneResult",
+            "x-rust-type": "DevelopmentLaneResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "decision": {
+                    "enum": [
+                        "accepted",
+                        "idempotent",
+                        "stale",
+                        "conflict",
+                        "input_conflict",
+                        "quota",
+                        "policy",
+                        "drained",
+                        "not_found",
+                        "wrong_kind",
+                        "wrong_tenant",
+                        "wrong_owner",
+                        "wrong_attempt",
+                        "wrong_lease_epoch",
+                        "wrong_fence",
+                        "expired",
+                        "terminal",
+                        "cleanup_required",
+                        "exclusivity",
+                        "invalid"
+                    ]
+                },
+                "hold": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_hold"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "hold_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "lifecycle_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                },
+                "changed_work_item_ids": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                    },
+                    "uniqueItems": true
+                },
+                "quota_charge": {
+                    "oneOf": [
+                        {
+                            "$ref": "#/$defs/development_lane_quota_charge"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "schema_version",
+                "decision",
+                "hold",
+                "hold_revision",
+                "lifecycle_revision",
+                "tombstone",
+                "changed_work_item_ids",
+                "quota_charge"
+            ]
+        },
+        "development_lane_status_request": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneStatusRequest",
+            "x-rust-type": "DevelopmentLaneStatusRequest",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "tenant_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "hold_id": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "lane_id": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "work_item_id": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "cursor": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "now_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "required": [
+                "schema_version",
+                "tenant_ref",
+                "hold_id",
+                "lane_id",
+                "work_item_id",
+                "limit",
+                "cursor",
+                "now_ms"
+            ]
+        },
+        "development_lane_status_result": {
+            "type": "object",
+            "additionalProperties": false,
+            "x-python-model": "DevelopmentLaneStatusResult",
+            "x-rust-type": "DevelopmentLaneStatusResult",
+            "properties": {
+                "schema_version": {
+                    "const": "1"
+                },
+                "complete": {
+                    "type": "boolean"
+                },
+                "next_cursor": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 256
+                },
+                "holds": {
+                    "type": "array",
+                    "maxItems": 256,
+                    "items": {
+                        "$ref": "#/$defs/development_lane_hold"
+                    }
+                },
+                "counters": {
+                    "$ref": "#/$defs/development_lane_quota_charge"
+                },
+                "tenant_active_count": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tenant_retained_disk_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "tombstone": {
+                    "type": "boolean"
+                }
+            },
+            "required": [
+                "schema_version",
+                "complete",
+                "next_cursor",
+                "holds",
+                "counters",
+                "tenant_active_count",
+                "tenant_retained_disk_bytes",
+                "tombstone"
+            ]
+        }
+    },
+    "properties": {
+        "schema_version": {
+            "const": "1"
+        },
+        "tenant_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "lane_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "repository_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "base_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "base_sha": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "host_target_kind": {
+            "enum": [
+                "local",
+                "inventory_alias"
+            ]
+        },
+        "host_target_alias": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "host_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "resource_reservation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "workspace_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "worktree_locator": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "owner_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "session_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "fairness_group": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "quota_policy_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "quota_policy_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+        },
+        "predicted_disk_bytes": {
+            "type": "integer",
+            "minimum": 0
+        },
+        "ttl_ms": {
+            "type": "integer",
+            "minimum": 0
+        },
+        "input_fingerprint": {
+            "type": "string",
+            "pattern": "^v1:[0-9a-f]{64}$"
+        }
+    },
+    "required": [
+        "schema_version",
+        "tenant_ref",
+        "request_id",
+        "lane_id",
+        "repository_id",
+        "base_ref",
+        "base_sha",
+        "branch",
+        "host_target_kind",
+        "host_target_alias",
+        "host_ref",
+        "resource_reservation_id",
+        "workspace_ref",
+        "worktree_locator",
+        "owner_id",
+        "session_id",
+        "fairness_group",
+        "quota_policy_name",
+        "quota_policy_version",
+        "predicted_disk_bytes",
+        "ttl_ms",
+        "input_fingerprint"
+    ]
+}

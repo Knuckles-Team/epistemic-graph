@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:catalog",
+  "protocol": "epistemic-operations",
+  "version": "1",
+  "status": "current",
+  "compatibility_policy": "current-only",
+  "unknown_field_policy": "reject",
+  "python_source": "epistemic_graph/epistemic_operations/_generated.py",
+  "rust_source": "crates/eg-types/src/epistemic_operations.rs",
+  "privacy_contract": {
+    "identifiers": "opaque",
+    "content": "content-addressed-reference",
+    "credentials": "forbidden",
+    "environment_endpoints": "forbidden",
+    "local_filesystem_paths": "forbidden"
+  },
+  "schemas": [
+    {
+      "name": "request_context",
+      "version": "2",
+      "file": "request-context.schema.json"
+    },
+    {
+      "name": "mutation_batch",
+      "version": "1",
+      "file": "mutation-batch.schema.json"
+    },
+    {
+      "name": "change_envelope",
+      "version": "1",
+      "file": "change-envelope.schema.json"
+    },
+    {
+      "name": "work_item",
+      "version": "1",
+      "file": "work-item.schema.json"
+    },
+    {
+      "name": "artifact",
+      "version": "1",
+      "file": "artifact.schema.json"
+    },
+    {
+      "name": "knowledge_batch",
+      "version": "1",
+      "file": "knowledge-batch.schema.json"
+    },
+    {
+      "name": "analytics_job",
+      "version": "1",
+      "file": "analytics-job.schema.json"
+    },
+    {
+      "name": "trace_outcome",
+      "version": "1",
+      "file": "trace-outcome.schema.json"
+    },
+    {
+      "name": "placement_route",
+      "version": "1",
+      "file": "placement-route.schema.json"
+    },
+    {
+      "name": "claim_work_item",
+      "version": "1",
+      "file": "claim-work-item.schema.json"
+    },
+    {
+      "name": "evidence_bundle",
+      "version": "1",
+      "file": "evidence-bundle.schema.json"
+    },
+    {
+      "name": "operation_result",
+      "version": "1",
+      "file": "operation-result.schema.json"
+    },
+    {
+      "name": "resource_reservation",
+      "version": "1",
+      "file": "resource-reservation.schema.json"
+    },
+    {
+      "name": "resource_reservation_status",
+      "version": "1",
+      "file": "resource-reservation-status.schema.json"
+    },
+    {
+      "name": "resource_host_update",
+      "version": "1",
+      "file": "resource-host-update.schema.json"
+    },
+    {
+      "name": "development_lane",
+      "version": "1",
+      "file": "development-lane.schema.json"
+    }
+  ]
+}

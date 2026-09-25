@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:artifact",
+  "title": "Artifact",
+  "description": "Content-addressed multimodal material. The control record carries no inline content, credentials, endpoints, personal identity, or local filesystem path.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "Artifact",
+  "x-rust-type": "Artifact",
+  "$defs": {
+    "artifact_locus": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ArtifactLocus",
+      "x-rust-type": "ArtifactLocus",
+      "properties": {
+        "kind": {
+          "enum": [
+            "document_span",
+            "table_cell_range",
+            "image_region",
+            "page_box",
+            "audio_segment",
+            "video_frame_range",
+            "metric_window",
+            "row_version"
+          ]
+        },
+        "start": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "end": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selector": {
+          "type": "object",
+          "x-dynamic-map": true,
+          "additionalProperties": true,
+          "description": "Modality-specific numeric or symbolic selector. Values are addresses, not inline artifact content."
+        }
+      },
+      "required": [
+        "kind",
+        "start",
+        "end",
+        "selector"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "media_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "byte_length": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "content_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Content-addressed or governed object reference; never a local filesystem path."
+    },
+    "classification": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted",
+        "regulated"
+      ]
+    },
+    "provenance_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "occurrence_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "rendition_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "segment_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "feature_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "derivation_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "loci": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact_locus"
+      }
+    },
+    "created_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "artifact_id",
+    "tenant_id",
+    "media_type",
+    "digest",
+    "byte_length",
+    "content_ref",
+    "classification",
+    "provenance_refs",
+    "occurrence_ids",
+    "rendition_ids",
+    "segment_ids",
+    "feature_ids",
+    "derivation_ids",
+    "loci",
+    "created_at_ms"
+  ]
+}

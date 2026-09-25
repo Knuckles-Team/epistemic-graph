@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Verify the engine projection of Epistemic Operations Protocol v1.
 
-The manifest is generated from the authoritative agent-utilities JSON Schema
-catalog.  This standalone gate binds its digest and ordered object fields to
-the Rust serde DTOs without compiling the engine.  Workspace release validation
-also runs the canonical cross-repository gate, which byte-checks this manifest.
+The manifest is generated from the EG-owned JSON Schema catalog. This
+standalone gate binds its digest and ordered object fields to the strict
+Python and Rust serde DTOs without compiling the engine.
 """
 
 from __future__ import annotations
@@ -473,6 +472,20 @@ def _require_generated_rust(manifest: dict[str, Any]) -> None:
 
 
 def run() -> dict[str, Any]:
+    # The schema catalog and strict Python DTO projection now live in this
+    # repository. Verify their freshness before checking the hand-curated Rust
+    # DTO field parity against the generated manifest.
+    from generate_epistemic_operations_protocol import (
+        ProtocolGateError,
+    )
+    from generate_epistemic_operations_protocol import (
+        run as verify_generated_protocol,
+    )
+
+    try:
+        verify_generated_protocol()
+    except ProtocolGateError as exc:
+        raise GateError(f"generated protocol drift: {exc}") from exc
     manifest = _load_json_object(
         MANIFEST_PATH,
         "cannot read generated manifest",

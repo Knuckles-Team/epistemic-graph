@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:claim-work-item",
+  "title": "ClaimWorkItemRequest",
+  "description": "Authoritative tenant-fair WorkItem claim request and result. A negative result is final.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "ClaimWorkItemRequest",
+  "x-rust-type": "ClaimWorkItemRequest",
+  "$defs": {
+    "claim_work_item_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "ClaimWorkItemResult",
+      "x-rust-type": "ClaimWorkItemResult",
+      "properties": {
+        "schema_version": {"const": "1"},
+        "claimed": {"type": "boolean"},
+        "reason": {"enum": ["claimed", "empty", "tenant_quota"]},
+        "work_item_id": {"type": ["string", "null"], "minLength": 1},
+        "kind": {"type": ["string", "null"], "minLength": 1},
+        "payload_ref": {"type": ["string", "null"], "minLength": 1},
+        "lease_holder_ref": {"type": ["string", "null"], "minLength": 1},
+        "lease_epoch": {"type": ["integer", "null"], "minimum": 0},
+        "fencing_token": {"type": ["integer", "null"], "minimum": 0},
+        "lease_expires_at_ms": {"type": ["integer", "null"], "minimum": 0},
+        "attempt": {"type": ["integer", "null"], "minimum": 0},
+        "max_attempts": {"type": ["integer", "null"], "minimum": 1},
+        "tenant_in_flight": {"type": ["integer", "null"], "minimum": 0},
+        "changed_work_item_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema_version",
+        "claimed",
+        "reason",
+        "work_item_id",
+        "kind",
+        "payload_ref",
+        "lease_holder_ref",
+        "lease_epoch",
+        "fencing_token",
+        "lease_expires_at_ms",
+        "attempt",
+        "max_attempts",
+        "tenant_in_flight",
+        "changed_work_item_ids"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1"},
+    "tenant_ref": {"type": "string", "minLength": 1},
+    "work_item_id": {"type": ["string", "null"], "minLength": 1},
+    "queue_ref": {"type": ["string", "null"], "minLength": 1},
+    "resource_class": {"type": ["string", "null"], "minLength": 1},
+    "fairness_group": {"type": ["string", "null"], "minLength": 1},
+    "worker_ref": {"type": "string", "minLength": 1},
+    "now_ms": {"type": "integer", "minimum": 0},
+    "lease_ms": {"type": "integer", "minimum": 1},
+    "max_tenant_in_flight": {"type": "integer", "minimum": 1, "maximum": 4096}
+  },
+  "required": [
+    "schema_version",
+    "tenant_ref",
+    "work_item_id",
+    "queue_ref",
+    "resource_class",
+    "fairness_group",
+    "worker_ref",
+    "now_ms",
+    "lease_ms",
+    "max_tenant_in_flight"
+  ]
+}

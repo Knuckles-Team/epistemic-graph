@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:work-item",
+  "title": "WorkItem",
+  "description": "Durable dependency, lease, retry, and artifact contract for delegated work.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "WorkItem",
+  "x-rust-type": "WorkItem",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "work_item_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "request-context.schema.json"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Control-plane work-item state id. The 8-value lifecycle vocabulary (submitted, ready, leased, running, succeeded, failed, cancelled, dead_letter) is enforced at runtime by the native WorkItem state machine (WORK_ITEM_DEF in the engine; WORK_ITEM_STATES in agent_utilities.knowledge_graph.core.work_durability), not pinned as a closed wire enum (W2.5 statechart migration, reports/w2_5-statechart-migration-design.md section 2.5)."
+    },
+    "priority": {
+      "type": "integer"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "input_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "output_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "lease_holder_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Opaque worker identity; never a personal display name."
+    },
+    "lease_expires_at_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lane_intent": {
+      "description": "RMDD-28 immutable development-lane allocation intent. Present only on lane.lifecycle/lane.cleanup WorkItems; absent (null) for every other kind. This is the sole typed carrier for lane intent -- it must never be smuggled through consent, preferred_target, or correlation_id.",
+      "oneOf": [
+        {
+          "$ref": "development-lane.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "work_item_id",
+    "context",
+    "kind",
+    "state",
+    "priority",
+    "depends_on",
+    "input_artifact_refs",
+    "output_artifact_refs",
+    "lease_holder_id",
+    "lease_expires_at_ms",
+    "attempt",
+    "max_attempts",
+    "created_at_ms",
+    "updated_at_ms",
+    "idempotency_key",
+    "lane_intent"
+  ]
+}

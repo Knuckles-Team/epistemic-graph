@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:placement-route",
+  "title": "PlacementRoute",
+  "description": "Engine-authoritative placement route and fencing decision without deployment endpoint material.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "PlacementRoute",
+  "x-rust-type": "PlacementRoute",
+  "$defs": {
+    "placement_route_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "PlacementRouteRequest",
+      "x-rust-type": "PlacementRouteRequest",
+      "properties": {
+        "schema_version": {"const": "1"},
+        "tenant_ref": {"type": "string", "minLength": 1},
+        "partition_ref": {"type": "string", "minLength": 1},
+        "client_epoch": {"type": "integer", "minimum": 0}
+      },
+      "required": ["schema_version", "tenant_ref", "partition_ref", "client_epoch"]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1"},
+    "route_id": {"type": "string", "minLength": 1},
+    "tenant_ref": {"type": "string", "minLength": 1},
+    "partition_ref": {"type": "string", "minLength": 1},
+    "authoritative": {"const": true},
+    "placed": {"type": "boolean"},
+    "group": {"type": "integer", "minimum": 0},
+    "epoch": {"type": "integer", "minimum": 0},
+    "fencing_token": {"type": "integer", "minimum": 0},
+    "stale": {"type": "boolean"},
+    "leader_ref": {"type": ["string", "null"], "minLength": 1}
+  },
+  "required": [
+    "schema_version",
+    "route_id",
+    "tenant_ref",
+    "partition_ref",
+    "authoritative",
+    "placed",
+    "group",
+    "epoch",
+    "fencing_token",
+    "stale",
+    "leader_ref"
+  ]
+}

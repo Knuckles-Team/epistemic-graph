@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:evidence-bundle",
+  "title": "EvidenceBundle",
+  "description": "Content-free evidence response containing opaque claim, provenance, policy, contradiction, proof, and governed-locus references.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "EvidenceBundle",
+  "x-rust-type": "EvidenceBundle",
+  "$defs": {
+    "evidence_time_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "EvidenceTimeRange",
+      "x-rust-type": "EvidenceTimeRange",
+      "properties": {
+        "start_ms": {"type": ["integer", "null"], "minimum": 0},
+        "end_ms": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "required": ["start_ms", "end_ms"]
+    },
+    "evidence_claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-python-model": "EvidenceClaim",
+      "x-rust-type": "EvidenceClaim",
+      "properties": {
+        "claim_ref": {"type": "string", "minLength": 1},
+        "kind": {"type": "string"},
+        "score": {"type": ["number", "null"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "valid_time": {"$ref": "#/$defs/evidence_time_range"},
+        "transaction_time": {"$ref": "#/$defs/evidence_time_range"},
+        "source_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "evidence_locus_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "contradiction_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "proof_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "policy_labels": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "claim_ref",
+        "kind",
+        "score",
+        "confidence",
+        "valid_time",
+        "transaction_time",
+        "source_refs",
+        "evidence_locus_refs",
+        "contradiction_refs",
+        "proof_refs",
+        "policy_labels"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1"},
+    "bundle_id": {"type": "string", "minLength": 1},
+    "resolved": {"type": "boolean"},
+    "answer_ref": {"type": ["string", "null"], "minLength": 1},
+    "claims": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/evidence_claim"}
+    },
+    "policy_exclusions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "next_action_refs": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "resolved",
+    "answer_ref",
+    "claims",
+    "policy_exclusions",
+    "next_action_refs"
+  ]
+}
