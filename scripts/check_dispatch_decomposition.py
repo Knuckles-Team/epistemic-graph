@@ -29,6 +29,8 @@ EXPECTED_PATHS = {
     "src/server/dispatch/consensus/routing.rs",
     "src/server/dispatch/consensus/sanitization.rs",
     "src/server/dispatch/consensus/transaction.rs",
+    "src/server/dispatch/elevation.rs",
+    "src/server/dispatch/elevation/tests.rs",
     "src/server/dispatch/graph_pipeline.rs",
     "src/server/dispatch/graph_pipeline/dispatch_helpers.rs",
     "src/server/dispatch/graph_pipeline/gateway.rs",
@@ -39,6 +41,12 @@ EXPECTED_PATHS = {
     "src/server/dispatch/graph_pipeline/pipeline.rs",
     "src/server/dispatch/graph_pipeline/repository_index.rs",
     "src/server/dispatch/graph_pipeline/work_governance.rs",
+    "src/server/dispatch/policy_evolution.rs",
+    "src/server/dispatch/policy_evolution/blobs.rs",
+    "src/server/dispatch/policy_evolution/blobs/tests.rs",
+    "src/server/dispatch/policy_evolution/gate.rs",
+    "src/server/dispatch/policy_evolution/gate/tests.rs",
+    "src/server/dispatch/policy_evolution/store.rs",
     "src/server/dispatch/request_boundary.rs",
     "src/server/dispatch/request_boundary/authorization.rs",
     "src/server/dispatch/request_boundary/consensus.rs",
@@ -57,7 +65,14 @@ EXPECTED_PATHS = {
     "src/server/dispatch/router/resource_cost.rs",
     "src/server/dispatch/router/service_control.rs",
     "src/server/dispatch/router/source_ingest.rs",
+    "src/server/dispatch/router/telemetry.rs",
     "src/server/dispatch/sparql_update.rs",
+    "src/server/dispatch/telemetry.rs",
+    "src/server/dispatch/telemetry/classes.rs",
+    "src/server/dispatch/telemetry/collect.rs",
+    "src/server/dispatch/telemetry/declarations.rs",
+    "src/server/dispatch/telemetry/materialize.rs",
+    "src/server/dispatch/telemetry/tests.rs",
 }
 
 REDUNDANT_WRAPPERS = {
@@ -178,14 +193,13 @@ LEGACY_COALESCER_METHODS = (
     "CompareAndSetNodeFields",
 )
 
-# The current merged dispatch compiler family has 77 distinct cfg predicates
-# (75 -> 76: `not(feature = "query")` on the SQL source preflight resolver;
-# 76 -> 77: `any(feature = "wasm-udf", feature = "federation")`, 7c72e5ce6's
-# shared UQL parse step).
-# The SPARQL HTTP mutation path is constrained by its redb/security/raft
-# combinations, and the compiler-declared module walk is the source universe.
-CFG_PREDICATE_COUNT = 77
-CFG_FINGERPRINT = "231fc04baf5bb419439585b1163be48bf48f0315e3d516c0c4fd2cf75e0779bd"
+# The Wave B compiler family has 84 distinct cfg predicates. The prior 77
+# predicate pin predates the elevation, policy-evolution, and telemetry modules
+# listed in EXPECTED_PATHS. The SPARQL HTTP mutation path is constrained by its
+# redb/security/raft combinations, and the compiler-declared module walk is
+# the source universe.
+CFG_PREDICATE_COUNT = 84
+CFG_FINGERPRINT = "d0afb3c3907a87209c510992e3879cd644a5b28b67372f4605411132507e16f8"
 # 355 -> 358 production / 440 -> 443 compiler functions: `Method::SqlSourceBatch`
 # added the data-plane route group `dispatch_sql_source_methods`, the request
 # preflight resolver `preflight_sql_source_msgpack`, and
@@ -216,20 +230,25 @@ CFG_FINGERPRINT = "231fc04baf5bb419439585b1163be48bf48f0315e3d516c0c4fd2cf75e077
 #   5e64e9715 +5      registry-served / withheld method advertisement
 #   638a8a61d +2      EH-375 tenant-keyed lifecycle batch ids
 #   ac5638477 +1      train-3 shared jscpd helper
-PRODUCTION_FUNCTION_COUNT = 464
+# Wave B adds 15 compiler-declared modules for elevation, policy evolution,
+# and telemetry: 464 -> 547 production functions, 594 -> 732 compiler-visible
+# functions, 80 -> 103 tests, and 247 -> 337 assertions. These counts and
+# digests were measured from read_compiler_family on the combined Wave B tip;
+# the existing ownership, route-call, CFG, and known-bad mutation proofs remain.
+PRODUCTION_FUNCTION_COUNT = 547
 PRODUCTION_FUNCTION_DIGEST = (
-    "0e460073f675ad3e48fd650c48850894994057b06be380747fba7666bfa0f787"
+    "38fabc50562bf845858417dccdf17d0145da9d4016acacbf37030d1b6efd2f6b"
 )
-COMPILER_FUNCTION_COUNT = 594
+COMPILER_FUNCTION_COUNT = 732
 COMPILER_FUNCTION_DIGEST = (
-    "3f02e082b80f849420180648ed28f723d028167a4050581d9a4373c011912238"
+    "ac1295f874deceb3f7d8abedb91ac09bd6f1fc899f14cddf373978cabd40bc26"
 )
-TEST_FUNCTION_COUNT = 80
+TEST_FUNCTION_COUNT = 103
 TEST_FUNCTION_DIGEST = (
-    "828f6a9550be5c041826d308791735330aef8c5a2c8d80fffc385ac4bdcd35a9"
+    "cafab3e7741de8d476520288ede05dbea2075adaa374839b073a2d9fe1d9843f"
 )
-ASSERTION_COUNT = 247
-ASSERTION_DIGEST = "2c636e208767f5d5da029a001f8fb6b4875083fd054cbfe8b95ce8bbc7867b1b"
+ASSERTION_COUNT = 337
+ASSERTION_DIGEST = "08563c0874885fa1781c535e1bd70534af19da2d4f9c12ded91b3c368cf8ed2f"
 
 
 def require(condition: bool, message: str) -> None:
