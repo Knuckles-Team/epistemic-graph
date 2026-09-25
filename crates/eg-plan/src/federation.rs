@@ -92,14 +92,14 @@ pub trait ForeignSource {
             .map(crate::federation_opt::ForeignRows::from_rowset)
     }
 
-    /// Execute a column plan. Non-pushdown sources fetch their mapped columns and
-    /// run the exact residual locally; source implementations may override this
-    /// to narrow the remote projection and filters first.
+    /// Fetch the rows for a column plan, before its local residual runs.
+    /// Non-pushdown sources fetch every mapped column; source implementations
+    /// may override this to narrow the remote projection and filters first.
     fn fetch_projected(
         &self,
-        plan: &crate::federation_opt::ColumnPlan,
+        _plan: &crate::federation_opt::ColumnPlan,
     ) -> Result<crate::federation_opt::ForeignRows, String> {
-        self.fetch_columns().map(|rows| plan.finish(rows))
+        self.fetch_columns()
     }
 }
 
@@ -139,6 +139,7 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
             query,
             id_field,
             score_field,
+            ..
         } => sql_source(dsn, query, id_field, score_field.as_deref()),
         ForeignSourceSpec::Trino { .. }
         | ForeignSourceSpec::Cypher { .. }
@@ -963,7 +964,7 @@ impl ForeignSource for SqlSource<'_> {
             id_field: self.id_field,
             score_field: self.score_field,
         };
-        source.fetch_columns().map(|rows| plan.finish(rows))
+        source.fetch_columns()
     }
 }
 
@@ -1493,7 +1494,7 @@ impl ForeignSourceRegistry {
         }
     }
 
-    pub fn resolve_projected(
+    fn resolve_projected(
         &self,
         name: &str,
         plan: &crate::federation_opt::ColumnPlan,
@@ -1503,6 +1504,78 @@ impl ForeignSourceRegistry {
             .ok_or_else(|| format!("federation: no foreign source registered under name '{name}'"))?
             .fetch_projected(plan)
     }
+
+    /// Execute a column query against one source this owner-bound registry can
+    /// resolve. The caller supplies a per-query session so request and fetched-row
+    /// budget refusals are charged before the local residual runs.
+    pub fn query_columns(
+        &self,
+        name: &str,
+        output: &[String],
+        predicates: &[crate::federation_opt::ColumnPredicate],
+        session: &crate::federation_opt::FederationSession,
+    ) -> Result<crate::federation_opt::ForeignRows, String> {
+        use crate::federation_opt::{sql_filter_support, ColumnPlan};
+        let spec = self.specs.get(name).ok_or_else(|| {
+            format!("federation: column query requires a registered source '{name}'")
+        })?;
+        validate_column_mapping(spec)?;
+        let exposed = match spec {
+            ForeignSourceSpec::Sql {
+                columns,
+                id_field,
+                score_field,
+                ..
+            } => {
+                let mut exposed: std::collections::BTreeSet<String> =
+                    columns.iter().cloned().collect();
+                exposed.insert(id_field.clone());
+                if let Some(score) = score_field {
+                    exposed.insert(score.clone());
+                }
+                exposed
+            }
+            _ => return Err("federation: this source has no column mapping".to_string()),
+        };
+        let plan = ColumnPlan::new(&exposed, output, predicates, true, sql_filter_support)?;
+        session.with_meter(|meter| meter.charge_request())?;
+        let rows = self.resolve_projected(name, &plan)?;
+        session.with_meter(|meter| {
+            meter.charge_rows(rows.rows().len())?;
+            meter.check_wall()
+        })?;
+        Ok(plan.finish(rows))
+    }
+}
+
+/// Validate mapping names before a source enters the owner-scoped catalog. The
+/// registration's SQL statement is the only data boundary: this list only names
+/// selected columns; it cannot introduce another source or a new credential.
+pub fn validate_column_mapping(spec: &ForeignSourceSpec) -> Result<(), String> {
+    let ForeignSourceSpec::Sql {
+        id_field,
+        score_field,
+        columns,
+        ..
+    } = spec
+    else {
+        return Ok(());
+    };
+    if columns.len() > 128 {
+        return Err("federation: SQL column mapping exceeds 128 columns".to_string());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for name in std::iter::once(id_field)
+        .chain(score_field.iter())
+        .chain(columns.iter())
+    {
+        crate::sql_text::validate_identifier(name)
+            .map_err(|_| "federation: invalid SQL column mapping".to_string())?;
+        if !seen.insert(name.to_ascii_lowercase()) {
+            return Err("federation: duplicate SQL column mapping".to_string());
+        }
+    }
+    Ok(())
 }
 
 /// CONCEPT:EG-KG.query.closure-backed-source — a registerable source backed by an owned [`ForeignSourceSpec`]. It

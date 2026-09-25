@@ -29,6 +29,9 @@ pub(crate) async fn try_handle(
                 Ok(owner) => owner,
                 Err(refusal) => return Ok(refusal),
             };
+            if let Err(error) = eg_plan::federation::validate_column_mapping(&source) {
+                return Ok(Response::err(req_id, error));
+            }
             // EH-378: provision the source's share role (assigned to nobody) under the
             // same write lock as the registration, so a registered source always has one.
             let mut s = call.state.write().await;

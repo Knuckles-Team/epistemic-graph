@@ -349,6 +349,48 @@ mod tests {
         assert!(registry.resolve_columns("unbound").is_err());
     }
 
+    #[test]
+    fn sql_column_mapping_is_explicit_and_legacy_serde_is_empty() {
+        let json = json!({"Sql": {
+            "dsn": "postgres://db/records",
+            "query": "SELECT id, name FROM records",
+            "id_field": "id",
+            "score_field": null
+        }});
+        let legacy: eg_types::wire::ForeignSourceSpec = serde_json::from_value(json).unwrap();
+        let eg_types::wire::ForeignSourceSpec::Sql { columns, .. } = &legacy else {
+            panic!("expected SQL spec");
+        };
+        assert!(columns.is_empty());
+        crate::federation::validate_column_mapping(&legacy).unwrap();
+
+        let mapped = eg_types::wire::ForeignSourceSpec::Sql {
+            dsn: "postgres://db/records".into(),
+            query: "SELECT id, name FROM records".into(),
+            id_field: "id".into(),
+            score_field: None,
+            columns: vec!["name".into()],
+        };
+        crate::federation::validate_column_mapping(&mapped).unwrap();
+        let mut registry = crate::federation::ForeignSourceRegistry::new();
+        registry.register_spec("records", mapped.clone());
+        let session = crate::federation_opt::FederationSession::from_env();
+        let refused = registry
+            .query_columns("records", &["secret".into()], &[], &session)
+            .unwrap_err();
+        assert!(refused.contains("not exposed"));
+        let bad = eg_types::wire::ForeignSourceSpec::Sql {
+            columns: vec!["name; DROP".into()],
+            ..mapped.clone()
+        };
+        assert!(crate::federation::validate_column_mapping(&bad).is_err());
+        let dup = eg_types::wire::ForeignSourceSpec::Sql {
+            columns: vec!["ID".into()],
+            ..mapped
+        };
+        assert!(crate::federation::validate_column_mapping(&dup).is_err());
+    }
+
     #[cfg(feature = "federation-sql")]
     #[test]
     fn sql_projection_and_filter_quote_identifiers_and_literals() {
