@@ -96,13 +96,21 @@ fn validate_deployment_binding(
     policy: &RequestContextPolicy,
 ) -> Result<(), String> {
     if claims.audience != policy.expected_audience {
-        return Err("request context audience does not match deployment".to_string());
+        return Err(
+            "AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment"
+                .to_string(),
+        );
     }
     if claims.tenant != policy.expected_tenant {
-        return Err("request context tenant does not match graph tenant".to_string());
+        return Err(
+            "AUTH_TENANT_MISMATCH: request context tenant does not match graph tenant".to_string(),
+        );
     }
     if claims.policy_version != policy.expected_policy_version {
-        return Err("request context policy version is not active".to_string());
+        return Err(
+            "AUTH_POLICY_VERSION_MISMATCH: request context policy version is not active"
+                .to_string(),
+        );
     }
     Ok(())
 }
