@@ -212,3 +212,28 @@ impl EvaluationRun {
         self.run_digest == self.sealed_digest()
     }
 }
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use crate::decision::DecisionEvalOp;
+
+    #[test]
+    fn queued_replay_requires_an_explicit_graph_anchor() {
+        let (_, op) = crate::test_support::contract_wave::statistical::eval_ops()
+            .into_iter()
+            .find(|(name, _)| *name == "DecisionEval.submit:replay")
+            .unwrap();
+        let DecisionEvalOp::Submit { request } = op else {
+            panic!("replay sample must submit")
+        };
+        let EvalMode::Replay { spec } = &request.mode else {
+            panic!("replay sample must carry ReplaySpec")
+        };
+        let mut value = serde_json::to_value(spec).unwrap();
+        assert_eq!(value["graph"], "graph-a");
+        value.as_object_mut().unwrap().remove("graph");
+        let error = serde_json::from_value::<ReplaySpec>(value).unwrap_err();
+        assert!(error.to_string().contains("graph"), "{error}");
+    }
+}
