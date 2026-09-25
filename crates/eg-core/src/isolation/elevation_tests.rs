@@ -1,8 +1,8 @@
 //! EH-404: the access chokepoint consults just-in-time elevations.
 
 use super::{
-    access_clock_ms, AccessBasis, AccessLevel, AccessQuery, AgentIdentity, AgentRole,
-    ElevationError, IsolationLayer,
+    access_clock_ms, AccessBasis, AccessLevel, AccessQuery, AccessReasonCode, AgentIdentity,
+    AgentRole, ElevationError, IsolationLayer,
 };
 use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
 use crate::protocol::GraphType;
@@ -44,6 +44,57 @@ fn basis(layer: &IsolationLayer, access: AccessLevel, now_ms: u64) -> AccessBasi
         access,
         now_ms,
     })
+}
+
+#[test]
+fn access_reason_comes_from_the_engine_decision_and_tracks_grant_changes() {
+    let mut layer = layer();
+    let query = AccessQuery {
+        agent_id: "agent:alice",
+        graph_name: GRAPH,
+        graph_type: GraphType::Agent,
+        graph_owner: None,
+        access: AccessLevel::Write,
+        now_ms: access_clock_ms(),
+    };
+    let decision = layer.access_decision(&query);
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.reason_code, AccessReasonCode::NoMatchingGrant);
+    assert_eq!(decision.reason_code.as_str(), "NO_MATCHING_GRANT");
+
+    let grant = Grant {
+        role: "worker".to_string(),
+        resource: ResourceSelector::Graph(GRAPH.to_string()),
+        action: RbacAction::Write,
+        effect: GrantEffect::Allow,
+    };
+    layer.add_grant(grant.clone());
+    let decision = layer.access_decision(&query);
+    assert!(decision.is_allowed());
+    assert_eq!(decision.reason_code, AccessReasonCode::StandingGrant);
+    assert_eq!(decision.basis, layer.access_basis(&query));
+
+    layer.remove_grant(&grant);
+    assert_eq!(
+        layer.access_decision(&query).reason_code,
+        AccessReasonCode::NoMatchingGrant
+    );
+    layer.add_grant(Grant {
+        effect: GrantEffect::Deny,
+        ..grant
+    });
+    let decision = layer.access_decision(&query);
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.reason_code, AccessReasonCode::ExplicitDeny);
+
+    let unknown = AccessQuery {
+        agent_id: "agent:missing",
+        ..query
+    };
+    assert_eq!(
+        layer.access_decision(&unknown).reason_code,
+        AccessReasonCode::UnknownPrincipal
+    );
 }
 
 fn request() -> ElevationRequest {
