@@ -196,7 +196,11 @@ fn matrix_of(entry: &DecisionLogEntry) -> Option<FeatureMatrix> {
     else {
         return None;
     };
-    Some(materialize_matrix(candidate_ids, feature_names, values))
+    Some(materialize_matrix(
+        candidate_ids.as_slice(),
+        feature_names.as_slice(),
+        values.as_slice(),
+    ))
 }
 
 /// The record's forecast of its own executed option, when its head gives one.
