@@ -11,6 +11,9 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+#[cfg(feature = "jobs")]
+use serde::{Deserialize, Serialize};
+
 use tracing::Instrument;
 
 use eg_numeric::decision::admission::{admit, AdmissionRules, Admitted, Regime};
@@ -19,9 +22,9 @@ use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::agent_component::AgentComponentKind;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{DatasetSource, LabelRegime};
+use eg_types::decision::replay::EvalMode;
 #[cfg(feature = "jobs")]
-use eg_types::decision::replay::EvaluationRun;
-use eg_types::decision::replay::{EvalMode, ReplaySpec};
+use eg_types::decision::replay::{EvaluationRun, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
 use eg_types::decision::statistical::dataset::LabelledDataset;
 use eg_types::decision::statistical::features::FeatureSchemaBody;
@@ -40,6 +43,8 @@ use super::SharedState;
 use crate::protocol::{Response, ResultPayload};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::persistence::agent_library::AgentLibraryStore;
+#[cfg(feature = "jobs")]
+use crate::server::persistence::decision_jobs::evaluation_run_key;
 use crate::server::persistence::decision_jobs::{
     decode_artifact, draft_key, encode_artifact, job_key, receipt_key,
 };
@@ -110,6 +115,97 @@ fn replayed(
         )),
         None => Ok(None),
     }
+}
+
+#[cfg(feature = "jobs")]
+#[derive(Serialize, Deserialize)]
+struct ReplayQueueLink {
+    schema_version: u16,
+    analytics_job_id: String,
+    request_ref: String,
+    tenant_scope: String,
+}
+
+#[cfg(feature = "jobs")]
+fn replay_queue_key(job_id: &str) -> String {
+    format!("replay-queue:{job_id}")
+}
+
+#[cfg(feature = "jobs")]
+fn replay_link(
+    store: &AgentLibraryStore,
+    record: &DecisionJobRecord,
+) -> Result<ReplayQueueLink, String> {
+    let bytes = store
+        .decision_artifact(&record.tenant_id, &replay_queue_key(&record.job_id))?
+        .ok_or_else(|| "queued replay has no analytics job binding".to_string())?;
+    let link: ReplayQueueLink = decode_artifact(&bytes, "replay queue binding")?;
+    if link.schema_version != 1
+        || link.analytics_job_id.is_empty()
+        || link.request_ref.is_empty()
+        || link.tenant_scope.is_empty()
+    {
+        return Err("queued replay binding is invalid".into());
+    }
+    Ok(link)
+}
+
+#[cfg(feature = "jobs")]
+fn project_replay_job(
+    store: &AgentLibraryStore,
+    jobs: &eg_jobs::JobStore,
+    mut record: DecisionJobRecord,
+) -> Result<DecisionJobRecord, String> {
+    let link = replay_link(store, &record)?;
+    let job = jobs
+        .get(&link.analytics_job_id)
+        .map_err(|_| "queued replay analytics job is unavailable".to_string())?;
+    let payload = job
+        .input_payload
+        .as_deref()
+        .ok_or_else(|| "queued replay has no worker input".to_string())?;
+    if payload.len() > 16 * 1024 * 1024 {
+        return Err("queued replay worker input exceeds bounds".into());
+    }
+    let kind: eg_types::jobs::JobKind = rmp_serde::from_slice(payload)
+        .map_err(|_| "queued replay worker input is invalid".to_string())?;
+    if job.policy.tenant != link.tenant_scope
+        || job.job_id != link.analytics_job_id
+        || job.algo.family != "decision.replay"
+        || !matches!(kind, eg_types::jobs::JobKind::DecisionReplay { request_ref } if request_ref == link.request_ref)
+    {
+        return Err("queued replay analytics lineage differs".into());
+    }
+    record.state = match &job.state {
+        eg_jobs::JobState::Submitted => DecisionJobState::Queued,
+        eg_jobs::JobState::Running { .. } | eg_jobs::JobState::Publishing { .. } => {
+            DecisionJobState::Running
+        }
+        eg_jobs::JobState::Failed { reason, .. } => DecisionJobState::Failed {
+            code: reason.clone(),
+        },
+        eg_jobs::JobState::Cancelled { .. } => DecisionJobState::Cancelled,
+        eg_jobs::JobState::Succeeded { .. } => {
+            let digest = job
+                .output
+                .as_ref()
+                .and_then(|output| output.rows.first())
+                .and_then(|row| row.get("run_digest"))
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "completed replay has no run digest".to_string())?;
+            let bytes = store
+                .decision_artifact(&record.tenant_id, &evaluation_run_key(digest))?
+                .ok_or_else(|| "completed replay has no sealed run".to_string())?;
+            let run: EvaluationRun = decode_artifact(&bytes, "evaluation run")?;
+            if run.run_digest != digest || !run.verify() {
+                return Err("completed replay run seal is invalid".into());
+            }
+            DecisionJobState::Succeeded {
+                output: Box::new(DecisionJobOutput::Replay { run: Box::new(run) }),
+            }
+        }
+    };
+    Ok(record)
 }
 
 fn checked_dataset(
@@ -354,12 +450,28 @@ pub(crate) fn replay_request_ref(request: &DecisionEvalRequest) -> String {
 #[cfg(feature = "jobs")]
 pub(crate) fn persist_replay_request(
     store: &AgentLibraryStore,
+    tenant_scope: &str,
     request: &DecisionEvalRequest,
 ) -> Result<String, String> {
-    if !matches!(&request.mode, EvalMode::Replay { .. }) || request.tenant_id.is_empty() {
+    let EvalMode::Replay { spec } = &request.mode else {
         return Err(refusal(
             StatisticalErrorCode::ReplaySpecInvalid,
             "a replay worker requires a tenant-scoped replay request",
+        ));
+    };
+    if request.tenant_id.is_empty() || tenant_scope.is_empty() {
+        return Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "a replay worker requires a tenant-scoped replay request",
+        ));
+    }
+    if spec.graph.trim().is_empty()
+        || spec.graph.len() > 256
+        || spec.graph.chars().any(char::is_control)
+    {
+        return Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "replay requires a bounded target graph",
         ));
     }
     let DatasetSource::Inline { dataset } = &request.source else {
@@ -368,13 +480,28 @@ pub(crate) fn persist_replay_request(
             "replay requires an inline, pinned full-label dataset",
         ));
     };
-    eval_regime(request, dataset)?;
-    let key = replay_request_ref(request);
-    store.put_decision_artifacts(
-        &request.tenant_id,
-        &[(key.clone(), encode_artifact(request)?)],
-    )?;
-    Ok(key)
+    let regime = eval_regime(request, dataset)?;
+    if regime != Regime::FullLabel {
+        return Err(refusal(
+            StatisticalErrorCode::ReplayPolicyDependent,
+            "replay requires a pinned full-label dataset",
+        ));
+    }
+    #[cfg(feature = "finance")]
+    {
+        super::stat_walk_forward::check_spec(spec, regime)?;
+        let key = replay_request_ref(request);
+        store.put_decision_artifacts(tenant_scope, &[(key.clone(), encode_artifact(request)?)])?;
+        Ok(key)
+    }
+    #[cfg(not(feature = "finance"))]
+    {
+        let _ = (store, tenant_scope, spec, regime);
+        Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "replay evaluation requires the `finance` feature (its validation kernels)",
+        ))
+    }
 }
 
 /// Execute a claimed replay from its pinned request and durable fold prefix.
@@ -455,31 +582,6 @@ fn run_eval(inputs: &EvalInputs, request: &DecisionEvalRequest) -> JobRun {
     ))
 }
 
-/// A replay evaluation (EH-528). Its overfitting statistics are the finance
-/// validation kernels', so a build without `finance` refuses it by name.
-#[cfg(feature = "finance")]
-fn run_replay(
-    store: &AgentLibraryStore,
-    inputs: &EvalInputs,
-    request: &DecisionEvalRequest,
-    spec: &ReplaySpec,
-) -> JobRun {
-    super::stat_walk_forward::run(store, inputs, request, spec)
-}
-
-#[cfg(not(feature = "finance"))]
-fn run_replay(
-    _store: &AgentLibraryStore,
-    _inputs: &EvalInputs,
-    _request: &DecisionEvalRequest,
-    _spec: &ReplaySpec,
-) -> JobRun {
-    Err(refusal(
-        StatisticalErrorCode::ReplaySpecInvalid,
-        "replay evaluation requires the `finance` feature (its validation kernels)",
-    ))
-}
-
 /// Run one evaluation job in the mode its request names.
 fn run_eval_job(
     store: &AgentLibraryStore,
@@ -489,7 +591,10 @@ fn run_eval_job(
     let inputs = eval_inputs(store, reader, request)?;
     match &request.mode {
         EvalMode::OffPolicy => run_eval(&inputs, request),
-        EvalMode::Replay { spec } => run_replay(store, &inputs, request, spec),
+        EvalMode::Replay { .. } => Err(refusal(
+            StatisticalErrorCode::ReplaySpecInvalid,
+            "replay evaluation must run through the durable jobs worker",
+        )),
     }
 }
 
@@ -584,8 +689,129 @@ async fn serve_fit(
     }
 }
 
+#[cfg(feature = "jobs")]
+async fn serve_replay_submit(
+    state: &SharedState,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    library: &AgentLibraryStore,
+    identity: &JobIdentity,
+    request: &DecisionEvalRequest,
+    spec: &ReplaySpec,
+) -> Result<DecisionJobRecord, String> {
+    serve_replay_submit_with(
+        state,
+        req_id,
+        verified,
+        library,
+        identity,
+        request,
+        spec,
+        write_replay_binding,
+    )
+    .await
+}
+
+#[cfg(feature = "jobs")]
+fn write_replay_binding(
+    library: &AgentLibraryStore,
+    identity: &JobIdentity,
+    record: &DecisionJobRecord,
+    link: &ReplayQueueLink,
+) -> Result<(), String> {
+    library.put_decision_artifacts(
+        &identity.tenant_id,
+        &[
+            (job_key(&identity.job_id), encode_artifact(record)?),
+            (replay_queue_key(&identity.job_id), encode_artifact(link)?),
+        ],
+    )
+}
+
+#[cfg(feature = "jobs")]
+#[allow(clippy::too_many_arguments)]
+async fn serve_replay_submit_with<W>(
+    state: &SharedState,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    library: &AgentLibraryStore,
+    identity: &JobIdentity,
+    request: &DecisionEvalRequest,
+    spec: &ReplaySpec,
+    write: W,
+) -> Result<DecisionJobRecord, String>
+where
+    W: FnOnce(
+        &AgentLibraryStore,
+        &JobIdentity,
+        &DecisionJobRecord,
+        &ReplayQueueLink,
+    ) -> Result<(), String>,
+{
+    let jobs = crate::server::handlers::jobs::outbox_job_store(state).await?;
+    if let Some(record) = replayed(library, identity)? {
+        return if matches!(&record.state, DecisionJobState::Queued) {
+            project_replay_job(library, &jobs, record)
+        } else {
+            Ok(record)
+        };
+    }
+    let carrier = crate::server::access::CarrierAuthority::from_verified(verified)?;
+    let request_ref = persist_replay_request(library, carrier.tenant_scope(), request)?;
+    let analytics = crate::server::handlers::jobs::submit_decision_replay(
+        state,
+        req_id,
+        verified,
+        &identity.job_id,
+        &request_ref,
+        &spec.graph,
+    )
+    .await?;
+    let record = identity.record(DecisionJobState::Queued);
+    let link = ReplayQueueLink {
+        schema_version: 1,
+        analytics_job_id: analytics.job_id,
+        request_ref,
+        tenant_scope: carrier.tenant_scope().to_string(),
+    };
+    write(library, identity, &record, &link)?;
+    project_replay_job(library, &jobs, record)
+}
+
+#[cfg(all(test, feature = "jobs"))]
+pub(super) async fn fail_replay_link_write_for_test(
+    state: &SharedState,
+    verified: &VerifiedRequestContext,
+    request: &DecisionEvalRequest,
+) -> Result<DecisionJobRecord, String> {
+    let EvalMode::Replay { spec } = &request.mode else {
+        return Err("test requires replay mode".into());
+    };
+    let (library, now_ms) = store_and_now(state).await?;
+    let identity = identity(
+        DecisionJobKind::Eval,
+        &request.tenant_id,
+        &request.idempotency_key,
+        request,
+        now_ms,
+    );
+    serve_replay_submit_with(
+        state,
+        901,
+        verified,
+        &library,
+        &identity,
+        request,
+        spec,
+        |_, _, _, _| Err("injected Agent Library queue-link write failure".into()),
+    )
+    .await
+}
+
 async fn serve_eval(
     state: &SharedState,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
     reader: LogReader,
     op: DecisionEvalOp,
 ) -> Result<ResultPayload, String> {
@@ -600,17 +826,40 @@ async fn serve_eval(
                 &request,
                 now_ms,
             );
-            let job = crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
-                submit_job(&store, &id, || run_eval_job(&store, &reader, &request))
-            })
-            .await?;
+            let job = if let EvalMode::Replay { spec } = &request.mode {
+                #[cfg(feature = "jobs")]
+                {
+                    serve_replay_submit(state, req_id, verified, &store, &id, &request, spec)
+                        .await?
+                }
+                #[cfg(not(feature = "jobs"))]
+                {
+                    let _ = (state, req_id, verified, spec);
+                    return Err(refusal(
+                        StatisticalErrorCode::ReplaySpecInvalid,
+                        "queued replay requires the `jobs` feature",
+                    ));
+                }
+            } else {
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+                    submit_job(&store, &id, || run_eval_job(&store, &reader, &request))
+                })
+                .await?
+            };
             ResultPayload::of::<DecisionEvalSubmit>(job)
         }
-        DecisionEvalOp::Status { request } => ResultPayload::of::<DecisionEvalStatus>(stored_job(
-            &store,
-            &request.tenant_id,
-            &request.job_id,
-        )?),
+        DecisionEvalOp::Status { request } => {
+            let stored = stored_job(&store, &request.tenant_id, &request.job_id)?;
+            #[cfg(feature = "jobs")]
+            let stored = match stored {
+                Some(job) if matches!(job.state, DecisionJobState::Queued) => {
+                    let jobs = crate::server::handlers::jobs::outbox_job_store(state).await?;
+                    Some(project_replay_job(&store, &jobs, job)?)
+                }
+                other => other,
+            };
+            ResultPayload::of::<DecisionEvalStatus>(stored)
+        }
     }
 }
 
@@ -666,8 +915,14 @@ pub(super) async fn handle_eval(
     respond(
         req_id,
         "DecisionEval",
-        serve_eval(state, LogReader::served(state, verified).await, op)
-            .instrument(span)
-            .await,
+        serve_eval(
+            state,
+            req_id,
+            verified,
+            LogReader::served(state, verified).await,
+            op,
+        )
+        .instrument(span)
+        .await,
     )
 }
