@@ -195,11 +195,14 @@ fn validate_usage_event_row(
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         || !opaque_usage_ref(row["run_ref"].as_str().unwrap_or_default(), "run")
         || !matches!(row["origin"].as_str(), Some("runtime" | "ingested"))
-        || row["occurred_at"].as_str().is_none_or(str::is_empty)
-        || row["occurred_at_ms"].as_i64().is_none()
-        || row["model_ref"]
+        || row["occurred_at"]
             .as_str()
-            .is_some_and(|value| !opaque_usage_ref(value, "model"))
+            .is_none_or(|value| value.is_empty() || value.len() > 40 || !value.is_ascii())
+        || row["occurred_at_ms"].as_i64().is_none()
+        || (!row["model_ref"].is_null()
+            && !row["model_ref"]
+                .as_str()
+                .is_some_and(|value| opaque_usage_ref(value, "model")))
     {
         return Err("usage append row authority or schema mismatch".into());
     }
@@ -310,7 +313,7 @@ impl GraphRowDelta {
         else {
             return Err("usage event rows are immutable".into());
         };
-        if node_id != expected_id || properties_msgpack != expected_blob {
+        if node_id != expected_id || properties_msgpack.as_slice() != expected_blob {
             return Err("usage append row differs from the admitted method".into());
         }
         validate_usage_event_row(node_id, properties_msgpack, tenant, owner)
@@ -768,6 +771,8 @@ mod tests {
             Some(("tenant-a", "forger", &id, &blob))
         )
         .is_err());
+        let forged = props(serde_json::json!({"type": "UsageEvent", "_owner": "emitter"}));
+        assert!(validate_usage_event_row(&id, &forged, "tenant-a", "emitter").is_err());
         core.add_node(id.clone(), props(serde_json::json!({"type": "UsageEvent"})));
         assert!(GraphRowDelta::between(&after, &core.snapshot()).is_err());
         assert!(GraphRowDelta::between_with_usage_append(
