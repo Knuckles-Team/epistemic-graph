@@ -2,8 +2,8 @@
 
 use crate::common::{assert_close, fnv1a64, level};
 use eg_numeric::detkernel::kernels::{
-    entropy, log_sigmoid, log_softmax, log_sum_exp, logit, normal_cdf, normal_sf, sigmoid,
-    softmax, softplus,
+    entropy, log_sigmoid, log_softmax, log_sum_exp, logit, normal_cdf, normal_sf, sigmoid, softmax,
+    softplus,
 };
 use eg_numeric::detkernel::math;
 use eg_numeric::detkernel::optimise::{minimise_convex_bounded, minimise_convex_unbounded};
@@ -106,7 +106,12 @@ fn normal_tails_keep_relative_accuracy_against_mpmath() {
         assert_close(normal_sf(-z) / reference, 1.0, 1e-12, "normal_sf tail");
     }
     assert_close(normal_cdf(0.0), 0.5, 0.0, "normal_cdf centre");
-    assert_close(normal_cdf(1.5), 0.933_192_798_731_141_9, 1e-15, "normal_cdf body");
+    assert_close(
+        normal_cdf(1.5),
+        0.933_192_798_731_141_9,
+        1e-15,
+        "normal_cdf body",
+    );
 }
 
 #[test]

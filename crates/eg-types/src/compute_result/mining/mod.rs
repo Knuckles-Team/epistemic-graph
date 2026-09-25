@@ -8,15 +8,15 @@ mod insight;
 mod patterns;
 mod vector;
 
+pub use impact::{
+    ImpactOptions, ImpactPathRow, ImpactReport, ImpactSemantics, RiskModel,
+    RiskPropagationMiningResult, RiskScoreRow, SeedAttributionRow,
+};
 pub use insight::{
     CausalImpactMiningResult, CausalRelationRow, CommunityMiningResult, CommunityRow,
     DirectlyFollowsRow, EntityMatchRow, EntityResolutionMiningResult, OntologyGapMiningResult,
     OntologyGapRow, ParallelRelationRow, ProcessMiningResult, RetrievalQualityMiningResult,
     RootCauseCandidateRow, RootCauseMiningResult,
-};
-pub use impact::{
-    ImpactOptions, ImpactPathRow, ImpactReport, ImpactSemantics, RiskModel,
-    RiskPropagationMiningResult, RiskScoreRow, SeedAttributionRow,
 };
 pub use patterns::{
     AssociationMiningResult, AssociationRuleRow, DocTerms, ForecastMiningResult, GspanMiningResult,

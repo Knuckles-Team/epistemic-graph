@@ -291,7 +291,11 @@ pub(super) struct EvalInputs {
 impl EvalInputs {
     /// The dataset's items admitted under this job's window and policy.
     pub(super) fn admitted(&self, window: eg_types::decision::RecordWindow) -> Admitted<'_> {
-        let approved = self.policy.statistical.approved_commit_principals.as_slice();
+        let approved = self
+            .policy
+            .statistical
+            .approved_commit_principals
+            .as_slice();
         admit(
             &self.dataset,
             &rules(self.regime, window, &self.policy, approved),

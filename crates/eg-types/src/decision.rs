@@ -61,7 +61,6 @@ pub use jobs::{
     DecisionJobStatusRequest, EvalCandidate, HeadKind, LabelRegime, OpeEstimateView,
     OpeEstimatorKind, OptimiserSpec, RecordWindow,
 };
-pub use replay::{EvalMode, EvaluationRun, ReplaySpec};
 pub use numeric::{
     QuantScaleTag, QuantisedValue, UnitRationalFields, UnitRationalWire,
     MAX_UNIT_RATIONAL_DENOMINATOR,
@@ -76,6 +75,7 @@ pub use record::{
     Elimination, EvidenceClass, PremiseClass, PremiseProvenance, PremiseRef, ResolutionKind,
     SlotAssignment, SolverIdentity, TemplateFacts, TraceFidelity, Violation, WhyNot,
 };
+pub use replay::{EvalMode, EvaluationRun, ReplaySpec};
 pub use request::{
     AssemblyConstraints, AssemblyRequest, AssemblyRequirements, AssemblyResult, ClaimProvenance,
     ClaimedTaskMapping, CostBudget, DecisionCommitRequest, DecisionCommitResult, DecisionPolicyRef,
