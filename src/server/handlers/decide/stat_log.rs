@@ -54,6 +54,9 @@ pub(super) const MAX_LOG_ROWS: usize = 100_000;
 pub(super) struct LogReader {
     pub(super) tenant_id: String,
     pub(super) principal: String,
+    /// The verified request context's role names: a role-named evaluator's
+    /// grant admits a holder (EH-395). Empty where no evaluation is served.
+    pub(super) roles: Vec<String>,
     /// How compacted inputs are restored when a read needs them.
     pub(super) retention: Retention,
 }
@@ -64,6 +67,7 @@ impl LogReader {
         Self {
             tenant_id: verified.tenant().to_string(),
             principal: verified.principal_persistence_id(),
+            roles: verified.roles().to_vec(),
             retention: Retention::none(),
         }
     }

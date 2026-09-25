@@ -94,6 +94,13 @@ def test_a_declared_decide_request_matches_the_contract() -> None:
     assert not valid(DEFS["DecideRequest"], broken), "the checker catches a bad shape"
 
 
+def test_a_named_evaluator_is_a_principal_or_a_policy_role() -> None:
+    by_role = dc.named_evaluator(1, role="decide-evaluator")
+    by_principal = dc.named_evaluator(1, principal="principal:sha256:" + "0" * 64)
+    for named in (by_role, by_principal):
+        assert valid(DEFS["NamedEvaluator"], named), named
+
+
 def test_every_log_op_matches_the_contract() -> None:
     ops = [
         dc.get_op("tenant-a", "decision:abc"),

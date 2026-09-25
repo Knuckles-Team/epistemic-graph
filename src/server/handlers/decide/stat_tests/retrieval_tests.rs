@@ -103,7 +103,8 @@ pub(super) fn grant(h: &Harness, record_id: &str, evaluator: &str, span: (u64, u
         server_secret: b"",
     };
     let named = eg_types::decision::statistical::log::NamedEvaluator {
-        principal: principal_of(evaluator),
+        principal: Some(principal_of(evaluator)),
+        role: None,
         expires_at_ms: span.1,
     };
     let committer = principal_of("decider");
