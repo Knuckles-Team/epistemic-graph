@@ -154,6 +154,15 @@ fn imu(interp: FuseInterp) -> Vec<FuseStream> {
     }]
 }
 
+fn imu_with_held_gps() -> Vec<FuseStream> {
+    let mut streams = imu(FuseInterp::Linear);
+    streams.push(FuseStream {
+        layer: "gps".into(),
+        interp: FuseInterp::AsofHold,
+    });
+    streams
+}
+
 /// A uniform grid over `[0, to)` at `step`.
 fn grid(to: i64, step: i64) -> FuseClock {
     FuseClock::Uniform {
@@ -300,16 +309,7 @@ fn sensor_align_emits_unscored_rows_where_only_the_primary_gapped() {
 
     let rows = run(
         &Plan::new(vec![Op::SensorAlign {
-            streams: vec![
-                FuseStream {
-                    layer: "imu".into(),
-                    interp: FuseInterp::Linear,
-                },
-                FuseStream {
-                    layer: "gps".into(),
-                    interp: FuseInterp::AsofHold,
-                },
-            ],
+            streams: imu_with_held_gps(),
             clock: grid(5 * NS, NS),
             tolerance_ns: None,
         }]),
@@ -337,16 +337,7 @@ fn sensor_align_tolerance_bounds_staleness() {
     let view = ramp_sensors();
     let rows = run(
         &Plan::new(vec![Op::SensorAlign {
-            streams: vec![
-                FuseStream {
-                    layer: "imu".into(),
-                    interp: FuseInterp::Linear,
-                },
-                FuseStream {
-                    layer: "gps".into(),
-                    interp: FuseInterp::AsofHold,
-                },
-            ],
+            streams: imu_with_held_gps(),
             clock: grid(5 * NS, NS),
             tolerance_ns: Some(NS as u64),
         }]),

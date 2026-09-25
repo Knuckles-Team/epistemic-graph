@@ -19,6 +19,8 @@ use eg_types::wire::EdgeDir;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
+pub use eg_plan::exec::propagate::node_props;
+
 use crate::protocol::Method;
 
 /// The label of a watch node.
@@ -127,15 +129,6 @@ pub fn label_of(props: &Map<String, Value>) -> &str {
         .into_iter()
         .find_map(|key| props.get(key).and_then(Value::as_str))
         .unwrap_or("")
-}
-
-/// A node's properties in `view` (empty when absent or undecodable).
-pub fn node_props(view: &GraphView, id: &str) -> Map<String, Value> {
-    view.node_properties
-        .get(id)
-        .and_then(|blob| eg_types::msgpack::decode_property_value(blob).ok())
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
 }
 
 /// Every well-formed watch declared in `view`, in id order.

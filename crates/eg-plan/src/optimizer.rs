@@ -879,7 +879,6 @@ mod tests {
     #[cfg(feature = "text")]
     #[test]
     fn selective_filter_pushed_ahead_of_rank_text_and_preserves_result() {
-        use eg_core::compute::semantic::SemanticStore;
         use eg_core::graph::GraphCore;
         use eg_text::TextIndex;
 
@@ -897,10 +896,8 @@ mod tests {
             core.add_node(id.clone(), blob(serde_json::json!({ "type": "Doc" })));
             text.upsert(&id, "graph database text retrieval engine");
         }
-        text.commit().unwrap();
-        let view = core.analysis_snapshot();
-        let semantic = SemanticStore::new();
-        let ctx = PlanCtx::new(&view, &semantic).with_text(&text);
+        let (view, semantic, text) = crate::fixture::finish_text_fixture(core, text);
+        let ctx = crate::fixture::text_context(&view, &semantic, &text);
 
         let original = Plan::new(vec![
             Op::Scan {

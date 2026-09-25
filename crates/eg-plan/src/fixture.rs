@@ -13,6 +13,24 @@ pub struct Fixture {
     pub semantic: SemanticStore,
 }
 
+#[cfg(feature = "text")]
+pub fn finish_text_fixture(
+    core: GraphCore,
+    mut text: eg_text::TextIndex,
+) -> (GraphView, SemanticStore, eg_text::TextIndex) {
+    text.commit().unwrap();
+    (core.analysis_snapshot(), SemanticStore::new(), text)
+}
+
+#[cfg(feature = "text")]
+pub fn text_context<'a>(
+    view: &'a GraphView,
+    semantic: &'a SemanticStore,
+    text: &'a eg_text::TextIndex,
+) -> crate::exec::PlanCtx<'a> {
+    crate::exec::PlanCtx::new(view, semantic).with_text(text)
+}
+
 fn blob(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
 }

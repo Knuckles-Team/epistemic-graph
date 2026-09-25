@@ -68,7 +68,9 @@ fn unit_property(props: &Map<String, Value>, key: &str) -> Option<f64> {
         .filter(|p| (0.0..=1.0).contains(p))
 }
 
-fn node_props(view: &GraphView, id: &str) -> Map<String, Value> {
+/// Decode a node's object properties from one graph snapshot, returning an empty
+/// object for an absent or undecodable node.
+pub fn node_props(view: &GraphView, id: &str) -> Map<String, Value> {
     view.node_properties
         .get(id)
         .and_then(|blob| eg_types::msgpack::decode_property_value(blob).ok())
