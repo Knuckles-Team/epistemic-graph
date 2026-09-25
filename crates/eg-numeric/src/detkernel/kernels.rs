@@ -1,5 +1,5 @@
 //! Deterministic probability kernels: log-sum-exp, softmax, log-softmax,
-//! entropy, sigmoid, softplus and logit.
+//! entropy, sigmoid, softplus, logit and the standard-normal CDF/survival.
 //!
 //! All of them use only IEEE basic operations, correctly rounded `abs`, the
 //! pinned transcendentals in [`super::math`], and serial left-to-right sums, so
@@ -72,6 +72,18 @@ pub fn softplus(x: f64) -> f64 {
 /// `ln sigmoid(x) = -softplus(-x)`.
 pub fn log_sigmoid(x: f64) -> f64 {
     -softplus(-x)
+}
+
+/// Standard-normal survival `P(Z > z) = erfc(z / sqrt 2) / 2`. It never forms
+/// `1 - CDF`, so the upper tail keeps its relative accuracy.
+pub fn normal_sf(z: f64) -> f64 {
+    0.5 * math::erfc(z * std::f64::consts::FRAC_1_SQRT_2)
+}
+
+/// Standard-normal CDF `P(Z <= z)`, as the survival at `-z`: the lower tail
+/// keeps its relative accuracy (no `1 + erf` cancellation).
+pub fn normal_cdf(z: f64) -> f64 {
+    normal_sf(-z)
 }
 
 /// `logit(p) = ln(p / (1 - p))` for `p` strictly inside `(0, 1)`.

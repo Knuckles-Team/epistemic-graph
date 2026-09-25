@@ -193,3 +193,9 @@ The validation outputs use only correctly rounded IEEE operations and the pinned
 soft-float kernel (`eg_numeric::detkernel::math`), never the platform `libm`,
 `powi` or `powf`. A sealed digest is therefore the same on every host, and the
 test `a_sealed_backtest_run_digest_is_pinned_across_hosts` pins one.
+
+The deflated Sharpe ratio is a normal tail probability, often a very small one.
+It comes from `detkernel::kernels::normal_cdf`, which evaluates the pinned
+`erfc` directly and never forms `1 + erf` or `1 - CDF`, so it keeps full
+relative accuracy far into the tail (checked against mpmath at z = -3 to -10).
+The Diebold-Mariano p-value uses `normal_sf` the same way.
