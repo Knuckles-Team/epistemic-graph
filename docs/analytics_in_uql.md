@@ -160,6 +160,34 @@ SELECT ts, eg_zscore(v, 60) OVER (PARTITION BY series ORDER BY ts) AS z FROM poi
 * `SKILL f AGAINST y HORIZONS [...] WINDOW w` reports a feature's rolling rank-IC decay, ICIR,
   a bootstrap interval and the breadth across horizons (`eg_numeric::evaluation::skill`).
 
+## Motif / discord search and shape events (EH-529)
+
+Query-by-example and anomalous-subsequence search over a value channel (`eg_numeric::series::
+{mass, matrix_profile}`), and declared shape predicates turned into events an existing `CEP`
+stage matches — no new pattern language, the same bounded NFA `Op::Cep` already runs:
+
+```uql
+TSSCAN ['svc.p95'] FROM 0 TO 3600 |> MOTIF OF v0 LIKE [0, 1.5, -2.25, 4] TOP 5 |> RETURN distance
+```
+
+```uql
+TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DISCORD OF v0 LENGTH 120 TOP 3 |> RETURN distance, start
+```
+
+```uql
+TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE gt(v0, 100) AS spike |> EVENTS spike |> RETURN spike
+```
+
+`MOTIF … LIKE` is MASS (a z-normalised distance profile to the query shape, FFT-accelerated,
+O(n log n)); `MOTIF … LENGTH` / `DISCORD … LENGTH` build the anytime SCRIMP++ matrix profile
+under the plan's `Budget::max_series_work` and return its nearest (motifs) or farthest
+(discords) subsequences — a cut run reports its best-so-far with `approximate = 1`. Every
+reported `distance` is re-derived from a direct dot product, so it is identical whether or
+not the search was cut. `EVENTS c {, c}` turns a non-zero `DERIVE` shape predicate (`gt`/
+`lt`/`greatest`/`least`) into a row `<series>#<c>@<ts>` a following `CEP SEQ ({KEY 'c'}) …`
+matches by key — the streaming left profile (`DERIVE mprofile(v, m, history)`, EH-529 too)
+needs neither: it is an ordinary O(1) incremental kernel, always built.
+
 ## See also
 
 - `docs/architecture/numeric-kernel.md` — the `eg-numeric` kernel internals.

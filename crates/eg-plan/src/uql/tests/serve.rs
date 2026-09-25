@@ -141,6 +141,7 @@ fn budgets_refuse_with_a_typed_error() {
     let ctx = PlanCtx::new(&view, &semantic).with_budget(Budget {
         max_result_rows: 1,
         max_traversal_visits: 100,
+        max_series_work: Budget::DEFAULT_MAX_SERIES_WORK,
     });
     let err = run("MATCH (:Doc)", &Params::new(), &ctx).unwrap_err();
     assert!(err.starts_with(crate::budget::BUDGET_EXCEEDED), "{err}");

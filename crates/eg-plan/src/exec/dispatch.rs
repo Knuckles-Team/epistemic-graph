@@ -127,7 +127,9 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         | Op::SensorAlign { .. }
         | Op::TsScan { .. }
         | Op::Derive { .. }
-        | Op::Skill { .. } => apply_timeseries(op, input, ctx),
+        | Op::Skill { .. }
+        | Op::Motif { .. }
+        | Op::Events { .. } => apply_timeseries(op, input, ctx),
 
         // `eg-types/query` (which gates this whole module) surfaces the FULL `Op` wire
         // contract, so modality ops whose executor lives behind an eg-plan feature the
@@ -441,6 +443,8 @@ pub(super) fn apply_timeseries(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<
     match op {
         Op::Derive { columns } => derive_op(input, columns),
         Op::Skill { spec } => skill_op(input, spec),
+        Op::Motif { spec } => motif_op(input, spec, ctx.budget.max_series_work),
+        Op::Events { channels } => events_op(input, channels),
         Op::SensorFuse {
             streams,
             tolerance_ns,

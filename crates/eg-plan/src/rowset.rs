@@ -46,6 +46,22 @@ pub fn parse_series_row_id(id: &str) -> Option<(&str, i64)> {
     }
 }
 
+/// The row id of a series EVENT at `ts_ns` (EH-529: `MOTIF`/`DISCORD` hits and `EVENTS`
+/// shape rows): `series#key@ts`. `key` is the hit kind (`motif`/`discord`) or the
+/// triggering `DERIVE` channel name — a later `CEP` stage matches on it.
+pub fn series_event_row_id(series: &str, key: &str, ts_ns: i64) -> String {
+    format!("{series}#{key}@{ts_ns}")
+}
+
+/// Split a series event row id into `(series, key, ts)` ([`series_event_row_id`]'s
+/// inverse). `None` for anything else, including a plain [`parse_series_row_id`] id
+/// (no `#`).
+pub fn parse_series_event_row_id(id: &str) -> Option<(&str, &str, i64)> {
+    let (head, ts) = id.rsplit_once('@')?;
+    let (series, key) = head.rsplit_once('#')?;
+    Some((series, key, ts.parse().ok()?))
+}
+
 /// One row: a node id and an optional score (similarity, pagerank, etc.). When a
 /// `RowSet` has not been ranked, `score` is `None` for every row.
 #[derive(Clone, Debug, PartialEq)]
@@ -207,6 +223,17 @@ mod tests {
         assert_eq!(parse_series_row_id("-5"), Some(("", -5)));
         assert_eq!(parse_series_row_id("node-1"), None);
         assert_eq!(parse_series_row_id("a@b"), None);
+    }
+
+    #[test]
+    fn series_event_row_ids_round_trip() {
+        assert_eq!(series_event_row_id("svc.p95", "discord", 7), "svc.p95#discord@7");
+        assert_eq!(
+            parse_series_event_row_id("svc.p95#discord@7"),
+            Some(("svc.p95", "discord", 7))
+        );
+        assert_eq!(parse_series_event_row_id("svc.p95@7"), None, "no `#` key");
+        assert_eq!(parse_series_event_row_id("node-1"), None);
     }
 
     #[test]

@@ -57,10 +57,15 @@ pub enum SeriesFunc {
     Wsum,
     Kalman,
     Kbeta,
+    Gt,
+    Lt,
+    Greatest,
+    Least,
+    Mprofile,
 }
 
 /// A function's spelling and signature: how many series arguments, then how many
-/// numeric parameters, and whether the first parameter is a positive integer count.
+/// numeric parameters, and whether those parameters are positive integer counts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Signature {
     pub func: SeriesFunc,
@@ -70,10 +75,10 @@ pub struct Signature {
     pub count: Count,
 }
 
-/// Whether a function's first numeric parameter is a count (a lag, a window).
+/// Whether a function's numeric parameters are counts (a lag, a window).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Count {
-    /// The first parameter is a positive integer (lag / window length).
+    /// Every parameter is a positive integer (lag / window / subsequence length).
     Integer,
     /// Parameters are real numbers (a span, clip bounds) or there are none.
     Real,
@@ -126,6 +131,11 @@ pub const SIGNATURES: &[Signature] = &[
     sig(F::Wsum, "wsum", 2, 1, Integer),
     sig(F::Kalman, "kalman", 1, 2, Real),
     sig(F::Kbeta, "kbeta", 2, 2, Real),
+    sig(F::Gt, "gt", 2, 0, Real),
+    sig(F::Lt, "lt", 2, 0, Real),
+    sig(F::Greatest, "greatest", 2, 0, Real),
+    sig(F::Least, "least", 2, 0, Real),
+    sig(F::Mprofile, "mprofile", 1, 2, Integer),
 ];
 
 impl SeriesFunc {
@@ -211,13 +221,11 @@ fn check_call(sig: Signature, args: usize, params: &[f64]) -> Result<(), String>
         ));
     }
     params.iter().try_for_each(|p| finite(*p))?;
-    let count_ok = params
-        .first()
-        .is_none_or(|&p| sig.count == Real || (p >= 1.0 && p.fract() == 0.0));
+    let count_ok = sig.count == Real || params.iter().all(|&p| p >= 1.0 && p.fract() == 0.0);
     if count_ok {
         return Ok(());
     }
-    Err(format!("{}() needs a positive integer count", sig.name))
+    Err(format!("{}() needs positive integer counts", sig.name))
 }
 
 /// One `DERIVE` column: an expression and the channel name its values are written to.
@@ -243,6 +251,35 @@ pub struct SkillOp {
     #[serde(default)]
     pub seed: u64,
 }
+
+/// A UQL `MOTIF` / `DISCORD` stage (EH-529): which value channel is searched, for what,
+/// how many hits, and the seed of the matrix profile's anytime diagonal order.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct MotifOp {
+    pub channel: String,
+    pub search: MotifSearch,
+    pub top: u64,
+    #[serde(default)]
+    pub seed: u64,
+}
+
+/// What a `MOTIF` / `DISCORD` stage looks for in each series.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum MotifSearch {
+    /// `MOTIF LIKE shape`: the windows z-normalised-closest to `shape` (MASS).
+    Like { shape: Vec<f64> },
+    /// `MOTIF LENGTH m`: the closest pairs of length-`m` windows (matrix-profile minima).
+    Pairs { length: u64 },
+    /// `DISCORD LENGTH m`: the length-`m` windows farthest from every other window
+    /// (matrix-profile maxima).
+    Discord { length: u64 },
+}
+
+/// The value channels a `MOTIF` / `DISCORD` row carries.
+pub const MOTIF_CHANNELS: [&str; 5] = ["distance", "start", "end", "neighbor", "approximate"];
 
 /// The value channels a `SKILL` stage writes on each report row.
 pub const SKILL_CHANNELS: [&str; 8] = [

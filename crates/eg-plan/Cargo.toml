@@ -77,7 +77,11 @@ federation = [
 # different things; this needs only the first, which keeps `Op::SensorAlign`'s
 # executor arm gated on EXACTLY the same feature as its wire variant (`timeseries`) —
 # no combination of features can produce the variant without the arm.
-timeseries = ["query", "dep:eg-tsdb", "eg-tsdb/redb-store", "eg-tsdb/derive", "eg-types/timeseries", "dep:eg-tensor", "dep:eg-numeric"]
+# `eg-numeric/motif` (EH-529, ANALYTICS-HARVEST AH-09) turns on rustfft for the `MOTIF`/
+# `DISCORD` stages' MASS + SCRIMP++ matrix profile — the ONE place that pulls it, per
+# `eg-numeric`'s own feature doc; the streaming left profile (`DERIVE mprofile(...)`,
+# always built) needs no FFT.
+timeseries = ["query", "dep:eg-tsdb", "eg-tsdb/redb-store", "eg-tsdb/derive", "eg-types/timeseries", "dep:eg-tensor", "dep:eg-numeric", "eg-numeric/motif"]
 # EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
 # running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the

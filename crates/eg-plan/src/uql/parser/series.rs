@@ -72,6 +72,104 @@ impl Parser<'_> {
         Ok((resamples, self.parse_number::<u64>("a seed")?))
     }
 
+    gated! { "timeseries",
+        /// `MOTIF OF c (LIKE [num, …] | LENGTH int) TOP int [SEED int]` (EH-529): query-
+        /// by-example (MASS) with `LIKE`, or the matrix-profile motifs with `LENGTH`.
+        fn motif(&mut self) -> Result<eg_types::wire::Op, UqlError> {
+            self.expect_kw("OF")?;
+            let channel = self.skill_channel()?;
+            let span = self.cur_span();
+            let search = if self.eat_kw("LIKE") {
+                let shape = self.bracket_list("the shape", |p| p.number("a shape value"))?;
+                self.check_motif_length(shape.len(), span)?;
+                eg_types::series_expr::MotifSearch::Like { shape }
+            } else {
+                self.expect_kw("LENGTH")?;
+                let length = self.motif_length(span)?;
+                eg_types::series_expr::MotifSearch::Pairs { length }
+            };
+            self.motif_op(channel, search)
+        }
+    }
+
+    gated! { "timeseries",
+        /// `DISCORD OF c LENGTH int TOP int [SEED int]` (EH-529): the matrix-profile
+        /// discords — the subsequences farthest from their nearest neighbour.
+        fn discord(&mut self) -> Result<eg_types::wire::Op, UqlError> {
+            self.expect_kw("OF")?;
+            let channel = self.skill_channel()?;
+            let span = self.cur_span();
+            self.expect_kw("LENGTH")?;
+            let length = self.motif_length(span)?;
+            self.motif_op(channel, eg_types::series_expr::MotifSearch::Discord { length })
+        }
+    }
+
+    gated! { "timeseries",
+        /// `EVENTS c {, c}` (EH-529): every series row whose value channel `c` is
+        /// non-zero becomes an event row a later `CEP` stage matches by key `c`. Names
+        /// a channel by its bare identifier, NOT validated against `v0..vk` / earlier
+        /// `DERIVE` aliases like [`Self::skill_channel`] does — a channel a native
+        /// source (not a `DERIVE`) already carries is just as legal a key, and a name
+        /// this build never sees a value for simply emits no event (never a parse-time
+        /// refusal for a plan whose earlier stages this parser cannot see, e.g. inside
+        /// a `LET` binding used before its own definition is walked).
+        fn events(&mut self) -> Result<eg_types::wire::Op, UqlError> {
+            let mut channels = vec![self.name("a value channel")?];
+            while self.eat(&Tok::Comma) {
+                channels.push(self.name("a value channel")?);
+            }
+            Ok(eg_types::wire::Op::Events { channels })
+        }
+    }
+
+    /// `TOP int [SEED int]`, then the `MotifOp`. Shared tail of `motif` and `discord`.
+    #[cfg(feature = "timeseries")]
+    fn motif_op(
+        &mut self,
+        channel: String,
+        search: eg_types::series_expr::MotifSearch,
+    ) -> Result<eg_types::wire::Op, UqlError> {
+        self.expect_kw("TOP")?;
+        let span = self.cur_span();
+        let top = self.parse_number::<u64>("TOP k")?;
+        if top == 0 {
+            return Err(UqlError::new(UqlCode::InvalidRange, "TOP needs at least 1", span));
+        }
+        let seed = if self.eat_kw("SEED") {
+            self.parse_number::<u64>("a seed")?
+        } else {
+            0
+        };
+        self.derived
+            .extend(eg_types::series_expr::MOTIF_CHANNELS.iter().map(|c| c.to_string()));
+        Ok(eg_types::wire::Op::Motif {
+            spec: eg_types::series_expr::MotifOp { channel, search, top, seed },
+        })
+    }
+
+    /// A `LENGTH`/`LIKE` subsequence length: at least 2 (`eg_numeric::series::distance::
+    /// MIN_LENGTH`, checked again authoritatively where the kernel runs — this parse-time
+    /// check only gives an earlier, better-located error).
+    #[cfg(feature = "timeseries")]
+    fn motif_length(&mut self, span: (usize, usize)) -> Result<u64, UqlError> {
+        let length = self.parse_number::<u64>("a subsequence length")?;
+        self.check_motif_length(length as usize, span)?;
+        Ok(length)
+    }
+
+    #[cfg(feature = "timeseries")]
+    fn check_motif_length(&self, length: usize, span: (usize, usize)) -> Result<(), UqlError> {
+        if length >= 2 {
+            return Ok(());
+        }
+        Err(UqlError::new(
+            UqlCode::InvalidRange,
+            "a MOTIF/DISCORD subsequence needs a length of at least 2",
+            span,
+        ))
+    }
+
     #[cfg(feature = "timeseries")]
     fn derive_column(&mut self) -> Result<eg_types::series_expr::DeriveColumn, UqlError> {
         let expr = self.series_expr()?;
