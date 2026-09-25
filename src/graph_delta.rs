@@ -135,8 +135,124 @@ struct LedgerDelta {
     append: Vec<String>,
 }
 
+fn opaque_usage_ref(value: &str, kind: &str) -> bool {
+    value
+        .strip_prefix(&format!("pref_{kind}_"))
+        .is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        })
+}
+
+fn validate_usage_event_row(
+    id: &str,
+    blob: &[u8],
+    tenant: &str,
+    owner: &str,
+) -> Result<(), String> {
+    let row = eg_types::msgpack::decode_property_value(blob)
+        .map_err(|_| "usage append row is not a property object")?;
+    let event_ref = id
+        .strip_prefix(&format!("usage:event:{tenant}:"))
+        .ok_or("usage append id does not match the verified tenant")?;
+    let allowed = [
+        "type",
+        "schema",
+        "tenant_ref",
+        "principal_ref",
+        "_owner",
+        "_visibility",
+        "event_ref",
+        "run_ref",
+        "origin",
+        "occurred_at",
+        "occurred_at_ms",
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_tokens",
+        "cache_read_tokens",
+        "reasoning_tokens",
+        "cost_microusd",
+        "model_ref",
+    ];
+    let fields = row.as_object().ok_or("usage append row is not an object")?;
+    if fields.len() != allowed.len() || fields.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("usage append row has missing or unexpected fields".into());
+    }
+    let principal = row["principal_ref"].as_str().unwrap_or_default();
+    if !opaque_usage_ref(event_ref, "usage_dedup")
+        || row["type"] != "UsageEvent"
+        || row["schema"] != "usage-event-fact-v1"
+        || row["tenant_ref"] != tenant
+        || row["event_ref"] != event_ref
+        || row["_owner"] != owner
+        || row["_visibility"] != "private"
+        || principal.len() != 64
+        || !principal
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        || !opaque_usage_ref(row["run_ref"].as_str().unwrap_or_default(), "run")
+        || !matches!(row["origin"].as_str(), Some("runtime" | "ingested"))
+        || row["occurred_at"].as_str().is_none_or(str::is_empty)
+        || row["occurred_at_ms"].as_i64().is_none()
+        || row["model_ref"]
+            .as_str()
+            .is_some_and(|value| !opaque_usage_ref(value, "model"))
+    {
+        return Err("usage append row authority or schema mismatch".into());
+    }
+    for field in [
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_tokens",
+        "cache_read_tokens",
+        "reasoning_tokens",
+    ] {
+        if row[field].as_u64().is_none() {
+            return Err(format!("usage append {field} must be nonnegative"));
+        }
+    }
+    if !row["cost_microusd"].is_null() && row["cost_microusd"].as_u64().is_none() {
+        return Err("usage append cost must be nonnegative".into());
+    }
+    Ok(())
+}
+
 impl GraphRowDelta {
     pub(crate) fn between(before: &GraphSnapshot, after: &GraphSnapshot) -> Result<Self, String> {
+        Self::between_with_usage_append(before, after, None)
+    }
+
+    /// Only the authenticated CreateNodeIfAbsent gateway may add a usage fact.
+    /// Every other staged graph writer (SQL, transactions, imports and internal
+    /// programs) passes `None` and cannot change a reserved row.
+    pub(crate) fn between_with_usage_append(
+        before: &GraphSnapshot,
+        after: &GraphSnapshot,
+        admission: Option<(&str, &str, &str, &[u8])>,
+    ) -> Result<Self, String> {
+        let delta = Self::between_replay(before, after)?;
+        if let Some((_, _, expected_id, _)) = admission {
+            if before.nodes.iter().any(|(id, _)| id == expected_id)
+                && delta.operations.iter().any(|method| {
+                    matches!(method, Method::AddNode { node_id, .. } if node_id == expected_id)
+                })
+            {
+                return Err("usage event rows are insert-only".into());
+            }
+        }
+        delta.validate_usage_transition(admission)?;
+        Ok(delta)
+    }
+
+    /// Recompute the digest of an already committed image during recovery.
+    /// Admission was performed before that image entered the durable ledger.
+    pub(crate) fn between_replay(
+        before: &GraphSnapshot,
+        after: &GraphSnapshot,
+    ) -> Result<Self, String> {
         let nodes = SnapshotPair::new(node_rows(before), node_rows(after));
         let embeddings = SnapshotPair::new(embedding_rows(before), embedding_rows(after));
         let removals = NodeRemovals::between(&nodes, &embeddings);
@@ -153,6 +269,51 @@ impl GraphRowDelta {
         };
         delta.validate()?;
         Ok(delta)
+    }
+
+    fn validate_usage_transition(
+        &self,
+        admission: Option<(&str, &str, &str, &[u8])>,
+    ) -> Result<(), String> {
+        let changed = self
+            .operations
+            .iter()
+            .filter(|method| match method {
+                Method::AddNode { node_id, .. }
+                | Method::RemoveNode { node_id }
+                | Method::AddEmbedding { node_id, .. } => node_id.starts_with("usage:event:"),
+                Method::AddEdge {
+                    source_id,
+                    target_id,
+                    ..
+                }
+                | Method::RemoveEdge {
+                    source_id,
+                    target_id,
+                } => source_id.starts_with("usage:event:") || target_id.starts_with("usage:event:"),
+                _ => false,
+            })
+            .collect::<Vec<_>>();
+        if changed.is_empty() {
+            return Ok(());
+        }
+        let Some((tenant, owner, expected_id, expected_blob)) = admission else {
+            return Err("reserved usage event rows require the usage append authority".into());
+        };
+        if changed.len() != 1 || self.operations.len() != 1 {
+            return Err("usage append must insert exactly one graph row".into());
+        }
+        let Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } = changed[0]
+        else {
+            return Err("usage event rows are immutable".into());
+        };
+        if node_id != expected_id || properties_msgpack != expected_blob {
+            return Err("usage append row differs from the admitted method".into());
+        }
+        validate_usage_event_row(node_id, properties_msgpack, tenant, owner)
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -567,6 +728,56 @@ mod tests {
 
     fn props(value: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&value).unwrap()
+    }
+
+    #[test]
+    fn reserved_usage_row_needs_exact_verified_append_and_cannot_be_changed() {
+        let id = format!("usage:event:tenant-a:pref_usage_dedup_{}", "a".repeat(64));
+        let blob = props(serde_json::json!({
+            "type": "UsageEvent", "schema": "usage-event-fact-v1",
+            "tenant_ref": "tenant-a", "principal_ref": "c".repeat(64),
+            "_owner": "emitter", "_visibility": "private",
+            "event_ref": format!("pref_usage_dedup_{}", "a".repeat(64)),
+            "run_ref": format!("pref_run_{}", "b".repeat(64)),
+            "origin": "runtime", "occurred_at": "2026-09-25T00:00:00Z",
+            "occurred_at_ms": 1_790_294_400_000i64,
+            "input_tokens": 2, "output_tokens": 3, "cache_creation_tokens": 0,
+            "cache_read_tokens": 0, "reasoning_tokens": 0,
+            "cost_microusd": null, "model_ref": null,
+        }));
+        let core = GraphCore::new();
+        let before = core.snapshot();
+        core.add_node(id.clone(), blob.clone());
+        let after = core.snapshot();
+        assert!(GraphRowDelta::between(&before, &after).is_err());
+        assert!(GraphRowDelta::between_with_usage_append(
+            &before,
+            &after,
+            Some(("tenant-a", "emitter", &id, &blob))
+        )
+        .is_ok());
+        assert!(GraphRowDelta::between_with_usage_append(
+            &before,
+            &after,
+            Some(("tenant-b", "emitter", &id, &blob))
+        )
+        .is_err());
+        assert!(GraphRowDelta::between_with_usage_append(
+            &before,
+            &after,
+            Some(("tenant-a", "forger", &id, &blob))
+        )
+        .is_err());
+        core.add_node(id.clone(), props(serde_json::json!({"type": "UsageEvent"})));
+        assert!(GraphRowDelta::between(&after, &core.snapshot()).is_err());
+        assert!(GraphRowDelta::between_with_usage_append(
+            &after,
+            &core.snapshot(),
+            Some(("tenant-a", "emitter", &id, &blob))
+        )
+        .is_err());
+        core.remove_node(id);
+        assert!(GraphRowDelta::between(&after, &core.snapshot()).is_err());
     }
 
     #[test]

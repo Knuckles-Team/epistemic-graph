@@ -115,6 +115,9 @@ pub(crate) fn compile_methods(
     ctx: CompileBatch<'_>,
     methods: Vec<Method>,
 ) -> Result<MutationBatch, String> {
+    for method in &methods {
+        reject_reserved_usage_compact_method(method, ctx.authoritative_state.is_some())?;
+    }
     let (methods, terminal_outbox) = lower_terminal_outcome_extensions(ctx.batch_id, methods)?;
     #[cfg(feature = "epistemic-tms")]
     let reasoning_events = eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods);
@@ -151,6 +154,52 @@ pub(crate) fn compile_methods(
         },
         None,
     )
+}
+
+/// Compact graph writes bypass the row-delta admission seam. Keep that
+/// durable path closed to the reserved usage namespace, including OCC children
+/// and batch rows. An append is staged and checked by GraphRowDelta first.
+fn reject_reserved_usage_compact_method(method: &Method, state_backed: bool) -> Result<(), String> {
+    const PREFIX: &str = "usage:event:";
+    let reserved = match method {
+        Method::AddNode { node_id, .. }
+        | Method::RemoveNode { node_id }
+        | Method::CompareAndSetNodeFields { node_id, .. }
+        | Method::AddEmbedding { node_id, .. }
+        | Method::TxnAddNode { node_id, .. }
+        | Method::TxnRemoveNode { node_id, .. }
+        | Method::TxnAddEmbedding { node_id, .. } => node_id.starts_with(PREFIX),
+        Method::CreateNodeIfAbsent { node_id, .. } => node_id.starts_with(PREFIX) && !state_backed,
+        Method::AddEdge {
+            source_id,
+            target_id,
+            ..
+        }
+        | Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => source_id.starts_with(PREFIX) || target_id.starts_with(PREFIX),
+        Method::BatchUpdate { operations_msgpack } => {
+            crate::algorithms::decode_batch_operations(operations_msgpack)?
+                .iter()
+                .any(|operation| match operation {
+                    crate::algorithms::BatchOperation::AddNode { id, .. }
+                    | crate::algorithms::BatchOperation::RemoveNode { id }
+                    | crate::algorithms::BatchOperation::AddEmbedding { id, .. } => {
+                        id.starts_with(PREFIX)
+                    }
+                    crate::algorithms::BatchOperation::AddEdge { source, target, .. }
+                    | crate::algorithms::BatchOperation::RemoveEdge { source, target } => {
+                        source.starts_with(PREFIX) || target.starts_with(PREFIX)
+                    }
+                })
+        }
+        _ => false,
+    };
+    if reserved {
+        return Err("compact mutation cannot change reserved usage event rows".into());
+    }
+    Ok(())
 }
 
 /// The scope every batch [`compile_methods`] builds commits under, derived from
@@ -898,6 +947,44 @@ fn opaque_state_operation(method: &Method) -> Result<Method, String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn compact_mutations_cannot_target_reserved_usage_rows() {
+        let id = "usage:event:tenant-a:pref_usage_dedup_deadbeef".to_string();
+        assert!(reject_reserved_usage_compact_method(
+            &Method::AddNode {
+                node_id: id.clone(),
+                properties_msgpack: Vec::new()
+            },
+            false
+        )
+        .is_err());
+        assert!(reject_reserved_usage_compact_method(
+            &Method::TxnAddNode {
+                txn_id: "txn".into(),
+                node_id: id.clone(),
+                properties_msgpack: Vec::new(),
+                graph: None
+            },
+            false
+        )
+        .is_err());
+        assert!(reject_reserved_usage_compact_method(
+            &Method::CreateNodeIfAbsent {
+                node_id: id.clone(),
+                properties_msgpack: Vec::new()
+            },
+            false
+        )
+        .is_err());
+        assert!(reject_reserved_usage_compact_method(
+            &Method::CreateNodeIfAbsent {
+                node_id: id,
+                properties_msgpack: Vec::new()
+            },
+            true
+        )
+        .is_ok());
+    }
     #[test]
     fn terminal_run_event_replaces_generic_projection_intent() {
         let operation = MutationOperation {

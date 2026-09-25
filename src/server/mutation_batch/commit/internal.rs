@@ -492,7 +492,7 @@ fn install_replay_at_source(
     version: u64,
     descriptor: &MutationStateDescriptor,
 ) -> Result<(), String> {
-    let delta = crate::graph_delta::GraphRowDelta::between(&core.snapshot(), &snapshot)?;
+    let delta = crate::graph_delta::GraphRowDelta::between_replay(&core.snapshot(), &snapshot)?;
     let bytes = delta.to_msgpack()?;
     if hex::encode(Sha256::digest(bytes)) != descriptor.digest {
         return Err("committed internal graph image does not match its state digest".to_string());

@@ -172,7 +172,7 @@ where
     }
 
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
-    match commit_conditional_stage_and_diff(ctx, persistence, &fname, apply).await {
+    match commit_conditional_stage_and_diff(ctx, method, persistence, &fname, apply).await {
         Ok(staged) => {
             commit_conditional_commit_staged(
                 ctx,
@@ -264,6 +264,7 @@ pub(super) async fn commit_conditional_replay_check(
 /// commit failure cannot leak a partial mutation into RAM.
 pub(super) async fn commit_conditional_stage_and_diff<F, Fut>(
     ctx: &MutationCtx<'_>,
+    method: &Method,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
     apply: F,
@@ -304,8 +305,12 @@ where
         ));
     }
     let staged_snapshot = staged.snapshot();
-    let (row_delta, state_msgpack) =
-        diff_and_serialize_staged_mutation(ctx, &base_snapshot_for_delta, &staged_snapshot)?;
+    let (row_delta, state_msgpack) = diff_and_serialize_staged_mutation(
+        ctx,
+        method,
+        &base_snapshot_for_delta,
+        &staged_snapshot,
+    )?;
     Ok(StagedMutation {
         payload,
         row_delta,
