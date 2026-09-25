@@ -49,7 +49,7 @@ pub fn requested() -> bool {
 /// [`requested`], read only on every [`STRIDE`]th step so a hot step loop
 /// pays one modulo per step, not a probe call.
 pub fn due(steps: u64) -> bool {
-    steps % STRIDE == 0 && requested()
+    steps.is_multiple_of(STRIDE) && requested()
 }
 
 #[cfg(test)]
