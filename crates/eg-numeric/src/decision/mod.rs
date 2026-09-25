@@ -35,6 +35,7 @@ pub mod nl;
 pub mod promotion;
 pub mod quant;
 pub mod refusal;
+pub mod replay;
 pub mod retrieval;
 pub mod scorer;
 mod targets;

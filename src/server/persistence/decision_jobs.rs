@@ -2,9 +2,10 @@
 //!
 //! They live in the tenant-scoped Agent Library control owner, beside the
 //! components a receipt qualifies, so the `DecisionHead` publish check reads a
-//! receipt from the same authority that commits the head. One table, three
-//! key families (`job:`, `receipt:`, `draft:`), every row written once: a job
-//! runs to its terminal state inside its submit, so there is nothing to update.
+//! receipt from the same authority that commits the head. One table, four
+//! key families (`job:`, `receipt:`, `draft:`, `evaluation-run:`), every row
+//! written once: a job runs to its terminal state inside its submit, so there
+//! is nothing to update.
 
 use eg_storage::{AgentLibraryOwner, DECISION_ARTIFACTS};
 use eg_transaction::AdmittedOwnerWrite;
@@ -30,6 +31,11 @@ pub fn record_key(record_id: &str) -> String {
 /// Key of one outcome evaluation of a committed record.
 pub fn evaluation_key(record_id: &str, evaluation_id: &str) -> String {
     format!("evaluation:{record_id}:{evaluation_id}")
+}
+
+/// Key of a sealed replay evaluation run (EH-528).
+pub fn evaluation_run_key(run_digest: &str) -> String {
+    format!("evaluation-run:{run_digest}")
 }
 
 /// Key of a fit draft.

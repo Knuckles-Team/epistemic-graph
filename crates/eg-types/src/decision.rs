@@ -28,6 +28,7 @@ pub mod jobs;
 pub mod numeric;
 pub mod policy;
 pub mod record;
+pub mod replay;
 pub mod request;
 pub mod statistical;
 pub mod topology;
@@ -65,6 +66,7 @@ pub use jobs::{
     DecisionJobStatusRequest, EvalCandidate, HeadKind, LabelRegime, OpeEstimateView,
     OpeEstimatorKind, OptimiserSpec, RecordWindow,
 };
+pub use replay::{EvalMode, EvaluationRun, ReplaySpec};
 pub use numeric::{
     QuantScaleTag, QuantisedValue, UnitRationalFields, UnitRationalWire,
     MAX_UNIT_RATIONAL_DENOMINATOR,

@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::numeric::{QuantisedValue, UnitRationalWire};
+use super::replay::{EvalMode, EvaluationRun};
 use super::request::DecisionPolicyRef;
 use super::statistical::dataset::LabelledDataset;
 use super::statistical::head::DecisionHeadBody;
@@ -118,6 +119,9 @@ pub struct DecisionEvalRequest {
     pub window: RecordWindow,
     /// Where the labelled items the candidate is evaluated on come from.
     pub source: DatasetSource,
+    /// Off-policy (the default) or a walk-forward replay (EH-528).
+    #[serde(default)]
+    pub mode: EvalMode,
 }
 
 /// Ask after one submitted job.
@@ -286,6 +290,8 @@ pub enum DecisionJobOutput {
     },
     /// Boxed: a receipt is several times the size of every other arm.
     Eval { receipt: Box<DecisionEvalReceipt> },
+    /// A replay evaluation's sealed run (EH-528).
+    Replay { run: Box<EvaluationRun> },
 }
 
 /// Where a job is.
