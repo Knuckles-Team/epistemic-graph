@@ -374,8 +374,14 @@ fn tsdb_in_txn_ryow_staged_overlay() {
         Some(&Some(111.0)),
         "the staged 1s point shadows the committed 1s (read-your-own-writes)"
     );
-    assert_eq!(in_txn.get(&format!("temp@{}", 4 * one_s)), Some(&Some(40.0)));
-    assert_eq!(in_txn.get(&format!("temp@{}", 2 * one_s)), Some(&Some(20.0)));
+    assert_eq!(
+        in_txn.get(&format!("temp@{}", 4 * one_s)),
+        Some(&Some(40.0))
+    );
+    assert_eq!(
+        in_txn.get(&format!("temp@{}", 2 * one_s)),
+        Some(&Some(20.0))
+    );
 
     // A staged-only series (never committed) reads its own staged point in-txn …
     let staged_only = by_id(execute(&scan("temp2"), &ctx).unwrap());
@@ -694,7 +700,10 @@ fn build_two_series(path: &std::path::Path) -> eg_tsdb::store::SeriesStore {
 
     let store = eg_tsdb::dev_scope_grant::open_dev_store(path).unwrap();
     let one_s: i64 = 1_000_000_000;
-    let fields = [("a", vec![1.000_000_123_456_789_f64]), ("b", vec![2.5, 123_456.789_012_345])];
+    let fields = [
+        ("a", vec![1.000_000_123_456_789_f64]),
+        ("b", vec![2.5, 123_456.789_012_345]),
+    ];
     for (series, values) in fields {
         let names: Vec<String> = (0..values.len()).map(|i| format!("f{i}")).collect();
         store
@@ -766,9 +775,16 @@ fn tsscan_value_channels_are_exact_f64_through_uql_return() {
     };
     assert_eq!(columns, vec!["v0", "v1"]);
     let a = rows.iter().find(|r| r.id == "a@1000000000").unwrap();
-    assert_eq!(a.channels[0].map(f64::to_bits), Some(1.000_000_123_456_789_f64.to_bits()));
+    assert_eq!(
+        a.channels[0].map(f64::to_bits),
+        Some(1.000_000_123_456_789_f64.to_bits())
+    );
     assert_eq!(a.channels[1], None);
-    assert_ne!(a.score.map(f64::from), a.channels[0], "the f32 score is not exact");
+    assert_ne!(
+        a.score.map(f64::from),
+        a.channels[0],
+        "the f32 score is not exact"
+    );
     let b = rows.iter().find(|r| r.id == "b@1000000000").unwrap();
     assert_eq!(b.channels, vec![Some(2.5), Some(123_456.789_012_345)]);
     let _ = std::fs::remove_file(&path);
