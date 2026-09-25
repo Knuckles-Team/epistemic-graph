@@ -258,7 +258,10 @@ mod tests {
                     panic!("rows expected");
                 };
                 served.push(rows.len());
-                let response = Response::ok(request.id, ResultPayload::raw(&result));
+                let response = Response::ok(
+                    request.id,
+                    ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap()),
+                );
                 let encoded = rmp_serde::to_vec_named(&response).unwrap();
                 stream
                     .write_all(&(encoded.len() as u32).to_be_bytes())

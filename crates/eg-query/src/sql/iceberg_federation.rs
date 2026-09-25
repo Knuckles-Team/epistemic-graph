@@ -68,7 +68,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::datatypes::{Schema, SchemaRef};
-use arrow::record_batch::RecordBatch;
 use datafusion::catalog::{Session, TableFunctionArgs, TableFunctionImpl, TableProvider};
 use datafusion::datasource::MemTable;
 use datafusion::error::{DataFusionError, Result as DfResult};
