@@ -385,10 +385,11 @@ fn test_response_ok() {
 #[test]
 fn test_response_err() {
     let resp = Response::err(2, "node not found");
-    assert_eq!(resp.error.as_deref(), Some("node not found"));
-    assert!(resp.error_detail.is_none());
+    assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(resp.error_detail.as_deref(), Some("node not found"));
     let json = serde_json::to_string(&resp).unwrap();
     assert!(json.contains("node not found"));
+    assert!(json.contains("INTERNAL"));
     assert!(!json.contains("result"));
 }
 
@@ -408,11 +409,14 @@ fn declared_response_error_separates_code_and_detail() {
     assert_eq!(decoded.error, response.error);
     assert_eq!(decoded.error_detail, response.error_detail);
     let unknown = Response::err(4, "NOT_A_DECLARED_CODE: raw refusal");
+    assert_eq!(unknown.error.as_deref(), Some("INTERNAL"));
     assert_eq!(
-        unknown.error.as_deref(),
+        unknown.error_detail.as_deref(),
         Some("NOT_A_DECLARED_CODE: raw refusal")
     );
-    assert!(unknown.error_detail.is_none());
+    let code_only = Response::err(5, "ACCESS_DENIED");
+    assert_eq!(code_only.error.as_deref(), Some("ACCESS_DENIED"));
+    assert!(code_only.error_detail.is_none());
 }
 
 #[test]

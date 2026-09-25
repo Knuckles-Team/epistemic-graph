@@ -113,7 +113,8 @@ pub struct Response {
     /// Result payload on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<ResultPayload>,
-    /// Stable error code on failure. Legacy free-text refusals remain until migrated.
+    /// Stable declared error code on failure. Unclassified legacy refusals
+    /// become INTERNAL, with their original text retained as detail.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Human-readable detail for a declared error code.
@@ -142,7 +143,13 @@ impl Response {
             Some((code, detail)) if crate::contract::declared_error_code(code) => {
                 (code.to_string(), Some(detail.to_string()))
             }
-            _ => (text, None),
+            _ if crate::contract::declared_error_code(&text) => (text, None),
+            _ => (
+                crate::contract::ServerErrorCode::Internal
+                    .as_str()
+                    .to_string(),
+                Some(text),
+            ),
         };
         Response {
             id,
