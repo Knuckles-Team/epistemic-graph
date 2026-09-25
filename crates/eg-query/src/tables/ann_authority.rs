@@ -102,6 +102,8 @@ pub enum AnnFallbackReason {
     DimensionMismatch,
     /// More rows arrived since the build than one probe scores exactly.
     DeltaOverflow,
+    /// More changed pre-generation rows remain than one probe may rescore.
+    DirtyOverflow,
     /// The filtered graph walk read more candidate rows than its budget.
     ProbeBudget,
 }

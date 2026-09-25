@@ -159,6 +159,21 @@ impl Probe<'_> {
         if delta.extent == ScanExtent::Truncated {
             return Ok(Maintained::Fallback(AnnFallbackReason::DeltaOverflow));
         }
+        let dirty = match generation.max_rowid {
+            Some(max) => self.scan_dirty_exact(
+                generation.built_epoch,
+                max,
+                self.limits.delta_rows,
+                &mut rows,
+            )?,
+            None => Tally {
+                extent: ScanExtent::Complete,
+                examined: 0,
+            },
+        };
+        if dirty.extent == ScanExtent::Truncated {
+            return Ok(Maintained::Fallback(AnnFallbackReason::DirtyOverflow));
+        }
         let walk = self.walk(generation)?;
         if walk.over_budget {
             return Ok(Maintained::Fallback(AnnFallbackReason::ProbeBudget));
@@ -169,7 +184,7 @@ impl Probe<'_> {
             path: AnnServingPath::MaintainedIndex {
                 generation: generation.generation,
             },
-            examined: delta.examined + walk.examined,
+            examined: delta.examined + dirty.examined + walk.examined,
             epoch: self.reader.epoch(),
         }))
     }
@@ -272,6 +287,32 @@ impl Probe<'_> {
         Ok(Tally { extent, examined })
     }
 
+    fn scan_dirty_exact(
+        &self,
+        built_epoch: u64,
+        max_rowid: u64,
+        budget: usize,
+        out: &mut Vec<Scored>,
+    ) -> Result<Tally, String> {
+        let keep = self.request.k;
+        let mut visit = |rowid: u64, cells: Vec<Cell>| {
+            if let Some(scored) = self.score(rowid, cells) {
+                out.push(scored);
+                if out.len() >= keep.saturating_mul(2).max(POOL_FLOOR) {
+                    compact(out, keep);
+                }
+            }
+        };
+        let (extent, examined) = self.reader.scan_dirty_since(
+            built_epoch,
+            max_rowid,
+            budget,
+            self.request.prefilter,
+            &mut visit,
+        )?;
+        Ok(Tally { extent, examined })
+    }
+
     /// The exact distance of a row's CURRENT vector, when it has one of the
     /// query's width.
     fn score(&self, rowid: u64, cells: Vec<Cell>) -> Option<Scored> {
@@ -300,6 +341,7 @@ fn compact(rows: &mut Vec<Scored>, k: usize) {
             .total_cmp(&b.distance)
             .then(a.rowid.cmp(&b.rowid))
     });
+    rows.dedup_by_key(|row| row.rowid);
     rows.truncate(k);
 }
 

@@ -420,6 +420,44 @@ fn rows_inserted_after_the_build_are_served_before_any_rebuild() {
 }
 
 #[test]
+fn updated_pre_generation_row_is_scored_exactly_without_rebuild() {
+    let index = hnsw_l2();
+    let rows = vectors(180, 84);
+    let (store, _path) = open_docs(&rows, &index);
+    refresh(&store);
+    let query = rows[117].clone();
+    let update = json!({"emb": query}).as_object().unwrap().clone();
+    assert_eq!(
+        store
+            .update_where(
+                "docs",
+                &update,
+                &RowPredicate::Cmp {
+                    col: "id".to_string(),
+                    op: CmpOp::Eq,
+                    value: json!(0),
+                },
+            )
+            .unwrap(),
+        1
+    );
+    let answer = top(&store, &index, &rows[117], 3, None);
+    assert_eq!(answer.receipt.path, maintained(1));
+    assert_eq!(ids(&answer.rows)[0], 0);
+    assert_eq!(
+        ids(&answer.rows),
+        exact_ids(&store, &index, &rows[117], 3, None)
+    );
+    let source_epoch = store.ann_source_epoch().unwrap();
+    refresh(&store);
+    assert_eq!(
+        store.ann_source_epoch().unwrap(),
+        source_epoch,
+        "retiring covered dirty rows cannot stale the new generation"
+    );
+}
+
+#[test]
 fn a_deleted_row_is_never_served_from_a_generation_that_indexed_it() {
     let index = hnsw_l2();
     let rows = vectors(80, 9);

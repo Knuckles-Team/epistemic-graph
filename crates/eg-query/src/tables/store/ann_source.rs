@@ -7,7 +7,10 @@
 
 use eg_types::RowPredicate;
 
-use super::{decode_stored, get_schema_read, map_err, row_map, RowsReadTable, TableStore, ROWS};
+use super::{
+    decode_stored, get_schema_read, map_err, row_map, DirtyReadTable, RowsReadTable, TableStore,
+    ANN_DIRTY, ROWS,
+};
 use crate::tables::ann_authority::UserAnnAuthority;
 use crate::tables::schema::{Cell, ColumnType, TableSchema};
 
@@ -62,6 +65,7 @@ pub(crate) enum ScanExtent {
 /// One snapshot of one table, opened for one probe.
 pub(crate) struct AnnRowReader<'a> {
     rows: RowsReadTable,
+    dirty: DirtyReadTable,
     table: &'a str,
     schema: TableSchema,
     vector_index: usize,
@@ -123,6 +127,39 @@ impl AnnRowReader<'_> {
         Ok((ScanExtent::Complete, examined))
     }
 
+    /// Score changed pre-generation rows from the same SQL snapshot as the ANN
+    /// walk. The journal is bounded by `budget`; a too-large backlog makes the
+    /// caller take its explicit bounded-exact fallback.
+    pub(crate) fn scan_dirty_since(
+        &self,
+        built_epoch: u64,
+        max_rowid: u64,
+        budget: usize,
+        visibility: Option<&RowPredicate>,
+        visit: &mut dyn FnMut(u64, Vec<Cell>),
+    ) -> Result<(ScanExtent, usize), String> {
+        let mut examined = 0usize;
+        for entry in self
+            .dirty
+            .range((self.table, 0u64)..=(self.table, max_rowid))
+            .map_err(map_err)?
+        {
+            if examined == budget {
+                return Ok((ScanExtent::Truncated, examined));
+            }
+            examined += 1;
+            let (key, epoch) = entry.map_err(map_err)?;
+            if epoch.value() <= built_epoch {
+                continue;
+            }
+            let rowid = key.value().1;
+            if let Some(cells) = self.visible_row(rowid, visibility)? {
+                visit(rowid, cells);
+            }
+        }
+        Ok((ScanExtent::Complete, examined))
+    }
+
     /// Pad a stored row to the schema width, then apply `visibility`.
     fn admit(&self, mut cells: Vec<Cell>, visibility: Option<&RowPredicate>) -> Option<Vec<Cell>> {
         let width = self.schema.columns().len();
@@ -146,6 +183,53 @@ impl TableStore {
     pub(crate) fn ann_source_epoch(&self) -> Result<u64, String> {
         let rtx = self.authority.read()?;
         Ok(self.authority.source_snapshot(&rtx)?.epoch)
+    }
+
+    /// Retire one bounded batch of rows already covered by every live ANN
+    /// generation for this table. This is derived metadata: its mutation is
+    /// ledgered but does not advance the canonical SQL source epoch.
+    pub(crate) fn clear_ann_dirty_through(
+        &self,
+        table: &str,
+        built_epoch: u64,
+    ) -> Result<usize, String> {
+        const CLEANUP_BATCH: usize = 8_192;
+        let read = self.authority.read()?;
+        let dirty = read.open_owner_table(ANN_DIRTY)?;
+        let mut keys = Vec::new();
+        for entry in dirty
+            .range((table, 0u64)..=(table, u64::MAX))
+            .map_err(map_err)?
+        {
+            let (key, epoch) = entry.map_err(map_err)?;
+            if epoch.value() <= built_epoch {
+                keys.push(key.value().1);
+                if keys.len() == CLEANUP_BATCH {
+                    break;
+                }
+            }
+        }
+        drop(dirty);
+        drop(read);
+        if keys.is_empty() {
+            return Ok(0);
+        }
+        self.authority
+            .maintain_derived("ann-dirty-clear", table, |write| {
+                let mut dirty = write.open_table(ANN_DIRTY)?;
+                let mut removed = 0;
+                for rowid in keys {
+                    let covered = dirty
+                        .get((table, rowid))
+                        .map_err(map_err)?
+                        .is_some_and(|entry| entry.value() <= built_epoch);
+                    if covered {
+                        dirty.remove((table, rowid)).map_err(map_err)?;
+                        removed += 1;
+                    }
+                }
+                Ok(removed)
+            })
     }
 
     /// Every indexable vector of `table.column`, read in ONE snapshot and
@@ -194,8 +278,10 @@ impl TableStore {
         let (vector_index, _) = vector_column(&schema, column)?;
         let epoch = self.authority.source_snapshot(&rtx)?.epoch;
         let rows = rtx.open_owner_table(ROWS)?;
+        let dirty = rtx.open_owner_table(ANN_DIRTY)?;
         read(&AnnRowReader {
             rows,
+            dirty,
             table,
             schema,
             vector_index,

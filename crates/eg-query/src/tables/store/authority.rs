@@ -508,6 +508,29 @@ impl SqlAuthority {
         mutation.commit()?;
         Ok(outcome)
     }
+
+    /// Ledgered owner write for derived index artifacts. It does not advance
+    /// the source epoch: changing an ANN cache cannot make its source stale.
+    pub(crate) fn maintain_derived<T, F>(
+        &self,
+        kind: &str,
+        subject: &str,
+        apply: F,
+    ) -> Result<T, String>
+    where
+        F: FnOnce(&SqlWrite<'_>) -> Result<T, String>,
+    {
+        let mutation = self.begin_maintenance(kind, subject)?;
+        let outcome = match mutation.owner_rows_derived(apply) {
+            Ok(value) => value,
+            Err(error) => {
+                mutation.abort()?;
+                return Err(error);
+            }
+        };
+        mutation.commit()?;
+        Ok(outcome)
+    }
 }
 
 /// One admitted SQL mutation, open on the bootstrap scope.
@@ -540,6 +563,16 @@ impl SqlMutation<'_> {
         F: FnOnce(&SqlWrite<'_>) -> Result<T, String>,
     {
         self.owner_rows_with_epoch(apply, |_, value, _| Ok(value))
+    }
+
+    fn owner_rows_derived<T, F>(&self, apply: F) -> Result<T, String>
+    where
+        F: FnOnce(&SqlWrite<'_>) -> Result<T, String>,
+    {
+        let owner_write = self.write.owner_rows(self.owner.as_ref(), &self.batch)?;
+        let outcome = apply(&owner_write);
+        owner_write.finish_owner()?;
+        outcome
     }
 
     /// Finalize owner metadata using the epoch actually staged by this write.
@@ -600,7 +633,23 @@ impl SqlMutation<'_> {
 }
 
 fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Result<u64, String> {
+    let epoch = next_source_epoch_in(write)?;
     let mut table = write
+        .open_table(SQL_SOURCE_AUTHORITY)
+        .map_err(|error| error.to_string())?;
+    let mut bytes = [0_u8; SQL_SOURCE_AUTHORITY_RECORD_BYTES];
+    bytes[..32].copy_from_slice(&authority_digest);
+    bytes[32..].copy_from_slice(&epoch.to_be_bytes());
+    table
+        .insert(SQL_SOURCE_AUTHORITY_KEY, bytes.as_slice())
+        .map_err(|error| error.to_string())?;
+    Ok(epoch)
+}
+
+/// The epoch the enclosing SQL owner mutation will publish when it commits.
+/// Row-index intent must carry this value in the same transaction as the row.
+pub(super) fn next_source_epoch_in(write: &SqlWrite<'_>) -> Result<u64, String> {
+    let table = write
         .open_table(SQL_SOURCE_AUTHORITY)
         .map_err(|error| error.to_string())?;
     let current_epoch = table
@@ -617,16 +666,9 @@ fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Res
         })
         .transpose()?
         .unwrap_or(0);
-    let epoch = current_epoch
+    current_epoch
         .checked_add(1)
-        .ok_or_else(|| "SQL source authority epoch exhausted".to_string())?;
-    let mut bytes = [0_u8; SQL_SOURCE_AUTHORITY_RECORD_BYTES];
-    bytes[..32].copy_from_slice(&authority_digest);
-    bytes[32..].copy_from_slice(&epoch.to_be_bytes());
-    table
-        .insert(SQL_SOURCE_AUTHORITY_KEY, bytes.as_slice())
-        .map_err(|error| error.to_string())?;
-    Ok(epoch)
+        .ok_or_else(|| "SQL source authority epoch exhausted".to_string())
 }
 
 #[cfg(test)]

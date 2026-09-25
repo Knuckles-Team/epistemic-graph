@@ -120,6 +120,9 @@ const FUNCTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_func
 /// (lower-cased) so one column can carry an index per metric; the value is the durable
 /// [`AnnIndexPlan`] the exec pushdown consults.
 const ANN_INDEXES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_ann_indexes__");
+/// `(table, rowid) -> committed source epoch` for a row changed since a
+/// maintained ANN generation's snapshot. Written with the authoritative row.
+const ANN_DIRTY: TableDefinition<(&str, u64), u64> = TableDefinition::new("__sql_ann_dirty__");
 /// Ordinary scalar secondary-index catalog: `scope\0table\0name -> MessagePack(SecondaryIndexSpec)`.
 const SECONDARY_INDEXES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("__sql_secondary_indexes__");
@@ -162,6 +165,7 @@ type SchemaCatalogVersionsTable = redb::ReadOnlyTable<&'static str, u64>;
 type SchemaCatalogOrderTable = redb::ReadOnlyTable<(&'static str, u64), &'static str>;
 type SchemaCatalogTable = redb::ReadOnlyTable<&'static str, &'static [u8]>;
 type RowsReadTable = redb::ReadOnlyTable<(&'static str, u64), &'static [u8]>;
+type DirtyReadTable = redb::ReadOnlyTable<(&'static str, u64), u64>;
 type SnapshotRows = (Vec<TableSnapshotRow>, Option<u64>, usize, usize);
 
 /// Every table `verify_schema_migrations` needs, bundled so
@@ -3584,11 +3588,28 @@ fn drop_ann_indexes_for_column_in(
         table.to_ascii_lowercase(),
         column.to_ascii_lowercase()
     );
-    drop_ann_indexes_with_prefix_in(wtx, &prefix)
+    let removed = drop_ann_indexes_with_prefix_in(wtx, &prefix)?;
+    if !has_ann_index_for_table_in(wtx, table)? {
+        drop_ann_dirty_for_table_in(wtx, table)?;
+    }
+    Ok(removed)
 }
 
 fn drop_ann_indexes_for_table_in(wtx: &SqlWrite<'_>, table: &str) -> Result<usize, String> {
     drop_ann_indexes_with_prefix_in(wtx, &format!("{}.", table.to_ascii_lowercase()))
+}
+
+fn drop_ann_dirty_for_table_in(wtx: &SqlWrite<'_>, table: &str) -> Result<(), String> {
+    let mut dirty = wtx.open_table(ANN_DIRTY)?;
+    let keys = dirty
+        .range((table, 0u64)..=(table, u64::MAX))
+        .map_err(map_err)?
+        .map(|entry| entry.map(|(key, _)| key.value().1).map_err(map_err))
+        .collect::<Result<Vec<_>, _>>()?;
+    for rowid in keys {
+        dirty.remove((table, rowid)).map_err(map_err)?;
+    }
+    Ok(())
 }
 
 fn drop_ann_indexes_with_prefix_in(wtx: &SqlWrite<'_>, prefix: &str) -> Result<usize, String> {
@@ -3869,6 +3890,17 @@ fn maintain_secondary_row_in(
     old: Option<&[Cell]>,
     new: Option<&[Cell]>,
 ) -> Result<(), String> {
+    if schema
+        .columns()
+        .iter()
+        .any(|column| matches!(column.ty, ColumnType::Vector(_)))
+        && has_ann_index_for_table_in(wtx, table)?
+    {
+        let epoch = authority::next_source_epoch_in(wtx)?;
+        wtx.open_table(ANN_DIRTY)?
+            .insert((table, rowid), epoch)
+            .map_err(map_err)?;
+    }
     let specs = list_secondary_indexes_write(wtx, tenant_scope, table)?;
     if specs.is_empty() {
         return Ok(());
@@ -3890,6 +3922,18 @@ fn maintain_secondary_row_in(
         }
     }
     Ok(())
+}
+
+fn has_ann_index_for_table_in(wtx: &SqlWrite<'_>, table: &str) -> Result<bool, String> {
+    let prefix = format!("{}.", table.to_ascii_lowercase());
+    let indexes = wtx.open_table(ANN_INDEXES)?;
+    for row in indexes.iter().map_err(map_err)? {
+        let (key, _) = row.map_err(map_err)?;
+        if key.value().starts_with(&prefix) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn secondary_index_rows_in(
@@ -4932,6 +4976,7 @@ fn drop_in(
     delete_all_rows_of_table_in(wtx, name)?;
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, name)?;
     drop_ann_indexes_for_table_in(wtx, name)?;
+    drop_ann_dirty_for_table_in(wtx, name)?;
     {
         let mut hypertables = wtx.open_table(HYPERTABLES)?;
         hypertables.remove(name).map_err(map_err)?;

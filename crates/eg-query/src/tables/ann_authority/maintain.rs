@@ -1,7 +1,7 @@
 //! Building and activating generations — the maintenance worker's side of the
 //! authority (RF-019). Nothing here runs on a query path.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -76,10 +76,31 @@ impl TableStore {
         let registered: BTreeSet<String> = plans.iter().map(TableStore::ann_index_key).collect();
         self.ann_authority().retain(&registered);
         let epoch = self.ann_source_epoch()?;
-        Ok(plans
+        let outcomes: Vec<_> = plans
             .iter()
             .map(|plan| self.refresh_ann_index(plan, epoch, policy))
-            .collect())
+            .collect();
+        // Only an epoch observed by EVERY registration of a table can retire
+        // its dirty-row intents. One index may still serve an older generation.
+        let mut covered: BTreeMap<&str, Option<u64>> = BTreeMap::new();
+        for plan in &plans {
+            let live_epoch = self
+                .ann_authority()
+                .slot(&TableStore::ann_index_key(plan))
+                .live_for(plan.method)
+                .map(|generation| generation.built_epoch);
+            let minimum = covered.entry(plan.table.as_str()).or_insert(live_epoch);
+            *minimum = match (*minimum, live_epoch) {
+                (Some(left), Some(right)) => Some(left.min(right)),
+                _ => None,
+            };
+        }
+        for (table, minimum) in covered {
+            if let Some(built_epoch) = minimum {
+                self.clear_ann_dirty_through(table, built_epoch)?;
+            }
+        }
+        Ok(outcomes)
     }
 
     /// The typed status of every registered ANN index.

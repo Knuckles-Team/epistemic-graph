@@ -96,6 +96,10 @@ const SQL_STR_STR: [TableDefinition<'static, &str, &str>; 2] = [
     TableDefinition::new("__sql_extensions__"),
 ];
 const SQL_ROWS: TableDefinition<'static, (&str, u64), &[u8]> = TableDefinition::new("__sql_rows__");
+/// Source-row changes retained until every maintained ANN generation has
+/// observed them. The value is the SQL source epoch of the row mutation.
+const SQL_ANN_DIRTY: TableDefinition<'static, (&str, u64), u64> =
+    TableDefinition::new("__sql_ann_dirty__");
 const SQL_SEQ: TableDefinition<'static, &str, u64> = TableDefinition::new("__sql_seq__");
 const SQL_CATALOG_VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("__sql_schema_catalog_versions__");
@@ -305,6 +309,7 @@ macro_rules! visit_owner_tables {
                     $visit!(table);
                 }
                 $visit!(SQL_ROWS);
+                $visit!(SQL_ANN_DIRTY);
                 $visit!(SQL_SEQ);
                 $visit!(SQL_CATALOG_VERSIONS);
                 $visit!(SQL_SCHEMA_VERSIONS);
@@ -540,6 +545,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_views__",
             "__sql_extensions__",
             "__sql_rows__",
+            "__sql_ann_dirty__",
             "__sql_seq__",
             "__sql_schema_catalog_versions__",
             "__sql_schema_versions__",
