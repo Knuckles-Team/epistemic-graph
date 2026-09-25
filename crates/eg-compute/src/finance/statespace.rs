@@ -10,37 +10,6 @@
 //   - Engle-Granger / Augmented Dickey-Fuller cointegration testing
 //   - Ornstein-Uhlenbeck mean reversion; MFPT-optimal entry/exit thresholds
 
-use nalgebra::{DMatrix, DVector};
-
-// ════════════════════════════════════════════════════════════════════════
-//  OLS with standard errors (shared helper for ADF / OU)
-// ════════════════════════════════════════════════════════════════════════
-
-/// Ordinary least squares returning coefficients, their standard errors, and the
-/// residual variance. `x` rows are observations, columns are regressors (caller
-/// supplies the intercept column explicitly if wanted).
-fn ols_with_se(x: &[Vec<f64>], y: &[f64]) -> Option<(Vec<f64>, Vec<f64>, f64)> {
-    let n = x.len();
-    if n == 0 {
-        return None;
-    }
-    let k = x[0].len();
-    if n <= k {
-        return None;
-    }
-    let xm = DMatrix::from_fn(n, k, |i, j| x[i][j]);
-    let yv = DVector::from_fn(n, |i, _| y[i]);
-    let xtx = xm.transpose() * &xm;
-    let xtx_inv = xtx.try_inverse()?;
-    let beta = &xtx_inv * xm.transpose() * &yv;
-    let resid = &yv - &xm * &beta;
-    let rss: f64 = resid.iter().map(|e| e * e).sum();
-    let dof = (n - k) as f64;
-    let sigma2 = rss / dof;
-    let ses: Vec<f64> = (0..k).map(|j| (sigma2 * xtx_inv[(j, j)]).sqrt()).collect();
-    Some((beta.iter().copied().collect(), ses, sigma2))
-}
-
 // ════════════════════════════════════════════════════════════════════════
 //  Kalman filters
 // ════════════════════════════════════════════════════════════════════════
@@ -128,97 +97,20 @@ pub fn kalman_volatility(
 
 pub use eg_types::compute_result::finance::AdfResult;
 
-/// Finite-sample MacKinnon critical value for the ADF "constant, no trend" case:
-/// CV(T) = β∞ + β1/T + β2/T² (MacKinnon 1991 response-surface coefficients).
-fn mackinnon_crit(level: u8, t: f64) -> f64 {
-    // (β∞, β1, β2) per significance level for the τ_c (constant) case.
-    let (b0, b1, b2) = match level {
-        1 => (-3.43035, -6.5393, -16.786),
-        5 => (-2.86154, -2.8903, -4.234),
-        _ => (-2.56677, -1.5384, -2.809), // 10%
-    };
-    b0 + b1 / t + b2 / (t * t)
-}
-
-/// Monotone approximate p-value from the ADF statistic and the three interpolated
-/// critical values. Piecewise-linear in the statistic; clearly an approximation
-/// (the exact value needs MacKinnon's full surface), but correct in ordering and
-/// bracket — more useful than a single fixed cutoff.
-fn adf_pvalue(stat: f64, c1: f64, c5: f64, c10: f64) -> f64 {
-    // anchors: (stat, p). More-negative stat ⇒ smaller p.
-    if stat <= c1 {
-        return (0.01 * (stat / c1).clamp(0.0, 1.0)).clamp(1e-4, 0.01);
-    }
-    let interp = |s: f64, lo_s: f64, hi_s: f64, lo_p: f64, hi_p: f64| {
-        lo_p + (s - lo_s) / (hi_s - lo_s) * (hi_p - lo_p)
-    };
-    if stat <= c5 {
-        return interp(stat, c1, c5, 0.01, 0.05);
-    }
-    if stat <= c10 {
-        return interp(stat, c5, c10, 0.05, 0.10);
-    }
-    // above 10% critical: p rises toward ~1 as stat → 0+
-    interp(stat, c10, 0.0, 0.10, 0.90).clamp(0.10, 0.999)
-}
-
-/// Augmented Dickey-Fuller test (constant, no trend). Regresses
-/// Δy_t = α + γ·y_{t-1} + Σ δ_i Δy_{t-i} + ε; the ADF statistic is the t-stat on γ.
+/// Run the generic ADF series kernel, preserving the finance wire result.
 pub fn adf_test(series: &[f64], max_lag: usize) -> AdfResult {
-    let n = series.len();
-    // need enough points after differencing + lags
-    if n < max_lag + 4 {
-        return AdfResult {
-            statistic: 0.0,
-            used_lag: max_lag,
-            n_obs: 0,
-            crit_1pct: -3.43,
-            crit_5pct: -2.86,
-            crit_10pct: -2.57,
-            p_value_approx: 1.0,
-            stationary_1pct: false,
-            stationary_5pct: false,
-            stationary_10pct: false,
-        };
-    }
-    let dy: Vec<f64> = (1..n).map(|i| series[i] - series[i - 1]).collect();
-    // build design: rows from t=max_lag .. dy.len()-1
-    let start = max_lag;
-    let mut xrows: Vec<Vec<f64>> = vec![];
-    let mut yvec: Vec<f64> = vec![];
-    for t in start..dy.len() {
-        let mut row = vec![1.0, series[t]]; // intercept, y_{t-1} (series index t aligns with dy[t]=series[t+1]-series[t])
-        for i in 1..=max_lag {
-            row.push(dy[t - i]);
-        }
-        xrows.push(row);
-        yvec.push(dy[t]);
-    }
-    let (stat, n_obs) = match ols_with_se(&xrows, &yvec) {
-        Some((coefs, ses, _)) => {
-            // coefs[1] is γ on y_{t-1}; t-stat = γ / se(γ)
-            let gamma = coefs[1];
-            let se = ses[1];
-            let t = if se.abs() > 1e-18 { gamma / se } else { 0.0 };
-            (t, yvec.len())
-        }
-        None => (0.0, 0),
-    };
-    let t = n_obs.max(1) as f64;
-    let c1 = mackinnon_crit(1, t);
-    let c5 = mackinnon_crit(5, t);
-    let c10 = mackinnon_crit(10, t);
+    let estimate = eg_numeric::series::adf::test(series, max_lag);
     AdfResult {
-        statistic: stat,
-        used_lag: max_lag,
-        n_obs,
-        crit_1pct: c1,
-        crit_5pct: c5,
-        crit_10pct: c10,
-        p_value_approx: adf_pvalue(stat, c1, c5, c10),
-        stationary_1pct: stat < c1,
-        stationary_5pct: stat < c5,
-        stationary_10pct: stat < c10,
+        statistic: estimate.statistic,
+        used_lag: estimate.used_lag,
+        n_obs: estimate.n_obs,
+        crit_1pct: estimate.crit_1pct,
+        crit_5pct: estimate.crit_5pct,
+        crit_10pct: estimate.crit_10pct,
+        p_value_approx: estimate.p_value_approx,
+        stationary_1pct: estimate.stationary_1pct,
+        stationary_5pct: estimate.stationary_5pct,
+        stationary_10pct: estimate.stationary_10pct,
     }
 }
 
@@ -228,158 +120,37 @@ pub fn adf_test(series: &[f64], max_lag: usize) -> AdfResult {
 
 pub use eg_types::compute_result::finance::OuParams;
 
-/// Calibrate an OU process dS = θ(μ−S)dt + σ dW from a discretely-sampled spread
-/// via the exact AR(1) discretisation S_t = a + b·S_{t-1} + ε (Euler-Maruyama /
-/// MLE-equivalent). `dt` is the sampling interval.
+/// Calibrate the generic OU series model, preserving the finance wire result.
 pub fn ou_calibrate(spread: &[f64], dt: f64) -> OuParams {
-    let n = spread.len();
-    if n < 3 {
-        return OuParams {
-            theta: 0.0,
-            mu: spread.iter().sum::<f64>() / n.max(1) as f64,
-            sigma: 0.0,
-            half_life: f64::INFINITY,
-            sigma_eq: 0.0,
-        };
-    }
-    let x: Vec<Vec<f64>> = (0..n - 1).map(|i| vec![1.0, spread[i]]).collect();
-    let y: Vec<f64> = (1..n).map(|i| spread[i]).collect();
-    let (a, b, resid_var) = match ols_with_se(&x, &y) {
-        Some((coefs, _, sigma2)) => (coefs[0], coefs[1].clamp(-0.999_999, 0.999_999), sigma2),
-        None => (0.0, 0.0, 0.0),
-    };
-    let theta = if b > 0.0 { -b.ln() / dt } else { 1.0 / dt };
-    let mu = if (1.0 - b).abs() > 1e-9 {
-        a / (1.0 - b)
-    } else {
-        y.iter().sum::<f64>() / y.len() as f64
-    };
-    // σ from residual variance: Var(ε) = σ²(1−e^{-2θΔt})/(2θ)
-    let denom = 1.0 - (-2.0 * theta * dt).exp();
-    let sigma = if denom > 1e-12 {
-        (resid_var * 2.0 * theta / denom).sqrt()
-    } else {
-        resid_var.sqrt()
-    };
-    let sigma_eq = if theta > 1e-12 {
-        sigma / (2.0 * theta).sqrt()
-    } else {
-        sigma
-    };
+    let estimate = eg_numeric::series::ou::calibrate(spread, dt);
     OuParams {
-        theta,
-        mu,
-        sigma,
-        half_life: if theta > 1e-12 {
-            std::f64::consts::LN_2 / theta
-        } else {
-            f64::INFINITY
-        },
-        sigma_eq,
+        theta: estimate.theta,
+        mu: estimate.mu,
+        sigma: estimate.sigma,
+        half_life: estimate.half_life,
+        sigma_eq: estimate.sigma_eq,
     }
 }
 
 pub use eg_types::compute_result::finance::OuThresholds;
 
-/// Expected first-passage time (in σ_eq units) of a normalised OU from deviation
-/// `b` back to the mean (0), solved from the backward-Kolmogorov MFPT ODE
-/// u'' − z·u' = −1/θ on [0, b] with u(0)=0 (exit at mean) and u'(b)=0 (reflecting
-/// at entry), via a tridiagonal finite-difference solve.
-fn ou_mfpt(theta: f64, b: f64, n: usize) -> f64 {
-    if b <= 0.0 || theta <= 0.0 {
-        return f64::INFINITY;
-    }
-    let h = b / n as f64;
-    // unknowns u_1..u_n (u_0 = 0). Node i at z_i = i*h.
-    // interior i=1..n-1: (u_{i+1}-2u_i+u_{i-1})/h² − z_i(u_{i+1}-u_{i-1})/(2h) = −1/θ
-    // boundary i=n: reflecting u'(b)=0 → ghost u_{n+1}=u_{n-1}; gives
-    //   (2u_{n-1}-2u_n)/h² = −1/θ
-    let m = n; // unknown count (indices 1..=n)
-    let mut lower = vec![0.0; m];
-    let mut diag = vec![0.0; m];
-    let mut upper = vec![0.0; m];
-    let mut rhs = vec![0.0; m];
-    let inv_h2 = 1.0 / (h * h);
-    for i in 1..=n {
-        let z = i as f64 * h;
-        let row = i - 1;
-        if i < n {
-            let a_low = inv_h2 + z / (2.0 * h);
-            let a_diag = -2.0 * inv_h2;
-            let a_up = inv_h2 - z / (2.0 * h);
-            lower[row] = a_low;
-            diag[row] = a_diag;
-            upper[row] = a_up;
-            rhs[row] = -1.0 / theta;
-            if i == 1 {
-                // u_0 = 0 → drop lower contribution
-                lower[row] = 0.0;
-            }
-        } else {
-            // reflecting boundary at i=n
-            lower[row] = 2.0 * inv_h2;
-            diag[row] = -2.0 * inv_h2;
-            upper[row] = 0.0;
-            rhs[row] = -1.0 / theta;
-        }
-    }
-    // Thomas algorithm
-    for i in 1..m {
-        let w = lower[i] / diag[i - 1];
-        diag[i] -= w * upper[i - 1];
-        rhs[i] -= w * rhs[i - 1];
-    }
-    let mut u = vec![0.0; m];
-    u[m - 1] = rhs[m - 1] / diag[m - 1];
-    for i in (0..m - 1).rev() {
-        u[i] = (rhs[i] - upper[i] * u[i + 1]) / diag[i];
-    }
-    u[m - 1] // MFPT from entry (z=b) to mean
-}
-
-/// MFPT-optimal OU entry/exit band. Grid-searches the entry deviation z (in σ_eq
-/// units) that maximises expected profit per unit time
-/// J(z) = (z·σ_eq − cost) / MFPT(z), capturing the move from entry back to the mean.
+/// Compute first-passage bands from the shared OU series model.
 pub fn ou_optimal_thresholds(params: &OuParams, cost: f64) -> OuThresholds {
-    let s = params.sigma_eq;
-    let theta = params.theta;
-    let (best_z, best_j) = if s > 1e-12 && theta > 1e-12 {
-        search_best_entry_z(theta, s, cost)
-    } else {
-        (1.0, f64::NEG_INFINITY)
+    let estimate = eg_numeric::series::ou::OuEstimate {
+        theta: params.theta,
+        mu: params.mu,
+        sigma: params.sigma,
+        half_life: params.half_life,
+        sigma_eq: params.sigma_eq,
     };
+    let bands = eg_numeric::series::ou::optimal_thresholds(&estimate, cost);
     OuThresholds {
-        entry_long: params.mu - best_z * s,
-        entry_short: params.mu + best_z * s,
-        exit: params.mu,
-        z: best_z,
-        expected_return_per_unit_time: if best_j.is_finite() { best_j } else { 0.0 },
+        entry_long: bands.entry_long,
+        entry_short: bands.entry_short,
+        exit: bands.exit,
+        z: bands.z,
+        expected_return_per_unit_time: bands.expected_return_per_unit_time,
     }
-}
-
-/// Grid-search the entry deviation `z` (in `σ_eq` units) maximizing expected
-/// profit per unit time `J(z) = (z·σ_eq − cost) / MFPT(z)`. Returns `(best_z, best_j)`.
-fn search_best_entry_z(theta: f64, s: f64, cost: f64) -> (f64, f64) {
-    let mut best_z = 1.0;
-    let mut best_j = f64::NEG_INFINITY;
-    let steps = 60;
-    for i in 1..=steps {
-        let z = 0.05 * i as f64; // up to 3.0 σ_eq
-        let profit = z * s - cost;
-        if profit <= 0.0 {
-            continue;
-        }
-        let t = ou_mfpt(theta, z, 50);
-        if !t.is_finite() || t <= 0.0 {
-            continue;
-        }
-        let j = profit / t;
-        if j > best_j {
-            best_j = j;
-            best_z = z;
-        }
-    }
-    (best_z, best_j)
 }
 
 // ════════════════════════════════════════════════════════════════════════

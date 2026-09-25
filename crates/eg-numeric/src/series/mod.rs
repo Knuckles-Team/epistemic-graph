@@ -20,6 +20,7 @@
 //! Transcendentals go through [`crate::detkernel::math`], so outputs are bit-identical on
 //! every release target.
 
+pub mod adf;
 pub mod distance;
 #[cfg(feature = "motif")]
 mod fft;
@@ -29,6 +30,9 @@ mod kernel;
 pub mod mass;
 #[cfg(feature = "motif")]
 pub mod matrix_profile;
+mod ols;
+pub mod ou;
+pub mod regime;
 pub mod stampi;
 pub mod streaming;
 pub mod window;
