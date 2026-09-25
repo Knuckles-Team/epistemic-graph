@@ -48,7 +48,7 @@ def build_dispatch(
 ) -> dict[str, Callable[[str, dict[str, Any], str | None], Any]]:
     def _create_graph(
         graph: str, params: dict[str, Any], _agent_id: str | None
-    ) -> None:
+    ) -> dict[str, str]:
         # `graph_name` is the graph BEING created -- distinct from the
         # ambient `graph` routing argument every `_send` call threads
         # through (`MultiTenantClient.create` never passes `graph=` at all,
@@ -58,11 +58,13 @@ def build_dispatch(
         # support extends this closure, not the wire method name.
         name = params.get("graph_name") or graph
         engine.create_graph(name)
-        return None
+        # The wire contract's reply: `CreateGraph => Json<GraphCreated>`.
+        return {"created": name}
 
-    def _add_node(graph: str, params: dict[str, Any], _agent_id: str | None) -> None:
+    def _add_node(graph: str, params: dict[str, Any], _agent_id: str | None) -> str:
         engine.add_node(graph, params["node_id"], bytes(params["properties_msgpack"]))
-        return None
+        # The wire contract's reply: `AddNode => Text<String>`, "ok".
+        return "ok"
 
     def _get_node_properties(
         graph: str, params: dict[str, Any], agent_id: str | None
