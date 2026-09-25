@@ -872,13 +872,15 @@ fn eval_service_bind_join(
     Ok(hash_join(local, &remote))
 }
 
-/// Convert only losslessly representable keys. Blank nodes cannot be sent as
-/// SPARQL VALUES ground terms; those queries use the full-fetch path.
+/// Convert only losslessly representable keys. The evaluator stores literal
+/// lexical values without datatype/language metadata, so sending them as plain
+/// literals would make typed/lang-tagged remote matches disappear. Blank nodes
+/// cannot be sent as VALUES ground terms either. Both use full fetch.
 fn service_values_rows(
     local: &[Solution],
     keys: &[String],
 ) -> Option<Vec<Vec<Option<GroundTerm>>>> {
-    use spargebra::term::{Literal, NamedNode};
+    use spargebra::term::NamedNode;
     let mut seen = std::collections::HashSet::new();
     let mut rows = Vec::new();
     for row in local {
@@ -889,9 +891,7 @@ fn service_values_rows(
                     let iri = node.strip_prefix('<')?.strip_suffix('>')?;
                     Some(GroundTerm::NamedNode(NamedNode::new(iri).ok()?))
                 }
-                Binding::Literal(value) => {
-                    Some(GroundTerm::Literal(Literal::new_simple_literal(value)))
-                }
+                Binding::Literal(_) => None,
             })
             .collect::<Option<_>>()?;
         let signature: Vec<String> = terms.iter().map(ToString::to_string).collect();
@@ -4293,18 +4293,21 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         impl RemoteSparql for RecordingService {
             fn select(&self, _endpoint: &str, query: &str) -> Result<SparqlResult, String> {
                 self.0.lock().unwrap().push(query.to_string());
-                let solutions = ["Alice", "Bob", "Carol"]
+                let solutions = ["alice", "bob", "carol"]
                     .into_iter()
-                    .filter(|name| query.contains(&format!("\"{name}\"")))
+                    .filter(|name| query.contains(&format!("<http://example.org/{name}>")))
                     .map(|name| {
                         let mut row = Solution::new();
-                        row.insert("name".into(), Binding::Literal(name.into()));
+                        row.insert(
+                            "p".into(),
+                            Binding::Node(format!("<http://example.org/{name}>")),
+                        );
                         row.insert("score".into(), Binding::Literal("1".into()));
                         row
                     })
                     .collect();
                 Ok(SparqlResult {
-                    vars: vec!["name".into(), "score".into()],
+                    vars: vec!["p".into(), "score".into()],
                     solutions,
                 })
             }
@@ -4314,9 +4317,9 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         let ds = Dataset::new(&view, Vec::new());
         let service = RecordingService(Mutex::new(Vec::new()));
         let query = r#"PREFIX ex: <http://example.org/>
-            SELECT ?name ?score WHERE {
+            SELECT ?p ?name ?score WHERE {
               ?p ex:name ?name .
-              SERVICE <http://remote/e> { ?name ex:score ?score }
+              SERVICE <http://remote/e> { ?p ex:score ?score }
             }"#;
         let QueryOutcome::Solutions(result) =
             query_dataset_service(&ds, query, &Projection::raw(), Some(&service)).unwrap()
@@ -4327,8 +4330,8 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         let requests = service.0.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert!(requests[0].contains("VALUES"));
-        for name in ["Alice", "Bob", "Carol"] {
-            assert!(requests[0].contains(&format!("\"{name}\"")));
+        for name in ["alice", "bob", "carol"] {
+            assert!(requests[0].contains(&format!("<http://example.org/{name}>")));
         }
     }
 
@@ -4338,7 +4341,10 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         let rows: Vec<_> = (0..205)
             .map(|index| {
                 let mut row = Solution::new();
-                row.insert("name".into(), Binding::Literal(index.to_string()));
+                row.insert(
+                    "name".into(),
+                    Binding::Node(format!("<http://example.org/{index}>")),
+                );
                 row
             })
             .collect();
@@ -4353,6 +4359,9 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         let mut blank = Solution::new();
         blank.insert("name".into(), Binding::Node("_:local".into()));
         assert!(service_values_rows(&[blank], &keys).is_none());
+        let mut typed_unknown = Solution::new();
+        typed_unknown.insert("name".into(), Binding::Literal("42".into()));
+        assert!(service_values_rows(&[typed_unknown], &keys).is_none());
     }
 
     #[test]
