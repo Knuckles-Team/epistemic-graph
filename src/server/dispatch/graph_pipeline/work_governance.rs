@@ -437,6 +437,6 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
     .await
     {
         Ok(result) => Response::ok(req_id, result),
-        Err(error) => Response::err(req_id, format!("WorkItem mutation failed: {error}")),
+        Err(error) => Response::err(req_id, error),
     };
 }

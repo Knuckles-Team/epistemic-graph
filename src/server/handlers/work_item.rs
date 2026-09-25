@@ -87,7 +87,7 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
     let response =
         match commit_verified_work_item(&ctx, placement_epoch, placement_fence, method).await {
             Ok(result) => Response::ok(ctx.req_id, result),
-            Err(error) => Response::err(ctx.req_id, format!("WorkItem mutation failed: {error}")),
+            Err(error) => Response::err(ctx.req_id, error),
         };
     Ok(response)
 }

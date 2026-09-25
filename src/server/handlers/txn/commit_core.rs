@@ -321,10 +321,7 @@ pub(super) async fn reconcile_or_resume_txn(
         Ok(Some(response)) => return Ok(ResumedCommit::Replayed(response)),
         Ok(None) => {}
         Err(error) => {
-            return Err(Response::err(
-                req_id,
-                format!("transaction receipt reconciliation failed: {error}"),
-            ));
+            return Err(Response::err(req_id, error));
         }
     }
     let resumed = resume_txn_receipt(
