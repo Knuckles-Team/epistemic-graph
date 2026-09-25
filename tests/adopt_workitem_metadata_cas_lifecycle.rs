@@ -245,9 +245,10 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     };
     request.tenant_ref = "other-tenant".to_string();
     let denied = test_support::dispatch(&state, req(10, foreign_claim)).await;
+    assert_eq!(denied.error.as_deref(), Some("ACCESS_DENIED"));
     assert_eq!(
-        denied.error.as_deref(),
-        Some("ACCESS_DENIED: request tenant must match verified request tenant")
+        denied.error_detail.as_deref(),
+        Some("request tenant must match verified request tenant")
     );
 
     // ── 2. Claim (worker-a) ───────────────────────────────────────────────
