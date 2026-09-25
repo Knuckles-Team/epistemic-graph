@@ -6,16 +6,16 @@
 
 use std::collections::BTreeSet;
 
-use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
+use eg_rdf::oxrdf::Triple;
 
-use super::compose::{scope_blank_nodes, validate_and_compose};
+use super::compose::validate_and_compose;
+use super::test_support::{
+    kg, object_iri, parse_scoped, subject_iri, wired_with_fixture, KG, OWL_CLASS, RDF_TYPE,
+};
 use crate::graph::GraphSchemaSources;
 
-const KG: &str = "http://knuckles.team/kg#";
 const FINANCE: &str = include_str!("../../../crates/eg-core/ontology/finance-v1.ttl");
 const FINANCE_SHAPES: &str = include_str!("../../../crates/eg-core/ontology/finance-v1.shapes.ttl");
-const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
 const OWL_IMPORTS: &str = "http://www.w3.org/2002/07/owl#imports";
 const SKOS_MAPPINGS: &[&str] = &[
     "http://www.w3.org/2004/02/skos/core#exactMatch",
@@ -44,46 +44,8 @@ ex:wti a :Commodity .
 ex:shared :analysisOf ex:btcusdt ; :analysisDigest "sha256:00" .
 "#;
 
-fn kg(local: &str) -> String {
-    format!("<{KG}{local}>")
-}
-
 fn ex(local: &str) -> String {
     format!("<http://example.org/markets#{local}>")
-}
-
-fn parse_scoped(document: &str, scope: &str) -> Vec<Triple> {
-    eg_rdf::mapping::parse_turtle(document)
-        .unwrap()
-        .into_iter()
-        .map(|triple| scope_blank_nodes(triple, scope).unwrap())
-        .collect()
-}
-
-fn wired_with_fixture() -> Vec<Triple> {
-    let sources = GraphSchemaSources::default();
-    let mut triples = Vec::new();
-    for (index, (source_id, document)) in sources.ontologies().enumerate() {
-        if WIRED_MODULES.contains(&source_id) {
-            triples.extend(parse_scoped(document, &format!("m{index}")));
-        }
-    }
-    triples.extend(parse_scoped(FIXTURE, "fixture"));
-    triples
-}
-
-fn subject_iri(triple: &Triple) -> Option<&str> {
-    match &triple.subject {
-        NamedOrBlankNode::NamedNode(node) => Some(node.as_str()),
-        NamedOrBlankNode::BlankNode(_) => None,
-    }
-}
-
-fn object_iri(triple: &Triple) -> Option<&str> {
-    match &triple.object {
-        Term::NamedNode(node) => Some(node.as_str()),
-        _ => None,
-    }
 }
 
 #[test]
@@ -164,7 +126,7 @@ fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
 /// commodity is an instrument, a revised flip is still a flip and an event.
 #[test]
 fn listing_signal_and_flip_wiring_entails_their_types() {
-    let triples = wired_with_fixture();
+    let triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
     let ontology = eg_rdf::owl::parse_ontology(&triples);
     let result = eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default());
     let holds =
@@ -190,7 +152,7 @@ fn listing_signal_and_flip_wiring_entails_their_types() {
 /// both is inconsistent under the core BFO disjointness.
 #[test]
 fn a_trend_flip_is_never_an_instrument() {
-    let mut triples = wired_with_fixture();
+    let mut triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
     triples.extend(parse_scoped(
         "@prefix : <http://knuckles.team/kg#> . <http://example.org/markets#flip2> a :FinancialInstrument .",
         "clash",

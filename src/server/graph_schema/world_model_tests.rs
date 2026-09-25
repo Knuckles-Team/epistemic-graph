@@ -7,12 +7,14 @@
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
+use eg_rdf::oxrdf::Triple;
 
-use super::compose::{scope_blank_nodes, validate_and_compose};
+use super::compose::validate_and_compose;
+use super::test_support::{
+    kg, object_iri, parse_scoped, subject_iri, wired_with_fixture, KG, OWL_CLASS, RDF_TYPE,
+};
 use crate::graph::GraphSchemaSources;
 
-const KG: &str = "http://knuckles.team/kg#";
 const FOX: &str = "<http://example.org/world#fox>";
 const WOODLAND: &str = "<http://example.org/world#woodland>";
 const BAVARIA: &str = "<http://example.org/world#bavaria>";
@@ -24,9 +26,7 @@ const STORM: &str = "<http://example.org/world#storm>";
 const BORNE_BY_ORGANISM: &str = "<http://example.org/world#BorneByOrganism>";
 const IN_WEATHER_SYSTEM: &str = "<http://example.org/world#InWeatherSystem>";
 const BFO_PROCESS: &str = "<http://purl.obolibrary.org/obo/BFO_0000015>";
-const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
-const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
 const OWL_IMPORTS: &str = "http://www.w3.org/2002/07/owl#imports";
 const CORE_IRI: &str = "http://knuckles.team/kg/core";
 const LIFE_IRI: &str = "http://knuckles.team/kg/life";
@@ -96,51 +96,12 @@ ex:storm a :WeatherEvent ; :occurredAt ex:bavaria .
 ex:flu a :ClinicalCondition .
 "#;
 
-fn kg(local: &str) -> String {
-    format!("<{KG}{local}>")
-}
-
-fn parse_scoped(document: &str, scope: &str) -> Vec<Triple> {
-    eg_rdf::mapping::parse_turtle(document)
-        .unwrap()
-        .into_iter()
-        .map(|triple| scope_blank_nodes(triple, scope).unwrap())
-        .collect()
-}
-
-/// The wired modules plus [`FIXTURE`], each document's blank nodes scoped apart.
-fn wired_with_fixture() -> Vec<Triple> {
-    let sources = GraphSchemaSources::default();
-    let mut triples = Vec::new();
-    for (index, (source_id, document)) in sources.ontologies().enumerate() {
-        if WIRED_MODULES.contains(&source_id) {
-            triples.extend(parse_scoped(document, &format!("m{index}")));
-        }
-    }
-    triples.extend(parse_scoped(FIXTURE, "fixture"));
-    triples
-}
-
 /// OWL 2 RL materialization (subclass, sub-property, domain/range, inverse, chains) of
 /// the wired modules plus the fixture.
 fn materialized() -> eg_rdf::rules::RuleReasonResult {
-    let triples = wired_with_fixture();
+    let triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
     let ontology = eg_rdf::owl::parse_ontology(&triples);
     eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default())
-}
-
-fn subject_iri(triple: &Triple) -> Option<&str> {
-    match &triple.subject {
-        NamedOrBlankNode::NamedNode(node) => Some(node.as_str()),
-        NamedOrBlankNode::BlankNode(_) => None,
-    }
-}
-
-fn object_iri(triple: &Triple) -> Option<&str> {
-    match &triple.object {
-        Term::NamedNode(node) => Some(node.as_str()),
-        _ => None,
-    }
 }
 
 #[test]
@@ -245,7 +206,7 @@ fn a_nutritional_requirement_is_borne_by_an_organism_that_requires_its_nutrient(
 
     // A requirement (or a clinical condition) nobody named a bearer for is still
     // borne by SOME organism.
-    let dl = eg_rdf::tableau::parse_dl_ontology(&wired_with_fixture());
+    let dl = eg_rdf::tableau::parse_dl_ontology(&wired_with_fixture(WIRED_MODULES, FIXTURE));
     for unbound in ["bareNeed", "flu"] {
         let individual = format!("<http://example.org/world#{unbound}>");
         assert!(eg_rdf::tableau::is_instance(
@@ -258,7 +219,7 @@ fn a_nutritional_requirement_is_borne_by_an_organism_that_requires_its_nutrient(
 
 #[test]
 fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
-    let dl = eg_rdf::tableau::parse_dl_ontology(&wired_with_fixture());
+    let dl = eg_rdf::tableau::parse_dl_ontology(&wired_with_fixture(WIRED_MODULES, FIXTURE));
     assert!(eg_rdf::tableau::is_instance(&dl, STORM, IN_WEATHER_SYSTEM));
     assert!(eg_rdf::tableau::is_instance(&dl, STORM, BFO_PROCESS));
     assert!(materialized().holds(&kg("occursIn"), &[STORM, BAVARIA]));
@@ -270,7 +231,7 @@ fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
 /// intersection unsatisfiable (EL⁺/RL).
 #[test]
 fn a_taxon_is_never_an_organism() {
-    let mut triples = wired_with_fixture();
+    let mut triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
     triples.extend(parse_scoped(
         "@prefix : <http://knuckles.team/kg#> . <http://example.org/world#vulpes> a :Organism .",
         "clash",
@@ -278,7 +239,7 @@ fn a_taxon_is_never_an_organism() {
     let dl = eg_rdf::tableau::parse_dl_ontology(&triples);
     assert!(!eg_rdf::tableau::is_consistent(&dl));
 
-    let mut triples = wired_with_fixture();
+    let mut triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
     triples.extend(parse_scoped(
         "@prefix : <http://knuckles.team/kg#> . \
          @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . \

@@ -24,6 +24,8 @@ pub(crate) mod terms;
 #[cfg(test)]
 mod terms_served_tests;
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod world_model_tests;
 
 use std::sync::Arc;
