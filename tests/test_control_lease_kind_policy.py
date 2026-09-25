@@ -1,6 +1,8 @@
 """The per-principal control-lease kind allowlist, end to end (operator ruling
 2026-09-24): a principal the deploy policy names may issue and transition only
-its listed kinds; every other principal is unaffected."""
+its listed kinds; every other principal is unaffected for non-reserved kinds.
+The `rbac.elevation` kind is reserved for the dedicated two-person elevation flow
+regardless of this per-principal policy."""
 
 import json
 import os
@@ -151,7 +153,12 @@ def test_the_restricted_principal_cannot_transition_another_kind(deputy, other):
 
 
 @pytest.mark.parametrize(
-    "kind", ["browser.control", "rbac.elevation", "finance.order-proposal"]
+    "kind", ["browser.control", "finance.order-proposal"]
 )
 def test_other_principals_are_unaffected(other, kind):
     assert _issue(other, kind)["outcome"] == "issued"
+
+
+def test_other_principal_cannot_bypass_reserved_elevation_flow(other):
+    with pytest.raises(RuntimeError, match="reserved for RbacElevation"):
+        _issue(other, "rbac.elevation")
