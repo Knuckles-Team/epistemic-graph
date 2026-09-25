@@ -772,7 +772,21 @@ fn eval_pattern_filter(
     expr: &Expression,
     inner: &GraphPattern,
 ) -> Result<Vec<Solution>, String> {
-    let inner_sols = eval_pattern(ctx, inner)?;
+    let inner_sols = match inner {
+        GraphPattern::Service {
+            name,
+            inner: remote,
+            silent,
+        } => {
+            let pushed = GraphPattern::Filter {
+                expr: expr.clone(),
+                inner: remote.clone(),
+            };
+            eval_service(ctx, name, &pushed, *silent)
+                .or_else(|_| eval_service(ctx, name, remote, *silent))?
+        }
+        _ => eval_pattern(ctx, inner)?,
+    };
     Ok(inner_sols
         .into_iter()
         .filter(|s| eval_filter(ctx, expr, s))
@@ -786,8 +800,106 @@ fn eval_pattern_join(
     right: &GraphPattern,
 ) -> Result<Vec<Solution>, String> {
     let l = eval_pattern(ctx, left)?;
+    if let GraphPattern::Service {
+        name,
+        inner,
+        silent,
+    } = right
+    {
+        return eval_service_bind_join(ctx, &l, name, inner, *silent);
+    }
     let r = eval_pattern(ctx, right)?;
     Ok(hash_join(&l, &r))
+}
+
+/// Ship distinct local join keys in bounded VALUES blocks. A remote endpoint that
+/// cannot evaluate VALUES falls back to the original full-fetch join, preserving
+/// compatibility with endpoints whose supported SPARQL subset is unknown.
+fn eval_service_bind_join(
+    ctx: &Ctx,
+    local: &[Solution],
+    name: &NamedNodePattern,
+    inner: &GraphPattern,
+    silent: bool,
+) -> Result<Vec<Solution>, String> {
+    if local.is_empty() {
+        return Ok(Vec::new());
+    }
+    let remote_vars = collect_vars(inner);
+    let mut keys: Vec<_> = remote_vars
+        .into_iter()
+        .filter(|key| local.iter().any(|row| row.contains_key(key)))
+        .collect();
+    keys.sort();
+    if keys.is_empty()
+        || local
+            .iter()
+            .any(|row| keys.iter().any(|key| !row.contains_key(key)))
+    {
+        return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
+    }
+    let Some(rows) = service_values_rows(local, &keys) else {
+        return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
+    };
+    let mut remote = Vec::new();
+    for batch in rows.chunks(100) {
+        let values = GraphPattern::Values {
+            variables: keys
+                .iter()
+                .filter_map(|key| Variable::new(key).ok())
+                .collect(),
+            bindings: batch.to_vec(),
+        };
+        let scoped = GraphPattern::Join {
+            left: Box::new(inner.clone()),
+            right: Box::new(values),
+        };
+        let query = build_service_query(&scoped);
+        let endpoint = match name {
+            NamedNodePattern::NamedNode(n) => n.as_str(),
+            NamedNodePattern::Variable(_) => {
+                return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
+            }
+        };
+        let Some(client) = ctx.service else {
+            return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
+        };
+        match client.select(endpoint, &query) {
+            Ok(result) => remote.extend(result.solutions),
+            Err(_) => return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?)),
+        }
+    }
+    Ok(hash_join(local, &remote))
+}
+
+/// Convert only losslessly representable keys. Blank nodes cannot be sent as
+/// SPARQL VALUES ground terms; those queries use the full-fetch path.
+fn service_values_rows(
+    local: &[Solution],
+    keys: &[String],
+) -> Option<Vec<Vec<Option<GroundTerm>>>> {
+    use spargebra::term::{Literal, NamedNode};
+    let mut seen = std::collections::HashSet::new();
+    let mut rows = Vec::new();
+    for row in local {
+        let terms: Vec<_> = keys
+            .iter()
+            .map(|key| match row.get(key)? {
+                Binding::Node(node) => {
+                    let iri = node.strip_prefix('<')?.strip_suffix('>')?;
+                    Some(GroundTerm::NamedNode(NamedNode::new(iri).ok()?))
+                }
+                Binding::Literal(value) => {
+                    Some(GroundTerm::Literal(Literal::new_simple_literal(value)))
+                }
+            })
+            .collect::<Option<_>>()?;
+        let signature: Vec<String> = terms.iter().map(ToString::to_string).collect();
+        if seen.insert(signature) {
+            rows.push(terms.into_iter().map(Some).collect());
+        }
+    }
+    Some(rows)
 }
 
 /// OPTIONAL: keep every left solution; extend with a compatible right (passing the
@@ -929,7 +1041,26 @@ fn eval_pattern_slice(
     start: usize,
     length: Option<usize>,
 ) -> Result<Vec<Solution>, String> {
-    let all = eval_pattern(ctx, inner)?;
+    let all = match (start, length, inner) {
+        (
+            0,
+            Some(limit),
+            GraphPattern::Service {
+                name,
+                inner: remote,
+                silent,
+            },
+        ) => {
+            let pushed = GraphPattern::Slice {
+                inner: remote.clone(),
+                start: 0,
+                length: Some(limit),
+            };
+            eval_service(ctx, name, &pushed, *silent)
+                .or_else(|_| eval_service(ctx, name, remote, *silent))?
+        }
+        _ => eval_pattern(ctx, inner)?,
+    };
     let end = length.map(|l| start + l).unwrap_or(all.len());
     Ok(all
         .into_iter()
@@ -4134,6 +4265,76 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         assert_eq!(r.solutions.len(), 1, "got {:?}", r.solutions);
         assert_eq!(r.solutions[0].get("name").unwrap().as_str(), "Alice");
         assert_eq!(r.solutions[0].get("score").unwrap().as_str(), "100");
+    }
+
+    #[test]
+    fn service_bind_join_sends_distinct_values() {
+        use std::sync::Mutex;
+
+        struct RecordingService(Mutex<Vec<String>>);
+        impl RemoteSparql for RecordingService {
+            fn select(&self, _endpoint: &str, query: &str) -> Result<SparqlResult, String> {
+                self.0.lock().unwrap().push(query.to_string());
+                let solutions = ["Alice", "Bob", "Carol"]
+                    .into_iter()
+                    .filter(|name| query.contains(&format!("\"{name}\"")))
+                    .map(|name| {
+                        let mut row = Solution::new();
+                        row.insert("name".into(), Binding::Literal(name.into()));
+                        row.insert("score".into(), Binding::Literal("1".into()));
+                        row
+                    })
+                    .collect();
+                Ok(SparqlResult {
+                    vars: vec!["name".into(), "score".into()],
+                    solutions,
+                })
+            }
+        }
+
+        let view = loaded_view();
+        let ds = Dataset::new(&view, Vec::new());
+        let service = RecordingService(Mutex::new(Vec::new()));
+        let query = r#"PREFIX ex: <http://example.org/>
+            SELECT ?name ?score WHERE {
+              ?p ex:name ?name .
+              SERVICE <http://remote/e> { ?name ex:score ?score }
+            }"#;
+        let QueryOutcome::Solutions(result) =
+            query_dataset_service(&ds, query, &Projection::raw(), Some(&service)).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(result.solutions.len(), 3);
+        let requests = service.0.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].contains("VALUES"));
+        for name in ["Alice", "Bob", "Carol"] {
+            assert!(requests[0].contains(&format!("\"{name}\"")));
+        }
+    }
+
+    #[test]
+    fn service_values_rows_deduplicate_and_reject_blank_nodes() {
+        let keys = vec!["name".to_string()];
+        let rows: Vec<_> = (0..205)
+            .map(|index| {
+                let mut row = Solution::new();
+                row.insert("name".into(), Binding::Literal(index.to_string()));
+                row
+            })
+            .collect();
+        let values = service_values_rows(&rows, &keys).unwrap();
+        assert_eq!(values.len(), 205);
+        assert_eq!(
+            values.chunks(100).map(<[_]>::len).collect::<Vec<_>>(),
+            [100, 100, 5]
+        );
+        let duplicated = [rows[0].clone(), rows[0].clone()];
+        assert_eq!(service_values_rows(&duplicated, &keys).unwrap().len(), 1);
+        let mut blank = Solution::new();
+        blank.insert("name".into(), Binding::Node("_:local".into()));
+        assert!(service_values_rows(&[blank], &keys).is_none());
     }
 
     /// (b) SILENT swallows a remote error to ONE empty solution → the local side passes
