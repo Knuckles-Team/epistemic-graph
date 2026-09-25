@@ -67,3 +67,30 @@ def test_proposal_escapes_untrusted_description_and_keeps_reservation() -> None:
 
 def test_empty_proposal_has_no_semantic_document() -> None:
     assert compile_ontology_proposal(classes=[], object_properties=[]) == ""
+
+
+def test_enterprise_import_and_datatype_domain_are_typed() -> None:
+    ttl = compile_ontology_pack(
+        source="leanix",
+        base_import="http://knuckles.team/kg/enterprise",
+        classes=[{"local": "Application", "label": "Application", "parent": None}],
+        object_properties=[],
+        datatype_properties=[
+            {
+                "local": "applicationId",
+                "label": "Application ID",
+                "domain": "Application",
+                "range": "xsd:string",
+            }
+        ],
+    )
+    assert "owl:imports <http://knuckles.team/kg/enterprise>" in ttl
+    assert "rdfs:domain :Application" in ttl
+    with pytest.raises(ValueError):
+        compile_ontology_pack(
+            source="leanix",
+            base_import="https://untrusted.invalid/ontology",
+            classes=[],
+            object_properties=[],
+            datatype_properties=[],
+        )
