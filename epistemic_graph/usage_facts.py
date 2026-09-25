@@ -35,6 +35,21 @@ def _opaque_ref(value: str, kind: str) -> str:
     return value
 
 
+def _carrier_tenant_scope(tenant: str) -> str:
+    """Mirror EG CarrierAuthority's opaque verified-tenant identity."""
+
+    prefix = "carrier-tenant:"
+    digest = tenant.removeprefix(prefix)
+    if (
+        tenant.startswith(prefix)
+        and len(digest) == 64
+        and all(ch in "0123456789abcdef" for ch in digest)
+    ):
+        return tenant
+    framed = b"carrier-tenant\x00verified\x00" + tenant.encode("utf-8")
+    return prefix + hashlib.sha256(framed).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class UsageEventFact:
     """One immutable usage event, with no prompt, tool input, or host fields."""
@@ -79,13 +94,17 @@ class UsageEventFact:
 class UsageFactStore:
     """Durable usage fact projection bound to the client's signed authority."""
 
-    def __init__(self, client: EpistemicGraphClient, reference_key: bytes) -> None:
-        if len(reference_key) < 32:
+    def __init__(
+        self, client: EpistemicGraphClient, reference_key: bytes | None = None
+    ) -> None:
+        if reference_key is not None and len(reference_key) < 32:
             raise ValueError("stable usage reference key must be at least 32 bytes")
         self._client = client
         self._reference_key = reference_key
 
     def _authority(self) -> tuple[str, str, str]:
+        if self._reference_key is None:
+            raise ValueError("stable usage reference key required for fact writes")
         claims = self._client._effective_verified_context()
         tenant = claims["tenant"]
         principal = claims["principal"]
@@ -93,9 +112,7 @@ class UsageFactStore:
         if not tenant or not principal or not agent_id:
             raise PermissionError("verified usage authority required")
         key = self._reference_key
-        tenant_ref = hmac.new(
-            key, b"usage:tenant:\x00" + tenant.encode(), hashlib.sha256
-        ).hexdigest()
+        tenant_ref = _carrier_tenant_scope(tenant)
         principal_ref = hmac.new(
             key, b"usage:principal:\x00" + principal.encode(), hashlib.sha256
         ).hexdigest()
@@ -117,6 +134,9 @@ class UsageFactStore:
             "run_ref": fact.run_ref,
             "origin": fact.origin,
             "occurred_at": fact.occurred_at,
+            "occurred_at_ms": int(
+                datetime.fromisoformat(fact.occurred_at).timestamp() * 1000
+            ),
             "input_tokens": fact.input_tokens,
             "output_tokens": fact.output_tokens,
             "cache_creation_tokens": fact.cache_creation_tokens,
@@ -148,3 +168,40 @@ class UsageFactStore:
             raise PermissionError("usage fact authority mismatch")
         fields = UsageEventFact.__dataclass_fields__
         return UsageEventFact(**{key: properties[key] for key in fields})
+
+    async def read_page(
+        self,
+        *,
+        mode: str = "events",
+        after: str | None = None,
+        limit: int = 100,
+        from_ms: int | None = None,
+        to_ms: int | None = None,
+        origin: str | None = None,
+        model_ref: str | None = None,
+    ) -> dict:
+        """Read one server-bounded usage page; tenant comes from signed context."""
+
+        if mode not in {"events", "summary"} or not 1 <= limit <= 200:
+            raise ValueError("invalid usage page mode or limit")
+        if after is not None:
+            _opaque_ref(after, "usage_dedup")
+        if model_ref is not None:
+            _opaque_ref(model_ref, "model")
+        if origin is not None and origin not in {"runtime", "ingested"}:
+            raise ValueError("unsupported usage origin")
+        result = await self._client._send(
+            "UsageFacts",
+            {
+                "mode": mode,
+                "after": after,
+                "limit": limit,
+                "from_ms": from_ms,
+                "to_ms": to_ms,
+                "origin": origin,
+                "model_ref": model_ref,
+            },
+        )
+        if not isinstance(result, dict) or not isinstance(result.get("events"), list):
+            raise RuntimeError("UsageFacts returned a malformed page")
+        return result

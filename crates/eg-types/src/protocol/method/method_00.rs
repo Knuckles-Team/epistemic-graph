@@ -54,6 +54,23 @@ macro_rules! __eg_method_chunk_0 {
         node_id: String,
     },
 
+    /// Tenant-derived, bounded usage event page or partial summary. The tenant
+    /// is never a caller parameter; the verified carrier supplies it.
+    UsageFacts {
+        mode: String,
+        #[serde(default)]
+        after: Option<String>,
+        limit: usize,
+        #[serde(default)]
+        from_ms: Option<i64>,
+        #[serde(default)]
+        to_ms: Option<i64>,
+        #[serde(default)]
+        origin: Option<String>,
+        #[serde(default)]
+        model_ref: Option<String>,
+    },
+
     /// Atomic compare-and-set on a node's property blob (CONCEPT:EG-KG.compute.backend backend-
     /// agnostic atomic claim). `conditions_msgpack`/`updates_msgpack` are
     /// MessagePack-encoded JSON objects (field→value maps, same encoding as

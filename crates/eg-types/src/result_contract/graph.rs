@@ -1,13 +1,14 @@
 //! Declared results of the `graph` contract domain.
 
-use super::transactions::SparqlUpdateReport;
 use super::Dynamic;
 use crate::policy_evolution::{PolicyRecordReceipt, PolicyRecordStored, PolicyRecordView};
+use super::transactions::SparqlUpdateReport;
 use crate::rdf_report::LoadReport;
 use crate::types::{
     CompactNodesResult, DecayStats, GraphDiff, GraphMetrics, PropertyBlob, PruneStats, ScenePose,
     SubgraphResult,
 };
+use serde::{Deserialize, Serialize};
 
 method_results! {
     visit_graph;
@@ -16,6 +17,7 @@ method_results! {
     HasNode(HasNode) => Bool<bool>;
     GetNodes(GetNodes) => NodeList<Vec<(String, serde_json::Value)>>;
     GetNodesByLabel(GetNodesByLabel) => NodeList<Vec<(String, serde_json::Value)>>;
+    UsageFacts(UsageFacts) => Json<UsageFactsPage>;
     CompareAndSetNodeFields(CompareAndSetNodeFields) => Bool<bool>;
     CreateSummaryNode(CreateSummaryNode) => Text<String>;
     Consolidate(Consolidate) => Text<String>;
@@ -93,4 +95,46 @@ method_results! {
     PolicyRecordGet(PolicyEvolution / "get") => Raw<Option<PolicyRecordView>>;
     // Engine-internal kernel write behind every PolicyEvolution write.
     PolicyEvolutionStore(PolicyEvolutionStore) => Raw<PolicyRecordStored>;
+}
+
+/// One metadata-only usage fact. No prompts, tool inputs, paths, or identity names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct UsageEventRow {
+    pub event_ref: String,
+    pub run_ref: String,
+    pub origin: String,
+    pub occurred_at: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub cost_microusd: Option<u64>,
+    pub model_ref: Option<String>,
+}
+
+/// Partial counters over exactly one scanned page, never a global total.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct UsageFactTotals {
+    pub event_count: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub cost_microusd: u64,
+}
+
+/// Bounded keyset page. `next_after` advances over scanned rows, including
+/// rows excluded by filters, so an empty filtered page can still make progress.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct UsageFactsPage {
+    pub events: Vec<UsageEventRow>,
+    pub totals: UsageFactTotals,
+    pub next_after: Option<String>,
+    pub has_more: bool,
+    pub scanned: usize,
 }
