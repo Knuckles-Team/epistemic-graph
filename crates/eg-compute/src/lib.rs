@@ -12,6 +12,16 @@
 pub use eg_core::{compute, graph, isolation, registry};
 pub use eg_types::{acl, protocol, types, wire};
 
+/// Find a disjoint-set root while halving each traversed path. Both entity
+/// resolution clusters and impact polytree detection use this exact rule.
+pub(crate) fn union_find_root(parent: &mut [usize], mut node: usize) -> usize {
+    while parent[node] != node {
+        parent[node] = parent[parent[node]];
+        node = parent[node];
+    }
+    node
+}
+
 /// Advance a SplitMix64 state by one step.
 ///
 /// Compute domains use the same mixing algorithm while retaining their own

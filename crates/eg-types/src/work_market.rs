@@ -93,6 +93,12 @@ pub fn severity_bucket(severity_ppm: u32) -> u8 {
 /// Hex SHA-256 over `domain` and each length-prefixed part: the one digest
 /// every market identity (row key, WorkItem id, evidence, command) is cut from.
 pub fn scoped_digest(domain: &[u8], parts: &[&[u8]]) -> String {
+    scoped_digest_parts(domain, parts.iter().copied())
+}
+
+/// The same digest over borrowed parts supplied by any iterator. This lets
+/// callers with stack arrays keep their existing byte order without copying.
+pub fn scoped_digest_parts<'a>(domain: &[u8], parts: impl IntoIterator<Item = &'a [u8]>) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
     digest.update(domain);
