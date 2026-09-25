@@ -141,6 +141,44 @@ class AdamResult(BaseModel):
     v: list[float]
 
 
+class AdapterDirection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    gain_q16: int
+    unit_q30: BoundedVec_int32_4096
+
+
+class AdapterEvalReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapted_mrr_q16: int
+    adapter_digest: str
+    base_mrr_q16: int
+    graph: str
+    losses: Annotated[int, Field(ge=0)]
+    n_eval: Annotated[int, Field(ge=0)]
+    n_training: Annotated[int, Field(ge=0)]
+    passed: bool
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    space_digest: str
+    ties: Annotated[int, Field(ge=0)]
+    win_rate_lower_q16: int
+    wins: Annotated[int, Field(ge=0)]
+
+
+class AdapterFitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str
+    holdout_per_mille: Annotated[int, Field(ge=0, le=65535)]
+    max_gain_q16: int
+    min_eval_items: Annotated[int, Field(ge=0)]
+    question_id: str | None = None
+    rank: Annotated[int, Field(ge=0, le=255)]
+    space_digest: str
+    window: RecordWindow
+
+
 class AdfResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1187,6 +1225,55 @@ class AssociationRuleRow(BaseModel):
     consequent: list[str]
     lift: float
     support: float
+
+
+class AttributionInputProperty(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Property: AttributionInputPropertyBody
+
+
+class AttributionInputPropertyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    name: str
+
+
+class AttributionMethodOwen(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Owen: AttributionMethodOwenBody
+
+
+class AttributionMethodOwenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    by: str
+
+
+class AttributionMethodShapleySampled(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ShapleySampled: AttributionMethodShapleySampledBody
+
+
+class AttributionMethodShapleySampledBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    samples: Annotated[int, Field(ge=0)]
+    seed: Annotated[int, Field(ge=0)]
+
+
+class AttributionValuePercentile(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Percentile: AttributionValuePercentileBody
+
+
+class AttributionValuePercentileBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    p: Annotated[int, Field(ge=0, le=255)]
 
 
 class AuditDraw(BaseModel):
@@ -2456,6 +2543,14 @@ class CompactNodesResult(BaseModel):
     removed_nodes: list[str]
 
 
+class ComponentContribution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    component_id: str
+    contribution: QuantisedValue
+    slot: str
+
+
 class ComponentDependency(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -3275,6 +3370,7 @@ class DecisionLogEntry(BaseModel):
 class DecisionLogOpCommit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    evaluator: NamedEvaluator | None = None
     op: Literal["commit"]
     record: StatisticalDecisionRecord
 
@@ -3327,6 +3423,14 @@ class DecisionLogOpResolve(BaseModel):
     tenant_id: str
 
 
+class DecisionLogOpLearn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["learn"]
+    tenant_id: str
+    write: LearningWrite
+
+
 DecisionLogOp = Annotated[
     DecisionLogOpCommit
     | DecisionLogOpEvaluate
@@ -3334,7 +3438,8 @@ DecisionLogOp = Annotated[
     | DecisionLogOpAggregate
     | DecisionLogOpCompact
     | DecisionLogOpVerify
-    | DecisionLogOpResolve,
+    | DecisionLogOpResolve
+    | DecisionLogOpLearn,
     Field(discriminator="op"),
 ]
 
@@ -5569,6 +5674,50 @@ class FuseStream(BaseModel):
     layer: str
 
 
+class GenerationEvalItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active_q16: BoundedVec_int32_4096
+    record_id: str
+    shadow_q16: BoundedVec_int32_4096
+
+
+class GenerationEvalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active_graph: str
+    active_space: str
+    items: BoundedVec_GenerationEvalItem_1024
+    logical: str
+    max_score_psi_q16: int
+    min_eval_items: Annotated[int, Field(ge=0)]
+    shadow_graph: str
+    shadow_space: str
+    top_k: Annotated[int, Field(ge=0, le=65535)]
+
+
+class GenerationReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active_embedded: Annotated[int, Field(ge=0)]
+    active_graph: str
+    active_mrr_q16: int
+    active_space: str
+    logical: str
+    losses: Annotated[int, Field(ge=0)]
+    n_eval: Annotated[int, Field(ge=0)]
+    passed: bool
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    score_psi_q16: int | None = None
+    shadow_embedded: Annotated[int, Field(ge=0)]
+    shadow_graph: str
+    shadow_mrr_q16: int
+    shadow_space: str
+    ties: Annotated[int, Field(ge=0)]
+    win_rate_lower_q16: int
+    wins: Annotated[int, Field(ge=0)]
+
+
 class Grant(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6689,6 +6838,90 @@ class LeafProofInfeasibleBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     dual: LagrangeDual
+
+
+class LearningRecordedOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    outcome: RetrievalOutcome
+    producer: str
+    recorded: Literal["outcome"]
+    recorded_at_ms: Annotated[int, Field(ge=0)]
+
+
+class LearningRecordedFitted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    adapter_digest: str
+    body: QueryAdapterBody
+    receipt: AdapterEvalReceipt
+    receipt_digest: str
+    recorded: Literal["fitted"]
+
+
+class LearningRecordedGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    receipt: GenerationReceipt
+    receipt_digest: str
+    recorded: Literal["generation"]
+
+
+class LearningRecordedPointer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    active: PointerEvent | None = None
+    history: BoundedVec_PointerEvent_64 = Field(default_factory=list)
+    key: str
+    recorded: Literal["pointer"]
+    stack: BoundedVec_PointerEvent_64 = Field(default_factory=list)
+
+
+LearningRecorded = Annotated[
+    LearningRecordedOutcome
+    | LearningRecordedFitted
+    | LearningRecordedGeneration
+    | LearningRecordedPointer,
+    Field(discriminator="recorded"),
+]
+
+
+class LearningWriteRecordOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    outcome: RetrievalOutcome
+    write: Literal["record_outcome"]
+
+
+class LearningWriteFitAdapter(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: AdapterFitRequest
+    write: Literal["fit_adapter"]
+
+
+class LearningWriteEvaluateGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: GenerationEvalRequest
+    write: Literal["evaluate_generation"]
+
+
+class LearningWriteMovePointer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    movement: PointerMovement
+    pointer: PointerRef
+    write: Literal["move_pointer"]
+
+
+LearningWrite = Annotated[
+    LearningWriteRecordOutcome
+    | LearningWriteFitAdapter
+    | LearningWriteEvaluateGeneration
+    | LearningWriteMovePointer,
+    Field(discriminator="write"),
+]
 
 
 class LeasePriority(str, Enum):
@@ -13707,6 +13940,13 @@ class MutationSurface(str, Enum):
     OTHER = "other"
 
 
+class NamedEvaluator(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    principal: str
+
+
 class NativeControlSchemaVersion(str, Enum):
     V_1 = "1"
 
@@ -13903,6 +14143,20 @@ class OpAsOfBody(BaseModel):
 
     axis: TimeAxis
     ts: float
+
+
+class OpAttribute(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Attribute: OpAttributeBody
+
+
+class OpAttributeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    input: AttributionInput
+    method: AttributionMethod
+    value: AttributionValue
 
 
 class OpBeliefAsOf(BaseModel):
@@ -14572,6 +14826,7 @@ OutboxTarget = Annotated[
 class OutcomeAggregate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    attribution: SlateAttribution | None = None
     min_support: Annotated[int, Field(ge=0)]
     rows: BoundedVec_OptionAggregate_1024
     schema_version: Annotated[int, Field(ge=0, le=65535)]
@@ -14580,6 +14835,7 @@ class OutcomeAggregate(BaseModel):
 class OutcomeAggregateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    attribution: SlateAttributionRequest | None = None
     question_id: str | None = None
     tenant_id: str
     window: RecordWindow
@@ -14973,6 +15229,21 @@ class ParseResult(BaseModel):
     symbols_extracted: Annotated[int, Field(ge=0)]
 
 
+class PathEdge(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    max_hops: Annotated[int, Field(ge=0, le=255)]
+    min_hops: Annotated[int, Field(ge=0, le=255)]
+    relationship: str
+
+
+class PathRank(str, Enum):
+    UNRANKED = "unranked"
+    VECTOR = "vector"
+    TEXT = "text"
+    FUSE_RRF = "fuse_rrf"
+
+
 class PatternEdge(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15164,6 +15435,61 @@ class Plan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     ops: list[Op]
+
+
+class PointerEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    at_ms: Annotated[int, Field(ge=0)]
+    principal: str
+    receipt_digest: str | None = None
+    target: str | None = None
+    transition: PointerTransition
+
+
+class PointerMovementActivate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    movement: Literal["activate"]
+    receipt_digest: str
+    target: str
+
+
+class PointerMovementRollback(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    movement: Literal["rollback"]
+
+
+PointerMovement = Annotated[
+    PointerMovementActivate | PointerMovementRollback,
+    Field(discriminator="movement"),
+]
+
+
+class PointerRefAdapter(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str
+    pointer: Literal["adapter"]
+
+
+class PointerRefGeneration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    logical: str
+    pointer: Literal["generation"]
+
+
+PointerRef = Annotated[
+    PointerRefAdapter | PointerRefGeneration,
+    Field(discriminator="pointer"),
+]
+
+
+class PointerTransition(str, Enum):
+    ACTIVATED = "activated"
+    ROLLED_BACK = "rolled_back"
 
 
 class PolicyRecord(BaseModel):
@@ -15893,6 +16219,24 @@ class QuantumRankedCandidate(BaseModel):
     probability: float
     rank: Annotated[int, Field(ge=0)]
     weight: float
+
+
+class QueryAdapterBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    dimensions: Annotated[int, Field(ge=0)]
+    directions: BoundedVec_AdapterDirection_8
+    n_training: Annotated[int, Field(ge=0)]
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    space_digest: str
+    training_digest: str
+
+
+class QueryVector(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    q16: BoundedVec_int32_4096
+    space_digest: str
 
 
 class QuestionKind(str, Enum):
@@ -16844,6 +17188,29 @@ class RetrievalCandidateWire(BaseModel):
     source_reliability: float
 
 
+class RetrievalOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cited: BoundedVec_string_256 = Field(default_factory=list)
+    path: RetrievalPathTemplate | None = None
+    query: QueryVector | None = None
+    record_id: str
+    returned: BoundedVec_ReturnedEvidence_256 = Field(default_factory=list)
+
+
+class RetrievalPathTemplate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    anchor_class: str
+    composed_digest: str
+    edges: BoundedVec_PathEdge_8 = Field(default_factory=list)
+    policy_version: str
+    rank: PathRank
+    skill_ref: str | None = None
+    slots: BoundedVec_SlotType_8 = Field(default_factory=list)
+    task_class: str
+
+
 class RetrievalQualityMiningResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16862,6 +17229,13 @@ class RetrievalTraceSpec(BaseModel):
 
     relevant: list[str]
     retrieved: list[str]
+
+
+class ReturnedEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content_class: str | None = None
+    evidence_id: str
 
 
 class RewindTargetStart(BaseModel):
@@ -18496,11 +18870,42 @@ class SkillTypeSource(str, Enum):
     DEFAULT = "default"
 
 
+class SlateAttribution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    components: BoundedVec_ComponentContribution_64
+    digest: str
+    evidence_class: EvidenceClass
+    grand: QuantisedValue
+    graph_digest: str
+    method: SlateAttributionMethod
+    observed_coalitions: Annotated[int, Field(ge=0)]
+
+
+class SlateAttributionMethod(str, Enum):
+    SHAPLEY = "shapley"
+    ADDITIVE = "additive"
+
+
+class SlateAttributionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph_digest: str
+    method: SlateAttributionMethod
+
+
 class SlotAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     component: ComponentDependency
     slot: str
+
+
+class SlotType(str, Enum):
+    QUERY_TEXT = "query_text"
+    QUERY_VECTOR = "query_vector"
+    ANCHOR_ID = "anchor_id"
+    CLASS_IRI = "class_iri"
 
 
 class SolveModelSpec(BaseModel):
@@ -20736,6 +21141,20 @@ AppendStepResult = str | None
 AsrOp = AsrOpTranscribeFile
 
 
+AttributionInput = Literal["Score"] | AttributionInputProperty
+
+
+AttributionMethod = (
+    Literal["Linear"]
+    | Literal["Shapley"]
+    | AttributionMethodShapleySampled
+    | AttributionMethodOwen
+)
+
+
+AttributionValue = str | Literal["Sum"] | AttributionValuePercentile
+
+
 BatchL2NormalizeResult = list[list[float]]
 
 
@@ -20790,6 +21209,9 @@ BoundProof = BoundProofTree | BoundProofRoot
 BoundedVec_AbstainReason_64 = Annotated[list[AbstainReason], Field(max_length=64)]
 
 
+BoundedVec_AdapterDirection_8 = Annotated[list[AdapterDirection], Field(max_length=8)]
+
+
 BoundedVec_AgentComponentKind_16 = Annotated[
     list[AgentComponentKind],
     Field(
@@ -20832,6 +21254,14 @@ BoundedVec_ClaimedTaskMapping_32 = Annotated[
     list[ClaimedTaskMapping],
     Field(
         max_length=32,
+    ),
+]
+
+
+BoundedVec_ComponentContribution_64 = Annotated[
+    list[ComponentContribution],
+    Field(
+        max_length=64,
     ),
 ]
 
@@ -20905,6 +21335,14 @@ BoundedVec_FeatureStandardisation_32 = Annotated[
 
 
 BoundedVec_FleetCatalogRow_256 = Annotated[list[FleetCatalogRow], Field(max_length=256)]
+
+
+BoundedVec_GenerationEvalItem_1024 = Annotated[
+    list[GenerationEvalItem],
+    Field(
+        max_length=1024,
+    ),
+]
 
 
 BoundedVec_GraphSchemaSourceView_32 = Annotated[
@@ -20990,6 +21428,12 @@ BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=2
 BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
 
 
+BoundedVec_PathEdge_8 = Annotated[list[PathEdge], Field(max_length=8)]
+
+
+BoundedVec_PointerEvent_64 = Annotated[list[PointerEvent], Field(max_length=64)]
+
+
 BoundedVec_PooledRate_64 = Annotated[list[PooledRate], Field(max_length=64)]
 
 
@@ -21026,10 +21470,21 @@ BoundedVec_RegisteredServerView_256 = Annotated[
 ]
 
 
+BoundedVec_ReturnedEvidence_256 = Annotated[
+    list[ReturnedEvidence],
+    Field(
+        max_length=256,
+    ),
+]
+
+
 BoundedVec_ScoredOption_64 = Annotated[list[ScoredOption], Field(max_length=64)]
 
 
 BoundedVec_SlotAssignment_64 = Annotated[list[SlotAssignment], Field(max_length=64)]
+
+
+BoundedVec_SlotType_8 = Annotated[list[SlotType], Field(max_length=8)]
 
 
 BoundedVec_SourceEntityRef_16384 = Annotated[
@@ -21110,6 +21565,9 @@ BoundedVec_WhyNot_64 = Annotated[list[WhyNot], Field(max_length=64)]
 
 
 BoundedVec_float_4096 = Annotated[list[float], Field(max_length=4096)]
+
+
+BoundedVec_int32_4096 = Annotated[list[int], Field(max_length=4096)]
 
 
 BoundedVec_int64_2048 = Annotated[list[int], Field(max_length=2048)]
@@ -21912,6 +22370,7 @@ Op = (
     | OpSourceReliability
     | OpConfidenceOp
     | OpExplainBelief
+    | OpAttribute
     | OpDecisionScan
     | OpLimit
     | OpProject

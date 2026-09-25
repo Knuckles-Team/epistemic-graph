@@ -2,17 +2,17 @@
   "artifact_digests": {
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
-    "contract/fixtures/method_body_vectors.json": "ee8cbc1ca8e3855e28cf85a3a918158d8e1e2daf1c90896d7cb5abdd29a6b600",
-    "contract/methods.json": "852015aeea45d4ab7060731cebbe607fb94cd88fa1e7f264d9b8489b0e66bf15",
-    "contract/schemas/method.request.json": "4e49e7fc7dce5a63276a32b12bfc4bcd5f23d18ef40af1b8ecec62094be7e7dc",
+    "contract/fixtures/method_body_vectors.json": "92e6ec9d0304f7ddbbc998120a6a727900142eb8e26fc52ad024d2a93465d7a0",
+    "contract/methods.json": "f5d9d158e111b176a28f8404154761b8baaea784aa0be1e31ea5e7013fe784c7",
+    "contract/schemas/method.request.json": "53768258a649eaf3513648380db2494da0a78b151d7b232ab28d19e635a69763",
     "contract/schemas/result.cluster.json": "0aac12793ab69a65c1326ba4471c48bfa4a87596be9eb7972eaa09fe65608c42",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
-    "contract/schemas/result.coordination.json": "fd2bec50ff3f7b70f52d92868714095c1a9ebdc9dc09050763b3e29f9f813bfc",
+    "contract/schemas/result.coordination.json": "4c14737cc33bbb77f5f47cdaf55fa3ce49104c86148ee54d7638b912e31ab128",
     "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
     "contract/schemas/result.ingestion.json": "746d7ad20ae4a2554e4fc56ec4ea10a0c486c1f471a233333792152b2d2007ea",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "4ce79f582ca59ba67a32a85b17141c998bb7e0e6b9b60efc3356f717c5a5c83c",
+    "contract/schemas/result.query.json": "f6ae8dc3f0233ebaf24bcd5f9427947a9f6b6f50e0c63c21ab55ec51cf79397d",
     "contract/schemas/result.reasoning.json": "9cbf90b03971898c92e4f960f6fe80030bb13857bf5b7a894227a3aa0896a74c",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
     "contract/schemas/result.storage.json": "e6d3e2dc2181d408a7d535fe2aa7d291f2ca1dcfbf8895381a0ec83e8ea52703",
@@ -37,7 +37,7 @@
     "epistemic_graph/generated/index_repository.py": "1d51a13637634de0daa57cabf5a0864e0ac3f6f014133c36d644996b79f79f01",
     "epistemic_graph/generated/ingestion.py": "20660b4e8f91ffe0b9310269986f8111499b79f1aef9abfe2995d634ad209476",
     "epistemic_graph/generated/messaging.py": "7a527ee235a6e81e907a4125dfcb85efca33af3ecc46bf82613beadadbe52a7a",
-    "epistemic_graph/generated/models.py": "1d76bfb602303d25695079ed773cea2a0c802e4ded3e67b28c782520b461e50b",
+    "epistemic_graph/generated/models.py": "fc5228e762ce0c3fe30868c56197b458a6cc5b658699ac8da21f1de61745f633",
     "epistemic_graph/generated/query.py": "e0f16d850b5077b096b95df2a84b7532bf075cd8ba87329986dcaf319679b1e9",
     "epistemic_graph/generated/rdf_report.py": "8025614a9bb3abcce9b28efe2db743ed9742c002e4120931f55d16ea3085d817",
     "epistemic_graph/generated/reasoning.py": "8c718d214faff483f6094dfdf0afec64d81b18883a74ecc3b85c2fb0ddec857d",
@@ -49,8 +49,8 @@
     "epistemic_graph/generated/transactions.py": "f4f7307094f8915f8672a2546d66981b36477e6182d9aec7a2293bf3cb951f71",
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
-  "cargo_lock_sha256": "1030719187eddcb2c392dc6cd857d890e43996d4c16f2126f458234796b840d8",
-  "contract_digest": "a9500ab2a2942bf827d9721195adca7fbfe6d5599a8a120b6af73bf72957b297",
+  "cargo_lock_sha256": "c0cd78530669184a5bf4f745a4e56d318157f5fc0001c4c1c07f7c7174d6d6b6",
+  "contract_digest": "4ae298717051a24ebd3374581468037a4d91647402f54054b46465ce293db0e5",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -296,6 +296,13 @@
         "value": "1"
       }
     ],
+    "GENERATION_RECEIPT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision/statistical/retrieval_generation.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "GRAPH_COMMAND_SCHEMA_VERSION": [
       {
         "file": "src/raft/command/native/sealed.rs",
@@ -443,6 +450,13 @@
         "value": "\"viz-provenance:v1\""
       }
     ],
+    "QUERY_ADAPTER_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision/statistical/retrieval_adapter.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "RAFT_RESPONSE_SCHEMA_VERSION": [
       {
         "file": "src/raft/mod.rs",
@@ -490,6 +504,13 @@
         "file": "src/server/request_replay.rs",
         "scope": "",
         "value": "\"request-replay:v1\""
+      }
+    ],
+    "RETRIEVAL_LEARNING_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision/statistical/retrieval.rs",
+        "scope": "",
+        "value": "1"
       }
     ],
     "SCHEMA_MIGRATION_FORMAT_VERSION": [
@@ -594,5 +615,5 @@
     "schematized": 424,
     "unclassified": 0
   },
-  "source_tree_oid": "95e3056ea2a5e1673c2fa74645d17914d05eaacbda83fc55603e93ccc2cae580"
+  "source_tree_oid": "5cb3b2750747ccff6dd115e674ef1e851517b7a2aaa94109743fa3e59b40aa5c"
 }
