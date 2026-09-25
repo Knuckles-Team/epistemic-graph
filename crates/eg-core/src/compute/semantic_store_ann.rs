@@ -220,7 +220,7 @@ pub struct SemanticStore {
     arena: EmbeddingArena,
     /// Exact model/preprocessing coordinate space for model-produced queries.
     /// `None` preserves legacy raw-vector stores without inventing an identity.
-    space: Option<EmbeddingSpaceRef>,
+    pub(super) space: Option<EmbeddingSpaceRef>,
     /// eg-ann IVF-PQ index. `None` until the store is WARMED (off the query path)
     /// or a persisted index is reopened. The index is non-serialized, so a fresh
     /// snapshot load starts `Cold`; it is NEVER built inline on a search.
@@ -232,7 +232,7 @@ pub struct SemanticStore {
     state: AtomicU8,
     /// Content stamp (EH-393): restamped on every vector / space change and on every ANN
     /// generation adoption (the active generation changes what a probe returns).
-    generation: crate::compute::semantic::GenerationStamp,
+    pub(super) generation: crate::compute::semantic::GenerationStamp,
 }
 
 mod semantic_ann_index;
@@ -248,14 +248,8 @@ pub use semantic_ann_persistence::SemanticGenerationImage;
 
 impl Clone for SemanticStore {
     fn clone(&self) -> Self {
-        Self {
-            arena: self.arena.clone(),
-            space: self.space.clone(),
-            index: RwLock::new(None),
-            built_len: RwLock::new(0),
-            state: AtomicU8::new(STATE_COLD),
-            generation: self.generation.carry(),
-        }
+        let (space, generation) = super::carry_space_identity(&self.space, &self.generation);
+        Self::from_arena(self.arena.clone(), space, generation)
     }
 }
 

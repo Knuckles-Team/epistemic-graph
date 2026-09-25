@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use eg_core::graph::GraphCore;
 use eg_core::index::{
-    ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest,
-    ManagedIndexStatus, Predicate, SecondaryIndex,
+    ChangeSet, IndexDescriptor, IndexError, IndexKind, IndexManifest, ManagedIndexStatus,
+    SecondaryIndex,
 };
 
 use super::{EdgeIndex, EdgeRefreshOutcome, POISONED};
@@ -22,19 +22,7 @@ impl SecondaryIndex for RegisteredEdgeIndex {
     }
 
     fn descriptor(&self) -> IndexDescriptor {
-        IndexDescriptor {
-            kind: IndexKind::EdgeSearch,
-            columns: IndexColumns::NonColumnar,
-            serves_lookup: false,
-        }
-    }
-
-    fn covers(&self, _predicate: &Predicate) -> bool {
-        false
-    }
-
-    fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
-        None
+        IndexDescriptor::discoverable_only(IndexKind::EdgeSearch)
     }
 
     fn manifest(&self) -> IndexManifest {

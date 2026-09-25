@@ -85,14 +85,14 @@ pub struct SemanticStore {
     embeddings: HashMap<String, Vec<f32>>,
     /// Exact model/preprocessing coordinate space for model-produced queries.
     /// `None` preserves legacy raw-vector stores without inventing an identity.
-    space: Option<EmbeddingSpaceRef>,
+    pub(super) space: Option<EmbeddingSpaceRef>,
     /// Incrementally-maintained HNSW index (Phase C-D). Skipped on (de)serialize
     /// and rebuilt lazily from `embeddings` on the first search after load — which
     /// also closes the pre-existing post-restore gap where the index metadata came
     /// back empty and HNSW search silently returned nothing.
     index: RwLock<HnswIndex>,
     /// Content stamp (EH-393): restamped on every vector / space change.
-    generation: crate::compute::semantic::GenerationStamp,
+    pub(super) generation: crate::compute::semantic::GenerationStamp,
 }
 
 mod semantic_hnsw_index;
@@ -105,11 +105,12 @@ mod semantic_hnsw_query;
 // on-disk format is UNCHANGED (only `embeddings` is persisted, exactly as before).
 impl Clone for SemanticStore {
     fn clone(&self) -> Self {
+        let (space, generation) = super::carry_space_identity(&self.space, &self.generation);
         Self {
             embeddings: self.embeddings.clone(),
-            space: self.space.clone(),
+            space,
             index: RwLock::new(HnswIndex::empty()),
-            generation: self.generation.carry(),
+            generation,
         }
     }
 }

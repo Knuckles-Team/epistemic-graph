@@ -154,15 +154,7 @@ pub(super) fn view_edges<'v>(
 
 /// An edge's property map; `None` for a blob that does not decode to one.
 pub(super) fn decode_properties(blob: &[u8]) -> Option<Map<String, Value>> {
-    eg_types::msgpack::decode_bounded(
-        blob,
-        eg_types::msgpack::MsgpackLimits::new(
-            eg_types::msgpack::MAX_PROPERTY_BYTES,
-            eg_types::msgpack::MAX_PROPERTY_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .ok()
+    eg_types::msgpack::decode_property_object(blob).ok()
 }
 
 /// The value of `property` an index of `kind` indexes: a non-empty numeric
