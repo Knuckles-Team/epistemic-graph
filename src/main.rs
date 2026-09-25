@@ -302,6 +302,7 @@ fn native_tcp_addr_is_loopback(addr: &str) -> bool {
 ///   * an explicit loopback socket address / ``localhost:port`` is honored.
 ///   * a non-loopback address is rejected. Remote access terminates at an
 ///     authenticated TLS identity-binding gateway that connects to loopback.
+///
 /// The address an auxiliary-listener flag names (an enable token binds
 /// `default_addr`, a bare port binds loopback), before any bind policy.
 fn parse_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
