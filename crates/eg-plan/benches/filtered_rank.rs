@@ -83,7 +83,7 @@ fn corpus() -> Corpus {
 }
 
 fn filtered(tail: Vec<Op>) -> Plan {
-    let mut ops = vec![
+    let prefix = [
         Op::Scan {
             label: "Doc".into(),
         },
@@ -94,8 +94,7 @@ fn filtered(tail: Vec<Op>) -> Plan {
             }],
         },
     ];
-    ops.extend(tail);
-    Plan::new(ops)
+    Plan::new(prefix.into_iter().chain(tail).collect())
 }
 
 fn bench_filtered_rank(c: &mut Criterion) {

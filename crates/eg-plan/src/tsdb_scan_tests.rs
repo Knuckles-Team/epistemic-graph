@@ -13,6 +13,17 @@
 //!
 //! Plus the regression that an EMPTY-input `Reason` still behaves as a pure SOURCE.
 
+#[cfg(feature = "timeseries")]
+use crate::exec::{execute, PlanCtx};
+#[cfg(feature = "timeseries")]
+use eg_core::compute::semantic::SemanticStore;
+#[cfg(feature = "timeseries")]
+use eg_core::graph::GraphCore;
+#[cfg(feature = "timeseries")]
+use eg_tsdb::{point::Point, store::SeriesKey};
+#[cfg(feature = "timeseries")]
+use eg_types::wire::Plan;
+
 // ── mid-pipeline OWL reasoning (owl) ─────────────────────────────────────────────
 
 /// TBox + individuals shared by the owl compose tests: `Article ⊑ Paper ⊑ ∃about.Topic`
@@ -555,13 +566,6 @@ fn tsdb_scan_without_store_is_empty() {
 #[cfg(feature = "timeseries")]
 #[test]
 fn tsdb_scan_rejects_unscoped_committed_store() {
-    use crate::exec::{execute, PlanCtx};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
-    use eg_tsdb::point::Point;
-    use eg_tsdb::store::SeriesKey;
-    use eg_types::wire::Plan;
-
     let path = temp_store_path("graph_scope");
     let store = eg_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
     store
@@ -588,13 +592,6 @@ fn tsdb_scan_rejects_unscoped_committed_store() {
 #[cfg(feature = "timeseries")]
 #[test]
 fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
-    use crate::exec::{execute, PlanCtx};
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
-    use eg_tsdb::point::Point;
-    use eg_tsdb::store::SeriesKey;
-    use eg_types::wire::Plan;
-
     let path = temp_store_path("verified_owner_scope");
     let store = eg_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
     for (tenant, owner_graph, value) in [

@@ -1535,7 +1535,7 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     let mut spatial: Vec<Pred> = Vec::new();
     let mut jsonpath: Vec<Pred> = Vec::new();
     for p in preds {
-        if is_spatial_pred(p) {
+        if crate::pred_eval::is_spatial(p) {
             spatial.push(p.clone());
             continue;
         }
@@ -1675,30 +1675,6 @@ fn spatial_scan(ctx: &PlanCtx, layer: &str, bbox: [f64; 4]) -> RowSet {
     let rtree = eg_geo::RTree::build(&boxes);
     let hits = rtree.query_bbox(&eg_geo::Bbox::from_array(bbox));
     RowSet::from_ids(hits.into_iter().map(|i| ids[i].clone()))
-}
-
-/// Is `pred` a spatial predicate (evaluated per-row by eg-geo, NOT lowered to SQL)?
-/// Covers EG-083's within/dwithin plus the EG-258 DE-9IM relation set.
-///
-/// NE-216: UNCONDITIONAL (no `#[cfg(feature = "geo")]`) — `Pred::Spatial*` now always
-/// exists (see the `[dependencies] eg-types` comment in `Cargo.toml`), so `filter_op`
-/// must always be able to recognize and split these out, even in a build where eg-plan's
-/// own `geo` feature (the REAL eg-geo executor) is off; it turns that case into an
-/// explicit error instead of silently folding a spatial predicate into `relational` and
-/// letting `where_clause`'s "1=1" NO-OP arm match every row.
-fn is_spatial_pred(pred: &Pred) -> bool {
-    matches!(
-        pred,
-        Pred::SpatialWithin { .. }
-            | Pred::SpatialDWithin { .. }
-            | Pred::SpatialContains { .. }
-            | Pred::SpatialCovers { .. }
-            | Pred::SpatialTouches { .. }
-            | Pred::SpatialCrosses { .. }
-            | Pred::SpatialOverlaps { .. }
-            | Pred::SpatialEquals { .. }
-            | Pred::SpatialDisjoint { .. }
-    )
 }
 
 /// FILTER (spatial): keep rows whose stored geometry satisfies `pred` (CONCEPT:EG-KG.ontology.singles-concept for

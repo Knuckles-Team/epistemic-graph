@@ -15,6 +15,28 @@ use eg_types::row_predicate::cmp_op_matches;
 use eg_types::wire::{CmpOp, Pred, PredLiteral};
 use serde_json::{Map, Value};
 
+// Keep the spatial family exhaustive in one place. Both the relational classifier
+// and row evaluator must refuse these variants, while the executor routes them to
+// the geometry evaluator.
+macro_rules! spatial_predicate {
+    () => {
+        Pred::SpatialWithin { .. }
+            | Pred::SpatialDWithin { .. }
+            | Pred::SpatialContains { .. }
+            | Pred::SpatialCovers { .. }
+            | Pred::SpatialTouches { .. }
+            | Pred::SpatialCrosses { .. }
+            | Pred::SpatialOverlaps { .. }
+            | Pred::SpatialEquals { .. }
+            | Pred::SpatialDisjoint { .. }
+    };
+}
+
+/// Spatial predicates are handled by the geometry evaluator, never by SQL rows.
+pub fn is_spatial(pred: &Pred) -> bool {
+    matches!(pred, spatial_predicate!())
+}
+
 /// Three-valued truth: `Some(true)`, `Some(false)`, or UNKNOWN (`None`).
 pub type Truth = Option<bool>;
 
@@ -30,16 +52,7 @@ pub fn is_relational(pred: &Pred) -> bool {
         | Pred::IsNull { .. } => true,
         Pred::And { preds } | Pred::Or { preds } => preds.iter().all(is_relational),
         Pred::Not { pred } => is_relational(pred),
-        Pred::JsonPath { .. }
-        | Pred::SpatialWithin { .. }
-        | Pred::SpatialDWithin { .. }
-        | Pred::SpatialContains { .. }
-        | Pred::SpatialCovers { .. }
-        | Pred::SpatialTouches { .. }
-        | Pred::SpatialCrosses { .. }
-        | Pred::SpatialOverlaps { .. }
-        | Pred::SpatialEquals { .. }
-        | Pred::SpatialDisjoint { .. } => false,
+        Pred::JsonPath { .. } | spatial_predicate!() => false,
     }
 }
 
@@ -67,16 +80,7 @@ pub fn holds(props: &Map<String, Value>, pred: &Pred) -> Truth {
         Pred::And { preds } => kleene_and(preds.iter().map(|p| holds(props, p))),
         Pred::Or { preds } => kleene_or(preds.iter().map(|p| holds(props, p))),
         Pred::Not { pred } => holds(props, pred).map(|b| !b),
-        Pred::JsonPath { .. }
-        | Pred::SpatialWithin { .. }
-        | Pred::SpatialDWithin { .. }
-        | Pred::SpatialContains { .. }
-        | Pred::SpatialCovers { .. }
-        | Pred::SpatialTouches { .. }
-        | Pred::SpatialCrosses { .. }
-        | Pred::SpatialOverlaps { .. }
-        | Pred::SpatialEquals { .. }
-        | Pred::SpatialDisjoint { .. } => None,
+        Pred::JsonPath { .. } | spatial_predicate!() => None,
     }
 }
 

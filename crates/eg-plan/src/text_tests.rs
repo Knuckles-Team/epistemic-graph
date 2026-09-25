@@ -271,11 +271,8 @@ fn rank_text_finds_selective_candidates_behind_many_higher_scoring_noise_docs() 
             "a sentence that mentions apple exactly once among other words",
         );
     }
-    text.commit().unwrap();
-
-    let view = core.analysis_snapshot();
-    let semantic = SemanticStore::new();
-    let ctx = PlanCtx::new(&view, &semantic).with_text(&text);
+    let (view, semantic, text) = crate::fixture::finish_text_fixture(core, text);
+    let ctx = crate::fixture::text_context(&view, &semantic, &text);
 
     let plan = Plan::new(vec![
         Op::Scan {
@@ -331,10 +328,8 @@ fn filtered_rank_text_equals_the_brute_force_restricted_ranking() {
         );
         text.upsert(&id, &body);
     }
-    text.commit().unwrap();
-    let view = core.analysis_snapshot();
-    let semantic = SemanticStore::new();
-    let ctx = PlanCtx::new(&view, &semantic).with_text(&text);
+    let (view, semantic, text) = crate::fixture::finish_text_fixture(core, text);
+    let ctx = crate::fixture::text_context(&view, &semantic, &text);
     let full = text.search("graph", 400);
     for category in CATEGORIES {
         let plan = Plan::new(vec![
