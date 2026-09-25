@@ -83,6 +83,14 @@ pub trait ForeignSource {
     /// plan errors with a clear message rather than silently yielding nothing — a
     /// federated source being unreachable is a real error, not an empty result).
     fn fetch(&self) -> Result<RowSet, String>;
+
+    /// Fetch column-carrying results when this source exposes columns. Legacy
+    /// sources have no column mapping and return id/score with empty columns;
+    /// a column plan refuses requests outside the mapping (EH-572).
+    fn fetch_columns(&self) -> Result<crate::federation_opt::ForeignRows, String> {
+        self.fetch()
+            .map(crate::federation_opt::ForeignRows::from_rowset)
+    }
 }
 
 /// Build the right [`ForeignSource`] for a wire [`ForeignSourceSpec`]. The executor
@@ -884,6 +892,46 @@ impl ForeignSource for SqlSource<'_> {
             .map_err(|e| format!("federation: build tokio runtime: {e}"))?;
         rt.block_on(self.fetch_async())
     }
+
+    fn fetch_columns(&self) -> Result<crate::federation_opt::ForeignRows, String> {
+        use crate::federation_opt::{ForeignRow, ForeignRows};
+        use std::collections::BTreeMap;
+
+        // The existing OBDA column reader validates the statement and DSN, runs
+        // inside a read-only transaction, and enforces the row/time bounds. Its
+        // selected fields must be cast to text by the query; otherwise it errors
+        // rather than fabricating a column value.
+        let rows = fetch_sql_columns(self.dsn, self.query)?;
+        let mut projected = Vec::with_capacity(rows.len());
+        for mut columns in rows {
+            let id = columns.get(self.id_field).cloned().ok_or_else(|| {
+                format!(
+                    "federation: SQL column result lacks id field '{}'",
+                    self.id_field
+                )
+            })?;
+            if id.len() > MAX_FEDERATED_SQL_ID_BYTES {
+                return Err("federation: SQL id exceeds size limit".to_string());
+            }
+            let score = self
+                .score_field
+                .and_then(|field| {
+                    columns
+                        .get(field)
+                        .and_then(|value| value.parse::<f32>().ok())
+                })
+                .filter(|score| score.is_finite());
+            projected.push(ForeignRow {
+                id,
+                score,
+                columns: columns
+                    .drain()
+                    .map(|(name, value)| (name, serde_json::Value::String(value)))
+                    .collect::<BTreeMap<_, _>>(),
+            });
+        }
+        Ok(ForeignRows::from_rows(projected))
+    }
 }
 
 #[cfg(feature = "federation-sql")]
@@ -1397,6 +1445,20 @@ impl ForeignSourceRegistry {
             }
         }
     }
+
+    /// Resolve a named source through the same owner-bound registry while retaining
+    /// its exposed columns for a column residual (EH-572).
+    pub fn resolve_columns(
+        &self,
+        name: &str,
+    ) -> Result<crate::federation_opt::ForeignRows, String> {
+        match self.sources.get(name) {
+            Some(src) => src.fetch_columns(),
+            None => Err(format!(
+                "federation: no foreign source registered under name '{name}'"
+            )),
+        }
+    }
 }
 
 /// CONCEPT:EG-KG.query.closure-backed-source — a registerable source backed by an owned [`ForeignSourceSpec`]. It
@@ -1411,6 +1473,10 @@ pub struct SpecSource {
 impl ForeignSource for SpecSource {
     fn fetch(&self) -> Result<RowSet, String> {
         source_for(&self.spec).fetch()
+    }
+
+    fn fetch_columns(&self) -> Result<crate::federation_opt::ForeignRows, String> {
+        source_for(&self.spec).fetch_columns()
     }
 }
 

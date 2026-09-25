@@ -23,6 +23,7 @@
 mod budget;
 mod cache;
 mod capability;
+mod columns;
 mod engine;
 mod http;
 mod limiter;
@@ -43,6 +44,9 @@ pub use cache::{FragmentCacheScope, SourceWatermark};
 pub use capability::{
     FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
     SourceRate,
+};
+pub use columns::{
+    ColumnPlan, ColumnPredicate, Comparison, ForeignRow, ForeignRows, PushdownSupport,
 };
 pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
 pub use session::FederationSession;
