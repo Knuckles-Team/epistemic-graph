@@ -60,6 +60,14 @@ complex = ["dep:num-complex"]
 # so the crate `clippy.toml`'s float-transcendental ban covers it. Pulls only
 # `eg-types`, which the lockfile already lists as an (optional) dependency.
 decision = ["dep:eg-types"]
+# Motif / discord search (EH-529, ANALYTICS-HARVEST AH-09): MASS query-by-example and the
+# SCRIMP++ matrix profile need FFT sliding dot products — the `rustfft` crate
+# (coordinator ruling 2026-09-24: pure Rust, runtime-detected AVX/SSE/NEON with scalar
+# fallback, so one binary serves non-AVX2 nodes; MIT OR Apache-2.0, cargo-deny clean).
+# OFF by default; the UQL `MOTIF`/`DISCORD` stages (eg-plan `timeseries`) and
+# `MineAnomaly` `matrix_profile_discord` (eg-compute `mining`) turn it on. The streaming
+# left profile (`series::stampi`) needs no FFT and is always built.
+motif = ["dep:rustfft"]
 
 [dependencies]
 # arrays / reductions / element-wise / broadcasting — mature ndarray primitives.
@@ -111,6 +119,9 @@ eg-modality = { path = "../eg-modality", optional = true }
 # false` keeps out num-complex's own optional `rand`/`serde` integration features,
 # none of which this crate's `complex` module needs.
 num-complex = { version = "0.4", default-features = false, optional = true }
+# FFT for `motif` only (see the feature). Adds rustfft + primal-check + transpose to the
+# lockfile (num-complex / num-integer / strength_reduce are already there).
+rustfft = { version = "6.4", optional = true }
 
 [dev-dependencies]
 # Shared Decide-layer fixtures (`eg_types::test_support::decision`).

@@ -102,11 +102,13 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "DEFAULT",
     "DERIVE",
     "DIFFERENCE",
+    "DISCORD",
     "DISJOINT",
     "DIV",
     "DWITHIN",
     "ENGINE",
     "EQUALS",
+    "EVENTS",
     "EVIDENCE",
     "EXISTS",
     "EXPECTATION",
@@ -132,7 +134,9 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "KEY",
     "KNOWLEDGE",
     "LABEL",
+    "LENGTH",
     "LET",
+    "LIKE",
     "LIMIT",
     "LINEAR",
     "MARGINAL",
@@ -142,6 +146,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "MENTIONS",
     "MIN",
     "MMR",
+    "MOTIF",
     "MUL",
     "NEAREST",
     "NODE_DISTANCE",
@@ -191,6 +196,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "THEN",
     "TO",
     "TOLERANCE",
+    "TOP",
     "TOUCHES",
     "TRAVERSE",
     "TRUE",
@@ -390,6 +396,10 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::Derive { columns } => super::wire_query_uql_modal::derive(columns),
         #[cfg(feature = "timeseries")]
         Op::Skill { spec } => super::wire_query_uql_modal::skill(spec),
+        #[cfg(feature = "timeseries")]
+        Op::Motif { spec } => super::wire_query_uql_modal::motif(spec),
+        #[cfg(feature = "timeseries")]
+        Op::Events { channels } => super::wire_query_uql_modal::events(channels),
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => super::wire_query_uql_modal::probabilistic(query),
         #[cfg(feature = "epistemic")]

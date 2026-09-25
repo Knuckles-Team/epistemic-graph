@@ -45,7 +45,16 @@ fn every_spec() -> Vec<Spec> {
     ] {
         specs.push(Spec::Rolling(op, 7));
     }
-    for op in [Arith::Add, Arith::Sub, Arith::Mul, Arith::Div] {
+    for op in [
+        Arith::Add,
+        Arith::Sub,
+        Arith::Mul,
+        Arith::Div,
+        Arith::Gt,
+        Arith::Lt,
+        Arith::Max,
+        Arith::Min,
+    ] {
         specs.push(Spec::Arith(op));
     }
     for op in [PairStat::Corr, PairStat::RankCorr, PairStat::WeightedSum] {
@@ -54,6 +63,7 @@ fn every_spec() -> Vec<Spec> {
     let noise = KalmanNoise { q: 0.01, r: 0.5 };
     specs.push(Spec::KalmanLevel(noise));
     specs.push(Spec::KalmanBeta(noise));
+    specs.push(Spec::LeftProfile { m: 5, history: 30 });
     specs
 }
 
@@ -184,4 +194,17 @@ fn out_of_domain_specs_are_refused() {
     assert!(State::new(Spec::Ewma(Smoothing::HalfLife(f64::NAN))).is_err());
     assert!(State::new(Spec::Map(Map::Clip { lo: 2.0, hi: 1.0 })).is_err());
     assert!(State::new(Spec::Shift(Shift::Lag, MAX_WINDOW + 1)).is_err());
+}
+
+#[test]
+fn shape_predicates_are_indicator_series() {
+    let (a, b) = ([1.0, 3.0, 2.0], [2.0, 2.0, 2.0]);
+    let gt = apply_pair(Spec::Arith(Arith::Gt), &a, &b).unwrap();
+    assert_eq!(gt, vec![Some(0.0), Some(1.0), Some(0.0)]);
+    let lt = apply_pair(Spec::Arith(Arith::Lt), &a, &b).unwrap();
+    assert_eq!(lt, vec![Some(1.0), Some(0.0), Some(0.0)]);
+    let max = apply_pair(Spec::Arith(Arith::Max), &a, &b).unwrap();
+    assert_eq!(max, vec![Some(2.0), Some(3.0), Some(2.0)]);
+    let min = apply_pair(Spec::Arith(Arith::Min), &a, &b).unwrap();
+    assert_eq!(min, vec![Some(1.0), Some(2.0), Some(2.0)]);
 }

@@ -12,6 +12,10 @@
 //     Factor: a point in a sparser neighborhood than its k neighbors scores > 1.
 //   * One-Class SVM        (CONCEPT:EG-KG.mining.oneclass-svm) — Schölkopf's ν-SVM
 //     boundary fit by a lightweight SMO; points outside the boundary are anomalies.
+//   * Matrix-profile discord (EH-529, ANALYTICS-HARVEST AH-09) — a 1-D series' own
+//     `eg_numeric::series::matrix_profile`: the row score is each length-`m`
+//     subsequence's z-normalised distance to its nearest neighbour (a lone spike/dip
+//     shape scores high); trailing rows with no full window score 0.
 //
 // Every detector returns a per-row `score` where HIGHER = more anomalous, so a
 // single `threshold` (or a per-algorithm default) yields `is_anomaly`. Isolation
@@ -39,6 +43,10 @@ pub enum Algorithm {
     Lof { k: usize },
     /// One-Class ν-SVM boundary (`nu` ∈ (0,1]) under `kernel`.
     OneClassSvm { kernel: Kernel, nu: f64 },
+    /// The matrix-profile discord score of a 1-D series (`points[i][0]`), subsequence
+    /// length `m`, seeded diagonal walk order `seed` (EH-529). Complete (never cut):
+    /// this is a batch detector, not a budgeted UQL query.
+    MatrixProfileDiscord { m: usize, seed: u64 },
 }
 
 /// One-Class SVM kernel.
@@ -72,6 +80,10 @@ pub fn default_threshold(algorithm: Algorithm) -> f64 {
         Algorithm::Lof { .. } => 1.5,
         // OCSVM score = −f(x); a point outside the boundary has f(x) < 0 ⇒ score > 0.
         Algorithm::OneClassSvm { .. } => 0.0,
+        // A z-normalised distance is bounded by √(2m); flag the upper quarter of that
+        // theoretical range — a conservative, documented default, not a fitted cutoff
+        // (like the three constants above, override with an explicit `threshold`).
+        Algorithm::MatrixProfileDiscord { m, .. } => (2.0 * m as f64).sqrt() * 0.75,
     }
 }
 
@@ -95,6 +107,7 @@ pub fn detect(points: &[Point], algorithm: Algorithm, threshold: Option<f64>) ->
         } => isolation_forest(points, n_trees, sample_size, seed),
         Algorithm::Lof { k } => lof(points, k),
         Algorithm::OneClassSvm { kernel, nu } => one_class_svm(points, kernel, nu),
+        Algorithm::MatrixProfileDiscord { m, seed } => matrix_profile_discord(points, m, seed),
     };
     // OCSVM's boundary is a strict sign test (f(x) < 0); everything else is score ≥ thr.
     let is_anomaly = match algorithm {
@@ -527,6 +540,29 @@ fn normalize_to_unit_sum(alpha: &mut [f64], upper: f64) {
     }
 }
 
+// ─────────────────────────── matrix-profile discord ───────────────────────────
+
+/// The matrix-profile discord score of each row, reading only `points[i][0]` — this
+/// detector is 1-D (the handler's `values` input path, EH-529). A series shorter than
+/// `m`, or `m` below `eg_numeric::series::distance::MIN_LENGTH`, scores everything 0
+/// (never a panic, matching this module's other detectors' "empty in, empty/zero out"
+/// contract) rather than surfacing a refusal through an API with no `Result`.
+fn matrix_profile_discord(points: &[Point], m: usize, seed: u64) -> Vec<f64> {
+    use eg_numeric::series::matrix_profile::{matrix_profile, ProfileOptions};
+
+    let xs: Vec<f64> = points.iter().map(|p| p.first().copied().unwrap_or(0.0)).collect();
+    let mut scores = vec![0.0; xs.len()];
+    let options = ProfileOptions { m, max_work: u64::MAX, seed };
+    if let Ok(profile) = matrix_profile(&xs, options) {
+        for (score, &distance) in scores.iter_mut().zip(&profile.distance) {
+            if distance.is_finite() {
+                *score = distance;
+            }
+        }
+    }
+    scores
+}
+
 // ─────────────────────────── shared helpers ───────────────────────────
 
 fn euclidean(a: &[f64], b: &[f64]) -> f64 {
@@ -704,5 +740,48 @@ mod tests {
         let out = detect(&[], Algorithm::ZScoreMad, None);
         assert!(out.scores.is_empty());
         assert!(out.is_anomaly.is_empty());
+    }
+
+    #[test]
+    fn matrix_profile_discord_flags_a_planted_anomaly() {
+        // A period-4 zigzag repeated 8 times (32 points), one period (index 4, points
+        // 16..19) replaced by a shape — after z-normalisation, still a genuinely
+        // different one (a square wave, not a one-high-one-low zigzag) — nothing else
+        // in the series matches.
+        let period = [0.0, 1.0, 0.0, -1.0];
+        let mut xs = Vec::new();
+        for i in 0..8 {
+            if i == 4 {
+                xs.extend_from_slice(&[5.0, -5.0, 5.0, -5.0]);
+            } else {
+                xs.extend_from_slice(&period);
+            }
+        }
+        let points: Vec<Point> = xs.iter().map(|&x| vec![x]).collect();
+        let out = detect(&points, Algorithm::MatrixProfileDiscord { m: 4, seed: 1 }, None);
+        assert_eq!(out.scores.len(), points.len());
+
+        // Every window overlapping the planted period (starts 13..=19) vs. every
+        // window drawn entirely from the untouched, perfectly repeating periods.
+        let anomaly_max = out.scores[13..=19].iter().cloned().fold(0.0, f64::max);
+        let normal_max = out.scores[0..=11]
+            .iter()
+            .chain(&out.scores[21..=25])
+            .cloned()
+            .fold(0.0, f64::max);
+        assert!(
+            anomaly_max > normal_max * 2.0,
+            "anomaly_max={anomaly_max} normal_max={normal_max} scores={:?}",
+            out.scores
+        );
+        assert!(out.is_anomaly[16] || out.is_anomaly[17], "scores={:?}", out.scores);
+    }
+
+    #[test]
+    fn matrix_profile_discord_on_a_too_short_series_scores_zero_not_panic() {
+        let points: Vec<Point> = vec![vec![1.0], vec![2.0]];
+        let out = detect(&points, Algorithm::MatrixProfileDiscord { m: 5, seed: 0 }, None);
+        assert_eq!(out.scores, vec![0.0, 0.0]);
+        assert!(out.is_anomaly.iter().all(|&f| !f));
     }
 }

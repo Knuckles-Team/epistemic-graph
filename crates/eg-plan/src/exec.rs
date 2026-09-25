@@ -51,6 +51,16 @@ pub(crate) use derive::derive_op;
 mod skill;
 #[cfg(feature = "timeseries")]
 pub(crate) use skill::skill_op;
+// EH-529 — the `MOTIF` / `DISCORD` query-by-example and matrix-profile search stage.
+#[cfg(feature = "timeseries")]
+mod motif;
+#[cfg(feature = "timeseries")]
+pub(crate) use motif::motif_op;
+// EH-529 — the `EVENTS` shape-event stage (feeds the existing `CEP` NFA).
+#[cfg(feature = "timeseries")]
+mod events;
+#[cfg(feature = "timeseries")]
+pub(crate) use events::events_op;
 // EH-521 — the `TSSCAN` source and the in-txn staged-series overlay it reads.
 #[cfg(feature = "timeseries")]
 mod tsscan;
@@ -364,7 +374,8 @@ impl<'a> PlanCtx<'a> {
         }
     }
 
-    /// Bind the execution budget (UQL-09) — result-row and traversal bounds.
+    /// Bind the execution budget (UQL-09) — result-row, traversal and `MOTIF`/`DISCORD`
+    /// series-work bounds.
     pub fn with_budget(mut self, budget: crate::budget::Budget) -> Self {
         self.budget = budget;
         self
@@ -2435,10 +2446,13 @@ const CEP_ID_ATTR: &str = "_eg_row_id";
 #[cfg(feature = "stream")]
 fn cep_op(view: &GraphView, input: RowSet, spec: &eg_types::wire::CepPatternSpec) -> RowSet {
     // Build the event stream from the input rows, tagging each event with its source row
-    // id so matches map back. `run` sorts by `ts` internally.
+    // id so matches map back. `run` sorts by `ts` internally. A row with no graph-node
+    // blob falls back to a `MOTIF`/`DISCORD`/`EVENTS` row id (EH-529): still an event,
+    // with no new NFA (`series_event`).
+    let values = input.values();
     let mut events: Vec<eg_stream::Event> = Vec::new();
     for r in input.rows() {
-        if let Some(mut ev) = row_event(view, &r.id) {
+        if let Some(mut ev) = row_event(view, &r.id).or_else(|| series_event(&r.id, values)) {
             ev.attrs.insert(
                 CEP_ID_ATTR.to_string(),
                 serde_json::Value::String(r.id.clone()),
@@ -2478,6 +2492,32 @@ fn row_event(view: &GraphView, id: &str) -> Option<eg_stream::Event> {
         .cloned()
         .unwrap_or_default();
     Some(eg_stream::Event { ts, key, attrs })
+}
+
+/// Read `id`'s event from a `MOTIF`/`DISCORD`/`EVENTS` row id (EH-529, ANALYTICS-HARVEST
+/// AH-09): `series#key@ts` (`crate::rowset::parse_series_event_row_id`) needs no
+/// graph-node blob at all — `ts` and `key` come straight from the id, `attrs` from the
+/// row's own value channels (`distance`/`start`/`end`/`neighbor`/`approximate` for a
+/// `MOTIF`/`DISCORD` hit; the carried `DERIVE` channels for an `EVENTS` row). This is
+/// the "no new NFA" reuse ANALYTICS-HARVEST-20260924 §4 AH-09 asks for: [`row_event`]'s
+/// graph-blob path is untouched; [`cep_op`] tries this SECOND, only when the row has no
+/// blob.
+#[cfg(feature = "stream")]
+fn series_event(id: &str, values: &crate::rowset::ValueChannels) -> Option<eg_stream::Event> {
+    let (_, key, ts) = crate::rowset::parse_series_event_row_id(id)?;
+    let ts = u64::try_from(ts).ok()?;
+    let attrs = values
+        .get(id)
+        .map(|channels| {
+            channels
+                .iter()
+                .filter_map(|(k, &v)| {
+                    serde_json::Number::from_f64(v).map(|n| (k.clone(), serde_json::Value::Number(n)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(eg_stream::Event { ts, key: key.to_string(), attrs })
 }
 
 /// Map the pure-serde wire `CepWindowSpec` (eg-types) to eg-stream's `Window`.
