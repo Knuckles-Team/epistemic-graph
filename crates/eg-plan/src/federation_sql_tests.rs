@@ -3,7 +3,7 @@
 //! graph/vector in ONE plan, and the fused result equals the manual join.
 //!
 //! Standing up a live Postgres/MySQL in a unit test is impractical, so the compose-join
-//! proof drives the EXACT fuse the executor runs (`exec::fuse_foreign`) over a `MockSql`
+//! proof drives the EXACT fuse the executor runs (`federation_opt::fuse_foreign`) over a `MockSql`
 //! foreign RowSet, then ranks+limits through the real `apply` ops — proving
 //! `Scan -> Filter -> ForeignScan{Sql, join} -> Rank -> Limit == the manual join`. A
 //! separate test exercises the REAL `source_for(&Sql{..})` DSN path end-to-end: it
@@ -15,7 +15,8 @@ use std::collections::HashSet;
 use eg_types::wire::ForeignSourceSpec;
 
 use crate::algebra::Op;
-use crate::exec::{apply, fuse_foreign, PlanCtx};
+use crate::exec::{apply, PlanCtx};
+use crate::federation_opt::fuse_foreign;
 use crate::rowset::RowSet;
 
 /// The rows a `MockSql` would return — the SAME `(id, score?)` currency the real

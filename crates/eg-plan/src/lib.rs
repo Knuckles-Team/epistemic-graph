@@ -138,6 +138,13 @@ pub mod nl;
 // the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
 #[cfg(feature = "federation")]
 pub mod federation;
+/// The federation optimizer (EH-563): capability-driven pushdown of keys, limits and pages
+/// into foreign sources, bind joins, the per-query network budget and the fragment trace.
+#[cfg(feature = "federation")]
+pub mod federation_opt;
+/// The one outbound-destination gate for federation (HTTP URLs, SQL DSN hosts).
+#[cfg(feature = "federation")]
+mod federation_ssrf;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;
@@ -146,6 +153,9 @@ pub mod federation;
 pub mod optimizer;
 #[cfg(feature = "query")]
 pub mod oracle;
+/// SQL text crossing a federation boundary: dialects, identifiers, literals (one owner).
+#[cfg(feature = "query")]
+pub mod sql_text;
 
 /// KAN-learned cardinality-estimate correction (CONCEPT:EG-KG.query.adaptive-reoptimization,
 /// W4.12 phase 2): an online, per-op-kind correction trained continuously from the

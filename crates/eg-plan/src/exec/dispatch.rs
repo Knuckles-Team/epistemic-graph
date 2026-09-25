@@ -193,6 +193,7 @@ fn apply_ranking(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String
 /// RANK (lexical BM25) + FUSE (RRF) under `text`; OWL classification, BGP source and
 /// SHACL shape filter under `owl`. Two independent feature gates share one tier; every
 /// arm keeps its own `#[cfg]` exactly as it had at the top level.
+#[cfg(any(feature = "text", feature = "owl"))]
 pub(super) fn apply_text_and_owl(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         #[cfg(feature = "text")]
@@ -225,6 +226,12 @@ pub(super) fn apply_text_and_owl(op: &Op, input: RowSet, ctx: &PlanCtx) -> Resul
 
 /// Four independently-gated single-arm ops (`wasm-udf`/`federation`/`probabilistic`/
 /// `stream`) sharing one tier since none is more than one arm on its own.
+#[cfg(any(
+    feature = "wasm-udf",
+    feature = "federation",
+    feature = "probabilistic",
+    feature = "stream"
+))]
 pub(super) fn apply_single_feature_ops(
     op: &Op,
     input: RowSet,
@@ -234,7 +241,9 @@ pub(super) fn apply_single_feature_ops(
         #[cfg(feature = "wasm-udf")]
         Op::Udf { id } => udf_transform(ctx, &input, id),
         #[cfg(feature = "federation")]
-        Op::ForeignScan { source, join } => foreign_scan(input, source, *join, ctx),
+        Op::ForeignScan { source, join } => {
+            crate::federation_opt::foreign_scan(op, input, source, *join, ctx)
+        }
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => Ok(probabilistic_op(ctx.view, input, query)),
         #[cfg(feature = "stream")]
@@ -266,7 +275,10 @@ fn apply_temporal_and_limit(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Row
         // FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness / EG-073) —
         // the name MARKER the UQL clause lowers to; resolves through the ctx registry
         // (`federation` build) or errors cleanly; foreign-source intent is never discarded.
-        Op::Foreign { name } => foreign_named(name, input, ctx),
+        #[cfg(feature = "federation")]
+        Op::Foreign { name } => crate::federation_opt::foreign_named(op, name, ctx),
+        #[cfg(not(feature = "federation"))]
+        Op::Foreign { .. } => Err("FOREIGN requires federation support in this build".to_string()),
         Op::Limit { k } => Ok(input.limit(*k)),
         _ => unreachable!("apply routed a non temporal/limit Op here"),
     }
@@ -275,6 +287,7 @@ fn apply_temporal_and_limit(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Row
 /// SOURCE/TRANSFORM (spatial, `geo`) — bbox scan, CRS reproject, constructive op; plus
 /// SOURCE/TRANSFORM (tensor, `tensor`) — layer scan and per-row tensor op. Two
 /// independent gates share one tier for the same reason as [`apply_text_and_owl`].
+#[cfg(any(feature = "geo", feature = "tensor"))]
 pub(super) fn apply_geo_and_tensor(
     op: &Op,
     input: RowSet,

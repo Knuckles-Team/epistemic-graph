@@ -59,6 +59,10 @@ pub struct PlanCtx<'a> {
     /// rather than silently preserving its input. Gated behind `federation`.
     #[cfg(feature = "federation")]
     pub foreign: Option<&'a crate::federation::ForeignSourceRegistry>,
+    /// The per-query federation optimizer state (budget, LIMIT hints, fragment trace —
+    /// EH-563). `None` ⇒ each foreign op runs under a fresh default budget, untraced.
+    #[cfg(feature = "federation")]
+    pub federation: Option<&'a crate::federation_opt::FederationSession>,
     /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — the content-addressed [`eg_tensor::TensorStore`] into which the
     /// tensor executor WRITES BACK every derived tensor an `Op::TensorOp` produces, so a
     /// derived tensor becomes a durable, dedup-shared CAS blob addressable by its
@@ -353,6 +357,8 @@ impl<'a> PlanCtx<'a> {
             udf: None,
             #[cfg(feature = "federation")]
             foreign: None,
+            #[cfg(feature = "federation")]
+            federation: None,
             #[cfg(feature = "tensor")]
             tensor_store: None,
             #[cfg(feature = "timeseries")]
@@ -452,6 +458,17 @@ impl<'a> PlanCtx<'a> {
         self
     }
 
+    /// Bind the query's federation session (EH-563): its budget bounds every remote
+    /// fragment, `execute` records the plan's LIMIT hints on it, and it collects the trace.
+    #[cfg(feature = "federation")]
+    pub fn with_federation(
+        mut self,
+        session: &'a crate::federation_opt::FederationSession,
+    ) -> Self {
+        self.federation = Some(session);
+        self
+    }
+
     /// Attach a content-addressed [`eg_tensor::TensorStore`] so the tensor executor
     /// WRITES BACK each derived tensor an `Op::TensorOp` produces into the CAS
     /// (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink). A server/facade owns the store (behind a [`std::sync::Mutex`])
@@ -516,6 +533,8 @@ impl<'a> PlanCtx<'a> {
 ///     feature is built and the environment asks for it.
 pub fn execute(plan: &Plan, ctx: &PlanCtx) -> Result<RowSet, String> {
     let optimized = plan_optimize(plan.clone(), ctx);
+    #[cfg(feature = "federation")]
+    crate::federation_opt::prepare(ctx, &optimized.ops);
     crate::runtime::execute_ops(&optimized.ops, ctx)
 }
 
@@ -770,66 +789,6 @@ fn rank_embed_op(ctx: &PlanCtx, text: &str, input: RowSet) -> Result<RowSet, Str
     })?;
     let query = embedder.embed(text)?;
     rank_op(ctx, &query, input)
-}
-
-/// SOURCE (federation): read rows from an EXTERNAL source — a remote epistemic-graph
-/// engine or a generic HTTP/JSON API (CONCEPT:EG-KG.query.query-federation) — into the RowSet. When `join`
-/// is false the foreign rows REPLACE the input (a pure source, like `Scan`). When
-/// `join` is true the foreign rows are intersected with the current candidate set keyed
-/// on id (a foreign∩local JOIN), preserving the input's order — so a plan can seed
-/// locally, then narrow to ids a foreign source also returns. The `fetch()` runs
-/// synchronously on the blocking pool, exactly like the SQL/vector legs.
-#[cfg(feature = "federation")]
-fn foreign_scan(
-    input: RowSet,
-    source: &eg_types::wire::ForeignSourceSpec,
-    join: bool,
-    ctx: &PlanCtx,
-) -> Result<RowSet, String> {
-    // SYMMETRIC leaf (CONCEPT:EG-KG.query.symmetric-foreign-scan): resolve the foreign
-    // source to its rows through the SINGLE `federation::foreign_source_rows` seam — the
-    // foreign analogue of `scan_label` for an internal `Op::Scan`. Every spec kind
-    // (Named-via-registry / remote-engine / HTTP-JSON / SQL) resolves identically there,
-    // yielding the SAME `RowSet` currency an internal `Scan` yields, so this arm is a thin
-    // "resolve the leaf, then compose" mirror of the `Op::Scan` arm's thin `scan_label`
-    // call. `fuse_foreign` then composes it exactly like a source (`join=false` REPLACES
-    // the input like a leading `Scan`; `join=true` intersects on id — a foreign∩local
-    // JOIN).
-    let foreign = crate::federation::foreign_source_rows(source, ctx.foreign)?;
-    Ok(fuse_foreign(input, foreign, join))
-}
-
-/// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.closure-backed-source) — resolve the named foreign source
-/// through the registry on the ctx. The named source's rows REPLACE the input (a source
-/// op); an unbound name or registry is a typed error.
-#[cfg(feature = "federation")]
-fn foreign_named(name: &str, _input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
-    let registry = ctx
-        .foreign
-        .ok_or_else(|| "FOREIGN requires a bound foreign-source registry".to_string())?;
-    registry.resolve(name)
-}
-
-/// Without `federation` there is no registry or foreign-source execution machinery.
-#[cfg(not(feature = "federation"))]
-fn foreign_named(_name: &str, _input: RowSet, _ctx: &PlanCtx) -> Result<RowSet, String> {
-    Err("FOREIGN requires federation support in this build".to_string())
-}
-
-/// Fuse a foreign RowSet with the local candidate set the SAME way for EVERY foreign
-/// kind (remote-engine / HTTP-JSON / external-SQL): `join=false` ⇒ the foreign rows
-/// REPLACE the input (a pure source); `join=true` ⇒ intersect keyed on id, preserving
-/// the input's order (a foreign∩local JOIN). Factored out so a compose-join proof can
-/// exercise the EXACT fuse the executor runs against a mock-fetched foreign RowSet,
-/// without standing up a live external DB.
-#[cfg(feature = "federation")]
-pub(crate) fn fuse_foreign(input: RowSet, foreign: RowSet, join: bool) -> RowSet {
-    if join && !input.is_empty() {
-        let keep = foreign.id_set();
-        input.intersect_keep_order(&keep)
-    } else {
-        foreign
-    }
 }
 
 /// UDF (WASM): transform the current `RowSet` through a registered, SANDBOXED wasm

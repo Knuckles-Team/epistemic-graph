@@ -333,6 +333,11 @@ pub(crate) fn run_unified(
     // snapshot-derived cardinality and cost statistics. Optimizer rules are
     // answer-preserving within the EG-405 non-empty guard.
     let ops = plan.ops;
+    // EH-563 — one federation-optimizer session per served query that touches a foreign
+    // source: the server budget, the plan's LIMIT hints and the per-fragment trace.
+    #[cfg(feature = "federation")]
+    let federation =
+        plan_touches_foreign(&ops).then(eg_plan::federation_opt::FederationSession::from_env);
 
     // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 lexical search surface into the
     // served `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries
@@ -380,7 +385,7 @@ pub(crate) fn run_unified(
     // foreign registry so a served `Op::Foreign` (`FOREIGN "<name>"`) / a `Named`
     // `Op::ForeignScan` resolves the caller's OWN registered sources (EH-373).
     #[cfg(feature = "federation")]
-    let ctx = run_unified_bind_foreign(ctx, served.foreign);
+    let ctx = run_unified_bind_foreign(ctx, served.foreign, federation.as_ref());
     // CONCEPT:EG-KG.query.bind-server-side-text — bind the server-side text→vector embedder so a UQL `RANK BY ~ "text"`
     // (`Op::RankEmbed`) resolves its query vector at exec time (the NL→vector seam,
     // EG-411). This is the facade INJECTION POINT: the engine stores embeddings but
@@ -408,8 +413,10 @@ pub(crate) fn run_unified(
         Some(shapes) => ctx.with_shape_source(shapes),
         None => ctx,
     };
-    let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
-    Ok(result
+    let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx);
+    #[cfg(feature = "federation")]
+    log_federation_trace(federation.as_ref());
+    Ok(result?
         .rows()
         .iter()
         .map(|r| (r.id.clone(), r.score))
@@ -435,15 +442,45 @@ pub(crate) fn run_unified_bind_spatial<'a>(
     }
 }
 
+/// Does `ops` read any foreign source (named or inline, top level or inside an
+/// `Op::FuseRrf` branch)? Such a plan runs under a federation-optimizer session (EH-563).
+#[cfg(all(feature = "query", feature = "federation"))]
+fn plan_touches_foreign(ops: &[eg_plan::Op]) -> bool {
+    ops.iter().any(|op| match op {
+        eg_plan::Op::Foreign { .. } | eg_plan::Op::ForeignScan { .. } => true,
+        eg_plan::Op::FuseRrf { branches, .. } => branches.iter().any(|b| plan_touches_foreign(b)),
+        _ => false,
+    })
+}
+
+/// Log what one served federated query moved, fragment by fragment (EH-563 §7).
+#[cfg(all(feature = "query", feature = "federation"))]
+fn log_federation_trace(session: Option<&eg_plan::federation_opt::FederationSession>) {
+    let Some(trace) = session.map(|s| s.trace()).filter(|t| !t.is_empty()) else {
+        return;
+    };
+    tracing::info!(
+        fragments = trace.len(),
+        trace = %eg_plan::federation_opt::render_trace(&trace),
+        "federated query (EH-563)"
+    );
+}
+
 /// The `Op::Foreign`/`Op::ForeignScan` leg-binding of [`run_unified`]
-/// (CONCEPT:EG-KG.query.closure-backed-source): attach the caller's owner-scoped registry, if any.
+/// (CONCEPT:EG-KG.query.closure-backed-source): attach the caller's owner-scoped registry and
+/// the query's federation-optimizer session (EH-563), each if any.
 #[cfg(feature = "federation")]
 pub(crate) fn run_unified_bind_foreign<'a>(
     ctx: eg_plan::PlanCtx<'a>,
     foreign_registry: Option<&'a eg_plan::federation::ForeignSourceRegistry>,
+    federation: Option<&'a eg_plan::federation_opt::FederationSession>,
 ) -> eg_plan::PlanCtx<'a> {
-    match foreign_registry {
+    let ctx = match foreign_registry {
         Some(registry) => ctx.with_foreign(registry),
+        None => ctx,
+    };
+    match federation {
+        Some(session) => ctx.with_federation(session),
         None => ctx,
     }
 }
@@ -644,6 +681,10 @@ pub(crate) async fn run_unified_off_lock(
     })
     .await
 }
+
+// EH-563 — the served path runs foreign leaves through the federation optimizer.
+#[cfg(all(test, feature = "federation"))]
+mod federation_served_tests;
 
 /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — served-path proof that
 /// `run_unified` (not just `eg-plan`'s own internal executor, already proven by

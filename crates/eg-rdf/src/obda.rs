@@ -67,6 +67,9 @@ use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term, Triple};
 
 use crate::sparql::{Projection, QueryOutcome, SparqlResult};
 
+// EH-563 FO-04 — pattern-aware scan groups, key lookups and semi-join reduction.
+mod pushdown;
+
 /// The `rdf:type` predicate IRI (bare — used to emit `subject rdf:type <class>`).
 const RDF_TYPE_IRI: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
@@ -94,6 +97,8 @@ pub enum ObdaCompare {
     Gt,
     /// `>=` (greater-or-equal).
     Ge,
+    /// Membership in [`ObdaFilter::values`] (a semi-join key batch; string equality).
+    In,
 }
 
 /// CONCEPT:EG-KG.query.obda-predicate-pushdown — one single-column row-level predicate the
@@ -105,7 +110,7 @@ pub enum ObdaCompare {
 /// evaluator re-applies every `FILTER` over the materialized view ([`run_outcome_virtual`]
 /// step 4) — pushdown is a soundness-preserving OPTIMIZATION, never the sole filter.
 ///
-/// Only a SOUND subset is ever produced ([`map_pushable_filters`]): equality on a string
+/// Only a SOUND subset is ever produced (`pushdown::MapScan`): equality on a string
 /// column, and any comparison on a NUMERIC (`xsd:integer`/`decimal`/`double`/…) typed
 /// column against a numeric literal. String ordering (`<`/`>` on a plain-literal column,
 /// where SPARQL codepoint order need not match a SQL collation) is never pushed.
@@ -120,6 +125,8 @@ pub struct ObdaFilter {
     /// Whether `value` is a NUMBER — compare/emit it numerically (`col > 28`) rather than
     /// as a quoted string (`col = 'Alice'`).
     pub numeric: bool,
+    /// The member values of an [`ObdaCompare::In`] predicate (empty for every other op).
+    pub values: Vec<String>,
 }
 
 impl ObdaFilter {
@@ -127,6 +134,9 @@ impl ObdaFilter {
     /// in-memory [`ObdaSource`] uses this to apply the pushdown directly; a numeric filter
     /// compares parsed `f64`s (a non-numeric cell fails), a string filter compares lexically.
     pub fn matches(&self, cell: &str) -> bool {
+        if self.op == ObdaCompare::In {
+            return self.values.iter().any(|v| v == cell);
+        }
         if self.numeric {
             let (Ok(c), Ok(v)) = (cell.parse::<f64>(), self.value.parse::<f64>()) else {
                 return false;
@@ -137,6 +147,7 @@ impl ObdaFilter {
                 ObdaCompare::Le => c <= v,
                 ObdaCompare::Gt => c > v,
                 ObdaCompare::Ge => c >= v,
+                ObdaCompare::In => false,
             }
         } else {
             // Only equality is ever produced for a string column (see ObdaFilter docs).
@@ -573,7 +584,7 @@ impl VirtualGraph {
     ) -> Result<Vec<Triple>, String> {
         let mut out = Vec::new();
         for map in &self.triples_maps {
-            materialize_map(map, reg, wanted_predicates, filters, &mut out)?;
+            materialize_map(self, map, reg, wanted_predicates, filters, &mut out)?;
         }
         Ok(out)
     }
@@ -587,10 +598,11 @@ impl VirtualGraph {
 }
 
 /// Materialize one triples map's contribution to [`VirtualGraph::materialize`]:
-/// resolve which predicate-object maps + subject class are wanted, scan the
-/// backing source for only the needed columns (with the sound pushed
-/// filters), and emit each row's triples into `out`.
+/// resolve which predicate-object maps + subject class are wanted, then let
+/// [`pushdown::MapScan`] scan the backing source in pattern-aware groups (only the needed
+/// columns, only the filters sound for each group's triples) and emit each row's triples.
 fn materialize_map(
+    vg: &VirtualGraph,
     map: &TriplesMap,
     reg: &ObdaSourceRegistry,
     wanted_predicates: &Option<BTreeSet<String>>,
@@ -612,24 +624,8 @@ fn materialize_map(
     if active_poms.is_empty() && !class_wanted {
         return Ok(());
     }
-
-    // Needed columns = subject-template columns ∪ the active object columns.
-    let mut needed = BTreeSet::new();
-    template_columns_into(&map.subject_template, &mut needed);
-    for (_, obj) in &active_poms {
-        obj.columns_into(&mut needed);
-    }
-
-    // The SOUND subset of the query's FILTERs that constrain THIS map's columns —
-    // pushed to the source alongside the projection (CONCEPT:EG-KG.query.obda-predicate-pushdown).
-    let map_filters = map_pushable_filters(map, filters);
     let source = reg.resolve(&map.logical_source)?;
-    let rows = source.scan(&needed, &map_filters)?;
-
-    for row in &rows {
-        materialize_row(map, &active_poms, class_wanted, row, out);
-    }
-    Ok(())
+    pushdown::MapScan::new(vg, map, filters).run(source.as_ref(), &active_poms, class_wanted, out)
 }
 
 /// Emit one source row's triples for a triples map: the `rdf:type` triple (if
@@ -848,26 +844,26 @@ fn collect_predicates(
 // ── FILTER → row-level predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown) ──────────────
 
 /// CONCEPT:EG-KG.query.obda-predicate-pushdown — the query-derived FILTER pushdown context:
-/// which object variable a BGP binds through which CONSTANT predicate, and the literal
-/// comparisons a `FILTER` applies to each variable. [`VirtualGraph::materialize`] intersects
-/// this with each [`TriplesMap`]'s predicate→column maps ([`map_pushable_filters`]) to derive
-/// the per-source [`ObdaFilter`]s. The [`Default`] (empty) context pushes nothing — every
-/// FILTER is then applied only by the SPARQL evaluator over the materialized view, so an
-/// empty context is always CORRECT (just unoptimized).
+/// the literal comparisons a `FILTER` applies to each variable, and the query's triple
+/// patterns. [`VirtualGraph::materialize`] intersects this with each [`TriplesMap`]'s
+/// predicate→column maps (`pushdown::MapScan`) to derive the per-scan [`ObdaFilter`]s. The
+/// [`Default`] (empty) context pushes nothing — every FILTER is then applied only by the
+/// SPARQL evaluator over the materialized view, so an empty context is always CORRECT (just
+/// unoptimized).
 #[derive(Debug, Default)]
 pub struct FilterContext {
-    /// object-variable name → the constant predicate IRIs a REQUIRED BGP triple binds it through.
-    var_predicates: HashMap<String, BTreeSet<String>>,
     /// object-variable name → the `(op, literal-lexical, literal-is-numeric)` FILTER comparisons.
     var_compares: HashMap<String, Vec<(ObdaCompare, String, bool)>>,
+    /// Every triple pattern with its scope — decides which filters are sound per predicate.
+    shape: pushdown::QueryShape,
 }
 
 impl FilterContext {
-    /// Build the pushdown context from a parsed SPARQL query. Walks the algebra collecting
-    /// object-variable ↔ constant-predicate bindings AND `FILTER` comparisons from the
-    /// REQUIRED (conjunctive) core ONLY — anything reachable solely through an `OPTIONAL`
-    /// right side, a `UNION`, or a `MINUS` branch is skipped, since pushing a filter derived
-    /// there could wrongly drop a row that must still appear (bound differently or UNBOUND).
+    /// Build the pushdown context from a parsed SPARQL query: its triple-pattern shape, and
+    /// the `FILTER` comparisons from the REQUIRED (conjunctive) core ONLY — anything
+    /// reachable solely through an `OPTIONAL` right side, a `UNION`, or a `MINUS` branch is
+    /// skipped, since pushing a filter derived there could wrongly drop a row that must still
+    /// appear (bound differently or UNBOUND).
     /// Completeness is always preserved: whatever is not extracted is simply re-filtered by
     /// the evaluator over the materialized view.
     fn from_query(query: &spargebra::Query) -> Self {
@@ -878,7 +874,10 @@ impl FilterContext {
             | Query::Describe { pattern, .. }
             | Query::Ask { pattern, .. } => pattern,
         };
-        let mut ctx = FilterContext::default();
+        let mut ctx = FilterContext {
+            shape: pushdown::QueryShape::from_query(query),
+            ..FilterContext::default()
+        };
         collect_filter_context(pattern, true, &mut ctx);
         ctx
     }
@@ -894,11 +893,6 @@ fn collect_filter_context(
 ) {
     use spargebra::algebra::GraphPattern as G;
     match p {
-        G::Bgp { patterns } => {
-            if required {
-                collect_bgp_var_predicates(patterns, ctx);
-            }
-        }
         G::Filter { expr, inner } => {
             // A FILTER only helps if it sits in the required core (an OPTIONAL-scoped FILTER
             // constrains only the optional binding, not the row that must still appear).
@@ -934,26 +928,6 @@ fn collect_filter_context(
         // any unseen future variant (`Lateral`/sep-0006), contribute no pushdown — correctness
         // is unaffected (the evaluator re-filters), so they fall through the wildcard.
         _ => {}
-    }
-}
-
-/// Record `?var predicate` bindings from a BGP's triple patterns: every
-/// `<constant predicate> ?object` pattern binds `?object` through that
-/// predicate (CONCEPT:EG-KG.query.obda-predicate-pushdown context).
-fn collect_bgp_var_predicates(
-    patterns: &[spargebra::term::TriplePattern],
-    ctx: &mut FilterContext,
-) {
-    use spargebra::term::{NamedNodePattern, TermPattern};
-    for tp in patterns {
-        if let (NamedNodePattern::NamedNode(pred), TermPattern::Variable(v)) =
-            (&tp.predicate, &tp.object)
-        {
-            ctx.var_predicates
-                .entry(v.as_str().to_string())
-                .or_default()
-                .insert(pred.as_str().to_string());
-        }
     }
 }
 
@@ -1003,35 +977,6 @@ fn record_compare(
     }
 }
 
-/// The SOUND subset of the query's pushable filters that constrain THIS map's columns
-/// (CONCEPT:EG-KG.query.obda-predicate-pushdown). For a NUMERIC typed column, any comparison
-/// against a numeric literal is pushed; for a string column, only equality (collation-safe)
-/// is pushed. A `Template`/constant object map is not a single-column filter target.
-fn map_pushable_filters(map: &TriplesMap, fctx: &FilterContext) -> Vec<ObdaFilter> {
-    let mut out: Vec<ObdaFilter> = Vec::new();
-    for (pred, obj) in &map.predicate_object_maps {
-        let (col, col_numeric) = match obj {
-            ObjectMap::Column(c) => (c, false),
-            ObjectMap::TypedColumn(c, dt) => (c, is_numeric_datatype(dt)),
-            _ => continue,
-        };
-        for (var, preds) in &fctx.var_predicates {
-            if !preds.contains(pred) {
-                continue;
-            }
-            let Some(compares) = fctx.var_compares.get(var) else {
-                continue;
-            };
-            for filter in column_filters_for_compares(col, col_numeric, compares) {
-                if !out.contains(&filter) {
-                    out.push(filter);
-                }
-            }
-        }
-    }
-    out
-}
-
 /// Build the pushable `ObdaFilter`s for one (column, comparisons) pairing: a
 /// numeric column pushes any comparison against a numeric literal; a string
 /// column only pushes equality (the only collation-safe comparison).
@@ -1051,6 +996,7 @@ fn column_filters_for_compares(
                 op: *op,
                 value: value.clone(),
                 numeric: true,
+                values: Vec::new(),
             }
         } else {
             if *op != ObdaCompare::Eq {
@@ -1061,6 +1007,7 @@ fn column_filters_for_compares(
                 op: ObdaCompare::Eq,
                 value: value.clone(),
                 numeric: false,
+                values: Vec::new(),
             }
         };
         filters.push(filter);

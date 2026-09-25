@@ -32,8 +32,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::federation_ssrf::validate_http_json_target;
 use crate::rowset::RowSet;
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
+
+/// The federation SSRF opt-in (owned by the crate's one outbound-destination gate).
+pub use crate::federation_ssrf::HTTP_JSON_FEDERATION_ALLOW_ENV;
 
 const MAX_REMOTE_ENGINE_ENDPOINT_BYTES: usize = 1_024;
 const MAX_REMOTE_ENGINE_FRAME_BYTES: usize = 64 * 1024 * 1024;
@@ -41,16 +45,7 @@ const MAX_REMOTE_ENGINE_ITEMS: usize = 1_000_000;
 const REMOTE_ENGINE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const REMOTE_ENGINE_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Existing federation SSRF opt-in, shared with the server's peer fan-out. Values are
-/// comma-separated exact bare hosts, `host:port` authorities, or origins. Wildcards and
-/// suffix matching are deliberately unsupported. A bare host is an explicit opt-in for
-/// that exact host on any port, preserving the established server-side configuration.
-pub const HTTP_JSON_FEDERATION_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_FEDERATION_ALLOW";
-
-const MAX_HTTP_JSON_URL_BYTES: usize = 2 * 1024;
 const MAX_HTTP_JSON_BODY_BYTES: usize = 64 * 1024 * 1024;
-const MAX_HTTP_JSON_ALLOWLIST_BYTES: usize = 64 * 1024;
-const MAX_HTTP_JSON_ADDRESSES: usize = 8;
 const MAX_HTTP_JSON_DEPTH: usize = 64;
 const MAX_HTTP_JSON_ITEMS: usize = 1_000_000;
 const MAX_HTTP_JSON_ROWS: usize = 250_000;
@@ -88,39 +83,6 @@ pub trait ForeignSource {
     /// plan errors with a clear message rather than silently yielding nothing — a
     /// federated source being unreachable is a real error, not an empty result).
     fn fetch(&self) -> Result<RowSet, String>;
-}
-
-/// Resolve a foreign [`ForeignSourceSpec`] to its rows THROUGH the single leaf-source
-/// seam (CONCEPT:EG-KG.query.symmetric-foreign-scan) — the piece that makes an
-/// `Op::ForeignScan` compose EXACTLY like an internal `Op::Scan`. An internal scan's leaf
-/// is `scan_label(view, label) -> RowSet`; a foreign scan's leaf is THIS fn: it produces
-/// the SAME [`RowSet`] currency, so the two leaves are interchangeable through the
-/// executor's `Driver` seam and any downstream `Filter`/`Traverse`/`Rank`/`Limit` sees no
-/// difference between a locally-scanned source and a foreign one.
-///
-/// Every spec kind resolves here, symmetrically: a `Named` spec resolves BY NAME through
-/// the `registry` on the `PlanCtx` (a clean typed error if none is attached), and every
-/// self-describing spec (remote-engine / HTTP-JSON / external-SQL) resolves via
-/// [`source_for`] + `fetch()`. The executor's `foreign_scan` arm is then a thin
-/// `fuse_foreign(input, foreign_source_rows(..)?, join)` — the leaf resolve + the compose
-/// — exactly mirroring the `Op::Scan` arm's thin `scan_label(..)` call.
-pub fn foreign_source_rows(
-    spec: &ForeignSourceSpec,
-    registry: Option<&ForeignSourceRegistry>,
-) -> Result<RowSet, String> {
-    match spec {
-        ForeignSourceSpec::Named { name } => {
-            let registry = registry.ok_or_else(|| {
-                format!(
-                    "federation: Op::ForeignScan names foreign source '{name}' but no \
-                     ForeignSourceRegistry is attached to the PlanCtx \
-                     (CONCEPT:EG-KG.query.symmetric-foreign-scan)"
-                )
-            })?;
-            registry.resolve(name)
-        }
-        other => source_for(other).fetch(),
-    }
 }
 
 /// Build the right [`ForeignSource`] for a wire [`ForeignSourceSpec`]. The executor
@@ -662,277 +624,6 @@ impl ForeignSource for HttpJsonSource<'_> {
     }
 }
 
-/// The validated, DNS-pinned transport target. No URL/host is retained here, keeping it
-/// out of `Debug`/error paths and reducing the chance that embedded query credentials are
-/// reflected by a future caller.
-struct ValidatedHttpJsonTarget {
-    addresses: Vec<std::net::SocketAddr>,
-    /// `false` is only possible for an exact-allowlisted internal HTTP target.
-    https_only: bool,
-}
-
-/// Parse and validate a federation URL without reflecting it in any error. Public
-/// destinations are HTTPS-only. An internal/special-use resolution is accepted only
-/// when the exact host, authority, or origin is present in the established federation
-/// allowlist. Explicitly allowlisted internal endpoints may use HTTP for a local trusted
-/// tunnel/test service; HTTP to a public destination remains forbidden.
-fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTarget, String> {
-    validate_http_json_url_shape(url)?;
-
-    let (is_https, rest) = split_http_scheme(url)?;
-    let authority = rest.split(['/', '?']).next().unwrap_or_default();
-    if authority.is_empty() || authority.contains('@') || authority.contains('%') {
-        return Err("federation: invalid HTTP JSON URL authority".to_string());
-    }
-
-    let default_port = if is_https { 443 } else { 80 };
-    let (host, port) = parse_http_authority(authority, default_port)?;
-    let host = normalize_http_host(host)?;
-    let allowlisted = http_json_target_allowlisted(&host, port, is_https);
-
-    let addresses = resolve_http_json_addresses(&host, port)?;
-    check_http_json_ssrf(&addresses, allowlisted, is_https)?;
-
-    Ok(ValidatedHttpJsonTarget {
-        addresses,
-        https_only: is_https,
-    })
-}
-
-/// Reject a URL with disallowed bytes/shape before any scheme/authority
-/// parsing runs.
-fn validate_http_json_url_shape(url: &str) -> Result<(), String> {
-    if url.is_empty()
-        || url.len() > MAX_HTTP_JSON_URL_BYTES
-        || url.trim() != url
-        || url
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || byte == b'\\')
-        || url.contains('#')
-    {
-        return Err("federation: invalid HTTP JSON URL".to_string());
-    }
-    Ok(())
-}
-
-/// Split a validated URL into `(is_https, rest-after-scheme)`; any scheme
-/// other than `http://`/`https://` is rejected.
-fn split_http_scheme(url: &str) -> Result<(bool, &str), String> {
-    if let Some(rest) = url.strip_prefix("https://") {
-        Ok((true, rest))
-    } else if let Some(rest) = url.strip_prefix("http://") {
-        Ok((false, rest))
-    } else {
-        Err("federation: HTTP JSON source requires HTTPS".to_string())
-    }
-}
-
-/// Resolve `host:port`, bounding and deduplicating the address set.
-fn resolve_http_json_addresses(host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>, String> {
-    use std::net::ToSocketAddrs;
-    let mut addresses: Vec<_> = (host, port)
-        .to_socket_addrs()
-        .map_err(|_| "federation: unable to resolve HTTP JSON source".to_string())?
-        .take(MAX_HTTP_JSON_ADDRESSES + 1)
-        .collect();
-    addresses.sort_unstable();
-    addresses.dedup();
-    if addresses.is_empty() || addresses.len() > MAX_HTTP_JSON_ADDRESSES {
-        return Err("federation: invalid HTTP JSON source resolution".to_string());
-    }
-    Ok(addresses)
-}
-
-/// Enforce the SSRF policy: a sensitive resolved address requires the
-/// destination be explicitly allowlisted, and a non-HTTPS source is only
-/// ever permitted for an allowlisted sensitive destination.
-fn check_http_json_ssrf(
-    addresses: &[std::net::SocketAddr],
-    allowlisted: bool,
-    is_https: bool,
-) -> Result<(), String> {
-    let has_sensitive_address = addresses
-        .iter()
-        .any(|address| is_ssrf_sensitive_ip(address.ip()));
-    if has_sensitive_address && !allowlisted {
-        return Err("federation: HTTP JSON destination is not allowed".to_string());
-    }
-    if !(is_https || has_sensitive_address && allowlisted) {
-        return Err("federation: HTTP JSON source requires HTTPS".to_string());
-    }
-    Ok(())
-}
-
-fn parse_http_authority(authority: &str, default_port: u16) -> Result<(&str, u16), String> {
-    if let Some(bracketed) = authority.strip_prefix('[') {
-        let close = bracketed
-            .find(']')
-            .ok_or_else(|| "federation: invalid HTTP JSON URL authority".to_string())?;
-        let host = &bracketed[..close];
-        let suffix = &bracketed[close + 1..];
-        let port = if suffix.is_empty() {
-            default_port
-        } else {
-            let raw_port = suffix
-                .strip_prefix(':')
-                .ok_or_else(|| "federation: invalid HTTP JSON URL authority".to_string())?;
-            parse_http_port(raw_port)?
-        };
-        if host.parse::<std::net::Ipv6Addr>().is_err() {
-            return Err("federation: invalid HTTP JSON URL authority".to_string());
-        }
-        return Ok((host, port));
-    }
-
-    if authority.matches(':').count() > 1 {
-        return Err("federation: invalid HTTP JSON URL authority".to_string());
-    }
-    match authority.rsplit_once(':') {
-        Some((host, raw_port)) => Ok((host, parse_http_port(raw_port)?)),
-        None => Ok((authority, default_port)),
-    }
-}
-
-fn parse_http_port(raw: &str) -> Result<u16, String> {
-    if raw.is_empty() || !raw.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err("federation: invalid HTTP JSON URL port".to_string());
-    }
-    raw.parse::<u16>()
-        .ok()
-        .filter(|port| *port != 0)
-        .ok_or_else(|| "federation: invalid HTTP JSON URL port".to_string())
-}
-
-fn normalize_http_host(host: &str) -> Result<String, String> {
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if host.is_empty() || host.len() > 253 || !host.is_ascii() {
-        return Err("federation: invalid HTTP JSON URL host".to_string());
-    }
-    if host.parse::<std::net::IpAddr>().is_ok() {
-        return Ok(host);
-    }
-    let valid = host.split('.').all(|label| {
-        !label.is_empty()
-            && label.len() <= 63
-            && !label.starts_with('-')
-            && !label.ends_with('-')
-            && label
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-    });
-    if !valid {
-        return Err("federation: invalid HTTP JSON URL host".to_string());
-    }
-    Ok(host)
-}
-
-/// Exact allowlist matching only: no substrings, suffixes, globs, regexes, or CIDRs.
-fn http_json_target_allowlisted(host: &str, port: u16, is_https: bool) -> bool {
-    let Ok(raw) = std::env::var(HTTP_JSON_FEDERATION_ALLOW_ENV) else {
-        return false;
-    };
-    if raw.len() > MAX_HTTP_JSON_ALLOWLIST_BYTES {
-        return false;
-    }
-    let scheme = if is_https { "https" } else { "http" };
-    let authority_host = if host.contains(':') {
-        format!("[{host}]")
-    } else {
-        host.to_string()
-    };
-    let authority = format!("{authority_host}:{port}");
-    let origin = format!("{scheme}://{authority}");
-    let scheme_host = format!("{scheme}://{authority_host}");
-    raw.split(',').take(1024).any(|entry| {
-        let entry = entry.trim().to_ascii_lowercase();
-        entry == host
-            || entry == authority_host
-            || entry == authority
-            || entry == scheme_host
-            || entry == origin
-    })
-}
-
-/// Reject every local/private/link-local/multicast/documentation/transition range that
-/// can address a non-public service. Public HTTPS is allowed; an operator must explicitly
-/// opt an exact host/origin into this set's exceptions.
-fn is_ssrf_sensitive_ip(ip: std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(address) => is_ssrf_sensitive_ipv4(address),
-        std::net::IpAddr::V6(address) => is_ssrf_sensitive_ipv6(address),
-    }
-}
-
-fn is_ssrf_sensitive_ipv4(address: std::net::Ipv4Addr) -> bool {
-    is_ssrf_std_range_v4(address) || is_ssrf_custom_range_v4(address)
-}
-
-/// The IPv4 ranges the standard library already classifies as non-public.
-fn is_ssrf_std_range_v4(address: std::net::Ipv4Addr) -> bool {
-    address.is_loopback()
-        || address.is_unspecified()
-        || address.is_private()
-        || address.is_link_local()
-        || address.is_multicast()
-        || address.is_broadcast()
-        || address.is_documentation()
-}
-
-/// IPv4 ranges the standard library does NOT classify as non-public but that
-/// still can address a non-public/transition service.
-fn is_ssrf_custom_range_v4(address: std::net::Ipv4Addr) -> bool {
-    let [a, b, c, _] = address.octets();
-    is_ssrf_custom_range_v4_reserved(a, b) || is_ssrf_custom_range_v4_special(a, b, c)
-}
-
-/// The all-zero, reserved-future-use, and carrier-grade-NAT ranges.
-fn is_ssrf_custom_range_v4_reserved(a: u8, b: u8) -> bool {
-    a == 0 || a >= 240 || (a == 100 && (64..=127).contains(&b)) // carrier-grade NAT
-}
-
-/// The IETF-protocol-assignment, deprecated-6to4-relay, and benchmark ranges.
-fn is_ssrf_custom_range_v4_special(a: u8, b: u8, c: u8) -> bool {
-    (a == 192 && b == 0 && c == 0) // IETF protocol assignments
-        || (a == 192 && b == 88 && c == 99) // deprecated 6to4 relay anycast
-        || (a == 198 && (b == 18 || b == 19)) // benchmark networks
-}
-
-fn is_ssrf_sensitive_ipv6(address: std::net::Ipv6Addr) -> bool {
-    if let Some(mapped) = address.to_ipv4() {
-        return is_ssrf_sensitive_ipv4(mapped);
-    }
-    is_ssrf_std_range_v6(address) || is_ssrf_custom_range_v6(address)
-}
-
-/// The IPv6 ranges the standard library already classifies as non-public.
-fn is_ssrf_std_range_v6(address: std::net::Ipv6Addr) -> bool {
-    address.is_loopback() || address.is_unspecified() || address.is_multicast()
-}
-
-/// IPv6 ranges the standard library does NOT classify as non-public but that
-/// still can address a non-public/transition/documentation service.
-fn is_ssrf_custom_range_v6(address: std::net::Ipv6Addr) -> bool {
-    let segments = address.segments();
-    is_ssrf_custom_range_v6_local(segments) || is_ssrf_custom_range_v6_transition(segments)
-}
-
-/// unique-local / link-local / deprecated site-local / discard-only ranges.
-fn is_ssrf_custom_range_v6_local(segments: [u16; 8]) -> bool {
-    (segments[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7
-        || (segments[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
-        || (segments[0] & 0xffc0) == 0xfec0 // deprecated site-local fec0::/10
-        || (segments[0] == 0x0100 && segments[1..4] == [0, 0, 0]) // discard-only
-}
-
-/// NAT64 / 6to4 / Teredo / documentation / ORCHID transition ranges.
-fn is_ssrf_custom_range_v6_transition(segments: [u16; 8]) -> bool {
-    (segments[0] == 0x0064 && segments[1] == 0xff9b) // NAT64 translation
-        || segments[0] == 0x2002 // 6to4 embeds an IPv4 target
-        || (segments[0] == 0x2001 && segments[1] == 0x0000) // Teredo
-        || (segments[0] == 0x2001 && segments[1] == 0x0db8) // documentation
-        || (segments[0] == 0x2001 && (segments[1] & 0xfff0) == 0x0020) // ORCHID
-}
-
 /// Allocation-free resource preflight. `serde_json` remains the grammar authority; this
 /// pass bounds nesting and aggregate structural slots before it can allocate a DOM.
 fn validate_json_shape(bytes: &[u8]) -> Result<(), String> {
@@ -1030,52 +721,14 @@ fn bounded_json_id(value: &serde_json::Value) -> Result<Option<String>, String> 
 }
 
 #[cfg(test)]
-mod http_json_security_tests {
-    use super::{
-        is_ssrf_sensitive_ip, parse_http_authority, validate_http_json_target, validate_json_shape,
-        MAX_HTTP_JSON_DEPTH,
-    };
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
-    #[test]
-    fn internal_and_transition_addresses_are_sensitive() {
-        for address in [
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
-            IpAddr::V4(Ipv4Addr::new(100, 64, 0, 1)),
-            IpAddr::V6(Ipv6Addr::LOCALHOST),
-            "2001:db8::1".parse().unwrap(),
-            "64:ff9b::1".parse().unwrap(),
-        ] {
-            assert!(is_ssrf_sensitive_ip(address));
-        }
-        assert!(!is_ssrf_sensitive_ip(IpAddr::V4(Ipv4Addr::new(
-            93, 184, 216, 34
-        ))));
-    }
-
-    #[test]
-    fn authority_parser_rejects_ambiguous_or_invalid_ports() {
-        assert!(parse_http_authority("::1:443", 443).is_err());
-        assert!(parse_http_authority("example.invalid:0", 443).is_err());
-        assert!(parse_http_authority("[::1]:443", 80).is_ok());
-    }
+mod json_preflight_tests {
+    use super::{validate_json_shape, MAX_HTTP_JSON_DEPTH};
 
     #[test]
     fn json_preflight_rejects_excessive_nesting() {
         let mut body = vec![b'['; MAX_HTTP_JSON_DEPTH + 1];
         body.extend(std::iter::repeat_n(b']', MAX_HTTP_JSON_DEPTH + 1));
         assert!(validate_json_shape(&body).is_err());
-    }
-
-    #[test]
-    fn destination_errors_do_not_reflect_url_secrets() {
-        let secret = "test-sensitive-token-value"; // sanitizer:ignore
-        let error = validate_http_json_target(&format!("ftp://example.invalid/?token={secret}"))
-            .err()
-            .expect("unsupported scheme must fail");
-        assert!(!error.contains(secret));
-        assert!(!error.contains("example.invalid"));
     }
 }
 
@@ -1185,14 +838,18 @@ impl SqlSource<'_> {
         {
             return Err("federation: invalid SQL connection configuration".to_string());
         }
+        // The destination gate runs after the local checks (scheme, statement shape) and
+        // before any connection, so a refused query never reaches the network either way.
         let scheme = self.dsn.split(':').next().unwrap_or("");
         match scheme {
             "postgres" | "postgresql" => {
                 validate_federated_sql(self.query, SqlDialect::Postgres)?;
+                crate::federation_ssrf::check_sql_dsn(self.dsn)?;
                 self.fetch_postgres().await
             }
             "mysql" | "mariadb" => {
                 validate_federated_sql(self.query, SqlDialect::MySql)?;
+                crate::federation_ssrf::check_sql_dsn(self.dsn)?;
                 self.fetch_mysql().await
             }
             _ => Err(
@@ -1370,10 +1027,12 @@ async fn fetch_sql_columns_async(
     match dsn.split(':').next().unwrap_or("") {
         "postgres" | "postgresql" => {
             validate_federated_sql(sql, SqlDialect::Postgres)?;
+            crate::federation_ssrf::check_sql_dsn(dsn)?;
             fetch_pg_columns(dsn, sql).await
         }
         "mysql" | "mariadb" => {
             validate_federated_sql(sql, SqlDialect::MySql)?;
+            crate::federation_ssrf::check_sql_dsn(dsn)?;
             fetch_my_columns(dsn, sql).await
         }
         _ => Err(
@@ -1581,6 +1240,9 @@ pub type SharedForeignSource = Arc<dyn ForeignSource + Send + Sync>;
 #[derive(Default, Clone)]
 pub struct ForeignSourceRegistry {
     sources: HashMap<String, SharedForeignSource>,
+    /// The self-describing spec behind each `register_spec` entry — what lets the federation
+    /// optimizer push keys / limits into a named source (EH-563).
+    specs: HashMap<String, ForeignSourceSpec>,
 }
 
 impl ForeignSourceRegistry {
@@ -1591,7 +1253,9 @@ impl ForeignSourceRegistry {
 
     /// Register (or replace) a source under `name`. CONCEPT:EG-KG.query.closure-backed-source.
     pub fn register(&mut self, name: impl Into<String>, source: SharedForeignSource) -> &mut Self {
-        self.sources.insert(name.into(), source);
+        let name = name.into();
+        self.specs.remove(&name);
+        self.sources.insert(name, source);
         self
     }
 
@@ -1600,7 +1264,15 @@ impl ForeignSourceRegistry {
     /// `RemoteEngine` spec pointed at another graph is exactly that, reached over the
     /// engine's own transport. CONCEPT:EG-KG.query.closure-backed-source.
     pub fn register_spec(&mut self, name: impl Into<String>, spec: ForeignSourceSpec) -> &mut Self {
-        self.register(name, Arc::new(SpecSource { spec }))
+        let name = name.into();
+        self.register(name.clone(), Arc::new(SpecSource { spec: spec.clone() }));
+        self.specs.insert(name, spec);
+        self
+    }
+
+    /// The spec a `register_spec` entry was registered with (`None` for table/closure sources).
+    pub fn spec(&self, name: &str) -> Option<&ForeignSourceSpec> {
+        self.specs.get(name)
     }
 
     /// Register a FIXED table of rows (id + optional score) under a name — the

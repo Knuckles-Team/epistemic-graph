@@ -37,13 +37,16 @@ use spargebra::algebra::{
 use spargebra::term::{GroundTerm, NamedNodePattern, TermPattern, TriplePattern, Variable};
 use spargebra::{Query, SparqlParser};
 
-use crate::mapping::cell_lexical;
+use crate::mapping::{cell_lexical, RDF_MULTI_VALUE_KEY};
 
 mod bool_builtins;
 use bool_builtins::{eval_bool_str_relation, term_type_test};
 // EH-197 — witness proofs for SELECT rows (child module: it reuses the private
 // pattern matcher and join rather than re-implementing them).
 mod proof;
+// EH-583 — multi-valued literal properties bind every value.
+#[cfg(test)]
+mod multivalue_tests;
 pub use proof::{execute_explained, MAX_WITNESS_STEPS};
 
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
@@ -633,10 +636,7 @@ fn push_node_triples_terms(
                 out.push((subj_iri.clone(), RDF_TYPE_IRI.to_string(), type_obj, true));
             }
         }
-        for (k, cell) in obj {
-            if k == "type" || k == "node_type" {
-                continue;
-            }
+        for (k, cell) in literal_cells(obj) {
             if let Some(lit_val) = cell_lexical(cell) {
                 out.push((subj_iri.clone(), proj.pred_iri(k), lit_val, false));
             }
@@ -1644,10 +1644,7 @@ fn match_triple_pattern_literals(
     out: &mut Vec<Solution>,
 ) {
     let proj = ctx.proj;
-    for (k, cell) in obj {
-        if k == "type" || k == "node_type" {
-            continue;
-        }
+    for (k, cell) in literal_cells(obj) {
         let Some(lit_val) = cell_lexical(cell) else {
             continue;
         };
@@ -1663,6 +1660,29 @@ fn match_triple_pattern_literals(
         }
         out.push(sol);
     }
+}
+
+/// Every `(property key, literal cell)` a node blob asserts (EH-583): each ordinary
+/// property plus EVERY value parked in the reserved multivalue cell, which is where a
+/// subject's second-and-later values of one predicate live. `type`/`node_type` (the
+/// `rdf:type` synthesis / engine bookkeeping) are not literal triples. Reading only the
+/// ordinary keys would bind just the first value of a multi-valued property.
+fn literal_cells(
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> impl Iterator<Item = (&str, &serde_json::Value)> {
+    let extras = obj
+        .get(RDF_MULTI_VALUE_KEY)
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flatten()
+        .flat_map(|(k, cells)| {
+            let values = cells.as_array().into_iter().flatten();
+            values.map(move |cell| (k.as_str(), cell))
+        });
+    obj.iter()
+        .filter(|(k, _)| !matches!(k.as_str(), "type" | "node_type" | RDF_MULTI_VALUE_KEY))
+        .map(|(k, cell)| (k.as_str(), cell))
+        .chain(extras)
 }
 
 /// The variable name a query blank node binds under. A blank node in a QUERY

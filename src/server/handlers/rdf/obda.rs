@@ -226,25 +226,16 @@ fn sparql_virtual(
 
 /// The SQL dialect an external OBDA source speaks — selects identifier quoting + the
 /// lexical-cast form so every SELECTed column comes back as text (the `ForeignRow` currency).
+/// One owner for SQL text sent across a federation boundary: [`eg_plan::sql_text`].
 #[cfg(feature = "obda")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ObdaSqlDialect {
-    Postgres,
-    MySql,
-}
+pub(super) type ObdaSqlDialect = eg_plan::sql_text::SqlDialect;
 
+/// Infer the dialect from a DSN scheme (`postgres://…` / `mysql://…`).
 #[cfg(feature = "obda")]
-impl ObdaSqlDialect {
-    /// Infer the dialect from a DSN scheme (`postgres://…` / `mysql://…`).
-    fn from_dsn(dsn: &str) -> Result<Self, String> {
-        match dsn.split(':').next().unwrap_or("") {
-            "postgres" | "postgresql" => Ok(Self::Postgres),
-            "mysql" | "mariadb" => Ok(Self::MySql),
-            _ => Err(
-                "obda: unsupported external SQL scheme (expected postgres:// or mysql://)".into(),
-            ),
-        }
-    }
+fn obda_dialect(dsn: &str) -> Result<ObdaSqlDialect, String> {
+    ObdaSqlDialect::from_dsn(dsn).ok_or_else(|| {
+        "obda: unsupported external SQL scheme (expected postgres:// or mysql://)".into()
+    })
 }
 
 /// CONCEPT:EG-KG.query.obda-predicate-pushdown — executes a rendered READ-ONLY `SELECT` against
@@ -271,8 +262,8 @@ impl SqlObdaSource {
     /// Build a live external source over `table` reachable at `dsn` (the `federation-sql`
     /// path). A build without `federation-sql` returns a clean "rebuild" error.
     fn connect(dsn: &str, table: &str) -> Result<Self, String> {
-        let dialect = ObdaSqlDialect::from_dsn(dsn)?;
-        validate_sql_identifier(table)?;
+        let dialect = obda_dialect(dsn)?;
+        eg_plan::sql_text::validate_identifier(table).map_err(|e| format!("obda: {e}"))?;
         let executor = federation_sql_executor(dsn)?;
         Ok(Self {
             table: table.to_string(),
@@ -321,10 +312,7 @@ pub(super) fn render_obda_select(
         .map(|c| render_select_item(c, dialect))
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
-    let mut sql = format!(
-        "SELECT {select_list} FROM {}",
-        quote_sql_identifier(table, dialect)?
-    );
+    let mut sql = format!("SELECT {select_list} FROM {}", quote(table, dialect)?);
     if !filters.is_empty() {
         let where_clause = filters
             .iter()
@@ -341,7 +329,7 @@ pub(super) fn render_obda_select(
 /// returned value is lexical and the executor maps it back by name.
 #[cfg(feature = "obda")]
 fn render_select_item(col: &str, dialect: ObdaSqlDialect) -> Result<String, String> {
-    let q = quote_sql_identifier(col, dialect)?;
+    let q = quote(col, dialect)?;
     Ok(match dialect {
         ObdaSqlDialect::Postgres => format!("{q}::text AS {q}"),
         ObdaSqlDialect::MySql => format!("CAST({q} AS CHAR) AS {q}"),
@@ -349,86 +337,51 @@ fn render_select_item(col: &str, dialect: ObdaSqlDialect) -> Result<String, Stri
 }
 
 /// Render one pushed-down [`eg_rdf::obda::ObdaFilter`] as a SQL predicate over the NATIVE
-/// (un-cast) column, so a numeric comparison runs against the numeric column type.
+/// (un-cast) column, so a numeric comparison runs against the numeric column type. An `In`
+/// filter (a semi-join key batch) renders `col IN ('k1', …)`.
 #[cfg(feature = "obda")]
 fn render_obda_filter(
     f: &eg_rdf::obda::ObdaFilter,
     dialect: ObdaSqlDialect,
 ) -> Result<String, String> {
     use eg_rdf::obda::ObdaCompare;
-    let col = quote_sql_identifier(&f.column, dialect)?;
+    let col = quote(&f.column, dialect)?;
     let op = match f.op {
         ObdaCompare::Eq => "=",
         ObdaCompare::Lt => "<",
         ObdaCompare::Le => "<=",
         ObdaCompare::Gt => ">",
         ObdaCompare::Ge => ">=",
+        ObdaCompare::In => return render_in_list(&col, &f.values, dialect),
     };
-    let lit = render_sql_literal(&f.value, f.numeric, dialect)?;
+    let lit = literal(&f.value, f.numeric, dialect)?;
     Ok(format!("{col} {op} {lit}"))
 }
 
-/// Validate a SQL identifier: `[A-Za-z_][A-Za-z0-9_]*`, ≤63 chars. Rejecting anything else is
-/// what makes quoting injection-safe.
+/// `col IN ('v1', …)` for a non-empty member list (an empty one matches nothing).
 #[cfg(feature = "obda")]
-fn validate_sql_identifier(ident: &str) -> Result<(), String> {
-    let ok = !ident.is_empty()
-        && ident.len() <= 63
-        && ident
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if ok {
-        Ok(())
-    } else {
-        Err(format!("obda: invalid SQL identifier {ident:?}"))
+fn render_in_list(col: &str, values: &[String], dialect: ObdaSqlDialect) -> Result<String, String> {
+    if values.is_empty() {
+        return Ok("1 = 0".into());
     }
+    let members = values
+        .iter()
+        .map(|v| literal(v, false, dialect))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!("{col} IN ({members})"))
 }
 
-/// Validate then quote a SQL identifier for the dialect.
+/// Validate + quote an identifier through the shared renderer, with the OBDA error prefix.
 #[cfg(feature = "obda")]
-fn quote_sql_identifier(ident: &str, dialect: ObdaSqlDialect) -> Result<String, String> {
-    validate_sql_identifier(ident)?;
-    Ok(match dialect {
-        ObdaSqlDialect::Postgres => format!("\"{ident}\""),
-        ObdaSqlDialect::MySql => format!("`{ident}`"),
-    })
+fn quote(ident: &str, dialect: ObdaSqlDialect) -> Result<String, String> {
+    eg_plan::sql_text::quote_identifier(ident, dialect).map_err(|e| format!("obda: {e}"))
 }
 
-/// Render a filter's comparison literal: a validated numeric token unquoted, or a safely
-/// escaped single-quoted string. Rejects a NUL byte and a non-finite numeric outright.
+/// Render a literal through the shared renderer, with the OBDA error prefix.
 #[cfg(feature = "obda")]
-fn render_sql_literal(
-    value: &str,
-    numeric: bool,
-    dialect: ObdaSqlDialect,
-) -> Result<String, String> {
-    if value.contains('\0') {
-        return Err("obda: filter literal contains a NUL byte".into());
-    }
-    if numeric {
-        let n: f64 = value
-            .parse()
-            .map_err(|_| format!("obda: non-numeric literal {value:?} for a numeric filter"))?;
-        if !n.is_finite() {
-            return Err(format!("obda: non-finite numeric literal {value:?}"));
-        }
-        if !value
-            .chars()
-            .all(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))
-        {
-            return Err(format!("obda: unsafe numeric literal {value:?}"));
-        }
-        return Ok(value.to_string());
-    }
-    // String literal: double every single quote; MySQL also treats backslash as an escape
-    // char (unlike standard-conforming Postgres), so double backslashes there too.
-    let escaped = match dialect {
-        ObdaSqlDialect::Postgres => value.replace('\'', "''"),
-        ObdaSqlDialect::MySql => value.replace('\\', "\\\\").replace('\'', "''"),
-    };
-    Ok(format!("'{escaped}'"))
+fn literal(value: &str, numeric: bool, dialect: ObdaSqlDialect) -> Result<String, String> {
+    eg_plan::sql_text::render_literal(value, numeric, dialect).map_err(|e| format!("obda: {e}"))
 }
 
 /// Build the LIVE `federation-sql` executor for `dsn`, or a clean "rebuild with federation-sql"
