@@ -70,6 +70,10 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // 18 -> 19: the Decide layer's `decision_records` (committed assembly
     // records, written in the same WTX as their `DecisionRecord` component).
     assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 19);
+    assert_eq!(
+        owner_table_names(OwnerLayout::ForeignCatalog),
+        &["foreign_source_specs"]
+    );
     // The authoritative graph shard `graph-N.redb`: 54 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus
@@ -80,7 +84,35 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53, plus EH-384's file-wide
     // `storage_scrub_cursor` = 54.
     assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 54);
-    assert_eq!(owner_layouts().len(), 18);
+    assert_eq!(owner_layouts().len(), 19);
+}
+
+#[test]
+fn foreign_catalog_contract_keeps_source_identity_private() {
+    use crate::owner::contract::expected_owner_table_contract;
+    use crate::owner::domain::ForeignCatalogOwner;
+    use crate::owner::registry::FOREIGN_SOURCE_SPECS;
+    use crate::owner::table_api::{ForeignSourceSpecRows, OwnerTable};
+
+    let contract =
+        expected_owner_table_contract("foreign_source_specs", OwnerLayout::ForeignCatalog);
+    assert_eq!(FOREIGN_SOURCE_SPECS.name(), ForeignSourceSpecRows::TABLE_ID);
+    assert_eq!(
+        <ForeignSourceSpecRows as OwnerTable<ForeignCatalogOwner>>::TABLE_ID,
+        "foreign_source_specs"
+    );
+    assert_eq!(contract.key_type_id, "&str");
+    assert_eq!(contract.value_type_id, "&[u8]");
+    assert_eq!(contract.logical_codec_id, "authenticated-sealed-msgpack-v1");
+    assert_eq!(contract.scope, TableScope::StorePrivate);
+    assert_eq!(
+        contract.domain,
+        Some(eg_types::mutation_batch::DurabilityDomain::ControlPlane)
+    );
+    assert_eq!(
+        contract.capabilities,
+        CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE
+    );
 }
 
 #[test]

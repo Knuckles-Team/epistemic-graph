@@ -1,6 +1,6 @@
 use crate::owner::domain::{
-    AgentLibraryOwner, BlobOwner, JobsOwner, KvOwner, OwnerDomain, RbacOwner, SemanticIndexOwner,
-    StatechartOwner, TimeSeriesOwner,
+    AgentLibraryOwner, BlobOwner, ForeignCatalogOwner, JobsOwner, KvOwner, OwnerDomain, RbacOwner,
+    SemanticIndexOwner, StatechartOwner, TimeSeriesOwner,
 };
 
 /// Sealed typed table contract. External code can use declared row domains but
@@ -42,6 +42,7 @@ macro_rules! declared_owner_tables {
 
 declared_owner_tables!(
     KvRows: KvOwner => ((String, String), Vec<u8>, "kv"),
+    ForeignSourceSpecRows: ForeignCatalogOwner => (String, Vec<u8>, "foreign_source_specs"),
     RbacRows: RbacOwner => (String, Vec<u8>, "rbac"),
     AnalyticsJobsRows: JobsOwner => (String, Vec<u8>, "analytics_jobs"),
     AnalyticsCommittedRows: JobsOwner => (String, String, "analytics_job_committed_results"),
@@ -165,6 +166,7 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "viz_provenance"
         | "cold_graphs"
         | "tenant_catalog"
+        | "foreign_source_specs"
         | "node_info"
         | "node_info_meta"
         | "cluster_hierarchy"

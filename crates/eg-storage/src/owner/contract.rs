@@ -92,6 +92,7 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
                     | OwnerLayout::VizProvenance
                     | OwnerLayout::ColdTier
                     | OwnerLayout::TenantCatalog
+                    | OwnerLayout::ForeignCatalog
                     | OwnerLayout::NodeInfo
                     | OwnerLayout::ClusterHierarchy
                     | OwnerLayout::AgentLibrary
@@ -204,6 +205,7 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         | "viz_provenance"
         | "cold_graphs"
         | "tenant_catalog"
+        | "foreign_source_specs"
         | "node_info_meta"
         | "cluster_hierarchy" => Some("&str"),
         // Likewise: every layer's revision table is keyed `(tenant, id,
@@ -348,6 +350,7 @@ fn value_type_id(name: &str) -> &'static str {
         | "viz_provenance"
         | "cold_graphs"
         | "tenant_catalog"
+        | "foreign_source_specs"
         | "node_info"
         | "node_info_meta"
         | "cluster_hierarchy"
@@ -410,6 +413,7 @@ fn logical_codec_id(name: &str) -> &'static str {
 fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
     Some(match name {
         "ledger_private_payloads" => "authenticated-sealed-bytes-v1",
+        "foreign_source_specs" => "authenticated-sealed-msgpack-v1",
         "eg_ann" | "eg_kvcache_cold" | "cold_graphs" => "raw-bytes-v1",
         "path_index"
         | "viz_provenance"
@@ -591,6 +595,7 @@ fn index_and_scalar_capabilities(name: &str) -> Option<u16> {
         | "series_projection_state"
         | "cold_graphs"
         | "tenant_catalog"
+        | "foreign_source_specs"
         | "node_info"
         | "node_info_meta"
         | "cluster_hierarchy"

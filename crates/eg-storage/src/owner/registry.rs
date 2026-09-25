@@ -205,6 +205,10 @@ const VIZ_PROVENANCE: TableDefinition<'static, &str, &[u8]> =
 const COLD_GRAPHS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cold_graphs");
 const TENANT_CATALOG: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("tenant_catalog");
+/// Opaque SHA-256 keys and AEAD-sealed source specifications. The source name
+/// and credentials are never stored in redb plaintext.
+pub const FOREIGN_SOURCE_SPECS: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("foreign_source_specs");
 const NODE_INFO: TableDefinition<'static, u64, &[u8]> = TableDefinition::new("node_info");
 const NODE_INFO_META: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("node_info_meta");
@@ -376,6 +380,7 @@ macro_rules! visit_owner_tables {
             OwnerLayout::VizProvenance => $visit!(VIZ_PROVENANCE),
             OwnerLayout::ColdTier => $visit!(COLD_GRAPHS),
             OwnerLayout::TenantCatalog => $visit!(TENANT_CATALOG),
+            OwnerLayout::ForeignCatalog => $visit!(FOREIGN_SOURCE_SPECS),
             OwnerLayout::NodeInfo => {
                 $visit!(NODE_INFO);
                 $visit!(NODE_INFO_META);
@@ -616,6 +621,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
         OwnerLayout::VizProvenance => &["viz_provenance"],
         OwnerLayout::ColdTier => &["cold_graphs"],
         OwnerLayout::TenantCatalog => &["tenant_catalog"],
+        OwnerLayout::ForeignCatalog => &["foreign_source_specs"],
         OwnerLayout::NodeInfo => &["node_info", "node_info_meta"],
         OwnerLayout::ClusterHierarchy => &["cluster_hierarchy"],
         OwnerLayout::GraphShard => crate::owner::graph_shard::GRAPH_SHARD_TABLES,
@@ -728,7 +734,7 @@ where
 }
 
 /// Every layout, in registry order (the lineage module's one list).
-pub(crate) fn owner_layouts() -> [OwnerLayout; 18] {
+pub(crate) fn owner_layouts() -> [OwnerLayout; 19] {
     crate::owner::lineage::ALL_LAYOUTS
 }
 
