@@ -247,13 +247,17 @@ mod tests {
         }
     }
 
-    fn projected_ids(dir: &Path, who: &str, sql: &str) -> Vec<String> {
+    fn projected_rows(dir: &Path, who: &str, sql: &str) -> Vec<Vec<Value>> {
         let projection =
             authorized_read_store_for_query(&authority(who), dir, sql, None, &no_graph()).unwrap();
         let view = crate::graph::GraphView::default();
         eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
             .unwrap()
             .rows
+    }
+
+    fn projected_ids(dir: &Path, who: &str, sql: &str) -> Vec<String> {
+        projected_rows(dir, who, sql)
             .iter()
             .map(|cells| cells[0].as_str().unwrap().to_string())
             .collect()
@@ -335,12 +339,7 @@ mod tests {
     fn status_rows(dir: &Path, who: &str) -> Vec<Vec<Value>> {
         let sql = "SELECT index_name, state, indexed FROM information_schema.eg_index_status \
                    ORDER BY index_name";
-        let projection =
-            authorized_read_store_for_query(&authority(who), dir, sql, None, &no_graph()).unwrap();
-        let view = crate::graph::GraphView::default();
-        eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
-            .unwrap()
-            .rows
+        projected_rows(dir, who, sql)
     }
 
     /// EH-352: the status relation is answered under the table ACL — a caller

@@ -60,6 +60,16 @@ async fn make_state_with_backend(
     .await
 }
 
+async fn wait_for_group_leader(multi: &Arc<MultiRaft>, group: u64, expected: NodeId, label: &str) {
+    let handle = multi.group(group).await.expect(label);
+    wait_until(Duration::from_secs(15), || {
+        let handle = handle.clone();
+        async move { handle.current_leader().await == Some(expected) }
+    })
+    .await
+    .expect(label);
+}
+
 fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
     cluster_cfg_with_groups(node_id, ports, 1)
 }
@@ -2130,15 +2140,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
 
     // ── Node 1 (the single-member bootstrap) becomes leader of group 7.
     let leader = multis[0].1.clone();
-    {
-        let g = leader.group(gid).await.expect("group on node 1");
-        wait_until(Duration::from_secs(15), || {
-            let g = g.clone();
-            async move { g.current_leader().await == Some(1) }
-        })
-        .await
-        .expect("node 1 must lead the single-member group 7");
-    }
+    wait_for_group_leader(&leader, gid, 1, "node 1 must lead the single-member group 7").await;
 
     // ── R3: add nodes 2 and 3 as VOTERS (add_learner → change_membership). EH-534:
     // leader-agnostic -- a legal election mid-sequence (node 2 taking the group once
@@ -2358,15 +2360,7 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
 
     let leader = multis[0].1.clone();
     let follower = multis[1].1.clone();
-    {
-        let g = leader.group(gid).await.expect("group on node 1");
-        wait_until(Duration::from_secs(15), || {
-            let g = g.clone();
-            async move { g.current_leader().await == Some(1) }
-        })
-        .await
-        .expect("node 1 must lead the single-member group 8");
-    }
+    wait_for_group_leader(&leader, gid, 1, "node 1 must lead the single-member group 8").await;
 
     // Before the learner is attached, membership is just the bootstrap voter and
     // there are no learners on either side.
@@ -2531,15 +2525,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     let leader_multi = multis[0].1.clone();
     let leader_state = multis[0].2.clone();
     let follower_state = multis[1].2.clone();
-    {
-        let g = leader_multi.group(gid).await.expect("group on node 1");
-        wait_until(Duration::from_secs(15), || {
-            let g = g.clone();
-            async move { g.current_leader().await == Some(1) }
-        })
-        .await
-        .expect("node 1 must lead the default group");
-    }
+    wait_for_group_leader(&leader_multi, gid, 1, "node 1 must lead the default group").await;
 
     // (a) A request against the LEADER actually attaches node 2 as a learner.
     // Deliberately proven FIRST: an openraft node's `current_leader()` is honest
@@ -2571,15 +2557,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // is caught up) -- it has observed node 1 as leader through REAL replicated
     // traffic, not a value the test injects. Confirm that before relying on it.
     let follower_multi = multis[1].1.clone();
-    {
-        let g = follower_multi.group(gid).await.expect("group on node 2");
-        wait_until(Duration::from_secs(15), || {
-            let g = g.clone();
-            async move { g.current_leader().await == Some(1) }
-        })
-        .await
-        .expect("node 2 must observe node 1 as leader after being attached as a learner");
-    }
+    wait_for_group_leader(&follower_multi, gid, 1, "node 2 must observe node 1 as leader after being attached as a learner").await;
 
     // (b) EH-534: a membership-admin request against this now-attached FOLLOWER
     // follows the leader -- forwarded over the authenticated peer channel and

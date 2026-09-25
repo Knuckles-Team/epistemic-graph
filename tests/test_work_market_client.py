@@ -10,6 +10,8 @@ import pytest
 from epistemic_graph.client import EpistemicGraphClient
 from epistemic_graph.work_market import GapClient, WorkMarketClient
 
+from _client_send_stub import CapturingEngine as _Engine
+
 pytestmark = pytest.mark.no_engine
 
 DIGEST = "sha256:" + "a" * 64
@@ -36,22 +38,6 @@ GAP: dict[str, Any] = {
     "revision": 1,
 }
 
-
-class _Engine:
-    def __init__(self, answer: object) -> None:
-        self.answer = answer
-        self.sent: list[tuple[str, object]] = []
-
-    async def _send(
-        self,
-        method: str,
-        params: object,
-        graph: object,
-        *,
-        idempotency_key: object,
-    ) -> object:
-        self.sent.append((method, params))
-        return self.answer
 
 
 def _gaps(engine: _Engine) -> GapClient:

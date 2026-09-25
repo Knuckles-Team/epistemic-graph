@@ -46,20 +46,7 @@ macro_rules! persistence_native {
             authority,
             done,
         };
-        let send = if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
-        };
-        send.map_err(|error| format!("claim-capability mint join error: {error}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        self.enqueue(graph_fname, cmd, "claim-capability mint").await?;
         rx.await
             .map_err(|_| "redb writer dropped claim-capability mint completion".to_string())?
     }
@@ -80,20 +67,7 @@ macro_rules! persistence_native {
             authority,
             done,
         };
-        let send = if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
-        };
-        send.map_err(|error| format!("claim-capability verify join error: {error}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        self.enqueue(graph_fname, cmd, "claim-capability verify").await?;
         rx.await
             .map_err(|_| "redb writer dropped claim-capability verify completion".to_string())?
     }
@@ -114,20 +88,7 @@ macro_rules! persistence_native {
             now_ms,
             done,
         };
-        let send = if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
-        };
-        send.map_err(|error| format!("development-lane commit join error: {error}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        self.enqueue(graph_fname, cmd, "development-lane commit").await?;
         rx.await
             .map_err(|_| "redb writer dropped development-lane commit completion".to_string())?
     }
@@ -143,20 +104,7 @@ macro_rules! persistence_native {
             method: Box::new(method),
             done,
         };
-        let send = if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
-        };
-        send.map_err(|error| format!("capacity lease commit join error: {error}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
+        self.enqueue(graph_fname, cmd, "capacity lease commit").await?;
         rx.await
             .map_err(|_| "redb writer dropped capacity lease completion".to_string())?
     }

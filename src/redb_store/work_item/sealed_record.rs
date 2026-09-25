@@ -13,8 +13,6 @@ use eg_types::sealed_record::RetireSealedRecordRequest;
 
 use super::*;
 
-type NodeRow = serde_json::Map<String, serde_json::Value>;
-
 /// Resolve one retirement against the stored row and write the tombstone when it
 /// retires the record.
 pub(crate) fn apply_retire_sealed_record_row(
@@ -24,12 +22,7 @@ pub(crate) fn apply_retire_sealed_record_row(
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     request.validate()?;
-    let stored: Option<NodeRow> = nodes
-        .get((graph, request.node_id.as_str()))?
-        .map(|value| crypto.unseal(value.value()))
-        .transpose()?
-        .map(|bytes| decode_durable(&bytes))
-        .transpose()?;
+    let stored = super::control_lease::load_row(nodes, graph, &request.node_id, crypto)?;
     let resolution = request.resolve(stored.as_ref());
     if let Some(row) = &resolution.write {
         let bytes = rmp_serde::to_vec_named(row).map_err(|error| error.to_string())?;

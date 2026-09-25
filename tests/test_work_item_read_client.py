@@ -13,6 +13,8 @@ from epistemic_graph.client import (
     WorkItemClient,
 )
 
+from _client_send_stub import CapturingEngine as _Engine
+
 pytestmark = pytest.mark.no_engine
 
 VIEW: dict[str, Any] = {
@@ -25,22 +27,6 @@ VIEW: dict[str, Any] = {
     "updated_at_ms": 1_000,
 }
 
-
-class _Engine:
-    def __init__(self, answer: object) -> None:
-        self.answer = answer
-        self.sent: list[tuple[str, object]] = []
-
-    async def _send(
-        self,
-        method: str,
-        params: object,
-        graph: object,
-        *,
-        idempotency_key: object,
-    ) -> object:
-        self.sent.append((method, params))
-        return self.answer
 
 
 def _work_items(engine: _Engine) -> WorkItemClient:

@@ -80,6 +80,13 @@ fn refused(response: &Response) -> bool {
         .is_some_and(|error| error.contains("create-only"))
 }
 
+async fn served_with_snapshot() -> Served {
+    let mut served = Served::new();
+    let create = served.send(add_node("snap", snapshot("{}"))).await;
+    assert!(create.error.is_none(), "create: {:?}", create.error);
+    served
+}
+
 /// Creating a sealed record, rewriting it identically and retrying its
 /// create-if-absent all succeed; the row keeps its content.
 #[tokio::test]
@@ -112,9 +119,7 @@ async fn sealed_records_can_be_created_and_idempotently_rewritten() {
 /// and the stored record is unchanged afterwards.
 #[tokio::test]
 async fn generic_writes_cannot_change_or_remove_a_sealed_record() {
-    let mut served = Served::new();
-    let create = served.send(add_node("snap", snapshot("{}"))).await;
-    assert!(create.error.is_none(), "create: {:?}", create.error);
+    let mut served = served_with_snapshot().await;
 
     let attempts = [
         add_node("snap", snapshot("{\"forged\":1}")),
@@ -204,9 +209,7 @@ fn outcome(response: &Response) -> serde_json::Value {
 /// and no generic write can revive the id or forge a tombstone elsewhere.
 #[tokio::test]
 async fn retirement_is_the_owning_op_and_leaves_an_audited_tombstone() {
-    let mut served = Served::new();
-    let create = served.send(add_node("snap", snapshot("{}"))).await;
-    assert!(create.error.is_none(), "create: {:?}", create.error);
+    let mut served = served_with_snapshot().await;
 
     let wrong = outcome(&served.send(retire("sha256:ff", "retire-wrong")).await);
     assert_eq!(wrong["outcome"], "digest_mismatch");
