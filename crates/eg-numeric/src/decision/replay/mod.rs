@@ -129,7 +129,11 @@ impl Replayer<'_> {
             ));
         }
         let applied = proportional(&requests, self.cap);
-        let utility = applied.iter().zip(&step.utilities).map(|(a, u)| a * u).sum();
+        let utility = applied
+            .iter()
+            .zip(&step.utilities)
+            .map(|(a, u)| a * u)
+            .sum();
         Ok(Decided {
             applied: Some(applied),
             utility,
@@ -158,7 +162,12 @@ impl Replayer<'_> {
         }
     }
 
-    fn credit(&self, contributions: &mut BTreeMap<String, (f64, f64)>, index: usize, applied: &[f64]) {
+    fn credit(
+        &self,
+        contributions: &mut BTreeMap<String, (f64, f64)>,
+        index: usize,
+        applied: &[f64],
+    ) {
         let step = &self.steps[index];
         for ((id, amount), utility) in step.option_ids.iter().zip(applied).zip(&step.utilities) {
             let entry = contributions.entry(id.clone()).or_insert((0.0, 0.0));
