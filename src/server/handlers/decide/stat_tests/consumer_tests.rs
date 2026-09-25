@@ -100,6 +100,99 @@ async fn logged_abstention(h: &Harness) -> DecisionLogCommitted {
 }
 
 #[tokio::test]
+async fn decision_log_read_list_provenance_visibility_and_cursor() {
+    let h = Harness::new().await;
+    let first = declared_abstention(&h).await;
+    let second = decide(
+        &h,
+        declared_request(
+            &first.inputs.feature_schema,
+            vec![
+                declared("plan-other", 1 << 31),
+                declared("plan-safe", 1 << 32),
+            ],
+        ),
+    )
+    .await
+    .unwrap()
+    .records
+    .as_slice()[0]
+        .clone();
+    assert_ne!(first.record_id, second.record_id);
+    for record in [&first, &second] {
+        let committed: DecisionLogCommitted = decode(
+            log_op(
+                &h,
+                "decider",
+                DecisionLogOp::Commit {
+                    record: Box::new(record.clone()),
+                    evaluator: None,
+                },
+            )
+            .await,
+        )
+        .unwrap();
+        assert_eq!(committed.record_id, record.record_id);
+    }
+    let own_page = |after: Option<String>| DecisionLogOp::List {
+        tenant_id: TENANT.to_string(),
+        after,
+        limit: 1,
+    };
+    let page1: DecisionLogPage = decode(log_op(&h, "decider", own_page(None)).await).unwrap();
+    assert_eq!(page1.entries.len(), 1);
+    let cursor = page1.next_cursor.clone().expect("a second visible record");
+    assert_eq!(cursor, page1.entries[0].record.record_id);
+    let page2: DecisionLogPage =
+        decode(log_op(&h, "decider", own_page(Some(cursor))).await).unwrap();
+    assert_eq!(page2.entries.len(), 1);
+    assert_ne!(
+        page2.entries[0].record.record_id,
+        page1.entries[0].record.record_id
+    );
+    assert!(page2.next_cursor.is_none());
+
+    let hidden: DecisionLogPage = decode(log_op(&h, "stranger", own_page(None)).await).unwrap();
+    assert!(hidden.entries.is_empty());
+    assert!(hidden.next_cursor.is_none());
+    let foreign = decode::<DecisionLogPage>(
+        log_op(
+            &h,
+            "decider",
+            DecisionLogOp::List {
+                tenant_id: "foreign-tenant".to_string(),
+                after: None,
+                limit: 1,
+            },
+        )
+        .await,
+    );
+    assert!(foreign.unwrap_err().starts_with("ACCESS_DENIED"));
+
+    let resolved = resolve(
+        &h,
+        resolution(
+            &first.record_id,
+            "r-provenance",
+            "plan-deep",
+            AbstentionResolver::Human,
+        ),
+    )
+    .await
+    .unwrap();
+    let provenance = |record_id: &str| DecisionLogOp::Provenance {
+        tenant_id: TENANT.to_string(),
+        record_id: record_id.to_string(),
+    };
+    let visible: Option<DecisionLogProvenance> =
+        decode(log_op(&h, "decider", provenance(&first.record_id)).await).unwrap();
+    assert_eq!(visible.unwrap().resolutions, vec![resolved]);
+    let hidden: Option<DecisionLogProvenance> =
+        decode(log_op(&h, "stranger", provenance(&first.record_id)).await).unwrap();
+    assert!(hidden.is_none());
+}
+
+#[tokio::test]
 async fn declared_options_decide_as_claims_under_the_declaring_principal() {
     let h = Harness::new().await;
     let record = declared_abstention(&h).await;
