@@ -14,9 +14,9 @@ use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 use super::capability::{
     FullFetch, KeyLookup, LimitPushdown, Paging, RemoteRequest, SourceCapabilities,
 };
-use super::remote::RemoteFetch;
+use super::remote::{Identity, RemoteFetch};
 use super::run::Fragment;
-use super::stats::{fingerprint, Fingerprint};
+use super::stats::fingerprint;
 use super::{FederationBudget, FederationSession, FetchStrategy, BUDGET_EXCEEDED, REQUIRES_KEYS};
 use crate::algebra::Op;
 use crate::exec::{execute, PlanCtx};
@@ -330,7 +330,7 @@ struct Scripted {
     catalog: Vec<String>,
     max_ok: usize,
     calls: AtomicUsize,
-    fp: Fingerprint,
+    identity: Identity,
 }
 
 impl Scripted {
@@ -339,7 +339,10 @@ impl Scripted {
             catalog,
             max_ok,
             calls: AtomicUsize::new(0),
-            fp: fingerprint(tag.as_bytes()),
+            identity: Identity {
+                label: "scripted".into(),
+                fingerprint: fingerprint(tag.as_bytes()),
+            },
         }
     }
 }
@@ -353,11 +356,8 @@ impl RemoteFetch for Scripted {
             full_fetch: FullFetch::Allowed,
         }
     }
-    fn label(&self) -> String {
-        "scripted".into()
-    }
-    fn fingerprint(&self) -> Fingerprint {
-        self.fp
+    fn identity(&self) -> &Identity {
+        &self.identity
     }
     fn fetch(&self, request: &RemoteRequest) -> Result<RowSet, String> {
         self.calls.fetch_add(1, Ordering::SeqCst);

@@ -16,7 +16,6 @@ use super::capability::{
     FullFetch, KeyLookup, LimitPushdown, Paging, RemoteRequest, SourceCapabilities,
 };
 use super::remote::{Identity, RemoteFetch};
-use super::stats::Fingerprint;
 use crate::rowset::RowSet;
 use crate::sql_text::{quote_identifier, render_literal, validate_identifier, SqlDialect};
 
@@ -102,12 +101,8 @@ impl RemoteFetch for SqlRemote<'_> {
         }
     }
 
-    fn label(&self) -> String {
-        self.identity.label.clone()
-    }
-
-    fn fingerprint(&self) -> Fingerprint {
-        self.identity.fingerprint
+    fn identity(&self) -> &Identity {
+        &self.identity
     }
 
     fn fetch(&self, request: &RemoteRequest) -> Result<RowSet, String> {

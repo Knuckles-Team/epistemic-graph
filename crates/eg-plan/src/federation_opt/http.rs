@@ -22,7 +22,6 @@ use super::capability::{
     FullFetch, KeyLookup, LimitPushdown, Paging, RemoteRequest, SourceCapabilities,
 };
 use super::remote::{Identity, RemoteFetch};
-use super::stats::Fingerprint;
 use crate::rowset::RowSet;
 
 /// The longest concrete URL (mirrors the HTTP/JSON source's own cap).
@@ -171,12 +170,8 @@ impl RemoteFetch for HttpRemote<'_> {
         }
     }
 
-    fn label(&self) -> String {
-        self.identity.label.clone()
-    }
-
-    fn fingerprint(&self) -> Fingerprint {
-        self.identity.fingerprint
+    fn identity(&self) -> &Identity {
+        &self.identity
     }
 
     fn fetch(&self, request: &RemoteRequest) -> Result<RowSet, String> {

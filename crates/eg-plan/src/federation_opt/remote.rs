@@ -13,9 +13,14 @@ use crate::rowset::RowSet;
 /// first `limit` rows of its own order (when a limit is given), or the given page.
 pub(crate) trait RemoteFetch {
     fn capabilities(&self) -> SourceCapabilities;
+    fn identity(&self) -> &Identity;
     /// `<kind>[:<name>]#<fingerprint>` — never a URL, DSN or credential.
-    fn label(&self) -> String;
-    fn fingerprint(&self) -> Fingerprint;
+    fn label(&self) -> String {
+        self.identity().label.clone()
+    }
+    fn fingerprint(&self) -> Fingerprint {
+        self.identity().fingerprint
+    }
     fn fetch(&self, request: &RemoteRequest) -> Result<RowSet, String>;
     /// How many of `keys` (a prefix) fit in one request; at least 1 when `keys` is non-empty.
     fn fit_keys(&self, keys: &[String]) -> usize {
@@ -78,11 +83,8 @@ impl RemoteFetch for Opaque<'_> {
     fn capabilities(&self) -> SourceCapabilities {
         SourceCapabilities::fetch_only()
     }
-    fn label(&self) -> String {
-        self.identity.label.clone()
-    }
-    fn fingerprint(&self) -> Fingerprint {
-        self.identity.fingerprint
+    fn identity(&self) -> &Identity {
+        &self.identity
     }
     fn fetch(&self, _request: &RemoteRequest) -> Result<RowSet, String> {
         match &self.source {
