@@ -76,6 +76,7 @@ from .generated.server_registry import (
     RegisteredServerListRequest,
     RegisteredServerView,
 )
+from .ontology_pack import compile_ontology_pack, compile_ontology_proposal
 from .parser import RustASTParser
 from .policy_evolution import PolicyEvolutionClient, PolicyEvolutionRefused
 
@@ -104,6 +105,8 @@ _add_editable_native_overlay()
 
 __all__ = [
     "EpistemicGraphClient",
+    "compile_ontology_pack",
+    "compile_ontology_proposal",
     "ConnectorPackClient",
     "ConnectorPackArchive",
     "ConnectorPackArchiveBuilder",
