@@ -90,7 +90,20 @@ fn block(src: &str, open: &Token, close: &Token) -> Spanned {
     )
 }
 
+fn punctuation(kind: &UqlTok) -> Option<Tok> {
+    match kind {
+        UqlTok::LBracket => Some(Tok::LBracket),
+        UqlTok::RBracket => Some(Tok::RBracket),
+        UqlTok::Comma => Some(Tok::Comma),
+        UqlTok::Pipe => Some(Tok::Pipe),
+        _ => None,
+    }
+}
+
 fn word_or_punct(src: &str, token: &Token) -> Result<Tok, DecideTextError> {
+    if let Some(punct) = punctuation(&token.kind) {
+        return Ok(punct);
+    }
     let span = (token.start, token.end);
     Ok(match &token.kind {
         UqlTok::Ident(word) | UqlTok::QIdent(word) => Tok::Word(word.clone()),
@@ -98,10 +111,6 @@ fn word_or_punct(src: &str, token: &Token) -> Result<Tok, DecideTextError> {
         UqlTok::Num(_) => Tok::Word(src[token.start..token.end].to_string()),
         UqlTok::Str(text) => Tok::Str(text.clone()),
         UqlTok::Param(name) => Tok::Param(name.clone()),
-        UqlTok::LBracket => Tok::LBracket,
-        UqlTok::RBracket => Tok::RBracket,
-        UqlTok::Comma => Tok::Comma,
-        UqlTok::Pipe => Tok::Pipe,
         UqlTok::At => return Err(at_sign(span)),
         other => return Err(syntax(format!("unexpected {other} in DecideText"), span)),
     })

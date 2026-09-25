@@ -229,17 +229,18 @@ fn reliability_with_channels(
     Ok((rows, channels))
 }
 
-/// SOURCE (`Scan`) and FILTER (`Filter`/`Traverse`), the RANK family, and TIME
-/// (`AsOf`/`Window`/`WindowAgg`) + FEDERATION marker (`Foreign`) + `Limit` — every
-/// always-on tier (none of the three groups carries any `#[cfg]` of its own; the
-/// `text`-gated lexical `RankText` lives in [`apply_text_and_owl`]). All three share
-/// one top-level `apply` arm purely to keep its own arm count down; each group's own
-/// checks live in [`apply_ranking`] / [`apply_temporal_and_limit`] so this dispatcher's
-/// own complexity stays minimal.
-pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+/// Graph scans share one physical tier; the dispatcher has already selected it.
+fn apply_graph_scan(op: &Op, ctx: &PlanCtx) -> RowSet {
     match op {
-        Op::Scan { label } => Ok(scan_label(ctx.view, label)),
-        Op::ScanAll {} => Ok(expand::scan_all(ctx.view)),
+        Op::Scan { label } => scan_label(ctx.view, label),
+        Op::ScanAll {} => expand::scan_all(ctx.view),
+        _ => unreachable!("apply_core_ops routed a non-scan Op"),
+    }
+}
+
+/// Relational filtering and graph navigation share the same incoming rows.
+fn apply_graph_navigation(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
         Op::Filter { preds } => filter_op(ctx, preds, input),
         Op::Traverse { rel, min, max } => traverse_op(ctx, rel, *min, *max, input),
         Op::Expand {
@@ -254,6 +255,19 @@ pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<Ro
                 preds: edge_preds,
             };
             expand::expand_op(ctx.view, &input, *dir, (*min, *max), &filter, &ctx.budget)
+        }
+        _ => unreachable!("apply_core_ops routed a non-navigation Op"),
+    }
+}
+
+/// SOURCE (`Scan`) and FILTER (`Filter`/`Traverse`), the RANK family, and TIME
+/// (`AsOf`/`Window`/`WindowAgg`) + FEDERATION marker (`Foreign`) + `Limit` — every
+/// always-on tier. The lexical `RankText` lives in [`apply_text_and_owl`].
+pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        Op::Scan { .. } | Op::ScanAll {} => Ok(apply_graph_scan(op, ctx)),
+        Op::Filter { .. } | Op::Traverse { .. } | Op::Expand { .. } => {
+            apply_graph_navigation(op, input, ctx)
         }
         Op::Propagate { .. } => super::propagate::apply(op, &input, ctx),
         // Channel selection is applied where the result is encoded; rows pass through.

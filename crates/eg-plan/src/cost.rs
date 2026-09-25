@@ -726,6 +726,23 @@ pub struct ModalityCardinality {
 
 #[cfg(feature = "query")]
 impl ModalityCardinality {
+    fn source_rows_out(&self, op: &Op, n: f64) -> f64 {
+        match op {
+            Op::Scan { .. } => (n * Self::LABEL_SEL).max(0.0),
+            Op::ScanAll {} => n,
+            _ => unreachable!("static_rows_out routed a non-scan source"),
+        }
+    }
+
+    fn graph_walk_rows_out(&self, op: &Op, in_card: f64, n: f64) -> f64 {
+        let (min, max) = match op {
+            Op::Traverse { min, max, .. } | Op::Expand { min, max, .. } => (*min, *max),
+            Op::Propagate { hops, .. } => (0, *hops),
+            _ => unreachable!("static_rows_out routed a non-graph walk"),
+        };
+        rowcount::traverse_static_rows_out(self, in_card, min, max, n)
+    }
+
     /// Bind the estimator to a collected catalog.
     pub fn new(stats: PlanStats) -> Self {
         Self { stats }
@@ -986,18 +1003,13 @@ impl ModalityCardinality {
         let n = self.stats.node_count as f64;
         match op {
             // SOURCE: a label selects a fraction of the graph (no per-label catalog).
-            Op::Scan { .. } => (n * Self::LABEL_SEL).max(0.0),
-            // SOURCE: every node.
-            Op::ScanAll {} => n,
+            Op::Scan { .. } | Op::ScanAll {} => self.source_rows_out(op, n),
             // FILTER: input × per-predicate selectivity product.
             Op::Filter { preds } => in_card * self.filter_selectivity(preds),
             // TRAVERSE: degree histogram × path length, deduped, capped at the graph size.
-            Op::Traverse { min, max, .. } | Op::Expand { min, max, .. } => {
-                rowcount::traverse_static_rows_out(self, in_card, *min, *max, n)
-            }
-            // PROPAGATE: the seeds plus their downstream cone within the hop bound.
-            Op::Propagate { hops, .. } => {
-                rowcount::traverse_static_rows_out(self, in_card, 0, *hops, n)
+            // PROPAGATE shares the walk estimator, with a zero minimum hop.
+            Op::Traverse { .. } | Op::Expand { .. } | Op::Propagate { .. } => {
+                self.graph_walk_rows_out(op, in_card, n)
             }
             // RANK: a rerank preserves the candidate set MINUS rows with no embedding
             // (recall coverage); as a SOURCE (empty input) it is a top-k over the index.
