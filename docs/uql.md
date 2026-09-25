@@ -392,6 +392,22 @@ and time).
 UQL 1; EXPLAIN MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]-> |> LIMIT 10
 ```
 
+Federated queries may tighten the server's remote-work budget after `EXPLAIN` or
+`PROFILE`, before any `LET` binding or pipeline. The four positive integer limits
+are optional and cannot raise the server's configured limits. A query that exhausts
+one returns `FEDERATION_BUDGET_EXCEEDED:<dimension>` without partial rows.
+
+```uql
+PROFILE FEDERATION BUDGET (REQUESTS 4, ROWS 1000, BIND_KEYS 100, WALL_MS 5000)
+FOREIGN 'catalog' |> LIMIT 10
+```
+
+`EXPLAIN` includes a `federation` list of planned remote stages alongside the local
+`stages` list, without executing a source. `PROFILE` includes measured remote
+fragments in execution order: safe source label, strategy, pushed keys and limit,
+request count, fetched and kept rows, elapsed time and estimate provenance. It
+does not include source URLs, DSNs, credentials or key values.
+
 Programs take all three modes too (EH-449). A program runs node by node exactly as written —
 there is no DAG cost reordering — so `EXPLAIN` reports the program as both its canonical and
 its optimized plan, one stage per node (`#2 <- #0,#1 RERANK MENTIONS`, with the node's cost
