@@ -56,6 +56,7 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("CAPACITY_DENIED", "capacity"),
     ("ENGINE_RESOURCE_EXHAUSTED", "capacity"),
     ("REPOSITORY_BATCH_TOO_LARGE", "capacity"),
+    ("SOURCE_INGESTION_BATCH_TOO_LARGE", "capacity"),
     ("UQL_BUDGET_EXCEEDED", "capacity"),
     ("REDIRECTED", "availability"),
     ("OPERATION_REDIRECTED", "availability"),
@@ -140,6 +141,7 @@ const HTTP_HINTS: &[(&str, u16)] = &[
     ("GRAPH_NOT_FOUND", 404),
     ("TELEMETRY_WINDOW_TOO_LARGE", 413),
     ("REPOSITORY_BATCH_TOO_LARGE", 413),
+    ("SOURCE_INGESTION_BATCH_TOO_LARGE", 413),
 ];
 
 fn http_status_hint(code: &str) -> u16 {

@@ -426,6 +426,12 @@ fn declared_response_error_separates_code_and_detail() {
         repository_limit.error_detail.as_deref(),
         Some("split the batch")
     );
+    let source_limit = Response::err(7, "SOURCE_INGESTION_BATCH_TOO_LARGE: split the page");
+    assert_eq!(
+        source_limit.error.as_deref(),
+        Some("SOURCE_INGESTION_BATCH_TOO_LARGE")
+    );
+    assert_eq!(source_limit.error_detail.as_deref(), Some("split the page"));
 }
 
 #[test]

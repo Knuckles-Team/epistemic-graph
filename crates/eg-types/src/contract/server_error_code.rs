@@ -89,6 +89,7 @@ closed_error_codes! {
         SourceAuthoritativeLiveIdInvalid => "SOURCE_AUTHORITATIVE_LIVE_ID_INVALID",
         SourceAuthoritativeLiveIdUnknown => "SOURCE_AUTHORITATIVE_LIVE_ID_UNKNOWN",
         SourceAuthoritativeLiveIdWithdrawn => "SOURCE_AUTHORITATIVE_LIVE_ID_WITHDRAWN",
+        SourceIngestionBatchTooLarge => "SOURCE_INGESTION_BATCH_TOO_LARGE",
         SourceIngestionReplayConflict => "SOURCE_INGESTION_REPLAY_CONFLICT",
         SourceIngestionReplayInvalid => "SOURCE_INGESTION_REPLAY_INVALID",
         SourceIngestionStatusInvalid => "SOURCE_INGESTION_STATUS_INVALID",

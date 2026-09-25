@@ -262,5 +262,13 @@ mod tests {
             "CreateGraph",
             "REPOSITORY_BATCH_TOO_LARGE"
         ));
+        assert!(method_allows_error(
+            "SourceIngest",
+            "SOURCE_INGESTION_BATCH_TOO_LARGE"
+        ));
+        assert!(!method_allows_error(
+            "CreateGraph",
+            "SOURCE_INGESTION_BATCH_TOO_LARGE"
+        ));
     }
 }
