@@ -76,11 +76,11 @@ fn a_server_resolves_by_its_address() {
     let entities = [declared(
         EntityClass::Server,
         "srv:gb10",
-        &[("server.address", "gb10.arpa")],
+        &[("server.address", "server.example.test")],
     )];
     let directory = EntityDirectory::build(&policy, &entities);
     assert_eq!(
-        directory.resolve(&log_with(&[("server.address", "gb10.arpa")])),
+        directory.resolve(&log_with(&[("server.address", "server.example.test")])),
         bound(entity(EntityClass::Server, "srv:gb10"), "otel.server")
     );
 }
