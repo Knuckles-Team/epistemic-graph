@@ -1,5 +1,5 @@
 //! Named evaluators (EH-395): the committer of a decision names the one
-//! principal allowed to evaluate it.
+//! principal -- or the one declared policy role -- allowed to evaluate it.
 //!
 //! The grant is a control lease of kind `decision.evaluation` (the ControlLease
 //! lifecycle, timing bounds and 24-hour span cap, reused as-is), stored in the
@@ -7,10 +7,13 @@
 //! transaction as the record, so a record never exists with a half-issued
 //! grant. It is read-only, record-scoped and expiring:
 //!
-//! * the named principal may join evaluations to exactly this record until the
-//!   lease expires -- and nothing else: `get`, the SQL views, aggregates and
-//!   every other read still filter by the record's own visibility;
-//! * the committer may not name itself (self-evaluation is never independent);
+//! * the named principal -- or any verified principal whose signed request
+//!   context carries the named role -- may join evaluations to exactly this
+//!   record until the lease expires, and nothing else: `get`, the SQL views,
+//!   aggregates and every other read still filter by the record's own
+//!   visibility;
+//! * the committer may not name itself, and never evaluates through a role it
+//!   also holds (self-evaluation is never independent);
 //! * every evaluation admitted through a grant is audited.
 
 use eg_types::control_lease::{
@@ -28,6 +31,8 @@ use crate::server::persistence::decision_jobs::{decode_artifact, encode_artifact
 
 /// Prefix of a persistence id a grant may name.
 const PRINCIPAL_PREFIX: &str = "principal:sha256:";
+/// Longest role name a grant may name.
+const MAX_ROLE_BYTES: usize = 128;
 
 fn lease_key(record_id: &str) -> String {
     format!("evaluator-lease:{record_id}")
@@ -45,7 +50,12 @@ fn issue_request(
 ) -> IssueControlLeaseRequest {
     let mut grant = Map::new();
     grant.insert("record_id".into(), record_id.into());
-    grant.insert("evaluator".into(), evaluator.principal.clone().into());
+    if let Some(principal) = &evaluator.principal {
+        grant.insert("evaluator".into(), principal.clone().into());
+    }
+    if let Some(role) = &evaluator.role {
+        grant.insert("evaluator_role".into(), role.clone().into());
+    }
     grant.insert("committed_by".into(), committer.into());
     IssueControlLeaseRequest {
         tenant: ctx.tenant_id.to_string(),
@@ -59,9 +69,34 @@ fn issue_request(
     }
 }
 
+/// Whom `evaluator` names, refused unless it is exactly one well-formed
+/// principal other than `committer`, or one plain role name.
+fn check_named(evaluator: &NamedEvaluator, committer: &str) -> Result<(), String> {
+    match (evaluator.principal.as_deref(), evaluator.role.as_deref()) {
+        (Some(principal), None) if !principal.starts_with(PRINCIPAL_PREFIX) => {
+            Err(invalid("a named evaluator is a principal persistence id"))
+        }
+        (Some(principal), None) if principal == committer => {
+            Err(invalid("a decision's committer cannot evaluate it"))
+        }
+        (Some(_), None) => Ok(()),
+        (None, Some(role)) if plain_role(role) => Ok(()),
+        (None, Some(_)) => Err(invalid(
+            "an evaluator role is a non-empty role name of at most 128 bytes, no wildcard",
+        )),
+        (Some(_), Some(_)) | (None, None) => {
+            Err(invalid("a named evaluator is exactly one principal or one role"))
+        }
+    }
+}
+
+fn plain_role(role: &str) -> bool {
+    !role.is_empty() && role.len() <= MAX_ROLE_BYTES && !role.contains('*')
+}
+
 /// The grant rows a commit writes with its record: none, or the one lease
-/// naming `evaluator`. Refuses self-evaluation, a malformed principal and any
-/// timing outside the control-lease bounds.
+/// naming `evaluator`. Refuses self-evaluation, a malformed principal or role
+/// and any timing outside the control-lease bounds.
 pub(super) fn grant_rows(
     ctx: &ExecutionContext,
     record_id: &str,
@@ -71,24 +106,30 @@ pub(super) fn grant_rows(
     let Some(evaluator) = evaluator else {
         return Ok(Vec::new());
     };
-    if !evaluator.principal.starts_with(PRINCIPAL_PREFIX) {
-        return Err(invalid("a named evaluator is a principal persistence id"));
-    }
-    if evaluator.principal == committer {
-        return Err(invalid("a decision's committer cannot evaluate it"));
-    }
+    check_named(evaluator, committer)?;
     let request = issue_request(ctx, record_id, committer, evaluator);
     request.validate_body().map_err(invalid)?;
     let view = ControlLeaseView::from_row(&request.lease_id, &request.row())?;
     Ok(vec![(lease_key(record_id), encode_artifact(&view)?)])
 }
 
+/// Whether the grant names `reader`: its principal, or a role it holds when
+/// it is not the committer.
+fn names(view: &ControlLeaseView, reader: &LogReader) -> bool {
+    let field = |key: &str| view.grant.get(key).and_then(Value::as_str);
+    let by_principal = field("evaluator") == Some(reader.principal.as_str());
+    let by_role = field("evaluator_role").is_some_and(|role| {
+        field("committed_by") != Some(reader.principal.as_str())
+            && reader.roles.iter().any(|held| held == role)
+    });
+    by_principal || by_role
+}
+
 fn grants(view: &ControlLeaseView, reader: &LogReader, now_ms: u64) -> bool {
-    let named = view.grant.get("evaluator").and_then(Value::as_str);
     view.kind == DECISION_EVALUATION_LEASE_KIND
         && view.status == ControlLeaseStatus::Active
         && now_ms < view.expires_at_ms
-        && named == Some(reader.principal.as_str())
+        && names(view, reader)
 }
 
 fn granted_entry(

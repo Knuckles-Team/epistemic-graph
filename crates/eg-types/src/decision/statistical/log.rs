@@ -58,21 +58,29 @@ pub struct DecisionOutcomeEvaluation {
     pub success: Option<bool>,
 }
 
-/// The one principal a committer names to evaluate its record (EH-395).
+/// Who a committer names to evaluate its record (EH-395): ONE principal, or
+/// the holders of ONE declared policy role.
 ///
 /// A record visible only to its committer (a graph-sourced or declared one)
 /// could otherwise never be judged independently. Naming an evaluator issues
 /// a control lease of kind [`crate::control_lease::DECISION_EVALUATION_LEASE_KIND`]
-/// that lets exactly that principal join evaluations to exactly this
-/// record until it expires: it cannot read, list or count the record, and
-/// nothing else widens. The evaluator is never the committer.
+/// that lets exactly that principal -- or any verified principal whose signed
+/// request context carries `role`, other than the committer -- join
+/// evaluations to exactly this record until it expires: it cannot read, list
+/// or count the record, and nothing else widens. The evaluator is never the
+/// committer. Exactly one of `principal` and `role` is set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct NamedEvaluator {
     /// The evaluator's persistence id (`principal:sha256:<hex>` of its
     /// verified principal).
-    pub principal: String,
+    #[serde(default)]
+    pub principal: Option<String>,
+    /// The declared policy role whose holders may evaluate (a role name of the
+    /// signed request context, e.g. `decide-evaluator`).
+    #[serde(default)]
+    pub role: Option<String>,
     /// When the grant lapses; at most the control-lease span after commit.
     pub expires_at_ms: u64,
 }

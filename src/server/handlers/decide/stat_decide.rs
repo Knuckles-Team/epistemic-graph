@@ -117,6 +117,7 @@ fn decide_blocking(
     let reader = LogReader {
         tenant_id: ctx.tenant_id.to_string(),
         principal: principal.clone(),
+        roles: Vec::new(),
         retention: super::stat_retention::Retention::none(),
     };
     fill_outcome_rates(
