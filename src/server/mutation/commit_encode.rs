@@ -16,12 +16,29 @@ use super::{
 /// [`super::conditional::commit_conditional_stage_and_diff`].
 pub(super) fn diff_and_serialize_staged_mutation(
     ctx: &MutationCtx<'_>,
+    method: &Method,
     base_snapshot_for_delta: &crate::graph::GraphSnapshot,
     staged_snapshot: &crate::graph::GraphSnapshot,
 ) -> Result<(crate::graph_delta::GraphRowDelta, Vec<u8>), Response> {
-    let row_delta = match crate::graph_delta::GraphRowDelta::between(
+    let admission = match (method, ctx.caller) {
+        (
+            Method::CreateNodeIfAbsent {
+                node_id,
+                properties_msgpack,
+            },
+            Some(owner),
+        ) if node_id.starts_with("usage:event:") => Some((
+            ctx.tenant_scope,
+            owner,
+            node_id.as_str(),
+            properties_msgpack.as_slice(),
+        )),
+        _ => None,
+    };
+    let row_delta = match crate::graph_delta::GraphRowDelta::between_with_usage_append(
         base_snapshot_for_delta,
         staged_snapshot,
+        admission,
     ) {
         Ok(delta) => delta,
         Err(error) => {

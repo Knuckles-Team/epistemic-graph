@@ -182,10 +182,11 @@ where
     {
         return response;
     }
-    let staged = match commit_mutation_body_stage_and_diff(ctx, persistence, fname, apply).await {
-        Ok(staged) => staged,
-        Err(response) => return response,
-    };
+    let staged =
+        match commit_mutation_body_stage_and_diff(ctx, method, persistence, fname, apply).await {
+            Ok(staged) => staged,
+            Err(response) => return response,
+        };
     commit_mutation_body_commit_staged(
         ctx,
         plan,
@@ -210,6 +211,7 @@ where
 /// row delta + its serialized/size-checked state blob.
 pub(super) async fn commit_mutation_body_stage_and_diff<F>(
     ctx: &MutationCtx<'_>,
+    method: &Method,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
     apply: F,
@@ -251,8 +253,12 @@ where
         ));
     }
     let staged_snapshot = staged.snapshot();
-    let (row_delta, state_msgpack) =
-        diff_and_serialize_staged_mutation(ctx, &base_snapshot_for_delta, &staged_snapshot)?;
+    let (row_delta, state_msgpack) = diff_and_serialize_staged_mutation(
+        ctx,
+        method,
+        &base_snapshot_for_delta,
+        &staged_snapshot,
+    )?;
     Ok(StagedMutation {
         payload,
         row_delta,

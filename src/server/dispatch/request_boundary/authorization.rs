@@ -239,6 +239,18 @@ pub(crate) async fn check_scope_and_admin_authority(
     action: &'static str,
     mutates: bool,
 ) -> Result<(), Response> {
+    // The ordinary node:write grant is insufficient for the reserved billing
+    // namespace. This is checked on the verified envelope before Raft proposal
+    // or any local gateway path can observe the method body.
+    if matches!(&req.method, Method::CreateNodeIfAbsent { node_id, .. } if node_id.starts_with("usage:event:"))
+        && !verified_context.allows_action("usage:write")
+    {
+        crate::metrics::access_denied();
+        return Err(Response::err(
+            req.id,
+            "ACCESS_DENIED: reserved usage append requires verified usage:write scope",
+        ));
+    }
     check_resource_and_capacity_scope(req, verified_context, authority).await?;
     // The tenant in a resource body is a correlation, not an authority claim.
     // Bind ordinary callers to the verified request tenant before the native

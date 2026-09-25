@@ -40,6 +40,9 @@ pub(super) fn commit_prepare(
     plan: &MutationPlan,
     method: &Method,
 ) -> Result<CommitPrep, Response> {
+    if let Err(error) = reject_reserved_usage_target(ctx, method) {
+        return Err(Response::err(ctx.req_id, error));
+    }
     // 1. Authz -- the SAME isolation ACL check every other graph-scoped method
     // goes through, driven by the plan's `mutates` flag. (A read-only invocation of
     // a runtime-conditional method never reaches here — see
@@ -98,6 +101,71 @@ pub(super) fn commit_prepare(
         #[cfg(feature = "streaming")]
         cdc_pre,
     })
+}
+
+fn reject_reserved_usage_target(ctx: &MutationCtx<'_>, method: &Method) -> Result<(), String> {
+    const PREFIX: &str = "usage:event:";
+    let direct = match method {
+        Method::AddNode { node_id, .. }
+        | Method::RemoveNode { node_id }
+        | Method::CompareAndSetNodeFields { node_id, .. }
+        | Method::AddEmbedding { node_id, .. } => node_id.starts_with(PREFIX),
+        Method::AddEdge {
+            source_id,
+            target_id,
+            ..
+        }
+        | Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => source_id.starts_with(PREFIX) || target_id.starts_with(PREFIX),
+        _ => false,
+    };
+    if direct {
+        return Err("reserved usage event rows require CreateNodeIfAbsent".into());
+    }
+    if let Method::BatchUpdate { operations_msgpack } = method {
+        let operations = crate::algorithms::decode_batch_operations(operations_msgpack)?;
+        for operation in operations {
+            let reserved = match operation {
+                crate::algorithms::BatchOperation::AddNode { id, .. }
+                | crate::algorithms::BatchOperation::RemoveNode { id }
+                | crate::algorithms::BatchOperation::AddEmbedding { id, .. } => {
+                    id.starts_with(PREFIX)
+                }
+                crate::algorithms::BatchOperation::AddEdge { source, target, .. }
+                | crate::algorithms::BatchOperation::RemoveEdge { source, target } => {
+                    source.starts_with(PREFIX) || target.starts_with(PREFIX)
+                }
+            };
+            if reserved {
+                return Err("BatchUpdate cannot change reserved usage event rows".into());
+            }
+        }
+    }
+    if matches!(method, Method::ClearGraph) {
+        let resident = ctx
+            .core
+            .snapshot()
+            .nodes
+            .iter()
+            .any(|(id, _)| id.starts_with(PREFIX));
+        let durable = match ctx.persistence {
+            Some(backend) => backend
+                .read_usage_fact_nodes(
+                    &crate::persist::sanitize(ctx.graph_name),
+                    PREFIX,
+                    PREFIX,
+                    1,
+                )?
+                .is_some_and(|rows| !rows.is_empty()),
+            None => false,
+        };
+        if resident || durable {
+            return Err("ClearGraph cannot remove immutable usage event rows".into());
+        }
+    }
+    Ok(())
 }
 
 /// Steps 5-8 of the commit gateway: mark-dirty, durable commit (which for a redb
