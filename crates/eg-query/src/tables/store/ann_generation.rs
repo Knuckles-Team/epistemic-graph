@@ -227,6 +227,14 @@ impl TableStore {
             return Err("ANN generation metadata disagrees with registration".to_string());
         }
         let parts = generation.artifact_parts()?;
+        let artifact_bytes = parts.iter().try_fold(0usize, |total, (_, bytes)| {
+            total
+                .checked_add(bytes.len())
+                .ok_or("ANN generation byte bound overflow")
+        })?;
+        if artifact_bytes > MAX_GENERATION_BYTES {
+            return Err("ANN generation exceeds durable artifact byte bound".to_string());
+        }
         let mut part_rows = Vec::new();
         let mut descriptors = Vec::new();
         for (name, bytes) in parts {
