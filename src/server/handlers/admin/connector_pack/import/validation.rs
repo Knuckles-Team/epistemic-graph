@@ -204,6 +204,13 @@ impl<'a> IndexValidator<'a> {
             );
             return;
         };
+        // An in-range section covers its bytes whatever else is wrong with it,
+        // so an oversized section is reported as G2 alone, never also as a G4
+        // coverage gap it did not cause.
+        self.ranges.push((
+            section.offset,
+            section.offset.saturating_add(section.length),
+        ));
         if section.length > limit {
             self.reject(
                 PackViolationCode::PackTooLarge,
@@ -219,10 +226,6 @@ impl<'a> IndexValidator<'a> {
                 "section digest differs from archive bytes",
             );
         }
-        self.ranges.push((
-            section.offset,
-            section.offset.saturating_add(section.length),
-        ));
     }
 
     fn validate_body(&mut self, entry: &PackEntry, body: &[u8]) {
@@ -488,11 +491,15 @@ fn finish_validation(validator: &mut IndexValidator<'_>) {
     }
 }
 
+/// Kinds whose body is SDK-serialized JSON (G8): the server identity, a tool
+/// descriptor, a prompt's rendered `prompts/get` capture, a model profile and
+/// an A2A card. Every one goes through the one bounded parser.
 fn json_kind(kind: PackEntryKind) -> bool {
     matches!(
         kind,
         PackEntryKind::McpServer
             | PackEntryKind::Tool
+            | PackEntryKind::Prompt
             | PackEntryKind::ModelProfile
             | PackEntryKind::A2aCard
     )
@@ -823,7 +830,7 @@ pub(super) fn section_bytes<'a>(
         .ok_or_else(|| "section outside archive".to_string())
 }
 
-fn violation(code: PackViolationCode, uri: Option<&str>, detail: &str) -> PackViolation {
+pub(super) fn violation(code: PackViolationCode, uri: Option<&str>, detail: &str) -> PackViolation {
     PackViolation {
         code,
         uri: uri.map(str::to_string),
