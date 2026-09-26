@@ -438,12 +438,35 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // cost.rs's effective-memory budget.
     let host_capacity = server_startup::detect_capacity_and_log_startup(&args, tcp_tls.is_some());
 
+    // RF-019's EG observer needs the exclusive engine lease while the process
+    // is still offline. A fixed root-owned preflight helper verifies both
+    // global signed receipts and each tenant claim before returning bounded
+    // handoff facts. With no manifest, v2 startup continues and v3 stays closed.
+    #[cfg(feature = "ann-redb")]
+    let rf019_pending = server::preflight_rf019_activation(std::path::Path::new(
+        args.persist_dir
+            .as_deref()
+            .expect("persist dir was required"),
+    ))
+    .map_err(std::io::Error::other)?;
+
     // ── Single-writer durable-store guard ──────────────────────────────────
     // Refuse to start if another engine already owns this persist dir; hold the
     // lock for the whole process lifetime so no second engine can clobber our
     // authoritative rows (the engine-level complement to the Python spawn guard). Kept in
     // `_persist_lock` until run() returns; the kernel releases it on exit/crash.
     let _persist_lock = server_startup::acquire_persist_lock(args.persist_dir.as_deref());
+
+    #[cfg(feature = "ann-redb")]
+    server::install_rf019_activation(
+        rf019_pending,
+        std::path::Path::new(
+            args.persist_dir
+                .as_deref()
+                .expect("persist dir was required"),
+        ),
+    )
+    .map_err(std::io::Error::other)?;
 
     let limits = server_startup::admission_limits(&host_capacity);
     // OCC ACID transaction limits (CONCEPT:EG-KG.txn.multi-op-occ-acid).

@@ -349,6 +349,43 @@ pub mod semantic_activation;
 // code tier `semantic_index_service` needs.
 #[cfg(feature = "ann-redb")]
 pub(crate) mod semantic_index;
+
+#[cfg(feature = "ann-redb")]
+pub use semantic_index::PendingRf019Activation;
+
+#[cfg(feature = "ann-redb")]
+pub fn preflight_rf019_activation(
+    persist_dir: &std::path::Path,
+) -> Result<PendingRf019Activation, String> {
+    semantic_index::preflight_rf019_activation(persist_dir)
+}
+
+#[cfg(feature = "ann-redb")]
+pub fn install_rf019_activation(
+    pending: PendingRf019Activation,
+    persist_dir: &std::path::Path,
+) -> Result<(), String> {
+    semantic_index::install_rf019_activation(pending, persist_dir)
+}
+
+/// Operator-only, offline RF-019 observation. The public server route remains
+/// fenced until signed activation and serving are composed.
+#[cfg(feature = "ann-redb")]
+pub fn observe_rf019_tenant_owner(
+    persist_dir: &std::path::Path,
+    tenant: &str,
+    binding_ids: &[String],
+    max_source_bytes: u64,
+    max_owner_bytes: u64,
+) -> Result<serde_json::Value, String> {
+    semantic_index::observe_rf019_tenant_owner(
+        persist_dir,
+        tenant,
+        binding_ids,
+        max_source_bytes,
+        max_owner_bytes,
+    )
+}
 // Native visualization engine-side state (D-VZ-1 lane V4, "engine integration"):
 // a persistent (process-lifetime, not fresh-per-request) ColumnStore plus a
 // content-addressed render cache and durable render provenance. Gated the SAME
@@ -2636,7 +2673,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2807,7 +2847,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2830,7 +2873,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2855,7 +2901,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2880,7 +2929,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2906,7 +2958,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "CausalEstimate: expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2922,7 +2977,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "CausalCounterfactual: expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2937,7 +2995,10 @@ mod tests {
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err == "METHOD_NOT_YET_SERVED"
-                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
+                && resp
+                    .error_detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("not available in this server build")),
             "RankByProvenance: expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -5679,10 +5740,7 @@ mod tests {
             "a build without redb must not open a transaction, got ok={:?}",
             resp.result
         );
-        assert_eq!(
-            resp.error.as_deref(),
-            Some("ENGINE_UNAVAILABLE"),
-        );
+        assert_eq!(resp.error.as_deref(), Some("ENGINE_UNAVAILABLE"),);
         assert_eq!(
             state.read().await.open_txns.len(),
             0,

@@ -8,8 +8,59 @@
 
 #![cfg(feature = "ann-redb")]
 
-#[allow(dead_code)]
+mod activation;
 mod upgrade;
+
+pub use activation::PendingRf019Activation;
+
+pub fn preflight_rf019_activation(
+    persist_dir: &std::path::Path,
+) -> Result<PendingRf019Activation, String> {
+    activation::preflight(persist_dir)
+}
+
+pub fn install_rf019_activation(
+    pending: PendingRf019Activation,
+    persist_dir: &std::path::Path,
+) -> Result<(), String> {
+    activation::install(pending, persist_dir)
+}
+
+/// Offline RF-019 owner observation for the operator-pinned verifier binary.
+/// The observer takes EG's exclusive engine lease and derives every returned
+/// owner/row fact from the store. It never issues a serving grant.
+pub fn observe_rf019_tenant_owner(
+    persist_dir: &std::path::Path,
+    tenant: &str,
+    binding_ids: &[String],
+    max_source_bytes: u64,
+    max_owner_bytes: u64,
+) -> Result<serde_json::Value, String> {
+    let observed = upgrade::observe_promoted_tenant_owner(
+        persist_dir,
+        tenant,
+        binding_ids,
+        max_source_bytes,
+        max_owner_bytes,
+    )?;
+    let owner_path = observed
+        .owner_path
+        .to_str()
+        .ok_or_else(|| "RF-019 owner path is not UTF-8".to_string())?;
+    Ok(serde_json::json!({
+        "schema": "eg-rf019-tenant-migration-observation/v1",
+        "tenant_id": observed.tenant_id,
+        "binding_ids": observed.binding_ids,
+        "owner_path": owner_path,
+        "owner_device": observed.owner_device,
+        "owner_inode": observed.owner_inode,
+        "owner_size": observed.owner_size,
+        "owner_sha256": observed.owner_sha256,
+        "owner_layout_sha256": observed.owner_layout_sha256,
+        "source_census_sha256": observed.source_census_sha256,
+        "migration_proof_sha256": observed.migration_proof_sha256,
+    }))
+}
 
 #[cfg(feature = "query")]
 use std::path::PathBuf;
@@ -197,6 +248,13 @@ pub(crate) fn open_semantic_service(
     if tenant.is_empty() || binding_id.is_empty() {
         return Err("semantic owner requires a tenant and a binding".to_string());
     }
+    // A promoted v3 marker is never allowed to resolve a v2 file. Only the
+    // fixed prestart claim gate can populate the in-memory tenant grant.
+    if activation::has_grant(tenant)?
+        || std::fs::symlink_metadata(tenant_semantic_owner_file(persist_dir, tenant)).is_ok()
+    {
+        return activation::open_service(persist_dir, tenant, binding_id);
+    }
     // Refuse a tenant-v3 file rather than silently opening another v2 owner.
     // The actual migration must hold an exclusive upgrade lease across this
     // check and the v3 install; this check alone is not a cross-process lock.
@@ -239,6 +297,11 @@ pub(crate) fn existing_semantic_service(
     tenant: &str,
     binding_id: &str,
 ) -> Result<Arc<SemanticIndexService>, String> {
+    if activation::has_grant(tenant)?
+        || std::fs::symlink_metadata(tenant_semantic_owner_file(persist_dir, tenant)).is_ok()
+    {
+        return activation::open_service(persist_dir, tenant, binding_id);
+    }
     refuse_split_semantic_owner(persist_dir, tenant)?;
     let dir = legacy_semantic_owner_dir(persist_dir, tenant, binding_id);
     if !dir.is_dir() {
@@ -268,7 +331,24 @@ fn tenant_semantic_owner_file(persist_dir: &std::path::Path, tenant: &str) -> st
         .join(eg_core::compute::semantic_ann_codes::tenant_owner_file_name(tenant))
 }
 
+/// Durable authority fence. Once promotion starts, loss of the v3 owner name
+/// must never make a later process reopen the old per-binding v2 owners.
+fn tenant_semantic_migration_fence_file(
+    persist_dir: &std::path::Path,
+    tenant: &str,
+) -> std::path::PathBuf {
+    tenant_semantic_owner_file(persist_dir, tenant).with_extension("migration-fence")
+}
+
 fn refuse_split_semantic_owner(persist_dir: &std::path::Path, tenant: &str) -> Result<(), String> {
+    let fence = tenant_semantic_migration_fence_file(persist_dir, tenant);
+    match std::fs::symlink_metadata(fence) {
+        Ok(_) => {
+            return Err("semantic tenant migration fence forbids v2 reopening".to_string());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("semantic tenant migration fence is unavailable".to_string()),
+    }
     let path = tenant_semantic_owner_file(persist_dir, tenant);
     match std::fs::symlink_metadata(path) {
         Ok(_) => Err("semantic tenant owner requires a completed v2-to-v3 migration".to_string()),
@@ -281,7 +361,8 @@ fn refuse_split_semantic_owner(persist_dir: &std::path::Path, tenant: &str) -> R
 mod tenant_owner_upgrade_tests {
     use super::{
         existing_semantic_service, legacy_semantic_owner_dir, open_semantic_service,
-        refuse_split_semantic_owner, sanitize_owner_segment, tenant_semantic_owner_file,
+        refuse_split_semantic_owner, sanitize_owner_segment, tenant_semantic_migration_fence_file,
+        tenant_semantic_owner_file,
     };
 
     #[test]
@@ -312,6 +393,30 @@ mod tenant_owner_upgrade_tests {
         assert!(open_semantic_service(&persist_dir, &tenant, binding).is_err());
         assert!(existing_semantic_service(&persist_dir, &tenant, binding).is_err());
         drop(owner);
+        let _ = std::fs::remove_dir_all(persist_dir);
+    }
+
+    #[test]
+    fn durable_fence_blocks_v2_after_v3_name_disappears() {
+        let persist_dir = std::env::temp_dir().join(format!(
+            "eg-semantic-migration-fence-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let tenant = format!("tenant:{}", uuid::Uuid::new_v4());
+        let binding = "binding-a";
+        let prior = open_semantic_service(&persist_dir, &tenant, binding).unwrap();
+        let v3 = tenant_semantic_owner_file(&persist_dir, &tenant);
+        std::fs::write(&v3, b"v3 marker").unwrap();
+        std::fs::write(
+            tenant_semantic_migration_fence_file(&persist_dir, &tenant),
+            b"durable fence marker",
+        )
+        .unwrap();
+        std::fs::remove_file(&v3).unwrap();
+        assert!(refuse_split_semantic_owner(&persist_dir, &tenant).is_err());
+        assert!(open_semantic_service(&persist_dir, &tenant, binding).is_err());
+        assert!(existing_semantic_service(&persist_dir, &tenant, binding).is_err());
+        drop(prior);
         let _ = std::fs::remove_dir_all(persist_dir);
     }
 

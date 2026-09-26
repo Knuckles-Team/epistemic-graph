@@ -1092,8 +1092,7 @@ impl SemanticIndexService {
     /// lower-layer composition prerequisite, not a request route: the server
     /// keeps v3 disabled until a trusted transition receipt can authorize it.
     /// In particular this constructor cannot create a missing binding scope.
-    #[allow(dead_code)] // serving activation is deliberately held at the server boundary
-    pub(crate) fn open_tenant(
+    pub fn open_tenant(
         path: &Path,
         verifier: Arc<dyn ScopeGrantVerifier>,
         principal: &str,

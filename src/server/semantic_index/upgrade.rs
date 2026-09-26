@@ -5,7 +5,10 @@
 //! prove its destination against these exact source fingerprints while holding
 //! the same engine lease. Ordinary v2 opens remain fenced by the v3 marker.
 
-use super::{legacy_semantic_owner_dir, sanitize_owner_segment, tenant_semantic_owner_file};
+use super::{
+    legacy_semantic_owner_dir, sanitize_owner_segment, tenant_semantic_migration_fence_file,
+    tenant_semantic_owner_file,
+};
 use eg_storage::{
     adopt_recovery, layout_digest_hex, merge_semantic_owner_files, open_read_only, open_recovery,
     prove_scope_bindings_reanchored_read_only, prove_semantic_owner_partition_read_only,
@@ -506,6 +509,9 @@ fn promote_checked_candidate(
     std::fs::File::open(candidate)
         .and_then(|file| file.sync_all())
         .map_err(|error| error.to_string())?;
+    // Persist the authority fence before publishing the v3 name. A crash in
+    // this interval leaves the tenant unavailable, never silently back on v2.
+    install_migration_fence(persist_dir, &current.tenant_id, &current.destination)?;
     std::fs::hard_link(candidate, &current.destination).map_err(|error| error.to_string())?;
     sync_parent_directory(&current.destination)?;
     // The canonical name now fences v2, even if the unlink or subsequent
@@ -540,6 +546,26 @@ pub(super) fn observe_promoted_tenant_owner(
     max_source_bytes: u64,
     max_owner_bytes: u64,
 ) -> Result<VerifiedTenantMigrationObservation, String> {
+    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    observe_promoted_tenant_owner_under_existing_lease(
+        persist_dir,
+        tenant,
+        binding_ids,
+        max_source_bytes,
+        max_owner_bytes,
+    )
+}
+
+/// Called only during server startup after its process-lifetime engine.lock is
+/// held. Recompute the complete source census, row proof and owner fingerprint
+/// without recursively acquiring the same exclusive lease.
+pub(super) fn observe_promoted_tenant_owner_under_existing_lease(
+    persist_dir: &Path,
+    tenant: &str,
+    binding_ids: &[String],
+    max_source_bytes: u64,
+    max_owner_bytes: u64,
+) -> Result<VerifiedTenantMigrationObservation, String> {
     if binding_ids.is_empty()
         || binding_ids.len() > 32
         || !claim_token(tenant)
@@ -551,7 +577,6 @@ pub(super) fn observe_promoted_tenant_owner(
     {
         return Err("semantic activation observation exceeds the closed claim bounds".to_string());
     }
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     let promoted = verify_promoted_under_lease(persist_dir, tenant, binding_ids, max_source_bytes)?;
     let current = inspect_under_lease_with_destination(
         persist_dir,
@@ -848,6 +873,95 @@ fn sync_parent_directory(path: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+fn migration_fence_bytes(tenant: &str, destination: &Path) -> Result<Vec<u8>, String> {
+    let basename = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("semantic migration destination has no UTF-8 basename")?;
+    let mut digest = Sha256::new();
+    digest.update(b"eg/rf019/tenant-migration-fence/v1\0");
+    digest.update((tenant.len() as u64).to_be_bytes());
+    digest.update(tenant.as_bytes());
+    digest.update((basename.len() as u64).to_be_bytes());
+    digest.update(basename.as_bytes());
+    Ok(format!(
+        "eg/rf019/tenant-migration-fence/v1\n{:x}\n",
+        digest.finalize()
+    )
+    .into_bytes())
+}
+
+#[cfg(target_os = "linux")]
+fn require_migration_fence(
+    persist_dir: &Path,
+    tenant: &str,
+    destination: &Path,
+) -> Result<(), String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    const O_NOFOLLOW: i32 = 0o400000;
+    let path = tenant_semantic_migration_fence_file(persist_dir, tenant);
+    let named = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    let opened = file.metadata().map_err(|error| error.to_string())?;
+    let expected = migration_fence_bytes(tenant, destination)?;
+    if !named.file_type().is_file()
+        || !opened.is_file()
+        || named.nlink() != 1
+        || opened.nlink() != 1
+        || (named.dev(), named.ino()) != (opened.dev(), opened.ino())
+        || opened.len() != expected.len() as u64
+    {
+        return Err("semantic migration fence identity is invalid".to_string());
+    }
+    let mut actual = Vec::with_capacity(expected.len());
+    file.take((expected.len() + 1) as u64)
+        .read_to_end(&mut actual)
+        .map_err(|error| error.to_string())?;
+    if actual != expected {
+        return Err("semantic migration fence content is invalid".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn require_migration_fence(
+    _persist_dir: &Path,
+    _tenant: &str,
+    _destination: &Path,
+) -> Result<(), String> {
+    Err("semantic migration fence requires Linux no-follow open".to_string())
+}
+
+fn install_migration_fence(
+    persist_dir: &Path,
+    tenant: &str,
+    destination: &Path,
+) -> Result<(), String> {
+    let path = tenant_semantic_migration_fence_file(persist_dir, tenant);
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => return require_migration_fence(persist_dir, tenant, destination),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("semantic migration fence unavailable: {error}")),
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&path).map_err(|error| error.to_string())?;
+    file.write_all(&migration_fence_bytes(tenant, destination)?)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| error.to_string())?;
+    sync_parent_directory(&path)?;
+    require_migration_fence(persist_dir, tenant, destination)
+}
+
 fn copy_file_contents(source: &Path, output: &mut std::fs::File, bytes: u64) -> Result<(), String> {
     let mut input = std::fs::File::open(source).map_err(|error| error.to_string())?;
     let copied = std::io::copy(
@@ -971,6 +1085,12 @@ fn validate_directory_census(
         }
     }
     let candidate = destination.with_extension("candidate.redb");
+    let fence = tenant_semantic_migration_fence_file(persist_dir, tenant);
+    match std::fs::symlink_metadata(&fence) {
+        Ok(_) => require_migration_fence(persist_dir, tenant, &destination)?,
+        Err(error) if !destination_installed && error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("semantic migration fence unavailable: {error}")),
+    }
     match std::fs::symlink_metadata(&candidate) {
         Ok(metadata) if metadata.file_type().is_file() => {}
         Ok(_) => return Err("semantic tenant candidate has the wrong file type".to_string()),
@@ -998,6 +1118,7 @@ fn validate_directory_census(
     // proves a surviving candidate name is the SAME inode as canonical.
     actual.remove(&destination);
     actual.remove(&candidate);
+    actual.remove(&fence);
     if actual != expected {
         return Err("semantic upgrade catalog does not cover every v2 owner directory".to_string());
     }
@@ -1385,6 +1506,7 @@ mod tests {
             promote_multi_binding_tenant_candidate(&root, &inspected, &candidate, 64 * 1024 * 1024)
                 .unwrap();
         assert!(promoted.destination.is_file());
+        assert!(super::super::tenant_semantic_migration_fence_file(&root, &tenant).is_file());
         assert!(!candidate.candidate.exists());
         // The real canonical file still leaves both public resolution paths
         // closed; the offline promotion proof is not an activation receipt.

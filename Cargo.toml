@@ -101,6 +101,11 @@ name = "epistemic-graph-server"
 path = "src/main.rs"
 required-features = ["server"]
 
+[[bin]]
+name = "epistemic-graph-rf019-observe"
+path = "src/bin/rf019_observe.rs"
+required-features = ["server", "ann-redb"]
+
 # Longer fault-injection soak for the correctness harness (CONCEPT:KG-2.212). Only
 # builds under `--features harness` (which pulls `raft`); a default/server/full build
 # does not compile it. `cargo test --features raft harness::` runs the bounded
