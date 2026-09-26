@@ -11,6 +11,7 @@ Every concept and component this repo's own registries and documentation nav dec
 
 - **Architecture guide** — `architecture/index.md`
 - **Engine internals** — `architecture/engine.md`
+- **Source ingestion semantics** — `architecture/source_ingestion_semantics.md`
 - **Request authority** — `architecture/request_authority.md`
 - **Mutation batches** — `architecture/mutation_batch.md`
 - **Change envelopes** — `architecture/change_envelope.md`
