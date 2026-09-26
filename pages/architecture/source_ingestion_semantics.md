@@ -14,7 +14,24 @@ advance a derivation generation so readers can pin the derived view.
 These Python types and pure derivations make no graph writes. `SourceIngest`
 remains the durable commit boundary. The AU process-mining and OCEL adapters
 consume these EG-owned types while the rest of the EH-498 ingestion migration
-is in progress.
+is in progress. AU's OCEL adapter renders the temporary AU `ChangeEnvelope`
+transport shape; the EG semantic model does not import that AU type.
+
+`epistemic_graph.ingestion.graph_slice` owns the canonical-key validation,
+whole-slice replay digest, and primary-row projection for already-derived
+nodes and edges. AU's current adapter consumes those functions and commits
+through EG `ApplyChangeEnvelope`. `SourceIngest` requires catalog mapping
+references and provider checkpoints for raw connector records; a derived
+graph slice carries neither, so it must not fabricate them.
+
+`epistemic_graph.ingestion.citation` owns content-pinned evidence resolution.
+It accepts fragment-shaped records from the current AU reader and reports
+`current`, `moved`, `stale`, or `lost`; duplicate content never selects a
+replacement address by guesswork.
+
+`epistemic_graph.ingestion.evidence_address` owns stable artifact and fragment
+IDs plus normalized content digests. AU's current fragmenter calls these EG
+functions; source object identity and content revision remain separate fields.
 
 `epistemic_graph.ingestion.process_conformance` owns frozen conformance runs,
 deviation records, and deterministic graph projections. A caller supplies the

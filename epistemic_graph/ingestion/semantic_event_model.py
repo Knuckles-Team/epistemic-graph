@@ -1196,38 +1196,3 @@ class ObjectCentricGraphSlice(SemanticBoundaryModel):
             object_relationships=tuple(object_relationships),
             perspectives=perspectives,
         )
-
-    def to_change_envelope(
-        self,
-        *,
-        tenant: str,
-        provenance: dict[str, Any],
-    ) -> Any:
-        """Build the tenant-scoped, idempotent governed tEKG materialization.
-
-        The mapper does not persist on its own.  Returning the existing
-        ``ChangeEnvelope`` keeps OCEL delivery subject to the same atomic
-        validation, provenance, and replay semantics as every connector.
-        """
-        from .change_envelope import ChangeEnvelope
-
-        scoped_tenant = tenant.strip()
-        if not scoped_tenant:
-            raise ValueError("tenant is required for OCEL materialization")
-        entities, links = self.to_graph_slice()
-        for entity in entities:
-            entity["tenant_id"] = scoped_tenant
-            entity["ocel_provenance"] = provenance
-        for link in links:
-            link["tenant_id"] = scoped_tenant
-        return ChangeEnvelope(
-            connector="ocel",
-            tenant=scoped_tenant,
-            source_instance=self.log_id,
-            source_object_id=self.log_id,
-            source_version=self.canonical_digest(),
-            schema_version="2.0",
-            ontology_mapping_version=self.mapping_version,
-            typed_payload={"entities": entities, "relationships": links},
-            provenance={"format": "OCEL 2.0", **provenance},
-        )
