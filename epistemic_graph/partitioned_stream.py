@@ -9,6 +9,8 @@ record is intentional and must be handled idempotently by that application.
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,8 +43,7 @@ class _PartitionedStreamBase:
         max_batch: int = 200,
     ) -> None:
         if not namespace or not all(
-            char.isascii() and (char.isalnum() or char in "-_")
-            for char in namespace
+            char.isascii() and (char.isalnum() or char in "-_") for char in namespace
         ):
             raise ValueError(
                 "namespace must contain only ASCII letters, digits, - or _"
@@ -102,14 +103,13 @@ class _PartitionedStreamBase:
             for offset, payload in rows
         ]
 
-    def _commit_details(
-        self, tenant: str, group: str, record: StreamRecord
-    ) -> str:
+    def _commit_details(self, tenant: str, group: str, record: StreamRecord) -> str:
         if record.stream != self.stream_for(tenant, record.partition):
             raise ValueError("record does not belong to this tenant and partition")
         if record.offset < 0:
             raise ValueError("record offset must be nonnegative")
         return self._digest(group)
+
 
 class PartitionedStreamLog(_PartitionedStreamBase):
     """EG-owned partitioned log over the async ``BrokerClient``."""
@@ -158,11 +158,117 @@ class SyncPartitionedStreamLog(_PartitionedStreamBase):
         stream, group_ref = self._read_details(tenant, partition, group, limit)
         committed = self._broker.stream_committed_offset(stream, group_ref)
         from_offset = 0 if committed is None else int(committed) + 1
-        rows = self._broker.stream_read(
-            stream, from_offset=from_offset, max=limit
-        )
+        rows = self._broker.stream_read(stream, from_offset=from_offset, max=limit)
         return self._records(stream, partition, rows)
 
     def commit(self, tenant: str, group: str, record: StreamRecord) -> None:
         group_ref = self._commit_details(tenant, group, record)
         self._broker.stream_commit_offset(record.stream, group_ref, record.offset)
+
+
+class SyncMessageDeliveryLog:
+    """EG-owned bounded materializer, cursor and digest-only poison queue.
+
+    The application supplies its envelope decoder and performs its own inbox
+    transaction before calling :meth:`ack`. A failed transaction leaves the
+    cursor unchanged so the same record is replayed.
+    """
+
+    def __init__(
+        self,
+        broker: Any,
+        *,
+        namespace: str,
+        group: str,
+        partitions: int = 6,
+    ) -> None:
+        self._log = SyncPartitionedStreamLog(
+            broker, namespace=namespace, partitions=partitions
+        )
+        self._dlq = SyncPartitionedStreamLog(
+            broker, namespace=f"{namespace}_dlq", partitions=partitions
+        )
+        self.group = group
+        self.partitions = partitions
+
+    def append(
+        self, tenant: str, route: str, payload: bytes, *, now_ms: int
+    ) -> StreamRecord:
+        return self._log.append(tenant, route, payload, now_ms=now_ms)
+
+    def receive(
+        self,
+        tenant: str,
+        decoder: Callable[[bytes], dict[str, Any] | None],
+        *,
+        max_messages: int = 200,
+    ) -> list[tuple[dict[str, Any], StreamRecord]]:
+        remaining = max(
+            0, min(int(max_messages), self.partitions * self._log.max_batch)
+        )
+        messages: list[tuple[dict[str, Any], StreamRecord]] = []
+        for partition in range(self.partitions):
+            if remaining == 0:
+                break
+            quota = min(
+                self._log.max_batch,
+                max(
+                    1,
+                    (remaining + self.partitions - partition - 1)
+                    // (self.partitions - partition),
+                ),
+            )
+            for record in self._log.read(tenant, partition, self.group, limit=quota):
+                envelope = decoder(record.payload)
+                if envelope is None:
+                    self._dead_letter(tenant, record, "decode_error")
+                    self._log.commit(tenant, self.group, record)
+                    continue
+                messages.append((envelope, record))
+                remaining -= 1
+        # Never reorder within a partition: a later committed offset must not
+        # skip an earlier uncommitted record.
+        return messages
+
+    def _dead_letter(self, tenant: str, record: StreamRecord, reason: str) -> None:
+        diagnostic = json.dumps(
+            {
+                "stream": record.stream,
+                "offset": record.offset,
+                "sha256": hashlib.sha256(record.payload).hexdigest(),
+                "bytes": len(record.payload),
+                "reason": reason,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self._dlq.append(tenant, "poison", diagnostic, now_ms=0)
+
+    def ack(self, tenant: str, record: StreamRecord) -> None:
+        self._log.commit(tenant, self.group, record)
+
+    def nack(self, tenant: str, record: StreamRecord, *, requeue: bool = True) -> None:
+        if (
+            record.stream != self._log.stream_for(tenant, record.partition)
+            or record.offset < 0
+        ):
+            raise ValueError("record does not belong to this tenant and partition")
+        if not requeue:
+            self._dead_letter(tenant, record, "rejected_envelope")
+            self._log.commit(tenant, self.group, record)
+
+    def read_dlq(self, tenant: str, *, max_messages: int = 50) -> list[dict[str, Any]]:
+        if max_messages <= 0:
+            return []
+        rows: list[dict[str, Any]] = []
+        for partition in range(self.partitions):
+            for record in self._dlq.read(
+                tenant,
+                partition,
+                "delivery-dlq-inspection",
+                limit=min(max_messages, self._dlq.max_batch),
+            ):
+                rows.append(json.loads(record.payload))
+                if len(rows) >= max_messages:
+                    return rows
+        return rows

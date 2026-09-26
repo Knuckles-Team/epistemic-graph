@@ -10,6 +10,7 @@ import pytest
 from epistemic_graph.client import BrokerClient
 from epistemic_graph.partitioned_stream import (
     PartitionedStreamLog,
+    SyncMessageDeliveryLog,
     SyncPartitionedStreamLog,
 )
 
@@ -36,9 +37,7 @@ class FakeBroker:
         self, stream: str, *, from_offset: int, max: int
     ) -> list[tuple[int, bytes]]:
         self.read_calls.append((stream, from_offset, max))
-        return [
-            row for row in self.rows.get(stream, []) if row[0] >= from_offset
-        ][:max]
+        return [row for row in self.rows.get(stream, []) if row[0] >= from_offset][:max]
 
     def stream_commit_offset(self, stream: str, group: str, offset: int) -> str:
         self.cursors[(stream, group)] = offset
@@ -60,9 +59,7 @@ class FakeAsyncBroker:
     ) -> list[tuple[int, bytes]]:
         return self.sync.stream_read(stream, from_offset=from_offset, max=max)
 
-    async def stream_commit_offset(
-        self, stream: str, group: str, offset: int
-    ) -> str:
+    async def stream_commit_offset(self, stream: str, group: str, offset: int) -> str:
         return self.sync.stream_commit_offset(stream, group, offset)
 
 
@@ -124,3 +121,39 @@ def test_reject_cross_tenant_cursor_commit() -> None:
     record = log.append("tenant-a", "route", b"x", now_ms=1)
     with pytest.raises(ValueError, match="does not belong"):
         log.commit("tenant-b", "group", record)
+
+
+def test_delivery_materializer_commits_only_after_ack_and_poison_dlq() -> None:
+    broker = FakeBroker()
+    delivery = SyncMessageDeliveryLog(
+        broker, namespace="agent_bus", group="inbox", partitions=4
+    )
+    delivery.append("tenant", "route", b"secret poison", now_ms=1)
+    assert delivery.receive("tenant", lambda _raw: None) == []
+    dlq = delivery.read_dlq("tenant")
+    assert len(dlq) == 1 and dlq[0]["reason"] == "decode_error"
+    assert "secret" not in str(dlq)
+
+    delivery.append("tenant", "route", b"valid", now_ms=2)
+
+    def decoder(raw: bytes) -> dict[str, str]:
+        return {"payload": raw.decode()}
+
+    first = delivery.receive("tenant", decoder)
+    assert first == delivery.receive("tenant", decoder)
+    assert first[0][0] == {"payload": "valid"}
+    delivery.nack("tenant", first[0][1], requeue=True)
+    assert first == delivery.receive("tenant", decoder)
+    delivery.ack("tenant", first[0][1])
+    assert delivery.receive("tenant", decoder) == []
+    assert delivery.read_dlq("tenant", max_messages=0) == []
+
+
+def test_delivery_nack_rejects_foreign_record_before_dlq_write() -> None:
+    delivery = SyncMessageDeliveryLog(
+        FakeBroker(), namespace="agent_bus", group="inbox"
+    )
+    record = delivery.append("tenant-a", "route", b"private", now_ms=1)
+    with pytest.raises(ValueError, match="does not belong"):
+        delivery.nack("tenant-b", record, requeue=False)
+    assert delivery.read_dlq("tenant-b") == []
