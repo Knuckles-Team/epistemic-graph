@@ -61,6 +61,14 @@ soft dedup/contradiction/confidence review, then clearance. AU still performs
 those checks and holds the steward approval through ActionPolicy before it
 submits any materialized fact.
 
+`epistemic_graph.ingestion.documentation_derivation` owns stable Markdown
+content and object identities, the ordered repository-snapshot digest, and
+the verified-snapshot rule for removal tombstones. AU still validates source
+metadata, extracts frontmatter, and commits the governed projection.
+`epistemic_graph.ingestion.document_chunk_derivation` projects caller-split
+verbatim chunks into stable nodes and document edges; AU retains text splitting
+and the document ingestion orchestration.
+
 ## Derived-slice commit decision for AUD-18
 
 Use EG `ApplyChangeEnvelope` for **already-derived** node/edge slices. Do not
