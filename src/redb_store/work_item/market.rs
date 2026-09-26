@@ -29,6 +29,7 @@ type NodeRows<'table> = ScopedOwnerTableMut<'table, (&'static str, &'static str)
 pub(crate) struct NativeRecordRequest<'args, 'table, 'crypto> {
     pub(crate) graph: &'args str,
     pub(crate) batch_id: &'args str,
+    pub(crate) actor: Option<&'args str>,
     pub(crate) method: &'args Method,
     pub(crate) nodes: &'args mut NodeRows<'table>,
     pub(crate) edges: &'args mut NativeEdgeRows<'table>,
@@ -42,8 +43,14 @@ pub(crate) struct NativeRecordRequest<'args, 'table, 'crypto> {
 pub(crate) fn apply_native_record_rows(
     request: NativeRecordRequest<'_, '_, '_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
-    let lease =
-        apply_control_lease_rows(request.graph, request.method, request.nodes, request.crypto)?;
+    let lease = apply_control_lease_rows(
+        request.graph,
+        request.method,
+        request.nodes,
+        request.crypto,
+        request.committed_at_ms,
+        request.actor,
+    )?;
     if lease.is_some() {
         return Ok(lease);
     }

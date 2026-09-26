@@ -40,14 +40,22 @@ pub(crate) fn apply_control_lease_rows(
     method: &Method,
     nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
+    committed_at_ms: u64,
+    actor: Option<&str>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     match method {
         Method::IssueControlLease { request } => {
             apply_issue_control_lease_row(graph, request, nodes, crypto)
         }
-        Method::TransitionControlLease { request } => {
-            apply_transition_control_lease_row(graph, request, nodes, crypto)
-        }
+        Method::TransitionControlLease { request } => apply_transition_control_lease_row(
+            graph,
+            request,
+            nodes,
+            crypto,
+            committed_at_ms,
+            actor
+                .ok_or_else(|| "control lease transition requires a verified actor".to_string())?,
+        ),
         _ => Ok(None),
     }
 }
@@ -86,15 +94,24 @@ pub(crate) fn apply_transition_control_lease_row(
     request: &TransitionControlLeaseRequest,
     nodes: &mut NativeNodeRows<'_>,
     crypto: DurableCrypto<'_>,
+    committed_at_ms: u64,
+    actor: &str,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     request.validate()?;
+    if actor.is_empty() || committed_at_ms == 0 {
+        return Err("control lease transition requires a verified actor and commit time".into());
+    }
     let row = load_row(nodes, graph, &request.lease_id, crypto)?
         .filter(|row| is_tenant_control_lease(row, &request.tenant));
     let Some(mut row) = row else {
         return transition_result(ControlLeaseTransitionOutcome::NotFound, None, false);
     };
     let current = ControlLeaseView::from_row(&request.lease_id, &row)?;
-    if !request.to.allowed_from(current.status) || current.revision != request.expected_revision {
+    if !request.to.allowed_from(current.status)
+        || current.revision != request.expected_revision
+        || (request.to == eg_types::control_lease::ControlLeaseTarget::Consumed
+            && committed_at_ms >= current.expires_at_ms.min(current.hard_expires_at_ms))
+    {
         return transition_result(
             ControlLeaseTransitionOutcome::Conflict,
             Some(current),
@@ -102,6 +119,8 @@ pub(crate) fn apply_transition_control_lease_row(
         );
     }
     row.insert("status".into(), request.to.status().as_stored().into());
+    row.insert("transition_actor".into(), actor.into());
+    row.insert("transitioned_at_ms".into(), committed_at_ms.into());
     write_work_item_props(nodes, graph, &request.lease_id, &mut row, crypto)?;
     let ended = ControlLeaseView::from_row(&request.lease_id, &row)?;
     transition_result(ControlLeaseTransitionOutcome::Applied, Some(ended), true)

@@ -34,13 +34,13 @@ import msgpack
 from . import generated as _gen
 from .connector_pack import ConnectorPackClient
 from .fleet_catalog import FleetCatalogClient
-from .policy_evolution import PolicyEvolutionClient
 from .generated.server_registry import (
     RegisteredServerCursor,
     RegisteredServerListPage,
     RegisteredServerListRequest,
     RegisteredServerView,
 )
+from .policy_evolution import PolicyEvolutionClient
 from .work_market import GapClient, WorkMarketClient
 
 if TYPE_CHECKING:
@@ -4555,13 +4555,26 @@ _CONTROL_LEASE_VIEW_FIELDS = frozenset(
         "revision",
     }
 )
+_CONTROL_LEASE_DECISION_FIELDS = frozenset(
+    {"transition_actor", "transitioned_at_ms"}
+)
 
 
 def _control_lease_view(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != _CONTROL_LEASE_VIEW_FIELDS:
+    if not isinstance(value, dict) or set(value) not in (
+        _CONTROL_LEASE_VIEW_FIELDS,
+        _CONTROL_LEASE_VIEW_FIELDS | _CONTROL_LEASE_DECISION_FIELDS,
+    ):
         raise RuntimeError("control lease view does not match the typed contract")
     if value["status"] not in ("active", "consumed", "revoked", "expired"):
         raise RuntimeError("control lease view carries an unknown status")
+    if _CONTROL_LEASE_DECISION_FIELDS <= set(value) and (
+        not isinstance(value["transition_actor"], str)
+        or not value["transition_actor"]
+        or type(value["transitioned_at_ms"]) is not int
+        or value["transitioned_at_ms"] <= 0
+    ):
+        raise RuntimeError("control lease view carries invalid transition evidence")
     return value
 
 
@@ -12384,7 +12397,9 @@ class TimeSeriesClient:
         rows = (await _gen.storage.send_ts_list_series(self._client, {})).payload
         return [str(s) for s in (rows or [])]
 
-    async def define_series(self, series_id: str, source: str, expr: str) -> dict[str, Any]:
+    async def define_series(
+        self, series_id: str, source: str, expr: str
+    ) -> dict[str, Any]:
         """EH-524 — define ``series_id`` as a MATERIALISED DERIVED series of
         ``source`` (a series in the caller's own scope) by ``expr``, a UQL ``DERIVE``
         series expression over the source's fields ``v0..vk`` (for example

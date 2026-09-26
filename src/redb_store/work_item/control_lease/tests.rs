@@ -53,8 +53,25 @@ fn transitioned(
     tag: &str,
     request: TransitionControlLeaseRequest,
 ) -> ControlLeaseTransition {
+    transitioned_at(shard, tag, request, 1_500, "principal:sha256:test-approver")
+}
+
+fn transitioned_at(
+    shard: &Shard,
+    tag: &str,
+    request: TransitionControlLeaseRequest,
+    committed_at_ms: u64,
+    actor: &str,
+) -> ControlLeaseTransition {
     decode(with_nodes(shard, tag, |nodes| {
-        apply_transition_control_lease_row(GRAPH, &request, nodes, DurableCrypto::none())
+        apply_transition_control_lease_row(
+            GRAPH,
+            &request,
+            nodes,
+            DurableCrypto::none(),
+            committed_at_ms,
+            actor,
+        )
     }))
 }
 
@@ -71,6 +88,8 @@ fn an_issued_lease_is_readable_only_by_its_tenant_and_an_id_is_issued_once() {
     let view = get(&temp.shard, "tenant-a", "lease-1").expect("own lease is visible");
     assert_eq!(view.status, ControlLeaseStatus::Active);
     assert_eq!(view.revision, 1);
+    assert_eq!(view.transition_actor, None);
+    assert_eq!(view.transitioned_at_ms, None);
     assert_eq!(Some(view), first.lease);
     assert_eq!(
         get(&temp.shard, "tenant-b", "lease-1"),
@@ -108,6 +127,11 @@ fn a_lease_ends_once_on_its_read_revision_and_never_reactivates() {
         (view.status, view.revision),
         (ControlLeaseStatus::Revoked, 2)
     );
+    assert_eq!(
+        view.transition_actor.as_deref(),
+        Some("principal:sha256:test-approver")
+    );
+    assert_eq!(view.transitioned_at_ms, Some(1_500));
 
     let expire = transitioned(
         &temp.shard,
@@ -126,6 +150,46 @@ fn a_lease_ends_once_on_its_read_revision_and_never_reactivates() {
         end("lease-9", 1, ControlLeaseTarget::Expired),
     );
     assert_eq!(missing.outcome, ControlLeaseTransitionOutcome::NotFound);
+}
+
+#[test]
+fn consume_is_refused_at_expiry_inside_the_revision_cas() {
+    let temp = open("lease-expiry-cas");
+    issued(&temp.shard, "issue", issue("lease-expiry", "tenant-a"));
+    let request = end("lease-expiry", 1, ControlLeaseTarget::Consumed);
+    let at_boundary = transitioned_at(
+        &temp.shard,
+        "at-boundary",
+        request.clone(),
+        301_000,
+        "actor-a",
+    );
+    assert_eq!(at_boundary.outcome, ControlLeaseTransitionOutcome::Conflict);
+    assert!(at_boundary.changed_work_item_ids.is_empty());
+    let after_hard = transitioned_at(&temp.shard, "after-hard", request, 901_001, "actor-a");
+    assert_eq!(after_hard.outcome, ControlLeaseTransitionOutcome::Conflict);
+    let view = get(&temp.shard, "tenant-a", "lease-expiry").unwrap();
+    assert_eq!(
+        (view.status, view.revision),
+        (ControlLeaseStatus::Active, 1)
+    );
+    assert_eq!(
+        view.transition_actor, None,
+        "a refused decision writes no actor"
+    );
+
+    let revoked = transitioned_at(
+        &temp.shard,
+        "revoke-expired",
+        end("lease-expiry", 1, ControlLeaseTarget::Revoked),
+        901_002,
+        "actor-b",
+    );
+    assert_eq!(revoked.outcome, ControlLeaseTransitionOutcome::Applied);
+    assert_eq!(
+        revoked.lease.unwrap().transition_actor.as_deref(),
+        Some("actor-b")
+    );
 }
 
 #[test]

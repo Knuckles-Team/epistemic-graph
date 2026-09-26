@@ -190,6 +190,86 @@ fn a_record_commits_once_serves_its_body_and_replays_idempotently() {
 }
 
 #[test]
+fn decision_reads_page_and_project_only_committed_tenant_records() {
+    use eg_types::decision::{
+        DecisionRecordReadRequest as Read, DecisionRecordReadResult as ResultBody,
+    };
+
+    let (_dir, store) = open_agent_store();
+    seed_library(&store);
+    let record = decided(&store).record;
+    store
+        .commit_decision_record(
+            commit_context(&store, "commit-read", 140),
+            &record,
+            &record.inputs.catalog_digest,
+        )
+        .expect("commits");
+
+    let listed = store
+        .read_decision_records(&Read::List {
+            tenant_id: TENANT.to_string(),
+            limit: Some(1),
+            cursor: None,
+        })
+        .expect("lists");
+    let ResultBody::List {
+        entries,
+        next_cursor: _,
+    } = listed
+    else {
+        panic!("list result")
+    };
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].record_id, record.record_id);
+
+    let detail = store
+        .read_decision_records(&Read::Detail {
+            tenant_id: TENANT.to_string(),
+            record_id: record.record_id.clone(),
+        })
+        .expect("detail");
+    let ResultBody::Detail {
+        record: Some(served),
+    } = detail
+    else {
+        panic!("detail result")
+    };
+    assert_eq!(*served, record);
+
+    let provenance = store
+        .read_decision_records(&Read::Provenance {
+            tenant_id: TENANT.to_string(),
+            record_id: record.record_id.clone(),
+        })
+        .expect("provenance");
+    let ResultBody::Provenance {
+        provenance: Some(provenance),
+    } = provenance
+    else {
+        panic!("provenance result")
+    };
+    assert_eq!(provenance.record_digest, record.record_digest);
+    assert_eq!(provenance.inputs_digest, record.inputs_digest);
+
+    let other = store
+        .read_decision_records(&Read::List {
+            tenant_id: "tenant-b".to_string(),
+            limit: Some(1),
+            cursor: None,
+        })
+        .expect("other tenant's empty page");
+    assert!(matches!(other, ResultBody::List { entries, .. } if entries.is_empty()));
+    let missing = store
+        .read_decision_records(&Read::Detail {
+            tenant_id: "tenant-b".to_string(),
+            record_id: record.record_id,
+        })
+        .expect("other tenant cannot resolve record");
+    assert!(matches!(missing, ResultBody::Detail { record: None }));
+}
+
+#[test]
 fn a_catalog_that_moved_since_the_decision_is_a_stale_refusal() {
     let (_dir, store) = open_agent_store();
     seed_library(&store);

@@ -177,6 +177,15 @@ pub(crate) async fn handle_agent_component(
             )
             .await
         }
+        AgentComponentOp::DecisionRead { request } => match store.read_decision_records(&request) {
+            Ok(result) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<
+                    eg_types::result_contract::storage::AgentComponentDecisionRead,
+                >(&result),
+            ),
+            Err(error) => Response::err(req_id, error),
+        },
     }
 }
 

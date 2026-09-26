@@ -179,6 +179,13 @@ pub struct ControlLeaseView {
     pub hard_expires_at_ms: u64,
     /// Row revision: 1 at issue, bumped by every transition.
     pub revision: u64,
+    /// Verified caller fingerprint and authoritative commit time of the most
+    /// recent lifecycle decision. Older rows issued before this evidence was
+    /// recorded project `None` until their first transition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition_actor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transitioned_at_ms: Option<u64>,
 }
 
 /// How an issue resolved.
@@ -197,8 +204,8 @@ pub enum ControlLeaseIssueOutcome {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ControlLeaseTransitionOutcome {
     Applied,
-    /// The edge is not legal from the lease's current status, or the lease
-    /// moved past `expected_revision`.
+    /// The edge is not legal from the lease's current status, the lease moved
+    /// past `expected_revision`, or a consume decision reached expiry.
     Conflict,
     /// No lease with this id is visible to the tenant.
     NotFound,
@@ -344,6 +351,11 @@ impl ControlLeaseView {
             expires_at_ms: number("expires_at_ms"),
             hard_expires_at_ms: number("hard_expires_at_ms"),
             revision: number(WORK_ITEM_ROW_REVISION).max(1),
+            transition_actor: row
+                .get("transition_actor")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            transitioned_at_ms: row.get("transitioned_at_ms").and_then(Value::as_u64),
         })
     }
 }

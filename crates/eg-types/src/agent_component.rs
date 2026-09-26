@@ -1040,6 +1040,11 @@ pub enum AgentComponentOp {
     Content {
         request: AgentComponentContentRequest,
     },
+    /// Bounded list, digest-verified detail and provenance of committed
+    /// assembly records in this tenant's Agent Library.
+    DecisionRead {
+        request: crate::decision::DecisionRecordReadRequest,
+    },
 }
 
 impl AgentComponentOp {
@@ -1060,7 +1065,8 @@ impl AgentComponentOp {
             | Self::History { .. }
             | Self::Status { .. }
             | Self::Search { .. }
-            | Self::Content { .. } => "agent:component-read",
+            | Self::Content { .. }
+            | Self::DecisionRead { .. } => "agent:component-read",
         }
     }
 
@@ -1085,6 +1091,7 @@ impl AgentComponentOp {
                 validate_text("tenant_id", &request.tenant_id)?;
                 validate_text("component_id", &request.component_id)
             }
+            Self::DecisionRead { request } => request.validate(),
             Self::Current {
                 tenant_id,
                 component_id,
@@ -1114,6 +1121,7 @@ fn component_op_tenant_id(op: &AgentComponentOp) -> &str {
         AgentComponentOp::Status { request } => &request.context.tenant_id,
         AgentComponentOp::Search { request } => &request.tenant_id,
         AgentComponentOp::Content { request } => &request.tenant_id,
+        AgentComponentOp::DecisionRead { request } => request.tenant_id(),
         AgentComponentOp::Current { tenant_id, .. }
         | AgentComponentOp::History { tenant_id, .. } => tenant_id,
     }

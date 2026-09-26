@@ -381,6 +381,10 @@ pub(crate) fn apply_native_work_item_family_operation(
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
         graph: graph_fname,
         batch_id: batch.batch_id.as_str(),
+        actor: batch
+            .envelope
+            .operation()
+            .map(|operation| operation.authority.actor.as_str()),
         method,
         nodes: &mut tables.graph.nodes,
         holds: &mut tables.lane_holds,

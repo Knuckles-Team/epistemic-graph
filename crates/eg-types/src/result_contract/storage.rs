@@ -92,6 +92,7 @@ method_results! {
     #[cfg(feature = "query")]
     SqlSourceBatch(SqlSourceBatch) => Raw<SqlSourceBatchResult>;
     AgentComponentContent(AgentComponent / "content") => Raw<AgentComponentContentResult>;
+    AgentComponentDecisionRead(AgentComponent / "decision_read") => Raw<crate::decision::DecisionRecordReadResult>;
     AgentAssemble(AgentAssemble) => Raw<AssemblyResult>;
     DecisionCommit(DecisionCommit) => Raw<DecisionCommitResult>;
     ConnectorPackStatus(ConnectorPack / "status") => Raw<ConnectorPackStatusBody>;

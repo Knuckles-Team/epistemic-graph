@@ -5,6 +5,7 @@ use super::*;
 pub(crate) struct WorkItemApplyRequest<'args, 'table, 'crypto> {
     pub(crate) graph: &'args str,
     pub(crate) batch_id: &'args str,
+    pub(crate) actor: Option<&'args str>,
     pub(crate) method: &'args Method,
     pub(crate) nodes:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
@@ -44,6 +45,7 @@ pub(crate) fn apply_work_item_rows(
     let WorkItemApplyRequest {
         graph,
         batch_id,
+        actor,
         method,
         nodes,
         holds,
@@ -178,6 +180,7 @@ pub(crate) fn apply_work_item_rows(
             None => apply_native_record_rows(NativeRecordRequest {
                 graph,
                 batch_id,
+                actor,
                 method: other,
                 nodes,
                 edges,

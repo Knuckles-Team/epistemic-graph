@@ -35,6 +35,7 @@ fn apply(shard: &Shard, tag: &str, method: Method, now_ms: u64) -> Result<Result
         apply_work_item_rows(WorkItemApplyRequest {
             graph: GRAPH,
             batch_id: tag,
+            actor: None,
             method: &method,
             nodes: &mut graph.nodes,
             holds: &mut holds,

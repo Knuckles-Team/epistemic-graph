@@ -6,7 +6,6 @@ import asyncio
 from typing import Any, cast
 
 import pytest
-
 from _client_send_stub import CapturingEngine as FakeEngine
 
 from epistemic_graph.client import (
@@ -131,7 +130,13 @@ def test_issue_sends_the_typed_request_and_validates_the_answer() -> None:
 
 
 def test_transition_and_get_round_trip_the_lease_view() -> None:
-    ended = {**LEASE, "status": "revoked", "revision": 2}
+    ended = {
+        **LEASE,
+        "status": "revoked",
+        "revision": 2,
+        "transition_actor": "principal:sha256:approver",
+        "transitioned_at_ms": 2_000,
+    }
     engine = FakeEngine(
         {"outcome": "applied", "lease": ended, "changed_work_item_ids": []}
     )
@@ -146,13 +151,22 @@ def test_transition_and_get_round_trip_the_lease_view() -> None:
     )
     assert answer["lease"] == ended
     assert asyncio.run(_leases(FakeEngine(None)).get(tenant="t", lease_id="l")) is None
-    assert asyncio.run(_leases(FakeEngine(LEASE)).get(tenant="t", lease_id="l")) == LEASE
+    assert (
+        asyncio.run(_leases(FakeEngine(LEASE)).get(tenant="t", lease_id="l"))
+        == LEASE
+    )
 
 
 def test_a_lease_answer_outside_the_contract_is_refused() -> None:
     with pytest.raises(RuntimeError):
         asyncio.run(
             _leases(FakeEngine({**LEASE, "extra": 1})).get(tenant="t", lease_id="l")
+        )
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _leases(FakeEngine({**LEASE, "transition_actor": "actor-a"})).get(
+                tenant="t", lease_id="l"
+            )
         )
     with pytest.raises(ValueError):
         asyncio.run(

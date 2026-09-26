@@ -218,12 +218,21 @@ impl AgentLibraryStore {
         let entry = self
             .current_component(tenant_id, component_id)?
             .ok_or_else(|| "agent component does not exist".to_string())?;
+        if entry.kind != AgentComponentKind::DecisionRecord {
+            return Err(
+                "COMPONENT_BODY_UNAVAILABLE: component is not a decision record".to_string(),
+            );
+        }
         let body = self
             .decision_record_body(tenant_id, component_id)?
             .ok_or_else(|| "COMPONENT_BODY_UNAVAILABLE: the record body is missing".to_string())?;
         let record: DecisionRecord = serde_json::from_slice(&body)
             .map_err(|error| format!("COMPONENT_BODY_UNAVAILABLE: {error}"))?;
-        if digest::record_digest(&record) != entry.content_digest {
+        if record.tenant_id != tenant_id
+            || record.record_id != component_id
+            || record.record_digest != entry.content_digest
+            || digest::record_digest(&record) != entry.content_digest
+        {
             return Err(
                 "COMPONENT_BODY_UNAVAILABLE: the record body does not match its digest".into(),
             );
@@ -237,6 +246,89 @@ impl AgentLibraryStore {
             media_type: DECISION_RECORD_MEDIA_TYPE.to_string(),
             body,
         })
+    }
+
+    /// Read committed assembly records through the same tenant-scoped and
+    /// bounded component search as other Agent Library consumers. Every body
+    /// is digest-verified before projection; a statistical DecisionLog row
+    /// can never enter this path.
+    pub fn read_decision_records(
+        &self,
+        request: &eg_types::decision::DecisionRecordReadRequest,
+    ) -> Result<eg_types::decision::DecisionRecordReadResult, String> {
+        use eg_types::decision::{
+            DecisionRecordReadRequest as Request, DecisionRecordReadResult as ResultBody,
+        };
+        request.validate()?;
+        match request {
+            Request::List {
+                tenant_id,
+                limit,
+                cursor,
+            } => {
+                let page = self.search_components(
+                    &eg_types::agent_component::AgentComponentSearchRequest {
+                        tenant_id: tenant_id.clone(),
+                        task: None,
+                        capabilities: Vec::new(),
+                        kinds: vec![AgentComponentKind::DecisionRecord],
+                        read_only: false,
+                        limit: Some(
+                            limit.unwrap_or(eg_types::decision::read::MAX_DECISION_READ_PAGE),
+                        ),
+                        cursor: cursor.clone(),
+                    },
+                )?;
+                let mut entries = Vec::with_capacity(page.entries.len());
+                for entry in page.entries {
+                    let record = self.verified_decision_record(tenant_id, &entry.component_id)?;
+                    entries.push((&record).into());
+                }
+                Ok(ResultBody::List {
+                    entries,
+                    next_cursor: page.next_cursor,
+                })
+            }
+            Request::Detail {
+                tenant_id,
+                record_id,
+            } => Ok(ResultBody::Detail {
+                record: self
+                    .maybe_verified_decision_record(tenant_id, record_id)?
+                    .map(Box::new),
+            }),
+            Request::Provenance {
+                tenant_id,
+                record_id,
+            } => Ok(ResultBody::Provenance {
+                provenance: self
+                    .maybe_verified_decision_record(tenant_id, record_id)?
+                    .as_ref()
+                    .map(Into::into),
+            }),
+        }
+    }
+
+    fn maybe_verified_decision_record(
+        &self,
+        tenant_id: &str,
+        record_id: &str,
+    ) -> Result<Option<DecisionRecord>, String> {
+        if self.current_component(tenant_id, record_id)?.is_none() {
+            return Ok(None);
+        }
+        self.verified_decision_record(tenant_id, record_id)
+            .map(Some)
+    }
+
+    fn verified_decision_record(
+        &self,
+        tenant_id: &str,
+        record_id: &str,
+    ) -> Result<DecisionRecord, String> {
+        let content = self.decision_record_content(tenant_id, record_id)?;
+        serde_json::from_slice(&content.body)
+            .map_err(|error| format!("COMPONENT_BODY_UNAVAILABLE: {error}"))
     }
 
     /// Commit `record` as a durable `DecisionRecord` component, snapshot

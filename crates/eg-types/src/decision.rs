@@ -27,6 +27,7 @@ pub mod errors;
 pub mod jobs;
 pub mod numeric;
 pub mod policy;
+pub mod read;
 pub mod record;
 pub mod replay;
 pub mod request;
@@ -73,6 +74,10 @@ pub use numeric::{
 pub use policy::{
     ColdStart, DecisionPolicy, ExplorationBudget, ObjectiveLevelKind, ObjectiveOrder,
     StatisticalPolicy, TraceFidelityLevel, UnknownCostRule, WeightedLevel,
+};
+pub use read::{
+    DecisionRecordProvenance, DecisionRecordReadRequest, DecisionRecordReadResult,
+    DecisionRecordSummary,
 };
 pub use record::{
     AbstainReason, CandidateFacts, CandidateSourceRecord, CoverageDerivation, DecisionInputs,
