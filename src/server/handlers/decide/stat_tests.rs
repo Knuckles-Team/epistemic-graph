@@ -633,6 +633,28 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         timeline.entries.as_slice()[0].submitted_at_ms,
         human_job.submitted_at_ms
     );
+    let stored_alert = timeline.entries.as_slice()[0]
+        .threshold_alert
+        .as_ref()
+        .unwrap();
+    assert_eq!(stored_alert.policy_digest, human_receipt.policy_digest);
+    assert_eq!(stored_alert.n_min, 100);
+    assert!(!stored_alert.insufficient_support);
+    let policy =
+        super::stat_support::resolve_policy(&h.store, TENANT, &DecisionPolicyRef::Default).unwrap();
+    let mut breached = (*human_receipt).clone();
+    let breached_metrics = breached.metrics.as_mut().unwrap();
+    breached_metrics.covered = 0;
+    breached_metrics.acted = 1;
+    breached_metrics.act_risk_upper = rational(1, 1);
+    let alert = super::stat_jobs::threshold_alert(&breached, &policy).unwrap();
+    assert_eq!(alert.coverage_below_policy, Some(true));
+    assert_eq!(alert.act_risk_above_policy, Some(true));
+    breached.metrics.as_mut().unwrap().n_items = 1;
+    let unsupported = super::stat_jobs::threshold_alert(&breached, &policy).unwrap();
+    assert!(unsupported.insufficient_support);
+    assert_eq!(unsupported.coverage_below_policy, None);
+    assert_eq!(unsupported.act_risk_above_policy, None);
     assert_eq!(timeline.next_after, None);
     let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
         super::jobs::handle_decision_eval(

@@ -64,9 +64,9 @@ pub use jobs::{
     DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
     DecisionJobKind, DecisionJobOutput, DecisionJobRecord, DecisionJobState,
     DecisionJobStatusRequest, DecisionReceiptGetRequest, DecisionReceiptListRequest,
-    DecisionReceiptPage, DecisionReceiptTimelineEntry, DecisionReceiptTimelinePage,
-    DecisionReceiptTimelineRequest, EvalCandidate, HeadKind, LabelRegime, OpeEstimateView,
-    OpeEstimatorKind, OptimiserSpec, RecordWindow,
+    DecisionReceiptPage, DecisionReceiptThresholdAlert, DecisionReceiptTimelineEntry,
+    DecisionReceiptTimelinePage, DecisionReceiptTimelineRequest, EvalCandidate, HeadKind,
+    LabelRegime, OpeEstimateView, OpeEstimatorKind, OptimiserSpec, RecordWindow,
 };
 pub use numeric::{
     QuantScaleTag, QuantisedValue, UnitRationalFields, UnitRationalWire,

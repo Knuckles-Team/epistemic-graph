@@ -324,6 +324,26 @@ pub struct DecisionReceiptPage {
 pub struct DecisionReceiptTimelineEntry {
     pub submitted_at_ms: u64,
     pub receipt: DecisionEvalReceipt,
+    /// Policy thresholds resolved when the evaluation ran. Older indexed
+    /// receipts may have no snapshot and cannot claim alert status.
+    #[serde(default)]
+    pub threshold_alert: Option<DecisionReceiptThresholdAlert>,
+}
+
+/// Exact policy-bound checks for one independently labelled receipt. `None`
+/// means the corresponding calibrated claim is inapplicable, not healthy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionReceiptThresholdAlert {
+    pub policy_digest: String,
+    pub alpha: UnitRationalWire,
+    pub epsilon: UnitRationalWire,
+    pub delta: UnitRationalWire,
+    pub n_min: u64,
+    pub insufficient_support: bool,
+    pub coverage_below_policy: Option<bool>,
+    pub act_risk_above_policy: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

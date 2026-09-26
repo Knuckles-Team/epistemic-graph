@@ -20,8 +20,8 @@ use eg_types::agent_component::AgentComponentKind;
 use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{
-    DatasetSource, DecisionReceiptPage, DecisionReceiptTimelineEntry, DecisionReceiptTimelinePage,
-    LabelRegime,
+    DatasetSource, DecisionReceiptPage, DecisionReceiptThresholdAlert,
+    DecisionReceiptTimelineEntry, DecisionReceiptTimelinePage, LabelRegime,
 };
 use eg_types::decision::replay::{EvalMode, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
@@ -30,8 +30,8 @@ use eg_types::decision::statistical::features::FeatureSchemaBody;
 use eg_types::decision::statistical::head::DecisionHeadBody;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::{
-    DecisionEvalOp, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest, DecisionJobKind,
-    DecisionJobOutput, DecisionJobRecord, DecisionJobState, EvalCandidate,
+    DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
+    DecisionJobKind, DecisionJobOutput, DecisionJobRecord, DecisionJobState, EvalCandidate,
     DECISION_JOB_SCHEMA_VERSION,
 };
 
@@ -43,7 +43,8 @@ use crate::protocol::{Response, ResultPayload};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::{
-    decode_artifact, draft_key, encode_artifact, job_key, receipt_key, receipt_time_key,
+    decode_artifact, draft_key, encode_artifact, job_key, receipt_key, receipt_threshold_key,
+    receipt_time_key,
 };
 
 /// The label a failed blocking store task names.
@@ -352,16 +353,58 @@ fn run_eval(inputs: &EvalInputs, request: &DecisionEvalRequest) -> JobRun {
         &spec,
     )
     .map_err(|r| r.render())?;
-    let row = (
+    let mut rows = vec![(
         receipt_key(&receipt.receipt_digest),
         encode_artifact(&receipt)?,
-    );
+    )];
+    if let Some(alert) = threshold_alert(&receipt, &inputs.policy) {
+        rows.push((
+            receipt_threshold_key(&receipt.receipt_digest),
+            encode_artifact(&alert)?,
+        ));
+    }
     Ok((
         DecisionJobOutput::Eval {
             receipt: Box::new(receipt),
         },
-        vec![row],
+        rows,
     ))
+}
+
+/// Snapshot the evaluation's exact policy levels while that policy is still
+/// resolved. Reading a newer default policy must never change an old alert.
+pub(super) fn threshold_alert(
+    receipt: &DecisionEvalReceipt,
+    policy: &ResolvedPolicy,
+) -> Option<DecisionReceiptThresholdAlert> {
+    let metrics = receipt.metrics.as_ref()?;
+    if receipt.synthetic {
+        return None;
+    }
+    let levels = &policy.statistical;
+    let insufficient_support = metrics.n_items < levels.n_min;
+    let coverage_below_policy =
+        (!insufficient_support && receipt.calibration.is_some()).then(|| {
+            let alpha_num = u128::from(levels.alpha.numerator());
+            let alpha_den = u128::from(levels.alpha.denominator());
+            u128::from(metrics.covered) * alpha_den
+                < u128::from(metrics.n_items) * (alpha_den - alpha_num)
+        });
+    let act_risk_above_policy = (!insufficient_support && metrics.acted > 0).then(|| {
+        u128::from(metrics.act_risk_upper.numerator()) * u128::from(levels.epsilon.denominator())
+            > u128::from(levels.epsilon.numerator())
+                * u128::from(metrics.act_risk_upper.denominator())
+    });
+    Some(DecisionReceiptThresholdAlert {
+        policy_digest: receipt.policy_digest.clone(),
+        alpha: levels.alpha,
+        epsilon: levels.epsilon,
+        delta: levels.delta,
+        n_min: levels.n_min,
+        insufficient_support,
+        coverage_below_policy,
+        act_risk_above_policy,
+    })
 }
 
 /// A replay evaluation (EH-528). Its overfitting statistics are the finance
@@ -640,9 +683,22 @@ async fn serve_eval(
                 {
                     return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline receipt".into());
                 }
+                let threshold_alert = store
+                    .decision_artifact(&request.tenant_id, &receipt_threshold_key(digest))?
+                    .map(|bytes| {
+                        decode_artifact::<DecisionReceiptThresholdAlert>(&bytes, "threshold alert")
+                    })
+                    .transpose()?;
+                if threshold_alert
+                    .as_ref()
+                    .is_some_and(|alert| alert.policy_digest != receipt.policy_digest)
+                {
+                    return Err("CORRUPT_DECISION_ARTIFACT: threshold policy mismatch".into());
+                }
                 entries.push(DecisionReceiptTimelineEntry {
                     submitted_at_ms,
                     receipt,
+                    threshold_alert,
                 });
                 last_cursor = Some(cursor.to_string());
             }
