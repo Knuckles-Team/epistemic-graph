@@ -1777,7 +1777,6 @@ fn verify_tenant_principal_admission_with_registry(
                 || byte == b'-'
                 || byte == b'.'
         })
-        || !tenant_slug.as_bytes()[0].is_ascii_alphanumeric()
     {
         return Err(SIGNER_TRUST_DENIED.to_string());
     }
@@ -2633,6 +2632,7 @@ mod tests {
     fn tenant_admission_slug_is_derived_from_verified_tenant() {
         assert_eq!(canonical_tenant_slug("Team:East"), Some("team_east".into()));
         assert_eq!(canonical_tenant_slug("  Acme.IO  "), Some("acme.io".into()));
+        assert_eq!(canonical_tenant_slug(":-Acme"), Some("-acme".into()));
         assert_eq!(canonical_tenant_slug("__"), None);
         let registry = SignerKeyRegistry {
             signers: BTreeMap::from([(
