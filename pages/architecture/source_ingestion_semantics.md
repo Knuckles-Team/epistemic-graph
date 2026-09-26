@@ -33,6 +33,17 @@ replacement address by guesswork.
 IDs plus normalized content digests. AU's current fragmenter calls these EG
 functions; source object identity and content revision remain separate fields.
 
+`epistemic_graph.ingestion.evidence_model` owns the `Artifact` and `Fragment`
+types, graph vocabulary, and evidence graph projection. Its envelope input is
+a structural protocol, so the engine never imports AU's delivery DTO. AU keeps
+fragment extraction and graph reads as adapters and consumes the engine models.
+
+`epistemic_graph.ingestion.source_positions` owns typed provider cursors,
+checkpoint decoding, cursor partitions, and advancing content versions. AU's
+current native commit and cursor readers consume these pure derivations while
+the durable write remains in EG. A derived slice still lacks the catalog
+mapping and provider checkpoint that raw-record `SourceIngest` requires.
+
 `epistemic_graph.ingestion.process_conformance` owns frozen conformance runs,
 deviation records, and deterministic graph projections. A caller supplies the
 reference model; a worker checks traces against it without deriving a model
