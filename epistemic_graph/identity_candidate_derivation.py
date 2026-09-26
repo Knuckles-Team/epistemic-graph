@@ -13,7 +13,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 
-GENERIC_IDENTIFIER_FIELDS: frozenset[str] = frozenset({"cmdb_id", "external_id", "id"})
+# A shared Wikidata QID is exact identifier evidence for world-reference
+# alignment (EH-362), alongside generic source and CMDB identifiers.
+GENERIC_IDENTIFIER_FIELDS: frozenset[str] = frozenset(
+    {"cmdb_id", "external_id", "id", "wikidata_id"}
+)
 
 
 class IdentityRuleLike(Protocol):

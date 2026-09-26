@@ -66,3 +66,12 @@ def test_product_complement_is_shared_and_nonfinite_evidence_fails_closed():
     assert aggregate_confidence([1.5, -0.2]) == 1.0
     assert aggregate_confidence([float("nan")]) == 0.0
     assert aggregate_confidence([float("inf")]) == 0.0
+
+
+def test_wikidata_qid_is_generic_exact_identifier_evidence():
+    a = EntityRecord("a", "one", identifiers={"wikidata_id": "Q42"})
+    b = EntityRecord("b", "two", identifiers={"wikidata_id": "Q42"})
+    evidence = exact_identifier_evidence(a, b, [])
+    assert evidence is not None
+    assert evidence.kind == IdentityEvidenceKind.EXACT_IDENTIFIER
+    assert evidence.detail == "wikidata_id=Q42"
