@@ -781,13 +781,46 @@ pub(crate) fn principal_may_access(
     graph_owner: Option<&str>,
     access: eg_types::acl::AccessCheck,
 ) -> bool {
+    principal_access_decision(
+        isolation,
+        agent_id,
+        graph_name,
+        graph_type,
+        graph_owner,
+        access,
+    )
+    .0
+}
+
+/// Return the same access verdict used for served graph requests together with
+/// its engine reason. Scope admission is upstream and cannot be reported here.
+pub(crate) fn principal_access_decision(
+    isolation: &IsolationLayer,
+    agent_id: &str,
+    graph_name: &str,
+    graph_type: crate::protocol::GraphType,
+    graph_owner: Option<&str>,
+    access: eg_types::acl::AccessCheck,
+) -> (bool, &'static str) {
+    if agent_id.is_empty() {
+        return (false, "UNKNOWN_PRINCIPAL");
+    }
+    if !isolation.has_rules() {
+        return (false, "POLICY_UNPROVISIONED");
+    }
     let level = match access {
         eg_types::acl::AccessCheck::Read => AccessLevel::Read,
         eg_types::acl::AccessCheck::Write => AccessLevel::Write,
     };
-    !agent_id.is_empty()
-        && isolation.has_rules()
-        && isolation.check_access(agent_id, graph_name, graph_type, graph_owner, level)
+    let decision = isolation.access_decision(&crate::isolation::AccessQuery {
+        agent_id,
+        graph_name,
+        graph_type,
+        graph_owner,
+        access: level,
+        now_ms: crate::isolation::access_clock_ms(),
+    });
+    (decision.is_allowed(), decision.reason_code.as_str())
 }
 
 /// Deny an unregistered/unauthenticated caller (or an unprovisioned isolation
@@ -1691,7 +1724,22 @@ mod universal_row_read_tests {
                 access,
             )
         };
+        let reason = |isolation: &IsolationLayer, agent: &str, access: AccessCheck| {
+            principal_access_decision(
+                isolation,
+                agent,
+                "tenant-a",
+                crate::protocol::GraphType::Agent,
+                None,
+                access,
+            )
+            .1
+        };
         assert!(may(&isolation, "alice", AccessCheck::Read));
+        assert_eq!(
+            reason(&isolation, "alice", AccessCheck::Read),
+            "STANDING_GRANT"
+        );
         assert!(
             !may(&isolation, "alice", AccessCheck::Write),
             "read grants no write"
@@ -1700,11 +1748,19 @@ mod universal_row_read_tests {
             !may(&isolation, "mallory", AccessCheck::Read),
             "unregistered is denied"
         );
+        assert_eq!(
+            reason(&isolation, "mallory", AccessCheck::Read),
+            "UNKNOWN_PRINCIPAL"
+        );
         assert!(
             !may(&isolation, "", AccessCheck::Read),
             "an empty principal is denied"
         );
         isolation.register_agent(reader(Vec::new()));
+        assert_eq!(
+            reason(&isolation, "alice", AccessCheck::Read),
+            "NO_MATCHING_GRANT"
+        );
         assert!(
             !may(&isolation, "alice", AccessCheck::Read),
             "revocation takes effect at the next check"

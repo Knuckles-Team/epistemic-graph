@@ -199,7 +199,7 @@ async fn dispatch_check_access(
     ) {
         return Response::err(req_id, denied);
     }
-    let allowed = crate::server::access::principal_may_access(
+    let (allowed, reason_code) = crate::server::access::principal_access_decision(
         &s.isolation,
         &agent_id,
         &graph,
@@ -213,6 +213,7 @@ async fn dispatch_check_access(
         graph,
         access,
         allowed,
+        reason_code: reason_code.to_string(),
     };
     Response::ok(
         req_id,

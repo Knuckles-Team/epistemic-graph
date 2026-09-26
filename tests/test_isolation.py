@@ -229,10 +229,42 @@ def test_check_access_answers_a_principals_current_authority(isolation_server):
         )
         check = system.consensus.check_access
         assert check("service:flip-subscriber", "read") is True
+        decision = system.consensus.check_access_decision(
+            "service:flip-subscriber", "read"
+        )
+        assert decision["allowed"] is True
+        assert decision["reason_code"] == "STANDING_GRANT"
         assert check("service:flip-subscriber", "write") is False
+        assert (
+            system.consensus.check_access_decision(
+                "service:flip-subscriber", "write"
+            )["reason_code"]
+            == "NO_MATCHING_GRANT"
+        )
         assert check("service:never-registered", "read") is False
+        assert (
+            system.consensus.check_access_decision(
+                "service:never-registered", "read"
+            )["reason_code"]
+            == "UNKNOWN_PRINCIPAL"
+        )
+        system.rbac.add_grant(
+            "flip-reader", {"Graph": "__commons__"}, "Write", "Deny"
+        )
+        assert (
+            system.consensus.check_access_decision(
+                "service:flip-subscriber", "write"
+            )["reason_code"]
+            == "EXPLICIT_DENY"
+        )
         system.rbac.remove_grant("flip-reader", {"Graph": "__commons__"}, "Read")
         assert check("service:flip-subscriber", "read") is False
+        assert (
+            system.consensus.check_access_decision(
+                "service:flip-subscriber", "read"
+            )["reason_code"]
+            == "NO_MATCHING_GRANT"
+        )
     finally:
         system.close()
 
@@ -248,5 +280,7 @@ def test_check_access_needs_the_security_check_scope(isolation_server):
     try:
         with pytest.raises(RuntimeError, match="lacks required scope .security:check."):
             narrow.consensus.check_access(TEST_AGENT_ID, "read")
+        with pytest.raises(RuntimeError, match="lacks required scope .security:check."):
+            narrow.consensus.check_access_decision(TEST_AGENT_ID, "read")
     finally:
         narrow.close()

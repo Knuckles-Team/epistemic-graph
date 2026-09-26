@@ -290,7 +290,9 @@ pub(crate) async fn check_scope_and_admin_authority(
         crate::server::denial_sample::offer(verified_context.principal(), action, "SCOPE_DENIED");
         return Err(Response::err(
             req.id,
-            format!("ACCESS_DENIED: verified request context lacks required scope '{action}'"),
+            format!(
+                "ACCESS_DENIED: SCOPE_DENIED: verified request context lacks required scope '{action}'"
+            ),
         ));
     }
     if !authority.state_machine_authorized

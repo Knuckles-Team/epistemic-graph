@@ -44,6 +44,7 @@ TEST_SIGNER_ALLOWED_ROLES = [
     "worker1-access",
     "flip-reader",
     "lease-writer",
+    "reports-reader",
 ]
 
 

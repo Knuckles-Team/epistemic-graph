@@ -8176,6 +8176,17 @@ class ConsensusClient:
         answer is the engine's own admission decision, never the identity or
         the policy. A failed call raises; it is never read as ``False``.
         """
+        decision = await self.check_access_decision(agent_id, access, graph=graph)
+        return bool(decision["allowed"])
+
+    async def check_access_decision(
+        self, agent_id: str, access: str = "read", *, graph: str | None = None
+    ) -> dict[str, Any]:
+        """Read EG's current allow/deny decision and stable engine reason.
+
+        A missing caller scope is refused by the envelope before EG returns a
+        decision; ``SCOPE_DENIED`` is therefore never an engine reason here.
+        """
         if not isinstance(agent_id, str) or not agent_id.strip():
             raise ValueError("agent_id must be a non-empty opaque identifier")
         if access not in ("read", "write"):
@@ -8185,7 +8196,11 @@ class ConsensusClient:
                 self._client, {"agent_id": agent_id, "access": access}, graph=graph
             )
         ).payload
-        return bool(decision["allowed"])
+        return _exact_mapping(
+            "AccessDecision",
+            decision,
+            frozenset({"agent_id", "graph", "access", "allowed", "reason_code"}),
+        )
 
     async def apply_multisig_mutation(
         self,

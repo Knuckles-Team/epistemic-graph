@@ -103,7 +103,8 @@ pub enum AccessCheck {
 /// `CheckAccess`'s answer: would `agent_id`'s request of `access` on `graph`
 /// be admitted right now, by the same isolation/RBAC decision EG applies to
 /// that principal's own requests. An unregistered or revoked principal is
-/// `allowed: false`.
+/// `allowed: false`. `reason_code` comes from that same engine decision;
+/// request-envelope scope denial occurs before this result is returned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -112,6 +113,7 @@ pub struct AccessDecision {
     pub graph: String,
     pub access: AccessCheck,
     pub allowed: bool,
+    pub reason_code: String,
 }
 
 // ── RBAC role model (CONCEPT:EG-KG.compute.feature) ─────────────────────────────────────────
