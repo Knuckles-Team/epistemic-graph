@@ -1460,6 +1460,62 @@ mod admin_scope_tests {
         );
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tenant_admission_requires_admin_and_preserves_target_identity() {
+        let state = state_min();
+        {
+            let mut guard = state.write().await;
+            guard
+                .isolation
+                .provision_tenant_graph_access("tenant__acme__default", None)
+                .unwrap();
+            guard
+                .isolation
+                .try_register_agent(AgentIdentity {
+                    agent_id: "target".into(),
+                    role: AgentRole::Agent,
+                    teams: vec!["support".into()],
+                    roles: vec!["code-reader".into()],
+                })
+                .unwrap();
+        }
+        let op = RbacAdminOp::AdmitTenantPrincipal {
+            agent_id: "target".into(),
+            tenant_slug: "acme".into(),
+        };
+        let denied = dispatch_on_heap(
+            &state,
+            req_as(15, Some("alice"), Method::RbacAdmin { op: op.clone() }),
+        )
+        .await;
+        assert!(denied
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("ACCESS_DENIED"));
+        assert_eq!(
+            state
+                .read()
+                .await
+                .isolation
+                .get_identity("target")
+                .unwrap()
+                .roles,
+            vec!["code-reader"]
+        );
+
+        let admitted =
+            dispatch_on_heap(&state, req_as(16, Some("root"), Method::RbacAdmin { op })).await;
+        assert!(
+            admitted.error.is_none(),
+            "tenant admission: {:?}",
+            admitted.error
+        );
+        let identity = state.read().await.isolation.get_identity("target").unwrap();
+        assert_eq!(identity.teams, vec!["support"]);
+        assert_eq!(identity.roles, vec!["code-reader", "tenant:acme"]);
+    }
+
     // ── `Method::GetIdentity` (CONCEPT:EG-KG.compute.feature) ─────────────────────────
     //
     // The identity read-back closing the `RegisterIdentity` blind-upsert gap. Driven

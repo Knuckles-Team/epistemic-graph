@@ -576,6 +576,21 @@ pub(super) async fn apply_rbac_admin(
             ),
             Err(message) => Response::err(req_id, message),
         },
+        RbacAdminOp::AdmitTenantPrincipal {
+            agent_id,
+            tenant_slug,
+        } => match s
+            .isolation
+            .try_admit_tenant_principal(&agent_id, &tenant_slug)
+        {
+            Ok(added) => Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::security::RbacAdmitTenantPrincipal>(
+                    added,
+                ),
+            ),
+            Err(message) => Response::err(req_id, message),
+        },
         RbacAdminOp::List => {
             let policy = s.isolation.rbac();
             Response::ok(

@@ -223,6 +223,7 @@ method_results! {
     RbacRemoveRole(RbacAdmin / "RemoveRole") => Text<String>;
     RbacAddGrant(RbacAdmin / "AddGrant") => Text<String>;
     RbacRemoveGrant(RbacAdmin / "RemoveGrant") => Json<RbacGrantRemoval>;
+    RbacAdmitTenantPrincipal(RbacAdmin / "AdmitTenantPrincipal") => Json<bool>;
     RbacList(RbacAdmin / "List") => Json<RbacPolicyListing>;
     // EH-404: every write answers the lease as it now stands; `list` answers
     // the caller's visible leases with their status at the engine's clock.
