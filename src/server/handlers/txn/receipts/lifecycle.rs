@@ -192,7 +192,7 @@ pub(in crate::server::handlers::txn) async fn begin_txn_lifecycle_receipt(
     _authority: &CarrierAuthority,
     _method: &Method,
 ) -> Result<TxnLifecycleReceipt, String> {
-    Err("transaction lifecycle requires the redb MutationBatch coordinator".to_string())
+    Err("ENGINE_UNAVAILABLE: transaction lifecycle requires the redb MutationBatch coordinator".to_string())
 }
 
 #[cfg(feature = "redb")]
@@ -218,7 +218,7 @@ pub(in crate::server::handlers::txn) fn finish_txn_lifecycle_receipt(
     _result: ResultPayload,
     _method: Option<&Method>,
 ) -> Result<ResultPayload, String> {
-    Err("transaction lifecycle requires the redb MutationBatch coordinator".to_string())
+    Err("ENGINE_UNAVAILABLE: transaction lifecycle requires the redb MutationBatch coordinator".to_string())
 }
 
 /// Abort after a volatile lifecycle effect and before its durable terminal

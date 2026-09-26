@@ -2185,22 +2185,21 @@ mod dispatch_pipeline_tests {
         server_state.persist_dir = Some(fixture.persist_dir.to_string_lossy().into_owned());
         let state = Arc::new(RwLock::new(server_state));
 
-        let error = refused(
-            "a cross-tenant read",
-            crate::server::dispatch::dispatch(
-                &state,
-                signed(
-                    920,
-                    SemanticIndexOp::Binding {
-                        tenant_id: "tenant-somebody-else".to_string(),
-                        binding_id: "binding:documents-body".to_string(),
-                    },
-                ),
-            )
-            .await,
-        );
+        let denied = crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                920,
+                SemanticIndexOp::Binding {
+                    tenant_id: "tenant-somebody-else".to_string(),
+                    binding_id: "binding:documents-body".to_string(),
+                },
+            ),
+        )
+        .await;
+        assert_eq!(denied.error.as_deref(), Some("ACCESS_DENIED"));
+        let error = refused("a cross-tenant read", denied);
         assert!(
-            error.contains("ACCESS_DENIED"),
+            error.contains("semantic index tenant must match verified request tenant"),
             "a cross-tenant semantic read must be refused by name, got: {error}"
         );
         let _ = selector();

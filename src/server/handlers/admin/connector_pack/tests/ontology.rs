@@ -110,7 +110,7 @@ async fn a_cancelled_import_does_not_block_the_next_bind() {
     .await
     .expect("a cancelled import must stop instead of finishing its reasoning");
     assert_eq!(abandoned.error.as_deref(), Some("CANCELLED"));
-    assert_eq!(abandoned.error_detail.as_deref(), Some(CANCELLED));
+    assert_eq!(abandoned.error_detail.as_deref(), CANCELLED.strip_prefix("CANCELLED: "));
     tokio::time::timeout(Duration::from_secs(20), bind(&served, "eh536-next", ADMIN))
         .await
         .expect("the next bind must not queue behind the abandoned import");

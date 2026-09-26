@@ -221,9 +221,9 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     .await;
     assert!(
         exact_commit
-            .error_detail
+            .error
             .as_deref()
-            .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+            .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
         "exact GraphQL commit retry must be rejected by the kernel: {:?}",
         exact_commit.error
     );
@@ -350,9 +350,9 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         exact_begin
-            .error_detail
+            .error
             .as_deref()
-            .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+            .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
         "exact GraphQL begin replay must be rejected by the kernel: {:?}",
         exact_begin.error
     );
@@ -414,9 +414,9 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         exact_stage
-            .error_detail
+            .error
             .as_deref()
-            .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+            .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
         "exact GraphQL stage replay must be rejected by the kernel: {:?}",
         exact_stage.error
     );
@@ -503,9 +503,9 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     .await;
     assert!(
         exact_rollback
-            .error_detail
+            .error
             .as_deref()
-            .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+            .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
         "exact GraphQL rollback replay must be rejected by the kernel: {:?}",
         exact_rollback.error
     );

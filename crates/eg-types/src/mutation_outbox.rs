@@ -93,7 +93,7 @@ impl OutboxTarget {
             return Ok(());
         }
         Err(format!(
-            "mutation outbox scope {scope:?} does not address a {store:?} outbox"
+            "OUTBOX_SCOPE_MISMATCH: mutation outbox scope {scope:?} does not address a {store:?} outbox"
         ))
     }
 }

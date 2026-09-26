@@ -20,7 +20,7 @@ pub(crate) fn retained_graph(
         .last()
         .is_some_and(|graph| graph.lifecycle == AgentLibraryLifecycle::Retired)
     {
-        return Err("kg-delegate selected agent graph head is retired".to_string());
+        return Err("STALE_AGENT_LIBRARY_REVISION: kg-delegate selected agent graph head is retired".to_string());
     }
     revisions
         .into_iter()
@@ -43,7 +43,7 @@ pub(crate) fn retained_agent(
         .revisions(tenant_id, agent_id)
         .map_err(|error| error.to_string())?;
     if entries.last().is_some_and(AgentLibraryEntry::is_retired) {
-        return Err("kg-delegate selected Agent Library head is retired".to_string());
+        return Err("STALE_AGENT_LIBRARY_REVISION: kg-delegate selected Agent Library head is retired".to_string());
     }
     entries
         .into_iter()
@@ -272,7 +272,7 @@ fn validate_agent_target(
 ) -> Result<(), String> {
     retained_agent.validate()?;
     if retained_agent.is_retired() {
-        return Err("kg-delegate retained Agent Library entry is retired".to_string());
+        return Err("STALE_AGENT_LIBRARY_REVISION: kg-delegate retained Agent Library entry is retired".to_string());
     }
     if *entry != AgentLibraryEntryRef::from_entry(retained_agent) {
         return Err("kg-delegate agent entry is not the retained revision/digest".to_string());

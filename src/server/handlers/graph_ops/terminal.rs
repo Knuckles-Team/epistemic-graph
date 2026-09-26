@@ -45,7 +45,7 @@ pub(super) async fn try_handle_graph_domains(
     let _ = super::union::try_handle_subgraph_comparison(ctx, method).await?;
     ControlFlow::Break(Response::err(
         ctx.req_id,
-        "Method not available in this server build (unknown method, or a feature — finance/datascience/reasoning/query — not enabled)",
+        "METHOD_NOT_YET_SERVED: Method not available in this server build (unknown method, or a feature — finance/datascience/reasoning/query — not enabled)",
     ))
 }
 pub(crate) async fn try_handle(

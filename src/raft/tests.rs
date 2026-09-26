@@ -2642,7 +2642,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     .await;
     assert_eq!(
         resp.error.as_deref(),
-        Some("RAFT_NOT_CONFIGURED: this node is not running a Raft cluster")
+        Some("RAFT_NOT_CONFIGURED")
     );
     unclustered_backend.shutdown();
 
