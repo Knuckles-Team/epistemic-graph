@@ -44,6 +44,36 @@ current native commit and cursor readers consume these pure derivations while
 the durable write remains in EG. A derived slice still lacks the catalog
 mapping and provider checkpoint that raw-record `SourceIngest` requires.
 
+## Derived-slice commit decision for AUD-18
+
+Use EG `ApplyChangeEnvelope` for **already-derived** node/edge slices. Do not
+add a second derived-slice commit method. EG's `SourceIngest` handler itself
+prepares a `ChangeEnvelope` and delegates its final graph/cursor transaction to
+the same commit authority. `SourceIngest` adds raw admission, catalog mapping,
+provider checkpoint, and source reconciliation before that commit. Those are
+required for SDK-delivered raw source records, but unavailable for a derived
+evidence, conformance, or process graph slice. Supplying synthetic values would
+claim source authority that the derivation never had.
+
+The existing path has the needed derived-slice semantics: the generated EG
+client validates the envelope and binds the request ID, verified tenant,
+principal, graph, and policy revision; EG dispatch rejects a mismatch against
+verified request claims, classifies `ApplyChangeEnvelope` as a write, and runs
+the graph ACL gate. The durable commit is atomic across graph operations,
+content version, policies, lineage, and optional cursor. Its typed
+`ChangeEnvelopeApplied` receipt carries batch identity, replay status, outbox
+count, and projection-pending status. AU's current `ingest_graph_slice` adapter
+requires an ambient `kg:write` GraphSession, rejects tenant mismatch, writes
+policy rows for every projected object, and reports the native receipt and
+replay status. Keep this route limited to engine-derived slices; SDK source
+pages must use `SourceIngest` and consume its mapping/admission/checkpoint
+receipt.
+
+Focused client and AU adapter tests cover verified tenant binding, governed
+auxiliary nodes and edges, receipt propagation, and replay reporting. A live
+EG server acceptance run remains necessary to certify deployed ACL and
+durable-store behavior at the final composed head.
+
 `epistemic_graph.ingestion.process_conformance` owns frozen conformance runs,
 deviation records, and deterministic graph projections. A caller supplies the
 reference model; a worker checks traces against it without deriving a model
