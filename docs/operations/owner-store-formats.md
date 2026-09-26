@@ -38,7 +38,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 
 * Store file: `sql.redb`
 * Refused generation: SQL catalog store before durable source checkpoints
-* Data lost: its SQL catalog and rows are not migrated; re-ingest the sources
+* Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open, or re-ingestion after moving the file aside
 * Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`
 * Removal step: stop the engine, move `sql.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
@@ -46,7 +46,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 
 * Store file: `sql.redb`
 * Refused generation: SQL catalog store before durable ANN and edge index generations
-* Data lost: its SQL catalog and rows are not migrated; re-ingest the sources
+* Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open, or re-ingestion after moving the file aside
 * Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`, `__sql_source_checkpoints__`
 * Removal step: stop the engine, move `sql.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
