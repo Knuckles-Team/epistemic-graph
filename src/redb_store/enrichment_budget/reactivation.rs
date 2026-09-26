@@ -547,7 +547,7 @@ mod tests {
         );
         assert_eq!(
             read_park(&shard, graph, DurableCrypto::none()).unwrap(),
-            Some(park)
+            Some(park.clone())
         );
         let mut stale_budget = old.clone();
         stale_budget.last_page_key = format!("repository-enrichment-page:{}", "f".repeat(64));
@@ -591,7 +591,7 @@ mod tests {
         });
         assert_eq!(
             read(&shard, graph, &next.source_envelope, DurableCrypto::none()).unwrap(),
-            Some(next)
+            Some(next.clone())
         );
         let handle = shard.graph(graph).unwrap();
         let read = shard.read(&handle).unwrap();

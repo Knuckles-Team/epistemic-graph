@@ -1417,7 +1417,7 @@ mod tests {
                 .sources
                 .iter()
                 .map(|source| source.evidence.owner_rows)
-                .sum()
+                .sum::<u64>()
         );
         for (path, original) in source_files.iter().zip(before) {
             assert_eq!(std::fs::read(path).unwrap(), original);

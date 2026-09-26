@@ -1200,8 +1200,6 @@ mod outbox_reactivation_tests {
         contract::Digest256, MutationOperation, MutationOutboxIntent, MutationScopeIdentity,
         MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
     };
-    use redb::ReadableTable;
-
     const GRAPH: &str = "graph-a";
     const CONSUMER: &str = "reactivation-worker";
     const TOPIC: &str = "repository.enrichment.pending";
