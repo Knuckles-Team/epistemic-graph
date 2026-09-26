@@ -219,6 +219,7 @@ method_results! {
     #[cfg(feature = "security")]
     AuditProveInclusion(AuditProveInclusion) => Raw<MerkleInclusionReport>;
     RegisterIdentity(RegisterIdentity) => Text<String>;
+    AdmitTenantPrincipal(AdmitTenantPrincipal) => Json<bool>;
     RbacAddRole(RbacAdmin / "AddRole") => Text<String>;
     RbacRemoveRole(RbacAdmin / "RemoveRole") => Text<String>;
     RbacAddGrant(RbacAdmin / "AddGrant") => Text<String>;

@@ -8105,6 +8105,46 @@ class ConsensusClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
+    async def admit_tenant_principal(
+        self,
+        agent_id: str,
+        tenant_slug: str,
+        *,
+        signer_id: str,
+        signer_key: str,
+    ) -> bool:
+        """Atomically admit one ordinary principal to the verified tenant.
+
+        The operation signer must match the verified service principal and its
+        configured ``allowed_roles`` must include ``tenant:<tenant_slug>``.
+        The engine checks the tenant against the verified request envelope.
+        """
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            raise ValueError("agent_id must be a non-empty opaque identifier")
+        if not isinstance(tenant_slug, str) or not tenant_slug:
+            raise ValueError("tenant_slug must be a non-empty identifier")
+        idempotency_key = self._client._new_operation_idempotency_key()
+        params: dict[str, Any] = {
+            "agent_id": agent_id,
+            "tenant_slug": tenant_slug,
+            "signature": "",
+        }
+        params["signature"] = self._client._sign_context_operation(
+            domain="eg-admit-tenant-principal-v1",
+            method="AdmitTenantPrincipal",
+            params=params,
+            graph="__commons__",
+            idempotency_key=idempotency_key,
+            signer_id=signer_id,
+            signer_key=signer_key,
+        )
+        result = await _gen.security.send_admit_tenant_principal(
+            self._client, params, graph="__commons__", idempotency_key=idempotency_key
+        )
+        if not isinstance(result.payload, bool):
+            raise TypeError("AdmitTenantPrincipal returned a non-boolean result")
+        return result.payload
+
     async def register_identity(
         self,
         agent_id: str,

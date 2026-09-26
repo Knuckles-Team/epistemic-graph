@@ -43,6 +43,24 @@ fn sanitize_authored_proposal(
                 roles,
             })
         }
+        Method::AdmitTenantPrincipal {
+            agent_id,
+            tenant_slug,
+            signature,
+        } => {
+            verify_tenant_principal_admission(
+                verified_context,
+                request_graph,
+                &agent_id,
+                &tenant_slug,
+                &signature,
+            )?;
+            Ok(Method::AdmitTenantPrincipal {
+                agent_id,
+                tenant_slug,
+                signature,
+            })
+        }
         Method::ApplyMultisigMutation {
             signatures,
             threshold,
