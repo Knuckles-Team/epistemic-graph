@@ -180,18 +180,26 @@ mod consensus_admin_route_tests {
 
     #[test]
     fn identity_and_rbac_commands_share_the_commons_consensus_order() {
-        let method = Method::RbacAdmin {
-            op: crate::acl::RbacAdminOp::List,
-        };
-        let command = crate::raft::NativeMutationCommand::from_public_method(
-            method.clone(),
-            "consensus-identity-route-test",
-        )
-        .unwrap();
-        assert_eq!(
-            native_route_target("caller-graph", "tenant-scope", &method, &command),
-            "__commons__"
-        );
+        for method in [
+            Method::RbacAdmin {
+                op: crate::acl::RbacAdminOp::List,
+            },
+            Method::AdmitTenantPrincipal {
+                agent_id: "alice".into(),
+                tenant_slug: "acme".into(),
+                signature: "attestation".into(),
+            },
+        ] {
+            let command = crate::raft::NativeMutationCommand::from_public_method(
+                method.clone(),
+                "consensus-identity-route-test",
+            )
+            .unwrap();
+            assert_eq!(
+                native_route_target("caller-graph", "tenant-scope", &method, &command),
+                "__commons__"
+            );
+        }
     }
 
     #[test]

@@ -573,7 +573,13 @@ pub(crate) fn scoped_test_request(
 
 #[cfg(test)]
 pub(crate) fn sign_current_test_request(secret: &str, request: Request) -> Request {
-    sign_test_request_with_context(secret, request, "tenant-shared", vec!["test".to_string()])
+    sign_test_request_with_context(
+        secret,
+        request,
+        "tenant-shared",
+        vec!["test".to_string()],
+        None,
+    )
 }
 
 /// Sign a request with the same fixed test policy as [`sign_current_test_request`],
@@ -586,7 +592,17 @@ pub(crate) fn sign_current_test_request_in_tenant(
     tenant: &str,
     request: Request,
 ) -> Request {
-    sign_test_request_with_context(secret, request, tenant, Vec::new())
+    sign_test_request_with_context(secret, request, tenant, Vec::new(), None)
+}
+
+#[cfg(test)]
+pub(crate) fn sign_tenant_admission_test_request(
+    secret: &str,
+    request: Request,
+    tenant: &str,
+    scopes: Vec<String>,
+) -> Request {
+    sign_test_request_with_context(secret, request, tenant, Vec::new(), Some(scopes))
 }
 
 /// Build and sign the standard request shape used by dispatch fixtures while
@@ -644,6 +660,7 @@ fn sign_test_request_with_context(
     mut request: Request,
     tenant: &str,
     roles: Vec<String>,
+    scopes: Option<Vec<String>>,
 ) -> Request {
     const TEST_OPERATION_SIGNER_KEY: &str = "rust-unit-operation-signer-key";
     static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -665,11 +682,11 @@ fn sign_test_request_with_context(
         audience: "epistemic-graph-test".to_string(),
         agent_id,
         roles,
-        scopes: vec![if identity_bootstrap {
-            "security:bootstrap".to_string()
+        scopes: if identity_bootstrap {
+            vec!["security:bootstrap".to_string()]
         } else {
-            "*".to_string()
-        }],
+            scopes.unwrap_or_else(|| vec!["*".to_string()])
+        },
         policy_version: "policy-test".to_string(),
         delegation: Vec::new(),
         node: None,
@@ -699,6 +716,25 @@ fn sign_test_request_with_context(
             teams,
             roles,
         );
+        let mut mac = HmacSha256::new_from_slice(TEST_OPERATION_SIGNER_KEY.as_bytes())
+            .expect("test signer key");
+        mac.update(&digest);
+        *signature = format!(
+            "{}:{}",
+            context.principal,
+            hex::encode(mac.finalize().into_bytes())
+        );
+    }
+    if let Method::AdmitTenantPrincipal {
+        agent_id,
+        tenant_slug,
+        signature,
+    } = &mut request.method
+    {
+        let verified_context =
+            VerifiedRequestContext::from_verified_claims(context.clone(), idempotency_key.clone());
+        let digest =
+            admit_tenant_principal_digest(&verified_context, &request.graph, agent_id, tenant_slug);
         let mut mac = HmacSha256::new_from_slice(TEST_OPERATION_SIGNER_KEY.as_bytes())
             .expect("test signer key");
         mac.update(&digest);
@@ -1658,6 +1694,78 @@ fn register_identity_digest(
     )
 }
 
+fn admit_tenant_principal_digest(
+    context: &VerifiedRequestContext,
+    graph: &str,
+    agent_id: &str,
+    tenant_slug: &str,
+) -> Vec<u8> {
+    let method = Method::AdmitTenantPrincipal {
+        agent_id: agent_id.to_string(),
+        tenant_slug: tenant_slug.to_string(),
+        signature: String::new(),
+    };
+    digest_operation(
+        "eg-admit-tenant-principal-v1",
+        context,
+        graph,
+        &method.canonical_body_bytes(),
+    )
+}
+
+/// A caller may admit only into its verified tenant, using its own trusted
+/// signer entry's `allowed_roles` allowance for that exact tenant role. The
+/// signed body cannot choose a System/Manager role or assert team membership.
+pub(crate) fn verify_tenant_principal_admission(
+    context: &VerifiedRequestContext,
+    graph: &str,
+    agent_id: &str,
+    tenant_slug: &str,
+    signature: &str,
+) -> Result<(), String> {
+    verify_tenant_principal_admission_with_registry(
+        context,
+        graph,
+        agent_id,
+        tenant_slug,
+        signature,
+        &signer_registry()?,
+    )
+}
+
+fn verify_tenant_principal_admission_with_registry(
+    context: &VerifiedRequestContext,
+    graph: &str,
+    agent_id: &str,
+    tenant_slug: &str,
+    signature: &str,
+    registry: &SignerKeyRegistry,
+) -> Result<(), String> {
+    if graph != "__commons__"
+        || tenant_slug != context.tenant()
+        || context.principal() != context.agent_id()
+        || agent_id.trim().is_empty()
+        || tenant_slug.is_empty()
+        || !tenant_slug.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+        })
+        || !tenant_slug.as_bytes()[0].is_ascii_alphanumeric()
+    {
+        return Err(SIGNER_TRUST_DENIED.to_string());
+    }
+    let digest = admit_tenant_principal_digest(context, graph, agent_id, tenant_slug);
+    let signer = registry.verify(signature, &digest)?;
+    if signer != context.principal() {
+        return Err(SIGNER_TRUST_DENIED.to_string());
+    }
+    registry.authorize_grant(
+        &signer,
+        agent_id,
+        &AgentRole::Agent,
+        &[format!("tenant:{tenant_slug}")],
+    )
+}
+
 fn multisig_mutation_digest(
     context: &VerifiedRequestContext,
     graph: &str,
@@ -2414,6 +2522,83 @@ mod tests {
                 .collect(),
             may_grant_system,
         }
+    }
+
+    #[test]
+    fn tenant_admission_requires_verified_tenant_and_attested_role() {
+        let registry = SignerKeyRegistry {
+            signers: BTreeMap::from([
+                (
+                    "svc:admission".into(),
+                    scoped_entry("service-key", &["tenant:acme"], false),
+                ),
+                (
+                    "svc:other".into(),
+                    scoped_entry("other-key", &["tenant:*"], false),
+                ),
+            ]),
+        };
+        let mut claims = verified_claims();
+        claims.principal = "svc:admission".into();
+        claims.agent_id = claims.principal.clone();
+        claims.tenant = "acme".into();
+        claims.scopes = vec!["security:tenant-admit".into()];
+        let context =
+            VerifiedRequestContext::from_verified_claims(claims.clone(), "admit-1".into());
+        let digest = admit_tenant_principal_digest(&context, "__commons__", "alice", "acme");
+        let signature = detached_signature("svc:admission", "service-key", &digest);
+        let verify = |context: &VerifiedRequestContext,
+                      graph: &str,
+                      target: &str,
+                      tenant: &str,
+                      signature: &str| {
+            verify_tenant_principal_admission_with_registry(
+                context, graph, target, tenant, signature, &registry,
+            )
+        };
+        assert!(verify(&context, "__commons__", "alice", "acme", &signature).is_ok());
+        for (graph, target, tenant) in [
+            ("data", "alice", "acme"),
+            ("__commons__", "alice", "other"),
+            ("__commons__", "bob", "acme"),
+            ("__commons__", "alice", "acme!"),
+        ] {
+            assert_eq!(
+                verify(&context, graph, target, tenant, &signature),
+                Err(SIGNER_TRUST_DENIED.into())
+            );
+        }
+        let mut delegated_claims = claims.clone();
+        delegated_claims.agent_id = "svc:other".into();
+        let delegated =
+            VerifiedRequestContext::from_verified_claims(delegated_claims, "admit-1".into());
+        assert_eq!(
+            verify(&delegated, "__commons__", "alice", "acme", &signature),
+            Err(SIGNER_TRUST_DENIED.into())
+        );
+        let other_signature = detached_signature("svc:other", "other-key", &digest);
+        assert_eq!(
+            verify(&context, "__commons__", "alice", "acme", &other_signature),
+            Err(SIGNER_TRUST_DENIED.into())
+        );
+
+        let denied_registry = SignerKeyRegistry {
+            signers: BTreeMap::from([(
+                "svc:admission".into(),
+                scoped_entry("service-key", &["tenant:other"], false),
+            )]),
+        };
+        assert_eq!(
+            verify_tenant_principal_admission_with_registry(
+                &context,
+                "__commons__",
+                "alice",
+                "acme",
+                &signature,
+                &denied_registry,
+            ),
+            Err(SIGNER_TRUST_DENIED.into()),
+        );
     }
 
     #[test]

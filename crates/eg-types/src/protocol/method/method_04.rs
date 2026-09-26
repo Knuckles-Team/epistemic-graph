@@ -406,6 +406,16 @@ $($variants)*
         roles: Vec<String>,
     },
 
+    /// Admit one ordinary principal to a provisioned tenant role without
+    /// replacing its existing identity. The detached signer attests the exact
+    /// tenant role; the verified request tenant and principal are checked by
+    /// the server before any policy write.
+    AdmitTenantPrincipal {
+        agent_id: String,
+        tenant_slug: String,
+        signature: String,
+    },
+
     /// Read back one principal's currently-registered identity (CONCEPT:EG-KG.compute.feature).
     /// `RegisterIdentity` REPLACES an agent's whole role set on every call -- there is no
     /// merge -- so a caller that wants to ADD a role without silently dropping one already

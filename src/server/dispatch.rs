@@ -16,7 +16,7 @@ use super::access::{
 };
 use super::auth::{
     verify_multisig_mutation_signatures, verify_register_identity_signature,
-    verify_request_with_security_dir, VerifiedRequestContext,
+    verify_request_with_security_dir, verify_tenant_principal_admission, VerifiedRequestContext,
 };
 // Only the ast-gated ParseFiles handler offloads to the blocking pool here; the
 // graph-op off-lock sites live in handlers/graph_ops.rs.

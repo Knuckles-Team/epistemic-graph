@@ -24,6 +24,10 @@ pub(super) async fn dispatch_identity_and_access_methods(
         method @ Method::RegisterIdentity { .. } => {
             dispatch_identity_and_access_methods_arm_0(ctx, method).await
         }
+        #[cfg(feature = "security")]
+        method @ Method::AdmitTenantPrincipal { .. } => {
+            dispatch_tenant_principal_admission(ctx, method).await
+        }
         // Identity read-back (CONCEPT:EG-KG.compute.feature): closes the `RegisterIdentity`
         // blind-upsert gap. `RegisterIdentity` REPLACES a principal's whole role set on
         // every call, so a caller that wants to add a role without dropping one already
@@ -48,6 +52,55 @@ pub(super) async fn dispatch_identity_and_access_methods(
         }
         other => return ControlFlow::Continue(other),
     })
+}
+
+#[cfg(feature = "security")]
+async fn dispatch_tenant_principal_admission(ctx: DispatchCtx<'_>, method: Method) -> Response {
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        state_machine_authorized,
+        ..
+    } = ctx;
+    let Method::AdmitTenantPrincipal {
+        agent_id,
+        tenant_slug,
+        signature,
+    } = method
+    else {
+        return Response::err(req.id, "router dispatch helper routing mismatch");
+    };
+    // Followers apply only a leader-admitted command. An ordinary request is
+    // checked again here for the single-node path; neither path trusts a role
+    // or team shape supplied by the request body.
+    if !state_machine_authorized {
+        if let Err(message) = verify_tenant_principal_admission(
+            verified_context,
+            &req.graph,
+            &agent_id,
+            &tenant_slug,
+            &signature,
+        ) {
+            crate::metrics::auth_failure();
+            return Response::err(req.id, message);
+        }
+    }
+    let mut s = timed_write(state).await;
+    match s.isolation.try_admit_tenant_principal(
+        &agent_id,
+        &tenant_slug,
+        crate::isolation::AgentRole::Agent,
+        Vec::new(),
+    ) {
+        Ok(admitted) => Response::ok(
+            req.id,
+            ResultPayload::of::<eg_types::result_contract::security::AdmitTenantPrincipal>(
+                admitted,
+            ),
+        ),
+        Err(message) => Response::err(req.id, message),
+    }
 }
 
 /// `ApplyMultisigMutation` answers with the SPARQL UPDATE report of the

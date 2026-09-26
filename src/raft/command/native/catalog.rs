@@ -129,6 +129,7 @@ macro_rules! native_method_catalog {
             record CepUnsubscribe => SessionControl,
 
             record RegisterIdentity => Identity,
+            record AdmitTenantPrincipal => Identity,
             record RbacAdmin => Identity,
 
             record Reshard => ClusterAdmin,

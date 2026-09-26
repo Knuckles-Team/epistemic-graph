@@ -473,6 +473,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ClearLedger
         | Method::FinanceKalmanBeta { .. }
         | Method::RegisterIdentity { .. }
+        | Method::AdmitTenantPrincipal { .. }
         | Method::FinanceSabrCalibrate { .. }
         | Method::SetPose { .. }
         | Method::TxnCas { .. }

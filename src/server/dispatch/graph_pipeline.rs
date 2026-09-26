@@ -1282,7 +1282,7 @@ mod admin_scope_tests {
     };
     use crate::isolation::{AgentRole, IsolationLayer};
     use crate::protocol::{Method, Request};
-    use crate::server::auth::sign_current_test_request;
+    use crate::server::auth::{sign_current_test_request, sign_tenant_admission_test_request};
     use std::sync::Arc;
 
     const SECRET: &str = "admin-scope-test-secret";
@@ -1321,6 +1321,76 @@ mod admin_scope_tests {
                 method,
             },
         )
+    }
+
+    #[tokio::test]
+    async fn narrow_tenant_admission_rejects_coarse_scope_and_cross_tenant_body() {
+        let state = state_min();
+        {
+            let mut guard = state.write().await;
+            guard
+                .isolation
+                .provision_tenant_graph_access("tenant__tenant-shared__default", None)
+                .unwrap();
+        }
+        let request = |id, tenant_slug: &str, scopes: Vec<String>| {
+            sign_tenant_admission_test_request(
+                SECRET,
+                Request {
+                    id,
+                    graph: "__commons__".into(),
+                    auth_token: String::new(),
+                    agent_id: Some("alice".into()),
+                    method: Method::AdmitTenantPrincipal {
+                        agent_id: "target".into(),
+                        tenant_slug: tenant_slug.into(),
+                        signature: String::new(),
+                    },
+                },
+                "tenant-shared",
+                scopes,
+            )
+        };
+        let coarse = dispatch_on_heap(
+            &state,
+            request(900, "tenant-shared", vec!["kg:write".into()]),
+        )
+        .await;
+        assert!(coarse
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("security:tenant-admit"));
+        assert!(state
+            .read()
+            .await
+            .isolation
+            .get_identity("target")
+            .is_none());
+
+        let cross_tenant = dispatch_on_heap(
+            &state,
+            request(901, "other", vec!["security:tenant-admit".into()]),
+        )
+        .await;
+        assert!(cross_tenant.error.is_some());
+        assert!(state
+            .read()
+            .await
+            .isolation
+            .get_identity("target")
+            .is_none());
+
+        let allowed = dispatch_on_heap(
+            &state,
+            request(902, "tenant-shared", vec!["security:tenant-admit".into()]),
+        )
+        .await;
+        assert!(allowed.error.is_none(), "admission: {:?}", allowed.error);
+        let identity = state.read().await.isolation.get_identity("target").unwrap();
+        assert_eq!(identity.role, AgentRole::Agent);
+        assert!(identity.teams.is_empty());
+        assert_eq!(identity.roles, vec!["tenant:tenant-shared"]);
     }
 
     async fn register_identity(
