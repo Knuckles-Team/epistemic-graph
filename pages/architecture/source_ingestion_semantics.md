@@ -36,7 +36,9 @@ functions; source object identity and content revision remain separate fields.
 `epistemic_graph.ingestion.evidence_model` owns the `Artifact` and `Fragment`
 types, graph vocabulary, and evidence graph projection. Its envelope input is
 a structural protocol, so the engine never imports AU's delivery DTO. AU keeps
-fragment extraction and graph reads as adapters and consumes the engine models.
+graph reads and commit routing as adapters and consumes the engine models.
+`epistemic_graph.ingestion.evidence_fragmentation` owns pure markdown, PDF,
+record, and rowset fragment extraction, returning those same engine models.
 
 `epistemic_graph.ingestion.source_positions` owns typed provider cursors,
 checkpoint decoding, cursor partitions, and advancing content versions. AU's
