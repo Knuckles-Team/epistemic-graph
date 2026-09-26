@@ -186,7 +186,7 @@ async fn plan_sourced_mining_tsscan_errors_typed_when_store_absent() {
     let state = state(None);
 
     let resp = Box::pin(dispatch(&state, req(1, mine_anomaly_over(ts_scan_plan())))).await;
-    assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(resp.error.as_deref(), Some("ENGINE_UNAVAILABLE"));
     assert!(
         resp.error.is_some(),
         "a TsScan-bearing mining plan with no tsdb store configured must surface a typed \

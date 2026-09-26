@@ -553,10 +553,10 @@ async fn t17_txn_begin_add_node_commit_fails_without_encryption_key() {
         },
     )
     .await;
-    assert_eq!(commit.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(commit.error.as_deref(), Some("ENGINE_UNAVAILABLE"));
     assert_eq!(
         commit.error_detail.as_deref(),
-        Some("transaction durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured"),
+        Some("transaction durability is not configured"),
         "Commit without an encryption key configured: {:?}",
         commit.error_detail
     );

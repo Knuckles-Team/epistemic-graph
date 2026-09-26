@@ -62,8 +62,9 @@ fn bind_served_statement(
     text: &str,
     params: &UqlParams,
 ) -> Result<(eg_plan::uql::Statement, eg_plan::Plan), Response> {
-    let statement = eg_plan::uql::parse_statement(text, params)
-        .map_err(|error| Response::err(req_id, error.render(text)))?;
+    let statement = eg_plan::uql::parse_statement(text, params).map_err(|error| {
+        Response::err(req_id, format!("{}: {}", error.code, error.render(text)))
+    })?;
     let binding = eg_plan::uql::serve::binding_plan(&statement);
     Ok((statement, binding))
 }

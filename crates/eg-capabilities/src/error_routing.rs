@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use eg_types::connector_pack::result::PackWriteErrorCode;
-use eg_types::contract::{EngineErrorCode, ServerErrorCode};
+use eg_types::contract::{EngineErrorCode, ServerErrorCode, UqlCode};
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::DecisionErrorCode;
 use eg_types::graph_schema::GraphSchemaErrorCode;
@@ -201,6 +201,9 @@ fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
 
 fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     let id = d.id.as_str();
+    if matches!(id, "Uql" | "NlQuery" | "KnowledgeStream") {
+        codes.extend(typed_codes(UqlCode::ALL, UqlCode::as_str));
+    }
     if id.starts_with("Decision") || id.starts_with("Decide") {
         codes.extend(typed_codes(
             DecisionErrorCode::ALL,
@@ -271,6 +274,8 @@ mod tests {
         assert!(!method_allows_error("NotADeclaredMethod", "ACCESS_DENIED"));
         assert!(method_allows_error("GetNodes", "RESULT_TOO_LARGE"));
         assert!(method_allows_error("GetEdges", "RESULT_TOO_LARGE"));
+        assert!(method_allows_error("Uql", "UQL_UNBOUND_PARAMETER"));
+        assert!(!method_allows_error("CreateGraph", "UQL_UNBOUND_PARAMETER"));
         assert!(!method_allows_error("GetNodesByLabel", "RESULT_TOO_LARGE"));
         for method in [
             "CreateGraph",

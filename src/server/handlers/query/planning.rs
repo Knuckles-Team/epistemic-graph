@@ -815,7 +815,8 @@ async fn served_decision_leg(
 /// the caret-annotated refusal response.
 #[cfg(feature = "query")]
 pub(crate) fn parse_uql(req_id: u64, text: &str) -> Result<eg_plan::Plan, Response> {
-    eg_plan::uql::parse(text).map_err(|e| Response::err(req_id, e.render(text)))
+    eg_plan::uql::parse(text)
+        .map_err(|e| Response::err(req_id, format!("{}: {}", e.code, e.render(text))))
 }
 
 #[cfg(feature = "query")]

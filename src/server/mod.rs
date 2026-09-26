@@ -2021,6 +2021,7 @@ mod tests {
             ),
         )
         .await;
+        assert_eq!(resp.error.as_deref(), Some("UQL_UNKNOWN_STAGE"));
         let err = resp.error_detail.expect("malformed UQL must error");
         assert!(
             err.contains("UQL_UNKNOWN_STAGE") && err.contains("pipeline stage"),
