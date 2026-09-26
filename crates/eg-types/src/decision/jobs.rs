@@ -154,6 +154,18 @@ pub struct DecisionReceiptListRequest {
     pub limit: u16,
 }
 
+/// Time-ordered discovery of independently labelled evaluation receipts.
+/// The cursor is an opaque `<20-digit-ms>:<receipt-digest>` key suffix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionReceiptTimelineRequest {
+    pub tenant_id: String,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u16,
+}
+
 /// One estimator's interval on the candidate head's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -304,6 +316,25 @@ pub struct DecisionReceiptPage {
     pub next_after: Option<String>,
 }
 
+/// A full-label, non-synthetic receipt with the authoritative submission time
+/// of the job that committed it. Failed promotion gates remain visible.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionReceiptTimelineEntry {
+    pub submitted_at_ms: u64,
+    pub receipt: DecisionEvalReceipt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionReceiptTimelinePage {
+    pub entries: BoundedVec<DecisionReceiptTimelineEntry, 50>,
+    #[serde(default)]
+    pub next_after: Option<String>,
+}
+
 /// What a finished job produced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "output", rename_all = "snake_case", deny_unknown_fields)]
@@ -426,10 +457,21 @@ decision_job_op! {
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DecisionEvalOp {
-    Submit { request: Box<DecisionEvalRequest> },
-    Status { request: DecisionJobStatusRequest },
-    Receipt { request: DecisionReceiptGetRequest },
-    Receipts { request: DecisionReceiptListRequest },
+    Submit {
+        request: Box<DecisionEvalRequest>,
+    },
+    Status {
+        request: DecisionJobStatusRequest,
+    },
+    Receipt {
+        request: DecisionReceiptGetRequest,
+    },
+    Receipts {
+        request: DecisionReceiptListRequest,
+    },
+    Timeline {
+        request: DecisionReceiptTimelineRequest,
+    },
 }
 
 impl DecisionEvalOp {
@@ -447,6 +489,7 @@ impl DecisionEvalOp {
             Self::Status { request } => &request.tenant_id,
             Self::Receipt { request } => &request.tenant_id,
             Self::Receipts { request } => &request.tenant_id,
+            Self::Timeline { request } => &request.tenant_id,
         }
     }
 }

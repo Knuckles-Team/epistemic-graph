@@ -534,6 +534,29 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     .unwrap();
     assert_eq!(page.receipts.as_slice(), &[receipt.clone()]);
     assert_eq!(page.next_after, None);
+    let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            54,
+            &verified(),
+            DecisionEvalOp::Timeline {
+                request: eg_types::decision::DecisionReceiptTimelineRequest {
+                    tenant_id: TENANT.to_string(),
+                    after: None,
+                    limit: 1,
+                },
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(timeline.entries.len(), 1);
+    assert_eq!(timeline.entries.as_slice()[0].receipt, receipt);
+    assert_eq!(
+        timeline.entries.as_slice()[0].submitted_at_ms,
+        job.submitted_at_ms
+    );
+    assert_eq!(timeline.next_after, None);
     let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
         super::jobs::handle_decision_eval(
             &h.state,

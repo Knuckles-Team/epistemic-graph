@@ -2,10 +2,13 @@
 //!
 //! They live in the tenant-scoped Agent Library control owner, beside the
 //! components a receipt qualifies, so the `DecisionHead` publish check reads a
-//! receipt from the same authority that commits the head. One table, four
-//! key families (`job:`, `receipt:`, `draft:`, `evaluation-run:`), every row
+//! receipt from the same authority that commits the head. One table, five
+//! key families (`job:`, `receipt:`, `receipt-time:`, `draft:`,
+//! `evaluation-run:`), every row
 //! written once: a job runs to its terminal state inside its submit, so there
-//! is nothing to update.
+//! is nothing to update. The `receipt-time:` family indexes only non-synthetic
+//! full-label receipts written after this index was introduced; older receipts
+//! remain available through digest lookup and are never assigned a fake time.
 
 use eg_storage::{AgentLibraryOwner, DECISION_ARTIFACTS};
 use eg_transaction::AdmittedOwnerWrite;
@@ -21,6 +24,11 @@ pub fn job_key(job_id: &str) -> String {
 /// Key of an evaluation receipt.
 pub fn receipt_key(receipt_digest: &str) -> String {
     format!("receipt:{receipt_digest}")
+}
+
+/// Stable lexical order by authoritative job submission time and digest.
+pub fn receipt_time_key(submitted_at_ms: u64, receipt_digest: &str) -> String {
+    format!("receipt-time:{submitted_at_ms:020}:{receipt_digest}")
 }
 
 /// Key of a committed statistical decision record.

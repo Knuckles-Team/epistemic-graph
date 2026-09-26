@@ -19,7 +19,10 @@ use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::agent_component::AgentComponentKind;
 use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::digest_text;
-use eg_types::decision::jobs::{DatasetSource, DecisionReceiptPage, LabelRegime};
+use eg_types::decision::jobs::{
+    DatasetSource, DecisionReceiptPage, DecisionReceiptTimelineEntry, DecisionReceiptTimelinePage,
+    LabelRegime,
+};
 use eg_types::decision::replay::{EvalMode, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
 use eg_types::decision::statistical::dataset::LabelledDataset;
@@ -40,7 +43,7 @@ use crate::protocol::{Response, ResultPayload};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::{
-    decode_artifact, draft_key, encode_artifact, job_key, receipt_key,
+    decode_artifact, draft_key, encode_artifact, job_key, receipt_key, receipt_time_key,
 };
 
 /// The label a failed blocking store task names.
@@ -425,7 +428,15 @@ fn submit_job(
     let job = identity.record(state);
     match &job.state {
         DecisionJobState::Succeeded { output } => match output.as_ref() {
-            DecisionJobOutput::Eval { receipt } => telemetry::evaluated(receipt, started),
+            DecisionJobOutput::Eval { receipt } => {
+                telemetry::evaluated(receipt, started);
+                if !receipt.synthetic && receipt.metrics.is_some() {
+                    rows.push((
+                        receipt_time_key(job.submitted_at_ms, &receipt.receipt_digest),
+                        Vec::new(),
+                    ));
+                }
+            }
             DecisionJobOutput::Replay { run } => telemetry::replayed(run, started),
             DecisionJobOutput::Fit { draft, .. } => {
                 telemetry::fitted(draft.n_training, draft.calibration.is_some(), started)
@@ -497,6 +508,7 @@ async fn serve_eval(
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
         DecisionEvalReceiptGet, DecisionEvalReceipts, DecisionEvalStatus, DecisionEvalSubmit,
+        DecisionEvalTimeline,
     };
     let (store, now_ms) = store_and_now(state).await?;
     match op {
@@ -582,6 +594,63 @@ async fn serve_eval(
                 next_after,
             })
         }
+        DecisionEvalOp::Timeline { request } => {
+            if !(1..=50).contains(&request.limit) {
+                return Err("INVALID_ARGUMENT: timeline page limit must be 1..50".into());
+            }
+            if request
+                .after
+                .as_deref()
+                .is_some_and(|value| !valid_timeline_cursor(value))
+            {
+                return Err("INVALID_ARGUMENT: invalid timeline cursor".into());
+            }
+            let after = request
+                .after
+                .as_ref()
+                .map(|cursor| format!("receipt-time:{cursor}"));
+            let rows = store.decision_artifacts_page(
+                &request.tenant_id,
+                "receipt-time:",
+                after.as_deref(),
+                usize::from(request.limit) + 1,
+            )?;
+            let has_more = rows.len() > usize::from(request.limit);
+            let mut entries = Vec::new();
+            let mut last_cursor = None;
+            for (key, _) in rows.into_iter().take(usize::from(request.limit)) {
+                let cursor = key
+                    .strip_prefix("receipt-time:")
+                    .ok_or("CORRUPT_DECISION_ARTIFACT: invalid timeline key")?;
+                if !valid_timeline_cursor(cursor) {
+                    return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline key".into());
+                }
+                let submitted_at_ms = cursor[..20]
+                    .parse::<u64>()
+                    .map_err(|_| "CORRUPT_DECISION_ARTIFACT: invalid timeline time")?;
+                let digest = &cursor[21..];
+                let bytes = store
+                    .decision_artifact(&request.tenant_id, &receipt_key(digest))?
+                    .ok_or("CORRUPT_DECISION_ARTIFACT: timeline receipt absent")?;
+                let receipt: eg_types::decision::DecisionEvalReceipt =
+                    decode_artifact(&bytes, "evaluation receipt")?;
+                if receipt.receipt_digest != digest
+                    || receipt.synthetic
+                    || receipt.metrics.is_none()
+                {
+                    return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline receipt".into());
+                }
+                entries.push(DecisionReceiptTimelineEntry {
+                    submitted_at_ms,
+                    receipt,
+                });
+                last_cursor = Some(cursor.to_string());
+            }
+            ResultPayload::of::<DecisionEvalTimeline>(DecisionReceiptTimelinePage {
+                entries: BoundedVec::new(entries)?,
+                next_after: if has_more { last_cursor } else { None },
+            })
+        }
     }
 }
 
@@ -589,6 +658,14 @@ fn valid_receipt_digest(value: &str) -> bool {
     value.len() == 71
         && value.starts_with("sha256:")
         && value.as_bytes()[7..].iter().all(u8::is_ascii_hexdigit)
+}
+
+fn valid_timeline_cursor(value: &str) -> bool {
+    value.len() == 92
+        && value.as_bytes()[..20].iter().all(u8::is_ascii_digit)
+        && value[..20].parse::<u64>().is_ok()
+        && value.as_bytes()[20] == b':'
+        && valid_receipt_digest(&value[21..])
 }
 
 fn respond(
