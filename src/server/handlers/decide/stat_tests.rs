@@ -550,12 +550,10 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         .await,
     )
     .unwrap();
-    assert_eq!(timeline.entries.len(), 1);
-    assert_eq!(timeline.entries.as_slice()[0].receipt, receipt);
-    assert_eq!(
-        timeline.entries.as_slice()[0].submitted_at_ms,
-        job.submitted_at_ms
-    );
+    // This fixture labels by synthetic construction, so it must not enter
+    // the real-world calibrated timeline even though it has metrics.
+    assert!(receipt.synthetic);
+    assert!(timeline.entries.is_empty());
     assert_eq!(timeline.next_after, None);
     let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
         super::jobs::handle_decision_eval(
