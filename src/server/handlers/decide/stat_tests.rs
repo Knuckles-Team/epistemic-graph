@@ -500,6 +500,55 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         "gates: {:?}",
         receipt.failed_gates.as_slice()
     );
+    let read: Option<eg_types::decision::DecisionEvalReceipt> = decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            51,
+            &verified(),
+            DecisionEvalOp::Receipt {
+                request: eg_types::decision::DecisionReceiptGetRequest {
+                    tenant_id: TENANT.to_string(),
+                    receipt_digest: receipt.receipt_digest.clone(),
+                },
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(read.as_ref(), Some(&receipt));
+    let page: eg_types::decision::DecisionReceiptPage = decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            52,
+            &verified(),
+            DecisionEvalOp::Receipts {
+                request: eg_types::decision::DecisionReceiptListRequest {
+                    tenant_id: TENANT.to_string(),
+                    after: None,
+                    limit: 1,
+                },
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(page.receipts.as_slice(), &[receipt.clone()]);
+    assert_eq!(page.next_after, None);
+    let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            53,
+            &verified(),
+            DecisionEvalOp::Receipt {
+                request: eg_types::decision::DecisionReceiptGetRequest {
+                    tenant_id: "foreign".into(),
+                    receipt_digest: receipt.receipt_digest.clone(),
+                },
+            },
+        )
+        .await,
+    );
+    assert!(foreign.unwrap_err().starts_with("ACCESS_DENIED"));
     let head_pin = h
         .publish(
             "head-route",
