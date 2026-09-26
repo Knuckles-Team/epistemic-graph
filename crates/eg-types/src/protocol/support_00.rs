@@ -338,6 +338,8 @@ pub enum ClusterAlgorithm {
     Hierarchical,
     Gmm,
     Kmedoids,
+    /// Cosine-affinity spectral clustering with eigengap-selected k.
+    Spectral,
 }
 
 /// Hierarchical agglomerative linkage criterion (CONCEPT:EG-KG.mining.hierarchical-linkage).

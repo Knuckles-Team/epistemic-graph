@@ -1,8 +1,8 @@
 // CONCEPT:EG-KG.mining.dbscan-density — completing the clustering family.
 //
 // Pure-Rust, dependency-light, batch (one round-trip): given a feature matrix
-// (each row a point in R^d), partition the rows into clusters. Four
-// interchangeable engines beyond the existing k-Means/spectral:
+// (each row a point in R^d), partition the rows into clusters. Five
+// interchangeable engines beyond the existing k-Means:
 //
 //   * DBSCAN                (CONCEPT:EG-KG.mining.dbscan-density) — density-based,
 //     `eps`+`min_pts`, labels un-dense points as noise (cluster id -1).
@@ -13,14 +13,20 @@
 //     an argmax hard label.
 //   * k-Medoids (PAM)       (CONCEPT:EG-KG.mining.kmedoids-pam) — Partitioning Around
 //     Medoids (greedy BUILD + SWAP); cluster centers are actual data points.
+//   * Spectral              — eigengap-selected clustering over cosine affinity.
 //
 // All are deterministic: DBSCAN/hierarchical/PAM are seed-free (index-ordered,
-// index tie-broken); GMM uses a seeded splitmix64 for k-means++ init. This module
+// index tie-broken); GMM and spectral use seeded splitmix64 for k-means++ init. This module
 // is graph-agnostic — it works over `&[Vec<f64>]`. The handler
 // (`src/server/handlers/mining.rs`) supplies the rows (explicit or node embeddings)
 // and does the KG write-back.
 
 use super::math::{argmax, log_gaussian_diag, sq_dist, SplitMix64};
+use super::reduce::eigen::jacobi_eigen_with_budget;
+
+/// Server admission must reject larger spectral feature matrices before
+/// calling this quadratic-memory, bounded-row numerical kernel.
+pub const SPECTRAL_MAX_ROWS: usize = 64;
 
 /// A point in feature space (one matrix row).
 pub type Point = Vec<f64>;
@@ -41,6 +47,8 @@ pub enum Algorithm {
     },
     /// Partitioning Around Medoids into `k` clusters, `max_iter` SWAP rounds.
     KMedoids { k: usize, max_iter: usize },
+    /// Eigengap-selected spectral clustering over cosine affinity.
+    Spectral { max_k: usize, seed: u64 },
 }
 
 /// Linkage criterion for [`Algorithm::Hierarchical`].
@@ -60,6 +68,8 @@ pub struct Cluster {
     pub members: Vec<usize>,
     pub centroid: Vec<f64>,
     pub score: f64,
+    /// Mean pairwise cosine similarity, populated for spectral clusters only.
+    pub coherence: Option<f64>,
 }
 
 /// The full clustering outcome: per-row `labels` (parallel to the input rows; -1 =
@@ -99,6 +109,7 @@ pub fn cluster(points: &[Point], algorithm: Algorithm) -> Clustering {
             let labels = kmedoids(points, k, max_iter);
             group(points, labels, None)
         }
+        Algorithm::Spectral { max_k, seed } => spectral(points, max_k, seed),
     }
 }
 
@@ -528,6 +539,156 @@ fn total_cost(medoids: &[usize], dm: &[Vec<f64>]) -> f64 {
         .sum()
 }
 
+// ─────────────────────────── Spectral ───────────────────────────
+
+/// Cosine affinity, normalized graph Laplacian, eigengap selection, then seeded
+/// k-means on row-normalized low-eigenvalue vectors. Each result retains the
+/// original input row indices; the caller may filter clusters by size.
+pub fn spectral(points: &[Point], max_k: usize, seed: u64) -> Clustering {
+    let n = points.len();
+    if n == 0 {
+        return Clustering {
+            labels: Vec::new(),
+            clusters: Vec::new(),
+            responsibilities: None,
+        };
+    }
+    if n == 1 {
+        return spectral_group(points, vec![0]);
+    }
+
+    let normalized: Vec<Point> = points.iter().map(|p| unit_vector(p)).collect();
+    let mut affinity = vec![vec![0.0; n]; n];
+    let mut degree = vec![0.0; n];
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let similarity = dot(&normalized[i], &normalized[j]).clamp(0.0, 1.0);
+            affinity[i][j] = similarity;
+            affinity[j][i] = similarity;
+            degree[i] += similarity;
+            degree[j] += similarity;
+        }
+    }
+
+    let scales: Vec<f64> = degree
+        .iter()
+        .map(|&d| if d > 0.0 { d.sqrt().recip() } else { 0.0 })
+        .collect();
+    let mut laplacian = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        laplacian[i][i] = 1.0;
+        for j in (i + 1)..n {
+            let edge = -affinity[i][j] * scales[i] * scales[j];
+            laplacian[i][j] = edge;
+            laplacian[j][i] = edge;
+        }
+    }
+
+    let rotations = n.saturating_mul(n).saturating_mul(4).max(100).min(16_384);
+    let (eigenvalues, eigenvectors) = jacobi_eigen_with_budget(&laplacian, rotations);
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| eigenvalues[a].total_cmp(&eigenvalues[b]).then(a.cmp(&b)));
+    // Match the navigator's eigengap range: k=2 compares λ₂ and λ₃,
+    // so the trivial first eigenvalue cannot force a one-cluster result.
+    let upper = max_k.min(n - 1);
+    let mut k = 2;
+    let mut best_gap = f64::NEG_INFINITY;
+    for candidate in 2..=upper {
+        let gap = eigenvalues[order[candidate]] - eigenvalues[order[candidate - 1]];
+        if gap > best_gap {
+            best_gap = gap;
+            k = candidate;
+        }
+    }
+    k = k.min(n);
+
+    let embedding: Vec<Point> = (0..n)
+        .map(|i| {
+            let row: Point = order[..k].iter().map(|&j| eigenvectors[i][j]).collect();
+            unit_vector(&row)
+        })
+        .collect();
+    let labels = spectral_kmeans(&embedding, k, seed);
+    spectral_group(points, labels)
+}
+
+fn spectral_kmeans(points: &[Point], k: usize, seed: u64) -> Vec<i64> {
+    let n = points.len();
+    if k >= n {
+        return (0..n).map(|i| i as i64).collect();
+    }
+    let mut centroids = kmeanspp_init(points, k, seed);
+    let mut labels = vec![usize::MAX; n];
+    for _ in 0..100 {
+        let mut changed = false;
+        for (i, point) in points.iter().enumerate() {
+            let closest = (0..k)
+                .min_by(|&a, &b| {
+                    sq_dist(point, &centroids[a])
+                        .total_cmp(&sq_dist(point, &centroids[b]))
+                        .then(a.cmp(&b))
+                })
+                .unwrap();
+            changed |= labels[i] != closest;
+            labels[i] = closest;
+        }
+        if !changed {
+            break;
+        }
+        let mut sums = vec![vec![0.0; points[0].len()]; k];
+        let mut counts = vec![0usize; k];
+        for (point, &label) in points.iter().zip(labels.iter()) {
+            counts[label] += 1;
+            for (sum, &value) in sums[label].iter_mut().zip(point.iter()) {
+                *sum += value;
+            }
+        }
+        for c in 0..k {
+            if counts[c] > 0 {
+                for sum in &mut sums[c] {
+                    *sum /= counts[c] as f64;
+                }
+                centroids[c] = sums[c].clone();
+            }
+        }
+    }
+    labels.into_iter().map(|id| id as i64).collect()
+}
+
+fn spectral_group(points: &[Point], labels: Vec<i64>) -> Clustering {
+    let mut result = group(points, labels, None);
+    let normalized: Vec<Point> = points.iter().map(|p| unit_vector(p)).collect();
+    for cluster in &mut result.clusters {
+        let members = &cluster.members;
+        let coherence = if members.len() < 2 {
+            1.0
+        } else {
+            let mut total = 0.0;
+            for i in 0..members.len() {
+                for j in (i + 1)..members.len() {
+                    total += dot(&normalized[members[i]], &normalized[members[j]]);
+                }
+            }
+            total / ((members.len() * (members.len() - 1) / 2) as f64)
+        };
+        cluster.coherence = Some(coherence);
+    }
+    result
+}
+
+fn unit_vector(point: &[f64]) -> Point {
+    let norm = point.iter().map(|x| x * x).sum::<f64>().sqrt();
+    if norm > 0.0 {
+        point.iter().map(|x| x / norm).collect()
+    } else {
+        vec![0.0; point.len()]
+    }
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+}
+
 // ─────────────────────────── shared helpers ───────────────────────────
 
 /// Group per-row `labels` into [`Cluster`]s (centroid = member mean, score = mean
@@ -566,6 +727,7 @@ fn group(points: &[Point], labels: Vec<i64>, resp: Option<Vec<Vec<f64>>>) -> Clu
             members,
             centroid,
             score,
+            coherence: None,
         });
     }
     Clustering {
@@ -777,6 +939,42 @@ mod tests {
     }
 
     #[test]
+    fn spectral_recovers_two_directional_groups_with_coherence() {
+        let pts = vec![
+            vec![1.0, 0.0],
+            vec![0.99, 0.01],
+            vec![0.98, -0.02],
+            vec![0.0, 1.0],
+            vec![0.01, 0.99],
+            vec![-0.02, 0.98],
+        ];
+        let out = spectral(&pts, 4, 42);
+        assert_eq!(out.labels[0], out.labels[1]);
+        assert_eq!(out.labels[0], out.labels[2]);
+        assert_eq!(out.labels[3], out.labels[4]);
+        assert_eq!(out.labels[3], out.labels[5]);
+        assert_ne!(out.labels[0], out.labels[3]);
+        assert_eq!(out.clusters.len(), 2);
+        assert!(out.clusters.iter().all(|c| c.coherence.unwrap() > 0.99));
+        assert!(out.clusters.iter().all(|c| c.centroid.len() == 2));
+        assert!(out.clusters.iter().all(|c| c.score.is_finite()));
+        assert_eq!(out, spectral(&pts, 4, 42));
+    }
+
+    #[test]
+    fn spectral_singleton_and_zero_vectors_are_finite() {
+        let singleton = spectral(&[vec![2.0, -1.0]], 10, 1);
+        assert_eq!(singleton.labels, vec![0]);
+        assert_eq!(singleton.clusters[0].coherence, Some(1.0));
+        assert_eq!(singleton.clusters[0].centroid, vec![2.0, -1.0]);
+
+        let zeros = spectral(&[vec![0.0, 0.0], vec![0.0, 0.0]], 10, 1);
+        assert_eq!(zeros.labels, vec![0, 1]);
+        assert!(zeros.clusters.iter().all(|c| c.coherence == Some(1.0)));
+        assert!(zeros.clusters.iter().all(|c| c.score.is_finite()));
+    }
+
+    #[test]
     fn pam_candidate_ties_swaps_and_assignment_keep_original_order() {
         let pts = vec![vec![0.0], vec![2.0], vec![4.0], vec![6.0], vec![8.0]];
         let dm = eg_geo::distance_matrix(&pts, |a, b| euclidean(a, b));
@@ -817,6 +1015,7 @@ mod tests {
                 seed: 0,
             },
             Algorithm::KMedoids { k: 1, max_iter: 1 },
+            Algorithm::Spectral { max_k: 2, seed: 1 },
         ] {
             let out = cluster(&[], algorithm);
             assert!(out.labels.is_empty() && out.clusters.is_empty());
@@ -842,6 +1041,7 @@ mod tests {
         for c in &out.clusters {
             assert_eq!(c.centroid.len(), 2);
             assert!(c.score.is_finite());
+            assert_eq!(c.coherence, None);
         }
         assert!(out.responsibilities.is_none());
     }

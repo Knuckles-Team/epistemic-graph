@@ -4,14 +4,23 @@
 /// eigenvectors)` where `eigenvectors[d][j]` is component `d` of eigenvector `j`
 /// (columns are eigenvectors). Dependency-free + deterministic; the matrices here are
 /// feature-dimension sized (small), so O(iters·d³) is fine.
-pub(super) fn jacobi_eigen(matrix: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
+pub(crate) fn jacobi_eigen(matrix: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
+    jacobi_eigen_with_budget(matrix, 100)
+}
+
+/// The spectral caller allows more rotations for its bounded row count; the
+/// existing reduction callers retain their original 100-rotation budget.
+pub(crate) fn jacobi_eigen_with_budget(
+    matrix: &[Vec<f64>],
+    max_rotations: usize,
+) -> (Vec<f64>, Vec<Vec<f64>>) {
     let n = matrix.len();
     let mut a: Vec<Vec<f64>> = matrix.to_vec();
     let mut v = vec![vec![0.0f64; n]; n];
     for (i, row) in v.iter_mut().enumerate() {
         row[i] = 1.0;
     }
-    for _ in 0..100 {
+    for _ in 0..max_rotations {
         let (p, q, off) = largest_off_diagonal(&a);
         if off < 1e-12 || n < 2 {
             break;
@@ -41,7 +50,10 @@ fn largest_off_diagonal(a: &[Vec<f64>]) -> (usize, usize, f64) {
 
 fn rotation_parameters(app: f64, aqq: f64, apq: f64) -> (f64, f64) {
     let theta = 0.5 * (aqq - app) / apq;
-    let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
+    // A zero theta still needs a 45-degree rotation; signum(0) would leave
+    // equal-diagonal off-diagonal entries untouched.
+    let sign = if theta >= 0.0 { 1.0 } else { -1.0 };
+    let t = sign / (theta.abs() + (theta * theta + 1.0).sqrt());
     let c = 1.0 / (t * t + 1.0).sqrt();
     let s = t * c;
     (c, s)
@@ -79,4 +91,17 @@ fn rotate_eigenvectors(v: &mut [Vec<f64>], p: usize, q: usize, c: f64, s: f64) {
 
 fn diagonal_values(a: &[Vec<f64>]) -> Vec<f64> {
     (0..a.len()).map(|i| a[i][i]).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::jacobi_eigen;
+
+    #[test]
+    fn equal_diagonal_off_diagonal_is_rotated() {
+        let (mut values, _) = jacobi_eigen(&[vec![1.0, -1.0], vec![-1.0, 1.0]]);
+        values.sort_by(f64::total_cmp);
+        assert!(values[0].abs() < 1e-12);
+        assert!((values[1] - 2.0).abs() < 1e-12);
+    }
 }

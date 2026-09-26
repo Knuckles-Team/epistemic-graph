@@ -40,6 +40,7 @@ optimization.
 |---|---|
 | ★ [Analytics Program — one kernel, two surfaces](analytics_program.md) | The BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`) that serves both Python-side array math and in-database analytics over engine-resident data. |
 | ★ [Numeric kernel](numeric_kernel.md) | The kernel foundation of the Analytics Program — compiled kernel, Agent Utilities numeric surface, and native engine operators. |
+| [EH-497 spectral MineCluster contract](eh497-spectral-minecluster.md) | Read-only, row-bounded spectral clustering and its Agent Utilities migration gate. |
 | ★ [Distributed analytics & incremental reasoning](distributed-analytics-reasoning.md) | Verified coordinator RPCs for leased/fenced remote workers, durable typed results, and outbox/cursor-driven TMS, conflict, causal, and materialization maintenance. |
 | ★ [Native program optimization](native-program-optimization.md) | The `submit_program_optimization` contract, 13 Rust-native optimizer families, evidence across all 14 modalities, governed runtime plan steps, evaluation-gated promotion. |
 | [Lakehouse LTAP interop](lakehouse_ltap.md) | The LTAP (Lakehouse-Transactional-Analytical Processing) superset: external engines read the store as open Parquet + Delta/Iceberg with zero ETL. |

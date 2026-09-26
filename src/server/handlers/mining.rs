@@ -872,6 +872,137 @@ mod tests {
     }
 
     #[test]
+    fn cluster_explicit_features_spectral_has_cosine_coherence() {
+        let core = Arc::new(GraphCore::new());
+        let m = Method::MineCluster {
+            features: vec![
+                vec![1.0, 0.0],
+                vec![0.98, 0.02],
+                vec![0.96, 0.04],
+                vec![0.0, 1.0],
+                vec![0.02, 0.98],
+                vec![0.04, 0.96],
+            ],
+            source: None,
+            #[cfg(feature = "query")]
+            plan: None,
+            algorithm: ClusterAlgorithm::Spectral,
+            eps: 0.5,
+            min_pts: 5,
+            k: 3,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 42,
+            writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let resp = dispatch_for_test(10, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 6);
+        assert_eq!(v["n_clusters"], 2);
+        assert_eq!(v["written_back"], 0);
+        let mut members: Vec<Vec<usize>> = v["clusters"]
+            .as_array()
+            .expect("clusters")
+            .iter()
+            .map(|row| {
+                row["members"]
+                    .as_array()
+                    .expect("members")
+                    .iter()
+                    .map(|index| index.as_u64().expect("row index") as usize)
+                    .collect()
+            })
+            .collect();
+        members.sort();
+        assert_eq!(members, vec![vec![0, 1, 2], vec![3, 4, 5]]);
+        assert!(v["clusters"]
+            .as_array()
+            .expect("clusters")
+            .iter()
+            .all(|row| {
+                row["coherence"]
+                    .as_f64()
+                    .is_some_and(|score| (0.0..=1.0).contains(&score))
+            }));
+    }
+
+    #[test]
+    fn cluster_spectral_rejects_writeback_and_oversize_inputs() {
+        let core = Arc::new(GraphCore::new());
+        let spectral = |features, source, writeback| Method::MineCluster {
+            features,
+            source,
+            #[cfg(feature = "query")]
+            plan: None,
+            algorithm: ClusterAlgorithm::Spectral,
+            eps: 0.5,
+            min_pts: 2,
+            k: 3,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 42,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let denied = dispatch_for_test(
+            11,
+            Arc::clone(&core),
+            spectral(vec![vec![1.0, 0.0]], None, true),
+        )
+        .expect("handled");
+        assert_eq!(
+            denied.error.as_deref(),
+            Some("mining: spectral writeback is not supported")
+        );
+        let oversize = dispatch_for_test(
+            12,
+            core,
+            spectral(
+                vec![vec![1.0, 0.0]; eg_compute::mining::cluster::SPECTRAL_MAX_ROWS + 1],
+                None,
+                false,
+            ),
+        )
+        .expect("handled");
+        assert_eq!(
+            oversize.error.as_deref(),
+            Some("mining: spectral row limit exceeded")
+        );
+        let source = dispatch_for_test(
+            13,
+            Arc::new(GraphCore::new()),
+            spectral(
+                Vec::new(),
+                Some(VectorSource {
+                    node_label: "Doc".into(),
+                    limit: 0,
+                }),
+                false,
+            ),
+        )
+        .expect("handled");
+        assert_eq!(
+            source.error.as_deref(),
+            Some("mining: spectral requires explicit features")
+        );
+        let nonfinite = dispatch_for_test(
+            14,
+            Arc::new(GraphCore::new()),
+            spectral(vec![vec![f64::NAN]], None, false),
+        )
+        .expect("handled");
+        assert_eq!(
+            nonfinite.error.as_deref(),
+            Some("mining: spectral features must be finite")
+        );
+    }
+
+    #[test]
     fn cluster_over_node_embeddings_and_writeback() {
         let core = Arc::new(GraphCore::new());
         // Six :Doc nodes with 2-D embeddings forming two groups.

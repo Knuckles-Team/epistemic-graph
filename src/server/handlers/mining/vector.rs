@@ -52,6 +52,21 @@ pub(crate) fn handle_cluster(
         seed,
         writeback,
     } = request;
+    #[cfg(feature = "query")]
+    let has_plan = plan.is_some();
+    #[cfg(not(feature = "query"))]
+    let has_plan = false;
+    if matches!(algorithm, ClusterAlgorithm::Spectral) {
+        if writeback.enabled {
+            return Response::err(req_id, "mining: spectral writeback is not supported");
+        }
+        if features.is_empty() && (source.is_some() || has_plan) {
+            return Response::err(req_id, "mining: spectral requires explicit features");
+        }
+        if features.len() > cluster::SPECTRAL_MAX_ROWS {
+            return Response::err(req_id, "mining: spectral row limit exceeded");
+        }
+    }
     let (rows, ids) = match build_vectors(
         core,
         &features,
@@ -66,6 +81,14 @@ pub(crate) fn handle_cluster(
     };
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
+    }
+    if matches!(algorithm, ClusterAlgorithm::Spectral) {
+        if rows.len() > cluster::SPECTRAL_MAX_ROWS {
+            return Response::err(req_id, "mining: spectral row limit exceeded");
+        }
+        if rows.iter().flatten().any(|value| !value.is_finite()) {
+            return Response::err(req_id, "mining: spectral features must be finite");
+        }
     }
     let algo = cluster_algo(algorithm, eps, min_pts, k, linkage, max_iter, seed);
     let out = cluster::cluster(&rows, algo);
@@ -90,6 +113,7 @@ pub(crate) fn handle_cluster(
             members: c.members.iter().map(|&i| RowRef::at(&ids, i)).collect(),
             centroid: c.centroid.clone(),
             score: c.score,
+            coherence: c.coherence,
         })
         .collect();
 
@@ -123,6 +147,7 @@ pub(super) fn cluster_algo(
         },
         ClusterAlgorithm::Gmm => cluster::Algorithm::Gmm { k, max_iter, seed },
         ClusterAlgorithm::Kmedoids => cluster::Algorithm::KMedoids { k, max_iter },
+        ClusterAlgorithm::Spectral => cluster::Algorithm::Spectral { max_k: k, seed },
     }
 }
 
@@ -158,7 +183,7 @@ pub(super) fn materialize_clusters(
             })
             .collect();
         let node_id = cluster_node_id(algo, &member_ids);
-        let props = serde_json::json!({
+        let mut props = serde_json::json!({
             "type": "Cluster",
             "algo": algo,
             "cluster_id": c.cluster_id,
@@ -167,6 +192,9 @@ pub(super) fn materialize_clusters(
             "centroid": c.centroid,
             "score": c.score,
         });
+        if let Some(coherence) = c.coherence {
+            props["coherence"] = serde_json::json!(coherence);
+        }
         if !writeback_node(core, &node_id, &props) {
             continue;
         }
@@ -186,6 +214,7 @@ pub(super) fn cluster_algo_name(a: ClusterAlgorithm) -> &'static str {
         ClusterAlgorithm::Hierarchical => "hierarchical",
         ClusterAlgorithm::Gmm => "gmm",
         ClusterAlgorithm::Kmedoids => "kmedoids",
+        ClusterAlgorithm::Spectral => "spectral",
     }
 }
 

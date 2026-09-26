@@ -9631,10 +9631,16 @@ class MiningClient:
         becomes a feature row — so ``retrieve → cluster → writeback`` is ONE round
         trip, no client marshalling between retrieve and mine. Precedence:
         ``features`` > ``plan`` > ``source``. ``algorithm`` is one of ``dbscan``
-        (default) / ``hierarchical`` / ``gmm`` / ``kmedoids``; DBSCAN uses
-        ``eps``/``min_pts``, the rest use ``k`` (hierarchical also ``linkage`` ∈
-        ``single|complete|average``; GMM/k-medoids use ``max_iter``, GMM also
-        ``seed``). With ``writeback=True`` each non-noise cluster is materialized as
+        (default) / ``hierarchical`` / ``gmm`` / ``kmedoids`` / ``spectral``;
+        DBSCAN uses ``eps``/``min_pts``. Hierarchical, GMM, and k-medoids use
+        ``k`` as a fixed cluster count; spectral uses it as the maximum count
+        for eigengap selection. Spectral uses cosine affinity, a normalized
+        Laplacian, and seeded k-means and returns per-cluster ``coherence``.
+        Spectral requires explicit ``features``, accepts at most 64 rows, and
+        is read-only (``writeback=False``).
+        Hierarchical also uses ``linkage`` ∈ ``single|complete|average``;
+        GMM/k-medoids use ``max_iter``, and GMM uses ``seed``. With
+        ``writeback=True`` each non-noise cluster is materialized as
         a typed ``:Cluster`` node linked to its member nodes. Returns
         ``{clusters: [{cluster_id, members, centroid, score}], labels, ...}`` (GMM
         also returns ``responsibilities``).

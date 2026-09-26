@@ -32,6 +32,9 @@ pub struct ClusterRow {
     pub members: Vec<RowRef>,
     pub centroid: Vec<f64>,
     pub score: f64,
+    /// Mean pairwise cosine similarity; populated by spectral clustering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coherence: Option<f64>,
 }
 
 /// `MineCluster`.
