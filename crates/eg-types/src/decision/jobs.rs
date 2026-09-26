@@ -133,6 +133,27 @@ pub struct DecisionJobStatusRequest {
     pub job_id: String,
 }
 
+/// Admin-only lookup of one persisted evaluation receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionReceiptGetRequest {
+    pub tenant_id: String,
+    pub receipt_digest: String,
+}
+
+/// Admin-only, key-ordered discovery. The cursor is the last receipt digest
+/// returned by the preceding page; a page may contain at most 50 receipts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionReceiptListRequest {
+    pub tenant_id: String,
+    #[serde(default)]
+    pub after: Option<String>,
+    pub limit: u16,
+}
+
 /// One estimator's interval on the candidate head's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -272,6 +293,17 @@ pub struct DecisionEvalReceipt {
     pub synthetic: bool,
 }
 
+/// A bounded page of persisted receipts. Listing alone does not establish
+/// real-world calibration: each receipt carries its own synthetic/metrics flags.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionReceiptPage {
+    pub receipts: BoundedVec<DecisionEvalReceipt, 50>,
+    #[serde(default)]
+    pub next_after: Option<String>,
+}
+
 /// What a finished job produced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "output", rename_all = "snake_case", deny_unknown_fields)]
@@ -388,7 +420,33 @@ decision_job_op! {
     DecisionFitOp submits DecisionFitRequest under "admin:decision-fit"
 }
 
-decision_job_op! {
-    /// Evaluate a candidate decision head.
-    DecisionEvalOp submits DecisionEvalRequest under "admin:decision-eval"
+/// Evaluate a head or read its receipts. Every variant requires the same
+/// administrative scope and tenant match; only submission mutates state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum DecisionEvalOp {
+    Submit { request: Box<DecisionEvalRequest> },
+    Status { request: DecisionJobStatusRequest },
+    Receipt { request: DecisionReceiptGetRequest },
+    Receipts { request: DecisionReceiptListRequest },
+}
+
+impl DecisionEvalOp {
+    pub fn is_mutation(&self) -> bool {
+        matches!(self, Self::Submit { .. })
+    }
+
+    pub fn authz_action(&self) -> &'static str {
+        "admin:decision-eval"
+    }
+
+    pub fn tenant_id(&self) -> &str {
+        match self {
+            Self::Submit { request } => &request.tenant_id,
+            Self::Status { request } => &request.tenant_id,
+            Self::Receipt { request } => &request.tenant_id,
+            Self::Receipts { request } => &request.tenant_id,
+        }
+    }
 }

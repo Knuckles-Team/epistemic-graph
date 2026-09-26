@@ -63,8 +63,9 @@ pub use errors::DecisionErrorCode;
 pub use jobs::{
     DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
     DecisionJobKind, DecisionJobOutput, DecisionJobRecord, DecisionJobState,
-    DecisionJobStatusRequest, EvalCandidate, HeadKind, LabelRegime, OpeEstimateView,
-    OpeEstimatorKind, OptimiserSpec, RecordWindow,
+    DecisionJobStatusRequest, DecisionReceiptGetRequest, DecisionReceiptListRequest,
+    DecisionReceiptPage, EvalCandidate, HeadKind, LabelRegime, OpeEstimateView, OpeEstimatorKind,
+    OptimiserSpec, RecordWindow,
 };
 pub use numeric::{
     QuantScaleTag, QuantisedValue, UnitRationalFields, UnitRationalWire,

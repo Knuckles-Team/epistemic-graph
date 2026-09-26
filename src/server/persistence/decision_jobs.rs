@@ -169,6 +169,39 @@ impl AgentLibraryStore {
         Ok(out)
     }
 
+    /// Read at most `limit` tenant rows after an exclusive key cursor. The
+    /// caller supplies a fixed artifact-family prefix and owns page semantics.
+    pub fn decision_artifacts_page(
+        &self,
+        tenant_id: &str,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let read = self.read()?;
+        let table = read.open_owner_table(DECISION_ARTIFACTS)?;
+        let start = after.unwrap_or(prefix);
+        let mut out = Vec::new();
+        for row in table
+            .range((tenant_id, start)..)
+            .map_err(|error| error.to_string())?
+        {
+            let (key, value) = row.map_err(|error| error.to_string())?;
+            let (row_tenant, row_key) = key.value();
+            if row_tenant != tenant_id || !row_key.starts_with(prefix) {
+                break;
+            }
+            if after == Some(row_key) {
+                continue;
+            }
+            out.push((row_key.to_string(), value.value().to_vec()));
+            if out.len() == limit {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
     /// Read one decision artifact of `tenant_id`.
     pub fn decision_artifact(&self, tenant_id: &str, key: &str) -> Result<Option<Vec<u8>>, String> {
         let read = self.read()?;

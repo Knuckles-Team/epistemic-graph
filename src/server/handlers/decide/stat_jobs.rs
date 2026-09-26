@@ -17,8 +17,9 @@ use eg_numeric::decision::admission::{admit, AdmissionRules, Admitted, Regime};
 use eg_numeric::decision::evaluate::{evaluate, EvalSpec};
 use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::agent_component::AgentComponentKind;
+use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::digest_text;
-use eg_types::decision::jobs::{DatasetSource, LabelRegime};
+use eg_types::decision::jobs::{DatasetSource, DecisionReceiptPage, LabelRegime};
 use eg_types::decision::replay::{EvalMode, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
 use eg_types::decision::statistical::dataset::LabelledDataset;
@@ -494,7 +495,9 @@ async fn serve_eval(
     reader: LogReader,
     op: DecisionEvalOp,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{DecisionEvalStatus, DecisionEvalSubmit};
+    use eg_types::result_contract::coordination::{
+        DecisionEvalReceiptGet, DecisionEvalReceipts, DecisionEvalStatus, DecisionEvalSubmit,
+    };
     let (store, now_ms) = store_and_now(state).await?;
     match op {
         DecisionEvalOp::Submit { request } => {
@@ -516,7 +519,76 @@ async fn serve_eval(
             &request.tenant_id,
             &request.job_id,
         )?),
+        DecisionEvalOp::Receipt { request } => {
+            if !valid_receipt_digest(&request.receipt_digest) {
+                return Err("INVALID_ARGUMENT: receipt_digest must be a sha256 digest".into());
+            }
+            let receipt = store
+                .decision_artifact(&request.tenant_id, &receipt_key(&request.receipt_digest))?
+                .map(|bytes| decode_artifact(&bytes, "evaluation receipt"))
+                .transpose()?;
+            if receipt
+                .as_ref()
+                .is_some_and(|stored: &eg_types::decision::DecisionEvalReceipt| {
+                    stored.receipt_digest != request.receipt_digest
+                })
+            {
+                return Err("CORRUPT_DECISION_ARTIFACT: receipt digest disagrees with key".into());
+            }
+            ResultPayload::of::<DecisionEvalReceiptGet>(receipt)
+        }
+        DecisionEvalOp::Receipts { request } => {
+            if !(1..=50).contains(&request.limit) {
+                return Err("INVALID_ARGUMENT: receipt page limit must be 1..50".into());
+            }
+            if request
+                .after
+                .as_deref()
+                .is_some_and(|value| !valid_receipt_digest(value))
+            {
+                return Err("INVALID_ARGUMENT: receipt cursor must be a sha256 digest".into());
+            }
+            let after = request.after.as_deref().map(receipt_key);
+            let rows = store.decision_artifacts_page(
+                &request.tenant_id,
+                "receipt:",
+                after.as_deref(),
+                usize::from(request.limit) + 1,
+            )?;
+            let has_more = rows.len() > usize::from(request.limit);
+            let page_rows = rows.into_iter().take(usize::from(request.limit));
+            let mut receipts = Vec::new();
+            for (key, bytes) in page_rows {
+                let receipt: eg_types::decision::DecisionEvalReceipt =
+                    decode_artifact(&bytes, "evaluation receipt")?;
+                if receipt_key(&receipt.receipt_digest) != key {
+                    return Err(
+                        "CORRUPT_DECISION_ARTIFACT: receipt digest disagrees with key".into(),
+                    );
+                }
+                receipts.push(receipt);
+            }
+            let next_after = if has_more {
+                receipts
+                    .last()
+                    .map(|receipt: &eg_types::decision::DecisionEvalReceipt| {
+                        receipt.receipt_digest.clone()
+                    })
+            } else {
+                None
+            };
+            ResultPayload::of::<DecisionEvalReceipts>(DecisionReceiptPage {
+                receipts: BoundedVec::new(receipts)?,
+                next_after,
+            })
+        }
     }
+}
+
+fn valid_receipt_digest(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value.as_bytes()[7..].iter().all(u8::is_ascii_hexdigit)
 }
 
 fn respond(
