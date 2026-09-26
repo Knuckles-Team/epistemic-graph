@@ -16,7 +16,9 @@ use eg_types::native_control::{
 use sha2::{Digest, Sha256};
 
 const MAX_OUTCOMES: usize = 4_096;
-const MAX_CANDIDATES: usize = 1_024;
+// A plan is one native transaction. Never admit more than its atomic command
+// can carry: splitting later would leave only a prefix durable on failure.
+const MAX_CANDIDATES: usize = MAX_SUBMIT_BATCH;
 
 /// One content+parser version. The same bytes under two grammar capabilities
 /// may have different parse outcomes, so a content digest alone is insufficient.
@@ -103,6 +105,7 @@ pub enum QueueBindingError {
     EmptyPlan,
     MissingInput,
     MissingAuthority,
+    InvalidPlan,
 }
 
 fn queue_digest(fields: &[&str]) -> String {
@@ -113,6 +116,29 @@ fn queue_digest(fields: &[&str]) -> String {
         digest.update(field.as_bytes());
     }
     format!("{:x}", digest.finalize())
+}
+
+/// A public plan can also be constructed by a caller. Validate its admission
+/// accounting before it can become an authority command.
+fn validate_plan(plan: &AdmissionPlan) -> Result<(), QueueBindingError> {
+    let mut seen = BTreeSet::new();
+    let mut reserved = 0_u64;
+    for candidate in &plan.candidates {
+        if candidate.unit.content_digest.trim().is_empty()
+            || candidate.unit.parser_capability_digest.trim().is_empty()
+            || candidate.reserved_compute_units == 0
+            || !seen.insert(&candidate.unit)
+        {
+            return Err(QueueBindingError::InvalidPlan);
+        }
+        reserved = reserved
+            .checked_add(candidate.reserved_compute_units)
+            .ok_or(QueueBindingError::InvalidPlan)?;
+    }
+    if reserved != plan.reserved_compute_units {
+        return Err(QueueBindingError::InvalidPlan);
+    }
+    Ok(())
 }
 
 /// Lower one admitted plan to the existing native atomic queue command.
@@ -131,6 +157,7 @@ pub fn to_native_submit_batch(
     if plan.candidates.len() > MAX_SUBMIT_BATCH {
         return Err(QueueBindingError::ExceedsAtomicBatch);
     }
+    validate_plan(plan)?;
     if binding.context.tenant_id.trim().is_empty()
         || binding.context.graph.trim().is_empty()
         || binding.policy_digest.trim().is_empty()
@@ -552,5 +579,60 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plan.candidates.len(), 2);
+    }
+
+    #[test]
+    fn planner_never_exceeds_one_atomic_native_batch() {
+        let outcomes: Vec<_> = (0..MAX_SUBMIT_BATCH + 2)
+            .map(|index| outcome(&format!("blob-{index:03}"), IndexFileStatus::Success))
+            .collect();
+        let admissions = outcomes
+            .iter()
+            .map(|item| {
+                (
+                    key(&item.content_digest),
+                    UnitAdmission {
+                        abstained_through: 2,
+                        allowed: true,
+                        compute_units: 1,
+                    },
+                )
+            })
+            .collect();
+        let plan = plan_enrichment(
+            &outcomes,
+            &admissions,
+            &BTreeSet::new(),
+            outcomes.len() as u64,
+        )
+        .unwrap();
+        assert_eq!(plan.candidates.len(), MAX_SUBMIT_BATCH);
+        assert_eq!(plan.deferred_for_capacity, 2);
+        assert_eq!(plan.reserved_compute_units, MAX_SUBMIT_BATCH as u64);
+    }
+
+    #[test]
+    fn native_queue_refuses_tampered_or_duplicate_plans() {
+        let candidate = EnrichmentCandidate {
+            unit: key("a"),
+            stage: EnrichmentStage::Classical,
+            demanded: false,
+            reserved_compute_units: 1,
+        };
+        let mut plan = AdmissionPlan {
+            candidates: vec![candidate.clone()],
+            reserved_compute_units: 2,
+            deferred_for_budget: 0,
+            deferred_for_capacity: 0,
+        };
+        assert_eq!(
+            to_native_submit_batch(&plan, &binding()).unwrap_err(),
+            QueueBindingError::InvalidPlan
+        );
+        plan.candidates.push(candidate);
+        assert_eq!(
+            to_native_submit_batch(&plan, &binding()).unwrap_err(),
+            QueueBindingError::InvalidPlan
+        );
     }
 }
