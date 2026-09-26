@@ -1566,6 +1566,8 @@ mod admin_scope_tests {
         let op = RbacAdminOp::AdmitTenantPrincipal {
             agent_id: "target".into(),
             tenant_slug: "acme".into(),
+            initial_role: AgentRole::Agent,
+            initial_teams: vec![],
         };
         let denied = dispatch_on_heap(
             &state,

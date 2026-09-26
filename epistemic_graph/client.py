@@ -13658,13 +13658,20 @@ class RbacClient:
             )
         ).payload
 
-    async def admit_tenant_principal(self, agent_id: str, tenant_slug: str) -> bool:
-        """Atomically add an existing tenant role to an existing identity.
+    async def admit_tenant_principal(
+        self,
+        agent_id: str,
+        tenant_slug: str,
+        *,
+        initial_role: str | dict[str, Any] = "Agent",
+        initial_teams: list[str] | None = None,
+    ) -> bool:
+        """Atomically add a provisioned tenant role to one identity.
 
-        EG preserves the identity's complete current role/team set in one
-        durable policy update. The role must already have the tenant graph's
-        Read and Write grants; this admin operation creates neither a role nor
-        an identity. ``True`` means added and ``False`` means already held.
+        EG preserves existing role/team claims, or creates an absent ordinary
+        identity with the explicit initial shape, in one durable policy update.
+        The tenant role and its Read/Write grants must already exist. ``True``
+        means added and ``False`` means already held.
         """
         if not isinstance(agent_id, str) or not agent_id.strip():
             raise ValueError("agent_id must be a non-empty opaque identifier")
@@ -13677,6 +13684,8 @@ class RbacClient:
                     "AdmitTenantPrincipal": {
                         "agent_id": agent_id,
                         "tenant_slug": tenant_slug,
+                        "initial_role": initial_role,
+                        "initial_teams": list(initial_teams or []),
                     }
                 }
             },

@@ -20,13 +20,23 @@ async def test_atomic_tenant_admission_sends_exact_admin_op(monkeypatch):
 
     monkeypatch.setattr(_gen.security, "send_rbac_admin", send)
     raw_client = object()
-    assert await RbacClient(raw_client).admit_tenant_principal("alice", "acme") is True
+    assert (
+        await RbacClient(raw_client).admit_tenant_principal(
+            "alice", "acme", initial_teams=["support"]
+        )
+        is True
+    )
     assert calls == [
         (
             raw_client,
             {
                 "op": {
-                    "AdmitTenantPrincipal": {"agent_id": "alice", "tenant_slug": "acme"}
+                    "AdmitTenantPrincipal": {
+                        "agent_id": "alice",
+                        "tenant_slug": "acme",
+                        "initial_role": "Agent",
+                        "initial_teams": ["support"],
+                    }
                 }
             },
         )
