@@ -6,6 +6,8 @@ import pytest
 
 from epistemic_graph.ingestion.documentation_derivation import (
     documentation_content_digest,
+    documentation_primary_payload,
+    documentation_revision_nodes,
     documentation_snapshot_digest,
     removed_documentation_paths,
     stable_documentation_id,
@@ -60,3 +62,63 @@ def test_snapshot_digest_is_canonical_and_changes_on_removal() -> None:
     assert digest != documentation_snapshot_digest(
         "a" * 40, [record], [("repo", "docs/old.md")]
     )
+
+
+def test_documentation_rows_preserve_retrieval_and_revision_history() -> None:
+    fields = {
+        "document_id": "doc:guide",
+        "revision_id": "revision:new",
+        "repository_id": "repo",
+        "source_path": "docs/guide.md",
+        "source_instance": "",
+        "source_ref": "repo://docs/guide.md",
+        "source_revision": "b" * 40,
+        "content_digest": documentation_content_digest("# New"),
+        "concept_ids": ("CONCEPT:guide",),
+        "lifecycle": "superseded",
+        "current": False,
+        "deprecated": False,
+        "archived": True,
+        "valid_from": "2026-09-26T00:00:00Z",
+        "recorded_at": "2026-09-26T01:00:00Z",
+        "previous_revision": "a" * 40,
+        "previous_digest": documentation_content_digest("# Old"),
+        "superseded_by": "doc:replacement",
+        "snapshot_digest": None,
+        "tombstone_reason": None,
+    }
+    page = documentation_primary_payload(
+        fields, schema_version="1", mapping_version="governed-markdown-v1"
+    )
+    revisions = documentation_revision_nodes(fields)
+    assert page["status"] == "archived"
+    assert page["lifecycle_state"] == "superseded"
+    assert page["acl_before_retrieval"] is True
+    assert page["concept_ids"] == ["CONCEPT:guide"]
+    assert page["superseded_by"] == "doc:replacement"
+    assert revisions[0]["id"] == "revision:new"
+    assert revisions[1]["id"] == stable_documentation_id(
+        "doc-revision", "doc:guide", "a" * 40, fields["previous_digest"]
+    )
+    assert revisions[1]["valid_until"] == fields["valid_from"]
+    assert revisions[1]["archived"] is True
+
+
+def test_previous_revision_requires_exact_digest() -> None:
+    fields = {
+        "revision_id": "revision:new",
+        "document_id": "doc:guide",
+        "repository_id": "repo",
+        "source_path": "docs/guide.md",
+        "source_revision": "b" * 40,
+        "content_digest": documentation_content_digest("# New"),
+        "concept_ids": (),
+        "lifecycle": "current",
+        "current": True,
+        "valid_from": "2026-09-26T00:00:00Z",
+        "recorded_at": "2026-09-26T01:00:00Z",
+        "previous_revision": "a" * 40,
+        "previous_digest": "bad",
+    }
+    with pytest.raises(ValueError, match="previous_digest is required"):
+        documentation_revision_nodes(fields)
