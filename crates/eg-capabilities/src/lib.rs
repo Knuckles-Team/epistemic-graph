@@ -4,7 +4,7 @@
 //! ## Why this exists
 //!
 //! The engine's capability truth was previously scattered across a hand-maintained
-//! `docs/capabilities.md` plus independent classifiers that each answered a
+//! `contract/capabilities.md` plus independent classifiers that each answered a
 //! DIFFERENT question about the same `Method` enum:
 //!
 //!   - `src/server/access.rs::requires_write`  -- does this mutate the target graph?
