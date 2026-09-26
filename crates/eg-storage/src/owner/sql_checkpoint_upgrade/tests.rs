@@ -5,7 +5,7 @@ use super::*;
 use crate::direct_state::private_tempdir;
 use crate::owner::persisted_layout::create_predecessor_owner_file;
 use crate::recovery::evidence::strict_recovery_evidence;
-use redb::{ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{ReadableDatabase, TableDefinition};
 use sha2::{Digest, Sha256};
 
 const USER_ROWS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("__sql_rows__");
@@ -70,6 +70,66 @@ fn row(path: &Path) -> Vec<u8> {
         .unwrap()
         .value()
         .to_vec()
+}
+
+/// Only a subprocess receives the crash stage. Exiting without unwinding
+/// exercises redb's committed versus uncommitted upgrade boundary.
+pub(super) fn crash_at(stage: &str) {
+    if std::env::var("EG_SQL_LAYOUT_UPGRADE_CRASH").ok().as_deref() == Some(stage) {
+        std::process::exit(73);
+    }
+}
+
+#[test]
+fn layout_upgrade_crash_child() {
+    let Some(path) = std::env::var_os("EG_SQL_LAYOUT_UPGRADE_CHILD_PATH") else {
+        return;
+    };
+    let path = PathBuf::from(path);
+    let token =
+        inspect_sql_source_checkpoint_upgrade(&path, identity(), None, options(&path)).unwrap();
+    upgrade_sql_source_checkpoints(token).unwrap();
+    panic!("the child must terminate at the selected durable stage");
+}
+
+#[test]
+fn upgrade_is_atomic_across_each_crash_stage() {
+    for stage in [
+        "before_table",
+        "after_table",
+        "after_manifest",
+        "after_commit",
+    ] {
+        let directory = private_tempdir();
+        let path = directory.path().join("sql.redb");
+        predecessor(&path, &SQL_BEFORE_DURABLE_ANN);
+        let before = row(&path);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "owner::sql_checkpoint_upgrade::tests::layout_upgrade_crash_child",
+                "--nocapture",
+            ])
+            .env("EG_SQL_LAYOUT_UPGRADE_CHILD_PATH", &path)
+            .env("EG_SQL_LAYOUT_UPGRADE_CRASH", stage)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(73), "{stage}");
+        if stage == "after_commit" {
+            StorageKernel::open_owner::<SqlOwner>(&path, identity(), None).unwrap();
+            assert!(
+                inspect_sql_source_checkpoint_upgrade(&path, identity(), None, options(&path))
+                    .is_err()
+            );
+        } else {
+            assert!(StorageKernel::open_owner::<SqlOwner>(&path, identity(), None).is_err());
+            let token =
+                inspect_sql_source_checkpoint_upgrade(&path, identity(), None, options(&path))
+                    .unwrap();
+            upgrade_sql_source_checkpoints(token).unwrap();
+        }
+        assert_eq!(row(&path), before, "{stage}");
+    }
 }
 
 #[test]
