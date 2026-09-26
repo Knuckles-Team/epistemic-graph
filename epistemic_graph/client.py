@@ -6855,7 +6855,9 @@ class LifecycleClient:
 
         Supported shapes use ``id`` for nodes/vectors and ``source``/``target``
         for edges: ``add_node``, ``upsert_node``, ``remove_node``, ``add_edge``,
-        ``upsert_edge``, ``remove_edge``, and ``add_embedding``. Node/edge
+        ``upsert_edge``, ``upsert_edge_relationship``, ``remove_edge``, and
+        ``add_embedding``. ``upsert_edge_relationship`` replaces only parallel
+        edges with the same canonical ``properties.relationship`` value. Node/edge
         ``properties`` must be a mapping; ``embedding`` must be a non-empty finite
         number list. ``upsert_edge`` replaces every parallel edge for that ordered
         pair with one row. Removing a node also removes all incident edges and its

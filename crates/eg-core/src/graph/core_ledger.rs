@@ -186,6 +186,13 @@ impl GraphCore {
                 "REMOVE_EDGE" if parts.len() >= 3 => {
                     txn.remove_edge(parts[1].to_string(), parts[2].to_string());
                 }
+                "REMOVE_EDGE_RELATIONSHIP" if parts.len() >= 4 => {
+                    if let Ok(label) = hex::decode(parts[3]) {
+                        if let Ok(label) = String::from_utf8(label) {
+                            txn.remove_edge_relationship(parts[1], parts[2], &label)?;
+                        }
+                    }
+                }
                 _ => {}
             }
         }

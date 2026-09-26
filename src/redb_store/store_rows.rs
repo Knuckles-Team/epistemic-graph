@@ -504,6 +504,44 @@ pub(crate) struct BatchEdgeRow<'a> {
     target: &'a str,
     properties_msgpack: &'a [u8],
     upsert: bool,
+    relationship_scope: Option<&'a str>,
+}
+
+/// Remove only the durable parallel rows carrying `relationship` under the
+/// enclosing write transaction. Other relationship types keep their ordinals.
+fn remove_durable_edge_relationship(
+    graph: &str,
+    source: &str,
+    target: &str,
+    relationship: &str,
+    edges: &mut ScopedOwnerTableMut<'_, (&str, &str, &str, u32), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<usize, String> {
+    let ordinals: Vec<u32> = edges
+        .range_inclusive(
+            (graph, source, target, 0u32),
+            (graph, source, target, u32::MAX),
+        )?
+        .map(|row| {
+            let (key, value) = row.map_err(|error| error.to_string())?;
+            let blob = crypto.unseal(value.value())?;
+            let props = eg_types::msgpack::decode_property_value(&blob)
+                .map_err(|_| "durable relationship edge properties are invalid".to_string())?;
+            Ok(
+                (props.get("relationship").and_then(|value| value.as_str()) == Some(relationship))
+                    .then_some(key.value().3),
+            )
+        })
+        .collect::<Result<Vec<_>, String>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+    for ordinal in &ordinals {
+        edges
+            .remove((graph, source, target, *ordinal))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(ordinals.len())
 }
 
 pub(crate) fn apply_batch_add_edge_row(
@@ -519,6 +557,7 @@ pub(crate) fn apply_batch_add_edge_row(
         target,
         properties_msgpack,
         upsert,
+        relationship_scope,
     } = input;
     let source_exists = nodes
         .get((graph, source))
@@ -533,7 +572,9 @@ pub(crate) fn apply_batch_add_edge_row(
             "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
         ));
     }
-    if upsert {
+    if let Some(relationship) = relationship_scope {
+        remove_durable_edge_relationship(graph, source, target, relationship, edges, crypto)?;
+    } else if upsert {
         remove_durable_edge_pair(graph, source, target, edges)?;
     }
     let ordinal = next_edge_ordinal(edges, graph, source, target)?;
@@ -633,6 +674,7 @@ pub(crate) fn apply_batch_rows(
                 target,
                 properties_msgpack,
                 upsert,
+                relationship_scope,
             } => {
                 apply_batch_add_edge_row(
                     BatchEdgeRow {
@@ -642,6 +684,7 @@ pub(crate) fn apply_batch_rows(
                         target: target.as_str(),
                         properties_msgpack: &properties_msgpack,
                         upsert,
+                        relationship_scope: relationship_scope.as_deref(),
                     },
                     nodes,
                     edges,

@@ -25,6 +25,7 @@ pub enum BatchOperation {
         target: String,
         properties_msgpack: Vec<u8>,
         upsert: bool,
+        relationship_scope: Option<String>,
     },
     RemoveEdge {
         source: String,
@@ -178,12 +179,30 @@ pub fn decode_batch_operations(operations_msgpack: &[u8]) -> Result<Vec<BatchOpe
             "remove_node" => BatchOperation::RemoveNode {
                 id: required_batch_id(operation, index, "id")?,
             },
-            "add_edge" | "upsert_edge" => BatchOperation::AddEdge {
-                source: required_batch_id(operation, index, "source")?,
-                target: required_batch_id(operation, index, "target")?,
-                properties_msgpack: batch_properties(operation, index)?,
-                upsert: kind == "upsert_edge",
-            },
+            "add_edge" | "upsert_edge" | "upsert_edge_relationship" => {
+                let relationship_scope = if kind == "upsert_edge_relationship" {
+                    Some(
+                        operation
+                            .get("properties")
+                            .and_then(|value| value.get("relationship"))
+                            .and_then(serde_json::Value::as_str)
+                            .filter(|value| {
+                                !value.trim().is_empty() && !value.chars().any(char::is_control)
+                            })
+                            .ok_or_else(|| format!("BatchUpdate op[{index}] requires a nonempty canonical 'relationship' property"))?
+                            .to_owned(),
+                    )
+                } else {
+                    None
+                };
+                BatchOperation::AddEdge {
+                    source: required_batch_id(operation, index, "source")?,
+                    target: required_batch_id(operation, index, "target")?,
+                    properties_msgpack: batch_properties(operation, index)?,
+                    upsert: kind == "upsert_edge",
+                    relationship_scope,
+                }
+            }
             "remove_edge" => BatchOperation::RemoveEdge {
                 source: required_batch_id(operation, index, "source")?,
                 target: required_batch_id(operation, index, "target")?,
@@ -366,9 +385,13 @@ fn batch_summary(operations: &[BatchOperation]) -> BatchUpdateSummary {
                 summary.upserted_nodes += u32::from(*upsert);
             }
             BatchOperation::RemoveNode { .. } => summary.removed_nodes += 1,
-            BatchOperation::AddEdge { upsert, .. } => {
+            BatchOperation::AddEdge {
+                upsert,
+                relationship_scope,
+                ..
+            } => {
                 summary.added_edges += 1;
-                summary.upserted_edges += u32::from(*upsert);
+                summary.upserted_edges += u32::from(*upsert || relationship_scope.is_some());
             }
             BatchOperation::RemoveEdge { .. } => summary.removed_edges += 1,
             BatchOperation::AddEmbedding { .. } => summary.added_embeddings += 1,
@@ -399,7 +422,7 @@ pub fn batch_update_preview(
 /// decoded operations are used by redb, so replay and restart preserve RAM behavior.
 ///
 /// Supported operations are `add_node`, `upsert_node`, `remove_node`, `add_edge`,
-/// `upsert_edge`, `remove_edge`, and `add_embedding`. Nodes use `id`; edges use
+/// `upsert_edge`, `upsert_edge_relationship`, `remove_edge`, and `add_embedding`. Nodes use `id`; edges use
 /// `source` and `target`; embeddings use `id` plus a non-empty `embedding` array.
 /// One pending change to `core.semantic_store`, applied after the topology
 /// `txn` commits. Split out of `batch_update` (extract-method, cx/wD8) — was
@@ -455,8 +478,21 @@ fn apply_batch_operation(
             target,
             properties_msgpack,
             upsert,
+            relationship_scope,
         } => {
-            if upsert {
+            if let Some(relationship) = relationship_scope {
+                if txn.remove_edge_relationship(&source, &target, &relationship)? > 0 {
+                    change.record_remove_edge_captured(
+                        source.clone(),
+                        target.clone(),
+                        eg_core::index::EdgeRels {
+                            types: std::iter::once(relationship).collect(),
+                            touched: true,
+                            unattributed: false,
+                        },
+                    );
+                }
+            } else if upsert {
                 let rels = txn.edge_rels(&source, &target);
                 txn.remove_edge(source.clone(), target.clone());
                 change.record_remove_edge_captured(source.clone(), target.clone(), rels);

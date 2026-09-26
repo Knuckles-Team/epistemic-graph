@@ -59,6 +59,66 @@ impl<'a> GraphTxn<'a> {
         }
     }
 
+    /// Remove only parallel edges carrying one canonical relationship. The
+    /// property vector and topology have one entry per physical edge; topology
+    /// weights contain only the endpoint pair, so any matching number of its
+    /// parallel indices may be removed after validating their count.
+    pub fn remove_edge_relationship(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+        relationship: &str,
+    ) -> Result<usize, String> {
+        let key = (source_id.to_string(), target_id.to_string());
+        let Some(mut entry) = self.edge_properties.get_mut(&key) else {
+            return Ok(0);
+        };
+        let removed = entry
+            .iter()
+            .filter(|blob| core_scene::relationship_blob_matches(blob.as_slice(), relationship))
+            .count();
+        if removed == 0 {
+            return Ok(0);
+        }
+        let (Some(&source), Some(&target)) = (
+            self.topo.node_map.get(source_id),
+            self.topo.node_map.get(target_id),
+        ) else {
+            return Err("relationship edge topology is missing an endpoint".into());
+        };
+        let indices: Vec<_> = self
+            .topo
+            .graph
+            .edges_connecting(source, target)
+            .take(removed)
+            .map(|edge| edge.id())
+            .collect();
+        if indices.len() != removed {
+            return Err("relationship edge topology and properties disagree".into());
+        }
+        entry
+            .value_mut()
+            .retain(|blob| !core_scene::relationship_blob_matches(blob.as_slice(), relationship));
+        let empty = entry.is_empty();
+        drop(entry);
+        if empty {
+            self.edge_properties.remove(&key);
+        }
+        for index in indices {
+            self.topo.graph.remove_edge(index);
+        }
+        // Keep ApplyLedger faithful to relationship-scoped replacement. The
+        // label is hex encoded so a legal separator in a relationship value
+        // cannot change the ledger record's field boundaries.
+        self.push_ledger(format!(
+            "REMOVE_EDGE_RELATIONSHIP|{}|{}|{}",
+            source_id,
+            target_id,
+            hex::encode(relationship)
+        ));
+        Ok(removed)
+    }
+
     /// Atomic compare-and-set on a node's property blob (CONCEPT:EG-KG.compute.backend backend-
     /// agnostic atomic claim). Runs entirely under the held topology write guard
     /// (decode → check → merge → re-encode → write), so the read-modify-write is

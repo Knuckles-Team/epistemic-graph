@@ -343,6 +343,70 @@ mod community_tests {
     }
 
     #[test]
+    fn batch_relationship_upsert_preserves_other_parallel_edge_types() {
+        let graph = GraphCore::new();
+        let seed = serde_json::json!([
+            {"op": "add_node", "id": "member", "properties": {}},
+            {"op": "add_node", "id": "community", "properties": {}},
+            {"op": "add_edge", "source": "member", "target": "community", "properties": {"relationship": "OTHER", "weight": 1}},
+            {"op": "add_edge", "source": "member", "target": "community", "properties": {"relationship": "PART_OF_COMMUNITY", "weight": 0.1}},
+        ]);
+        batch_update(&graph, &rmp_serde::to_vec_named(&seed).unwrap()).unwrap();
+        let replace = rmp_serde::to_vec_named(&serde_json::json!([{
+            "op": "upsert_edge_relationship", "source": "member", "target": "community",
+            "properties": {"relationship": "PART_OF_COMMUNITY", "weight": 0.9}
+        }]))
+        .unwrap();
+        let preview = batch_update_preview(&graph, &replace).unwrap();
+        assert_eq!(preview, batch_update(&graph, &replace).unwrap());
+        assert_eq!(graph.edge_count(), 2);
+        batch_update(&graph, &replace).unwrap();
+        assert_eq!(
+            graph.edge_count(),
+            2,
+            "repeated scoped upsert must be idempotent"
+        );
+        let replay = GraphCore::new();
+        replay.apply_ledger(graph.get_ledger()).unwrap();
+        assert_eq!(
+            replay.edge_count(),
+            2,
+            "ledger replay must keep other relationships"
+        );
+        let mut rows: Vec<serde_json::Value> = graph
+            .get_edges()
+            .iter()
+            .map(|(_, _, blob)| rmp_serde::from_slice(blob).unwrap())
+            .collect();
+        rows.sort_by_key(|row| row["relationship"].as_str().unwrap().to_string());
+        assert_eq!(rows[0]["relationship"], "OTHER");
+        assert_eq!(rows[0]["weight"], 1);
+        assert_eq!(rows[1]["relationship"], "PART_OF_COMMUNITY");
+        assert_eq!(rows[1]["weight"], 0.9);
+        let mut replay_rows: Vec<serde_json::Value> = replay
+            .get_edges()
+            .iter()
+            .map(|(_, _, blob)| rmp_serde::from_slice(blob).unwrap())
+            .collect();
+        replay_rows.sort_by_key(|row| row["relationship"].as_str().unwrap().to_string());
+        assert_eq!(replay_rows, rows);
+    }
+
+    #[test]
+    fn batch_relationship_upsert_rejects_missing_relationship_before_writes() {
+        let graph = GraphCore::new();
+        let invalid = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "would-be-partial", "properties": {}},
+            {"op": "upsert_edge_relationship", "source": "a", "target": "b", "properties": {}}
+        ]))
+        .unwrap();
+        assert!(batch_update(&graph, &invalid)
+            .unwrap_err()
+            .contains("relationship"));
+        assert!(!graph.has_node("would-be-partial"));
+    }
+
+    #[test]
     fn malformed_batch_fails_before_any_ram_mutation() {
         let g = GraphCore::new();
         let operations = rmp_serde::to_vec_named(&serde_json::json!([
