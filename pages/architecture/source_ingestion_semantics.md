@@ -55,6 +55,12 @@ visibility gap, never evidence that ingestion did not happen. AU retains its
 declared-universe discovery, signed manifest, and two authority-bound readers,
 then calls this EG verdict function for each source class.
 
+`epistemic_graph.ingestion.promotion_verdict` owns the deterministic priority
+among completed promotion checks: PII quarantine, hard policy/schema refusal,
+soft dedup/contradiction/confidence review, then clearance. AU still performs
+those checks and holds the steward approval through ActionPolicy before it
+submits any materialized fact.
+
 ## Derived-slice commit decision for AUD-18
 
 Use EG `ApplyChangeEnvelope` for **already-derived** node/edge slices. Do not
