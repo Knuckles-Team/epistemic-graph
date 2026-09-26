@@ -1987,6 +1987,7 @@ fn mapped_properties(
     let source = payload
         .as_object()
         .ok_or_else(|| "source record payload must be an object".to_string())?;
+    validate_source_access(source, fields)?;
     let mut mapped = serde_json::Map::new();
     mapped.insert("type".into(), ontology_class.into());
     let mut targets: BTreeSet<String> = [
@@ -2007,6 +2008,80 @@ fn mapped_properties(
     map_external_tool_id(source, &mut mapped);
     insert_source_metadata(&mut mapped, record, mapping_reference, raw_digest)?;
     Ok(mapped)
+}
+
+/// The current EG read policy is tenant-wide. A connector's narrower ACL must
+/// never be copied into node properties and mistaken for an enforced policy.
+/// Public source documents remain tenant-private in EG, which is a narrower
+/// grant. Private or ambiguous descriptors require a native per-record read
+/// policy before they can be admitted.
+#[cfg(all(feature = "redb", feature = "blob"))]
+fn validate_source_access(
+    source: &serde_json::Map<String, serde_json::Value>,
+    fields: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let access_sources: Vec<_> = fields
+        .iter()
+        .filter_map(|(source_field, target)| {
+            let output = if target.starts_with("xsd:") {
+                source_field.as_str()
+            } else {
+                target.as_str()
+            };
+            (output == "external_access").then_some(source_field)
+        })
+        .collect();
+    if access_sources.len() > 1
+        || (source.contains_key("external_access") && access_sources.is_empty())
+        || source.keys().any(|field| field.starts_with("acl_"))
+    {
+        return Err("SOURCE_ACCESS_UNENFORCED: connector ACL is not bound to a read policy".into());
+    }
+    for (source_field, target) in fields {
+        let output = if target.starts_with("xsd:") {
+            source_field.as_str()
+        } else {
+            target.as_str()
+        };
+        if matches!(
+            output,
+            "tenant_id"
+                | "_owner_id"
+                | "owner_id"
+                | "_shared_scope"
+                | "shared_scope"
+                | "classification"
+                | "read_roles"
+                | "read_actors"
+                | "acl"
+                | "markings"
+                | "group_ids"
+                | "user_emails"
+        ) || output.starts_with("acl_")
+        {
+            return Err("SOURCE_ACCESS_UNENFORCED: governance target is not policy-bound".into());
+        }
+        if output == "external_access" {
+            let Some(access) = source
+                .get(source_field)
+                .and_then(serde_json::Value::as_object)
+            else {
+                return Err("SOURCE_ACCESS_UNENFORCED: public access must be explicit".into());
+            };
+            if access.get("is_public") != Some(&serde_json::Value::Bool(true))
+                || access.iter().any(|(key, value)| {
+                    key != "is_public"
+                        && (!matches!(
+                            key.as_str(),
+                            "user_emails" | "group_ids" | "read_roles" | "markings"
+                        ) || value.as_array().is_none_or(|values| !values.is_empty()))
+                })
+            {
+                return Err("SOURCE_ACCESS_UNENFORCED: private or ambiguous source access".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -2357,6 +2432,111 @@ mod tests {
         )
         .unwrap_err()
         .contains("targets"));
+    }
+
+    #[test]
+    fn source_access_is_admitted_only_for_explicit_unrestricted_public_data() {
+        let fields = BTreeMap::from([
+            ("name".to_string(), "label".to_string()),
+            ("external_access".to_string(), "external_access".to_string()),
+        ]);
+        let mut public = record();
+        public.payload = SourceJson::new(serde_json::json!({
+            "name": "seven", "external_access": {"is_public": true}
+        }))
+        .unwrap();
+        let mapped = mapped_properties(
+            &public,
+            "Document",
+            &fields,
+            "manifest:demo#schema_mappings/item",
+            &"a".repeat(64),
+            false,
+        )
+        .unwrap();
+        assert_eq!(mapped["external_access"]["is_public"], true);
+
+        for access in [
+            serde_json::json!({"is_public": false, "group_ids": ["finance"]}),
+            serde_json::json!({"is_public": false, "markings": ["connector-unconfigured-acl"]}),
+            serde_json::json!({"is_public": true, "markings": ["restricted"]}),
+            serde_json::json!({"is_public": true, "user_emails": ["one@example.com"]}),
+            serde_json::json!({"is_public": true, "unexpected": "ignored"}),
+            serde_json::json!({"group_ids": ["finance"]}),
+            serde_json::json!(null),
+        ] {
+            let mut restricted = record();
+            restricted.payload = SourceJson::new(serde_json::json!({
+                "name": "seven", "external_access": access
+            }))
+            .unwrap();
+            assert!(mapped_properties(
+                &restricted,
+                "Document",
+                &fields,
+                "manifest:demo#schema_mappings/item",
+                &"a".repeat(64),
+                false,
+            )
+            .unwrap_err()
+            .contains("SOURCE_ACCESS_UNENFORCED"));
+        }
+    }
+
+    #[test]
+    fn source_access_cannot_be_dropped_or_spoof_governance_fields() {
+        let mut restricted = record();
+        restricted.payload = SourceJson::new(serde_json::json!({
+            "name": "seven", "external_access": {"is_public": false}
+        }))
+        .unwrap();
+        let plain = BTreeMap::from([("name".to_string(), "label".to_string())]);
+        assert!(mapped_properties(
+            &restricted,
+            "Document",
+            &plain,
+            "manifest:demo#schema_mappings/item",
+            &"a".repeat(64),
+            false,
+        )
+        .unwrap_err()
+        .contains("SOURCE_ACCESS_UNENFORCED"));
+
+        for (source_field, target) in [
+            ("name", "tenant_id"),
+            ("name", "classification"),
+            ("name", "_owner_id"),
+            ("name", "read_roles"),
+            ("name", "acl_groups"),
+            ("classification", "xsd:string"),
+        ] {
+            let fields = BTreeMap::from([(source_field.to_string(), target.to_string())]);
+            assert!(mapped_properties(
+                &record(),
+                "Document",
+                &fields,
+                "manifest:demo#schema_mappings/item",
+                &"a".repeat(64),
+                false,
+            )
+            .unwrap_err()
+            .contains("SOURCE_ACCESS_UNENFORCED"));
+        }
+        let mut acl = record();
+        acl.payload = SourceJson::new(serde_json::json!({
+            "name": "seven", "acl_groups": ["finance"]
+        }))
+        .unwrap();
+        assert!(mapped_properties(
+            &acl,
+            "Document",
+            &plain,
+            "manifest:demo#schema_mappings/item",
+            &"a".repeat(64),
+            false,
+        )
+        .unwrap_err()
+        .contains("SOURCE_ACCESS_UNENFORCED"));
     }
 
     #[test]
