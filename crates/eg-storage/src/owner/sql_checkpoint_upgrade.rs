@@ -35,10 +35,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 mod contract;
-mod preview;
+pub(crate) mod preview;
 
 // Both inspection and the exclusive upgrade have an explicit small page cache.
-const UPGRADE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const UPGRADE_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Explicit private LOCAL staging and disk budget for offline SQL inspection.
 /// The budget bounds both source bytes and the recovered preview, not memory.
@@ -238,7 +238,7 @@ fn upgrade_opened_predecessor(
     Ok((kernel, report))
 }
 
-fn upgrade_builder() -> redb::Builder {
+pub(crate) fn upgrade_builder() -> redb::Builder {
     let mut builder = Database::builder();
     builder.set_cache_size(UPGRADE_CACHE_BYTES);
     builder
@@ -339,13 +339,13 @@ fn validate_upgrade_descriptor(
     validate_token_physical_root(token)
 }
 
-fn validate_descriptor_path(file: &File, path: &Path) -> Result<(), String> {
+pub(crate) fn validate_descriptor_path(file: &File, path: &Path) -> Result<(), String> {
     let current = File::open(path).map_err(|error| error.to_string())?;
     validate_same_descriptor(file, &current)
 }
 
 #[cfg(unix)]
-fn validate_same_descriptor(expected: &File, actual: &File) -> Result<(), String> {
+pub(crate) fn validate_same_descriptor(expected: &File, actual: &File) -> Result<(), String> {
     match same_regular_file_len(expected, actual)? {
         Some(len) if len > 0 => Ok(()),
         _ => Err("SQL checkpoint opened file is not the pinned physical predecessor".to_string()),
@@ -366,7 +366,7 @@ fn same_regular_file_len(expected: &File, actual: &File) -> Result<Option<u64>, 
 }
 
 #[cfg(not(unix))]
-fn validate_same_descriptor(_expected: &File, _actual: &File) -> Result<(), String> {
+pub(crate) fn validate_same_descriptor(_expected: &File, _actual: &File) -> Result<(), String> {
     Err("SQL checkpoint descriptor identity is unsupported on this platform".to_string())
 }
 

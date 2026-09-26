@@ -813,6 +813,7 @@ mod imp {
 
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
+        super::decision::initialize_threshold_assessments();
         // Ensure the process-wide autoscale families are registered even before
         // the first ResourceStats RPC or coalescer event. Values remain zero
         // until the authoritative telemetry path refreshes them.

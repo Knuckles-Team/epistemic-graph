@@ -425,6 +425,55 @@ mod consensus;
 mod elevation;
 mod graph_pipeline;
 mod policy_evolution;
+#[cfg(all(feature = "ast", feature = "redb", feature = "blob", feature = "raft"))]
+pub(crate) use graph_pipeline::plan_held_underfunded_park;
+#[cfg(all(feature = "ast", feature = "redb", feature = "blob"))]
+pub(crate) use graph_pipeline::{drain_repository_enrichment_once, DrainOutcome};
+
+/// Submit one funded repository page through the same authenticated boundary
+/// as an external native method. In a cluster this routes through the graph's
+/// Raft group before the WorkItem+budget kernel runs on each replica.
+#[cfg(all(feature = "ast", feature = "redb", feature = "blob", feature = "raft"))]
+pub(crate) async fn submit_repository_enrichment_page(
+    state: &Arc<RwLock<ServerState>>,
+    verified: VerifiedRequestContext,
+    request: eg_types::native_control::SubmitWorkItemsRequest,
+) -> Result<(), String> {
+    let debit = request
+        .enrichment_budget
+        .as_ref()
+        .ok_or("CONFLICT: repository enrichment page lacks budget debit")?;
+    if verified.tenant() != request.context.tenant_id
+        || verified.idempotency_key() != debit.page_key
+        || request.idempotency_key != debit.page_key
+        || !verified.allows_action("work:submit")
+        || !verified.allows_action("repository:enrichment:submit")
+    {
+        return Err("ACCESS_DENIED: repository enrichment page authority is invalid".into());
+    }
+    let response = request_boundary::dispatch_with_context(
+        state,
+        Request {
+            id: 0,
+            graph: request.context.graph.clone(),
+            auth_token: String::new(),
+            agent_id: None,
+            method: Method::SubmitWorkItems { request },
+        },
+        Some(verified),
+    )
+    .await;
+    if let Some(error) = response.error {
+        return Err(match response.error_detail {
+            Some(detail) => format!("{error}: {detail}"),
+            None => error,
+        });
+    }
+    if response.result.is_none() {
+        return Err("CONFLICT: repository enrichment page has no native receipt".into());
+    }
+    Ok(())
+}
 mod request_boundary;
 mod router;
 
@@ -509,6 +558,7 @@ pub(crate) async fn propose_native_mutation(
     .await
 }
 
+pub(crate) use consensus::verified_served_registration;
 #[cfg(feature = "raft")]
 pub(crate) use consensus::{
     apply_replicated_native, apply_replicated_transaction_decision,

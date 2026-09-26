@@ -552,6 +552,7 @@ async fn spawn_optional_service_listeners(
     spawn_kvcache_listener(state).await?;
     recover_durable_catalog(state).await?;
     epistemic_graph::server::connector_pack_projection::spawn(state.clone());
+    epistemic_graph::server::repository_enrichment_worker::spawn(state.clone());
     #[cfg(feature = "epistemic-tms")]
     epistemic_graph::server::reasoning_projection::spawn(state.clone());
     Ok(())

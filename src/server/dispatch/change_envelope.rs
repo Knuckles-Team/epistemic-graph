@@ -346,6 +346,7 @@ struct ChangeEnvelopeReplicaCtx<'a> {
 async fn try_replicate_change_envelope(
     ctx: ChangeEnvelopeReplicaCtx<'_>,
     envelope: &eg_types::change_envelope::ChangeEnvelope,
+    source_budget: Option<&crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
     committed_at_ms: u64,
 ) -> Option<Response> {
     let ChangeEnvelopeReplicaCtx {
@@ -388,7 +389,11 @@ async fn try_replicate_change_envelope(
         Err(error) => return Some(Response::err(req_id, error)),
     };
     let server_secret = timed_read(state).await.auth_secret.clone();
-    let command = match crate::raft::ReplicatedMutation::change_envelope(envelope, &server_secret) {
+    let command = match crate::raft::ReplicatedMutation::change_envelope_with_budget(
+        envelope,
+        source_budget,
+        &server_secret,
+    ) {
         Ok(command) => command,
         Err(error) => return Some(Response::err(req_id, error)),
     };
@@ -442,12 +447,13 @@ async fn try_replicate_new_change_envelope(
     known_replay: bool,
     ctx: ChangeEnvelopeReplicaCtx<'_>,
     envelope: &eg_types::change_envelope::ChangeEnvelope,
+    source_budget: Option<&crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
     committed_at_ms: u64,
 ) -> Option<Response> {
     if known_replay {
         return None;
     }
-    try_replicate_change_envelope(ctx, envelope, committed_at_ms).await
+    try_replicate_change_envelope(ctx, envelope, source_budget, committed_at_ms).await
 }
 
 /// The resolved graph context a single-envelope `ApplyChangeEnvelope` commit
@@ -558,7 +564,40 @@ pub(super) async fn apply_one_change_envelope(
     ctx: GraphOpRouting<'_>,
     envelope: eg_types::change_envelope::ChangeEnvelope,
 ) -> Response {
+    #[cfg(feature = "redb")]
+    {
+        apply_one_change_envelope_inner(ctx, envelope, None).await
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        apply_one_change_envelope_inner(ctx, envelope).await
+    }
+}
+
+#[cfg(feature = "redb")]
+pub(super) async fn apply_repository_change_envelope(
+    ctx: GraphOpRouting<'_>,
+    envelope: eg_types::change_envelope::ChangeEnvelope,
+    source_budget: Option<crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
+) -> Response {
+    apply_one_change_envelope_inner(ctx, envelope, source_budget).await
+}
+
+async fn apply_one_change_envelope_inner(
+    ctx: GraphOpRouting<'_>,
+    envelope: eg_types::change_envelope::ChangeEnvelope,
+    #[cfg(feature = "redb")] source_budget: Option<
+        crate::redb_store::enrichment_budget::SourceBudgetAuthority,
+    >,
+) -> Response {
     let req_id = ctx.req_id;
+    #[cfg(feature = "redb")]
+    if let Err(error) = crate::redb_store::enrichment_budget::validate_source_envelope(
+        &envelope,
+        source_budget.as_ref(),
+    ) {
+        return Response::err(req_id, error);
+    }
     let graph_name = ctx.graph_name;
     let core = ctx.core;
     let persistence = ctx.persistence;
@@ -614,6 +653,7 @@ pub(super) async fn apply_one_change_envelope(
             routed_raft: routed_raft.as_ref(),
         },
         &envelope,
+        source_budget.as_ref(),
         committed_at_ms,
     )
     .await
@@ -621,10 +661,32 @@ pub(super) async fn apply_one_change_envelope(
         return resp;
     }
 
-    let committed = match backend
-        .commit_change_envelope(&fname, &envelope, committed_at_ms)
-        .await
-    {
+    let committed_result = {
+        #[cfg(feature = "redb")]
+        {
+            if let Some(authority) = source_budget {
+                backend
+                    .commit_repository_change_envelope(
+                        &fname,
+                        &envelope,
+                        authority,
+                        committed_at_ms,
+                    )
+                    .await
+            } else {
+                backend
+                    .commit_change_envelope(&fname, &envelope, committed_at_ms)
+                    .await
+            }
+        }
+        #[cfg(not(feature = "redb"))]
+        {
+            backend
+                .commit_change_envelope(&fname, &envelope, committed_at_ms)
+                .await
+        }
+    };
+    let committed = match committed_result {
         Ok(committed) => committed,
         Err(error) => {
             return Response::err(
@@ -752,6 +814,12 @@ async fn apply_change_envelope_batch(
     )
 }
 
+/// Read failures carry a stable code and a fixed, non-sensitive detail. The
+/// persistence error itself may include paths, keys, or backend diagnostics.
+fn change_read_failure(req_id: u64, detail: &'static str) -> Response {
+    Response::err(req_id, format!("ENGINE_UNAVAILABLE: {detail}"))
+}
+
 async fn read_change_envelope(
     ctx: GraphOpRouting<'_>,
     envelope_id: String,
@@ -760,7 +828,7 @@ async fn read_change_envelope(
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
     let Some(backend) = ctx.persistence.as_ref() else {
-        return Response::err(req_id, "ChangeEnvelope persistence is unavailable");
+        return change_read_failure(req_id, "change-envelope persistence is unavailable");
     };
     let fname = crate::persist::sanitize(graph_name);
     match backend.read_change_envelope(&fname, &envelope_id).await {
@@ -787,7 +855,7 @@ async fn read_change_envelope(
             req_id,
             ResultPayload::of::<eg_types::result_contract::query::GetChangeEnvelope>(None),
         ),
-        Err(error) => Response::err(req_id, format!("ChangeEnvelope read failed: {error}")),
+        Err(_) => change_read_failure(req_id, "change-envelope read failed"),
     }
 }
 
@@ -799,7 +867,7 @@ async fn read_content_version(
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
     let Some(backend) = ctx.persistence.as_ref() else {
-        return Response::err(req_id, "content-version persistence is unavailable");
+        return change_read_failure(req_id, "content-version persistence is unavailable");
     };
     let fname = crate::persist::sanitize(graph_name);
     match backend
@@ -810,7 +878,7 @@ async fn read_content_version(
             req_id,
             ResultPayload::of_ref::<eg_types::result_contract::query::GetContentVersion>(&version),
         ),
-        Err(error) => Response::err(req_id, format!("content-version read failed: {error}")),
+        Err(_) => change_read_failure(req_id, "content-version read failed"),
     }
 }
 
@@ -823,7 +891,7 @@ async fn read_change_cursor(
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
     let Some(backend) = ctx.persistence.as_ref() else {
-        return Response::err(req_id, "change-cursor persistence is unavailable");
+        return change_read_failure(req_id, "change-cursor persistence is unavailable");
     };
     let fname = crate::persist::sanitize(graph_name);
     match backend
@@ -834,6 +902,28 @@ async fn read_change_cursor(
             req_id,
             ResultPayload::of_ref::<eg_types::result_contract::query::GetChangeCursor>(&cursor),
         ),
-        Err(error) => Response::err(req_id, format!("change-cursor read failed: {error}")),
+        Err(_) => change_read_failure(req_id, "change-cursor read failed"),
+    }
+}
+
+#[cfg(test)]
+mod error_contract_tests {
+    use super::change_read_failure;
+
+    #[test]
+    fn change_reads_serve_declared_code_with_opaque_backend_detail() {
+        for (method, detail) in [
+            ("GetChangeEnvelope", "change-envelope read failed"),
+            ("GetContentVersion", "content-version read failed"),
+            ("GetChangeCursor", "change-cursor read failed"),
+        ] {
+            let response = change_read_failure(29, detail);
+            assert_eq!(response.error.as_deref(), Some("ENGINE_UNAVAILABLE"));
+            assert_eq!(response.error_detail.as_deref(), Some(detail));
+            assert!(eg_capabilities::error_routing::method_allows_error(
+                method,
+                "ENGINE_UNAVAILABLE"
+            ));
+        }
     }
 }

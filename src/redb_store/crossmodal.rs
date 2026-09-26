@@ -294,7 +294,8 @@ pub(crate) fn apply_crossmodal_clear_native_graph_rows(
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     development_lane::clear_native_graph_rows_in_wtx(write, graph, crypto)?;
-    capacity_lease::clear_graph_rows(write, graph)
+    capacity_lease::clear_graph_rows(write, graph)?;
+    super::enrichment_budget::clear_graph_rows(write, graph)
 }
 
 /// Graph mutations (nodes/edges/properties) -- the SAME row apply the

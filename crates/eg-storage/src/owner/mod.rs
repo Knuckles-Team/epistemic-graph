@@ -1,6 +1,7 @@
 //! The closed owner-table registry, its typed domains, and the authenticated
 //! grants that bind one logical serving scope to one physical owner file.
 
+pub(crate) mod agent_library_upgrade;
 pub(crate) mod blob_shared;
 pub(crate) mod contract;
 pub(crate) mod domain;
@@ -22,7 +23,7 @@ pub(crate) use manifest_io::{
 };
 pub(crate) use registry::{
     copy_declared_owner_tables, hash_declared_owner_tables, open_declared_owner_tables,
-    validate_declared_owner_tables, validate_declared_tables_write,
+    prove_declared_owner_rows, validate_declared_owner_tables, validate_declared_tables_write,
 };
 
 #[cfg(test)]

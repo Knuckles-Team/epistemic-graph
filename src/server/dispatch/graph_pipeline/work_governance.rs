@@ -384,6 +384,16 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
 
 /// Submission and resource-reservation methods, under the same already-authorized
 /// graph and placement context the WorkItem lifecycle handler receives.
+fn require_enrichment_budget_service_scope(
+    has_budget_debit: bool,
+    verified_context: &crate::server::auth::VerifiedRequestContext,
+) -> Result<(), &'static str> {
+    if has_budget_debit && !verified_context.allows_action("repository:enrichment:submit") {
+        return Err("ACCESS_DENIED: repository enrichment budget admission requires service scope");
+    }
+    Ok(())
+}
+
 pub(super) async fn dispatch_op_workitem_submission_or_resources(
     ctx: crate::server::handlers::work_item::HandleContext<'_>,
     method: Method,
@@ -398,6 +408,14 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
         #[cfg(feature = "raft")]
         routed_raft,
     } = ctx;
+    let has_budget_debit = matches!(
+        &method,
+        Method::SubmitWorkItems { request } if request.enrichment_budget.is_some()
+    );
+    if let Err(error) = require_enrichment_budget_service_scope(has_budget_debit, verified_context)
+    {
+        return Response::err(req_id, error.to_string());
+    }
     #[cfg(feature = "raft")]
     let (placement_epoch, placement_fence) = if let Some(routed) = routed_raft.as_ref() {
         let leader = routed.handle.current_leader().await;
@@ -439,4 +457,28 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
         Ok(result) => Response::ok(req_id, result),
         Err(error) => Response::err(req_id, error),
     };
+}
+
+#[cfg(test)]
+mod enrichment_budget_scope_tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_work_submitter_cannot_debit_repository_enrichment_budget() {
+        let ordinary = crate::server::auth::VerifiedRequestContext::verified_for_test_with_scopes(
+            "worker",
+            "tenant",
+            &["work:submit"],
+        );
+        assert!(require_enrichment_budget_service_scope(false, &ordinary).is_ok());
+        assert!(require_enrichment_budget_service_scope(true, &ordinary)
+            .unwrap_err()
+            .starts_with("ACCESS_DENIED:"));
+        let service = crate::server::auth::VerifiedRequestContext::verified_for_test_with_scopes(
+            "enrichment-service",
+            "tenant",
+            &["work:submit", "repository:enrichment:submit"],
+        );
+        assert!(require_enrichment_budget_service_scope(true, &service).is_ok());
+    }
 }

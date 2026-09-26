@@ -31,13 +31,16 @@ mod worker;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use eg_core::compute::semantic_ann_codes::SemanticCodeError;
 use eg_core::compute::semantic_index_service::SemanticIndexService;
 use eg_types::semantic_index::{SemanticBinding, SemanticIndexOp};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
-use crate::server::semantic_index::{open_semantic_service, semantic_cursor_secret};
+use crate::server::semantic_index::{
+    open_semantic_service, semantic_cursor_secret, SemanticIndexServerAdapter,
+};
 use crate::server::state::ServerState;
 
 pub(super) struct SemanticIndexContext<'a> {
@@ -80,15 +83,20 @@ fn authorize(
     verified: &crate::server::auth::VerifiedRequestContext,
     op: &SemanticIndexOp,
 ) -> Result<CarrierAuthority, Response> {
-    if let Err(error) = op.validate() {
+    if op.validate().is_err() {
         return Err(Response::err(
             req_id,
-            format!("semantic operation rejected: {error:?}"),
+            "INVALID_ARGUMENT: semantic operation rejected",
         ));
     }
     // Tenant isolation, checked ONCE rather than per arm, keeps a binding id
     // from becoming an execution grant across tenants.
-    if op.tenant_id() != verified.tenant() {
+    // Public request DTOs carry the opaque tenant scope and are bound to the
+    // verified carrier by the adapter below. Internal worker ops carry the
+    // raw tenant name, so their existing comparison stays here.
+    if !matches!(op, SemanticIndexOp::GetBindingRequest { .. })
+        && op.tenant_id() != verified.tenant()
+    {
         return Err(Response::err(
             req_id,
             "ACCESS_DENIED: semantic index tenant must match verified request tenant",
@@ -109,6 +117,14 @@ fn authorize(
             "ACCESS_DENIED: semantic index read requires kg:read",
         ));
     }
+    if let SemanticIndexOp::GetBindingRequest { request } = op {
+        SemanticIndexServerAdapter::authorize_request(
+            request,
+            &authority,
+            crate::server::dispatch::authoritative_now_ms(),
+        )
+        .map_err(|error| Response::err(req_id, error))?;
+    }
     Ok(authority)
 }
 
@@ -125,7 +141,7 @@ async fn open_service(
             None => {
                 return Err(Response::err(
                     req_id,
-                    "the semantic index requires a configured persist directory",
+                    "ENGINE_UNAVAILABLE: semantic index storage is unavailable",
                 ));
             }
         }
@@ -133,7 +149,12 @@ async fn open_service(
     // The durable owner uses the carrier's opaque tenant scope, while the
     // wire tenant was checked above against the verified request tenant.
     let service = open_semantic_service(&persist_dir, authority.tenant_scope(), op.binding_id())
-        .map_err(|error| Response::err(req_id, error))?;
+        .map_err(|_| {
+            Response::err(
+                req_id,
+                "ENGINE_UNAVAILABLE: semantic index storage is unavailable",
+            )
+        })?;
     Ok((persist_dir, service))
 }
 
@@ -188,7 +209,7 @@ pub(super) fn decode_cursor(cursor: Option<String>) -> Result<Option<Vec<u8>>, S
         None => Ok(None),
         Some(cursor) => hex::decode(&cursor)
             .map(Some)
-            .map_err(|_| "semantic cursor is not a valid opaque cursor".to_string()),
+            .map_err(|_| "INVALID_ARGUMENT: semantic cursor is invalid".to_string()),
     }
 }
 
@@ -201,7 +222,7 @@ pub(super) async fn current_binding(
         Ok(Some(binding)) => Ok(binding),
         Ok(None) => Err(Response::err(
             req_id,
-            "semantic operation has no durable binding authority",
+            "CONFLICT: semantic binding is unavailable",
         )),
         Err(response) => Err(response),
     }
@@ -222,11 +243,25 @@ where
 {
     match tokio::task::spawn_blocking(work).await {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(error)) => Err(Response::err(req_id, error.to_string())),
+        Ok(Err(error)) => Err(semantic_failure_response(req_id, error)),
         Err(_) => Err(Response::err(
             req_id,
-            "semantic index operation could not be scheduled",
+            "ENGINE_UNAVAILABLE: semantic index operation could not be scheduled",
         )),
+    }
+}
+
+pub(crate) fn semantic_failure_response(req_id: u64, error: SemanticCodeError) -> Response {
+    Response::err(req_id, semantic_failure_message(&error))
+}
+
+pub(crate) fn semantic_failure_message(error: &SemanticCodeError) -> &'static str {
+    match error {
+        SemanticCodeError::Refused(_) => "CONFLICT: semantic index operation refused",
+        SemanticCodeError::Io(_) | SemanticCodeError::Kernel(_) => {
+            "ENGINE_UNAVAILABLE: semantic index storage is unavailable"
+        }
+        SemanticCodeError::Corrupt(_) => "INTERNAL: semantic index state is invalid",
     }
 }
 
@@ -248,6 +283,47 @@ where
 {
     match ResultPayload::of_ref::<M>(value) {
         Ok(payload) => Response::ok(req_id, payload),
-        Err(error) => Response::err(req_id, error),
+        Err(_) => Response::err(req_id, "INTERNAL: semantic result encoding failed"),
+    }
+}
+
+#[cfg(test)]
+mod error_contract_tests {
+    use super::{decode_cursor, semantic_failure_response};
+    use eg_core::compute::semantic_ann_codes::SemanticCodeError;
+
+    #[test]
+    fn worker_errors_use_declared_codes_without_backend_text() {
+        for (error, expected) in [
+            (
+                SemanticCodeError::Refused("private lease".into()),
+                "CONFLICT",
+            ),
+            (
+                SemanticCodeError::Kernel("private path".into()),
+                "ENGINE_UNAVAILABLE",
+            ),
+            (SemanticCodeError::Corrupt("private row".into()), "INTERNAL"),
+            (
+                SemanticCodeError::Io(std::io::Error::other("private io")),
+                "ENGINE_UNAVAILABLE",
+            ),
+        ] {
+            let response = semantic_failure_response(23, error);
+            assert_eq!(response.error.as_deref(), Some(expected));
+            assert!(!response
+                .error_detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("private"));
+            assert!(eg_capabilities::error_routing::method_allows_error(
+                "SemanticIndex",
+                expected
+            ));
+        }
+        assert_eq!(
+            decode_cursor(Some("not hex".into())).unwrap_err(),
+            "INVALID_ARGUMENT: semantic cursor is invalid"
+        );
     }
 }

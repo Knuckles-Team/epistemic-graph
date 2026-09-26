@@ -4,10 +4,11 @@ use crate::agent_component::DeclaredLatency;
 use crate::connector_pack::{
     ConnectorPackBindRequest, ConnectorPackImportRequest, ConnectorPackIndex, ConnectorPackOp,
     ConnectorPackReconcileRequest, ConnectorPackReprojectRequest, ConnectorPackRetireRequest,
-    ConnectorPackStatusRequest, ConnectorPackUnbindRequest, McpCatalogSnapshotBinding,
-    PackAnnotations, PackArchiveRef, PackCost, PackDisposition, PackEntry, PackEntryKind,
-    PackHeadRef, PackModelFacts, PackProducer, PackRef, PackSection, PackToolMode,
-    PackViolationCode, PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
+    ConnectorPackStatusRequest, ConnectorPackUnbindRequest, McpCatalogAuthorityStatusRequest,
+    McpCatalogReconcileRequest, McpCatalogSnapshotBinding, PackAnnotations, PackArchiveRef,
+    PackCost, PackDisposition, PackEntry, PackEntryKind, PackHeadRef, PackModelFacts, PackProducer,
+    PackRef, PackSection, PackToolMode, PackViolationCode, PackWarningCode,
+    CONNECTOR_PACK_SCHEMA_VERSION,
 };
 use crate::contract::{Digest256, ResourceId};
 
@@ -202,6 +203,45 @@ pub fn ops() -> Vec<(&'static str, ConnectorPackOp)> {
             ConnectorPackOp::ReconcileBodies {
                 request: ConnectorPackReconcileRequest {
                     context: mutation_context(),
+                },
+            },
+        ),
+        (
+            "ConnectorPack.reconcile_catalog",
+            ConnectorPackOp::ReconcileCatalog {
+                request: McpCatalogReconcileRequest {
+                    context: mutation_context(),
+                    server_name: "connector-a".to_string(),
+                    component_id: "mcp:connector-a/mcp_server/connector-a".to_string(),
+                    component_revision: 7,
+                    component_digest: raw_digest(0xc1),
+                    registry_revision: 11,
+                    registry_digest: raw_digest(0xc4),
+                    registration_config_digest: raw_digest(0xc2),
+                    four_family_digest: raw_digest(0xc3),
+                    child_id: "child-1".to_string(),
+                    discovery_tenant: "tenant-a".to_string(),
+                    local_catalog_epoch: 3,
+                    child_connection_generation: 5,
+                    expected_catalog_generation: Some(4),
+                },
+            },
+        ),
+        (
+            "ConnectorPack.catalog_authority_status",
+            ConnectorPackOp::CatalogAuthorityStatus {
+                request: McpCatalogAuthorityStatusRequest {
+                    tenant_id: "tenant-a".to_string(),
+                    server_name: "connector-a".to_string(),
+                },
+            },
+        ),
+        (
+            "ConnectorPack.catalog_owner_principal",
+            ConnectorPackOp::CatalogOwnerPrincipal {
+                request: McpCatalogAuthorityStatusRequest {
+                    tenant_id: "tenant-a".to_string(),
+                    server_name: "connector-a".to_string(),
                 },
             },
         ),

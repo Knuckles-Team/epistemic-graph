@@ -5,6 +5,68 @@ use super::test_support::{chunked, fresh, reassemble, Operation};
 use super::*;
 use std::sync::Arc;
 
+#[test]
+fn repository_source_batch_is_one_owner_commit_and_tenant_bound() {
+    use sha2::{Digest, Sha256};
+
+    let store = RedbChunkStore::open_temp().unwrap();
+    let bytes = b"def answer(): return 42".to_vec();
+    let sha256 = eg_types::contract::Digest256::from_bytes(Sha256::digest(&bytes).into());
+    let source = crate::server::blob::engine_bodies::EngineBody {
+        sha256,
+        body: bytes.clone(),
+    };
+    let first = store
+        .put_repository_bodies("tenant-a", "repo-one", &[source.clone()], 1)
+        .unwrap();
+    let replay = store
+        .put_repository_bodies("tenant-a", "repo-one", &[source], 2)
+        .unwrap();
+    assert_eq!(first, replay);
+    assert_eq!(store.refcount(&first[0].manifest_digest).unwrap(), 1);
+    assert_eq!(
+        crate::server::blob::engine_bodies::read_repository_content_ref(
+            &store,
+            "tenant-a",
+            "repo-one",
+            &format!("cas:sha256:{}", first[0].manifest_digest),
+            &format!("sha256:{}", sha256.to_hex()),
+            bytes.len() as u64,
+        )
+        .unwrap(),
+        bytes
+    );
+    assert!(crate::server::blob::engine_bodies::read_repository_body(
+        &store,
+        "tenant-a",
+        "repo-two",
+        &first[0].manifest_digest,
+        sha256,
+        bytes.len() as u64,
+    )
+    .is_err());
+    assert!(crate::server::blob::engine_bodies::read_repository_body(
+        &store,
+        "tenant-b",
+        "repo-one",
+        &first[0].manifest_digest,
+        sha256,
+        bytes.len() as u64,
+    )
+    .is_err());
+    assert!(
+        crate::server::blob::engine_bodies::read_repository_content_ref(
+            &store,
+            "tenant-a",
+            "repo-one",
+            "file:///untrusted",
+            &format!("sha256:{}", sha256.to_hex()),
+            bytes.len() as u64,
+        )
+        .is_err()
+    );
+}
+
 /// A pass far past every grace period and upload TTL: what the defaults would
 /// reclaim once enough time has gone by.
 fn sweep_after_grace(store: &dyn ChunkStore, id: &str) -> SweepStats {

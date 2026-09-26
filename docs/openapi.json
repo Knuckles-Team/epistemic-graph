@@ -7361,11 +7361,10 @@
         "type": "object"
       },
       "ReqDef_DecisionEvalOp": {
-        "description": "Evaluate a candidate decision head.",
+        "description": "Evaluate a head or read its receipts. Every variant requires the same\nadministrative scope and tenant match; only submission mutates state.",
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Enqueue the job. The only mutating op. Boxed: a submission\ncarries its whole labelled dataset.",
             "properties": {
               "op": {
                 "const": "submit",
@@ -7383,7 +7382,6 @@
           },
           {
             "additionalProperties": false,
-            "description": "Read one submitted job's row.",
             "properties": {
               "op": {
                 "const": "status",
@@ -7391,6 +7389,57 @@
               },
               "request": {
                 "$ref": "#/components/schemas/ReqDef_DecisionJobStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "receipt",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_DecisionReceiptGetRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "receipts",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_DecisionReceiptListRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "timeline",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_DecisionReceiptTimelineRequest"
               }
             },
             "required": [
@@ -8040,6 +8089,77 @@
           "assemble"
         ],
         "type": "string"
+      },
+      "ReqDef_DecisionReceiptGetRequest": {
+        "additionalProperties": false,
+        "description": "Admin-only lookup of one persisted evaluation receipt.",
+        "properties": {
+          "receipt_digest": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "receipt_digest"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DecisionReceiptListRequest": {
+        "additionalProperties": false,
+        "description": "Admin-only, key-ordered discovery. The cursor is the last receipt digest\nreturned by the preceding page; a page may contain at most 50 receipts.",
+        "properties": {
+          "after": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "ReqDef_DecisionReceiptTimelineRequest": {
+        "additionalProperties": false,
+        "description": "Time-ordered discovery of independently labelled evaluation receipts.\nThe cursor is an opaque `<20-digit-ms>:<receipt-digest>` key suffix.",
+        "properties": {
+          "after": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "limit"
+        ],
+        "type": "object"
       },
       "ReqDef_DecisionRecord": {
         "additionalProperties": false,
@@ -74148,6 +74268,20 @@
         "maxItems": 64,
         "type": "array"
       },
+      "ResDef_Coordination_BoundedVec_DecisionEvalReceipt_50": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Coordination_DecisionEvalReceipt"
+        },
+        "maxItems": 50,
+        "type": "array"
+      },
+      "ResDef_Coordination_BoundedVec_DecisionReceiptTimelineEntry_50": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Coordination_DecisionReceiptTimelineEntry"
+        },
+        "maxItems": 50,
+        "type": "array"
+      },
       "ResDef_Coordination_BoundedVec_FeatureStandardisation_32": {
         "items": {
           "$ref": "#/components/schemas/ResDef_Coordination_FeatureStandardisation"
@@ -76120,6 +76254,123 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Coordination_DecisionReceiptPage": {
+        "additionalProperties": false,
+        "description": "A bounded page of persisted receipts. Listing alone does not establish\nreal-world calibration: each receipt carries its own synthetic/metrics flags.",
+        "properties": {
+          "next_after": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receipts": {
+            "$ref": "#/components/schemas/ResDef_Coordination_BoundedVec_DecisionEvalReceipt_50"
+          }
+        },
+        "required": [
+          "receipts"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_DecisionReceiptTimelineEntry": {
+        "additionalProperties": false,
+        "description": "A full-label, non-synthetic receipt with the authoritative submission time\nof the job that committed it. Failed promotion gates remain visible.",
+        "properties": {
+          "receipt": {
+            "$ref": "#/components/schemas/ResDef_Coordination_DecisionEvalReceipt"
+          },
+          "submitted_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "threshold_alert": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_DecisionThresholdAssessment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Assessment against the policy pinned by this evaluation. Older receipts\nhave no stored assessment and never inherit the tenant's current policy."
+          }
+        },
+        "required": [
+          "submitted_at_ms",
+          "receipt"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_DecisionReceiptTimelinePage": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "$ref": "#/components/schemas/ResDef_Coordination_BoundedVec_DecisionReceiptTimelineEntry_50"
+          },
+          "next_after": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_DecisionThresholdAssessment": {
+        "additionalProperties": false,
+        "description": "Historical policy thresholds applied to one independently labelled receipt.",
+        "properties": {
+          "act_risk_above_policy": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "alpha": {
+            "$ref": "#/components/schemas/ResDef_Coordination_UnitRationalWire"
+          },
+          "coverage_below_policy": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "delta": {
+            "$ref": "#/components/schemas/ResDef_Coordination_UnitRationalWire"
+          },
+          "epsilon": {
+            "$ref": "#/components/schemas/ResDef_Coordination_UnitRationalWire"
+          },
+          "insufficient_support": {
+            "type": "boolean"
+          },
+          "n_min": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_digest",
+          "alpha",
+          "epsilon",
+          "delta",
+          "n_min",
+          "insufficient_support"
+        ],
+        "type": "object"
       },
       "ResDef_Coordination_DelegationTarget": {
         "description": "What a delegation runs.\n\n# Why one delegation, not one per node\n\nA graph delegation admits exactly ONE work item. The child agent runs are\nthe executor's business, bounded by the graph's own composed ceiling.\n\nThe alternative -- admitting one work item per node -- was rejected because\n`max_tenant_in_flight` would then make a graph UNSCHEDULABLE whenever its\nnode count exceeded the tenant's limit: the parent would hold a slot while\nwaiting for children that cannot get one. That is a deadlock, not a\nthrottle.\n\nSo the two bounds govern two different things, and both are needed:\n\n* `max_tenant_in_flight` bounds how many DELEGATIONS a tenant may have in\n  flight;\n* `composed_work_ceiling` bounds what one delegation may do INTERNALLY.\n\nWithout the second, a graph would be a way to escape the first by fanning\nout. `MAX_COMPOSITION_WORK` is the global cap that makes the escape\nimpossible rather than merely discouraged.",
@@ -97680,11 +97931,10 @@
         "type": "object"
       },
       "ResDef_Query_DecisionEvalOp": {
-        "description": "Evaluate a candidate decision head.",
+        "description": "Evaluate a head or read its receipts. Every variant requires the same\nadministrative scope and tenant match; only submission mutates state.",
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "Enqueue the job. The only mutating op. Boxed: a submission\ncarries its whole labelled dataset.",
             "properties": {
               "op": {
                 "const": "submit",
@@ -97702,7 +97952,6 @@
           },
           {
             "additionalProperties": false,
-            "description": "Read one submitted job's row.",
             "properties": {
               "op": {
                 "const": "status",
@@ -97710,6 +97959,57 @@
               },
               "request": {
                 "$ref": "#/components/schemas/ResDef_Query_DecisionJobStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "receipt",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_DecisionReceiptGetRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "receipts",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_DecisionReceiptListRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "timeline",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_DecisionReceiptTimelineRequest"
               }
             },
             "required": [
@@ -98359,6 +98659,77 @@
           "assemble"
         ],
         "type": "string"
+      },
+      "ResDef_Query_DecisionReceiptGetRequest": {
+        "additionalProperties": false,
+        "description": "Admin-only lookup of one persisted evaluation receipt.",
+        "properties": {
+          "receipt_digest": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "receipt_digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DecisionReceiptListRequest": {
+        "additionalProperties": false,
+        "description": "Admin-only, key-ordered discovery. The cursor is the last receipt digest\nreturned by the preceding page; a page may contain at most 50 receipts.",
+        "properties": {
+          "after": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_DecisionReceiptTimelineRequest": {
+        "additionalProperties": false,
+        "description": "Time-ordered discovery of independently labelled evaluation receipts.\nThe cursor is an opaque `<20-digit-ms>:<receipt-digest>` key suffix.",
+        "properties": {
+          "after": {
+            "default": null,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "limit"
+        ],
+        "type": "object"
       },
       "ResDef_Query_DecisionRecord": {
         "additionalProperties": false,
@@ -151895,6 +152266,23 @@
           {
             "anyOf": [
               {
+                "$ref": "#/components/schemas/ResDef_Coordination_DecisionEvalReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "x-body": "receipt",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Coordination_DecisionReceiptPage",
+            "x-body": "receipts",
+            "x-encoding": "Raw"
+          },
+          {
+            "anyOf": [
+              {
                 "$ref": "#/components/schemas/ResDef_Coordination_DecisionJobRecord"
               },
               {
@@ -151907,6 +152295,11 @@
           {
             "$ref": "#/components/schemas/ResDef_Coordination_DecisionJobRecord",
             "x-body": "submit",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Coordination_DecisionReceiptTimelinePage",
+            "x-body": "timeline",
             "x-encoding": "Raw"
           }
         ],
@@ -183937,6 +184330,19 @@
           "CONFLICT",
           "CORRUPT_MUTATION_LEDGER",
           "ELEVATION_ACTOR_UNSTAMPED",
+          "ELEVATION_COLLISION",
+          "ELEVATION_CONFLICT",
+          "ELEVATION_DELEGATED_APPROVER",
+          "ELEVATION_DIGEST_MISMATCH",
+          "ELEVATION_INVALID",
+          "ELEVATION_LEDGER_FULL",
+          "ELEVATION_NOT_APPROVER",
+          "ELEVATION_NOT_FOUND",
+          "ELEVATION_NOT_PARTY",
+          "ELEVATION_RESERVED_GRAPH",
+          "ELEVATION_SELF_APPROVAL",
+          "ELEVATION_UNKNOWN_ACTOR",
+          "ELEVATION_WILDCARD",
           "ENGINE_DEADLINE_EXCEEDED",
           "ENGINE_RESOURCE_EXHAUSTED",
           "ENGINE_UNAVAILABLE",

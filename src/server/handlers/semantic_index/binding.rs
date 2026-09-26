@@ -9,6 +9,10 @@ use crate::server::semantic_index::SemanticIndexServerAdapter;
 
 use super::{blocking, contracts, reply, stamp_draft_identity, SemanticIndexContext};
 
+pub(super) fn invalid_semantic_input(req_id: u64, subject: &'static str) -> Response {
+    Response::err(req_id, format!("INVALID_ARGUMENT: {subject} rejected"))
+}
+
 pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) -> Response {
     match op {
         SemanticIndexOp::AdmitBinding {
@@ -55,9 +59,7 @@ async fn admit_binding(
     stamp_draft_identity(&mut draft, ctx.authority);
     let binding = match SemanticBinding::create(*draft) {
         Ok(binding) => binding,
-        Err(error) => {
-            return Response::err(ctx.req_id, format!("semantic binding rejected: {error:?}"))
-        }
+        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic binding"),
     };
     let nonce = match ctx.authority.attempt_nonce() {
         Some(nonce) => nonce,
@@ -91,18 +93,11 @@ async fn refresh_binding(
     stamp_draft_identity(&mut draft, ctx.authority);
     let replacement = match SemanticBinding::create(*draft) {
         Ok(binding) => binding,
-        Err(error) => {
-            return Response::err(ctx.req_id, format!("semantic binding rejected: {error:?}"))
-        }
+        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic binding"),
     };
     let manifest = match SemanticSqlSourceManifest::create(source_manifest) {
         Ok(manifest) => manifest,
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("semantic source manifest rejected: {error:?}"),
-            )
-        }
+        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic source manifest"),
     };
     let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
     if let Err(error) = adapter.authorize_binding_worker(&replacement, ctx.authority) {
@@ -206,4 +201,29 @@ async fn drop_binding(
         .await
         .map(contracts::receipt),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::invalid_semantic_input;
+
+    #[test]
+    fn malformed_semantic_input_has_a_declared_stable_code_and_safe_detail() {
+        assert!(eg_capabilities::error_routing::method_allows_error(
+            "SemanticIndex",
+            "INVALID_ARGUMENT"
+        ));
+        for (subject, detail) in [
+            ("semantic binding", "semantic binding rejected"),
+            (
+                "semantic source manifest",
+                "semantic source manifest rejected",
+            ),
+        ] {
+            let response = invalid_semantic_input(19, subject);
+            assert_eq!(response.id, 19);
+            assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+            assert_eq!(response.error_detail.as_deref(), Some(detail));
+        }
+    }
 }

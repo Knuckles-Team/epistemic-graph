@@ -18,6 +18,7 @@
 //!   separate, administrative operation.
 
 pub mod annotations;
+pub mod catalog_authority;
 pub mod digest;
 pub mod ids;
 pub mod index;
@@ -78,6 +79,11 @@ pub struct ConnectorRelationshipMapping {
 }
 
 pub use annotations::{PackAnnotations, PackCost, PackModelFacts, PackToolMode};
+pub use catalog_authority::{
+    reconcile_catalog_authority, reconcile_joined_configuration, McpCatalogAuthorityCandidate,
+    McpCatalogAuthorityRow, McpCatalogAuthorityStatusRequest, McpCatalogReconcileRequest,
+    McpJoinedConfigurationRow,
+};
 pub use ids::{escape_pack_name, pack_component_id, validate_connector, PACK_COMPONENT_ID_PREFIX};
 pub use index::{
     ConnectorPackIndex, McpCatalogSnapshotBinding, PackArchiveRef, PackEntry, PackEntryKind,

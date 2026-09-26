@@ -16,9 +16,11 @@
 //!   sends is a claim to bind against that authority, never the authority
 //!   itself. That is why no variant here carries an `actor_scope` to act as,
 //!   a [`crate::contract::Nonce`], a `now_ms`, or source text.
-//! * **Every variant names its tenant**, and the handler compares it with the
-//!   verified request tenant before anything is resolved. Resolution by id
-//!   alone is an execution grant.
+//! * **Every variant names its tenant**. Worker operations name the raw
+//!   verified tenant; the public request names the carrier's opaque tenant
+//!   scope. The handler compares each against the corresponding verified
+//!   authority before reading an owner. Resolution by id alone is an
+//!   execution grant.
 //! * **Every unbounded thing has a named bound** and is refused by that name:
 //!   claim limits, lease durations, page sizes, cursor lengths.
 
@@ -27,8 +29,9 @@ use serde::{Deserialize, Serialize};
 use super::identity::{validate_generation, validate_text};
 use super::{
     SemanticBinding, SemanticBindingDraft, SemanticBindingState, SemanticGenerationArtifact,
-    SemanticIndexError, SemanticIndexFilter, SemanticQueueClass, SemanticSqlSourceManifestDraft,
-    SemanticStageArtifact, SemanticStageIntent, SemanticStageTransition,
+    SemanticIndexCommand, SemanticIndexError, SemanticIndexFilter, SemanticIndexRequest,
+    SemanticQueueClass, SemanticSqlSourceManifestDraft, SemanticStageArtifact, SemanticStageIntent,
+    SemanticStageTransition,
 };
 use crate::mutation_batch::{MutationOutboxLease, MutationOutboxRecord};
 
@@ -287,6 +290,10 @@ pub enum SemanticIndexOp {
     },
 
     // ------------------------------------------------------------------ reads
+    /// Public RF-019 request envelope for the binding read. The other public
+    /// commands remain closed until their approval, catalog, and retrieval
+    /// authorities are wired; this route never interprets them as a read.
+    GetBindingRequest { request: Box<SemanticIndexRequest> },
     /// The durable binding head of this owner.
     Binding {
         tenant_id: String,
@@ -347,6 +354,7 @@ impl SemanticIndexOp {
             Self::ValidateStageLease { .. }
             | Self::StageStatus { .. }
             | Self::Binding { .. }
+            | Self::GetBindingRequest { .. }
             | Self::SqlSourceManifest { .. }
             | Self::ListBindings { .. }
             | Self::LiveGeneration { .. } => false,
@@ -368,9 +376,10 @@ impl SemanticIndexOp {
             | Self::RefreshBinding { .. }
             | Self::TransitionBinding { .. }
             | Self::DropBinding { .. } => "semantic:binding-write",
-            Self::Binding { .. } | Self::ListBindings { .. } | Self::LiveGeneration { .. } => {
-                "semantic:binding-read"
-            }
+            Self::Binding { .. }
+            | Self::GetBindingRequest { .. }
+            | Self::ListBindings { .. }
+            | Self::LiveGeneration { .. } => "semantic:binding-read",
             Self::AdmitSourceRecord { .. }
             | Self::AdmitSourcePage { .. }
             | Self::AdmitSourceReconcile { .. }
@@ -388,10 +397,11 @@ impl SemanticIndexOp {
         }
     }
 
-    /// The tenant this operation names. Compared against the verified request
-    /// tenant in the handler, once, so a new variant cannot forget it.
+    /// The tenant this operation names. Worker ops use the raw verified tenant;
+    /// the public request uses the carrier's opaque scope.
     pub fn tenant_id(&self) -> &str {
         match self {
+            Self::GetBindingRequest { request } => &request.tenant_id,
             Self::AdmitBinding { tenant_id, .. }
             | Self::RefreshBinding { tenant_id, .. }
             | Self::TransitionBinding { tenant_id, .. }
@@ -426,6 +436,10 @@ impl SemanticIndexOp {
     /// different binding than the owner it was presented to.
     pub fn binding_id(&self) -> &str {
         match self {
+            Self::GetBindingRequest { request } => match &request.command {
+                SemanticIndexCommand::GetBinding { binding_id } => binding_id,
+                _ => "",
+            },
             Self::AdmitBinding { binding_id, .. }
             | Self::RefreshBinding { binding_id, .. }
             | Self::TransitionBinding { binding_id, .. }
@@ -453,6 +467,17 @@ impl SemanticIndexOp {
     /// Shape validation only. A successful result authorizes nothing: the
     /// handler still binds every claim here to the verified carrier authority.
     pub fn validate(&self) -> Result<(), SemanticIndexError> {
+        if let Self::GetBindingRequest { request } = self {
+            if !matches!(request.command, SemanticIndexCommand::GetBinding { .. }) {
+                return Err(SemanticIndexError::InvalidField {
+                    field: "command".to_string(),
+                    reason: "only semantic_binding_get is routed through this request envelope"
+                        .to_string(),
+                });
+            }
+            validate_text("tenant_id", &request.tenant_id)?;
+            return validate_text("binding_id", self.binding_id());
+        }
         validate_text("tenant_id", self.tenant_id())?;
         validate_text("binding_id", self.binding_id())?;
         match self {
@@ -588,6 +613,7 @@ impl SemanticIndexOp {
             }
             Self::ReleaseStageLease { lease, .. } => validate_lease(lease),
             Self::Binding { .. } | Self::LiveGeneration { .. } => Ok(()),
+            Self::GetBindingRequest { .. } => unreachable!("validated above"),
             Self::SqlSourceManifest {
                 generation,
                 source_entity_id,

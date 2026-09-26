@@ -4,7 +4,7 @@ use eg_core::graph::GraphView;
 
 use super::{
     opaque_identity, IncrementalDelta, IncrementalReasoningEvent, IncrementalReasoningIndex,
-    ProjectionInvalidationKind, ProjectionPosition, ReasoningProjectionWakeup,
+    ProjectionInvalidationKind, ProjectionPosition, ReasoningProjectionWakeup, WakeupEventSource,
 };
 
 impl IncrementalReasoningIndex {
@@ -15,6 +15,11 @@ impl IncrementalReasoningIndex {
         view: &GraphView,
     ) -> Result<IncrementalDelta, String> {
         wakeup.validate()?;
+        if wakeup.event_source != WakeupEventSource::Inline {
+            return Err(
+                "reasoning projection wake-up events must be resolved from its batch".to_string(),
+            );
+        }
         let Some(position) = self.prepare_position(position)? else {
             return Ok(IncrementalDelta::default());
         };

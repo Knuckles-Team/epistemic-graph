@@ -230,6 +230,48 @@ pub trait PersistenceBackend: Send + Sync {
         Err("persistence backend does not support native capacity headroom".to_string())
     }
 
+    /// Authoritative MVCC read of a repository enrichment snapshot's global
+    /// compute budget. `None` means no source-commit authority was seeded;
+    /// consumers must not derive one from an outbox payload alone.
+    async fn read_enrichment_budget_checkpoint(
+        &self,
+        _graph_fname: &str,
+        _source_envelope: &str,
+    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetCheckpoint>, String> {
+        Err("persistence backend does not support enrichment budget reads".to_string())
+    }
+
+    /// Graph-wide pause observed before every enrichment outbox claim.
+    async fn read_enrichment_budget_park(
+        &self,
+        _graph_fname: &str,
+    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetPark>, String> {
+        Err("persistence backend does not support enrichment park reads".to_string())
+    }
+
+    /// Replicated owner-row proof that one immutable source was replaced.
+    /// A node with a stale local outbox event may ACK it without spending or
+    /// re-parking only when this proof binds its exact snapshot digest.
+    async fn read_enrichment_supersession(
+        &self,
+        _graph_fname: &str,
+        _source_envelope: &str,
+        _snapshot_digest: &str,
+    ) -> Result<bool, String> {
+        Err("persistence backend does not support enrichment supersession reads".to_string())
+    }
+
+    /// Persist an underfunded graph-wide pause before the consumer releases
+    /// its held outbox lease. Completion means the marker has crossed the
+    /// durable writer barrier; callers must never ACK unpaid work.
+    async fn park_enrichment_budget(
+        &self,
+        _graph_fname: &str,
+        _park: eg_types::native_control::EnrichmentBudgetPark,
+    ) -> Result<(), String> {
+        Err("persistence backend does not support enrichment budget parking".to_string())
+    }
+
     /// Reconstruct the registry from durable storage at boot. Returns the number
     /// of graphs loaded. No-op (Ok(0)) when nothing is configured.
     async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String>;
@@ -445,6 +487,18 @@ pub trait PersistenceBackend: Send + Sync {
         Err("persistence backend does not support durable outbox acknowledgements".to_string())
     }
 
+    /// Release an exact held lease without acknowledging its event. An
+    /// underfunded enrichment consumer first persists a graph-wide park, then
+    /// calls this; future claims must read that marker before entering the
+    /// outbox claim path, including after restart.
+    async fn release_mutation_outbox(
+        &self,
+        _graph_fname: &str,
+        _lease: &MutationOutboxLease,
+    ) -> Result<(), String> {
+        Err("persistence backend does not support durable outbox release".to_string())
+    }
+
     /// One consumer's durable projection watermark on `graph_fname`'s scope, or
     /// `None` when it has never acknowledged a row.
     ///
@@ -502,6 +556,20 @@ pub trait PersistenceBackend: Send + Sync {
         _committed_at_ms: u64,
     ) -> Result<ChangeEnvelopeCommit, String> {
         Err("persistence backend does not support atomic ChangeEnvelope commits".to_string())
+    }
+
+    /// Engine-only repository source commit with a trusted budget seed.
+    /// Public ApplyChangeEnvelope calls cannot invoke this authority path.
+    #[cfg(feature = "redb")]
+    #[allow(private_interfaces)]
+    async fn commit_repository_change_envelope(
+        &self,
+        _graph_fname: &str,
+        _envelope: &ChangeEnvelope,
+        _authority: crate::redb_store::enrichment_budget::SourceBudgetAuthority,
+        _committed_at_ms: u64,
+    ) -> Result<ChangeEnvelopeCommit, String> {
+        Err("persistence backend does not support atomic repository budget seed".into())
     }
 
     /// Commit a BATCH of engine-native governed ingest units that all target

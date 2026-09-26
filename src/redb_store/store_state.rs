@@ -11,6 +11,8 @@ pub(crate) struct StagedRowInput<'a> {
     pub(crate) graph_fname: &'a str,
     pub(crate) batch: &'a MutationBatch,
     pub(crate) change: Option<&'a ChangeEnvelope>,
+    pub(crate) source_budget:
+        Option<&'a crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
     pub(crate) authoritative_state_msgpack: Option<&'a [u8]>,
     pub(crate) crossmodal: Option<&'a CrossModalBatchRows<'a>>,
     pub(crate) committed_at_ms: u64,
@@ -58,6 +60,7 @@ pub(crate) fn stage_rows_in(
         graph_fname,
         batch,
         change,
+        source_budget,
         authoritative_state_msgpack,
         crossmodal,
         committed_at_ms,
@@ -117,6 +120,27 @@ pub(crate) fn stage_rows_in(
     // written by `commit::finish` from the batch itself.
     if let Some(change) = change {
         apply_change_envelope_commit_rows(write, graph_fname, change, committed_at_ms, crypto)?;
+        if let Some(authority) = source_budget {
+            if authority.source_envelope != change.envelope_id
+                || authority.tenant_id != change.mutation.identity.tenant().as_str()
+                || !change.mutation.outbox.iter().any(|intent| {
+                    intent.topic == "repository.enrichment.pending"
+                        && intent.key == authority.source_envelope
+                })
+            {
+                return Err(
+                    "CONFLICT: repository enrichment seed does not match source envelope".into(),
+                );
+            }
+            crate::redb_store::enrichment_budget::seed_source_budget(
+                write,
+                graph_fname,
+                authority,
+                crypto,
+            )?;
+        }
+    } else if source_budget.is_some() {
+        return Err("CONFLICT: repository enrichment seed lacks a source envelope".into());
     }
     write_mutation_batch_graph_meta_row(
         write,
@@ -541,6 +565,7 @@ pub(crate) fn apply_snapshot_state(
     // private claim state atomically before installing the replacement.
     work_item_capability::validate_snapshot_nodes(&incoming_nodes)?;
     work_item_capability::clear_graph_rows(write, graph_fname)?;
+    enrichment_budget::clear_graph_rows(write, graph_fname)?;
     development_lane::validate_lane_links_in_wtx(write, graph_fname, &incoming_nodes, crypto)?;
     apply_snapshot_graph_rows(write, graph_fname, snapshot, crypto)?;
     apply_snapshot_semantic_row(write, graph_fname, snapshot, crypto)?;

@@ -577,6 +577,33 @@ impl Shard {
         self.mutations.outbox_ack(handle.as_ref(), lease, now_ms)
     }
 
+    /// Check a held delivery inside the caller batch's admitted graph member,
+    /// before its owner-row gate is opened. The same check is repeated by the
+    /// in-transaction ACK after the replacement rows have been staged.
+    pub(crate) fn outbox_validate_batch_lease(
+        &self,
+        group: &AdmittedGroup<'_, GraphShardOwner>,
+        handle: &ShardHandle,
+        lease: &MutationOutboxLease,
+        now_ms: u64,
+    ) -> Result<(), String> {
+        self.mutations
+            .outbox_validate_in(group.member(1)?, handle.as_ref(), lease, now_ms)
+    }
+
+    /// Stage an ACK in the caller batch's graph member. The group finalizer
+    /// commits this alongside the replacement batch and its outbox intents.
+    pub(crate) fn outbox_ack_batch_lease(
+        &self,
+        group: &AdmittedGroup<'_, GraphShardOwner>,
+        handle: &ShardHandle,
+        lease: &MutationOutboxLease,
+        now_ms: u64,
+    ) -> Result<MutationProjectionCursor, String> {
+        self.mutations
+            .outbox_ack_in(group.member(1)?, handle.as_ref(), lease, now_ms)
+    }
+
     /// Give one lease back unacknowledged, so another worker may claim it now
     /// rather than after it expires.
     pub(crate) fn outbox_release(

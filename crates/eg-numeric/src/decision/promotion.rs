@@ -15,13 +15,14 @@
 use std::collections::BTreeMap;
 
 use eg_types::contract::BoundedVec;
-use eg_types::decision::jobs::{ClassCoverage, PromotionMetrics};
+use eg_types::decision::jobs::{ClassCoverage, ClassLabelMetrics, PromotionMetrics};
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::{StatisticalPolicy, UnitRationalWire};
 
 use super::head_eval::top_index;
-use super::quant::{exact_wire, q32};
+use super::quant::{exact_wire, level, q32, unit_wire};
 use super::refusal::{Refusal, RefusalResult};
+use crate::risk::{clopper_pearson, BinomialCounts, IntervalSide};
 
 /// Largest mean cost a promoted head may spend per decision, in
 /// multiply-accumulates. The largest resident scorer (64 options, 32
@@ -55,8 +56,52 @@ pub(crate) struct Protocol {
     answered_hits: u64,
     macs: u64,
     stable: u64,
-    per_class: BTreeMap<String, (u64, u64)>,
+    per_class: BTreeMap<String, ClassTally>,
     timed: Vec<(u64, bool)>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ClassTally {
+    n_items: u64,
+    covered: u64,
+    top1_hits: u64,
+    acted: u64,
+    acted_wrong: u64,
+}
+
+fn class_metrics(
+    class: ClassTally,
+    statistical: &StatisticalPolicy,
+    calibrated: bool,
+) -> RefusalResult<Option<ClassLabelMetrics>> {
+    if !calibrated || class.n_items < statistical.n_min {
+        return Ok(None);
+    }
+    let delta = level(statistical.delta)?;
+    let coverage = clopper_pearson(
+        BinomialCounts::new(class.covered, class.n_items)?,
+        delta,
+        IntervalSide::TwoSided,
+    )?;
+    let act_risk_upper = (class.acted > 0)
+        .then(|| {
+            let interval = clopper_pearson(
+                BinomialCounts::new(class.acted_wrong, class.acted)?,
+                delta,
+                IntervalSide::Upper,
+            )?;
+            unit_wire(interval.upper)
+        })
+        .transpose()?;
+    Ok(Some(ClassLabelMetrics {
+        top1_hits: class.top1_hits,
+        delta: statistical.delta,
+        coverage_lower: unit_wire(coverage.lower)?,
+        coverage_upper: unit_wire(coverage.upper)?,
+        acted: class.acted,
+        acted_wrong: class.acted_wrong,
+        act_risk_upper,
+    }))
 }
 
 /// `hits / n` against `1 - alpha`, exactly.
@@ -115,14 +160,17 @@ impl Protocol {
             .per_class
             .entry(item.class_key.to_string())
             .or_default();
-        class.0 += 1;
-        class.1 += u64::from(item.covered);
+        class.n_items += 1;
+        class.covered += u64::from(item.covered);
         self.timed.push((item.recorded_at_ms, item.covered));
         let Some(p) = item.probabilities else {
             return;
         };
         let top = top_index(p).unwrap_or(0);
         let hit = item.acceptable.contains(&top);
+        class.top1_hits += u64::from(hit);
+        class.acted += u64::from(item.answered);
+        class.acted_wrong += u64::from(item.answered && !hit);
         self.n_read += 1;
         self.soft_mass += item.acceptable.iter().map(|&i| p[i]).sum::<f64>();
         self.absolute_error += (p[top] - f64::from(u8::from(hit))).abs();
@@ -150,10 +198,9 @@ impl Protocol {
         statistical: &StatisticalPolicy,
     ) -> Vec<&'static str> {
         let alpha = statistical.alpha;
-        let classes_ok = self
-            .per_class
-            .values()
-            .all(|&(n, covered)| n < statistical.n_min || meets_coverage(covered, n, alpha));
+        let classes_ok = self.per_class.values().all(|class| {
+            class.n_items < statistical.n_min || meets_coverage(class.covered, class.n_items, alpha)
+        });
         let drift = self.halves().is_none_or(|(e, l)| drift_ok(e, l, alpha));
         [
             (
@@ -183,16 +230,19 @@ impl Protocol {
     ) -> RefusalResult<(PromotionMetrics, Vec<String>)> {
         let read = self.n_read.max(1) as f64;
         let halves = self.halves().filter(|_| calibrated);
-        let per_class = self
+        let per_class: Vec<_> = self
             .per_class
             .iter()
-            .take(64)
-            .map(|(class_key, &(n_items, covered))| ClassCoverage {
-                class_key: class_key.clone(),
-                n_items,
-                covered,
+            .map(|(class_key, &class)| {
+                Ok(ClassCoverage {
+                    class_key: class_key.clone(),
+                    n_items: class.n_items,
+                    covered: class.covered,
+                    n_min: Some(statistical.n_min),
+                    metrics: class_metrics(class, statistical, calibrated)?,
+                })
             })
-            .collect();
+            .collect::<RefusalResult<_>>()?;
         let metrics = PromotionMetrics {
             soft_accuracy: q32(self.soft_mass / read)?,
             score_mae: q32(self.absolute_error / read)?,
@@ -208,5 +258,105 @@ impl Protocol {
         };
         let failed = self.gates(top1, calibrated, statistical);
         Ok((metrics, failed.into_iter().map(str::to_string).collect()))
+    }
+}
+
+#[cfg(test)]
+mod class_metric_tests {
+    use eg_types::contract::BoundedVec;
+    use eg_types::decision::{
+        QuantScaleTag, QuantisedValue, StatisticalPolicy, TraceFidelityLevel, UnitRationalWire,
+    };
+
+    use super::{Observation, Protocol};
+
+    fn ratio(numerator: u64, denominator: u64) -> UnitRationalWire {
+        UnitRationalWire::new(numerator, denominator).unwrap()
+    }
+
+    fn policy(n_min: u64) -> StatisticalPolicy {
+        StatisticalPolicy {
+            alpha: ratio(1, 10),
+            epsilon: ratio(1, 20),
+            delta: ratio(1, 20),
+            n_min,
+            min_support: 1,
+            min_ess: QuantisedValue {
+                scale: QuantScaleTag::Q32,
+                value: 0,
+            },
+            min_outcome_fidelity: TraceFidelityLevel::FullStep,
+            tenant_public_features: false,
+            audit_sample: ratio(0, 1),
+            approved_commit_principals: BoundedVec::default(),
+            compact_after_ms: None,
+            drop_blob_after_ms: None,
+        }
+    }
+
+    fn observe(protocol: &mut Protocol, class_key: &str, acceptable: &[usize], acted: bool) {
+        protocol.record(&Observation {
+            class_key,
+            recorded_at_ms: 1,
+            probabilities: Some(&[0.9, 0.1]),
+            acceptable,
+            covered: acceptable.contains(&0),
+            answered: acted,
+            macs: 1,
+            stable: true,
+        });
+    }
+
+    #[test]
+    fn class_bounds_require_own_support_and_calibration() {
+        let mut protocol = Protocol::default();
+        observe(&mut protocol, "low", &[0], true);
+        observe(&mut protocol, "ready", &[0], true);
+        observe(&mut protocol, "ready", &[1], true);
+        observe(&mut protocol, "idle", &[0], false);
+        observe(&mut protocol, "idle", &[0], false);
+        let (report, _) = protocol.finish(4, true, &policy(2)).unwrap();
+        let classes = report.per_class.as_slice();
+        assert_eq!(classes.len(), 3);
+        assert_eq!(classes[0].class_key, "idle");
+        assert!(classes[0]
+            .metrics
+            .as_ref()
+            .unwrap()
+            .act_risk_upper
+            .is_none());
+        assert_eq!(classes[1].class_key, "low");
+        assert_eq!(classes[1].n_min, Some(2));
+        assert!(classes[1].metrics.is_none());
+        assert_eq!(classes[2].class_key, "ready");
+        assert_eq!((classes[2].n_items, classes[2].covered), (2, 1));
+        let metrics = classes[2].metrics.as_ref().unwrap();
+        assert_eq!(
+            (metrics.top1_hits, metrics.acted, metrics.acted_wrong),
+            (1, 2, 1)
+        );
+        assert!(
+            u128::from(metrics.coverage_lower.numerator())
+                * u128::from(metrics.coverage_upper.denominator())
+                <= u128::from(metrics.coverage_upper.numerator())
+                    * u128::from(metrics.coverage_lower.denominator())
+        );
+        assert_eq!(metrics.delta, ratio(1, 20));
+        assert!(metrics.act_risk_upper.is_some());
+
+        let (uncalibrated, _) = protocol.finish(4, false, &policy(2)).unwrap();
+        assert!(uncalibrated
+            .per_class
+            .iter()
+            .all(|class| class.metrics.is_none()));
+    }
+
+    #[test]
+    fn class_list_refuses_overflow_instead_of_hiding_classes() {
+        let mut protocol = Protocol::default();
+        for index in 0..65 {
+            observe(&mut protocol, &format!("class-{index:02}"), &[0], false);
+        }
+        assert!(protocol.finish(65, true, &policy(1)).is_err());
     }
 }

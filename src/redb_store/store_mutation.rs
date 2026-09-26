@@ -37,6 +37,7 @@ pub(crate) fn commit_mutation_batch(
             graph_fname,
             batch,
             change: None,
+            source_budget: None,
             authoritative_state_msgpack: None,
             crossmodal: None,
             result_msgpack,
@@ -84,6 +85,7 @@ pub(crate) fn commit_mutation_batch_state(
             graph_fname: input.graph_fname,
             batch: input.batch,
             change: None,
+            source_budget: None,
             authoritative_state_msgpack: Some(input.authoritative_state_msgpack),
             crossmodal: None,
             result_msgpack: input.result_msgpack,
@@ -108,6 +110,27 @@ pub(crate) fn commit_change_envelope(
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<ChangeEnvelopeCommit, String> {
+    commit_change_envelope_with_budget(
+        shard,
+        graph_fname,
+        envelope,
+        None,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )
+}
+
+pub(crate) fn commit_change_envelope_with_budget(
+    shard: &Shard,
+    graph_fname: &str,
+    envelope: &ChangeEnvelope,
+    source_budget: Option<&crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<ChangeEnvelopeCommit, String> {
     envelope.validate()?;
     let mutation = commit_mutation_batch_inner(
         shard,
@@ -115,6 +138,7 @@ pub(crate) fn commit_change_envelope(
             graph_fname,
             batch: &envelope.mutation,
             change: Some(envelope),
+            source_budget,
             authoritative_state_msgpack: None,
             crossmodal: None,
             result_msgpack: None,
@@ -570,6 +594,7 @@ fn finish_change_envelope_rows(
             graph_fname: input.graph_fname,
             batch: &input.current_batches[1],
             change: Some(input.envelope),
+            source_budget: None,
             authoritative_state_msgpack: None,
             crossmodal: None,
             committed_at_ms: input.committed_at_ms,
@@ -681,6 +706,7 @@ pub(crate) fn commit_mutation_batch_crossmodal(
             graph_fname: input.graph_fname,
             batch: input.batch,
             change: None,
+            source_budget: None,
             authoritative_state_msgpack: None,
             crossmodal: Some(input.rows),
             result_msgpack: input.result_msgpack,
@@ -701,6 +727,8 @@ pub(crate) struct BatchCommitInput<'a> {
     pub(crate) graph_fname: &'a str,
     pub(crate) batch: &'a MutationBatch,
     pub(crate) change: Option<&'a ChangeEnvelope>,
+    pub(crate) source_budget:
+        Option<&'a crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
     pub(crate) authoritative_state_msgpack: Option<&'a [u8]>,
     pub(crate) crossmodal: Option<CrossModalBatchRows<'a>>,
     pub(crate) result_msgpack: Option<&'a [u8]>,
@@ -710,6 +738,61 @@ pub(crate) struct BatchCommitInput<'a> {
     /// it cannot be re-derived from `batch.operations`.
     pub(crate) audited: bool,
     pub(crate) crashpoint: Option<MutationBatchCrashpoint>,
+}
+
+/// Private opt-in for an enrichment reactivation. The callback stages the
+/// budget/park CAS in the same owner-row admission as the canonical batch.
+/// The batch must contain its replacement outbox intent. This entry point is
+/// intentionally local to a graph shard: no Raft proposal is represented.
+pub(crate) fn commit_mutation_batch_with_outbox_lease(
+    shard: &Shard,
+    input: BatchCommitInput<'_>,
+    lease: &eg_types::MutationOutboxLease,
+    stage_reactivation: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    commit_mutation_batch_inner_with_effect(
+        shard,
+        input,
+        Some(OutboxBatchEffect {
+            lease: Some(lease),
+            stage_reactivation,
+        }),
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )
+}
+
+/// Stage deterministic reactivation owner rows and the replacement intent in
+/// one graph batch, without depending on a node-local delivery lease. A Raft
+/// apply can use this on every replica; the old delivery is resolved separately
+/// by each node after the replicated supersession marker is durable. This is
+/// deliberately a storage primitive, not a served reactivation route.
+pub(crate) fn commit_mutation_batch_with_reactivation_rows(
+    shard: &Shard,
+    input: BatchCommitInput<'_>,
+    stage_reactivation: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    commit_mutation_batch_inner_with_effect(
+        shard,
+        input,
+        Some(OutboxBatchEffect {
+            lease: None,
+            stage_reactivation,
+        }),
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )
+}
+
+struct OutboxBatchEffect<'a> {
+    lease: Option<&'a eg_types::MutationOutboxLease>,
+    stage_reactivation: &'a mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
 }
 
 /// Commit ONE caller batch: its graph rows, its governance material, its
@@ -747,10 +830,28 @@ pub(crate) fn commit_mutation_batch_inner(
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<MutationBatchCommit, String> {
+    commit_mutation_batch_inner_with_effect(
+        shard,
+        input,
+        None,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )
+}
+
+fn commit_mutation_batch_inner_with_effect(
+    shard: &Shard,
+    input: BatchCommitInput<'_>,
+    mut outbox_effect: Option<OutboxBatchEffect<'_>>,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
     let BatchCommitInput {
         graph_fname,
         batch,
         change,
+        source_budget,
         authoritative_state_msgpack,
         crossmodal,
         result_msgpack,
@@ -772,10 +873,23 @@ pub(crate) fn commit_mutation_batch_inner(
     // happen before this group's admission.
     let handle = shard.graph(graph_fname)?;
     let bound = shard::bind_caller_batch(handle.as_ref(), graph_fname, batch)?;
+    if outbox_effect.is_some() && bound.outbox.is_empty() {
+        return Err("CONFLICT: reactivation batch requires a replacement outbox intent".into());
+    }
     let members = vec![(graph_fname.to_string(), Arc::clone(&handle))];
     let (group, batches) = shard.admit_batch(graph_fname, &handle, &bound, &bound.batch_id)?;
 
     if matches!(group.begun(1)?, Begin::Replay(_)) {
+        if outbox_effect
+            .as_ref()
+            .is_some_and(|effect| effect.lease.is_some())
+        {
+            shard.mutations().abort_group(group)?;
+            return Err(
+                "CONFLICT: reactivation batch already committed; delivery state must be reconciled"
+                    .into(),
+            );
+        }
         // A byte-identical retry still has to commit the admitted group: the
         // replay member's fresh attempt nonce is consumed only by the commit
         // finalizer. `commit_batch` finishes the control member and seals the
@@ -793,31 +907,64 @@ pub(crate) fn commit_mutation_batch_inner(
         );
     }
 
-    let staged = match stage_mutation_batch_rows(
-        shard,
-        &group,
-        &members,
-        &batches,
-        StagedRowInput {
-            graph_fname,
-            batch: &bound,
-            change,
-            authoritative_state_msgpack,
-            crossmodal: crossmodal.as_ref(),
-            committed_at_ms,
-            audited,
-            crashpoint,
-        },
-        crypto,
-        #[cfg(feature = "security")]
-        &mut staged_audit_tail,
-    ) {
+    if let Some(effect) = outbox_effect.as_ref().and_then(|effect| effect.lease) {
+        if let Err(error) =
+            shard.outbox_validate_batch_lease(&group, &handle, effect, committed_at_ms)
+        {
+            shard.mutations().abort_group(group)?;
+            return Err(error);
+        }
+    }
+
+    let staged_input = StagedRowInput {
+        graph_fname,
+        batch: &bound,
+        change,
+        source_budget,
+        authoritative_state_msgpack,
+        crossmodal: crossmodal.as_ref(),
+        committed_at_ms,
+        audited,
+        crashpoint,
+    };
+    let staged_rows = if let Some(effect) = outbox_effect.as_mut() {
+        stage_mutation_batch_rows_with_reactivation(
+            shard,
+            &group,
+            &members,
+            &batches,
+            staged_input,
+            effect.stage_reactivation,
+            crypto,
+            #[cfg(feature = "security")]
+            &mut staged_audit_tail,
+        )
+    } else {
+        stage_mutation_batch_rows(
+            shard,
+            &group,
+            &members,
+            &batches,
+            staged_input,
+            crypto,
+            #[cfg(feature = "security")]
+            &mut staged_audit_tail,
+        )
+    };
+    let staged = match staged_rows {
         Ok(staged) => staged,
         Err(error) => {
             shard.mutations().abort_group(group)?;
             return Err(error);
         }
     };
+
+    if let Some(effect) = outbox_effect.as_ref().and_then(|effect| effect.lease) {
+        if let Err(error) = shard.outbox_ack_batch_lease(&group, &handle, effect, committed_at_ms) {
+            shard.mutations().abort_group(group)?;
+            return Err(error);
+        }
+    }
 
     run_mutation_batch_crashpoint(&bound, crashpoint, MutationBatchCrashpoint::BeforeCommit)?;
     crate::mutation_batch::apply_certification_fault(
@@ -854,6 +1001,35 @@ pub(crate) fn commit_mutation_batch_inner(
     Ok(commit)
 }
 
+fn stage_mutation_batch_rows_with_reactivation(
+    shard: &Shard,
+    group: &AdmittedGroup<'_, GraphShardOwner>,
+    members: &[(String, Arc<OwnedStoreHandle<GraphShardOwner>>)],
+    batches: &[MutationBatch],
+    input: StagedRowInput<'_>,
+    stage_reactivation: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
+) -> Result<StagedMutationRows, String> {
+    let write = ShardWrite::open(shard, group, members, batches)?;
+    let staged = stage_rows_in(
+        &write,
+        input,
+        crypto,
+        #[cfg(feature = "security")]
+        staged_audit_tail,
+    )
+    .and_then(|staged| {
+        stage_reactivation(&write)?;
+        Ok(staged)
+    });
+    let finished = write.finish();
+    match (staged, finished) {
+        (Ok(staged), Ok(())) => Ok(staged),
+        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+    }
+}
+
 fn finish_replayed_batch(
     shard: &Shard,
     group: AdmittedGroup<'_, GraphShardOwner>,
@@ -875,4 +1051,288 @@ fn finish_replayed_batch(
     };
     commit.validate()?;
     Ok(commit)
+}
+
+#[cfg(test)]
+mod outbox_reactivation_tests {
+    use super::*;
+    use eg_transaction::OutboxClaimBudget;
+    use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
+    use eg_types::{
+        contract::Digest256, MutationOperation, MutationOutboxIntent, MutationScopeIdentity,
+        MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
+    };
+
+    const GRAPH: &str = "graph-a";
+    const CONSUMER: &str = "reactivation-worker";
+    const TOPIC: &str = "repository.enrichment.pending";
+    const CALLBACK_SOURCE: &str = "callback-source";
+
+    fn batch(id: &str, key: &str, version: u64, node: &str) -> MutationBatch {
+        let identity =
+            MutationScopeIdentity::fixed_graph("tenant-a", GRAPH, COMPILED_BATCH_INCARNATION)
+                .unwrap();
+        let actor = format!("principal:sha256:{}", "a".repeat(64));
+        let mut batch = MutationBatch {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: id.into(),
+            envelope: crate::redb_store::fixture_operation_envelope(&identity, &actor, 42, key),
+            identity,
+            placement_epoch: 0,
+            version_expectation: VersionExpectation::Graph(version),
+            fencing_token: None,
+            authoritative_state: None,
+            operations: vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Graph,
+                domain: DurabilityDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: node.into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+                },
+            }],
+            outbox: vec![MutationOutboxIntent {
+                topic: TOPIC.into(),
+                key: id.into(),
+                payload: vec![1],
+                headers: Default::default(),
+            }],
+            created_at_ms: 1,
+        };
+        batch
+            .reseal_envelope(Digest256::from_bytes([1_u8; 32]))
+            .unwrap();
+        batch
+    }
+
+    fn commit(
+        shard: &Shard,
+        batch: &MutationBatch,
+        lease: Option<&eg_types::MutationOutboxLease>,
+        stage: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    ) -> Result<MutationBatchCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit_tail = AuditTailCache::new();
+        let input = BatchCommitInput {
+            graph_fname: GRAPH,
+            batch,
+            change: None,
+            source_budget: None,
+            authoritative_state_msgpack: None,
+            crossmodal: None,
+            result_msgpack: None,
+            committed_at_ms: if lease.is_some() { 12 } else { 10 },
+            audited: true,
+            crashpoint: None,
+        };
+        if let Some(lease) = lease {
+            commit_mutation_batch_with_outbox_lease(
+                shard,
+                input,
+                lease,
+                stage,
+                DurableCrypto::none(),
+                #[cfg(feature = "security")]
+                &mut audit_tail,
+            )
+        } else {
+            commit_mutation_batch_inner(
+                shard,
+                input,
+                DurableCrypto::none(),
+                #[cfg(feature = "security")]
+                &mut audit_tail,
+            )
+        }
+    }
+
+    fn commit_owner_rows(
+        shard: &Shard,
+        batch: &MutationBatch,
+        stage: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    ) -> Result<MutationBatchCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit_tail = AuditTailCache::new();
+        commit_mutation_batch_with_reactivation_rows(
+            shard,
+            BatchCommitInput {
+                graph_fname: GRAPH,
+                batch,
+                change: None,
+                source_budget: None,
+                authoritative_state_msgpack: None,
+                crossmodal: None,
+                result_msgpack: None,
+                committed_at_ms: 10,
+                audited: true,
+                crashpoint: None,
+            },
+            stage,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit_tail,
+        )
+    }
+
+    fn held_source(shard: &Shard) -> eg_types::MutationOutboxLease {
+        commit(
+            shard,
+            &batch("source", "source-key", 0, "source-node"),
+            None,
+            &mut callback_budget,
+        )
+        .unwrap();
+        shard.outbox_subscribe(GRAPH, CONSUMER, TOPIC).unwrap();
+        let mut budget = OutboxClaimBudget::new(1, 1_000, 11).unwrap();
+        let mut claims = shard
+            .outbox_claim(GRAPH, CONSUMER, &mut budget)
+            .unwrap()
+            .claims;
+        assert_eq!(claims.len(), 1);
+        claims.remove(0)
+    }
+
+    fn has_node(shard: &Shard, node: &str) -> bool {
+        let handle = shard.graph(GRAPH).unwrap();
+        let read = shard.read(&handle).unwrap();
+        let nodes = read.scoped_owner_table(crate::redb_store::NODES).unwrap();
+        nodes.get((GRAPH, node)).unwrap().is_some()
+    }
+
+    fn callback_budget(write: &ShardWrite<'_>) -> Result<(), String> {
+        crate::redb_store::enrichment_budget::seed_source_budget(
+            write,
+            GRAPH,
+            &crate::redb_store::enrichment_budget::SourceBudgetAuthority {
+                tenant_id: "tenant-a".into(),
+                source_envelope: CALLBACK_SOURCE.into(),
+                snapshot_digest: "a".repeat(64),
+                repository_id: "repository".into(),
+                policy_digest: "b".repeat(64),
+                total_budget_units: 5,
+            },
+            DurableCrypto::none(),
+        )
+    }
+
+    #[test]
+    fn held_delivery_replacement_and_callback_rows_commit_together() {
+        let path = crate::redb_store::temp_path("outbox-reactivation", "atomic-success");
+        let shard = Shard::open(&path).unwrap();
+        let lease = held_source(&shard);
+        let replacement = batch("replacement", "replacement-key", 1, "replacement-node");
+        let result = commit(&shard, &replacement, Some(&lease), &mut callback_budget).unwrap();
+        assert!(!result.replayed);
+        drop(shard);
+
+        let reopened = Shard::open(&path).unwrap();
+        assert!(has_node(&reopened, "replacement-node"));
+        assert!(crate::redb_store::enrichment_budget::read(
+            &reopened,
+            GRAPH,
+            CALLBACK_SOURCE,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .is_some());
+        assert_eq!(
+            crate::redb_store::read_mutation_outbox(&reopened, GRAPH, "replacement")
+                .unwrap()
+                .len(),
+            1
+        );
+        let cursor = reopened.outbox_cursor(GRAPH, CONSUMER).unwrap().unwrap();
+        assert_eq!(cursor.batch_id, "source");
+        drop(reopened);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn failed_callback_rolls_back_replacement_and_leaves_delivery_unacked() {
+        let path = crate::redb_store::temp_path("outbox-reactivation", "atomic-rollback");
+        let shard = Shard::open(&path).unwrap();
+        let lease = held_source(&shard);
+        let replacement = batch("replacement", "replacement-key", 1, "replacement-node");
+        let error = commit(&shard, &replacement, Some(&lease), &mut |write| {
+            callback_budget(write)?;
+            Err("injected callback failure".into())
+        })
+        .unwrap_err();
+        assert!(error.contains("injected callback failure"));
+        drop(shard);
+
+        let reopened = Shard::open(&path).unwrap();
+        assert!(!has_node(&reopened, "replacement-node"));
+        assert!(crate::redb_store::enrichment_budget::read(
+            &reopened,
+            GRAPH,
+            CALLBACK_SOURCE,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .is_none());
+        assert!(
+            crate::redb_store::read_mutation_outbox(&reopened, GRAPH, "replacement")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(reopened.outbox_cursor(GRAPH, CONSUMER).unwrap().is_none());
+        drop(reopened);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn lease_free_owner_rows_and_intent_replay_identically_on_two_shards() {
+        let path_a = crate::redb_store::temp_path("outbox-reactivation", "replica-a");
+        let path_b = crate::redb_store::temp_path("outbox-reactivation", "replica-b");
+        let first = Shard::open(&path_a).unwrap();
+        let second = Shard::open(&path_b).unwrap();
+        let replacement = batch("replacement", "replacement-key", 0, "replacement-node");
+        let a = commit_owner_rows(&first, &replacement, &mut callback_budget).unwrap();
+        let b = commit_owner_rows(&second, &replacement, &mut callback_budget).unwrap();
+        assert_eq!(
+            rmp_serde::to_vec_named(&a.record).unwrap(),
+            rmp_serde::to_vec_named(&b.record).unwrap()
+        );
+        assert!(!a.replayed);
+        assert!(!b.replayed);
+        let mut retry = replacement.clone();
+        retry.envelope = crate::redb_store::fixture_operation_envelope(
+            &retry.identity,
+            &format!("principal:sha256:{}", "a".repeat(64)),
+            43,
+            "replacement-key",
+        );
+        retry
+            .reseal_envelope(Digest256::from_bytes([1_u8; 32]))
+            .unwrap();
+        let replay = commit_owner_rows(&second, &retry, &mut |_| {
+            Err("callback must not run on exact replay".into())
+        })
+        .unwrap();
+        assert!(replay.replayed);
+        drop(first);
+        drop(second);
+
+        for path in [&path_a, &path_b] {
+            let reopened = Shard::open(path).unwrap();
+            assert!(has_node(&reopened, "replacement-node"));
+            assert!(crate::redb_store::enrichment_budget::read(
+                &reopened,
+                GRAPH,
+                CALLBACK_SOURCE,
+                DurableCrypto::none(),
+            )
+            .unwrap()
+            .is_some());
+            assert_eq!(
+                crate::redb_store::read_mutation_outbox(&reopened, GRAPH, "replacement")
+                    .unwrap()
+                    .len(),
+                1
+            );
+            drop(reopened);
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }

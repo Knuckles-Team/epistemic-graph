@@ -227,6 +227,7 @@ pub(crate) fn apply_native_clear_or_delete_graph_rows(
         crypto,
     )?;
     capacity_lease::clear_graph_rows(write, graph_fname)?;
+    enrichment_budget::clear_graph_rows(write, graph_fname)?;
     work_item_capability::clear_graph_rows_with_native(
         write,
         graph_fname,
@@ -519,14 +520,18 @@ fn apply_one_native_operation_row(
             },
             generated_result,
             |commit_scope| {
-                apply_submit_work_items_rows(
+                let result = apply_submit_work_items_rows(
                     graph_fname,
                     request,
                     &mut tables.graph.nodes,
                     &mut tables.graph.edges,
                     &mut tables.graph.command_sequences,
                     commit_scope,
-                )
+                )?;
+                // The private global budget row and all child WorkItems share
+                // this ShardWrite. A stale/over-budget debit aborts both.
+                enrichment_budget::reserve_submit_page(write, graph_fname, request, crypto)?;
+                Ok(result)
             },
         ),
         method @ work_item_kernel_writes!() => apply_native_work_item_family_operation(

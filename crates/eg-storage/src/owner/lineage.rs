@@ -9,8 +9,9 @@
 //!
 //! * [`layout_predecessors`] names every refused predecessor of a layout. A
 //!   predecessor file is refused with `{LAYOUT}_FORMAT_UPGRADE_REQUIRED` and its
-//!   removal step. SQL predecessors also have an explicit, inspected offline
-//!   upgrade; ordinary opens remain read-only refusals until it is run.
+//!   removal step. SQL, immediate pre-MCP Agent Library, and immediate
+//!   pre-enrichment GraphShard predecessors have explicit inspected offline
+//!   upgrades; ordinary opens still refuse.
 //! * [`validate_against_lineage`] is the check every manifest read runs --
 //!   open, recovery adoption, classification and backup restore all read the
 //!   manifest through `manifest_io::read_manifest` -- so none of them can miss
@@ -23,7 +24,6 @@
 
 use std::path::Path;
 
-use crate::owner::graph_shard::GRAPH_SHARD_TABLES;
 use crate::owner::layout::OwnerLayout;
 use crate::owner::persisted_layout::LayoutPredecessor;
 use crate::physical::incarnation::STORAGE_KERNEL_SCHEMA_VERSION;
@@ -45,6 +45,39 @@ pub const AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS: LayoutPredecessor = LayoutPredec
     ],
     data_lost: "its pre-ConnectorPack and governed-write-back Agent Library rows are \
                 intentionally not upgraded",
+    file_name: "agent_library.redb",
+};
+
+/// The previous Agent Library layout, before served MCP catalog authority rows.
+pub const AGENT_LIBRARY_PRE_MCP_CATALOG_DIGEST: [u8; 32] = [
+    0x7e, 0xa9, 0xbc, 0xde, 0x54, 0xe8, 0x96, 0x1c, 0xed, 0xaa, 0x58, 0x6b, 0x35, 0x20, 0xf8, 0x90,
+    0x10, 0x0c, 0x5f, 0x53, 0xf9, 0xf5, 0xf9, 0x57, 0x4a, 0x30, 0xde, 0xa0, 0x2c, 0x88, 0x24, 0x45,
+];
+pub const AGENT_LIBRARY_BEFORE_MCP_CATALOG: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::AgentLibrary,
+    label: "Agent Library before served MCP catalog authority",
+    owner_tables: &[
+        "agent_library",
+        "agent_library_heads",
+        "agent_graph",
+        "agent_graph_heads",
+        "agent_component",
+        "agent_component_heads",
+        "agent_template",
+        "agent_template_heads",
+        "connector_pack_heads",
+        "connector_pack_members",
+        "connector_pack_imports",
+        "connector_pack_body_holders",
+        "connector_pack_bindings",
+        "decision_artifacts",
+        "decision_records",
+        "write_back_change_sets",
+        "write_back_idempotency",
+        "write_back_receipts",
+        "write_back_receipt_heads",
+    ],
+    data_lost: "its rows require the explicit offline MCP catalog layout upgrade before normal open, or republishing after moving the file aside",
     file_name: "agent_library.redb",
 };
 
@@ -106,10 +139,83 @@ pub const SQL_BEFORE_DURABLE_ANN: LayoutPredecessor = LayoutPredecessor {
 const SQL_DATA_LOST: &str = "its SQL catalog and rows require an explicit offline upgrade \
                              before normal open, or re-ingestion after moving the file aside";
 
-/// The graph-shard owner tables before the background node-payload scrub's
-/// file-wide cursor (EH-384): the current census without its last table.
-const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] =
-    GRAPH_SHARD_TABLES.split_at(GRAPH_SHARD_TABLES.len() - 1).0;
+/// Frozen GraphShard census before the EH-557 enrichment budget authority.
+/// This must not be derived from today's live registry: later inserted tables
+/// would otherwise rewrite the historical predecessor's identity.
+const GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT: &[&str] = &[
+    "nodes",
+    "edges",
+    "ledger",
+    "semantic_store",
+    "audit_chain",
+    "provenance_anchor_members",
+    "graph_meta",
+    "work_item_command_sequence",
+    "resource_reservations",
+    "resource_reservation_tenant_index",
+    "resource_reservation_attempts",
+    "resource_hosts",
+    "resource_exclusivity",
+    "resource_fairness",
+    "resource_concurrency",
+    "resource_anti_affinity",
+    "resource_disk_policies",
+    "change_envelopes",
+    "content_versions",
+    "change_cursors",
+    "change_blobs",
+    "change_features",
+    "change_evidence",
+    "change_policies",
+    "change_lineage",
+    "raft_log",
+    "raft_meta",
+    "xshard_prepare",
+    "xshard_decision",
+    "matviews",
+    "plan_matviews",
+    "matview_operator_state",
+    "capacity_cells",
+    "capacity_leases",
+    "capacity_usage",
+    "capacity_idempotency",
+    "work_item_claim_capabilities",
+    "work_item_claim_capability_invocations",
+    "native_work_item_authority",
+    "development_lane_holds",
+    "development_lane_tenant_index",
+    "development_lane_lane_index",
+    "development_lane_repository_branch_index",
+    "development_lane_worktree_index",
+    "development_lane_work_item_index",
+    "development_lane_counters",
+    "development_lane_pressure_index",
+    "development_lane_policies",
+    "development_lane_invocations",
+    "encryption_canary",
+    "series_chunks",
+    "series_meta",
+    "series_projection_state",
+    "storage_scrub_cursor",
+];
+
+/// Earlier graph-shard layout before the node-payload scrub cursor (EH-384).
+const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT
+    .split_at(GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT.len() - 1)
+    .0;
+
+pub const GRAPH_SHARD_PRE_ENRICHMENT_DIGEST: [u8; 32] = [
+    0x34, 0x3e, 0xbe, 0x5b, 0xe2, 0x2f, 0xa5, 0x4d, 0xfe, 0x5e, 0xb8, 0x28, 0x4d, 0xd8, 0xbd, 0xee,
+    0x37, 0x1a, 0xe5, 0x7b, 0x34, 0x6a, 0xde, 0x11, 0xa7, 0x6e, 0x4c, 0xd8, 0x3e, 0x0c, 0x84, 0x2d,
+];
+
+pub const GRAPH_SHARD_BEFORE_ENRICHMENT: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard before repository enrichment budgets and supersession",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT,
+    data_lost: "its graph rows require the explicit offline enrichment layout upgrade before normal open, or re-ingestion after moving the file aside",
+    file_name: "graph-*.redb",
+};
 
 /// A graph shard file from before the background node-payload scrub (EH-384;
 /// operator ruling: existing graph data is disposable).
@@ -126,7 +232,10 @@ pub const GRAPH_SHARD_BEFORE_STORAGE_SCRUB: LayoutPredecessor = LayoutPredecesso
 /// Exhaustive on purpose: a new layout must state that it has none.
 pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] {
     match layout {
-        OwnerLayout::AgentLibrary => &[AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS],
+        OwnerLayout::AgentLibrary => &[
+            AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS,
+            AGENT_LIBRARY_BEFORE_MCP_CATALOG,
+        ],
         OwnerLayout::Blob => &[BLOB_BEFORE_HOLDERS],
         OwnerLayout::Sql => &[SQL_BEFORE_SOURCE_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN],
         OwnerLayout::LedgerOnly
@@ -143,7 +252,10 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
         | OwnerLayout::TenantCatalog
         | OwnerLayout::NodeInfo
         | OwnerLayout::ClusterHierarchy => &[],
-        OwnerLayout::GraphShard => &[GRAPH_SHARD_BEFORE_STORAGE_SCRUB],
+        OwnerLayout::GraphShard => &[
+            GRAPH_SHARD_BEFORE_STORAGE_SCRUB,
+            GRAPH_SHARD_BEFORE_ENRICHMENT,
+        ],
     }
 }
 
@@ -211,10 +323,10 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "343ebe5be22fa54dfe5eb8284dd8bdee371ae57b346ade11a76e4cd83e0c842d"
+            "95ef6158378d0aaa4df732937cb0f1e08d6d0d104724de10bacbe110f146dcb6"
         }
         OwnerLayout::AgentLibrary => {
-            "7ea9bcde54e8961cedaa586b3520f890100c5f53f9f5f9574a30dea02c882445"
+            "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"
         }
     }
 }
@@ -272,9 +384,10 @@ pub fn render_owner_store_formats() -> String {
          Generated from `crates/eg-storage/src/owner/lineage.rs`; do not edit by hand.\n\
          Regenerate with `cargo run -p eg-storage --example gen_owner_store_formats`.\n\n\
          Every durable owner file records the digest of its exact table layout. A file whose \
-         layout is a declared predecessor below is refused at open with the named error and \
-         must be moved aside; its data is not migrated (EG 2.27.x ships refusal only). Any \
-         other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.\n\n\
+         layout is a declared predecessor below is refused on ordinary open with the named \
+         error. The SQL, immediate pre-MCP Agent Library, and immediate pre-enrichment \
+         GraphShard predecessors have explicit offline, data-preserving upgrades; others move \
+         aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.\n\n\
          | Store | Current layout digest | Refused predecessors |\n|---|---|---|\n",
     );
     for layout in ALL_LAYOUTS {

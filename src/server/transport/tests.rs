@@ -134,7 +134,7 @@ async fn qos_verification_rejects_unsigned_agent_before_admission() {
         Ok(_) => panic!("an unsigned agent assertion must never enter QoS accounting"),
     };
     assert_eq!(response.id, 81);
-    assert_eq!(response.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(response.error.as_deref(), Some("AUTHENTICATION_REQUIRED"));
     assert_eq!(
         response.error_detail.as_deref(),
         Some("Authentication failed")

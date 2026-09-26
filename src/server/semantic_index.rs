@@ -8,6 +8,9 @@
 
 #![cfg(feature = "ann-redb")]
 
+#[allow(dead_code)]
+mod upgrade;
+
 #[cfg(feature = "query")]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,12 +31,60 @@ use eg_core::compute::semantic_index_service::{
 use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 #[cfg(feature = "query")]
 use eg_types::mutation_batch::{MutationOutboxLease, MutationOutboxRecord};
-use eg_types::semantic_index::{SemanticBinding, SemanticIndexCommand, SemanticIndexRequest};
+use eg_types::semantic_index::{
+    SemanticBinding, SemanticIndexCommand, SemanticIndexError, SemanticIndexRequest,
+};
 #[cfg(feature = "query")]
 use eg_types::semantic_index::{
-    SemanticDigest, SemanticIndexError, SemanticSourceDirtyIntent, SemanticSqlSourceIdentity,
+    SemanticDigest, SemanticSourceDirtyIntent, SemanticSqlSourceIdentity,
     SemanticSqlSourceManifest, SemanticStage, SemanticStageIntent, SemanticStageTransition,
 };
+
+fn request_validation_refusal(error: &SemanticIndexError) -> &'static str {
+    match error {
+        SemanticIndexError::ApprovalRequired
+        | SemanticIndexError::ApprovalOperationMismatch
+        | SemanticIndexError::ApprovalDigestMismatch
+        | SemanticIndexError::ApprovalExpired
+        | SemanticIndexError::AuthorizationContextMismatch
+        | SemanticIndexError::PolicyUnresolved => {
+            "ACCESS_DENIED: semantic request authority rejected"
+        }
+        _ => "INVALID_ARGUMENT: semantic request rejected",
+    }
+}
+
+#[cfg(test)]
+mod error_contract_tests {
+    use super::{request_validation_refusal, SemanticIndexError};
+
+    #[test]
+    fn request_validation_separates_authority_from_bad_input_without_echoing_it() {
+        let cases = [
+            (SemanticIndexError::ApprovalRequired, "ACCESS_DENIED"),
+            (
+                SemanticIndexError::AuthorizationContextMismatch,
+                "ACCESS_DENIED",
+            ),
+            (
+                SemanticIndexError::InvalidField {
+                    field: "private-field".into(),
+                    reason: "private-value".into(),
+                },
+                "INVALID_ARGUMENT",
+            ),
+        ];
+        for (error, code) in cases {
+            let refusal = request_validation_refusal(&error);
+            assert!(refusal.starts_with(code));
+            assert!(!refusal.contains("private"));
+            assert!(eg_capabilities::error_routing::method_allows_error(
+                "SemanticIndex",
+                code
+            ));
+        }
+    }
+}
 
 /// The engine's own principal for the semantic-index owner.
 ///
@@ -146,6 +197,11 @@ pub(crate) fn open_semantic_service(
     if tenant.is_empty() || binding_id.is_empty() {
         return Err("semantic owner requires a tenant and a binding".to_string());
     }
+    // Refuse a tenant-v3 file rather than silently opening another v2 owner.
+    // The actual migration must hold an exclusive upgrade lease across this
+    // check and the v3 install; this check alone is not a cross-process lock.
+    // It runs before the registry lookup, including for already-open handles.
+    refuse_split_semantic_owner(persist_dir, tenant)?;
     let key = (tenant.to_string(), binding_id.to_string());
     let mut registry = semantic_registry()
         .lock()
@@ -153,10 +209,7 @@ pub(crate) fn open_semantic_service(
     if let Some(service) = registry.get(&key) {
         return Ok(Arc::clone(service));
     }
-    let dir = persist_dir
-        .join("semantic-index")
-        .join(sanitize_owner_segment(tenant))
-        .join(sanitize_owner_segment(binding_id));
+    let dir = legacy_semantic_owner_dir(persist_dir, tenant, binding_id);
     std::fs::create_dir_all(&dir)
         .map_err(|_| "semantic index owner directory is unavailable".to_string())?;
     let (proof, _) = *semantic_server_secrets();
@@ -186,14 +239,99 @@ pub(crate) fn existing_semantic_service(
     tenant: &str,
     binding_id: &str,
 ) -> Result<Arc<SemanticIndexService>, String> {
-    let dir = persist_dir
-        .join("semantic-index")
-        .join(sanitize_owner_segment(tenant))
-        .join(sanitize_owner_segment(binding_id));
+    refuse_split_semantic_owner(persist_dir, tenant)?;
+    let dir = legacy_semantic_owner_dir(persist_dir, tenant, binding_id);
     if !dir.is_dir() {
         return Err("OUTBOX_OWNER_UNKNOWN: no semantic binding with that id".to_string());
     }
     open_semantic_service(persist_dir, tenant, binding_id)
+}
+
+fn legacy_semantic_owner_dir(
+    persist_dir: &std::path::Path,
+    tenant: &str,
+    binding_id: &str,
+) -> std::path::PathBuf {
+    persist_dir
+        .join("semantic-index")
+        .join(sanitize_owner_segment(tenant))
+        .join(sanitize_owner_segment(binding_id))
+}
+
+/// Reserved path for a future single physical SemanticIndexOwner per tenant.
+/// Its domain-separated digest and basename cannot collide with any v2
+/// per-binding directory or file. No current code opens or creates this file.
+fn tenant_semantic_owner_file(persist_dir: &std::path::Path, tenant: &str) -> std::path::PathBuf {
+    persist_dir
+        .join("semantic-index")
+        .join(sanitize_owner_segment(tenant))
+        .join(eg_core::compute::semantic_ann_codes::tenant_owner_file_name(tenant))
+}
+
+fn refuse_split_semantic_owner(persist_dir: &std::path::Path, tenant: &str) -> Result<(), String> {
+    let path = tenant_semantic_owner_file(persist_dir, tenant);
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Err("semantic tenant owner requires a completed v2-to-v3 migration".to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("semantic tenant owner state is unavailable".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tenant_owner_upgrade_tests {
+    use super::{
+        existing_semantic_service, legacy_semantic_owner_dir, open_semantic_service,
+        refuse_split_semantic_owner, sanitize_owner_segment, tenant_semantic_owner_file,
+    };
+
+    #[test]
+    fn v2_owner_path_remains_readable_and_v3_marker_fences_split_authority() {
+        let persist_dir = std::env::temp_dir().join(format!(
+            "eg-semantic-owner-upgrade-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let tenant = format!("tenant:organic:19:{}", uuid::Uuid::new_v4());
+        let binding = "binding-a";
+        let legacy = legacy_semantic_owner_dir(&persist_dir, &tenant, binding);
+        assert_eq!(
+            legacy,
+            persist_dir
+                .join("semantic-index")
+                .join(sanitize_owner_segment(&tenant))
+                .join(sanitize_owner_segment(binding))
+        );
+        let owner = open_semantic_service(&persist_dir, &tenant, binding)
+            .expect("the existing per-binding format must still open");
+        assert!(legacy.is_dir());
+        assert!(existing_semantic_service(&persist_dir, &tenant, binding).is_ok());
+
+        let v3 = tenant_semantic_owner_file(&persist_dir, &tenant);
+        assert_ne!(v3, legacy);
+        std::fs::write(&v3, b"reserved migration marker").unwrap();
+        assert!(refuse_split_semantic_owner(&persist_dir, &tenant).is_err());
+        assert!(open_semantic_service(&persist_dir, &tenant, binding).is_err());
+        assert!(existing_semantic_service(&persist_dir, &tenant, binding).is_err());
+        drop(owner);
+        let _ = std::fs::remove_dir_all(persist_dir);
+    }
+
+    #[test]
+    fn tenant_owner_path_discriminates_delimiter_collisions() {
+        let persist_dir = std::path::Path::new("/tmp/semantic-owner-layout-test");
+        let first = tenant_semantic_owner_file(persist_dir, "tenant:a");
+        let second = tenant_semantic_owner_file(persist_dir, "tenant_a");
+        assert_ne!(first, second);
+        assert!(first
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("semantic_tenant-"));
+        assert!(second
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("semantic_tenant-"));
+    }
 }
 
 /// One path segment per identity: a readable but lossy prefix, then the full
@@ -242,9 +380,18 @@ impl SemanticIndexServerAdapter {
         authority: &CarrierAuthority,
         now_ms: u64,
     ) -> Result<(), String> {
+        Self::authorize_request(request, authority, now_ms)
+    }
+
+    /// Bind a public request to the verified carrier before opening any owner.
+    pub(crate) fn authorize_request(
+        request: &SemanticIndexRequest,
+        authority: &CarrierAuthority,
+        now_ms: u64,
+    ) -> Result<(), String> {
         request
             .validate_at(now_ms)
-            .map_err(|error| format!("semantic request rejected: {error:?}"))?;
+            .map_err(|error| request_validation_refusal(&error).to_string())?;
         if request.tenant_id != authority.tenant_scope()
             || request.actor_scope != authority.actor_scope()
             || request.effective_actor_scope != authority.agent_id()
@@ -277,7 +424,7 @@ impl SemanticIndexServerAdapter {
     ) -> Result<(), String> {
         binding
             .validate()
-            .map_err(|error| format!("semantic binding rejected: {error:?}"))?;
+            .map_err(|_| "INVALID_ARGUMENT: semantic binding rejected".to_string())?;
         if binding.tenant_id != authority.tenant_scope() || !authority.can_write() {
             return Err(
                 "ACCESS_DENIED: semantic worker tenant or capability does not match verified carrier"
@@ -299,13 +446,15 @@ impl SemanticIndexServerAdapter {
     ) -> Result<eg_core::compute::semantic_ann_codes::SemanticMutationReceipt, String> {
         self.authorize(request, authority, now_ms)?;
         let SemanticIndexCommand::CreateBinding { draft } = &request.command else {
-            return Err("semantic operation is pending protocol routing".to_string());
+            return Err(
+                "INVALID_ARGUMENT: semantic operation is not binding admission".to_string(),
+            );
         };
         let binding = SemanticBinding::create((**draft).clone())
-            .map_err(|error| format!("semantic binding rejected: {error:?}"))?;
+            .map_err(|_| "INVALID_ARGUMENT: semantic binding rejected".to_string())?;
         request
             .validate_against_binding(&binding, now_ms)
-            .map_err(|error| format!("semantic binding authority mismatch: {error:?}"))?;
+            .map_err(|error| request_validation_refusal(&error).to_string())?;
         self.service
             .admit_binding_operation(
                 &binding,
@@ -316,7 +465,10 @@ impl SemanticIndexServerAdapter {
                     "ACCESS_DENIED: semantic mutation requires a verified attempt nonce".to_string()
                 })?,
             )
-            .map_err(|error| error.to_string())
+            .map_err(|error| {
+                crate::server::handlers::semantic_index::semantic_failure_message(&error)
+                    .to_string()
+            })
     }
 
     /// Subscribe one authenticated semantic worker to this tenant's durable
@@ -332,7 +484,10 @@ impl SemanticIndexServerAdapter {
         self.authorize_binding_worker(binding, authority)?;
         self.service
             .subscribe_stage_consumer(authority.agent_id())
-            .map_err(|error| error.to_string())
+            .map_err(|error| {
+                crate::server::handlers::semantic_index::semantic_failure_message(&error)
+                    .to_string()
+            })
     }
 
     /// Claim a bounded page from the existing durable semantic outbox. The
@@ -347,7 +502,10 @@ impl SemanticIndexServerAdapter {
         self.authorize_binding_worker(binding, authority)?;
         self.service
             .claim_stage_leases(authority.agent_id(), budget)
-            .map_err(|error| error.to_string())
+            .map_err(|error| {
+                crate::server::handlers::semantic_index::semantic_failure_message(&error)
+                    .to_string()
+            })
     }
 }
 
@@ -733,13 +891,10 @@ impl SemanticIndexServerAdapter {
         let binding_service = Arc::clone(&self.service);
         let binding = compute_off_lock(req_id, move || binding_service.binding())
             .await?
-            .map_err(|error| Response::err(req_id, error.to_string()))?
-            .ok_or_else(|| {
-                Response::err(
-                    req_id,
-                    "semantic S1 replay has no durable binding authority",
-                )
-            })?;
+            .map_err(|error| {
+                crate::server::handlers::semantic_index::semantic_failure_response(req_id, error)
+            })?
+            .ok_or_else(|| Response::err(req_id, "CONFLICT: semantic binding is unavailable"))?;
         self.authorize_binding_worker(&binding, &authority)
             .map_err(|error| Response::err(req_id, error))?;
         crate::server::handlers::semantic_index::own_lease(&lease, &authority)
@@ -750,7 +905,9 @@ impl SemanticIndexServerAdapter {
         })
         .await?
         .map(|replay| replay.map(|(_transition, receipt)| receipt))
-        .map_err(|error| Response::err(req_id, error.to_string()))
+        .map_err(|error| {
+            crate::server::handlers::semantic_index::semantic_failure_response(req_id, error)
+        })
     }
 
     /// Capture one raw row from a bounded authorized page. The opaque input
@@ -786,10 +943,7 @@ impl SemanticIndexServerAdapter {
             })
         })
         .await?;
-        result.map_err(|error| {
-            tracing::debug!(?error, "semantic SQL source claim was refused");
-            Response::err(req_id, "semantic SQL source claim was refused")
-        })
+        result.map_err(|_| Response::err(req_id, "CONFLICT: semantic SQL source claim was refused"))
     }
 
     /// Reconstitute one deletion claim from the retained prior source manifest
@@ -805,11 +959,8 @@ impl SemanticIndexServerAdapter {
         page_cursor: Option<Vec<u8>>,
     ) -> Result<AuthorizedSqlSourceClaim, Response> {
         let service = Arc::clone(&self.service);
-        // The store's own `SemanticCodeError` used to be DISCARDED here
-        // (`map_err(|_| ..)`) and every refusal collapsed into one opaque sentence, so a
-        // caller -- and a failing test -- learned nothing about which authority
-        // disagreed. The wire-visible `SemanticIndexError` code is unchanged (it is a
-        // contract enum); what is added is the REASON alongside it.
+        // Keep the owner's detailed mismatch reason inside the server. It can
+        // contain backend text and must not become a client response or log.
         let result = compute_off_lock(req_id, move || {
             let source_entity_id = intent
                 .scope
@@ -831,12 +982,8 @@ impl SemanticIndexServerAdapter {
             tombstone_claim_from_complete_page(&binding, &intent, &prior, page_cursor, snapshot)
         })
         .await?;
-        result.map_err(|(error, reason)| {
-            tracing::debug!(?error, %reason, "semantic SQL tombstone claim was refused");
-            Response::err(
-                req_id,
-                format!("semantic SQL tombstone claim was refused: {reason}"),
-            )
+        result.map_err(|_| {
+            Response::err(req_id, "CONFLICT: semantic SQL tombstone claim was refused")
         })
     }
 
@@ -874,7 +1021,7 @@ impl SemanticIndexServerAdapter {
         if claim.intent_digest != transition.intent.intent_digest {
             return Err(Response::err(
                 req_id,
-                "semantic SQL source claim does not match the leased stage intent",
+                "CONFLICT: semantic SQL source claim does not match the leased stage intent",
             ));
         }
 
@@ -918,8 +1065,12 @@ impl SemanticIndexServerAdapter {
             Ok::<_, SemanticIndexError>(current)
         })
         .await?;
-        let source = result
-            .map_err(|_| Response::err(req_id, "semantic SQL source changed before completion"))?;
+        let source = result.map_err(|_| {
+            Response::err(
+                req_id,
+                "CONFLICT: semantic SQL source changed before completion",
+            )
+        })?;
         let authorized_at = format!("unix-ms:{}", claim.decision_at_ms);
         let completion_service = Arc::clone(&self.service);
         compute_off_lock(req_id, move || {
@@ -933,7 +1084,9 @@ impl SemanticIndexServerAdapter {
             )
         })
         .await?
-        .map_err(|error| Response::err(req_id, error.to_string()))
+        .map_err(|error| {
+            crate::server::handlers::semantic_index::semantic_failure_response(req_id, error)
+        })
     }
 }
 
@@ -1793,7 +1946,9 @@ mod dispatch_pipeline_tests {
         compute_verified_envelope_token, VerifiedEnvelopeParams, VerifiedRequestContext,
     };
     use eg_types::semantic_index::{
-        SemanticBindingState, SemanticIndexOp, SemanticQueueClass, SemanticStage,
+        SemanticBinding, SemanticBindingState, SemanticIndexCommand, SemanticIndexFilter,
+        SemanticIndexOp, SemanticIndexOutcome, SemanticIndexRequest, SemanticIndexResponse,
+        SemanticIndexResult, SemanticPolicyIdentity, SemanticQueueClass, SemanticStage,
         SemanticStageIntentDraft, SemanticStageLeasePage, SemanticStageOutcome,
         SemanticStagePredecessor, SemanticStageReceipt, SemanticStageScope,
         SemanticStageTransition,
@@ -1933,6 +2088,94 @@ mod dispatch_pipeline_tests {
             )
             .await,
         );
+
+        // The public RF-019 envelope reaches the same durable binding owner
+        // through the verified carrier; its named GET result is a typed DTO.
+        let admitted = SemanticBinding::create(draft.clone()).unwrap();
+        let public_request = SemanticIndexRequest {
+            request_id: "semantic-public-get-901".to_string(),
+            tenant_id: worker.tenant_scope().to_string(),
+            actor_scope: worker.actor_scope().to_string(),
+            effective_actor_scope: worker.agent_id().to_string(),
+            purpose_id: admitted.purpose_id.clone(),
+            policy_identity: admitted.policy_identity.clone(),
+            command: SemanticIndexCommand::GetBinding {
+                binding_id: binding_id.clone(),
+            },
+            approval: None,
+        };
+        let public: SemanticIndexResponse = ok(
+            "semantic_binding_get",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    9011,
+                    SemanticIndexOp::GetBindingRequest {
+                        request: Box::new(public_request.clone()),
+                    },
+                ),
+            )
+            .await,
+        );
+        public.validate().unwrap();
+        assert!(matches!(
+            public.outcome,
+            SemanticIndexOutcome::Accepted {
+                result: SemanticIndexResult::Binding { binding },
+                ..
+            } if binding.binding_id == binding_id
+        ));
+
+        let mut changed_policy = admitted.policy_identity.components.clone();
+        changed_policy.row_policy_revision += 1;
+        let wrong_policy = SemanticIndexRequest {
+            policy_identity: SemanticPolicyIdentity::create(
+                worker.tenant_scope(),
+                worker.agent_id(),
+                admitted.purpose_id.as_str(),
+                changed_policy,
+            )
+            .unwrap(),
+            ..public_request.clone()
+        };
+        let hidden: SemanticIndexResponse = ok(
+            "semantic_binding_get under another policy",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    9013,
+                    SemanticIndexOp::GetBindingRequest {
+                        request: Box::new(wrong_policy),
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(matches!(hidden.outcome, SemanticIndexOutcome::NotFound));
+
+        let unsupported = SemanticIndexRequest {
+            command: SemanticIndexCommand::ListBindings {
+                filter: SemanticIndexFilter {
+                    source_entity_ids: Vec::new(),
+                    required_source_revision: None,
+                    max_results: 10,
+                },
+                cursor: None,
+            },
+            ..public_request
+        };
+        let denied = crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                9012,
+                SemanticIndexOp::GetBindingRequest {
+                    request: Box::new(unsupported),
+                },
+            ),
+        )
+        .await;
+        assert!(refused("unsupported public semantic command", denied)
+            .contains("only semantic_binding_get"));
 
         // ---- S1 admission from the authoritative SQL wakeup ---------------
         let _: serde_json::Value = ok(
@@ -2202,6 +2445,39 @@ mod dispatch_pipeline_tests {
             error.contains("semantic index tenant must match verified request tenant"),
             "a cross-tenant semantic read must be refused by name, got: {error}"
         );
+        let draft = binding_draft(&worker, &fixture.snapshot);
+        let binding = SemanticBinding::create(draft).unwrap();
+        let wrong_scope = "tenant:unverified";
+        let public_request = SemanticIndexRequest {
+            request_id: "cross-tenant-public-get".to_string(),
+            tenant_id: wrong_scope.to_string(),
+            actor_scope: worker.actor_scope().to_string(),
+            effective_actor_scope: worker.agent_id().to_string(),
+            purpose_id: binding.purpose_id.clone(),
+            policy_identity: SemanticPolicyIdentity::create(
+                wrong_scope,
+                worker.agent_id(),
+                binding.purpose_id.as_str(),
+                binding.policy_identity.components.clone(),
+            )
+            .unwrap(),
+            command: SemanticIndexCommand::GetBinding {
+                binding_id: binding.binding_id,
+            },
+            approval: None,
+        };
+        let denied = crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                921,
+                SemanticIndexOp::GetBindingRequest {
+                    request: Box::new(public_request),
+                },
+            ),
+        )
+        .await;
+        assert!(refused("cross-tenant public semantic read", denied)
+            .contains("does not match verified carrier"));
         let _ = selector();
     }
 

@@ -474,6 +474,7 @@ impl eg_storage::OwnerPayloadRetirement<GraphShardOwner> for GraphShardRetiremen
         retire_scoped_table(write, CHANGE_POLICIES)?;
         retire_scoped_table(write, CHANGE_LINEAGE)?;
         capacity_lease::retire_graph_rows(write)?;
+        enrichment_budget::retire_graph_rows(write)?;
         work_item_capability::retire_graph_rows(write)?;
         development_lane::retire_graph_rows(write)?;
         Ok(())

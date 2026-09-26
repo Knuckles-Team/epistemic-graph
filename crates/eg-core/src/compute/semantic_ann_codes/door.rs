@@ -1,12 +1,14 @@
 //! The serving-scope write door — the one place this store touches a kernel.
 //!
-//! `ServingDoor` owns the storage kernel, the mutation kernel and the single
-//! serving scope bound at `open`, in private fields. Every other module reaches
-//! durable state only through its methods: reads through `serving_read`, owner
+//! `ServingDoor` holds one private serving scope and a shared owner of the
+//! storage and mutation kernels. A migrated tenant file may supply several
+//! doors, but exactly one move-once mutation authority backs that file.
+//! Every other module reaches durable state only through its methods: reads through
+//! `serving_read`, owner
 //! rows through `commit_metadata_fenced`, caller replays through
 //! `replay_operation_if_recorded`, and outbox delivery through the `outbox_*`
-//! wrappers. No method mints or binds a second scope, which is the parent
-//! module's per-generation-scope non-goal enforced by visibility.
+//! wrappers. No method on one door mints or binds a second scope, preserving
+//! the parent module's per-generation-scope non-goal.
 
 use super::{corrupt, kernel_error, SemanticCodeError, SemanticMutationReceipt};
 use eg_storage::{
@@ -25,7 +27,9 @@ use eg_types::mutation_batch::{
 use eg_types::semantic_index::SemanticDigest;
 use eg_types::MutationBatch;
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 /// The serving scope and the two kernels that can act on it, held privately.
 ///
@@ -33,12 +37,32 @@ use std::path::Path;
 /// open a write, bind a scope or commit a batch except through the methods
 /// below.
 pub(super) struct ServingDoor {
-    kernel: StorageKernel,
-    mutations: MutationKernel,
+    shared: Arc<SharedSemanticOwner>,
     /// The read-only serving scope, bound once at `open` — and the only scope
     /// this door ever holds. See the parent module's per-generation-scope
     /// non-goal.
     serving: OwnedStoreHandle<SemanticIndexOwner>,
+}
+
+/// One move-once mutation authority per physical owner file. A v3 tenant file
+/// may serve many binding scopes, but still has exactly one kernel and one
+/// mutation authority. Each `ServingDoor` below holds only its own scope.
+pub(super) struct SharedSemanticOwner {
+    kernel: StorageKernel,
+    mutations: MutationKernel,
+}
+
+impl std::ops::Deref for ServingDoor {
+    type Target = SharedSemanticOwner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.shared
+    }
+}
+
+fn tenant_owner_registry() -> &'static Mutex<HashMap<PathBuf, Weak<SharedSemanticOwner>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<PathBuf, Weak<SharedSemanticOwner>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Operator-facing identity of the one physical semantic-index owner file.
@@ -88,10 +112,68 @@ impl ServingDoor {
             serving_identity(tenant, binding)?,
         )?;
         Ok(Self {
-            kernel,
-            mutations,
+            shared: Arc::new(SharedSemanticOwner { kernel, mutations }),
             serving,
         })
+    }
+
+    /// Open a proven, already-activated tenant file and resolve one EXISTING
+    /// binding scope. A missing scope is never bootstrapped by this path.
+    /// The server must check its activation receipt before calling this.
+    pub(super) fn open_tenant(
+        path: &Path,
+        verifier: &dyn ScopeGrantVerifier,
+        principal: &str,
+        proof: &[u8],
+        tenant: &str,
+        binding: &str,
+    ) -> Result<Self, SemanticCodeError> {
+        let expected_file = tenant_store_file_name(tenant);
+        if path.file_name().and_then(|name| name.to_str()) != Some(expected_file.as_str()) {
+            return Err(corrupt(
+                "semantic tenant owner path does not match its tenant",
+            ));
+        }
+        let canonical = std::fs::canonicalize(path)?;
+        let mut registry = tenant_owner_registry()
+            .lock()
+            .map_err(|_| corrupt("semantic tenant owner registry is unavailable"))?;
+        let shared = if let Some(existing) = registry.get(&canonical).and_then(Weak::upgrade) {
+            existing
+        } else {
+            let physical =
+                PhysicalStoreIdentity::new(format!("eg-core:semantic-index:v3:{expected_file}"))
+                    .map_err(kernel_error)?;
+            let kernel =
+                StorageKernel::open_owner::<SemanticIndexOwner>(&canonical, physical, None)
+                    .map_err(kernel_error)?;
+            let (kernel, authority) = kernel
+                .into_read_and_mutation_authority()
+                .map_err(kernel_error)?;
+            let shared = Arc::new(SharedSemanticOwner {
+                kernel,
+                mutations: MutationKernel::new(authority),
+            });
+            registry.insert(canonical, Arc::downgrade(&shared));
+            shared
+        };
+        drop(registry);
+        let identity = serving_identity(tenant, binding)?;
+        let grant = shared
+            .kernel
+            .authenticate_scope::<SemanticIndexOwner>(
+                verifier,
+                identity,
+                principal.to_string(),
+                proof,
+            )
+            .map_err(kernel_error)?;
+        let serving = shared
+            .kernel
+            .resolve_bound_scope(grant)
+            .map_err(kernel_error)?
+            .ok_or_else(|| corrupt("semantic tenant binding scope is absent"))?;
+        Ok(Self { shared, serving })
     }
 
     /// The bound serving scope, for building a batch against it. Holding the
@@ -529,4 +611,96 @@ pub(super) fn store_file_name(tenant: &str, binding: &str) -> String {
     hasher.update([0]);
     hasher.update(binding.as_bytes());
     format!("semantic_index-{}.redb", hex::encode(hasher.finalize()))
+}
+
+/// One physical file per tenant after the explicit offline owner upgrade.
+pub(super) fn tenant_store_file_name(tenant: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"eg/semantic-tenant-file/v3\0");
+    hasher.update(tenant.as_bytes());
+    format!("semantic_tenant-{}.redb", hex::encode(hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tenant_open_tests {
+    use super::{store_file_name, tenant_store_file_name};
+    use crate::compute::semantic_ann_codes::SemanticCodeStore;
+    use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
+    use eg_storage::{merge_semantic_owner_files, OwnerLayout, PhysicalStoreIdentity};
+    use std::sync::Arc;
+
+    #[test]
+    fn two_migrated_bindings_share_one_physical_tenant_owner() {
+        let root = super::super::tests::tmp_dir("semantic-tenant-open");
+        let tenant = "native";
+        let mut sources = Vec::new();
+        for binding in ["binding-a", "binding-b"] {
+            let dir = root.join(binding);
+            let owner = SemanticCodeStore::open(
+                &dir,
+                Arc::new(TestScopeVerifier {
+                    layout: OwnerLayout::SemanticIndex,
+                }),
+                TEST_PRINCIPAL,
+                TEST_PROOF,
+                tenant,
+                binding,
+            )
+            .unwrap();
+            drop(owner);
+            let filename = store_file_name(tenant, binding);
+            sources.push((
+                dir.join(&filename),
+                PhysicalStoreIdentity::new(format!("eg-core:semantic-index:v2:{filename}"))
+                    .unwrap(),
+            ));
+        }
+        let target_dir = root.join("semantic-index");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        let filename = tenant_store_file_name(tenant);
+        let target = target_dir.join(&filename);
+        merge_semantic_owner_files(
+            &sources,
+            &target,
+            PhysicalStoreIdentity::new(format!("eg-core:semantic-index:v3:{filename}")).unwrap(),
+        )
+        .unwrap();
+        let verifier = || {
+            Arc::new(TestScopeVerifier {
+                layout: OwnerLayout::SemanticIndex,
+            })
+        };
+        let first = SemanticCodeStore::open_tenant(
+            &target,
+            verifier(),
+            TEST_PRINCIPAL,
+            TEST_PROOF,
+            tenant,
+            "binding-a",
+        )
+        .unwrap();
+        let second = SemanticCodeStore::open_tenant(
+            &target,
+            verifier(),
+            TEST_PRINCIPAL,
+            TEST_PROOF,
+            tenant,
+            "binding-b",
+        )
+        .unwrap();
+        assert!(first.read_binding().unwrap().is_none());
+        assert!(second.read_binding().unwrap().is_none());
+        assert!(SemanticCodeStore::open_tenant(
+            &target,
+            verifier(),
+            TEST_PRINCIPAL,
+            TEST_PROOF,
+            tenant,
+            "binding-c",
+        )
+        .is_err());
+        drop(first);
+        drop(second);
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

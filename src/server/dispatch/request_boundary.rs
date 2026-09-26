@@ -36,7 +36,9 @@ pub(super) use preflight::preflight_request_msgpack;
 #[cfg(all(test, feature = "ast"))]
 pub(super) use preflight::AstInputLimits;
 #[cfg(feature = "ast")]
-pub(super) use preflight::{ast_input_limits, decode_ast_files, validate_ast_logical_path};
+pub(super) use preflight::{
+    ast_input_limits, decode_ast_files, decode_ast_sources, validate_ast_logical_path,
+};
 #[cfg(feature = "redb")]
 use saga::replayed_response;
 pub(super) use saga::{begin_session_control_saga, finalize_dispatch_response};
@@ -387,9 +389,12 @@ async fn dispatch_inner(
             let s = timed_read(state).await;
             match verify_request_with_security_dir(&s.auth_secret, &req, s.persist_dir.as_deref()) {
                 Ok(context) => context,
-                Err(msg) => {
+                Err(_) => {
                     crate::metrics::auth_failure();
-                    return Response::err(req.id, msg);
+                    return Response::err(
+                        req.id,
+                        "AUTHENTICATION_REQUIRED: Authentication failed",
+                    );
                 }
             }
         }

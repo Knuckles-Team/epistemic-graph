@@ -14,6 +14,7 @@ macro_rules! persistence_envelopes {
                     graph: graph_fname.to_string(),
                     envelope: envelope.clone(),
                     committed_at_ms,
+                    source_budget: None,
                 }),
                 done,
             };
@@ -21,6 +22,27 @@ macro_rules! persistence_envelopes {
                 .await?;
             rx.await
                 .map_err(|_| "redb writer dropped ChangeEnvelope completion".to_string())?
+        }
+
+        async fn commit_repository_change_envelope(
+            &self,
+            graph_fname: &str,
+            envelope: &ChangeEnvelope,
+            authority: crate::redb_store::enrichment_budget::SourceBudgetAuthority,
+            committed_at_ms: u64,
+        ) -> Result<ChangeEnvelopeCommit, String> {
+            let (done, rx) = oneshot::channel();
+            let cmd = Cmd::ChangeEnvelopeCommit {
+                payload: Box::new(ChangeEnvelopePayload {
+                    graph: graph_fname.to_string(),
+                    envelope: envelope.clone(),
+                    committed_at_ms,
+                    source_budget: Some(authority),
+                }),
+                done,
+            };
+            self.enqueue(graph_fname, cmd, "commit_repository_change_envelope").await?;
+            rx.await.map_err(|_| "redb writer dropped repository ChangeEnvelope completion".to_string())?
         }
 
         async fn commit_change_envelopes(

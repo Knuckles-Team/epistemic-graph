@@ -40,6 +40,19 @@ mod imp {
             "Decision-head evaluations, by promotion verdict",
             &["verdict"],
         );
+        static ref THRESHOLD_ASSESSMENTS: IntCounterVec = {
+            let metric = counter_vec(
+                "epistemic_graph_decision_threshold_assessments_total",
+                "Persisted, independently labelled decision evaluations assessed against their pinned policy",
+                &["signal", "result"],
+            );
+            for signal in ["support", "coverage", "act_risk"] {
+                for result in ["ok", "breach", "unavailable"] {
+                    metric.with_label_values(&[signal, result]).inc_by(0);
+                }
+            }
+            metric
+        };
         static ref LATENCY: HistogramVec = {
             let metric = HistogramVec::new(
                 HistogramOpts::new(
@@ -81,6 +94,19 @@ mod imp {
         EVALUATIONS.with_label_values(&[verdict]).inc();
     }
 
+    /// One policy-bound threshold signal from a newly persisted evaluation.
+    /// Callers supply only the closed signal and result vocabulary.
+    pub fn decision_threshold_assessed(signal: &'static str, result: &'static str) {
+        THRESHOLD_ASSESSMENTS
+            .with_label_values(&[signal, result])
+            .inc();
+    }
+
+    /// Register all closed label pairs before the first evaluation arrives.
+    pub fn initialize_threshold_assessments() {
+        let _ = &*THRESHOLD_ASSESSMENTS;
+    }
+
     /// One Decide-layer call's latency.
     pub fn decision_latency(method: &str, seconds: f64) {
         LATENCY.with_label_values(&[method]).observe(seconds);
@@ -93,7 +119,26 @@ mod imp {
     pub fn decision_refused(_method: &str, _code: &str) {}
     pub fn decision_explored(_explored: bool) {}
     pub fn decision_evaluated(_passed: bool) {}
+    pub fn decision_threshold_assessed(_signal: &'static str, _result: &'static str) {}
+    pub fn initialize_threshold_assessments() {}
     pub fn decision_latency(_method: &str, _seconds: f64) {}
 }
 
 pub use imp::*;
+
+#[cfg(all(test, feature = "metrics"))]
+mod tests {
+    #[test]
+    fn threshold_series_have_closed_zero_baselines() {
+        let text = crate::metrics::render();
+        for signal in ["support", "coverage", "act_risk"] {
+            for result in ["ok", "breach", "unavailable"] {
+                let labels = format!("signal=\"{signal}\",result=\"{result}\"");
+                assert!(text.lines().any(|line| {
+                    line.starts_with("epistemic_graph_decision_threshold_assessments_total{")
+                        && line.contains(&labels)
+                }));
+            }
+        }
+    }
+}

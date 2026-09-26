@@ -266,6 +266,7 @@ fn apply_crossmodal_graph_rows(
         clear_resource_rows_with_tables(graph_fname, &mut resource_tables, crypto)?;
         development_lane::clear_native_graph_rows_in_wtx(write, graph_fname, crypto)?;
         capacity_lease::clear_graph_rows(write, graph_fname)?;
+        enrichment_budget::clear_graph_rows(write, graph_fname)?;
         work_item_capability::clear_graph_rows_with_native(
             write,
             graph_fname,

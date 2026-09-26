@@ -30,11 +30,14 @@ where
     match joined {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(cancelled)) => Err(Response::err(req_id, cancelled)),
-        Err(e) => Err(Response::err(
-            req_id,
-            format!("Blocking compute task failed: {}", e),
-        )),
+        Err(_) => Err(compute_join_failure(req_id)),
     }
+}
+
+/// A failed blocking task is an internal execution failure. Its JoinError may
+/// contain panic text or runtime details, so neither reaches the wire.
+fn compute_join_failure(req_id: u64) -> Response {
+    Response::err(req_id, "INTERNAL: blocking compute task failed")
 }
 
 /// Confidence-weight raw semantic-search hits (CONCEPT:EG-KG.txn.per-graph-write-isolation): drop
@@ -120,7 +123,22 @@ fn rank_order(left: &(usize, String, f32), right: &(usize, String, f32)) -> std:
 
 #[cfg(test)]
 mod tests {
-    use super::weight_semantic_results;
+    use super::{compute_join_failure, weight_semantic_results};
+
+    #[test]
+    fn blocking_task_join_failure_uses_declared_code_without_runtime_detail() {
+        let response = compute_join_failure(17);
+        assert_eq!(response.id, 17);
+        assert_eq!(response.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(
+            response.error_detail.as_deref(),
+            Some("blocking compute task failed")
+        );
+        assert!(eg_capabilities::error_routing::method_allows_error(
+            "SemanticIndex",
+            "INTERNAL"
+        ));
+    }
 
     #[test]
     fn semantic_weighting_selects_prefix_and_preserves_tie_order() {

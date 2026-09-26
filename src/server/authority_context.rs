@@ -10,7 +10,7 @@ use crate::acl::RequestContextClaims;
 #[cfg(feature = "oidc")]
 use crate::server::auth::iceberg_bearer_scopes;
 use crate::server::auth::{coarse_kg_admin_only, request_context_policy};
-use eg_types::contract::Nonce;
+use eg_types::contract::{Digest256, Nonce};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashSet;
@@ -117,6 +117,28 @@ impl VerifiedRequestContext {
     /// string supplied in the method body.
     pub(crate) fn tenant(&self) -> &str {
         self.claims.tenant.as_str()
+    }
+
+    /// Stable tenant-local MCP discovery partition from the verified carrier.
+    /// This binds the tenant and logical server; the caller still needs an
+    /// authenticated mounted-child observation before publishing a catalog.
+    pub(crate) fn tenant_local_catalog_partition_digest(
+        &self,
+        server_name: &str,
+    ) -> Result<Digest256, String> {
+        if self.tenant().is_empty()
+            || !eg_types::result_contract::cluster::is_valid_server_name(server_name)
+        {
+            return Err("invalid tenant-local catalog partition".into());
+        }
+        Digest256::framed(
+            b"eg/mcp-tenant-local-catalog-partition/v1",
+            &[
+                self.tenant().as_bytes(),
+                server_name.as_bytes(),
+                b"tenant_local",
+            ],
+        )
     }
 
     /// Opaque stable subject identifier safe for durable mutation/audit rows.
@@ -516,5 +538,41 @@ pub(crate) fn signed_test_claims(agent: &str) -> RequestContextClaims {
         delegation: Vec::new(),
         node: None,
         priority: None,
+    }
+}
+
+#[cfg(test)]
+mod catalog_partition_tests {
+    use super::VerifiedRequestContext;
+
+    #[test]
+    fn tenant_local_partition_binds_verified_tenant_and_child() {
+        let first = VerifiedRequestContext::verified_for_test_in_tenant("a", "tenant-a");
+        let same_tenant = VerifiedRequestContext::verified_for_test_in_tenant("b", "tenant-a");
+        let other_tenant = VerifiedRequestContext::verified_for_test_in_tenant("a", "tenant-b");
+        let digest = first
+            .tenant_local_catalog_partition_digest("source-mcp")
+            .unwrap();
+        assert_eq!(
+            digest,
+            same_tenant
+                .tenant_local_catalog_partition_digest("source-mcp")
+                .unwrap()
+        );
+        assert_ne!(
+            digest,
+            other_tenant
+                .tenant_local_catalog_partition_digest("source-mcp")
+                .unwrap()
+        );
+        assert_ne!(
+            digest,
+            first
+                .tenant_local_catalog_partition_digest("source-mcp-other")
+                .unwrap()
+        );
+        assert!(first
+            .tenant_local_catalog_partition_digest("invalid/name")
+            .is_err());
     }
 }

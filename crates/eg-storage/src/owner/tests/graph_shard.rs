@@ -70,6 +70,18 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
         ("capacity_leases", "(&str,&str)", "&[u8]"),
         ("capacity_usage", "(&str,&str)", "&[u8]"),
         ("capacity_idempotency", "(&str,&str,&str)", "&[u8]"),
+        ("repository_enrichment_budgets", "(&str,&str)", "&[u8]"),
+        (
+            "repository_enrichment_policy_revisions",
+            "(&str,&str)",
+            "&[u8]",
+        ),
+        (
+            "repository_enrichment_supersessions",
+            "(&str,&str)",
+            "&[u8]",
+        ),
+        ("repository_enrichment_parks", "&str", "&[u8]"),
         ("work_item_claim_capabilities", "(&str,&str)", "&[u8]"),
         (
             "work_item_claim_capability_invocations",

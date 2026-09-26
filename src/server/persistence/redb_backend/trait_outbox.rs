@@ -87,6 +87,23 @@ macro_rules! persistence_outbox {
                 .map_err(|_| "redb writer dropped outbox ack completion".to_string())?
         }
 
+        async fn release_mutation_outbox(
+            &self,
+            graph_fname: &str,
+            lease: &MutationOutboxLease,
+        ) -> Result<(), String> {
+            let (done, rx) = oneshot::channel();
+            let cmd = Cmd::MutationOutboxRelease {
+                graph: graph_fname.to_string(),
+                lease: Box::new(lease.clone()),
+                done,
+            };
+            self.enqueue(graph_fname, cmd, "release_mutation_outbox")
+                .await?;
+            rx.await
+                .map_err(|_| "redb writer dropped outbox release completion".to_string())?
+        }
+
         /// One consumer's durable projection watermark.
         ///
         /// `projection` and `consumer` were two names for one thing and are now one:

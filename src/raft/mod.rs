@@ -396,8 +396,17 @@ impl RaftRequest {
         match &self.command {
             ReplicatedMutation::Graph { sealed_method } => sealed_method.validate_shape()?,
             ReplicatedMutation::Native {
-                command: NativeMutationCommand::ChangeEnvelope { sealed_envelope },
-            } => sealed_envelope.validate_shape()?,
+                command:
+                    NativeMutationCommand::ChangeEnvelope {
+                        sealed_envelope,
+                        sealed_repository_budget,
+                    },
+            } => {
+                sealed_envelope.validate_shape()?;
+                if let Some(budget) = sealed_repository_budget {
+                    budget.validate_shape()?;
+                }
+            }
             #[cfg(feature = "modality-serving")]
             ReplicatedMutation::Native {
                 command: NativeMutationCommand::ServedModality { .. },

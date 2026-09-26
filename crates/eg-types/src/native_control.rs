@@ -286,6 +286,67 @@ pub struct SubmitWorkItemsRequest {
     pub context: RequestContext,
     pub idempotency_key: String,
     pub requests: Vec<SubmitWorkItemRequest>,
+    /// Engine-owned repository enrichment budget debit. Present only for an
+    /// authenticated outbox consumer; ordinary WorkItem batches omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrichment_budget: Option<EnrichmentBudgetReservation>,
+}
+
+/// Compare-and-swap reservation on the immutable source snapshot's global
+/// compute budget. The native submit transaction applies this debit and all
+/// child WorkItems together or neither. A capacity lease is a separate live
+/// resource fence and cannot replace this spending ledger.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct EnrichmentBudgetReservation {
+    pub schema_version: NativeControlSchemaVersion,
+    pub snapshot_digest: String,
+    pub source_envelope: String,
+    pub page_key: String,
+    pub expected_next_index: u32,
+    pub end_index: u32,
+    pub expected_page_number: u32,
+    pub expected_remaining_units: u64,
+    pub reserve_units: u64,
+    pub total_budget_units: u64,
+}
+
+/// Authoritative read of one repository snapshot's global compute budget.
+/// `None` from the read method means no page has yet been admitted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct EnrichmentBudgetCheckpoint {
+    pub schema_version: u8,
+    pub tenant_id: String,
+    pub snapshot_digest: String,
+    pub source_envelope: String,
+    pub next_index: u32,
+    pub page_number: u32,
+    pub reserved_units: u64,
+    pub spent_units: u64,
+    pub remaining_units: u64,
+    pub total_budget_units: u64,
+    pub last_page_key: String,
+}
+
+/// Durable reason this graph's enrichment outbox consumer must stop claiming.
+/// The marker is written before a held outbox lease is released; it is never
+/// an acknowledgement, retry, dead-letter, or authority to increase budget.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct EnrichmentBudgetPark {
+    pub schema_version: u8,
+    pub source_envelope: String,
+    pub snapshot_digest: String,
+    pub next_index: u32,
+    pub page_number: u32,
+    pub remaining_units: u64,
+    pub required_units: u64,
+    pub policy_digest: String,
+    pub parked_at_ms: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

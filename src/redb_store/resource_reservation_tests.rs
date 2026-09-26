@@ -557,6 +557,7 @@ fn commit_resource_batch_at(
             graph_fname: "graph-a",
             batch,
             change: None,
+            source_budget: None,
             authoritative_state_msgpack: None,
             crossmodal: None,
             result_msgpack: None,

@@ -185,6 +185,56 @@ fn repository_code_with_decorators_and_home_paths_commits() {
     on_engine(code_with_decorators_and_home_paths);
 }
 
+#[test]
+fn one_path_with_diverged_blobs_commits_in_one_batch() {
+    on_engine(one_path_diverged_across_refs);
+}
+
+#[test]
+fn an_empty_source_file_commits() {
+    on_engine(empty_source_file);
+}
+
+#[cfg(feature = "blob")]
+#[test]
+fn scoped_index_pins_source_content_in_blob_cas() {
+    on_engine(index_with_durable_source_refs);
+}
+
+#[cfg(feature = "blob")]
+async fn index_with_durable_source_refs() {
+    use epistemic_graph::server::blob::store::{ChunkStore, RedbChunkStore};
+    use epistemic_graph::server::blob::BlobCursors;
+    use std::sync::Arc;
+
+    let (_dir, dir_s, _backend, state) = durable_graph("eg-repoindex-cas").await;
+    let store = Arc::new(RedbChunkStore::open(&dir_s).unwrap());
+    state.write().await.blob = Some(Arc::new(BlobCursors::new(store.clone())));
+    let result = index(
+        &state,
+        2,
+        &[("pkg/util.py", UTIL)],
+        scope(vec![member("main", "pkg/util.py", UTIL)], Vec::new()),
+    )
+    .await;
+    let node = result["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| {
+            node["node_type"] == "Blob" && node["properties"]["content_digest"] == digest(UTIL)
+        })
+        .expect("indexed Blob");
+    let content_ref = node["properties"]["content_ref"].as_str().expect("CAS ref");
+    assert_eq!(node["properties"]["content_length"], UTIL.len().to_string());
+    let manifest = content_ref.strip_prefix("cas:sha256:").expect("CAS scheme");
+    let stored = store
+        .get_manifest(manifest)
+        .unwrap()
+        .expect("durable manifest");
+    assert_eq!(stored.len, UTIL.len() as u64);
+}
+
 /// A fresh durable engine directory with the test graph created in it.
 async fn durable_graph(
     prefix: &str,
@@ -315,6 +365,67 @@ async fn code_with_decorators_and_home_paths() {
     let settings = node_id(&result, "SYMBOL", "name", "Settings");
     assert!(has_edge(&state, 3, &main, &views).await);
     assert!(has_node(&state, 4, &settings).await);
+
+    backend.shutdown();
+    state.write().await.persistence = None;
+    drop(state);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `pkg/app.py` differs between `main` and `feature`: the transport ships each
+/// UNIQUE blob named by its (shared) path, so one batch carries two entries
+/// under one name. Entries are content-keyed, so this commits and each branch
+/// reaches exactly its own version (the multi-ref first ingest of any real
+/// repository).
+async fn one_path_diverged_across_refs() {
+    const FEATURE_APP: &[u8] = b"def run():\n    return 2\n";
+    let (dir, _, backend, state) = durable_graph("eg-repoindex-diverged").await;
+    let diverged = scope(
+        vec![
+            member("main", "pkg/app.py", APP),
+            member("feature", "pkg/app.py", FEATURE_APP),
+        ],
+        Vec::new(),
+    );
+    let blobs: [(&str, &[u8]); 2] = [("pkg/app.py", APP), ("pkg/app.py", FEATURE_APP)];
+    let result = index(&state, 2, &blobs, diverged).await;
+    let outcomes = result["file_outcomes"].as_array().unwrap();
+    assert_eq!(outcomes.len(), 2, "one outcome per submitted blob");
+    let main = node_id(&result, "Branch", "ref_name", "main");
+    let feature = node_id(&result, "Branch", "ref_name", "feature");
+    let main_app = file_version(&result, "pkg/app.py", APP);
+    let feature_app = file_version(&result, "pkg/app.py", FEATURE_APP);
+    assert_ne!(main_app, feature_app);
+    assert!(has_edge(&state, 3, &main, &main_app).await);
+    assert!(has_edge(&state, 4, &feature, &feature_app).await);
+    assert!(!has_edge(&state, 5, &main, &feature_app).await);
+    assert!(!has_edge(&state, 6, &feature, &main_app).await);
+
+    backend.shutdown();
+    state.write().await.persistence = None;
+    drop(state);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A 0-byte `pkg/__init__.py` (every Python package has one) is valid input:
+/// it parses to no symbols but still projects its `:Blob` and `:FileVersion`,
+/// and the batch commits durably.
+async fn empty_source_file() {
+    let (dir, _, backend, state) = durable_graph("eg-repoindex-empty").await;
+    let with_empty = scope(
+        vec![
+            member("main", "pkg/__init__.py", b""),
+            member("main", "pkg/util.py", UTIL),
+        ],
+        Vec::new(),
+    );
+    let blobs: [(&str, &[u8]); 2] = [("pkg/__init__.py", b""), ("pkg/util.py", UTIL)];
+    let result = index(&state, 2, &blobs, with_empty).await;
+    let main = node_id(&result, "Branch", "ref_name", "main");
+    let init = file_version(&result, "pkg/__init__.py", b"");
+    let empty_blob = format!("blob:{}", digest(b""));
+    assert!(has_edge(&state, 3, &main, &init).await);
+    assert!(has_edge(&state, 4, &init, &empty_blob).await);
 
     backend.shutdown();
     state.write().await.persistence = None;

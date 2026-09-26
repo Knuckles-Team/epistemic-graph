@@ -282,6 +282,37 @@ pub(in crate::server::dispatch) async fn handle_list_registered_servers(
     )
 }
 
+/// Read one live registration while the caller holds the registry graph lock.
+/// The lock must remain held through its dependent authority-row commit.
+pub(crate) async fn verified_served_registration(
+    state: &Arc<RwLock<ServerState>>,
+    verified: &VerifiedRequestContext,
+    server_name: &str,
+) -> Result<(u64, Digest256, RegisteredServerView), String> {
+    let (core, authority) = {
+        let current = timed_read(state).await;
+        crate::server::dispatch::authorized_graph_read(
+            &current,
+            REGISTRY_GRAPH,
+            verified,
+            "registered-server authority is unavailable",
+        )?
+    };
+    let observed_at_ms = authoritative_now_ms();
+    if !is_valid_server_name(server_name) {
+        return Err("invalid registered server name".into());
+    }
+    let live = live_registered_servers(&core, observed_at_ms, |node_id, properties| {
+        authority.can_see_node(properties, core.is_schema_node(node_id))
+    });
+    let digest = registered_server_snapshot_digest(&live)?;
+    let view = live
+        .into_iter()
+        .find(|entry| entry.name == server_name)
+        .ok_or_else(|| "live registered server is unavailable".to_string())?;
+    Ok((core.version(), digest, view))
+}
+
 /// One `RegisterServer` call's typed inputs, as the router unpacked them.
 pub(in crate::server::dispatch) struct ServerRegistration {
     pub(in crate::server::dispatch) name: String,

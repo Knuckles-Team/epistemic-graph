@@ -6,6 +6,7 @@ use eg_types::semantic_index::{SemanticBinding, SemanticIndexOp, SemanticSqlSour
 use crate::protocol::Response;
 use crate::server::semantic_index::SemanticIndexServerAdapter;
 
+use super::binding::invalid_semantic_input;
 use super::{
     blocking, contracts, decode_cursor, read_port, reply, stamp_draft_identity,
     SemanticIndexContext,
@@ -93,18 +94,11 @@ async fn admit_replacement(
     stamp_draft_identity(&mut draft, ctx.authority);
     let replacement = match SemanticBinding::create(*draft) {
         Ok(binding) => binding,
-        Err(error) => {
-            return Response::err(ctx.req_id, format!("semantic binding rejected: {error:?}"))
-        }
+        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic binding"),
     };
     let manifest = match SemanticSqlSourceManifest::create(source_manifest) {
         Ok(manifest) => manifest,
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("semantic source manifest rejected: {error:?}"),
-            )
-        }
+        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic source manifest"),
     };
     let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
     if let Err(error) = adapter.authorize_binding_worker(&replacement, ctx.authority) {
@@ -120,4 +114,21 @@ async fn admit_replacement(
         .await
         .map(contracts::receipt),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::invalid_semantic_input;
+
+    #[test]
+    fn replacement_input_refusals_use_the_declared_semantic_code() {
+        for subject in ["semantic binding", "semantic source manifest"] {
+            let response = invalid_semantic_input(31, subject);
+            assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+            assert_eq!(
+                response.error_detail.as_deref(),
+                Some(format!("{subject} rejected").as_str())
+            );
+        }
+    }
 }

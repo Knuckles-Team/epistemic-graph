@@ -22,6 +22,7 @@ use super::agent_library::AgentLibraryStore;
 
 pub(crate) mod admin;
 pub(crate) mod admitted;
+pub(crate) mod catalog_authority;
 pub(crate) mod commit;
 mod manifest;
 pub(crate) mod outbox;

@@ -357,9 +357,9 @@ async fn admit_qos_request(
             server.persist_dir.as_deref(),
         )
     }
-    .map_err(|error| {
+    .map_err(|_| {
         crate::metrics::auth_failure();
-        Response::err(req.id, error)
+        Response::err(req.id, "AUTHENTICATION_REQUIRED: Authentication failed")
     })?;
     let principal_scope = context.principal_persistence_id();
     let qos_request =

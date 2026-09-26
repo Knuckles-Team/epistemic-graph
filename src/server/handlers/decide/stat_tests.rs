@@ -313,6 +313,141 @@ fn succeeded(job: &DecisionJobRecord) -> &DecisionJobOutput {
     }
 }
 
+/// Exercise the served positive path with disjoint fit/eval fixture item ids.
+/// `LabelSource::Human` in this test is a test label, not live label evidence.
+async fn prove_human_source_threshold_path(
+    h: &Harness,
+    schema_pin: &ComponentDependency,
+    heldout: LabelledDataset,
+) {
+    let mut training = heldout.clone();
+    training.items = BoundedVec::new(
+        training
+            .items
+            .as_slice()
+            .iter()
+            .cloned()
+            .map(|mut item| {
+                item.item_id = format!("train-{}", item.item_id);
+                item
+            })
+            .collect(),
+    )
+    .unwrap();
+    assert!(training
+        .items
+        .iter()
+        .zip(heldout.items.iter())
+        .all(|(train, eval)| train.item_id != eval.item_id));
+    let fit_gold = super::stat_jobs::dataset_digest(&training).unwrap();
+    let fit: DecisionJobRecord = decode(
+        super::jobs::handle_decision_fit(
+            &h.state,
+            57,
+            &verified(),
+            DecisionFitOp::Submit {
+                request: Box::new(DecisionFitRequest {
+                    tenant_id: TENANT.to_string(),
+                    idempotency_key: "fit-real-calibration".to_string(),
+                    head_kind: HeadKind::ListwiseLogistic,
+                    feature_schema: schema_pin.clone(),
+                    policy: DecisionPolicyRef::Default,
+                    label_regime: LabelRegime::FullLabel {
+                        gold_set_digest: fit_gold,
+                    },
+                    window: window(),
+                    optimiser: fit_optimiser(),
+                    source: DatasetSource::Inline {
+                        dataset: Box::new(training),
+                    },
+                }),
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    let DecisionJobOutput::Fit {
+        draft_sha256,
+        draft_length,
+        ..
+    } = succeeded(&fit)
+    else {
+        panic!("real fit output")
+    };
+    let heldout_gold = super::stat_jobs::dataset_digest(&heldout).unwrap();
+    let evaluated: DecisionJobRecord = decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            58,
+            &verified(),
+            DecisionEvalOp::Submit {
+                request: Box::new(DecisionEvalRequest {
+                    tenant_id: TENANT.to_string(),
+                    idempotency_key: "eval-real-heldout".to_string(),
+                    candidate: EvalCandidate::DraftArtifact {
+                        sha256: draft_sha256.clone(),
+                        length: *draft_length,
+                    },
+                    policy: DecisionPolicyRef::Default,
+                    estimators: BoundedVec::new(vec![OpeEstimatorKind::Ips]).unwrap(),
+                    gold_set_digest: Some(heldout_gold),
+                    window: window(),
+                    source: DatasetSource::Inline {
+                        dataset: Box::new(heldout),
+                    },
+                    mode: eg_types::decision::EvalMode::OffPolicy,
+                }),
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    let DecisionJobOutput::Eval { receipt } = succeeded(&evaluated) else {
+        panic!("real evaluation output")
+    };
+    assert!(!receipt.synthetic);
+    assert!(receipt.calibration.as_ref().is_some_and(|cal| {
+        !cal.synthetic && cal.method == eg_types::decision::CalibrationMethod::Conformal
+    }));
+    let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            59,
+            &verified(),
+            DecisionEvalOp::Timeline {
+                request: eg_types::decision::DecisionReceiptTimelineRequest {
+                    tenant_id: TENANT.to_string(),
+                    after: None,
+                    limit: 10,
+                },
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    let entry = timeline
+        .entries
+        .iter()
+        .find(|entry| entry.receipt.receipt_digest == receipt.receipt_digest)
+        .expect("real held-out receipt appears in timeline");
+    let assessment = entry
+        .threshold_alert
+        .as_ref()
+        .expect("real conformal fit and held-out labels have a policy assessment");
+    assert_eq!(assessment.policy_digest, receipt.policy_digest);
+    assert_eq!(assessment.n_min, 100);
+    assert!(h
+        .store
+        .decision_artifact(
+            TENANT,
+            &crate::server::persistence::decision_jobs::receipt_threshold_key(
+                &receipt.receipt_digest,
+            ),
+        )
+        .unwrap()
+        .is_some());
+}
+
 /// What the route fixture publishes and reads back.
 struct RouteFixture {
     schema_pin: ComponentDependency,
@@ -575,6 +710,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     )
     .unwrap();
     let human_gold = super::stat_jobs::dataset_digest(&human_data).unwrap();
+    let heldout_data = human_data.clone();
     let human_eval = DecisionEvalRequest {
         tenant_id: TENANT.to_string(),
         idempotency_key: "eval-human-1".to_string(),
@@ -629,11 +765,30 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     .unwrap();
     assert_eq!(timeline.entries.len(), 1);
     assert_eq!(timeline.entries.as_slice()[0].receipt, *human_receipt);
+    // The evaluation labels are human, but this head was fitted/calibrated
+    // on the synthetic fixture above. A real evaluation must not promote
+    // that synthetic fitted calibration into a production threshold signal.
+    assert!(human_receipt
+        .calibration
+        .as_ref()
+        .is_some_and(|c| c.synthetic));
+    assert!(timeline.entries.as_slice()[0].threshold_alert.is_none());
+    assert!(h
+        .store
+        .decision_artifact(
+            TENANT,
+            &crate::server::persistence::decision_jobs::receipt_threshold_key(
+                &human_receipt.receipt_digest,
+            ),
+        )
+        .unwrap()
+        .is_none());
     assert_eq!(
         timeline.entries.as_slice()[0].submitted_at_ms,
         human_job.submitted_at_ms
     );
     assert_eq!(timeline.next_after, None);
+    prove_human_source_threshold_path(&h, &schema_pin, heldout_data).await;
     let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
         super::jobs::handle_decision_eval(
             &h.state,

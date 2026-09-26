@@ -265,6 +265,12 @@ pub const CONNECTOR_PACK_BODY_HOLDERS: TableDefinition<'static, (&str, &str, &st
 /// Administrative importer binding per tenant and connector.
 pub const CONNECTOR_PACK_BINDINGS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("connector_pack_bindings");
+/// One durable joined configuration revision per tenant and MCP server.
+pub const MCP_CATALOG_CONFIGS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("mcp_catalog_configs");
+/// One durable catalog generation per tenant, server and authorization scope.
+pub const MCP_CATALOG_SCOPES: TableDefinition<'static, (&str, &str, &str), &[u8]> =
+    TableDefinition::new("mcp_catalog_scopes");
 /// Decide-layer job rows, evaluation receipts and fit drafts, keyed
 /// `(tenant, "job:<id>" | "receipt:<digest>" | "draft:<sha256>")`. Written once,
 /// never updated: a job runs to a terminal state inside its submit.
@@ -400,6 +406,8 @@ macro_rules! visit_owner_tables {
                 $visit!(CONNECTOR_PACK_IMPORTS);
                 $visit!(CONNECTOR_PACK_BODY_HOLDERS);
                 $visit!(CONNECTOR_PACK_BINDINGS);
+                $visit!(MCP_CATALOG_CONFIGS);
+                $visit!(MCP_CATALOG_SCOPES);
                 $visit!(DECISION_ARTIFACTS);
                 $visit!(DECISION_RECORDS);
                 $visit!(WRITE_BACK_CHANGE_SETS);
@@ -501,6 +509,20 @@ pub(crate) fn copy_declared_owner_tables(
     Ok(rows)
 }
 
+pub(crate) fn prove_declared_owner_rows(
+    source: &ReadTransaction,
+    target: &ReadTransaction,
+    layout: OwnerLayout,
+) -> Result<(), String> {
+    macro_rules! prove {
+        ($table:expr) => {{
+            crate::recovery::semantic_merge::prove_table_rows(source, target, $table)?;
+        }};
+    }
+    visit_owner_tables!(layout, prove);
+    Ok(())
+}
+
 pub(crate) fn hash_declared_owner_tables(
     source: HashSnapshot<'_>,
     layout: OwnerLayout,
@@ -526,8 +548,9 @@ pub(crate) fn hash_declared_owner_tables(
 /// Hash precisely the typed tables named by an inspected SQL predecessor.
 /// Omitted tables have not yet been created, so a current-layout hash would
 /// either create authority by accident or fail before the offline upgrade.
-pub(crate) fn sql_predecessor_evidence(
+pub(crate) fn predecessor_evidence(
     source: HashSnapshot<'_>,
+    layout: OwnerLayout,
     owner_tables: &[&str],
 ) -> Result<StrictRecoveryEvidence, String> {
     let mut hasher = Sha256::new();
@@ -550,13 +573,20 @@ pub(crate) fn sql_predecessor_evidence(
     }
     crate::tables::visit_ledger_tables!(hash_predecessor);
     let ledger_rows = rows;
-    visit_owner_tables!(OwnerLayout::Sql, hash_predecessor);
+    visit_owner_tables!(layout, hash_predecessor);
     Ok(StrictRecoveryEvidence {
         ledger_rows,
         owner_rows: rows - ledger_rows,
         fingerprint: hasher.finalize().into(),
         tables,
     })
+}
+
+pub(crate) fn sql_predecessor_evidence(
+    source: HashSnapshot<'_>,
+    owner_tables: &[&str],
+) -> Result<StrictRecoveryEvidence, String> {
+    predecessor_evidence(source, OwnerLayout::Sql, owner_tables)
 }
 
 /// Exact sorted physical table names for a closed owner layout.
@@ -671,6 +701,8 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "connector_pack_imports",
             "connector_pack_body_holders",
             "connector_pack_bindings",
+            "mcp_catalog_configs",
+            "mcp_catalog_scopes",
             "decision_artifacts",
             "decision_records",
             "write_back_change_sets",

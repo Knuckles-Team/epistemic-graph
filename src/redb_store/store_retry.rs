@@ -146,7 +146,7 @@ pub(crate) fn projection_payload_for_operations(
             .iter()
             .map(|operation| operation.method.clone())
             .collect::<Vec<_>>();
-        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
+        let wakeup = eg_epistemic::ReasoningProjectionWakeup::bounded(
             operations.len(),
             hex::encode(Sha256::digest(encoded_operations)),
             eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),

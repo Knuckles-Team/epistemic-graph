@@ -6475,6 +6475,58 @@
             "request"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "reconcile_catalog",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/McpCatalogReconcileRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "catalog_authority_status",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/McpCatalogAuthorityStatusRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read the live owner principal only after proving this caller's scoped\nmounted-child authority row exists for the requested tenant/server.",
+          "properties": {
+            "op": {
+              "const": "catalog_owner_principal",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/McpCatalogAuthorityStatusRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -7337,11 +7389,10 @@
       "type": "object"
     },
     "DecisionEvalOp": {
-      "description": "Evaluate a candidate decision head.",
+      "description": "Evaluate a head or read its receipts. Every variant requires the same\nadministrative scope and tenant match; only submission mutates state.",
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "Enqueue the job. The only mutating op. Boxed: a submission\ncarries its whole labelled dataset.",
           "properties": {
             "op": {
               "const": "submit",
@@ -7359,7 +7410,6 @@
         },
         {
           "additionalProperties": false,
-          "description": "Read one submitted job's row.",
           "properties": {
             "op": {
               "const": "status",
@@ -7367,6 +7417,57 @@
             },
             "request": {
               "$ref": "#/$defs/DecisionJobStatusRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "receipt",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/DecisionReceiptGetRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "receipts",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/DecisionReceiptListRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "timeline",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/DecisionReceiptTimelineRequest"
             }
           },
           "required": [
@@ -8016,6 +8117,77 @@
         "assemble"
       ],
       "type": "string"
+    },
+    "DecisionReceiptGetRequest": {
+      "additionalProperties": false,
+      "description": "Admin-only lookup of one persisted evaluation receipt.",
+      "properties": {
+        "receipt_digest": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "receipt_digest"
+      ],
+      "type": "object"
+    },
+    "DecisionReceiptListRequest": {
+      "additionalProperties": false,
+      "description": "Admin-only, key-ordered discovery. The cursor is the last receipt digest\nreturned by the preceding page; a page may contain at most 50 receipts.",
+      "properties": {
+        "after": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "limit"
+      ],
+      "type": "object"
+    },
+    "DecisionReceiptTimelineRequest": {
+      "additionalProperties": false,
+      "description": "Time-ordered discovery of independently labelled evaluation receipts.\nThe cursor is an opaque `<20-digit-ms>:<receipt-digest>` key suffix.",
+      "properties": {
+        "after": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "limit"
+      ],
+      "type": "object"
     },
     "DecisionRecord": {
       "additionalProperties": false,
@@ -9908,6 +10080,67 @@
       "required": [
         "component_id",
         "violation"
+      ],
+      "type": "object"
+    },
+    "EnrichmentBudgetReservation": {
+      "additionalProperties": false,
+      "description": "Compare-and-swap reservation on the immutable source snapshot's global\ncompute budget. The native submit transaction applies this debit and all\nchild WorkItems together or neither. A capacity lease is a separate live\nresource fence and cannot replace this spending ledger.",
+      "properties": {
+        "end_index": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_next_index": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_page_number": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_remaining_units": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "page_key": {
+          "type": "string"
+        },
+        "reserve_units": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        },
+        "snapshot_digest": {
+          "type": "string"
+        },
+        "source_envelope": {
+          "type": "string"
+        },
+        "total_budget_units": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "snapshot_digest",
+        "source_envelope",
+        "page_key",
+        "expected_next_index",
+        "end_index",
+        "expected_page_number",
+        "expected_remaining_units",
+        "reserve_units",
+        "total_budget_units"
       ],
       "type": "object"
     },
@@ -15445,6 +15678,101 @@
         "delete"
       ],
       "type": "string"
+    },
+    "McpCatalogAuthorityStatusRequest": {
+      "additionalProperties": false,
+      "description": "Read the EG-owned generation for one verified tenant-local server scope.",
+      "properties": {
+        "server_name": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "server_name"
+      ],
+      "type": "object"
+    },
+    "McpCatalogReconcileRequest": {
+      "additionalProperties": false,
+      "description": "An authenticated served child asks EG to reconcile its observed catalog.\nThe scope digest is absent: EG derives it from the verified tenant carrier.",
+      "properties": {
+        "child_connection_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "child_id": {
+          "type": "string"
+        },
+        "component_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "component_id": {
+          "type": "string"
+        },
+        "component_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "context": {
+          "$ref": "#/$defs/AgentLibraryMutationContext"
+        },
+        "discovery_tenant": {
+          "type": "string"
+        },
+        "expected_catalog_generation": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "four_family_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "local_catalog_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "registration_config_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "registry_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "registry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "server_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "context",
+        "server_name",
+        "component_id",
+        "component_revision",
+        "component_digest",
+        "registry_revision",
+        "registry_digest",
+        "registration_config_digest",
+        "four_family_digest",
+        "child_id",
+        "discovery_tenant",
+        "local_catalog_epoch",
+        "child_connection_generation"
+      ],
+      "type": "object"
     },
     "McpCatalogSnapshotBinding": {
       "additionalProperties": false,
@@ -40320,6 +40648,237 @@
       ],
       "type": "object"
     },
+    "SemanticIndexApproval": {
+      "additionalProperties": false,
+      "description": "Approval identity supplied by the AU application service. EG verifies this\nbond; it does not infer approval from a caller role or transport.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "approval_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "approval_id": {
+          "type": "string"
+        },
+        "approved_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "effective_actor_scope": {
+          "type": "string"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operation": {
+          "$ref": "#/$defs/SemanticIndexOperation"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approval_id",
+        "approval_digest",
+        "operation",
+        "binding_id",
+        "tenant_id",
+        "actor_scope",
+        "effective_actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "approved_at_ms",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "SemanticIndexCommand": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "draft": {
+              "$ref": "#/$defs/SemanticBindingDraft"
+            },
+            "operation": {
+              "const": "semantic_binding_create",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "draft"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "operation": {
+              "const": "semantic_binding_get",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "binding_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "filter": {
+              "$ref": "#/$defs/SemanticIndexFilter"
+            },
+            "operation": {
+              "const": "semantic_binding_list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "filter"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "expected_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "operation": {
+              "const": "semantic_binding_refresh",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "binding_id",
+            "expected_generation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "expected_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "operation": {
+              "const": "semantic_binding_disable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "binding_id",
+            "expected_generation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "expected_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "operation": {
+              "const": "semantic_binding_drop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "binding_id",
+            "expected_generation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "filter": {
+              "$ref": "#/$defs/SemanticIndexFilter"
+            },
+            "operation": {
+              "const": "semantic_search",
+              "type": "string"
+            },
+            "probe": {
+              "$ref": "#/$defs/SemanticSearchProbe"
+            }
+          },
+          "required": [
+            "operation",
+            "binding_id",
+            "probe",
+            "filter"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "operation": {
+              "const": "semantic_queue_status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SemanticIndexFilter": {
       "additionalProperties": false,
       "description": "Closed relational/identity filter. Raw predicates and SQL expressions have\nno representable field.",
@@ -40934,6 +41493,24 @@
         },
         {
           "additionalProperties": false,
+          "description": "Public RF-019 request envelope for the binding read. The other public\ncommands remain closed until their approval, catalog, and retrieval\nauthorities are wired; this route never interprets them as a read.",
+          "properties": {
+            "op": {
+              "const": "get_binding_request",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/SemanticIndexRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "The durable binding head of this owner.",
           "properties": {
             "binding_id": {
@@ -41041,6 +41618,67 @@
           "type": "object"
         }
       ]
+    },
+    "SemanticIndexOperation": {
+      "enum": [
+        "semantic_binding_create",
+        "semantic_binding_get",
+        "semantic_binding_list",
+        "semantic_binding_refresh",
+        "semantic_binding_disable",
+        "semantic_binding_drop",
+        "semantic_search",
+        "semantic_queue_status"
+      ],
+      "type": "string"
+    },
+    "SemanticIndexRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_scope": {
+          "description": "Originating principal scope; this is not the delegated effective actor.",
+          "type": "string"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticIndexApproval"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "command": {
+          "$ref": "#/$defs/SemanticIndexCommand"
+        },
+        "effective_actor_scope": {
+          "description": "Opaque scope derived by the server from the verified delegated agent.\nThe later handler must compare it with its non-serializable guard.",
+          "type": "string"
+        },
+        "policy_identity": {
+          "$ref": "#/$defs/SemanticPolicyIdentity"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "tenant_id",
+        "actor_scope",
+        "effective_actor_scope",
+        "purpose_id",
+        "policy_identity",
+        "command"
+      ],
+      "type": "object"
     },
     "SemanticLexicalIndexIdentity": {
       "additionalProperties": false,
@@ -41258,6 +41896,52 @@
         "slow_heavy"
       ],
       "type": "string"
+    },
+    "SemanticSearchProbe": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "model_digest": {
+              "type": "string"
+            },
+            "preprocess_digest": {
+              "type": "string"
+            },
+            "probe": {
+              "const": "canonical_text",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "probe",
+            "text",
+            "model_digest",
+            "preprocess_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "probe": {
+              "const": "vector",
+              "type": "string"
+            },
+            "vector": {
+              "$ref": "#/$defs/SemanticVector"
+            }
+          },
+          "required": [
+            "probe",
+            "vector"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "SemanticSourceSelector": {
       "oneOf": [
@@ -45367,6 +46051,17 @@
       "properties": {
         "context": {
           "$ref": "#/$defs/RequestContext"
+        },
+        "enrichment_budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnrichmentBudgetReservation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Engine-owned repository enrichment budget debit. Present only for an\nauthenticated outbox consumer; ordinary WorkItem batches omit it."
         },
         "idempotency_key": {
           "type": "string"

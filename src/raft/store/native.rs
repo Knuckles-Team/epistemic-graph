@@ -18,6 +18,29 @@ impl EgStore {
         req.validate_graph_command(server_secret, self.group_id)?;
         if let ReplicatedMutation::Native { command } = &req.command {
             match command {
+                NativeMutationCommand::EnrichmentPark { .. } => {
+                    if !req.mutation.is_internal() {
+                        return Err(
+                            "ACCESS_DENIED: replicated enrichment park requires internal authority"
+                                .into(),
+                        );
+                    }
+                    let park = req
+                        .command
+                        .open_enrichment_park(server_secret)?
+                        .ok_or("replicated enrichment park payload is absent")?;
+                    if park.parked_at_ms != req.committed_at_ms {
+                        return Err("CONFLICT: replicated enrichment park timestamp changed".into());
+                    }
+                    let (_, persistence) = self.resolve_replicated_graph(req).await?;
+                    let backend = persistence
+                        .ok_or("replicated enrichment park requires graph persistence")?;
+                    let outcome = backend
+                        .park_enrichment_budget(&req.graph_fname, park)
+                        .await
+                        .map(|()| true);
+                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
+                }
                 NativeMutationCommand::TransactionParticipant {
                     phase,
                     coordinator_id,

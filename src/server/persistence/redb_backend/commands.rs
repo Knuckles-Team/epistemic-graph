@@ -59,6 +59,7 @@ pub(crate) struct ChangeEnvelopePayload {
     pub(crate) graph: String,
     pub(crate) envelope: ChangeEnvelope,
     pub(crate) committed_at_ms: u64,
+    pub(crate) source_budget: Option<crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
 }
 
 /// Payload of a [`Cmd::ChangeEnvelopesCommit`] — a batch of governed envelopes that
@@ -266,6 +267,13 @@ pub(crate) enum Cmd {
         method: Box<Method>,
         done: oneshot::Sender<Result<Vec<u8>, String>>,
     },
+    /// Persist a graph-wide enrichment pause before a consumer releases its
+    /// unpaid outbox lease. The writer flushes prior mutations first.
+    ParkEnrichmentBudget {
+        graph: String,
+        park: Box<eg_types::native_control::EnrichmentBudgetPark>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
     /// Engine-native governed ingest commit. This is deliberately one writer
     /// command so queue pressure can never split graph/material/governance state.
     ChangeEnvelopeCommit {
@@ -305,6 +313,12 @@ pub(crate) enum Cmd {
         lease: Box<MutationOutboxLease>,
         now_ms: u64,
         done: oneshot::Sender<Result<MutationProjectionCursor, String>>,
+    },
+    /// Release the exact held delivery lease without changing the ACK cursor.
+    MutationOutboxRelease {
+        graph: String,
+        lease: Box<MutationOutboxLease>,
+        done: oneshot::Sender<Result<(), String>>,
     },
     /// One delivery-side outbox write (a consumer reject or an operator
     /// rewind) on the writer thread, so it is ordered with every claim and ack

@@ -40,7 +40,8 @@ fn family(op: &SemanticIndexOp) -> OperationFamily {
         | SemanticIndexOp::CompleteSqlSourceStage { .. }
         | SemanticIndexOp::ReplayCompletedSqlSourceStage { .. }
         | SemanticIndexOp::ReleaseStageLease { .. } => OperationFamily::Worker,
-        SemanticIndexOp::Binding { .. }
+        SemanticIndexOp::GetBindingRequest { .. }
+        | SemanticIndexOp::Binding { .. }
         | SemanticIndexOp::SqlSourceManifest { .. }
         | SemanticIndexOp::ListBindings { .. }
         | SemanticIndexOp::LiveGeneration { .. } => OperationFamily::Read,

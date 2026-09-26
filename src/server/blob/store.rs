@@ -119,6 +119,11 @@ pub trait ChunkStore: Send + Sync {
     /// Current total reference count of a digest (0 if never referenced).
     fn refcount(&self, blob_digest: &str) -> Result<u64, String>;
 
+    /// Whether a named holder still pins this manifest for its owner.
+    fn has_named_holder(&self, _blob_digest: &str, _holder: &str) -> Result<bool, String> {
+        Err("blob backend does not expose named holders".to_string())
+    }
+
     /// Mark-and-sweep GC over every owner under the default retention policy.
     fn sweep(&self) -> Result<SweepStats, String>;
 
@@ -213,6 +218,18 @@ pub trait ChunkStore: Send + Sync {
         _committed_at_ms: u64,
     ) -> Result<Vec<StoredEngineBody>, String> {
         Err("blob backend does not provide engine-owned body batches".to_string())
+    }
+
+    /// Admit a bounded repository batch into one owner transaction, with
+    /// set-like holders scoped to the verified tenant and repository.
+    fn put_repository_bodies(
+        &self,
+        _tenant_id: &str,
+        _repository_id: &str,
+        _bodies: &[EngineBody],
+        _committed_at_ms: u64,
+    ) -> Result<Vec<StoredEngineBody>, String> {
+        Err("blob backend does not provide repository body batches".to_string())
     }
 }
 

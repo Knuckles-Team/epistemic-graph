@@ -296,8 +296,11 @@ from .connector_pack import (
     ConnectorPackIndex,
     ConnectorPackOp,
     ConnectorPackOpBind,
+    ConnectorPackOpCatalogAuthorityStatus,
+    ConnectorPackOpCatalogOwnerPrincipal,
     ConnectorPackOpImport,
     ConnectorPackOpReconcileBodies,
+    ConnectorPackOpReconcileCatalog,
     ConnectorPackOpReproject,
     ConnectorPackOpRetire,
     ConnectorPackOpStatus,
@@ -309,6 +312,8 @@ from .connector_pack import (
     ConnectorPackStatusRequest,
     ConnectorPackUnbindRequest,
     DeclaredCost,
+    McpCatalogAuthorityStatusRequest,
+    McpCatalogReconcileRequest,
     PackAnnotations,
     PackArchiveRef,
     PackDispositionCounts,
@@ -2316,7 +2321,21 @@ class ClassCoverage(BaseModel):
 
     class_key: str
     covered: Annotated[int, Field(ge=0)]
+    metrics: ClassLabelMetrics | None = None
     n_items: Annotated[int, Field(ge=0)]
+    n_min: Annotated[int, Field(ge=0)] | None = None
+
+
+class ClassLabelMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    act_risk_upper: UnitRationalWire | None = None
+    acted: Annotated[int, Field(ge=0)]
+    acted_wrong: Annotated[int, Field(ge=0)]
+    coverage_lower: UnitRationalWire
+    coverage_upper: UnitRationalWire
+    delta: UnitRationalWire
+    top1_hits: Annotated[int, Field(ge=0)]
 
 
 class ClassVolatility(BaseModel):
@@ -2930,8 +2949,33 @@ class DecisionEvalOpStatus(BaseModel):
     request: DecisionJobStatusRequest
 
 
+class DecisionEvalOpReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["receipt"]
+    request: DecisionReceiptGetRequest
+
+
+class DecisionEvalOpReceipts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["receipts"]
+    request: DecisionReceiptListRequest
+
+
+class DecisionEvalOpTimeline(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["timeline"]
+    request: DecisionReceiptTimelineRequest
+
+
 DecisionEvalOp = Annotated[
-    DecisionEvalOpSubmit | DecisionEvalOpStatus,
+    DecisionEvalOpSubmit
+    | DecisionEvalOpStatus
+    | DecisionEvalOpReceipt
+    | DecisionEvalOpReceipts
+    | DecisionEvalOpTimeline,
     Field(discriminator="op"),
 ]
 
@@ -3253,6 +3297,64 @@ class DecisionOutcomeEvaluation(BaseModel):
     record_id: str
     selected_agent: str
     success: bool | None = None
+
+
+class DecisionReceiptGetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    receipt_digest: str
+    tenant_id: str
+
+
+class DecisionReceiptListRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after: str | None = None
+    limit: Annotated[int, Field(ge=0, le=65535)]
+    tenant_id: str
+
+
+class DecisionReceiptPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    next_after: str | None = None
+    receipts: BoundedVec_DecisionEvalReceipt_50
+
+
+class DecisionReceiptTimelineEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    receipt: DecisionEvalReceipt
+    submitted_at_ms: Annotated[int, Field(ge=0)]
+    threshold_alert: DecisionThresholdAssessment | None = None
+
+
+class DecisionReceiptTimelinePage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entries: BoundedVec_DecisionReceiptTimelineEntry_50
+    next_after: str | None = None
+
+
+class DecisionReceiptTimelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after: str | None = None
+    limit: Annotated[int, Field(ge=0, le=65535)]
+    tenant_id: str
+
+
+class DecisionThresholdAssessment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    act_risk_above_policy: bool | None = None
+    alpha: UnitRationalWire
+    coverage_below_policy: bool | None = None
+    delta: UnitRationalWire
+    epsilon: UnitRationalWire
+    insufficient_support: bool
+    n_min: Annotated[int, Field(ge=0)]
+    policy_digest: str
 
 
 class DecisionTree(BaseModel):
@@ -4167,6 +4269,21 @@ class ElevationScope(BaseModel):
 class ElevationStanding(str, Enum):
     REQUESTER = "requester"
     APPROVER = "approver"
+
+
+class EnrichmentBudgetReservation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    end_index: Annotated[int, Field(ge=0)]
+    expected_next_index: Annotated[int, Field(ge=0)]
+    expected_page_number: Annotated[int, Field(ge=0)]
+    expected_remaining_units: Annotated[int, Field(ge=0)]
+    page_key: str
+    reserve_units: Annotated[int, Field(ge=0)]
+    schema_version: NativeControlSchemaVersion
+    snapshot_digest: str
+    source_envelope: str
+    total_budget_units: Annotated[int, Field(ge=0)]
 
 
 class EntityMatchRow(BaseModel):
@@ -17638,6 +17755,408 @@ class SemanticGraphProjectionManifest(BaseModel):
     source_revision: str
 
 
+class SemanticIndexApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actor_scope: str
+    approval_digest: SemanticDigest
+    approval_id: str
+    approved_at_ms: Annotated[int, Field(ge=0)]
+    binding_id: str
+    effective_actor_scope: str
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    operation: SemanticIndexOperation
+    policy_digest: str
+    purpose_id: str
+    tenant_id: str
+
+
+class SemanticIndexCommandSemanticBindingCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    draft: SemanticBindingDraft
+    operation: Literal["semantic_binding_create"]
+
+
+class SemanticIndexCommandSemanticBindingGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding_id: str
+    operation: Literal["semantic_binding_get"]
+
+
+class SemanticIndexCommandSemanticBindingList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cursor: str | None = None
+    filter: SemanticIndexFilter
+    operation: Literal["semantic_binding_list"]
+
+
+class SemanticIndexCommandSemanticBindingRefresh(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding_id: str
+    expected_generation: Annotated[int, Field(ge=0)]
+    operation: Literal["semantic_binding_refresh"]
+
+
+class SemanticIndexCommandSemanticBindingDisable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding_id: str
+    expected_generation: Annotated[int, Field(ge=0)]
+    operation: Literal["semantic_binding_disable"]
+
+
+class SemanticIndexCommandSemanticBindingDrop(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding_id: str
+    expected_generation: Annotated[int, Field(ge=0)]
+    operation: Literal["semantic_binding_drop"]
+
+
+class SemanticIndexCommandSemanticSearch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding_id: str
+    filter: SemanticIndexFilter
+    operation: Literal["semantic_search"]
+    probe: SemanticSearchProbe
+
+
+class SemanticIndexCommandSemanticQueueStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding_id: str | None = None
+    operation: Literal["semantic_queue_status"]
+
+
+SemanticIndexCommand = Annotated[
+    SemanticIndexCommandSemanticBindingCreate
+    | SemanticIndexCommandSemanticBindingGet
+    | SemanticIndexCommandSemanticBindingList
+    | SemanticIndexCommandSemanticBindingRefresh
+    | SemanticIndexCommandSemanticBindingDisable
+    | SemanticIndexCommandSemanticBindingDrop
+    | SemanticIndexCommandSemanticSearch
+    | SemanticIndexCommandSemanticQueueStatus,
+    Field(discriminator="operation"),
+]
+
+
+class SemanticIndexErrorUnsupportedSelector(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["unsupported_selector"]
+    selector: SemanticSelectorKind
+
+
+class SemanticIndexErrorInvalidField(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["invalid_field"]
+    field: str
+    reason: str
+
+
+class SemanticIndexErrorDigestMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["digest_mismatch"]
+    subject: str
+
+
+class SemanticIndexErrorGenerationMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actual: Annotated[int, Field(ge=0)]
+    code: Literal["generation_mismatch"]
+    expected: Annotated[int, Field(ge=0)]
+
+
+class SemanticIndexErrorBindingStateMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actual: SemanticBindingState
+    code: Literal["binding_state_mismatch"]
+    expected: SemanticBindingState
+
+
+class SemanticIndexErrorInvalidBindingStateTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["invalid_binding_state_transition"]
+    from_: SemanticBindingState = Field(..., alias="from")
+    to: SemanticBindingState
+
+
+class SemanticIndexErrorPolicyUnresolved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["policy_unresolved"]
+
+
+class SemanticIndexErrorSourceRevisionStale(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["source_revision_stale"]
+
+
+class SemanticIndexErrorPredecessorIncomplete(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["predecessor_incomplete"]
+    required: SemanticStage
+
+
+class SemanticIndexErrorPredecessorReceiptMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["predecessor_receipt_mismatch"]
+    stage: SemanticStage
+
+
+class SemanticIndexErrorStageScopeMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["stage_scope_mismatch"]
+    stage: SemanticStage
+
+
+class SemanticIndexErrorGenerationCheckpointMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["generation_checkpoint_mismatch"]
+
+
+class SemanticIndexErrorGenerationIncomplete(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["generation_incomplete"]
+    completed: Annotated[int, Field(ge=0)]
+    expected: Annotated[int, Field(ge=0)]
+
+
+class SemanticIndexErrorDuplicateSourceEntity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["duplicate_source_entity"]
+
+
+class SemanticIndexErrorGenerationEntitySetMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["generation_entity_set_mismatch"]
+
+
+class SemanticIndexErrorSourceManifestMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["source_manifest_mismatch"]
+
+
+class SemanticIndexErrorGraphProjectionManifestMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["graph_projection_manifest_mismatch"]
+
+
+class SemanticIndexErrorAuthorizationReceiptMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["authorization_receipt_mismatch"]
+
+
+class SemanticIndexErrorLineageMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["lineage_mismatch"]
+
+
+class SemanticIndexErrorUnsupportedAnnMetricPair(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["unsupported_ann_metric_pair"]
+
+
+class SemanticIndexErrorSearchProbeModelMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["search_probe_model_mismatch"]
+
+
+class SemanticIndexErrorMaintainedIndexUnavailable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["maintained_index_unavailable"]
+
+
+class SemanticIndexErrorApprovalRequired(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["approval_required"]
+
+
+class SemanticIndexErrorApprovalOperationMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["approval_operation_mismatch"]
+
+
+class SemanticIndexErrorApprovalDigestMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["approval_digest_mismatch"]
+
+
+class SemanticIndexErrorApprovalExpired(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["approval_expired"]
+
+
+class SemanticIndexErrorAuthorizationContextMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["authorization_context_mismatch"]
+
+
+class SemanticIndexErrorCallerSetBindingState(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["caller_set_binding_state"]
+
+
+class SemanticIndexErrorUnmanagedBindingResource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["unmanaged_binding_resource"]
+
+
+class SemanticIndexErrorVectorBindingMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["vector_binding_mismatch"]
+
+
+class SemanticIndexErrorActivePointerMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["active_pointer_mismatch"]
+
+
+class SemanticIndexErrorIndexManifestMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["index_manifest_mismatch"]
+
+
+class SemanticIndexErrorProgressReceiptMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["progress_receipt_mismatch"]
+
+
+class SemanticIndexErrorDeadLetterIdentityMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["dead_letter_identity_mismatch"]
+
+
+class SemanticIndexErrorStageArtifactMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["stage_artifact_mismatch"]
+
+
+class SemanticIndexErrorCanonicalRecordTooLarge(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["canonical_record_too_large"]
+
+
+class SemanticIndexErrorMalformedCanonicalRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["malformed_canonical_record"]
+    reason: str
+
+
+class SemanticIndexErrorNonCanonicalRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["non_canonical_record"]
+
+
+class SemanticIndexErrorOperationResultMismatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["operation_result_mismatch"]
+    operation: SemanticIndexOperation
+
+
+class SemanticIndexErrorMutationReceiptRequired(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["mutation_receipt_required"]
+    operation: SemanticIndexOperation
+
+
+class SemanticIndexErrorPartialMutationOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    code: Literal["partial_mutation_outcome"]
+    operation: SemanticIndexOperation
+
+
+SemanticIndexError = Annotated[
+    SemanticIndexErrorUnsupportedSelector
+    | SemanticIndexErrorInvalidField
+    | SemanticIndexErrorDigestMismatch
+    | SemanticIndexErrorGenerationMismatch
+    | SemanticIndexErrorBindingStateMismatch
+    | SemanticIndexErrorInvalidBindingStateTransition
+    | SemanticIndexErrorPolicyUnresolved
+    | SemanticIndexErrorSourceRevisionStale
+    | SemanticIndexErrorPredecessorIncomplete
+    | SemanticIndexErrorPredecessorReceiptMismatch
+    | SemanticIndexErrorStageScopeMismatch
+    | SemanticIndexErrorGenerationCheckpointMismatch
+    | SemanticIndexErrorGenerationIncomplete
+    | SemanticIndexErrorDuplicateSourceEntity
+    | SemanticIndexErrorGenerationEntitySetMismatch
+    | SemanticIndexErrorSourceManifestMismatch
+    | SemanticIndexErrorGraphProjectionManifestMismatch
+    | SemanticIndexErrorAuthorizationReceiptMismatch
+    | SemanticIndexErrorLineageMismatch
+    | SemanticIndexErrorUnsupportedAnnMetricPair
+    | SemanticIndexErrorSearchProbeModelMismatch
+    | SemanticIndexErrorMaintainedIndexUnavailable
+    | SemanticIndexErrorApprovalRequired
+    | SemanticIndexErrorApprovalOperationMismatch
+    | SemanticIndexErrorApprovalDigestMismatch
+    | SemanticIndexErrorApprovalExpired
+    | SemanticIndexErrorAuthorizationContextMismatch
+    | SemanticIndexErrorCallerSetBindingState
+    | SemanticIndexErrorUnmanagedBindingResource
+    | SemanticIndexErrorVectorBindingMismatch
+    | SemanticIndexErrorActivePointerMismatch
+    | SemanticIndexErrorIndexManifestMismatch
+    | SemanticIndexErrorProgressReceiptMismatch
+    | SemanticIndexErrorDeadLetterIdentityMismatch
+    | SemanticIndexErrorStageArtifactMismatch
+    | SemanticIndexErrorCanonicalRecordTooLarge
+    | SemanticIndexErrorMalformedCanonicalRecord
+    | SemanticIndexErrorNonCanonicalRecord
+    | SemanticIndexErrorOperationResultMismatch
+    | SemanticIndexErrorMutationReceiptRequired
+    | SemanticIndexErrorPartialMutationOutcome,
+    Field(discriminator="code"),
+]
+
+
 class SemanticIndexFilter(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17824,6 +18343,13 @@ class SemanticIndexOpReleaseStageLease(BaseModel):
     tenant_id: str
 
 
+class SemanticIndexOpGetBindingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["get_binding_request"]
+    request: SemanticIndexRequest
+
+
 class SemanticIndexOpBinding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17878,11 +18404,137 @@ SemanticIndexOp = Annotated[
     | SemanticIndexOpCompleteSqlSourceStage
     | SemanticIndexOpReplayCompletedSqlSourceStage
     | SemanticIndexOpReleaseStageLease
+    | SemanticIndexOpGetBindingRequest
     | SemanticIndexOpBinding
     | SemanticIndexOpSqlSourceManifest
     | SemanticIndexOpListBindings
     | SemanticIndexOpLiveGeneration,
     Field(discriminator="op"),
+]
+
+
+class SemanticIndexOperation(str, Enum):
+    SEMANTIC_BINDING_CREATE = "semantic_binding_create"
+    SEMANTIC_BINDING_GET = "semantic_binding_get"
+    SEMANTIC_BINDING_LIST = "semantic_binding_list"
+    SEMANTIC_BINDING_REFRESH = "semantic_binding_refresh"
+    SEMANTIC_BINDING_DISABLE = "semantic_binding_disable"
+    SEMANTIC_BINDING_DROP = "semantic_binding_drop"
+    SEMANTIC_SEARCH = "semantic_search"
+    SEMANTIC_QUEUE_STATUS = "semantic_queue_status"
+
+
+class SemanticIndexOutcomeAccepted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    receipt_digest: SemanticDigest | None = None
+    result: SemanticIndexResult
+    status: Literal["accepted"]
+
+
+class SemanticIndexOutcomeDeferredBackpressured(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    receipt_digest: SemanticDigest
+    status: Literal["deferred_backpressured"]
+
+
+class SemanticIndexOutcomePartial(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    receipt_digest: SemanticDigest | None = None
+    result: SemanticIndexResult
+    status: Literal["partial"]
+
+
+class SemanticIndexOutcomeRejected(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    error: SemanticIndexError
+    receipt_digest: SemanticDigest | None = None
+    status: Literal["rejected"]
+
+
+class SemanticIndexOutcomeNotFound(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["not_found"]
+
+
+SemanticIndexOutcome = Annotated[
+    SemanticIndexOutcomeAccepted
+    | SemanticIndexOutcomeDeferredBackpressured
+    | SemanticIndexOutcomePartial
+    | SemanticIndexOutcomeRejected
+    | SemanticIndexOutcomeNotFound,
+    Field(discriminator="status"),
+]
+
+
+class SemanticIndexRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actor_scope: str
+    approval: SemanticIndexApproval | None = None
+    command: SemanticIndexCommand
+    effective_actor_scope: str
+    policy_identity: SemanticPolicyIdentity
+    purpose_id: str
+    request_id: str
+    tenant_id: str
+
+
+class SemanticIndexResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    operation: SemanticIndexOperation
+    outcome: SemanticIndexOutcome
+    request_id: str
+
+
+class SemanticIndexResultBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding: SemanticBinding
+    result: Literal["binding"]
+
+
+class SemanticIndexResultBindingList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    bindings: list[SemanticBinding]
+    next_cursor: str | None = None
+    result: Literal["binding_list"]
+
+
+class SemanticIndexResultSearch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    hits: list[SemanticSearchHit]
+    result: Literal["search"]
+    warnings: list[str]
+
+
+class SemanticIndexResultQueueStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    queues: list[SemanticQueueStatus]
+    result: Literal["queue_status"]
+
+
+class SemanticIndexResultEmpty(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    result: Literal["empty"]
+
+
+SemanticIndexResult = Annotated[
+    SemanticIndexResultBinding
+    | SemanticIndexResultBindingList
+    | SemanticIndexResultSearch
+    | SemanticIndexResultQueueStatus
+    | SemanticIndexResultEmpty,
+    Field(discriminator="result"),
 ]
 
 
@@ -17975,6 +18627,82 @@ class SemanticQueueClass(str, Enum):
     FAST = "fast"
     MEDIUM = "medium"
     SLOW_HEAVY = "slow_heavy"
+
+
+class SemanticQueueStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capacity: Annotated[int, Field(ge=0)]
+    class_: SemanticQueueClass = Field(..., alias="class")
+    consecutive_claim_percent: Annotated[int, Field(ge=0, le=255)]
+    fairness_relaxation_count: Annotated[int, Field(ge=0)]
+    inflight: Annotated[int, Field(ge=0)]
+    lag_ms: Annotated[int, Field(ge=0)]
+    lag_rows: Annotated[int, Field(ge=0)]
+    live: bool
+    oldest_age_ms: Annotated[int, Field(ge=0)]
+    queue_profile_id: str
+    rejection_count: Annotated[int, Field(ge=0)]
+    retry_count: Annotated[int, Field(ge=0)]
+    saturated: bool
+    tenant_id: str
+    trace_id: str
+
+
+class SemanticSearchHit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ann_index_digest: SemanticDigest
+    authorization_receipt_digest: SemanticDigest
+    binding_digest: SemanticDigest
+    binding_id: str
+    freshness_lag_ms: Annotated[int, Field(ge=0)]
+    fused_score: float
+    fusion_explanation: str
+    generation: Annotated[int, Field(ge=0)]
+    generation_checkpoint_digest: SemanticDigest
+    lexical_index_digest: SemanticDigest
+    lexical_score: float | None = None
+    lineage_digest: SemanticDigest
+    model_digest: str
+    policy_digest: str
+    preprocess_digest: str
+    purpose_id: str
+    source_entity_id: str
+    source_revision: str
+    vector_score: float | None = None
+
+
+class SemanticSearchProbeCanonicalText(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    model_digest: str
+    preprocess_digest: str
+    probe: Literal["canonical_text"]
+    text: str
+
+
+class SemanticSearchProbeVector(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    probe: Literal["vector"]
+    vector: SemanticVector
+
+
+SemanticSearchProbe = Annotated[
+    SemanticSearchProbeCanonicalText | SemanticSearchProbeVector,
+    Field(discriminator="probe"),
+]
+
+
+class SemanticSelectorKind(str, Enum):
+    SQL_COLUMN_REF = "sql_column_ref"
+    GRAPH_TEXT_PROPERTY_REF = "graph_text_property_ref"
+    CANONICAL_TEXT_ASSET = "canonical_text_asset"
+    AGENT_LIBRARY_COMPOSITE = "agent_library_composite"
+    MULTIMODAL_ASSET_REF = "multimodal_asset_ref"
+    TIME_SERIES_WINDOW_REF = "time_series_window_ref"
+    LAKEHOUSE_VECTOR_PROJECTION_REF = "lakehouse_vector_projection_ref"
 
 
 class SemanticSourceSelectorSqlColumnRef(BaseModel):
@@ -19592,6 +20320,7 @@ class SubmitWorkItemsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     context: RequestContext
+    enrichment_budget: EnrichmentBudgetReservation | None = None
     idempotency_key: str
     requests: list[SubmitWorkItemRequest]
     schema_version: NativeControlSchemaVersion
@@ -20761,6 +21490,22 @@ BoundedVec_ComponentDependency_1024 = Annotated[
     list[ComponentDependency],
     Field(
         max_length=1024,
+    ),
+]
+
+
+BoundedVec_DecisionEvalReceipt_50 = Annotated[
+    list[DecisionEvalReceipt],
+    Field(
+        max_length=50,
+    ),
+]
+
+
+BoundedVec_DecisionReceiptTimelineEntry_50 = Annotated[
+    list[DecisionReceiptTimelineEntry],
+    Field(
+        max_length=50,
     ),
 ]
 
@@ -22223,6 +22968,8 @@ __all__ = [
     "BoundedVec_ComponentDependency_256",
     "BoundedVec_ComponentDependency_64",
     "BoundedVec_CoverageDerivation_32",
+    "BoundedVec_DecisionEvalReceipt_50",
+    "BoundedVec_DecisionReceiptTimelineEntry_50",
     "BoundedVec_DeclaredNumber_32",
     "BoundedVec_DeclaredOption_64",
     "BoundedVec_DeclaredText_8",
@@ -22424,6 +23171,7 @@ __all__ = [
     "ClaimedAnalyticsJob",
     "ClaimedTaskMapping",
     "ClassCoverage",
+    "ClassLabelMetrics",
     "ClassVolatility",
     "ClassificationMiningResult",
     "ClassifiedRow",
@@ -22483,8 +23231,11 @@ __all__ = [
     "ConnectorPackIndex",
     "ConnectorPackOp",
     "ConnectorPackOpBind",
+    "ConnectorPackOpCatalogAuthorityStatus",
+    "ConnectorPackOpCatalogOwnerPrincipal",
     "ConnectorPackOpImport",
     "ConnectorPackOpReconcileBodies",
+    "ConnectorPackOpReconcileCatalog",
     "ConnectorPackOpReproject",
     "ConnectorPackOpRetire",
     "ConnectorPackOpStatus",
@@ -22557,8 +23308,11 @@ __all__ = [
     "DecisionCommitRequest",
     "DecisionCommitResult",
     "DecisionEvalOp",
+    "DecisionEvalOpReceipt",
+    "DecisionEvalOpReceipts",
     "DecisionEvalOpStatus",
     "DecisionEvalOpSubmit",
+    "DecisionEvalOpTimeline",
     "DecisionEvalReceipt",
     "DecisionEvalRequest",
     "DecisionFitOp",
@@ -22604,7 +23358,14 @@ __all__ = [
     "DecisionPolicyRefDefault",
     "DecisionPolicyRefPinned",
     "DecisionQuestion",
+    "DecisionReceiptGetRequest",
+    "DecisionReceiptListRequest",
+    "DecisionReceiptPage",
+    "DecisionReceiptTimelineEntry",
+    "DecisionReceiptTimelinePage",
+    "DecisionReceiptTimelineRequest",
     "DecisionRecord",
+    "DecisionThresholdAssessment",
     "DecisionTree",
     "DeclaredCost",
     "DeclaredLatency",
@@ -22739,6 +23500,7 @@ __all__ = [
     "ElevationStanding",
     "ElevationStatus",
     "Elimination",
+    "EnrichmentBudgetReservation",
     "EntityMatchRow",
     "EntityResolutionMiningResult",
     "EntryInputs",
@@ -23221,6 +23983,8 @@ __all__ = [
     "MaterializationCursor",
     "MaterializationPhase",
     "MaterializationStatusResult",
+    "McpCatalogAuthorityStatusRequest",
+    "McpCatalogReconcileRequest",
     "McpCatalogSnapshotBinding",
     "MergeProposal",
     "MerkleInclusionReport",
@@ -24706,6 +25470,58 @@ __all__ = [
     "SemanticGenerationDependencyNone",
     "SemanticGenerationMember",
     "SemanticGraphProjectionManifest",
+    "SemanticIndexApproval",
+    "SemanticIndexCommand",
+    "SemanticIndexCommandSemanticBindingCreate",
+    "SemanticIndexCommandSemanticBindingDisable",
+    "SemanticIndexCommandSemanticBindingDrop",
+    "SemanticIndexCommandSemanticBindingGet",
+    "SemanticIndexCommandSemanticBindingList",
+    "SemanticIndexCommandSemanticBindingRefresh",
+    "SemanticIndexCommandSemanticQueueStatus",
+    "SemanticIndexCommandSemanticSearch",
+    "SemanticIndexError",
+    "SemanticIndexErrorActivePointerMismatch",
+    "SemanticIndexErrorApprovalDigestMismatch",
+    "SemanticIndexErrorApprovalExpired",
+    "SemanticIndexErrorApprovalOperationMismatch",
+    "SemanticIndexErrorApprovalRequired",
+    "SemanticIndexErrorAuthorizationContextMismatch",
+    "SemanticIndexErrorAuthorizationReceiptMismatch",
+    "SemanticIndexErrorBindingStateMismatch",
+    "SemanticIndexErrorCallerSetBindingState",
+    "SemanticIndexErrorCanonicalRecordTooLarge",
+    "SemanticIndexErrorDeadLetterIdentityMismatch",
+    "SemanticIndexErrorDigestMismatch",
+    "SemanticIndexErrorDuplicateSourceEntity",
+    "SemanticIndexErrorGenerationCheckpointMismatch",
+    "SemanticIndexErrorGenerationEntitySetMismatch",
+    "SemanticIndexErrorGenerationIncomplete",
+    "SemanticIndexErrorGenerationMismatch",
+    "SemanticIndexErrorGraphProjectionManifestMismatch",
+    "SemanticIndexErrorIndexManifestMismatch",
+    "SemanticIndexErrorInvalidBindingStateTransition",
+    "SemanticIndexErrorInvalidField",
+    "SemanticIndexErrorLineageMismatch",
+    "SemanticIndexErrorMaintainedIndexUnavailable",
+    "SemanticIndexErrorMalformedCanonicalRecord",
+    "SemanticIndexErrorMutationReceiptRequired",
+    "SemanticIndexErrorNonCanonicalRecord",
+    "SemanticIndexErrorOperationResultMismatch",
+    "SemanticIndexErrorPartialMutationOutcome",
+    "SemanticIndexErrorPolicyUnresolved",
+    "SemanticIndexErrorPredecessorIncomplete",
+    "SemanticIndexErrorPredecessorReceiptMismatch",
+    "SemanticIndexErrorProgressReceiptMismatch",
+    "SemanticIndexErrorSearchProbeModelMismatch",
+    "SemanticIndexErrorSourceManifestMismatch",
+    "SemanticIndexErrorSourceRevisionStale",
+    "SemanticIndexErrorStageArtifactMismatch",
+    "SemanticIndexErrorStageScopeMismatch",
+    "SemanticIndexErrorUnmanagedBindingResource",
+    "SemanticIndexErrorUnsupportedAnnMetricPair",
+    "SemanticIndexErrorUnsupportedSelector",
+    "SemanticIndexErrorVectorBindingMismatch",
     "SemanticIndexFilter",
     "SemanticIndexOp",
     "SemanticIndexOpAdmitBinding",
@@ -24719,6 +25535,7 @@ __all__ = [
     "SemanticIndexOpCompleteSqlSourceStage",
     "SemanticIndexOpCompleteStage",
     "SemanticIndexOpDropBinding",
+    "SemanticIndexOpGetBindingRequest",
     "SemanticIndexOpListBindings",
     "SemanticIndexOpLiveGeneration",
     "SemanticIndexOpRefreshBinding",
@@ -24729,6 +25546,21 @@ __all__ = [
     "SemanticIndexOpSubscribeStageConsumer",
     "SemanticIndexOpTransitionBinding",
     "SemanticIndexOpValidateStageLease",
+    "SemanticIndexOperation",
+    "SemanticIndexOutcome",
+    "SemanticIndexOutcomeAccepted",
+    "SemanticIndexOutcomeDeferredBackpressured",
+    "SemanticIndexOutcomeNotFound",
+    "SemanticIndexOutcomePartial",
+    "SemanticIndexOutcomeRejected",
+    "SemanticIndexRequest",
+    "SemanticIndexResponse",
+    "SemanticIndexResult",
+    "SemanticIndexResultBinding",
+    "SemanticIndexResultBindingList",
+    "SemanticIndexResultEmpty",
+    "SemanticIndexResultQueueStatus",
+    "SemanticIndexResultSearch",
     "SemanticLexicalIndexIdentity",
     "SemanticLexicalIndexManifest",
     "SemanticLexicalIndexSpec",
@@ -24738,8 +25570,14 @@ __all__ = [
     "SemanticPolicyComponents",
     "SemanticPolicyIdentity",
     "SemanticQueueClass",
+    "SemanticQueueStatus",
+    "SemanticSearchHit",
+    "SemanticSearchProbe",
+    "SemanticSearchProbeCanonicalText",
+    "SemanticSearchProbeVector",
     "SemanticSearchResult",
     "SemanticSearchResultValueItem",
+    "SemanticSelectorKind",
     "SemanticSourceSelector",
     "SemanticSourceSelectorAgentLibraryComposite",
     "SemanticSourceSelectorCanonicalTextAsset",

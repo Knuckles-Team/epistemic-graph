@@ -183,6 +183,7 @@ fn apply_checkpoint_dump(
             .map_err(|_| checkpoint_resource_refusal())?;
     }
     work_item_capability::clear_graph_rows(write, graph)?;
+    super::enrichment_budget::clear_graph_rows(write, graph)?;
 
     let mut tables = GraphRowTables::open(member)?;
     clear_graph_rows(

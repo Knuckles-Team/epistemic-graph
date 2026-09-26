@@ -7,7 +7,7 @@ use super::consensus::authoritative_now_ms;
 #[cfg(feature = "raft")]
 use super::consensus::is_replicated_apply;
 #[cfg(all(test, feature = "ast"))]
-use super::request_boundary::{decode_ast_files, AstInputLimits};
+use super::request_boundary::{decode_ast_files, decode_ast_sources, AstInputLimits};
 #[cfg(test)]
 use super::request_boundary::{decode_screen_observation, dispatch, preflight_request_msgpack};
 use super::*;
@@ -27,6 +27,10 @@ mod native_routes;
 mod pipeline;
 // EH-280 — the durable, graph-scoped route of a branch-aware IndexRepository.
 mod repository_index;
+#[cfg(all(feature = "ast", feature = "redb", feature = "blob", feature = "raft"))]
+pub(crate) use repository_index::plan_held_underfunded_park;
+#[cfg(all(feature = "ast", feature = "redb", feature = "blob"))]
+pub(crate) use repository_index::{drain_repository_enrichment_once, DrainOutcome};
 mod work_governance;
 use dispatch_helpers::*;
 #[cfg(any(
@@ -294,6 +298,12 @@ mod ast_input_hardening_tests {
             ("a.rs".to_string(), serde_bytes::ByteBuf::from(vec![2])),
         ]);
         assert!(decode_ast_files(&duplicate, limits()).is_err());
+        // Content-keyed (scoped) decoding keeps both entries in order.
+        let sources = decode_ast_sources(&duplicate, limits()).expect("content-keyed sources");
+        assert_eq!(
+            sources,
+            vec![("a.rs".to_string(), vec![1]), ("a.rs".to_string(), vec![2])]
+        );
 
         // array32 with a huge declared count and no entries: rejection happens
         // before allocation or element decoding.

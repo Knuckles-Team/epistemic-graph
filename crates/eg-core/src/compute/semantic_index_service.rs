@@ -1088,6 +1088,24 @@ impl SemanticIndexService {
         Ok(Self { store })
     }
 
+    /// Resolve a scope already present in a migrated tenant owner. This is a
+    /// lower-layer composition prerequisite, not a request route: the server
+    /// keeps v3 disabled until a trusted transition receipt can authorize it.
+    /// In particular this constructor cannot create a missing binding scope.
+    #[allow(dead_code)] // serving activation is deliberately held at the server boundary
+    pub(crate) fn open_tenant(
+        path: &Path,
+        verifier: Arc<dyn ScopeGrantVerifier>,
+        principal: &str,
+        proof: &[u8],
+        tenant: &str,
+        binding: &str,
+    ) -> Result<Self, SemanticCodeError> {
+        let store =
+            SemanticCodeStore::open_tenant(path, verifier, principal, proof, tenant, binding)?;
+        Ok(Self { store })
+    }
+
     /// Persist a validated binding and publish its durable creation event.
     ///
     /// `pub`, not `pub(crate)`: the un-operation-bound sibling of

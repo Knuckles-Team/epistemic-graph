@@ -21,7 +21,7 @@ use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{
     DatasetSource, DecisionReceiptPage, DecisionReceiptTimelineEntry, DecisionReceiptTimelinePage,
-    LabelRegime,
+    DecisionThresholdAssessment, LabelRegime,
 };
 use eg_types::decision::replay::{EvalMode, ReplaySpec};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
@@ -30,9 +30,9 @@ use eg_types::decision::statistical::features::FeatureSchemaBody;
 use eg_types::decision::statistical::head::DecisionHeadBody;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::{
-    DecisionEvalOp, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest, DecisionJobKind,
-    DecisionJobOutput, DecisionJobRecord, DecisionJobState, EvalCandidate,
-    DECISION_JOB_SCHEMA_VERSION,
+    DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
+    DecisionJobKind, DecisionJobOutput, DecisionJobRecord, DecisionJobState, EvalCandidate,
+    StatisticalPolicy, DECISION_JOB_SCHEMA_VERSION,
 };
 
 use super::stat_log::{logged_dataset, LogReader};
@@ -43,7 +43,8 @@ use crate::protocol::{Response, ResultPayload};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::{
-    decode_artifact, draft_key, encode_artifact, job_key, receipt_key, receipt_time_key,
+    decode_artifact, draft_key, encode_artifact, job_key, receipt_key, receipt_threshold_key,
+    receipt_time_key,
 };
 
 /// The label a failed blocking store task names.
@@ -334,6 +335,43 @@ fn eval_inputs(
     })
 }
 
+pub(super) fn threshold_assessment(
+    receipt: &DecisionEvalReceipt,
+    policy: &StatisticalPolicy,
+) -> Option<DecisionThresholdAssessment> {
+    if receipt.synthetic
+        || !receipt.calibration.as_ref().is_some_and(|calibration| {
+            !calibration.synthetic
+                && calibration.method == eg_types::decision::CalibrationMethod::Conformal
+        })
+    {
+        return None;
+    }
+    let metrics = receipt.metrics?;
+    let insufficient_support = metrics.n_items < policy.n_min;
+    let coverage_below_policy = (!insufficient_support).then(|| {
+        let lower = metrics.coverage_lower;
+        u128::from(lower.numerator()) * u128::from(policy.alpha.denominator())
+            < u128::from(policy.alpha.denominator() - policy.alpha.numerator())
+                * u128::from(lower.denominator())
+    });
+    let act_risk_above_policy = (!insufficient_support && metrics.acted > 0).then(|| {
+        let upper = metrics.act_risk_upper;
+        u128::from(upper.numerator()) * u128::from(policy.epsilon.denominator())
+            > u128::from(policy.epsilon.numerator()) * u128::from(upper.denominator())
+    });
+    Some(DecisionThresholdAssessment {
+        policy_digest: receipt.policy_digest.clone(),
+        alpha: policy.alpha,
+        epsilon: policy.epsilon,
+        delta: policy.delta,
+        n_min: policy.n_min,
+        insufficient_support,
+        coverage_below_policy,
+        act_risk_above_policy,
+    })
+}
+
 fn run_eval(inputs: &EvalInputs, request: &DecisionEvalRequest) -> JobRun {
     let admitted = inputs.admitted(request.window);
     let head_digest = content_digest_of(&canonical_body_bytes(&inputs.head)?);
@@ -352,15 +390,24 @@ fn run_eval(inputs: &EvalInputs, request: &DecisionEvalRequest) -> JobRun {
         &spec,
     )
     .map_err(|r| r.render())?;
-    let row = (
+    if receipt.policy_digest != inputs.policy.digest {
+        return Err("CORRUPT_DECISION_ARTIFACT: evaluation policy digest mismatch".into());
+    }
+    let mut rows = vec![(
         receipt_key(&receipt.receipt_digest),
         encode_artifact(&receipt)?,
-    );
+    )];
+    if let Some(assessment) = threshold_assessment(&receipt, &inputs.policy.statistical) {
+        rows.push((
+            receipt_threshold_key(&receipt.receipt_digest),
+            encode_artifact(&assessment)?,
+        ));
+    }
     Ok((
         DecisionJobOutput::Eval {
             receipt: Box::new(receipt),
         },
-        vec![row],
+        rows,
     ))
 }
 
@@ -414,6 +461,24 @@ fn terminal(outcome: JobRun) -> (DecisionJobState, ArtifactRows) {
     }
 }
 
+fn pending_threshold(
+    job: &DecisionJobRecord,
+    rows: &ArtifactRows,
+) -> Result<Option<DecisionThresholdAssessment>, String> {
+    let DecisionJobState::Succeeded { output } = &job.state else {
+        return Ok(None);
+    };
+    let DecisionJobOutput::Eval { receipt } = output.as_ref() else {
+        return Ok(None);
+    };
+    rows.iter()
+        .find(|(key, _)| key == &receipt_threshold_key(&receipt.receipt_digest))
+        .map(|(_, bytes)| {
+            decode_artifact::<DecisionThresholdAssessment>(bytes, "decision threshold assessment")
+        })
+        .transpose()
+}
+
 /// Run a job to its terminal state and persist it with its artifacts.
 fn submit_job(
     store: &AgentLibraryStore,
@@ -446,7 +511,9 @@ fn submit_job(
         DecisionJobState::Queued | DecisionJobState::Running | DecisionJobState::Cancelled => {}
     }
     rows.push((job_key(&identity.job_id), encode_artifact(&job)?));
+    let threshold = pending_threshold(&job, &rows)?;
     store.put_decision_artifacts(&identity.tenant_id, &rows)?;
+    telemetry::threshold_assessed(threshold.as_ref());
     Ok(job)
 }
 
@@ -640,9 +707,27 @@ async fn serve_eval(
                 {
                     return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline receipt".into());
                 }
+                let threshold_alert = store
+                    .decision_artifact(&request.tenant_id, &receipt_threshold_key(digest))?
+                    .map(|bytes| {
+                        decode_artifact::<DecisionThresholdAssessment>(
+                            &bytes,
+                            "decision threshold assessment",
+                        )
+                    })
+                    .transpose()?;
+                if threshold_alert
+                    .as_ref()
+                    .is_some_and(|assessment| assessment.policy_digest != receipt.policy_digest)
+                {
+                    return Err(
+                        "CORRUPT_DECISION_ARTIFACT: threshold policy digest mismatch".into(),
+                    );
+                }
                 entries.push(DecisionReceiptTimelineEntry {
                     submitted_at_ms,
                     receipt,
+                    threshold_alert,
                 });
                 last_cursor = Some(cursor.to_string());
             }
@@ -679,6 +764,117 @@ fn respond(
             telemetry::refused(method, &error);
             Response::err(req_id, error)
         }
+    }
+}
+
+#[cfg(test)]
+mod threshold_tests {
+    use eg_types::contract::BoundedVec;
+    use eg_types::decision::jobs::{FullLabelMetrics, LabelExclusions};
+    use eg_types::decision::{
+        CalibrationMethod, CalibrationStatement, DecisionEvalReceipt, QuantScaleTag,
+        QuantisedValue, UnitRationalWire,
+    };
+
+    use super::threshold_assessment;
+    use crate::server::handlers::decide::stat_support::default_statistical_policy;
+
+    fn ratio(numerator: u64, denominator: u64) -> UnitRationalWire {
+        UnitRationalWire::new(numerator, denominator).unwrap()
+    }
+
+    fn receipt() -> DecisionEvalReceipt {
+        DecisionEvalReceipt {
+            receipt_digest: "sha256:receipt".into(),
+            head_digest: "sha256:head".into(),
+            policy_digest: "sha256:policy".into(),
+            n_records: 100,
+            estimates: BoundedVec::default(),
+            calibration: Some(CalibrationStatement {
+                method: CalibrationMethod::Conformal,
+                alpha: Some(ratio(1, 10)),
+                coverage_lower: Some(ratio(9, 10)),
+                coverage_upper: Some(ratio(1, 1)),
+                n_calibration: 100,
+                synthetic: false,
+            }),
+            metrics: Some(FullLabelMetrics {
+                n_items: 100,
+                top1_hits: 95,
+                log_loss: QuantisedValue {
+                    scale: QuantScaleTag::Q32,
+                    value: 0,
+                },
+                brier: QuantisedValue {
+                    scale: QuantScaleTag::Q32,
+                    value: 0,
+                },
+                expected_calibration_error: QuantisedValue {
+                    scale: QuantScaleTag::Q32,
+                    value: 0,
+                },
+                covered: 95,
+                coverage_lower: ratio(9, 10),
+                coverage_upper: ratio(1, 1),
+                acted: 100,
+                acted_wrong: 1,
+                act_risk_upper: ratio(1, 20),
+                set_size_total: 100,
+            }),
+            promotion: None,
+            exclusions: LabelExclusions::default(),
+            pooled: BoundedVec::default(),
+            failed_gates: BoundedVec::default(),
+            passed: true,
+            synthetic: false,
+        }
+    }
+
+    #[test]
+    fn assessment_uses_exact_historical_policy_boundaries() {
+        let policy = default_statistical_policy();
+        let mut receipt = receipt();
+        let at_boundary = threshold_assessment(&receipt, &policy).unwrap();
+        assert_eq!(at_boundary.policy_digest, receipt.policy_digest);
+        assert_eq!(at_boundary.coverage_below_policy, Some(false));
+        assert_eq!(at_boundary.act_risk_above_policy, Some(false));
+
+        let metrics = receipt.metrics.as_mut().unwrap();
+        metrics.coverage_lower = ratio(899, 1000);
+        metrics.act_risk_upper = ratio(51, 1000);
+        let breached = threshold_assessment(&receipt, &policy).unwrap();
+        assert_eq!(breached.coverage_below_policy, Some(true));
+        assert_eq!(breached.act_risk_above_policy, Some(true));
+    }
+
+    #[test]
+    fn assessment_withholds_low_support_and_unacted_risk() {
+        let policy = default_statistical_policy();
+        let mut receipt = receipt();
+        receipt.metrics.as_mut().unwrap().n_items = policy.n_min - 1;
+        let low = threshold_assessment(&receipt, &policy).unwrap();
+        assert!(low.insufficient_support);
+        assert_eq!(low.coverage_below_policy, None);
+        assert_eq!(low.act_risk_above_policy, None);
+
+        receipt.metrics.as_mut().unwrap().n_items = policy.n_min;
+        receipt.metrics.as_mut().unwrap().acted = 0;
+        let unacted = threshold_assessment(&receipt, &policy).unwrap();
+        assert_eq!(unacted.coverage_below_policy, Some(false));
+        assert_eq!(unacted.act_risk_above_policy, None);
+
+        receipt.synthetic = true;
+        assert!(threshold_assessment(&receipt, &policy).is_none());
+        receipt.synthetic = false;
+        receipt.calibration.as_mut().unwrap().synthetic = true;
+        assert!(threshold_assessment(&receipt, &policy).is_none());
+        receipt.calibration.as_mut().unwrap().synthetic = false;
+        receipt.calibration.as_mut().unwrap().method = CalibrationMethod::Temperature;
+        assert!(threshold_assessment(&receipt, &policy).is_none());
+        receipt.calibration = None;
+        assert!(threshold_assessment(&receipt, &policy).is_none());
+        receipt.metrics = None;
+        assert!(threshold_assessment(&receipt, &policy).is_none());
     }
 }
 

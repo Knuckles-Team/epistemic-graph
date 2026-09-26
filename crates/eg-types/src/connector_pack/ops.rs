@@ -1,12 +1,14 @@
 //! The `Method::ConnectorPack` operation set.
 //!
-//! One read (`status`), one bulk import, and five administrative operations.
+//! Three reads (`status`, `catalog_authority_status`, `catalog_owner_principal`), one bulk import, and
+//! administrative operations.
 //! The read/write split and the authorization action both live on the op, so
 //! the capability ledger and `server::access::requires_write` cannot drift
 //! apart about an operation.
 
 use serde::{Deserialize, Serialize};
 
+use super::catalog_authority::{McpCatalogAuthorityStatusRequest, McpCatalogReconcileRequest};
 use super::index::ConnectorPackIndex;
 use crate::agent_library::AgentLibraryMutationContext;
 use crate::contract::{BoundedVec, Digest256, ResourceId};
@@ -120,12 +122,28 @@ pub enum ConnectorPackOp {
     ReconcileBodies {
         request: ConnectorPackReconcileRequest,
     },
+    ReconcileCatalog {
+        request: McpCatalogReconcileRequest,
+    },
+    CatalogAuthorityStatus {
+        request: McpCatalogAuthorityStatusRequest,
+    },
+    /// Read the live owner principal only after proving this caller's scoped
+    /// mounted-child authority row exists for the requested tenant/server.
+    CatalogOwnerPrincipal {
+        request: McpCatalogAuthorityStatusRequest,
+    },
 }
 
 impl ConnectorPackOp {
-    /// Whether this operation commits durable state. Only `status` reads.
+    /// Whether this operation commits durable state.
     pub fn is_mutation(&self) -> bool {
-        !matches!(self, Self::Status { .. })
+        !matches!(
+            self,
+            Self::Status { .. }
+                | Self::CatalogAuthorityStatus { .. }
+                | Self::CatalogOwnerPrincipal { .. }
+        )
     }
 
     /// The authorization action this operation needs.
@@ -144,6 +162,9 @@ impl ConnectorPackOp {
             | Self::Retire { .. }
             | Self::Reproject { .. }
             | Self::ReconcileBodies { .. } => "admin:connector-pack",
+            Self::ReconcileCatalog { .. } => "admin:connector-pack",
+            Self::CatalogAuthorityStatus { .. } => "connector:catalog-attest",
+            Self::CatalogOwnerPrincipal { .. } => "agent:pack-control",
         }
     }
 
@@ -158,6 +179,9 @@ impl ConnectorPackOp {
             Self::Retire { request } => &request.context.tenant_id,
             Self::Reproject { request } => &request.context.tenant_id,
             Self::ReconcileBodies { request } => &request.context.tenant_id,
+            Self::ReconcileCatalog { request } => &request.context.tenant_id,
+            Self::CatalogAuthorityStatus { request } => &request.tenant_id,
+            Self::CatalogOwnerPrincipal { request } => &request.tenant_id,
         }
     }
 
@@ -172,6 +196,9 @@ impl ConnectorPackOp {
             Self::Retire { request } => Some(&request.connector),
             Self::Reproject { request } => Some(&request.connector),
             Self::ReconcileBodies { .. } => None,
+            Self::ReconcileCatalog { .. } => None,
+            Self::CatalogAuthorityStatus { .. } => None,
+            Self::CatalogOwnerPrincipal { .. } => None,
         }
     }
 }

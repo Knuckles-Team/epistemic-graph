@@ -32,11 +32,38 @@ const POLICY_VERSION: &str = "repository-index";
 /// The verified request coordinates one scoped commit is compiled under.
 pub(crate) type IndexCommitContext<'a> = crate::server::mutation_batch::GraphWriteScope<'a>;
 
+/// A batch that lowers past the mutation batch's operation budget is refused
+/// with this code BEFORE compilation: it commits as ONE atomic envelope or not
+/// at all, and the source transport halves it and re-sends.
+pub(crate) const BATCH_TOO_LARGE: &str = "REPOSITORY_BATCH_TOO_LARGE";
+
+/// Encoded write-set bounds, under the durable ledger's per-record budget
+/// (64 MiB / 1 000 000 MessagePack items) with room for the envelope.
+const MAX_WRITE_SET_BYTES: usize = 48 * 1024 * 1024;
+const MAX_WRITE_SET_ITEMS: usize = 900_000;
+const RECORD_ITEMS_PER_OPERATION: usize = 10;
+
 /// The lowered, digest-keyed write-set of one scoped result.
 pub(crate) struct IndexWriteSet {
     pub envelope_id: String,
     digest: Digest256,
     methods: Vec<Method>,
+}
+
+/// What a property value holding host identity is stored as.
+pub(crate) const REDACTED_HOST_IDENTITY: &str = "[redacted: host identity]";
+
+/// The value as stored: repository content may quote an e-mail address or an
+/// absolute host path (a `pyproject.toml` author, a docstring). The
+/// repository-snapshot rule refuses such text, and one quoted address must not
+/// refuse a whole repository batch, so the VALUE is replaced; the rule itself
+/// is unchanged and still screens every committed value.
+fn stored_value(value: &str) -> &str {
+    if eg_types::change_envelope::admits_repository_text(value) {
+        value
+    } else {
+        REDACTED_HOST_IDENTITY
+    }
 }
 
 /// Properties are re-keyed into a `BTreeMap` so the encoding -- and therefore
@@ -48,7 +75,7 @@ fn encode_properties(
 ) -> Result<Vec<u8>, String> {
     let mut ordered: BTreeMap<&str, &str> = properties
         .iter()
-        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .map(|(key, value)| (key.as_str(), stored_value(value)))
         .collect();
     ordered.insert(kind_key, kind);
     rmp_serde::to_vec_named(&ordered)
@@ -93,12 +120,38 @@ pub(crate) fn lower(result: &IndexResult) -> Result<IndexWriteSet, String> {
     }
     let encoded = rmp_serde::to_vec_named(&methods)
         .map_err(|error| format!("repository index write-set encoding failed: {error}"))?;
+    check_commit_budget(&encoded, methods.len())?;
     let digest = Digest256::framed(b"eg/repository-index-batch", &[&encoded])?;
     Ok(IndexWriteSet {
         envelope_id: format!("{ENVELOPE_PREFIX}{}", digest.to_hex()),
         digest,
         methods,
     })
+}
+
+/// A batch commits as ONE atomic envelope or is refused whole with
+/// [`BATCH_TOO_LARGE`] so the source re-sizes it: past the mutation batch's
+/// operation budget, or when the committed batch record would not decode
+/// under the durable ledger's record budget (eg-storage: 64 MiB / 1M items;
+/// each stored operation wraps its method in about ten more items).
+fn check_commit_budget(encoded: &[u8], operations: usize) -> Result<(), String> {
+    let limit = eg_types::mutation_batch::MAX_MUTATION_OPERATIONS;
+    let items = MAX_WRITE_SET_ITEMS.saturating_sub(operations * RECORD_ITEMS_PER_OPERATION);
+    let record_budget = eg_types::msgpack::MsgpackLimits::new(
+        MAX_WRITE_SET_BYTES,
+        items,
+        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+    );
+    if operations <= limit
+        && eg_types::msgpack::validate_single_value(encoded, record_budget).is_ok()
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "{BATCH_TOO_LARGE}: the batch lowers to {operations} graph operations, past one \
+         atomic commit's budget ({limit} operations, the durable record size); submit \
+         fewer blobs per batch"
+    ))
 }
 
 fn policy(object_id: &str, tenant: &str) -> Result<PolicyRecord, String> {
@@ -121,12 +174,22 @@ pub(crate) fn build_envelope(
     ctx: &IndexCommitContext<'_>,
     write_set: IndexWriteSet,
 ) -> Result<ChangeEnvelope, String> {
+    build_envelope_with_outbox(ctx, write_set, Vec::new())
+}
+
+/// Compile repository rows and its bounded enrichment intent as one commit.
+/// The compiler includes the outbox bytes in the canonical payload digest.
+pub(crate) fn build_envelope_with_outbox(
+    ctx: &IndexCommitContext<'_>,
+    write_set: IndexWriteSet,
+    outbox: Vec<eg_types::mutation_batch::MutationOutboxIntent>,
+) -> Result<ChangeEnvelope, String> {
     let IndexWriteSet {
         envelope_id,
         digest,
         methods,
     } = write_set;
-    let mutation = ctx.compile(&envelope_id, methods)?;
+    let mutation = ctx.compile_with_outbox(&envelope_id, methods, outbox)?;
     seal(mutation, envelope_id, &digest, ctx.tenant_scope)
 }
 

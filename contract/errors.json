@@ -398,6 +398,84 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "ELEVATION_COLLISION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_DELEGATED_APPROVER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_DIGEST_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_LEDGER_FULL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_NOT_APPROVER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_NOT_FOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_NOT_PARTY",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_RESERVED_GRAPH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_SELF_APPROVAL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_UNKNOWN_ACTOR",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "ELEVATION_WILDCARD",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "availability",
       "code": "ENGINE_DEADLINE_EXCEEDED",
       "http_status_hint": 504,

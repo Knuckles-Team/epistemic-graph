@@ -92,6 +92,7 @@ mod shard_control_tests;
 pub(crate) mod capacity_lease;
 #[cfg(feature = "redb")]
 pub(crate) mod development_lane;
+pub(crate) mod enrichment_budget;
 /// Bounded background node-payload scrub (EH-384).
 #[cfg(feature = "redb")]
 pub(crate) mod scrub;
@@ -1501,6 +1502,7 @@ mod mutation_batch_tests {
                 graph_fname,
                 batch,
                 change: None,
+                source_budget: None,
                 authoritative_state_msgpack: None,
                 crossmodal: None,
                 result_msgpack: Some(&[0x81, 0xa2, b'o', b'k']),
@@ -1556,6 +1558,7 @@ mod mutation_batch_tests {
                 graph_fname: "graph-a",
                 batch,
                 change: None,
+                source_budget: None,
                 authoritative_state_msgpack: None,
                 crossmodal: Some(CrossModalBatchRows {
                     methods,
@@ -4909,6 +4912,7 @@ mod mutation_batch_tests {
                 graph_fname: "graph-a",
                 batch: &mutation,
                 change: None,
+                source_budget: None,
                 authoritative_state_msgpack: Some(&state),
                 crossmodal: None,
                 result_msgpack: None,
@@ -5376,6 +5380,31 @@ mod mutation_batch_tests {
             #[cfg(feature = "security")]
             &mut audit,
         )
+    }
+
+    #[test]
+    fn generic_change_envelope_cannot_seed_repository_budget() {
+        let db = open(&temp_path("untrusted-budget-seed"));
+        let mut envelope = governed_envelope("change-batch-1", "change-key-1", 1);
+        envelope.mutation.outbox.push(MutationOutboxIntent {
+            topic: "repository.enrichment.pending".into(),
+            key: envelope.envelope_id.clone(),
+            payload: vec![0x80],
+            headers: Default::default(),
+        });
+        envelope
+            .mutation
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .unwrap();
+        commit_envelope_at(&db, &envelope).unwrap();
+        assert!(enrichment_budget::read(
+            &db,
+            "graph-a",
+            &envelope.envelope_id,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .is_none());
     }
 
     #[test]

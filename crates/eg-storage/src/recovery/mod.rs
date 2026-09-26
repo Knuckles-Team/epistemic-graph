@@ -4,4 +4,5 @@ pub(crate) mod adopt;
 pub(crate) mod authority;
 pub(crate) mod backup;
 pub(crate) mod evidence;
+pub(crate) mod semantic_merge;
 pub(crate) mod validate;

@@ -242,6 +242,11 @@ fn embed_text_array(embed: &EmbedFn, array: &dyn Array) -> DfResult<ListArray> {
         let v = embed(texts.value(i)).map_err(|e| {
             DataFusionError::Execution(format!("{EG_EMBED_FN}: embedder failed: {e}"))
         })?;
+        if v.is_empty() || v.iter().any(|value| !value.is_finite()) {
+            return Err(DataFusionError::Execution(format!(
+                "{EG_EMBED_FN}: embedder returned an empty or non-finite vector"
+            )));
+        }
         out.values().append_slice(&v);
         out.append(true);
     }
@@ -255,6 +260,26 @@ mod tests {
     use arrow::datatypes::Schema;
     use datafusion::datasource::MemTable;
     use datafusion::prelude::SessionContext;
+
+    #[tokio::test]
+    async fn sql_rejects_empty_and_nonfinite_model_vectors() {
+        for bad in [vec![], vec![f32::NAN], vec![f32::INFINITY]] {
+            let ctx = SessionContext::new();
+            let embed: EmbedFn = Arc::new(move |_| Ok(bad.clone()));
+            ctx.register_udf(eg_embed_udf_with(Some(embed)));
+            let error = match ctx.sql("SELECT eg_embed('query')").await {
+                Ok(plan) => plan
+                    .collect()
+                    .await
+                    .expect_err("invalid model vector must fail"),
+                Err(error) => error,
+            };
+            assert!(
+                error.to_string().contains("empty or non-finite vector"),
+                "{error}"
+            );
+        }
+    }
 
     /// A deterministic, dependency-free stand-in for a real model, mirroring
     /// `eg_plan::HashEmbedder` (which this crate cannot name — see the module doc's

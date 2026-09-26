@@ -9,7 +9,7 @@
 
 use std::time::Instant;
 
-use eg_types::decision::jobs::DecisionEvalReceipt;
+use eg_types::decision::jobs::{DecisionEvalReceipt, DecisionThresholdAssessment};
 use eg_types::decision::replay::EvaluationRun;
 use eg_types::decision::statistical::{StatisticalDecisionRecord, StatisticalOutcome};
 
@@ -102,6 +102,36 @@ pub(super) fn evaluated(receipt: &DecisionEvalReceipt, started: Instant) {
         failed_gates = %receipt.failed_gates.as_slice().join(","),
         latency_ms = started.elapsed().as_millis() as u64,
         "decision head evaluated"
+    );
+}
+
+/// Emit only after the full-label receipt and its pinned-policy assessment
+/// have committed. Idempotent job replays must not call this function.
+pub(super) fn threshold_assessed(assessment: Option<&DecisionThresholdAssessment>) {
+    let Some(assessment) = assessment else {
+        return;
+    };
+    fn result(value: Option<bool>) -> &'static str {
+        match value {
+            Some(true) => "breach",
+            Some(false) => "ok",
+            None => "unavailable",
+        }
+    }
+
+    let support = if assessment.insufficient_support {
+        "breach"
+    } else {
+        "ok"
+    };
+    crate::metrics::decision_threshold_assessed("support", support);
+    crate::metrics::decision_threshold_assessed(
+        "coverage",
+        result(assessment.coverage_below_policy),
+    );
+    crate::metrics::decision_threshold_assessed(
+        "act_risk",
+        result(assessment.act_risk_above_policy),
     );
 }
 

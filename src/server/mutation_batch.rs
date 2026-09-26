@@ -34,7 +34,8 @@ pub(crate) use compile::compile_opaque_method_in_scope;
 #[cfg(feature = "query")]
 pub(crate) use compile::compile_sql_source_batch;
 pub(crate) use compile::{
-    authoritative_graph_version, compile_crossmodal, compile_methods, CompileBatch,
+    authoritative_graph_version, compile_crossmodal, compile_methods, compile_methods_with_outbox,
+    CompileBatch,
 };
 #[cfg(feature = "redb")]
 pub(crate) use compile::{compile_opaque_digest, COMPILED_BATCH_INCARNATION};
@@ -78,8 +79,19 @@ impl GraphWriteScope<'_> {
         batch_id: &str,
         methods: Vec<crate::protocol::Method>,
     ) -> Result<crate::mutation_batch::MutationBatch, String> {
+        self.compile_with_outbox(batch_id, methods, Vec::new())
+    }
+
+    /// Compile graph rows and caller-supplied intents in one canonical batch.
+    /// The extra intents are included before the envelope digest is minted.
+    pub(crate) fn compile_with_outbox(
+        &self,
+        batch_id: &str,
+        methods: Vec<crate::protocol::Method>,
+        outbox: Vec<crate::mutation_batch::MutationOutboxIntent>,
+    ) -> Result<crate::mutation_batch::MutationBatch, String> {
         let principal = self.verified.principal_persistence_id();
-        compile_methods(
+        compile_methods_with_outbox(
             CompileBatch {
                 batch_id,
                 request_id: self.request_id,
@@ -96,6 +108,7 @@ impl GraphWriteScope<'_> {
                 authoritative_state: None,
             },
             methods,
+            outbox,
         )
     }
 }

@@ -124,6 +124,20 @@ pub(crate) const CAPACITY_USAGE: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("capacity_usage");
 pub(crate) const CAPACITY_IDEMPOTENCY: TableDefinition<'static, (&str, &str, &str), &[u8]> =
     TableDefinition::new("capacity_idempotency");
+pub(crate) const REPOSITORY_ENRICHMENT_BUDGETS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("repository_enrichment_budgets");
+pub(crate) const REPOSITORY_ENRICHMENT_POLICY_REVISIONS: TableDefinition<
+    'static,
+    (&str, &str),
+    &[u8],
+> = TableDefinition::new("repository_enrichment_policy_revisions");
+pub(crate) const REPOSITORY_ENRICHMENT_SUPERSESSIONS: TableDefinition<
+    'static,
+    (&str, &str),
+    &[u8],
+> = TableDefinition::new("repository_enrichment_supersessions");
+pub(crate) const REPOSITORY_ENRICHMENT_PARKS: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("repository_enrichment_parks");
 
 // -- work-item claim capability -------------------------------------------
 pub(crate) const WORK_ITEM_CLAIM_CAPABILITIES: TableDefinition<'static, (&str, &str), &[u8]> =
@@ -225,6 +239,10 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::CAPACITY_LEASES);
         $visit!(shard::CAPACITY_USAGE);
         $visit!(shard::CAPACITY_IDEMPOTENCY);
+        $visit!(shard::REPOSITORY_ENRICHMENT_BUDGETS);
+        $visit!(shard::REPOSITORY_ENRICHMENT_POLICY_REVISIONS);
+        $visit!(shard::REPOSITORY_ENRICHMENT_SUPERSESSIONS);
+        $visit!(shard::REPOSITORY_ENRICHMENT_PARKS);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITIES);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS);
         $visit!(shard::NATIVE_WORK_ITEM_AUTHORITY);
@@ -285,6 +303,10 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
     "capacity_leases",
     "capacity_usage",
     "capacity_idempotency",
+    "repository_enrichment_budgets",
+    "repository_enrichment_policy_revisions",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
     "work_item_claim_capabilities",
     "work_item_claim_capability_invocations",
     "native_work_item_authority",
@@ -347,6 +369,7 @@ fn key_type_scalar_or_narrow_tuple(name: &str) -> Option<&'static str> {
         | "matviews"
         | "plan_matviews"
         | "matview_operator_state"
+        | "repository_enrichment_parks"
         | "encryption_canary"
         | "storage_scrub_cursor" => Some("&str"),
         "edges" => Some("(&str,&str,&str,u32)"),
@@ -391,6 +414,9 @@ fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
         | "capacity_cells"
         | "capacity_leases"
         | "capacity_usage"
+        | "repository_enrichment_budgets"
+        | "repository_enrichment_policy_revisions"
+        | "repository_enrichment_supersessions"
         | "work_item_claim_capabilities"
         | "work_item_claim_capability_invocations"
         | "native_work_item_authority"

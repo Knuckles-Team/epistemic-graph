@@ -16,6 +16,14 @@ mod material;
 pub use material::MaterialClass;
 use material::TextRule;
 
+/// Whether `value` passes the repository-snapshot material rule (no host
+/// identity: absolute host paths, file URIs, e-mail addresses). Producers of
+/// repository-snapshot envelopes use it to redact a value before lowering
+/// instead of having the whole envelope refused.
+pub fn admits_repository_text(value: &str) -> bool {
+    material::validate_repository_text(value).is_ok()
+}
+
 pub const CHANGE_ENVELOPE_VERSION: u16 = 1;
 
 /// Server cap on the number of envelopes one `ApplyChangeEnvelopes` batch may carry.
@@ -546,37 +554,40 @@ mod validation {
     fn validate_operations(envelope: &ChangeEnvelope) -> Result<(), String> {
         let rule = envelope.material_class.value_rule();
         for operation in &envelope.mutation.operations {
-            // The one place a carrier unwraps caller-supplied inner methods:
-            // engine-internal and native-kernel methods are refused, typed.
-            if let Some(refusal) = operation.method.carrier_refusal_message() {
-                return Err(refusal);
-            }
-            match &operation.method {
-                crate::protocol::Method::AddNode {
-                    node_id,
-                    properties_msgpack,
-                } => validate_op_add_node(node_id, properties_msgpack, rule)?,
-                crate::protocol::Method::AddEdge {
-                    source_id,
-                    target_id,
-                    properties_msgpack,
-                } => validate_op_add_edge(source_id, target_id, properties_msgpack, rule)?,
-                crate::protocol::Method::RemoveNode { node_id } => validate_safe_text(node_id)?,
-                crate::protocol::Method::CompareAndSetNodeFields {
-                    node_id,
-                    conditions_msgpack,
-                    updates_msgpack,
-                } => {
-                    validate_op_compare_and_set(node_id, conditions_msgpack, updates_msgpack, rule)?
-                }
-                crate::protocol::Method::RemoveEdge {
-                    source_id,
-                    target_id,
-                } => validate_op_remove_edge(source_id, target_id)?,
-                _ => {}
-            }
+            validate_operation(&operation.method, rule)
+                .map_err(|error| format!("operation {}: {error}", operation.ordinal))?;
         }
         Ok(())
+    }
+
+    fn validate_operation(method: &crate::protocol::Method, rule: TextRule) -> Result<(), String> {
+        // Carrier methods must never unwrap engine-internal or native operations.
+        if let Some(refusal) = method.carrier_refusal_message() {
+            return Err(refusal);
+        }
+        use crate::protocol::Method;
+        match method {
+            Method::AddNode {
+                node_id,
+                properties_msgpack,
+            } => validate_op_add_node(node_id, properties_msgpack, rule),
+            Method::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+            } => validate_op_add_edge(source_id, target_id, properties_msgpack, rule),
+            Method::RemoveNode { node_id } => validate_safe_text(node_id),
+            Method::CompareAndSetNodeFields {
+                node_id,
+                conditions_msgpack,
+                updates_msgpack,
+            } => validate_op_compare_and_set(node_id, conditions_msgpack, updates_msgpack, rule),
+            Method::RemoveEdge {
+                source_id,
+                target_id,
+            } => validate_op_remove_edge(source_id, target_id),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -689,7 +700,12 @@ fn validate_msgpack_material(bytes: &[u8], rule: TextRule) -> Result<(), String>
         bytes,
         crate::msgpack::MsgpackLimits::new(8 * 1024 * 1024, 200_000, 64),
     )
-    .map_err(|_| "inline material must be bounded valid MessagePack JSON".to_string())?;
+    .map_err(|_| {
+        format!(
+            "inline material must be bounded valid MessagePack JSON ({} bytes)",
+            bytes.len()
+        )
+    })?;
     let value: serde_json::Value = rmp_serde::from_slice(bytes)
         .map_err(|_| "inline material must be valid MessagePack JSON".to_string())?;
     validate_json_material(&value, rule)

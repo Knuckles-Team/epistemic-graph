@@ -9,6 +9,7 @@ use crate::owner::{
 use crate::physical::binding::ScopeBinding;
 use crate::physical::incarnation::StoreIncarnation;
 use crate::physical::manifest::OwnerManifest;
+use crate::physical::read_only::ReadOnlyStore;
 use crate::physical::root::PhysicalStore;
 use crate::recovery::validate::validate_recovery_content;
 use crate::tables::{
@@ -16,7 +17,8 @@ use crate::tables::{
 };
 use crate::StorageKernel;
 use redb::{
-    Key, ReadTransaction, ReadableTable, TableDefinition, TableHandle, Value, WriteTransaction,
+    Key, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition, TableHandle, Value,
+    WriteTransaction,
 };
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -39,6 +41,100 @@ pub struct StrictRecoveryEvidence {
 /// Per-table row counts and fingerprints over one owner file's whole census.
 pub fn strict_recovery_evidence(kernel: &StorageKernel) -> Result<StrictRecoveryEvidence, String> {
     strict_evidence_of(kernel.store())
+}
+
+/// Exact owner, scope-binding, replay-ledger and outbox census without a
+/// writable redb open. Offline migrations use this to pin their source bytes;
+/// a normal `StorageKernel::open_owner` can itself repair redb allocator state
+/// on drop and would invalidate a byte-for-byte inspection token.
+pub fn strict_recovery_evidence_read_only(
+    store: &ReadOnlyStore,
+    expected_identity: &PhysicalStoreIdentity,
+    layout: OwnerLayout,
+) -> Result<StrictRecoveryEvidence, String> {
+    store.validate_physical_root()?;
+    let rtx = store
+        .database()
+        .begin_read()
+        .map_err(|error| error.to_string())?;
+    crate::owner::manifest_io::validate_manifest_read(&rtx, expected_identity, layout)?;
+    let authenticate = |sealed: &[u8], digest: &str| store.authenticate_private(sealed, digest);
+    validate_recovery_content(store.incarnation(), &rtx, &authenticate)?;
+    validate_declared_owner_tables(&rtx, layout)?;
+    strict_snapshot_read(&rtx, layout)
+}
+
+/// Prove that a copied owner retained every logical scope identity, key and
+/// initial version while only rebinding the physical-root digest. Both stores
+/// must already have passed strict recovery validation.
+pub fn prove_scope_bindings_reanchored_read_only(
+    source: &ReadOnlyStore,
+    target: &ReadOnlyStore,
+) -> Result<(), String> {
+    let source_read = source
+        .database()
+        .begin_read()
+        .map_err(|error| error.to_string())?;
+    let target_read = target
+        .database()
+        .begin_read()
+        .map_err(|error| error.to_string())?;
+    let source_table = source_read
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let target_table = target_read
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let mut source_rows = source_table.iter().map_err(|error| error.to_string())?;
+    let mut target_rows = target_table.iter().map_err(|error| error.to_string())?;
+    loop {
+        match (source_rows.next(), target_rows.next()) {
+            (None, None) => return Ok(()),
+            (Some(Ok((source_key, source_value))), Some(Ok((target_key, target_value)))) => {
+                let source_binding: ScopeBinding = decode_ledger_record(source_value.value())?;
+                let target_binding: ScopeBinding = decode_ledger_record(target_value.value())?;
+                if source_key.value() != target_key.value()
+                    || source_binding.schema_version != target_binding.schema_version
+                    || source_binding.identity != target_binding.identity
+                    || source_binding.initial_version != target_binding.initial_version
+                    || source_binding.store_identity_digest
+                        != source.incarnation().identity_digest()
+                    || target_binding.store_identity_digest
+                        != target.incarnation().identity_digest()
+                {
+                    return Err("strict copy changed a logical scope binding".to_string());
+                }
+            }
+            (Some(Err(error)), _) | (_, Some(Err(error))) => return Err(error.to_string()),
+            _ => return Err("strict copy changed scope-binding cardinality".to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod read_only_census_tests {
+    use super::*;
+    use crate::{open_read_only, SemanticIndexOwner};
+
+    #[test]
+    fn semantic_read_only_census_matches_live_census_without_touching_source_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("semantic.redb");
+        let identity = PhysicalStoreIdentity::new("semantic:read-only-census").unwrap();
+        let live = StorageKernel::create_owner::<SemanticIndexOwner>(&path, identity.clone(), None)
+            .unwrap();
+        let expected = strict_recovery_evidence(&live).unwrap();
+        drop(live);
+        let before = std::fs::read(&path).unwrap();
+        let read = open_read_only(&path, None).unwrap();
+        let actual =
+            strict_recovery_evidence_read_only(&read, &identity, OwnerLayout::SemanticIndex)
+                .unwrap();
+        assert_eq!(actual, expected);
+        assert!(actual.tables.iter().any(|table| table.table_id == "eg_ann"));
+        drop(read);
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
 }
 
 pub(crate) fn strict_evidence_of(store: &PhysicalStore) -> Result<StrictRecoveryEvidence, String> {
@@ -195,7 +291,10 @@ fn hash_ledger(
 /// Copy every ledger row of the authoritative list. The three physical-identity
 /// tables are excluded because the backup re-anchors them to the destination
 /// incarnation (`copy_bindings`, the manifest write, and `create_physical`).
-fn copy_ledger_rows(source: &ReadTransaction, target: &WriteTransaction) -> Result<u64, String> {
+pub(crate) fn copy_ledger_rows(
+    source: &ReadTransaction,
+    target: &WriteTransaction,
+) -> Result<u64, String> {
     let mut rows = 0;
     macro_rules! copy {
         ($table:expr) => {{
@@ -206,7 +305,7 @@ fn copy_ledger_rows(source: &ReadTransaction, target: &WriteTransaction) -> Resu
     Ok(rows)
 }
 
-fn copy_bindings(
+pub(crate) fn copy_bindings(
     source: &ReadTransaction,
     target: &WriteTransaction,
     root: &StoreIncarnation,
@@ -220,6 +319,13 @@ fn copy_bindings(
     let mut rows = 0;
     for row in source_table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
+        if target_table
+            .get(key.value())
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            return Err("strict copy would overwrite a scope binding".to_string());
+        }
         let mut binding: ScopeBinding = decode_ledger_record(value.value())?;
         binding.store_identity_digest = root.identity_digest();
         let bytes = encode_bounded(&binding, "strict backup scope binding")?;
@@ -249,6 +355,16 @@ where
     let mut rows = 0;
     for row in source_table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
+        if target_table
+            .get(key.value())
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            return Err(format!(
+                "strict copy would overwrite a row in {}",
+                definition.name()
+            ));
+        }
         target_table
             .insert(key.value(), value.value())
             .map_err(|error| error.to_string())?;

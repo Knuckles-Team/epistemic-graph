@@ -159,6 +159,7 @@ mod dispatch_reachability_tests {
         "ConnectorPack.bind",
         "ConnectorPack.import",
         "ConnectorPack.reconcile_bodies",
+        "ConnectorPack.reconcile_catalog",
         "ConnectorPack.reproject",
         "ConnectorPack.retire",
         "ConnectorPack.status",

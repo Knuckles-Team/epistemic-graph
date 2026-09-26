@@ -29,6 +29,13 @@ use imports::{call_family, resolve_import, split_csv};
 
 pub use eg_types::ingestion_wire::IndexResult;
 
+/// The deterministic cost ladder's provenance is persisted on every emitted
+/// repository edge, rather than inferred later from its relationship name.
+const EVIDENCE_RUNG: &str = "evidence_rung";
+const EXTRACTED: &str = "EXTRACTED";
+const INFERRED: &str = "INFERRED";
+const DERIVED: &str = "DERIVED";
+
 /// A symbol definition site, indexed by bare name for call resolution.
 struct Def {
     id: String,
@@ -60,6 +67,19 @@ pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
         .iter()
         .filter(|outcome| outcome.status == eg_types::ingestion_wire::IndexFileStatus::Success)
         .count();
+    let mut evidence =
+        super::enrichment_admission::record_native_evidence(&results, &file_outcomes);
+    let endpoints: Vec<Vec<String>> = files
+        .iter()
+        .zip(&results)
+        .map(|((path, _), result)| {
+            std::iter::once(format!("file:{path}"))
+                .chain(result.nodes.iter().map(|node| node.node_id.clone()))
+                .collect()
+        })
+        .collect();
+    super::enrichment_admission::record_resolved_facts(&mut evidence, &endpoints, &indexed.edges);
+    indexed.native_rung_evidence = evidence;
     indexed.file_outcomes = file_outcomes;
     indexed
 }
@@ -409,6 +429,7 @@ fn record_call_resolution(
                 ("name".to_string(), site.callee.clone()),
                 ("strategy".to_string(), strategy.to_string()),
                 ("confidence".to_string(), format!("{confidence:.2}")),
+                (EVIDENCE_RUNG.to_string(), INFERRED.to_string()),
             ]),
         });
     }
@@ -505,7 +526,10 @@ fn append_structural_edge(
         source: definition.id.clone(),
         target,
         edge_type: edge_type.to_string(),
-        properties: HashMap::from([("name".to_string(), base.to_string())]),
+        properties: HashMap::from([
+            ("name".to_string(), base.to_string()),
+            (EVIDENCE_RUNG.to_string(), INFERRED.to_string()),
+        ]),
     });
     match edge_type {
         "inherits" => state.counts.inherits += 1,
@@ -547,7 +571,10 @@ fn append_import_edge(
         source,
         target,
         edge_type: "depends_on".to_string(),
-        properties: HashMap::from([("module".to_string(), module.to_string())]),
+        properties: HashMap::from([
+            ("module".to_string(), module.to_string()),
+            (EVIDENCE_RUNG.to_string(), INFERRED.to_string()),
+        ]),
     });
 }
 
@@ -589,7 +616,10 @@ fn similarity_edges(nodes: &[ExtractedNode], edges: &mut Vec<ExtractedEdge>) -> 
             source: sigs[a].0.to_string(),
             target: sigs[b].0.to_string(),
             edge_type: "similar_to".to_string(),
-            properties: HashMap::from([("score".to_string(), format!("{score:.2}"))]),
+            properties: HashMap::from([
+                ("score".to_string(), format!("{score:.2}")),
+                (EVIDENCE_RUNG.to_string(), DERIVED.to_string()),
+            ]),
         });
         count += 1;
     }
@@ -773,17 +803,48 @@ fn clone_node(n: &ExtractedNode) -> ExtractedNode {
 }
 
 fn clone_edge(e: &ExtractedEdge) -> ExtractedEdge {
+    let mut properties = e.properties.clone();
+    properties
+        .entry(EVIDENCE_RUNG.to_string())
+        .or_insert_with(|| EXTRACTED.to_string());
     ExtractedEdge {
         source: e.source.clone(),
         target: e.target.clone(),
         edge_type: e.edge_type.clone(),
-        properties: e.properties.clone(),
+        properties,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parser_and_resolver_edges_keep_their_cost_ladder_provenance() {
+        let indexed = index_repository(&files(&[
+            ("helper.py", "def helper():\n    return 1\n"),
+            (
+                "caller.py",
+                "from helper import helper\n\ndef caller():\n    return helper()\n",
+            ),
+        ]));
+        assert!(indexed
+            .edges
+            .iter()
+            .any(|edge| edge.edge_type == "IMPLEMENTS"
+                && edge.properties.get(EVIDENCE_RUNG).map(String::as_str) == Some(EXTRACTED)));
+        assert!(indexed.edges.iter().any(|edge| edge.edge_type == "calls"
+            && edge.properties.get(EVIDENCE_RUNG).map(String::as_str) == Some(INFERRED)));
+        assert!(indexed
+            .edges
+            .iter()
+            .any(|edge| edge.edge_type == "depends_on"
+                && edge.properties.get(EVIDENCE_RUNG).map(String::as_str) == Some(INFERRED)));
+        assert!(indexed
+            .edges
+            .iter()
+            .all(|edge| edge.properties.contains_key(EVIDENCE_RUNG)));
+    }
 
     fn files(pairs: &[(&str, &str)]) -> Vec<(String, Vec<u8>)> {
         pairs
@@ -1106,7 +1167,8 @@ mod tests {
             .edges
             .iter()
             .filter(|e| e.edge_type == "similar_to")
-            .all(|e| e.properties.contains_key("score")));
+            .all(|e| e.properties.contains_key("score")
+                && e.properties.get(EVIDENCE_RUNG).map(String::as_str) == Some(DERIVED)));
         assert!(r
             .nodes
             .iter()

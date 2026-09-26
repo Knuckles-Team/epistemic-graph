@@ -69,7 +69,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // reads its receipt from the authority that commits the head.
     // 18 -> 19: the Decide layer's `decision_records` (committed assembly
     // records, written in the same WTX as their `DecisionRecord` component).
-    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 19);
+    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 21);
     // The authoritative graph shard `graph-N.redb`: 54 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus

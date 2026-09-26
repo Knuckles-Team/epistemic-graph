@@ -1,6 +1,114 @@
 use super::*;
 use crate::protocol::Method;
 
+#[cfg(feature = "ast")]
+#[test]
+fn sealed_repository_budget_is_bound_to_exact_source_intent() {
+    use crate::parser::enrichment_snapshot::EligibleSnapshot;
+    use crate::redb_store::enrichment_budget::SourceBudgetAuthority;
+    use eg_types::ingestion_wire::{ExtractedNode, IndexResult};
+    use eg_types::mutation_batch::MutationOutboxIntent;
+
+    let result = IndexResult {
+        nodes: vec![ExtractedNode {
+            node_id: "branch:b".into(),
+            node_type: "Branch".into(),
+            properties: [("ref_name".to_string(), "main".to_string())]
+                .into_iter()
+                .collect(),
+        }],
+        ..Default::default()
+    };
+    let mut envelope =
+        crate::server::handlers::repository_index::repository_envelope(&result).unwrap();
+    let snapshot = EligibleSnapshot {
+        schema_version: 1,
+        tenant_id: "tenant-a".into(),
+        graph: "graph-a".into(),
+        repository_id: "repo".into(),
+        source_envelope: envelope.envelope_id.clone(),
+        source_commit_ref: envelope.envelope_id.clone(),
+        policy_digest: "a".repeat(64),
+        catalog_digest: "b".repeat(64),
+        model_digest: "c".repeat(64),
+        budget_units: 5,
+        units: Vec::new(),
+    };
+    let authority = SourceBudgetAuthority {
+        tenant_id: snapshot.tenant_id.clone(),
+        source_envelope: snapshot.source_envelope.clone(),
+        snapshot_digest: snapshot.digest().unwrap(),
+        repository_id: snapshot.repository_id.clone(),
+        policy_digest: snapshot.policy_digest.clone(),
+        total_budget_units: snapshot.budget_units,
+    };
+    envelope.mutation.outbox.push(MutationOutboxIntent {
+        topic: "repository.enrichment.pending".into(),
+        key: snapshot.source_envelope.clone(),
+        payload: rmp_serde::to_vec_named(&serde_json::json!({
+            "budget_status": "unreserved",
+            "snapshot": snapshot,
+        }))
+        .unwrap(),
+        headers: Default::default(),
+    });
+    assert!(ReplicatedMutation::change_envelope(&envelope, "secret").is_err());
+    let command =
+        ReplicatedMutation::change_envelope_with_budget(&envelope, Some(&authority), "secret")
+            .unwrap();
+    let wire = rmp_serde::to_vec_named(&command).unwrap();
+    assert!(!wire
+        .windows(authority.source_envelope.len())
+        .any(|part| { part == authority.source_envelope.as_bytes() }));
+    let (opened, budget) = command.open_change_envelope("secret").unwrap().unwrap();
+    assert_eq!(opened.envelope_id, envelope.envelope_id);
+    assert_eq!(budget.unwrap().snapshot_digest, authority.snapshot_digest);
+    assert!(command.open_change_envelope("wrong-secret").is_err());
+
+    let mut changed = authority;
+    changed.snapshot_digest = "d".repeat(64);
+    assert!(
+        ReplicatedMutation::change_envelope_with_budget(&envelope, Some(&changed), "secret",)
+            .is_err()
+    );
+}
+
+#[test]
+fn enrichment_park_command_is_sealed_and_not_public() {
+    let park = eg_types::native_control::EnrichmentBudgetPark {
+        schema_version: 1,
+        source_envelope: "repository-index:source".into(),
+        snapshot_digest: "a".repeat(64),
+        next_index: 1,
+        page_number: 1,
+        remaining_units: 0,
+        required_units: 2,
+        policy_digest: "b".repeat(64),
+        parked_at_ms: 42,
+    };
+    let command = ReplicatedMutation::enrichment_park(&park, "cluster-secret").unwrap();
+    let ReplicatedMutation::Native { command: native } = &command else {
+        panic!("park must be a native command");
+    };
+    assert!(native
+        .open_public_method("cluster-secret")
+        .unwrap()
+        .is_none());
+    let wire = rmp_serde::to_vec_named(&command).unwrap();
+    assert!(!wire
+        .windows(park.source_envelope.len())
+        .any(|bytes| bytes == park.source_envelope.as_bytes()));
+    let opened = command
+        .open_enrichment_park("cluster-secret")
+        .unwrap()
+        .unwrap();
+    assert_eq!(opened, park);
+    assert!(command.open_enrichment_park("wrong-secret").is_err());
+    let mut invalid = park;
+    invalid.required_units = invalid.remaining_units;
+    assert!(ReplicatedMutation::enrichment_park(&invalid, "cluster-secret").is_err());
+}
+
 #[test]
 fn native_command_excludes_plaintext_environment_values() {
     let marker = "private-environment-marker";

@@ -138,6 +138,80 @@ macro_rules! persistence_native {
         .await
     }
 
+    async fn read_enrichment_budget_checkpoint(
+        &self,
+        graph_fname: &str,
+        source_envelope: &str,
+    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetCheckpoint>, String> {
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::enrichment_budget::read(&shard, graph_fname, source_envelope, crypto)
+    }
+
+    async fn read_enrichment_budget_park(
+        &self,
+        graph_fname: &str,
+    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetPark>, String> {
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::enrichment_budget::read_park(&shard, graph_fname, crypto)
+    }
+
+    async fn read_enrichment_supersession(
+        &self,
+        graph_fname: &str,
+        source_envelope: &str,
+        snapshot_digest: &str,
+    ) -> Result<bool, String> {
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::enrichment_budget::is_superseded(
+            &shard,
+            graph_fname,
+            source_envelope,
+            snapshot_digest,
+            crypto,
+        )
+    }
+
+    async fn park_enrichment_budget(
+        &self,
+        graph_fname: &str,
+        park: eg_types::native_control::EnrichmentBudgetPark,
+    ) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::ParkEnrichmentBudget {
+            graph: graph_fname.to_string(),
+            park: Box::new(park),
+            done,
+        };
+        self.enqueue(graph_fname, cmd, "park_enrichment_budget")
+            .await?;
+        rx.await
+            .map_err(|_| "redb writer dropped enrichment budget park completion".to_string())?
+    }
+
     /// Exact authenticated native development-lane hold/tombstone read (RMDD-28).
     /// An MVCC snapshot read off the writer shard's shared `Shard`, same
     /// posture as `read_resource_reservation` above -- never routed through the

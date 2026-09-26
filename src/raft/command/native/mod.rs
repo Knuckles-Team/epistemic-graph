@@ -34,6 +34,15 @@ pub enum TransactionParticipantPhase {
 pub enum NativeMutationCommand {
     ChangeEnvelope {
         sealed_envelope: SealedNativeMethod,
+        /// Present only for an engine-attested repository enrichment source.
+        /// Sealed with the envelope so every replica seeds the same budget.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sealed_repository_budget: Option<SealedNativeMethod>,
+    },
+    /// Engine-owned, graph-scoped enrichment pause. The outbox lease remains
+    /// local; only the budget owner row is replicated.
+    EnrichmentPark {
+        sealed_park: SealedNativeMethod,
     },
     #[cfg(feature = "modality-serving")]
     ServedModality {
@@ -153,6 +162,7 @@ macro_rules! native_command_layout {
         $consumer! {
             unsealed {
                 ChangeEnvelope => None;
+                EnrichmentPark => None;
                 #[cfg(feature = "modality-serving")]
                 ServedModality => None;
                 TransactionParticipant => Some(NativeMutationDomain::Transaction);
@@ -279,6 +289,7 @@ fn validate_command_shape(command: &NativeMutationCommand) -> Result<(), String>
             sealed_plan.validate_shape()
         }
         NativeMutationCommand::NodeInfo { sealed_info } => sealed_info.validate_shape(),
+        NativeMutationCommand::EnrichmentPark { sealed_park } => sealed_park.validate_shape(),
         _ => sealed_method(command).map_or(Ok(()), SealedNativeMethod::validate_shape),
     }
 }

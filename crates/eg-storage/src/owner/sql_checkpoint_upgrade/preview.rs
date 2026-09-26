@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod bounded;
 use bounded::BoundedPreviewBackend;
 
-pub(super) fn validate_options(root: &Path, maximum: u64) -> Result<(), String> {
+pub(crate) fn validate_options(root: &Path, maximum: u64) -> Result<(), String> {
     if !cfg!(target_os = "linux") {
         return Err("SQL checkpoint private inspection is supported only on Linux".into());
     }
@@ -38,7 +38,7 @@ pub(super) fn validate_options(root: &Path, maximum: u64) -> Result<(), String> 
 /// Lock exactly once through native FileBackend, then prove that this filesystem
 /// did not take its unsupported-lock fallback. The probe has a separate open
 /// description and must conflict; it is never a logical inspection source.
-pub(super) fn exclusive_backend(file: File, path: &Path) -> Result<(FileBackend, File), String> {
+pub(crate) fn exclusive_backend(file: File, path: &Path) -> Result<(FileBackend, File), String> {
     let pinned = file.try_clone().map_err(|error| error.to_string())?;
     let backend = FileBackend::new(file).map_err(|error| error.to_string())?;
     let supported = prove_exclusive_lock(&pinned, path);
@@ -80,6 +80,29 @@ pub(super) fn inspect(
     integrity: Option<&dyn PrivatePayloadIntegrity>,
     options: &SqlSourceCheckpointInspectionOptions,
 ) -> Result<(OwnerManifest, StrictRecoveryEvidence, [u8; 32]), String> {
+    inspect_with(
+        source,
+        incarnation,
+        physical,
+        integrity,
+        options,
+        inspect_preview_read,
+    )
+}
+
+pub(crate) fn inspect_with(
+    source: &File,
+    incarnation: &StoreIncarnation,
+    physical: &PhysicalStoreIdentity,
+    integrity: Option<&dyn PrivatePayloadIntegrity>,
+    options: &SqlSourceCheckpointInspectionOptions,
+    inspect: fn(
+        &Database,
+        &StoreIncarnation,
+        &PhysicalStoreIdentity,
+        Option<&dyn PrivatePayloadIntegrity>,
+    ) -> Result<(OwnerManifest, StrictRecoveryEvidence), String>,
+) -> Result<(OwnerManifest, StrictRecoveryEvidence, [u8; 32]), String> {
     validate_source_size(source, options.max_bytes)?;
     let mut scratch = SqlPreviewScratch::create(&options.staging_root)?;
     let (backend, preview_file) = exclusive_backend(
@@ -95,7 +118,7 @@ pub(super) fn inspect(
     let poison = Arc::new(AtomicBool::new(false));
     let bounded =
         BoundedPreviewBackend::new(backend, preview_file, options.max_bytes, poison.clone());
-    let result = inspect_recovered_preview(bounded, incarnation, physical, integrity);
+    let result = inspect_recovered_preview(bounded, incarnation, physical, integrity, inspect);
     // The function above explicitly releases every read and the Database; its
     // allocator/trim Drop writes are included in the surviving poison state.
     if poison.load(Ordering::Acquire) {
@@ -110,11 +133,17 @@ fn inspect_recovered_preview(
     incarnation: &StoreIncarnation,
     physical: &PhysicalStoreIdentity,
     integrity: Option<&dyn PrivatePayloadIntegrity>,
+    inspect: fn(
+        &Database,
+        &StoreIncarnation,
+        &PhysicalStoreIdentity,
+        Option<&dyn PrivatePayloadIntegrity>,
+    ) -> Result<(OwnerManifest, StrictRecoveryEvidence), String>,
 ) -> Result<(OwnerManifest, StrictRecoveryEvidence), String> {
     let database = upgrade_builder()
         .create_with_backend(backend)
         .map_err(|error| error.to_string())?;
-    let result = inspect_preview_read(&database, incarnation, physical, integrity);
+    let result = inspect(&database, incarnation, physical, integrity);
     drop(database);
     result
 }
@@ -230,7 +259,7 @@ fn validate_source_size(source: &File, maximum: u64) -> Result<u64, String> {
     Ok(size)
 }
 
-pub(super) fn validate_fingerprint(
+pub(crate) fn validate_fingerprint(
     file: &File,
     expected_size: u64,
     expected: [u8; 32],

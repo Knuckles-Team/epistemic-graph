@@ -21,6 +21,7 @@ use crate::server::auth::VerifiedRequestContext;
 use crate::server::state::ServerState;
 
 pub(crate) mod admin;
+mod catalog_authority;
 #[cfg(all(feature = "redb", feature = "blob"))]
 mod import;
 pub(crate) mod reconcile;
@@ -54,6 +55,15 @@ pub(crate) async fn handle_connector_pack(
         }
         ConnectorPackOp::ReconcileBodies { request } => {
             reconcile::serve(state, req_id, verified, request).await
+        }
+        ConnectorPackOp::ReconcileCatalog { request } => {
+            catalog_authority::serve(state, req_id, verified, request).await
+        }
+        ConnectorPackOp::CatalogAuthorityStatus { request } => {
+            catalog_authority::serve_status(state, req_id, verified, request).await
+        }
+        ConnectorPackOp::CatalogOwnerPrincipal { request } => {
+            catalog_authority::serve_owner_principal(state, req_id, verified, request).await
         }
     }
 }

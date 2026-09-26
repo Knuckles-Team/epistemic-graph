@@ -103,6 +103,27 @@ class ConnectorPackOpReconcileBodies(BaseModel):
     request: ConnectorPackReconcileRequest
 
 
+class ConnectorPackOpReconcileCatalog(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["reconcile_catalog"]
+    request: McpCatalogReconcileRequest
+
+
+class ConnectorPackOpCatalogAuthorityStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["catalog_authority_status"]
+    request: McpCatalogAuthorityStatusRequest
+
+
+class ConnectorPackOpCatalogOwnerPrincipal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["catalog_owner_principal"]
+    request: McpCatalogAuthorityStatusRequest
+
+
 ConnectorPackOp = Annotated[
     ConnectorPackOpStatus
     | ConnectorPackOpImport
@@ -110,7 +131,10 @@ ConnectorPackOp = Annotated[
     | ConnectorPackOpUnbind
     | ConnectorPackOpRetire
     | ConnectorPackOpReproject
-    | ConnectorPackOpReconcileBodies,
+    | ConnectorPackOpReconcileBodies
+    | ConnectorPackOpReconcileCatalog
+    | ConnectorPackOpCatalogAuthorityStatus
+    | ConnectorPackOpCatalogOwnerPrincipal,
     Field(discriminator="op"),
 ]
 
@@ -171,6 +195,32 @@ class DeclaredCost(BaseModel):
     input_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
     output_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
     per_call_micros: Annotated[int, Field(ge=0)] | None = None
+
+
+class McpCatalogAuthorityStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    server_name: str
+    tenant_id: str
+
+
+class McpCatalogReconcileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    child_connection_generation: Annotated[int, Field(ge=0)]
+    child_id: str
+    component_digest: Digest256
+    component_id: str
+    component_revision: Annotated[int, Field(ge=0)]
+    context: AgentLibraryMutationContext
+    discovery_tenant: str
+    expected_catalog_generation: Annotated[int, Field(ge=0)] | None = None
+    four_family_digest: Digest256
+    local_catalog_epoch: Annotated[int, Field(ge=0)]
+    registration_config_digest: Digest256
+    registry_digest: Digest256
+    registry_revision: Annotated[int, Field(ge=0)]
+    server_name: str
 
 
 class PackAnnotations(BaseModel):
@@ -484,6 +534,12 @@ ConnectorPackOpReproject.model_rebuild()
 
 ConnectorPackOpReconcileBodies.model_rebuild()
 
+ConnectorPackOpReconcileCatalog.model_rebuild()
+
+ConnectorPackOpCatalogAuthorityStatus.model_rebuild()
+
+ConnectorPackOpCatalogOwnerPrincipal.model_rebuild()
+
 ConnectorPackReconcileRequest.model_rebuild()
 
 ConnectorPackReprojectRequest.model_rebuild()
@@ -497,6 +553,10 @@ ConnectorPackStatusRequest.model_rebuild()
 ConnectorPackUnbindRequest.model_rebuild()
 
 DeclaredCost.model_rebuild()
+
+McpCatalogAuthorityStatusRequest.model_rebuild()
+
+McpCatalogReconcileRequest.model_rebuild()
 
 PackAnnotations.model_rebuild()
 
@@ -554,8 +614,11 @@ __all__ = [
     "ConnectorPackIndex",
     "ConnectorPackOp",
     "ConnectorPackOpBind",
+    "ConnectorPackOpCatalogAuthorityStatus",
+    "ConnectorPackOpCatalogOwnerPrincipal",
     "ConnectorPackOpImport",
     "ConnectorPackOpReconcileBodies",
+    "ConnectorPackOpReconcileCatalog",
     "ConnectorPackOpReproject",
     "ConnectorPackOpRetire",
     "ConnectorPackOpStatus",
@@ -569,6 +632,8 @@ __all__ = [
     "DeclaredCost",
     "DeclaredLatency",
     "Digest256",
+    "McpCatalogAuthorityStatusRequest",
+    "McpCatalogReconcileRequest",
     "McpCatalogSnapshotBinding",
     "Nonce",
     "PackAnnotations",

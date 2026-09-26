@@ -52,6 +52,10 @@ impl_native_chunk_store! {
         manifests::refcount(self, blob_digest)
     }
 
+    fn has_named_holder(&self, blob_digest: &str, holder: &str) -> Result<bool, String> {
+        holders::has_named_holder(self, blob_digest, holder)
+    }
+
     fn sweep(&self) -> Result<SweepStats, String> {
         manifests::sweep(self)
     }
@@ -71,6 +75,16 @@ impl_native_chunk_store! {
         committed_at_ms: u64,
     ) -> Result<Vec<StoredEngineBody>, String> {
         engine::put_engine_bodies(self, tenant_id, bodies, committed_at_ms)
+    }
+
+    fn put_repository_bodies(
+        &self,
+        tenant_id: &str,
+        repository_id: &str,
+        bodies: &[EngineBody],
+        committed_at_ms: u64,
+    ) -> Result<Vec<StoredEngineBody>, String> {
+        engine::put_repository_bodies(self, tenant_id, repository_id, bodies, committed_at_ms)
     }
 
     fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {

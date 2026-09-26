@@ -353,8 +353,11 @@ RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound re
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
+| `receipt` | one of: `DecisionEvalReceipt` \| null | Raw |  |
+| `receipts` | `DecisionReceiptPage` | Raw |  |
 | `status` | one of: `DecisionJobRecord` \| null | Raw |  |
 | `submit` | `DecisionJobRecord` | Raw |  |
+| `timeline` | `DecisionReceiptTimelinePage` | Raw |  |
 
 > Multi-body result: the `op` request field selects which body above is returned.
 

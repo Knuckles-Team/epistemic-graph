@@ -415,8 +415,16 @@ pub(super) fn pending_binding(source_revision: &str) -> SemanticBinding {
 }
 
 pub(super) fn binding_for_generation(source_revision: &str, generation: u64) -> SemanticBinding {
+    binding_for_generation_with_id(BINDING, source_revision, generation)
+}
+
+fn binding_for_generation_with_id(
+    binding_id: &str,
+    source_revision: &str,
+    generation: u64,
+) -> SemanticBinding {
     SemanticBinding::create(SemanticBindingDraft {
-        binding_id: BINDING.to_string(),
+        binding_id: binding_id.to_string(),
         tenant_id: TENANT.to_string(),
         actor_scope: "semantic:index-maintainer".to_string(),
         effective_actor_scope: "semantic:agent:index-maintainer".to_string(),
@@ -460,6 +468,130 @@ pub(super) fn binding_for_generation(source_revision: &str, generation: u64) -> 
         created_at: "2026-09-08T00:00:00Z".to_string(),
     })
     .unwrap()
+}
+
+#[test]
+fn tenant_owner_merge_preserves_populated_binding_replay_and_outbox_rows() {
+    use crate::compute::semantic_index_service::SemanticIndexService;
+    use eg_storage::{merge_semantic_owner_files, strict_recovery_evidence_read_only};
+
+    let root = tmp_dir("tenant-owner-populated-merge");
+    let mut sources = Vec::new();
+    let mut originals = Vec::new();
+    for (index, binding_id) in [BINDING, "semantic-binding-b"].into_iter().enumerate() {
+        let directory = root.join(binding_id);
+        let store = open_store_for(&directory, TENANT, binding_id);
+        let binding = binding_for_generation_with_id(binding_id, "source-v1", 1);
+        let key = format!("tenant-owner-merge-{index}");
+        let stored = store
+            .store_binding_operation(
+                &binding,
+                1,
+                "semantic-index-test-actor",
+                &key,
+                Nonce::from_bytes([index as u8 + 1; 32]),
+            )
+            .unwrap();
+        assert!(!stored.replayed);
+        assert_eq!(store.read_binding().unwrap(), Some(binding.clone()));
+        drop(store);
+
+        let name = super::door::store_file_name(TENANT, binding_id);
+        let path = directory.join(&name);
+        let physical =
+            PhysicalStoreIdentity::new(format!("eg-core:semantic-index:v2:{name}")).unwrap();
+        let source = eg_storage::open_read_only(&path, None).unwrap();
+        let evidence =
+            strict_recovery_evidence_read_only(&source, &physical, OwnerLayout::SemanticIndex)
+                .unwrap();
+        for table in [
+            "semantic_bindings",
+            "mutation_replay_operations",
+            "ledger_outbox",
+        ] {
+            assert_eq!(
+                evidence
+                    .tables
+                    .iter()
+                    .find(|row| row.table_id == table)
+                    .unwrap()
+                    .rows,
+                1,
+                "{binding_id} must plant {table}"
+            );
+        }
+        drop(source);
+        originals.push((path.clone(), std::fs::read(&path).unwrap(), binding, key));
+        sources.push((path, physical));
+    }
+
+    let target_dir = root.join("semantic-index");
+    std::fs::create_dir_all(&target_dir).unwrap();
+    let name = super::door::tenant_store_file_name(TENANT);
+    let target = target_dir.join(&name);
+    let merged = merge_semantic_owner_files(
+        &sources,
+        &target,
+        PhysicalStoreIdentity::new(format!("eg-core:semantic-index:v3:{name}")).unwrap(),
+    )
+    .unwrap();
+    for table in [
+        "semantic_bindings",
+        "mutation_replay_operations",
+        "ledger_outbox",
+    ] {
+        assert_eq!(
+            merged
+                .target
+                .tables
+                .iter()
+                .find(|row| row.table_id == table)
+                .unwrap()
+                .rows,
+            2,
+            "the merged owner must preserve both {table} rows"
+        );
+    }
+    for (index, (source, bytes, binding, key)) in originals.iter().enumerate() {
+        let migrated = SemanticCodeStore::open_tenant(
+            &target,
+            Arc::new(TestScopeVerifier {
+                layout: OwnerLayout::SemanticIndex,
+            }),
+            TEST_PRINCIPAL,
+            TEST_PROOF,
+            TENANT,
+            &binding.binding_id,
+        )
+        .unwrap();
+        assert_eq!(migrated.read_binding().unwrap(), Some(binding.clone()));
+        let replay = migrated
+            .store_binding_operation(
+                binding,
+                2,
+                "semantic-index-test-actor",
+                key,
+                Nonce::from_bytes([index as u8 + 10; 32]),
+            )
+            .unwrap();
+        assert!(replay.replayed);
+        drop(migrated);
+        let service = SemanticIndexService::open_tenant(
+            &target,
+            Arc::new(TestScopeVerifier {
+                layout: OwnerLayout::SemanticIndex,
+            }),
+            TEST_PRINCIPAL,
+            TEST_PROOF,
+            TENANT,
+            &binding.binding_id,
+        )
+        .unwrap();
+        assert_eq!(service.binding().unwrap(), Some(binding.clone()));
+        drop(service);
+        assert_eq!(std::fs::read(source).unwrap(), *bytes);
+    }
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 /// Rebuild the same binding contract with the model identity carried by a

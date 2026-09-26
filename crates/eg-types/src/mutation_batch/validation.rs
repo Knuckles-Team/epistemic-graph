@@ -1,6 +1,7 @@
 use super::*;
 
-const MAX_MUTATION_OPERATIONS: usize = 100_000;
+/// Most operations one mutation batch may carry (its collection budget).
+pub const MAX_MUTATION_OPERATIONS: usize = 100_000;
 const MAX_MUTATION_OUTBOX_INTENTS: usize = 100_000;
 const MAX_MUTATION_OUTBOX_HEADERS: usize = 100_000;
 const MAX_MUTATION_WRITE_BYTES: usize = 64 * 1024 * 1024;

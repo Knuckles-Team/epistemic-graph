@@ -349,19 +349,34 @@ macro_rules! writer_command_arms {
             let _ = done.send(res);
             false
         }
+        Cmd::ParkEnrichmentBudget { graph, park, done } => {
+            // Park crosses the durable barrier before the consumer can release
+            // its lease. The next poll checks the marker before another claim,
+            // so lease expiry cannot spend the outbox retry class.
+            flush(pending);
+            let result = in_graph_write(shard, &graph, "enrichment_budget_park", |write| {
+                crate::redb_store::enrichment_budget::park_underfunded(
+                    write, &graph, &park, crypto,
+                )
+            });
+            let _ = done.send(result);
+            false
+        }
         Cmd::ChangeEnvelopeCommit { payload, done } => {
             let ChangeEnvelopePayload {
                 graph,
                 envelope,
                 committed_at_ms,
+                source_budget,
             } = *payload;
             // Ordering and atomicity mirror MutationBatch: pending grouped writes
             // commit first, then this envelope owns one indivisible fsync point.
             flush(pending);
-            let res = commit_change_envelope(
+            let res = crate::redb_store::commit_change_envelope_with_budget(
                 shard,
                 &graph,
                 &envelope,
+                source_budget.as_ref(),
                 committed_at_ms,
                 crypto,
                 #[cfg(feature = "security")]
@@ -439,6 +454,14 @@ macro_rules! writer_command_arms {
             // cursor write left open is not representable any more.
             flush(pending);
             let result = shard.outbox_ack(&graph, &lease, now_ms);
+            let _ = done.send(result);
+            false
+        }
+        Cmd::MutationOutboxRelease { graph, lease, done } => {
+            // This command follows a completed park write in the same writer
+            // queue. It invalidates the lease without marking the event done.
+            flush(pending);
+            let result = shard.outbox_release(&graph, &lease);
             let _ = done.send(result);
             false
         }

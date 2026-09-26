@@ -14,8 +14,8 @@ use crate::agent_template::AgentTemplateCommittedResult;
 use crate::agent_template::AgentTemplateEntry;
 use crate::connector_pack::ConnectorPackStatus as ConnectorPackStatusBody;
 use crate::connector_pack::{
-    ConnectorPackBindingResult, PackBodyReconcileReport, PackImportReceipt, PackImportResult,
-    PackRetireResult,
+    ConnectorPackBindingResult, McpCatalogSnapshotBinding, PackBodyReconcileReport,
+    PackImportReceipt, PackImportResult, PackRetireResult,
 };
 use crate::decision::{AssemblyResult, DecisionCommitResult};
 use crate::series_expr::DerivedSeriesReceipt;
@@ -101,6 +101,9 @@ method_results! {
     ConnectorPackRetire(ConnectorPack / "retire") => Raw<PackRetireResult>;
     ConnectorPackReproject(ConnectorPack / "reproject") => Raw<PackImportReceipt>;
     ConnectorPackReconcileBodies(ConnectorPack / "reconcile_bodies") => Raw<PackBodyReconcileReport>;
+    ConnectorPackReconcileCatalog(ConnectorPack / "reconcile_catalog") => Raw<McpCatalogSnapshotBinding>;
+    ConnectorPackCatalogAuthorityStatus(ConnectorPack / "catalog_authority_status") => Raw<Option<McpCatalogSnapshotBinding>>;
+    ConnectorPackCatalogOwnerPrincipal(ConnectorPack / "catalog_owner_principal") => Raw<String>;
     WriteBackCreate(WriteBack / "create") => Raw<SourceChangeSet>;
     WriteBackGet(WriteBack / "get") => Raw<Option<SourceChangeSet>>;
     WriteBackRecordAttempt(WriteBack / "record_attempt") => Raw<WriteBackReceipt>;

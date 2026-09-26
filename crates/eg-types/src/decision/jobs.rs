@@ -212,6 +212,30 @@ pub struct ClassCoverage {
     pub class_key: String,
     pub n_items: u64,
     pub covered: u64,
+    /// Historical class support floor. `None` on receipts produced before
+    /// per-class interval reporting was added.
+    #[serde(default)]
+    pub n_min: Option<u64>,
+    /// Bounds are withheld until this class meets its own `n_min`.
+    #[serde(default)]
+    pub metrics: Option<ClassLabelMetrics>,
+}
+
+/// Full-label evidence for one class, with marginal intervals at the pinned
+/// policy's `delta`. These do not assert a simultaneous guarantee across
+/// classes. Act risk is unavailable when no item in the class was acted on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ClassLabelMetrics {
+    pub top1_hits: u64,
+    /// The pinned policy's failure probability for these intervals.
+    pub delta: UnitRationalWire,
+    pub coverage_lower: UnitRationalWire,
+    pub coverage_upper: UnitRationalWire,
+    pub acted: u64,
+    pub acted_wrong: u64,
+    pub act_risk_upper: Option<UnitRationalWire>,
 }
 
 /// The promotion protocol's measurements beyond [`FullLabelMetrics`]
@@ -324,6 +348,25 @@ pub struct DecisionReceiptPage {
 pub struct DecisionReceiptTimelineEntry {
     pub submitted_at_ms: u64,
     pub receipt: DecisionEvalReceipt,
+    /// Assessment against the policy pinned by this evaluation. Older receipts
+    /// have no stored assessment and never inherit the tenant's current policy.
+    #[serde(default)]
+    pub threshold_alert: Option<DecisionThresholdAssessment>,
+}
+
+/// Historical policy thresholds applied to one independently labelled receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionThresholdAssessment {
+    pub policy_digest: String,
+    pub alpha: UnitRationalWire,
+    pub epsilon: UnitRationalWire,
+    pub delta: UnitRationalWire,
+    pub n_min: u64,
+    pub insufficient_support: bool,
+    pub coverage_below_policy: Option<bool>,
+    pub act_risk_above_policy: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

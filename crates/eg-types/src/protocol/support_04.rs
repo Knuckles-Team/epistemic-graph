@@ -114,7 +114,7 @@ pub struct Response {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<ResultPayload>,
     /// Stable declared error code on failure. Unclassified legacy refusals
-    /// become INTERNAL, with their original text retained as detail.
+    /// become INTERNAL without exposing their original text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Human-readable detail for a declared error code.
@@ -148,7 +148,7 @@ impl Response {
                 crate::contract::ServerErrorCode::Internal
                     .as_str()
                     .to_string(),
-                Some(text),
+                Some("unclassified engine refusal".to_string()),
             ),
         };
         Response {

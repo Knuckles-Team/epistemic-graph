@@ -85,6 +85,7 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
         &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"],
     ),
     ("Decide", &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"]),
+    ("RbacElevation", &["ELEVATION_"]),
 ];
 const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ("cluster", &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"]),
@@ -137,7 +138,6 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
             "GRAPH_NOT_FOUND",
         ],
     ),
-    ("RbacElevation", &["ELEVATION_ACTOR_UNSTAMPED"]),
     (
         "Decide",
         &["DECISIONS", "UNSUPPORTED_COALITION", "CAPACITY_UNAVAILABLE"],

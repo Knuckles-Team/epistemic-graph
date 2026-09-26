@@ -1860,6 +1860,882 @@
       ],
       "type": "object"
     },
+    "SemanticIndexError": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "unsupported_selector",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/SemanticSelectorKind"
+            }
+          },
+          "required": [
+            "code",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "invalid_field",
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "field",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "digest_mismatch",
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "subject"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "actual": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "code": {
+              "const": "generation_mismatch",
+              "type": "string"
+            },
+            "expected": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "expected",
+            "actual"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "actual": {
+              "$ref": "#/$defs/SemanticBindingState"
+            },
+            "code": {
+              "const": "binding_state_mismatch",
+              "type": "string"
+            },
+            "expected": {
+              "$ref": "#/$defs/SemanticBindingState"
+            }
+          },
+          "required": [
+            "code",
+            "expected",
+            "actual"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "invalid_binding_state_transition",
+              "type": "string"
+            },
+            "from": {
+              "$ref": "#/$defs/SemanticBindingState"
+            },
+            "to": {
+              "$ref": "#/$defs/SemanticBindingState"
+            }
+          },
+          "required": [
+            "code",
+            "from",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "policy_unresolved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "source_revision_stale",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "predecessor_incomplete",
+              "type": "string"
+            },
+            "required": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "code",
+            "required"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "predecessor_receipt_mismatch",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "code",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "stage_scope_mismatch",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "code",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "generation_checkpoint_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "generation_incomplete",
+              "type": "string"
+            },
+            "completed": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expected": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "expected",
+            "completed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "duplicate_source_entity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "generation_entity_set_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "source_manifest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "graph_projection_manifest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "authorization_receipt_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "lineage_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "unsupported_ann_metric_pair",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "search_probe_model_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "maintained_index_unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_required",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_operation_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_digest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_expired",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "authorization_context_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "caller_set_binding_state",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "unmanaged_binding_resource",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "vector_binding_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "active_pointer_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "index_manifest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "progress_receipt_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "dead_letter_identity_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "stage_artifact_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "canonical_record_too_large",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "malformed_canonical_record",
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "non_canonical_record",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "operation_result_mismatch",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/SemanticIndexOperation"
+            }
+          },
+          "required": [
+            "code",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "mutation_receipt_required",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/SemanticIndexOperation"
+            }
+          },
+          "required": [
+            "code",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "partial_mutation_outcome",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/SemanticIndexOperation"
+            }
+          },
+          "required": [
+            "code",
+            "operation"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticIndexOperation": {
+      "enum": [
+        "semantic_binding_create",
+        "semantic_binding_get",
+        "semantic_binding_list",
+        "semantic_binding_refresh",
+        "semantic_binding_disable",
+        "semantic_binding_drop",
+        "semantic_search",
+        "semantic_queue_status"
+      ],
+      "type": "string"
+    },
+    "SemanticIndexOutcome": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticDigest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result": {
+              "$ref": "#/$defs/SemanticIndexResult"
+            },
+            "status": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "status": {
+              "const": "deferred_backpressured",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "receipt_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticDigest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result": {
+              "$ref": "#/$defs/SemanticIndexResult"
+            },
+            "status": {
+              "const": "partial",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/SemanticIndexError"
+            },
+            "receipt_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticDigest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "const": "rejected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "not_found",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticIndexResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/SemanticIndexOperation"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SemanticIndexOutcome"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "operation",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "SemanticIndexResult": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding": {
+              "$ref": "#/$defs/SemanticBinding"
+            },
+            "result": {
+              "const": "binding",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "binding"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "bindings": {
+              "items": {
+                "$ref": "#/$defs/SemanticBinding"
+              },
+              "type": "array"
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "result": {
+              "const": "binding_list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "bindings"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "hits": {
+              "items": {
+                "$ref": "#/$defs/SemanticSearchHit"
+              },
+              "type": "array"
+            },
+            "result": {
+              "const": "search",
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "result",
+            "hits",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "queues": {
+              "items": {
+                "$ref": "#/$defs/SemanticQueueStatus"
+              },
+              "type": "array"
+            },
+            "result": {
+              "const": "queue_status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "queues"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "result": {
+              "const": "empty",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SemanticLexicalIndexIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -2037,6 +2913,201 @@
         "fast",
         "medium",
         "slow_heavy"
+      ],
+      "type": "string"
+    },
+    "SemanticQueueStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "class": {
+          "$ref": "#/$defs/SemanticQueueClass"
+        },
+        "consecutive_claim_percent": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fairness_relaxation_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inflight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lag_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lag_rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "live": {
+          "type": "boolean"
+        },
+        "oldest_age_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "queue_profile_id": {
+          "type": "string"
+        },
+        "rejection_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retry_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "saturated": {
+          "type": "boolean"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "queue_profile_id",
+        "class",
+        "capacity",
+        "inflight",
+        "oldest_age_ms",
+        "lag_rows",
+        "lag_ms",
+        "retry_count",
+        "rejection_count",
+        "live",
+        "saturated",
+        "tenant_id",
+        "consecutive_claim_percent",
+        "fairness_relaxation_count",
+        "trace_id"
+      ],
+      "type": "object"
+    },
+    "SemanticSearchHit": {
+      "additionalProperties": false,
+      "properties": {
+        "ann_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "authorization_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest",
+          "description": "Receipt for an affirmative server-side authorization decision. Absence\nis not representable on a materialized hit."
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "freshness_lag_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fused_score": {
+          "format": "float",
+          "type": "number"
+        },
+        "fusion_explanation": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation_checkpoint_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "lexical_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "lexical_score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lineage_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "model_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "preprocess_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "vector_score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "binding_id",
+        "source_entity_id",
+        "source_revision",
+        "binding_digest",
+        "generation",
+        "purpose_id",
+        "policy_digest",
+        "model_digest",
+        "preprocess_digest",
+        "lexical_index_digest",
+        "ann_index_digest",
+        "fused_score",
+        "authorization_receipt_digest",
+        "generation_checkpoint_digest",
+        "freshness_lag_ms",
+        "fusion_explanation",
+        "lineage_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticSelectorKind": {
+      "enum": [
+        "sql_column_ref",
+        "graph_text_property_ref",
+        "canonical_text_asset",
+        "agent_library_composite",
+        "multimodal_asset_ref",
+        "time_series_window_ref",
+        "lakehouse_vector_projection_ref"
       ],
       "type": "string"
     },
@@ -3807,6 +4878,13 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "get_binding_request": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticIndexResponse"
           }
         },
         "list_bindings": {

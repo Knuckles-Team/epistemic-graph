@@ -28,6 +28,12 @@ pub use codec::{
     CollectionBudget,
 };
 pub use kernel::{MutationOwnerAuthority, StorageKernel, StoreOpenOptions};
+pub use owner::agent_library_upgrade::{
+    inspect_agent_library_mcp_catalog_upgrade, inspect_graph_shard_enrichment_upgrade,
+    upgrade_agent_library_mcp_catalog, upgrade_graph_shard_enrichment,
+    AgentLibraryInspectionOptions, AgentLibraryUpgradeReport, GraphShardInspectionOptions,
+    GraphShardUpgradeReport, ValidatedAgentLibraryUpgrade, ValidatedGraphShardUpgrade,
+};
 pub use owner::blob_shared::{
     BlobSharedRead, BlobSharedServiceHandle, BlobSharedServiceVerifier, BlobSharedTable,
     BlobSharedWrite, CasChunkRows, CasRefcountRows,
@@ -44,8 +50,8 @@ pub use owner::identity::PhysicalStoreIdentity;
 pub use owner::layout::OwnerLayout;
 pub use owner::lineage::{
     layout_digest_hex, layout_predecessors, pinned_layout_digest, render_owner_store_formats,
-    AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS, ALL_LAYOUTS, BLOB_BEFORE_HOLDERS,
-    SQL_BEFORE_SOURCE_CHECKPOINTS,
+    AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS, AGENT_LIBRARY_BEFORE_MCP_CATALOG, ALL_LAYOUTS,
+    BLOB_BEFORE_HOLDERS, GRAPH_SHARD_BEFORE_ENRICHMENT, SQL_BEFORE_SOURCE_CHECKPOINTS,
 };
 pub use owner::persisted_layout::{
     create_predecessor_owner_file, refuse_known_predecessor, LayoutPredecessor,
@@ -55,7 +61,8 @@ pub use owner::registry::{
     AGENT_GRAPH_HEADS, AGENT_GRAPH_REVISIONS, AGENT_LIBRARY_HEADS, AGENT_LIBRARY_REVISIONS,
     AGENT_TEMPLATE_HEADS, AGENT_TEMPLATE_REVISIONS, ANN_CODES, CONNECTOR_PACK_BINDINGS,
     CONNECTOR_PACK_BODY_HOLDERS, CONNECTOR_PACK_HEADS, CONNECTOR_PACK_IMPORTS,
-    CONNECTOR_PACK_MEMBERS, DECISION_ARTIFACTS, DECISION_RECORDS, SEMANTIC_ANN,
+    CONNECTOR_PACK_MEMBERS, DECISION_ARTIFACTS, DECISION_RECORDS, MCP_CATALOG_CONFIGS,
+    MCP_CATALOG_SCOPES, SEMANTIC_ANN,
     SEMANTIC_AUTH_RECEIPTS, SEMANTIC_BINDINGS, SEMANTIC_CHECKPOINTS, SEMANTIC_CHECKPOINT_HEADS,
     SEMANTIC_DEAD_LETTERS, SEMANTIC_GRAPH_PROJECTIONS, SEMANTIC_HEADS, SEMANTIC_LEXICAL,
     SEMANTIC_POINTERS, SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES, SEMANTIC_STAGES,
@@ -91,8 +98,12 @@ pub use recovery::adopt::{
 pub use recovery::authority::rebind_copied_store;
 pub use recovery::backup::{backup_recovery_store, recovery_store_fingerprint};
 pub use recovery::evidence::{
-    backup_strict_recovery_store, strict_recovery_evidence, StrictRecoveryEvidence,
+    backup_strict_recovery_store, prove_scope_bindings_reanchored_read_only,
+    strict_recovery_evidence, strict_recovery_evidence_read_only, StrictRecoveryEvidence,
     StrictTableEvidence,
+};
+pub use recovery::semantic_merge::{
+    merge_semantic_owner_files, prove_semantic_owner_union_read_only, SemanticOwnerMergeEvidence,
 };
 pub use recovery::validate::{
     validate_recovery_store, validate_recovery_store_read_only, RecoveryStoreCounts,

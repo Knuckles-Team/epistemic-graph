@@ -12904,11 +12904,23 @@
       },
       "result_schema": {
         "bodies": {
+          "receipt": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "receipts": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "status": {
             "dynamic": null,
             "encoding": "Raw"
           },
           "submit": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "timeline": {
             "dynamic": null,
             "encoding": "Raw"
           }
@@ -17725,6 +17737,10 @@
             "encoding": "Raw"
           },
           "drop_binding": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "get_binding_request": {
             "dynamic": null,
             "encoding": "Raw"
           },
@@ -23780,6 +23796,19 @@
         "CONFLICT",
         "CORRUPT_MUTATION_LEDGER",
         "ELEVATION_ACTOR_UNSTAMPED",
+        "ELEVATION_COLLISION",
+        "ELEVATION_CONFLICT",
+        "ELEVATION_DELEGATED_APPROVER",
+        "ELEVATION_DIGEST_MISMATCH",
+        "ELEVATION_INVALID",
+        "ELEVATION_LEDGER_FULL",
+        "ELEVATION_NOT_APPROVER",
+        "ELEVATION_NOT_FOUND",
+        "ELEVATION_NOT_PARTY",
+        "ELEVATION_RESERVED_GRAPH",
+        "ELEVATION_SELF_APPROVAL",
+        "ELEVATION_UNKNOWN_ACTOR",
+        "ELEVATION_WILDCARD",
         "ENGINE_DEADLINE_EXCEEDED",
         "ENGINE_RESOURCE_EXHAUSTED",
         "ENGINE_UNAVAILABLE",
@@ -24869,11 +24898,23 @@
             "dynamic": null,
             "encoding": "Raw"
           },
+          "catalog_authority_status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "catalog_owner_principal": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "import": {
             "dynamic": null,
             "encoding": "Raw"
           },
           "reconcile_bodies": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "reconcile_catalog": {
             "dynamic": null,
             "encoding": "Raw"
           },

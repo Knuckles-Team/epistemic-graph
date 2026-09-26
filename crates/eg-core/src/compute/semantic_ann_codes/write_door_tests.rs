@@ -2,8 +2,9 @@
 //! property rather than a doc comment.
 //!
 //! The parent module records a deliberate non-goal: there is no per-generation
-//! write scope. One scope is authenticated and bound at `open`, every read is a
-//! `ScopedRead` on it, and every durable owner-row write is admitted against it
+//! write scope. One scope is authenticated and bound at legacy `open` (or
+//! resolved read-only at tenant `open_tenant`), every read is a `ScopedRead`
+//! on it, and every durable owner-row write is admitted against it
 //! through `commit_metadata_fenced`. `eg-transaction`'s confinement tests prove
 //! that a handle cannot reach ANOTHER TENANT's scope; nothing proved that this
 //! store never holds a second scope of its own. These tests do, in two layers.
@@ -11,8 +12,8 @@
 //! **Structural.** A scan of this module's own non-test source — comments and
 //! literals masked, function bodies brace-matched — asserts that every use of
 //! the kernels' write and scope vocabulary sits in exactly the door function
-//! [`WRITE_DOOR`] names for it; that a scope identity is minted and bound only
-//! on the `open` path; and that the public entry points reaching a durable
+//! [`WRITE_DOOR`] names for it; that only the legacy opener can mint a
+//! binding while the tenant opener only resolves one; and that public entry points reaching a durable
 //! write are exactly [`WRITING_ENTRY_POINTS`]. A new write path therefore fails
 //! here until the table is edited in the same diff: a reviewable change, never
 //! a silent one. The scan proves itself on a planted bypass.
@@ -50,9 +51,12 @@ use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
 /// The door's outbox wrappers carry the kernel method's own name, so the four
 /// stage-port rows at the end record their only callers: another caller of
 /// outbox delivery is a finding, exactly as a direct kernel call would be.
-const WRITE_DOOR: [(&str, &str); 23] = [
+const WRITE_DOOR: [(&str, &str); 26] = [
     ("open", "MutationKernel"),
     ("open", "into_read_and_mutation_authority"),
+    ("open_tenant", "MutationKernel"),
+    ("open_tenant", "into_read_and_mutation_authority"),
+    ("open_tenant", "authenticate_scope"),
     ("bind_scope", "authenticate_scope"),
     ("bind_scope", "bind_serving_scope"),
     ("bind_scope", "bootstrap_ledger"),
@@ -103,12 +107,12 @@ const VOCABULARY: [&str; 21] = [
     "outbox_release",
 ];
 
-/// `(function, its only caller)`: an identity is built only for the serving
-/// scope, and only `open` builds or binds one.
-const MINT_PATH: [(&str, &str); 3] = [
-    ("scope_identity", "serving_identity"),
-    ("serving_identity", "open"),
-    ("bind_scope", "open"),
+/// A serving identity is built only by an opener. The v2 opener may bind a
+/// missing scope; the v3 tenant opener may only resolve a migrated scope.
+const MINT_PATH: [(&str, &[&str]); 3] = [
+    ("scope_identity", &["serving_identity"]),
+    ("serving_identity", &["open", "open_tenant"]),
+    ("bind_scope", &["open"]),
 ];
 
 /// The functions that commit owner rows or ledger rows.
@@ -511,7 +515,8 @@ fn braced_body<'a>(masked: &'a str, head: &str) -> &'a str {
 }
 
 /// The chokepoint is a visibility boundary, not a convention: the kernels are
-/// private fields of `ServingDoor`, the two test-seeding accessors exist only
+/// private fields of `SharedSemanticOwner`, reached only through `ServingDoor`;
+/// the two test-seeding accessors exist only
 /// under `cfg(test)`, and no other file of this module names a kernel type.
 #[test]
 fn only_the_door_module_can_reach_a_kernel() {
@@ -522,7 +527,7 @@ fn only_the_door_module_can_reach_a_kernel() {
         .map(|(_, source)| String::from_utf8_lossy(&mask(source)).into_owned())
         .expect("door.rs is part of the module");
     let fields = braced_body(&door, "pub(super) struct ServingDoor");
-    for field in ["kernel:", "mutations:", "serving:"] {
+    for field in ["shared:", "serving:"] {
         assert!(
             fields.contains(field),
             "ServingDoor lost its `{field}` field"
@@ -531,6 +536,17 @@ fn only_the_door_module_can_reach_a_kernel() {
     assert!(
         !fields.contains("pub"),
         "a ServingDoor field is visible outside door.rs: {fields}"
+    );
+    let shared_fields = braced_body(&door, "pub(super) struct SharedSemanticOwner");
+    for field in ["kernel:", "mutations:"] {
+        assert!(
+            shared_fields.contains(field),
+            "SharedSemanticOwner lost its {field} field"
+        );
+    }
+    assert!(
+        !shared_fields.contains("pub"),
+        "a shared semantic kernel field is visible outside door.rs: {shared_fields}"
     );
     for accessor in ["fn storage_kernel", "fn mutation_kernel"] {
         let at = door
@@ -592,14 +608,13 @@ fn every_kernel_write_or_scope_call_sits_in_its_named_write_door() {
 }
 
 #[test]
-fn only_open_mints_or_binds_a_scope_identity() {
+fn only_serving_openers_construct_or_bind_a_scope_identity() {
     let scan = DoorScan::of(&module_sources());
-    for (minted, caller) in MINT_PATH {
+    for (minted, callers) in MINT_PATH {
         assert_eq!(
             scan.callers(minted),
-            owned(&[caller]),
-            "`{minted}` must be reached only from `{caller}`: another caller is a second \
-             ledger scope"
+            owned(callers),
+            "an unexpected caller of {minted} could create another ledger scope"
         );
     }
 }

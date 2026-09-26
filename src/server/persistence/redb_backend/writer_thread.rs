@@ -7,12 +7,11 @@ use tokio::sync::oneshot;
 use crate::protocol::Method;
 use crate::redb_store::shard::{Shard, ShardWrite};
 use crate::redb_store::{
-    clear_xshard_decision, clear_xshard_prepare, commit_change_envelope, commit_change_envelopes,
-    commit_crossmodal, commit_mutation_batch, commit_mutation_batch_crossmodal,
-    commit_mutation_batch_state, commit_ops, get_xshard_decision, get_xshard_decision_retain,
-    get_xshard_prepare, purge_graph_rows, put_xshard_decision, put_xshard_prepare,
-    put_xshard_recoverable_pending, read_graph_dump, scan_xshard_decisions, scan_xshard_prepares,
-    write_graph_meta, RAFT_LOG,
+    clear_xshard_decision, clear_xshard_prepare, commit_change_envelopes, commit_crossmodal,
+    commit_mutation_batch, commit_mutation_batch_crossmodal, commit_mutation_batch_state,
+    commit_ops, get_xshard_decision, get_xshard_decision_retain, get_xshard_prepare,
+    purge_graph_rows, put_xshard_decision, put_xshard_prepare, put_xshard_recoverable_pending,
+    read_graph_dump, scan_xshard_decisions, scan_xshard_prepares, write_graph_meta, RAFT_LOG,
 };
 
 // ── off-reactor group-commit writer thread ───────────────────────────────

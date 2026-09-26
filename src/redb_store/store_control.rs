@@ -474,6 +474,7 @@ pub(crate) fn apply_graph_methods(
             clear_resource_rows_in_wtx(write, graph, crypto)?;
             development_lane::clear_native_graph_rows_in_wtx(write, graph, crypto)?;
             capacity_lease::clear_graph_rows(write, graph)?;
+            enrichment_budget::clear_graph_rows(write, graph)?;
             work_item_capability::clear_graph_rows_with_native(
                 write,
                 graph,

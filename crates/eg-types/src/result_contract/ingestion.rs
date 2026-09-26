@@ -8,8 +8,8 @@ use crate::ingestion_wire::{DiscoverHit, IndexResult, ParseResult, ScreenObserva
 #[cfg(feature = "quantum")]
 use crate::quantum::{QuantumExpectationResult, QuantumQaoaResult, QuantumRankResult};
 use crate::semantic_index::{
-    SemanticBinding, SemanticBindingPage, SemanticSqlSourceManifest, SemanticStageIntent,
-    SemanticStageLeasePage, SemanticStageTransition,
+    SemanticBinding, SemanticBindingPage, SemanticIndexResponse, SemanticSqlSourceManifest,
+    SemanticStageIntent, SemanticStageLeasePage, SemanticStageTransition,
 };
 use crate::source_ingestion::{
     SourceIngestStatus as SourceIngestStatusBody, SourceIngestionReceipt,
@@ -71,6 +71,7 @@ method_results! {
     SemanticIndexCompleteSqlSourceStage(SemanticIndex / "complete_sql_source_stage") => Raw<SemanticMutationReceipt>;
     SemanticIndexReplayCompletedSqlSourceStage(SemanticIndex / "replay_completed_sql_source_stage") => Raw<Option<(SemanticStageTransition, SemanticMutationReceipt)>>;
     SemanticIndexReleaseStageLease(SemanticIndex / "release_stage_lease") => Raw<bool>;
+    SemanticIndexGetBindingRequest(SemanticIndex / "get_binding_request") => Raw<SemanticIndexResponse>;
     SemanticIndexBinding(SemanticIndex / "binding") => Raw<Option<SemanticBinding>>;
     SemanticIndexSqlSourceManifest(SemanticIndex / "sql_source_manifest") => Raw<Option<SemanticSqlSourceManifest>>;
     SemanticIndexListBindings(SemanticIndex / "list_bindings") => Raw<SemanticBindingPage>;

@@ -115,7 +115,19 @@ pub(crate) fn compile_methods(
     ctx: CompileBatch<'_>,
     methods: Vec<Method>,
 ) -> Result<MutationBatch, String> {
-    let (methods, terminal_outbox) = lower_terminal_outcome_extensions(ctx.batch_id, methods)?;
+    compile_methods_with_outbox(ctx, methods, Vec::new())
+}
+
+/// Compile a graph write and its additional durable intentions together.
+/// The caller supplies the intents before `finish_batch` mints the canonical
+/// envelope, so its payload digest covers both operations and outbox bytes.
+pub(crate) fn compile_methods_with_outbox(
+    ctx: CompileBatch<'_>,
+    methods: Vec<Method>,
+    additional_outbox: Vec<MutationOutboxIntent>,
+) -> Result<MutationBatch, String> {
+    let (methods, mut terminal_outbox) = lower_terminal_outcome_extensions(ctx.batch_id, methods)?;
+    terminal_outbox.extend(additional_outbox);
     #[cfg(feature = "epistemic-tms")]
     let reasoning_events = eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods);
     let state_backed = ctx.authoritative_state.is_some();
@@ -409,13 +421,19 @@ pub(crate) fn compile_crossmodal(
 fn reasoning_wakeup_payload(
     operations: &[MutationOperation],
     events: Vec<eg_epistemic::IncrementalReasoningEvent>,
+    state_backed: bool,
 ) -> Result<Vec<u8>, String> {
     let encoded = rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
-    let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
-        operations.len(),
-        hex::encode(Sha256::digest(encoded)),
-        events,
-    )?;
+    let digest = hex::encode(Sha256::digest(encoded));
+    // A state-backed batch commits opaque receipts, from which the consumer
+    // cannot re-derive events: its notice stays inline. Every other batch's
+    // events are exactly those of its committed operations, so its notice is
+    // bounded and references the batch past the inline cap.
+    let wakeup = if state_backed {
+        eg_epistemic::ReasoningProjectionWakeup::new(operations.len(), digest, events)?
+    } else {
+        eg_epistemic::ReasoningProjectionWakeup::bounded(operations.len(), digest, events)?
+    };
     rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
 }
 
@@ -530,7 +548,11 @@ fn finish_batch(
     let summary = if outbox_plan.reasoning_events.is_empty() {
         summary
     } else {
-        reasoning_wakeup_payload(&identity_operations, outbox_plan.reasoning_events)?
+        reasoning_wakeup_payload(
+            &identity_operations,
+            outbox_plan.reasoning_events,
+            ctx.authoritative_state.is_some(),
+        )?
     };
     drop(identity_operations);
     let mut scope_digest = Sha256::new();
@@ -862,7 +884,7 @@ fn projection_wakeup_payload_without_redb(
             .iter()
             .map(|operation| operation.method.clone())
             .collect::<Vec<_>>();
-        let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
+        let wakeup = eg_epistemic::ReasoningProjectionWakeup::bounded(
             operations.len(),
             hex::encode(Sha256::digest(encoded_operations)),
             eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
@@ -897,6 +919,113 @@ fn opaque_state_operation(method: &Method) -> Result<Method, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn source_context() -> CompileBatch<'static> {
+        CompileBatch {
+            batch_id: "repository-index:test-envelope",
+            request_id: 41,
+            attempt_nonce: None,
+            principal: Some("agent:repository-indexer"),
+            tenant: "tenant-a",
+            graph: "code",
+            placement_epoch: 0,
+            idempotency_key: "repository-index:test-envelope",
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            created_at_ms: 1,
+            default_surface: MutationSurface::Graph,
+            authoritative_state: None,
+        }
+    }
+
+    fn source_method() -> Method {
+        Method::AddNode {
+            node_id: "blob:source".into(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                "type": "Blob",
+                "content_digest": "sha256:source"
+            }))
+            .unwrap(),
+        }
+    }
+
+    fn enrichment_intent() -> MutationOutboxIntent {
+        MutationOutboxIntent {
+            topic: "repository.enrichment.pending".into(),
+            key: "repository-index:test-envelope".into(),
+            payload: rmp_serde::to_vec_named(&serde_json::json!({
+                "schema_version": 1,
+                "source_envelope": "repository-index:test-envelope"
+            }))
+            .unwrap(),
+            headers: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn source_and_enrichment_intent_share_one_canonical_batch() {
+        let intent = enrichment_intent();
+        let batch = compile_methods_with_outbox(
+            source_context(),
+            vec![source_method()],
+            vec![intent.clone()],
+        )
+        .unwrap();
+        assert_eq!(batch.operations.len(), 1);
+        assert_eq!(batch.outbox.len(), 2);
+        assert_eq!(batch.outbox[1], intent);
+        batch.validate().unwrap();
+
+        let without_intent = compile_methods(source_context(), vec![source_method()]).unwrap();
+        assert_ne!(
+            batch.envelope.operation().unwrap().canonical_payload_digest,
+            without_intent
+                .envelope
+                .operation()
+                .unwrap()
+                .canonical_payload_digest
+        );
+        let retry = compile_methods_with_outbox(
+            source_context(),
+            vec![source_method()],
+            vec![enrichment_intent()],
+        )
+        .unwrap();
+        assert_eq!(
+            batch.envelope.operation().unwrap().canonical_payload_digest,
+            retry.envelope.operation().unwrap().canonical_payload_digest
+        );
+        assert_eq!(batch.outbox, retry.outbox);
+
+        let mut tampered = batch;
+        tampered.outbox[1].payload.push(0);
+        assert!(tampered.validate().is_err());
+    }
+
+    #[test]
+    fn empty_extra_outbox_keeps_existing_compiler_output() {
+        let original = compile_methods(source_context(), vec![source_method()]).unwrap();
+        let explicit =
+            compile_methods_with_outbox(source_context(), vec![source_method()], Vec::new())
+                .unwrap();
+        assert_eq!(
+            rmp_serde::to_vec_named(&original.operations).unwrap(),
+            rmp_serde::to_vec_named(&explicit.operations).unwrap()
+        );
+        assert_eq!(original.outbox, explicit.outbox);
+        assert_eq!(
+            original
+                .envelope
+                .operation()
+                .unwrap()
+                .canonical_payload_digest,
+            explicit
+                .envelope
+                .operation()
+                .unwrap()
+                .canonical_payload_digest
+        );
+    }
 
     #[test]
     fn terminal_run_event_replaces_generic_projection_intent() {

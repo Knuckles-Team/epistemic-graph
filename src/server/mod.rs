@@ -452,6 +452,8 @@ pub mod impact_watch;
 // PB1 — the connector-pack projection worker, the first Agent Library outbox
 // consumer. `pub` so the server binary can start it after catalog recovery.
 pub mod connector_pack_projection;
+// EH-557 — bounded local repository enrichment outbox consumer.
+pub mod repository_enrichment_worker;
 // X10 — the operator and consumer surface over every owner's mutation outbox.
 #[cfg(feature = "redb")]
 pub(crate) mod outbox_operator;
@@ -2779,7 +2781,7 @@ mod tests {
         let mut req = request(1, "__commons__", None, Method::Ping);
         req.auth_token = "bogus".to_string();
         let resp = dispatch_on_heap(&state, req).await;
-        assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(resp.error.as_deref(), Some("AUTHENTICATION_REQUIRED"));
         assert_eq!(resp.error_detail.as_deref(), Some("Authentication failed"));
     }
 

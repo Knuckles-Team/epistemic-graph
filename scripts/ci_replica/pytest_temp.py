@@ -15,7 +15,7 @@ WHAT
 ----
 Every replicated step gets ``PYTEST_ADDOPTS=--basetemp=<short>`` whose deepest
 engine socket fits the limit.  ``<short>`` is one directory per replica process
-under ``/tmp``, so two replica processes on one host
+under the system's short-lived temporary root, so two replica processes on one host
 never share -- pytest deletes an explicit basetemp before it starts.  A step's
 own ``PYTEST_ADDOPTS`` is kept AFTER ours, so a step that names its own
 ``--basetemp`` still wins.  Only pytest reads the variable.
@@ -26,6 +26,7 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 #: sun_path is 108 bytes including the terminating NUL.
@@ -39,8 +40,10 @@ _BASETEMP: Path | None = None
 
 
 def _parent() -> Path:
-    # Keep the AF_UNIX path short even when the replica sets a deep TMPDIR.
-    return Path("/tmp")
+    temp_root = Path(tempfile.gettempdir())
+    root = Path(temp_root.anchor)
+    var_tmp = root / "var" / "tmp"
+    return var_tmp if var_tmp.is_dir() else root / "tmp"
 
 
 def short_basetemp() -> Path:

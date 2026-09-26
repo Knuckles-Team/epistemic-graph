@@ -117,7 +117,8 @@ pub use tms::{
 pub use incremental::{
     projection_identity, IncrementalDelta, IncrementalReasoningEvent, IncrementalReasoningIndex,
     ProjectedMaterialization, ProjectedMaterializationStatus, ProjectionInvalidationKind,
-    ProjectionPosition, ReasoningProjectionWakeup, REASONING_PROJECTION_VERSION,
+    ProjectionPosition, ReasoningProjectionWakeup, WakeupEventSource, MAX_INLINE_WAKEUP_EVENTS,
+    REASONING_PROJECTION_VERSION,
 };
 #[cfg(feature = "epistemic-tms")]
 pub use recompute::{

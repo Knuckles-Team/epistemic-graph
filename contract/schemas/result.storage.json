@@ -8018,6 +8018,27 @@
             "$ref": "#/$defs/ConnectorPackBindingResult"
           }
         },
+        "catalog_authority_status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/McpCatalogSnapshotBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "catalog_owner_principal": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": "string"
+          }
+        },
         "import": {
           "dynamic": null,
           "encoding": "Raw",
@@ -8030,6 +8051,13 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/PackBodyReconcileReport"
+          }
+        },
+        "reconcile_catalog": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/McpCatalogSnapshotBinding"
           }
         },
         "reproject": {

@@ -121,9 +121,12 @@ impl EgStore {
         req: &RaftRequest,
         core: &Arc<crate::graph::GraphCore>,
         persistence: Option<&Arc<dyn PersistenceBackend>>,
-        change_envelope: Option<&crate::change_envelope::ChangeEnvelope>,
+        change_envelope: Option<&(
+            crate::change_envelope::ChangeEnvelope,
+            Option<crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
+        )>,
     ) -> Result<Option<RaftResponse>, String> {
-        let Some(envelope) = change_envelope else {
+        let Some((envelope, source_budget)) = change_envelope else {
             return Ok(None);
         };
         // `identity.scope().graph_name()` is `None` for a native (non-graph)
@@ -153,9 +156,20 @@ impl EgStore {
         let backend = persistence.ok_or_else(|| {
             "replicated ChangeEnvelope requires a configured persistence backend".to_string()
         })?;
-        let committed = backend
-            .commit_change_envelope(&req.graph_fname, envelope, committed_at_ms)
-            .await?;
+        let committed = if let Some(source_budget) = source_budget {
+            backend
+                .commit_repository_change_envelope(
+                    &req.graph_fname,
+                    envelope,
+                    source_budget.clone(),
+                    committed_at_ms,
+                )
+                .await?
+        } else {
+            backend
+                .commit_change_envelope(&req.graph_fname, envelope, committed_at_ms)
+                .await?
+        };
         let projection_pending = if committed.replayed {
             false
         } else {

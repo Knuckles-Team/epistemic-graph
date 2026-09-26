@@ -221,12 +221,13 @@ fn connector_owner_key_type(name: &str) -> Option<&'static str> {
     match name {
         "connector_pack_heads"
         | "connector_pack_bindings"
+        | "mcp_catalog_configs"
         | "decision_artifacts"
         | "decision_records"
         | "write_back_change_sets"
         | "write_back_idempotency"
         | "write_back_receipt_heads" => Some("(&str,&str)"),
-        "connector_pack_members" => Some("(&str,&str,&str)"),
+        "connector_pack_members" | "mcp_catalog_scopes" => Some("(&str,&str,&str)"),
         "connector_pack_imports" | "write_back_receipts" => Some("(&str,&str,u64)"),
         "connector_pack_body_holders" => Some("(&str,&str,&str,u64)"),
         _ => None,
@@ -360,6 +361,8 @@ fn value_type_id(name: &str) -> &'static str {
         | "connector_pack_imports"
         | "connector_pack_body_holders"
         | "connector_pack_bindings"
+        | "mcp_catalog_configs"
+        | "mcp_catalog_scopes"
         | "decision_artifacts"
         | "decision_records"
         | "write_back_change_sets"
@@ -426,6 +429,8 @@ fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
         | "connector_pack_imports"
         | "connector_pack_body_holders"
         | "connector_pack_bindings"
+        | "mcp_catalog_configs"
+        | "mcp_catalog_scopes"
         | "decision_artifacts"
         | "write_back_change_sets"
         | "write_back_idempotency"
@@ -657,6 +662,8 @@ fn connector_capabilities(name: &str) -> Option<u16> {
         | "write_back_receipts" => CAP_READ | CAP_INSERT,
         "connector_pack_heads"
         | "connector_pack_members"
+        | "mcp_catalog_configs"
+        | "mcp_catalog_scopes"
         | "write_back_receipt_heads"
         | "decision_artifacts" => CAP_READ | CAP_INSERT | CAP_UPDATE,
         "connector_pack_bindings" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,

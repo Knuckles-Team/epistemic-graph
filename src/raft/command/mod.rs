@@ -96,9 +96,21 @@ impl ReplicatedMutation {
         envelope: &crate::change_envelope::ChangeEnvelope,
         server_secret: &str,
     ) -> Result<Self, String> {
+        Self::change_envelope_with_budget(envelope, None, server_secret)
+    }
+
+    pub(crate) fn change_envelope_with_budget(
+        envelope: &crate::change_envelope::ChangeEnvelope,
+        source_budget: Option<&crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
+        server_secret: &str,
+    ) -> Result<Self, String> {
+        crate::redb_store::enrichment_budget::validate_source_envelope(envelope, source_budget)?;
         Ok(Self::Native {
             command: NativeMutationCommand::ChangeEnvelope {
                 sealed_envelope: SealedNativeMethod::seal_value(server_secret, envelope)?,
+                sealed_repository_budget: source_budget
+                    .map(|budget| SealedNativeMethod::seal_value(server_secret, budget))
+                    .transpose()?,
             },
         })
     }
@@ -106,13 +118,89 @@ impl ReplicatedMutation {
     pub(crate) fn open_change_envelope(
         &self,
         server_secret: &str,
-    ) -> Result<Option<crate::change_envelope::ChangeEnvelope>, String> {
+    ) -> Result<
+        Option<(
+            crate::change_envelope::ChangeEnvelope,
+            Option<crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
+        )>,
+        String,
+    > {
         match self {
             Self::Native {
-                command: NativeMutationCommand::ChangeEnvelope { sealed_envelope },
-            } => sealed_envelope.open_value(server_secret).map(Some),
+                command:
+                    NativeMutationCommand::ChangeEnvelope {
+                        sealed_envelope,
+                        sealed_repository_budget,
+                    },
+            } => {
+                let envelope = sealed_envelope.open_value(server_secret)?;
+                let budget = sealed_repository_budget
+                    .as_ref()
+                    .map(|sealed| sealed.open_value(server_secret))
+                    .transpose()?;
+                crate::redb_store::enrichment_budget::validate_source_envelope(
+                    &envelope,
+                    budget.as_ref(),
+                )?;
+                Ok(Some((envelope, budget)))
+            }
             _ => Ok(None),
         }
+    }
+
+    /// Build one internal replicated park command after a durable checkpoint
+    /// determined that the next immutable unit is underfunded. No public
+    /// Method variant can construct this command.
+    pub(crate) fn enrichment_park(
+        park: &eg_types::native_control::EnrichmentBudgetPark,
+        server_secret: &str,
+    ) -> Result<Self, String> {
+        Self::validate_enrichment_park(park)?;
+        Ok(Self::Native {
+            command: NativeMutationCommand::EnrichmentPark {
+                sealed_park: SealedNativeMethod::seal_value(server_secret, park)?,
+            },
+        })
+    }
+
+    pub(crate) fn open_enrichment_park(
+        &self,
+        server_secret: &str,
+    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetPark>, String> {
+        match self {
+            Self::Native {
+                command: NativeMutationCommand::EnrichmentPark { sealed_park },
+            } => {
+                let park = sealed_park.open_value(server_secret)?;
+                Self::validate_enrichment_park(&park)?;
+                Ok(Some(park))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn validate_enrichment_park(
+        park: &eg_types::native_control::EnrichmentBudgetPark,
+    ) -> Result<(), String> {
+        fn digest(value: &str) -> bool {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        }
+        if park.schema_version != 1
+            || park.parked_at_ms == 0
+            || park.source_envelope.is_empty()
+            || park.source_envelope.len() > 512
+            || park.source_envelope.chars().any(char::is_control)
+            || !digest(&park.snapshot_digest)
+            || !digest(&park.policy_digest)
+            || park.page_number > park.next_index
+            || park.required_units <= park.remaining_units
+        {
+            return Err("CONFLICT: replicated enrichment park is invalid".into());
+        }
+        Ok(())
     }
 
     #[cfg(feature = "modality-serving")]
