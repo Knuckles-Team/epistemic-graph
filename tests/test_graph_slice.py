@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from epistemic_graph.ingestion.graph_slice import (
+    GraphSliceCapture,
     edge_only_marker_entity,
     graph_slice_digest,
     graph_slice_primary,
@@ -65,3 +66,28 @@ def test_edge_only_marker_is_stable_and_source_scoped() -> None:
     assert first["node_type"] == "SourceMaterialization"
     assert first["id"] != other_source["id"]
     assert "orders" not in first["id"]
+
+
+def test_capture_merges_nodes_deduplicates_edges_and_orders_snapshot() -> None:
+    capture = GraphSliceCapture(None)
+    capture.add_node("b", "Entity", name="before")
+    capture.add_node("a", node_type="Document", title="A")
+    capture.add_node("b", node_type="Person", name="after")
+    capture.add_edge("b", "a", "CITES", confidence=0.9)
+    capture.add_edge("b", "a", "CITES", confidence=0.9)
+    nodes, edges = capture.snapshot()
+
+    assert [node["id"] for node in nodes] == ["a", "b"]
+    assert nodes[1]["node_type"] == "Person"
+    assert nodes[1]["name"] == "after"
+    assert edges == [
+        {"source": "b", "target": "a", "relationship": "CITES", "confidence": 0.9}
+    ]
+
+
+def test_capture_refuses_retired_type_and_relationship_keys() -> None:
+    capture = GraphSliceCapture(None)
+    with pytest.raises(ValueError, match="node property 'type' is retired"):
+        capture.add_node("a", type="Document")
+    with pytest.raises(ValueError, match="edge properties .* are retired"):
+        capture.add_edge("a", "b", type="CITES")
