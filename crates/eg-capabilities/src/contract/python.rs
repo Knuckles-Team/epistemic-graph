@@ -429,6 +429,9 @@ fn push_send(
     out.push('\n');
     push_doc_field(out, "Method", id);
     push_doc_field(out, "Authorization", d.policy.authz_action);
+    if d.note.contains("resolves to") {
+        push_doc_field(out, "Runtime policy", d.note);
+    }
     push_doc_field(
         out,
         "Durability",

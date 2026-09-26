@@ -48,7 +48,7 @@ pub use descriptor::{
     MethodId, MethodSpec, ReplayClass, Stability,
 };
 
-use eg_types::protocol::{CypherMode, Method};
+use eg_types::protocol::{ClusterAlgorithm, CypherMode, Method};
 
 /// The shape EVERY runtime-conditional native owner has: a snapshot read when
 /// its op reads, and one write in its own durable domain when its op writes.
@@ -609,6 +609,27 @@ fn policy_evolution_policy(method: &Method) -> Option<MethodPolicy> {
 }
 
 fn policy_for_method(method: &Method) -> MethodPolicy {
+    // Spectral is the only MineCluster algorithm with a read-only contract.
+    // Its admission rejects writeback, so the verified request boundary can
+    // authorize an ordinary mining reader without granting mining:write.
+    if matches!(
+        method,
+        Method::MineCluster {
+            algorithm: ClusterAlgorithm::Spectral,
+            writeback: false,
+            ..
+        }
+    ) {
+        return MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "mining:read",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        };
+    }
     if let Some(policy) = agent_family_policy(method)
         .or_else(|| connector_family_policy(method))
         .or_else(|| registry_family_policy(method))

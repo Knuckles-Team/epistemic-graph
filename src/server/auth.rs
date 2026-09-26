@@ -2044,6 +2044,64 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mining")]
+    fn spectral_cluster_read_policy_allows_readers_without_widening_writes() {
+        use crate::protocol::{ClusterAlgorithm, Linkage};
+
+        let method = Method::MineCluster {
+            features: vec![vec![1.0, 0.0], vec![0.0, 1.0]],
+            source: None,
+            #[cfg(feature = "query")]
+            plan: None,
+            algorithm: ClusterAlgorithm::Spectral,
+            eps: 0.5,
+            min_pts: 2,
+            k: 2,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 42,
+            writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let read_policy = eg_capabilities::policy(&method);
+        assert_eq!(read_policy.authz_action, "mining:read");
+        assert!(!read_policy.mutates);
+        assert_eq!(
+            read_policy.durability_domain,
+            eg_capabilities::DurabilityDomain::None
+        );
+
+        let context_for = |scope: &str| {
+            let mut claims = verified_claims();
+            claims.scopes = vec![scope.into()];
+            VerifiedRequestContext::from_verified_claims(claims, "spectral-read".into())
+        };
+        let reader = context_for("kg:read");
+        let mining_reader = context_for("mining:read");
+        assert!(reader.allows_method(read_policy.authz_action, read_policy.mutates));
+        assert!(mining_reader.allows_method(read_policy.authz_action, read_policy.mutates));
+
+        let mut denied_write = method.clone();
+        if let Method::MineCluster { writeback, .. } = &mut denied_write {
+            *writeback = true;
+        }
+        let write_policy = eg_capabilities::policy(&denied_write);
+        assert_eq!(write_policy.authz_action, "mining:write");
+        assert!(write_policy.mutates);
+        assert!(!reader.allows_method(write_policy.authz_action, write_policy.mutates));
+        assert!(!mining_reader.allows_method(write_policy.authz_action, write_policy.mutates));
+
+        let mut ordinary_cluster = method;
+        if let Method::MineCluster { algorithm, .. } = &mut ordinary_cluster {
+            *algorithm = ClusterAlgorithm::Dbscan;
+        }
+        let ordinary_policy = eg_capabilities::policy(&ordinary_cluster);
+        assert_eq!(ordinary_policy.authz_action, "mining:write");
+        assert!(!reader.allows_method(ordinary_policy.authz_action, ordinary_policy.mutates));
+    }
+
+    #[test]
     fn identity_bootstrap_requires_exact_self_scope_without_delegation() {
         let mut claims = verified_claims();
         claims.scopes = vec!["security:bootstrap".into()];
