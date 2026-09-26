@@ -68,6 +68,10 @@ metadata, extracts frontmatter, and commits the governed projection.
 `epistemic_graph.ingestion.document_chunk_derivation` projects caller-split
 verbatim chunks into stable nodes and document edges; AU retains text splitting
 and the document ingestion orchestration.
+`epistemic_graph.ingestion.workflow_derivation` owns the stable hash of parsed
+workflow semantics and the deterministic WorkflowDefinition/WorkflowStep graph
+properties. AU still discovers and parses skill files, checks governance, and
+writes the nodes and edges through its current integration path.
 
 ## Derived-slice commit decision for AUD-18
 
