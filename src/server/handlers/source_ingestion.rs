@@ -1430,6 +1430,16 @@ fn admit_record(
     resolved: &ResolvedIngestionMappings,
     policy_subject: &str,
 ) -> Result<AdmittedRecord, String> {
+    let mapping = resolved
+        .entities
+        .get(&record.mapping_reference)
+        .ok_or_else(|| "UNKNOWN_MAPPING_REFERENCE: record mapping was not resolved".to_string())?;
+    let payload = record.payload.value()?;
+    let source = payload
+        .as_object()
+        .ok_or_else(|| "source record payload must be an object".to_string())?;
+    // Reject unenforceable source ACLs before acquiring even the raw blob holder.
+    validate_source_access(source, &mapping.schema_mapping.fields)?;
     let raw = rmp_serde::to_vec_named(record)
         .map_err(|error| format!("raw source record encoding failed: {error}"))?;
     let raw_digest_hex = admit_raw(ctx, authority, blob, &raw)?;
@@ -1440,10 +1450,6 @@ fn admit_record(
         record.stream.as_str(),
         &record.record_id,
     )?;
-    let mapping = resolved
-        .entities
-        .get(&record.mapping_reference)
-        .ok_or_else(|| "UNKNOWN_MAPPING_REFERENCE: record mapping was not resolved".to_string())?;
     let properties = mapped_properties(
         record,
         &mapping.schema_mapping.ontology_class,
