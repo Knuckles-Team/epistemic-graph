@@ -117,7 +117,6 @@ impl IsolationLayer {
                     || byte == b'-'
                     || byte == b'.'
             })
-            || !tenant_slug.as_bytes()[0].is_ascii_alphanumeric()
         {
             return Err("ACCESS_DENIED: invalid tenant admission target".to_string());
         }
@@ -313,6 +312,17 @@ mod tenant_admission_tests {
         assert_eq!(
             layer.get_identity("reader").unwrap().roles,
             vec!["tenant:acme.io"]
+        );
+        layer
+            .provision_tenant_graph_access("tenant__-lab__default", None)
+            .unwrap();
+        assert_eq!(
+            layer.try_admit_tenant_principal("reader", "-lab", AgentRole::Agent, vec![]),
+            Ok(true)
+        );
+        assert_eq!(
+            layer.get_identity("reader").unwrap().roles,
+            vec!["tenant:acme.io", "tenant:-lab"]
         );
     }
 }
