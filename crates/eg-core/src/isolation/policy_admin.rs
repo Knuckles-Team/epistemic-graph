@@ -111,7 +111,11 @@ impl IsolationLayer {
         if agent_id.trim().is_empty()
             || tenant_slug.is_empty()
             || !tenant_slug.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || byte == b'_'
+                    || byte == b'-'
+                    || byte == b'.'
             })
             || !tenant_slug.as_bytes()[0].is_ascii_alphanumeric()
         {
@@ -294,5 +298,21 @@ mod tenant_admission_tests {
         assert!(layer
             .try_admit_tenant_principal("new", "acme", AgentRole::System, vec![])
             .is_err());
+    }
+
+    #[test]
+    fn admission_accepts_canonical_dotted_graph_slug() {
+        let mut layer = IsolationLayer::new();
+        layer
+            .provision_tenant_graph_access("tenant__acme.io__default", None)
+            .unwrap();
+        assert_eq!(
+            layer.try_admit_tenant_principal("reader", "acme.io", AgentRole::Agent, vec![]),
+            Ok(true)
+        );
+        assert_eq!(
+            layer.get_identity("reader").unwrap().roles,
+            vec!["tenant:acme.io"]
+        );
     }
 }
