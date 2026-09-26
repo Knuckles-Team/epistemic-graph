@@ -1071,11 +1071,13 @@ def main() -> None:
     # routes FOREIGN, and federation_opt/run.rs performs the registry refusal.
     # Inspect all three links so a missing registry cannot be hidden by moving
     # only the error string away from the routed implementation.
-    plan_exec = read_sources((
-        "crates/eg-plan/src/exec.rs",
-        "crates/eg-plan/src/exec/dispatch.rs",
-        "crates/eg-plan/src/federation_opt/run.rs",
-    ))
+    plan_exec = read_sources(
+        (
+            "crates/eg-plan/src/exec.rs",
+            "crates/eg-plan/src/exec/dispatch.rs",
+            "crates/eg-plan/src/federation_opt/run.rs",
+        )
+    )
     transport = read("src/server/transport.rs")
     server = read("src/server/mod.rs")
     server_main = read("src/main.rs")

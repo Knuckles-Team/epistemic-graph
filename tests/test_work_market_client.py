@@ -6,7 +6,6 @@ import asyncio
 from typing import Any, cast
 
 import pytest
-
 from _client_send_stub import CapturingEngine as FakeEngine
 
 from epistemic_graph.client import EpistemicGraphClient
@@ -84,7 +83,9 @@ def test_a_view_outside_the_contract_is_refused() -> None:
 
 
 def test_get_answers_none_for_an_invisible_gap_and_list_pages() -> None:
-    assert asyncio.run(_gaps(FakeEngine(None)).get(tenant="t", gap_id="gap:a:b")) is None
+    assert (
+        asyncio.run(_gaps(FakeEngine(None)).get(tenant="t", gap_id="gap:a:b")) is None
+    )
     engine = FakeEngine({"gaps": [GAP], "next_cursor": None})
     page = asyncio.run(_gaps(engine).list(tenant="t", status="open", limit=10))
     assert page == {"gaps": [GAP], "next_cursor": None}

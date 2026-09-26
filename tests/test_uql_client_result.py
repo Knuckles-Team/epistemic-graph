@@ -16,8 +16,20 @@ def test_rows_carry_channels_and_only_the_requested_annotations() -> None:
         "Rows": {
             "columns": ["similarity"],
             "rows": [
-                {"id": "d1", "score": 0.5, "channels": [0.5], "knowledge": None, "proof": None},
-                {"id": "d2", "score": None, "channels": [None], "knowledge": knowledge, "proof": proof},
+                {
+                    "id": "d1",
+                    "score": 0.5,
+                    "channels": [0.5],
+                    "knowledge": None,
+                    "proof": None,
+                },
+                {
+                    "id": "d2",
+                    "score": None,
+                    "channels": [None],
+                    "knowledge": knowledge,
+                    "proof": proof,
+                },
             ],
             "warnings": [],
         }

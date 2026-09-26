@@ -6499,6 +6499,94 @@
               "request"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "reconcile_catalog",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_McpCatalogReconcileRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "catalog_authority_status",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read the live owner principal only after proving this caller's scoped\nmounted-child authority row exists for the requested tenant/server.",
+            "properties": {
+              "op": {
+                "const": "catalog_owner_principal",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read the current tenant/server/scope binding as a pack-control service.\nUnlike attester status, this does not confer catalog reconciliation.",
+            "properties": {
+              "op": {
+                "const": "catalog_binding_status",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return EG's actual AgentLibrary mutation owner to a verified\npack-control request identity for an existing scoped catalog row.",
+            "properties": {
+              "op": {
+                "const": "catalog_request_owner_principal",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -10052,6 +10140,67 @@
         "required": [
           "component_id",
           "violation"
+        ],
+        "type": "object"
+      },
+      "ReqDef_EnrichmentBudgetReservation": {
+        "additionalProperties": false,
+        "description": "Compare-and-swap reservation on the immutable source snapshot's global\ncompute budget. The native submit transaction applies this debit and all\nchild WorkItems together or neither. A capacity lease is a separate live\nresource fence and cannot replace this spending ledger.",
+        "properties": {
+          "end_index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_next_index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_page_number": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_remaining_units": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "page_key": {
+            "type": "string"
+          },
+          "reserve_units": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/ReqDef_NativeControlSchemaVersion"
+          },
+          "snapshot_digest": {
+            "type": "string"
+          },
+          "source_envelope": {
+            "type": "string"
+          },
+          "total_budget_units": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "snapshot_digest",
+          "source_envelope",
+          "page_key",
+          "expected_next_index",
+          "end_index",
+          "expected_page_number",
+          "expected_remaining_units",
+          "reserve_units",
+          "total_budget_units"
         ],
         "type": "object"
       },
@@ -15589,6 +15738,101 @@
           "delete"
         ],
         "type": "string"
+      },
+      "ReqDef_McpCatalogAuthorityStatusRequest": {
+        "additionalProperties": false,
+        "description": "Read the EG-owned generation for one verified tenant-local server scope.",
+        "properties": {
+          "server_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "server_name"
+        ],
+        "type": "object"
+      },
+      "ReqDef_McpCatalogReconcileRequest": {
+        "additionalProperties": false,
+        "description": "An authenticated served child asks EG to reconcile its observed catalog.\nThe scope digest is absent: EG derives it from the verified tenant carrier.",
+        "properties": {
+          "child_connection_generation": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "child_id": {
+            "type": "string"
+          },
+          "component_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "component_id": {
+            "type": "string"
+          },
+          "component_revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ReqDef_AgentLibraryMutationContext"
+          },
+          "discovery_tenant": {
+            "type": "string"
+          },
+          "expected_catalog_generation": {
+            "default": null,
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "four_family_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "local_catalog_epoch": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "registration_config_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "registry_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "registry_revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "context",
+          "server_name",
+          "component_id",
+          "component_revision",
+          "component_digest",
+          "registry_revision",
+          "registry_digest",
+          "registration_config_digest",
+          "four_family_digest",
+          "child_id",
+          "discovery_tenant",
+          "local_catalog_epoch",
+          "child_connection_generation"
+        ],
+        "type": "object"
       },
       "ReqDef_McpCatalogSnapshotBinding": {
         "additionalProperties": false,
@@ -40464,6 +40708,237 @@
         ],
         "type": "object"
       },
+      "ReqDef_SemanticIndexApproval": {
+        "additionalProperties": false,
+        "description": "Approval identity supplied by the AU application service. EG verifies this\nbond; it does not infer approval from a caller role or transport.",
+        "properties": {
+          "actor_scope": {
+            "type": "string"
+          },
+          "approval_digest": {
+            "$ref": "#/components/schemas/ReqDef_SemanticDigest"
+          },
+          "approval_id": {
+            "type": "string"
+          },
+          "approved_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "binding_id": {
+            "type": "string"
+          },
+          "effective_actor_scope": {
+            "type": "string"
+          },
+          "expires_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ReqDef_SemanticIndexOperation"
+          },
+          "policy_digest": {
+            "type": "string"
+          },
+          "purpose_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "approval_digest",
+          "operation",
+          "binding_id",
+          "tenant_id",
+          "actor_scope",
+          "effective_actor_scope",
+          "purpose_id",
+          "policy_digest",
+          "approved_at_ms",
+          "expires_at_ms"
+        ],
+        "type": "object"
+      },
+      "ReqDef_SemanticIndexCommand": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "draft": {
+                "$ref": "#/components/schemas/ReqDef_SemanticBindingDraft"
+              },
+              "operation": {
+                "const": "semantic_binding_create",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "draft"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "semantic_binding_get",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "filter": {
+                "$ref": "#/components/schemas/ReqDef_SemanticIndexFilter"
+              },
+              "operation": {
+                "const": "semantic_binding_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "filter"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "expected_generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operation": {
+                "const": "semantic_binding_refresh",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "expected_generation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "expected_generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operation": {
+                "const": "semantic_binding_disable",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "expected_generation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "expected_generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operation": {
+                "const": "semantic_binding_drop",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "expected_generation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "filter": {
+                "$ref": "#/components/schemas/ReqDef_SemanticIndexFilter"
+              },
+              "operation": {
+                "const": "semantic_search",
+                "type": "string"
+              },
+              "probe": {
+                "$ref": "#/components/schemas/ReqDef_SemanticSearchProbe"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "probe",
+              "filter"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "operation": {
+                "const": "semantic_queue_status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_SemanticIndexFilter": {
         "additionalProperties": false,
         "description": "Closed relational/identity filter. Raw predicates and SQL expressions have\nno representable field.",
@@ -41078,6 +41553,24 @@
           },
           {
             "additionalProperties": false,
+            "description": "Public RF-019 request envelope for the binding read. The other public\ncommands remain closed until their approval, catalog, and retrieval\nauthorities are wired; this route never interprets them as a read.",
+            "properties": {
+              "op": {
+                "const": "get_binding_request",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_SemanticIndexRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "The durable binding head of this owner.",
             "properties": {
               "binding_id": {
@@ -41185,6 +41678,67 @@
             "type": "object"
           }
         ]
+      },
+      "ReqDef_SemanticIndexOperation": {
+        "enum": [
+          "semantic_binding_create",
+          "semantic_binding_get",
+          "semantic_binding_list",
+          "semantic_binding_refresh",
+          "semantic_binding_disable",
+          "semantic_binding_drop",
+          "semantic_search",
+          "semantic_queue_status"
+        ],
+        "type": "string"
+      },
+      "ReqDef_SemanticIndexRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_scope": {
+            "description": "Originating principal scope; this is not the delegated effective actor.",
+            "type": "string"
+          },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_SemanticIndexApproval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "command": {
+            "$ref": "#/components/schemas/ReqDef_SemanticIndexCommand"
+          },
+          "effective_actor_scope": {
+            "description": "Opaque scope derived by the server from the verified delegated agent.\nThe later handler must compare it with its non-serializable guard.",
+            "type": "string"
+          },
+          "policy_identity": {
+            "$ref": "#/components/schemas/ReqDef_SemanticPolicyIdentity"
+          },
+          "purpose_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id",
+          "actor_scope",
+          "effective_actor_scope",
+          "purpose_id",
+          "policy_identity",
+          "command"
+        ],
+        "type": "object"
       },
       "ReqDef_SemanticLexicalIndexIdentity": {
         "additionalProperties": false,
@@ -41402,6 +41956,52 @@
           "slow_heavy"
         ],
         "type": "string"
+      },
+      "ReqDef_SemanticSearchProbe": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "model_digest": {
+                "type": "string"
+              },
+              "preprocess_digest": {
+                "type": "string"
+              },
+              "probe": {
+                "const": "canonical_text",
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "probe",
+              "text",
+              "model_digest",
+              "preprocess_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "probe": {
+                "const": "vector",
+                "type": "string"
+              },
+              "vector": {
+                "$ref": "#/components/schemas/ReqDef_SemanticVector"
+              }
+            },
+            "required": [
+              "probe",
+              "vector"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ReqDef_SemanticSourceSelector": {
         "oneOf": [
@@ -45511,6 +46111,17 @@
         "properties": {
           "context": {
             "$ref": "#/components/schemas/ReqDef_RequestContext"
+          },
+          "enrichment_budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_EnrichmentBudgetReservation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Engine-owned repository enrichment budget debit. Present only for an\nauthenticated outbox consumer; ordinary WorkItem batches omit it."
           },
           "idempotency_key": {
             "type": "string"
@@ -75418,16 +76029,88 @@
             "minimum": 0,
             "type": "integer"
           },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_ClassLabelMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Bounds are withheld until this class meets its own `n_min`."
+          },
           "n_items": {
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          },
+          "n_min": {
+            "default": null,
+            "description": "Historical class support floor. `None` on receipts produced before\nper-class interval reporting was added.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
           "class_key",
           "n_items",
           "covered"
+        ],
+        "type": "object"
+      },
+      "ResDef_Coordination_ClassLabelMetrics": {
+        "additionalProperties": false,
+        "description": "Full-label evidence for one class, with marginal intervals at the pinned\npolicy's `delta`. These do not assert a simultaneous guarantee across\nclasses. Act risk is unavailable when no item in the class was acted on.",
+        "properties": {
+          "act_risk_upper": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Coordination_UnitRationalWire"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acted": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "acted_wrong": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "coverage_lower": {
+            "$ref": "#/components/schemas/ResDef_Coordination_UnitRationalWire"
+          },
+          "coverage_upper": {
+            "$ref": "#/components/schemas/ResDef_Coordination_UnitRationalWire"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/ResDef_Coordination_UnitRationalWire",
+            "description": "The pinned policy's failure probability for these intervals."
+          },
+          "top1_hits": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "top1_hits",
+          "delta",
+          "coverage_lower",
+          "coverage_upper",
+          "acted",
+          "acted_wrong"
         ],
         "type": "object"
       },
@@ -87819,6 +88502,882 @@
         ],
         "type": "object"
       },
+      "ResDef_Ingestion_SemanticIndexError": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "unsupported_selector",
+                "type": "string"
+              },
+              "selector": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticSelectorKind"
+              }
+            },
+            "required": [
+              "code",
+              "selector"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "invalid_field",
+                "type": "string"
+              },
+              "field": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "field",
+              "reason"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "digest_mismatch",
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "subject"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "actual": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "code": {
+                "const": "generation_mismatch",
+                "type": "string"
+              },
+              "expected": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "expected",
+              "actual"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "actual": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticBindingState"
+              },
+              "code": {
+                "const": "binding_state_mismatch",
+                "type": "string"
+              },
+              "expected": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticBindingState"
+              }
+            },
+            "required": [
+              "code",
+              "expected",
+              "actual"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "invalid_binding_state_transition",
+                "type": "string"
+              },
+              "from": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticBindingState"
+              },
+              "to": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticBindingState"
+              }
+            },
+            "required": [
+              "code",
+              "from",
+              "to"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "policy_unresolved",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "source_revision_stale",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "predecessor_incomplete",
+                "type": "string"
+              },
+              "required": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticStage"
+              }
+            },
+            "required": [
+              "code",
+              "required"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "predecessor_receipt_mismatch",
+                "type": "string"
+              },
+              "stage": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticStage"
+              }
+            },
+            "required": [
+              "code",
+              "stage"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "stage_scope_mismatch",
+                "type": "string"
+              },
+              "stage": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticStage"
+              }
+            },
+            "required": [
+              "code",
+              "stage"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "generation_checkpoint_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "generation_incomplete",
+                "type": "string"
+              },
+              "completed": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "expected": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "expected",
+              "completed"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "duplicate_source_entity",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "generation_entity_set_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "source_manifest_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "graph_projection_manifest_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "authorization_receipt_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "lineage_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "unsupported_ann_metric_pair",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "search_probe_model_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "maintained_index_unavailable",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "approval_required",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "approval_operation_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "approval_digest_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "approval_expired",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "authorization_context_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "caller_set_binding_state",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "unmanaged_binding_resource",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "vector_binding_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "active_pointer_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "index_manifest_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "progress_receipt_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "dead_letter_identity_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "stage_artifact_mismatch",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "canonical_record_too_large",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "malformed_canonical_record",
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "reason"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "non_canonical_record",
+                "type": "string"
+              }
+            },
+            "required": [
+              "code"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "operation_result_mismatch",
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexOperation"
+              }
+            },
+            "required": [
+              "code",
+              "operation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "mutation_receipt_required",
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexOperation"
+              }
+            },
+            "required": [
+              "code",
+              "operation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "partial_mutation_outcome",
+                "type": "string"
+              },
+              "operation": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexOperation"
+              }
+            },
+            "required": [
+              "code",
+              "operation"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Ingestion_SemanticIndexOperation": {
+        "enum": [
+          "semantic_binding_create",
+          "semantic_binding_get",
+          "semantic_binding_list",
+          "semantic_binding_refresh",
+          "semantic_binding_disable",
+          "semantic_binding_drop",
+          "semantic_search",
+          "semantic_queue_status"
+        ],
+        "type": "string"
+      },
+      "ResDef_Ingestion_SemanticIndexOutcome": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "receipt_digest": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "result": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexResult"
+              },
+              "status": {
+                "const": "accepted",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "receipt_digest": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+              },
+              "status": {
+                "const": "deferred_backpressured",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "receipt_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "receipt_digest": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "result": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexResult"
+              },
+              "status": {
+                "const": "partial",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "result"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexError"
+              },
+              "receipt_digest": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status": {
+                "const": "rejected",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "error"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "const": "not_found",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ResDef_Ingestion_SemanticIndexResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexOperation"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexOutcome"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "operation",
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "ResDef_Ingestion_SemanticIndexResult": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding": {
+                "$ref": "#/components/schemas/ResDef_Ingestion_SemanticBinding"
+              },
+              "result": {
+                "const": "binding",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "binding"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "bindings": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Ingestion_SemanticBinding"
+                },
+                "type": "array"
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "result": {
+                "const": "binding_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "bindings"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "hits": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Ingestion_SemanticSearchHit"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "search",
+                "type": "string"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "result",
+              "hits",
+              "warnings"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "queues": {
+                "items": {
+                  "$ref": "#/components/schemas/ResDef_Ingestion_SemanticQueueStatus"
+                },
+                "type": "array"
+              },
+              "result": {
+                "const": "queue_status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "queues"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "result": {
+                "const": "empty",
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Ingestion_SemanticLexicalIndexIdentity": {
         "additionalProperties": false,
         "properties": {
@@ -87996,6 +89555,201 @@
           "fast",
           "medium",
           "slow_heavy"
+        ],
+        "type": "string"
+      },
+      "ResDef_Ingestion_SemanticQueueStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "class": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticQueueClass"
+          },
+          "consecutive_claim_percent": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fairness_relaxation_count": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "inflight": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lag_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lag_rows": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "live": {
+            "type": "boolean"
+          },
+          "oldest_age_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "queue_profile_id": {
+            "type": "string"
+          },
+          "rejection_count": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retry_count": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "saturated": {
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_profile_id",
+          "class",
+          "capacity",
+          "inflight",
+          "oldest_age_ms",
+          "lag_rows",
+          "lag_ms",
+          "retry_count",
+          "rejection_count",
+          "live",
+          "saturated",
+          "tenant_id",
+          "consecutive_claim_percent",
+          "fairness_relaxation_count",
+          "trace_id"
+        ],
+        "type": "object"
+      },
+      "ResDef_Ingestion_SemanticSearchHit": {
+        "additionalProperties": false,
+        "properties": {
+          "ann_index_digest": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+          },
+          "authorization_receipt_digest": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest",
+            "description": "Receipt for an affirmative server-side authorization decision. Absence\nis not representable on a materialized hit."
+          },
+          "binding_digest": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+          },
+          "binding_id": {
+            "type": "string"
+          },
+          "freshness_lag_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fused_score": {
+            "format": "float",
+            "type": "number"
+          },
+          "fusion_explanation": {
+            "type": "string"
+          },
+          "generation": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "generation_checkpoint_digest": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+          },
+          "lexical_index_digest": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+          },
+          "lexical_score": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "lineage_digest": {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticDigest"
+          },
+          "model_digest": {
+            "type": "string"
+          },
+          "policy_digest": {
+            "type": "string"
+          },
+          "preprocess_digest": {
+            "type": "string"
+          },
+          "purpose_id": {
+            "type": "string"
+          },
+          "source_entity_id": {
+            "type": "string"
+          },
+          "source_revision": {
+            "type": "string"
+          },
+          "vector_score": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "binding_id",
+          "source_entity_id",
+          "source_revision",
+          "binding_digest",
+          "generation",
+          "purpose_id",
+          "policy_digest",
+          "model_digest",
+          "preprocess_digest",
+          "lexical_index_digest",
+          "ann_index_digest",
+          "fused_score",
+          "authorization_receipt_digest",
+          "generation_checkpoint_digest",
+          "freshness_lag_ms",
+          "fusion_explanation",
+          "lineage_digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Ingestion_SemanticSelectorKind": {
+        "enum": [
+          "sql_column_ref",
+          "graph_text_property_ref",
+          "canonical_text_asset",
+          "agent_library_composite",
+          "multimodal_asset_ref",
+          "time_series_window_ref",
+          "lakehouse_vector_projection_ref"
         ],
         "type": "string"
       },
@@ -96988,6 +98742,94 @@
               "request"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "reconcile_catalog",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_McpCatalogReconcileRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "const": "catalog_authority_status",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read the live owner principal only after proving this caller's scoped\nmounted-child authority row exists for the requested tenant/server.",
+            "properties": {
+              "op": {
+                "const": "catalog_owner_principal",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read the current tenant/server/scope binding as a pack-control service.\nUnlike attester status, this does not confer catalog reconciliation.",
+            "properties": {
+              "op": {
+                "const": "catalog_binding_status",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Return EG's actual AgentLibrary mutation owner to a verified\npack-control request identity for an existing scoped catalog row.",
+            "properties": {
+              "op": {
+                "const": "catalog_request_owner_principal",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_McpCatalogAuthorityStatusRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
           }
         ]
       },
@@ -100693,6 +102535,67 @@
         "required": [
           "component_id",
           "violation"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_EnrichmentBudgetReservation": {
+        "additionalProperties": false,
+        "description": "Compare-and-swap reservation on the immutable source snapshot's global\ncompute budget. The native submit transaction applies this debit and all\nchild WorkItems together or neither. A capacity lease is a separate live\nresource fence and cannot replace this spending ledger.",
+        "properties": {
+          "end_index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_next_index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_page_number": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_remaining_units": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "page_key": {
+            "type": "string"
+          },
+          "reserve_units": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schema_version": {
+            "$ref": "#/components/schemas/ResDef_Query_NativeControlSchemaVersion"
+          },
+          "snapshot_digest": {
+            "type": "string"
+          },
+          "source_envelope": {
+            "type": "string"
+          },
+          "total_budget_units": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "snapshot_digest",
+          "source_envelope",
+          "page_key",
+          "expected_next_index",
+          "end_index",
+          "expected_page_number",
+          "expected_remaining_units",
+          "reserve_units",
+          "total_budget_units"
         ],
         "type": "object"
       },
@@ -107466,6 +109369,101 @@
         },
         "required": [
           "source_graph_version"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_McpCatalogAuthorityStatusRequest": {
+        "additionalProperties": false,
+        "description": "Read the EG-owned generation for one verified tenant-local server scope.",
+        "properties": {
+          "server_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "server_name"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_McpCatalogReconcileRequest": {
+        "additionalProperties": false,
+        "description": "An authenticated served child asks EG to reconcile its observed catalog.\nThe scope digest is absent: EG derives it from the verified tenant carrier.",
+        "properties": {
+          "child_connection_generation": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "child_id": {
+            "type": "string"
+          },
+          "component_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "component_id": {
+            "type": "string"
+          },
+          "component_revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ResDef_Query_AgentLibraryMutationContext"
+          },
+          "discovery_tenant": {
+            "type": "string"
+          },
+          "expected_catalog_generation": {
+            "default": null,
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "four_family_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "local_catalog_epoch": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "registration_config_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "registry_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "registry_revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "context",
+          "server_name",
+          "component_id",
+          "component_revision",
+          "component_digest",
+          "registry_revision",
+          "registry_digest",
+          "registration_config_digest",
+          "four_family_digest",
+          "child_id",
+          "discovery_tenant",
+          "local_catalog_epoch",
+          "child_connection_generation"
         ],
         "type": "object"
       },
@@ -132622,6 +134620,237 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_SemanticIndexApproval": {
+        "additionalProperties": false,
+        "description": "Approval identity supplied by the AU application service. EG verifies this\nbond; it does not infer approval from a caller role or transport.",
+        "properties": {
+          "actor_scope": {
+            "type": "string"
+          },
+          "approval_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_SemanticDigest"
+          },
+          "approval_id": {
+            "type": "string"
+          },
+          "approved_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "binding_id": {
+            "type": "string"
+          },
+          "effective_actor_scope": {
+            "type": "string"
+          },
+          "expires_at_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ResDef_Query_SemanticIndexOperation"
+          },
+          "policy_digest": {
+            "type": "string"
+          },
+          "purpose_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "approval_digest",
+          "operation",
+          "binding_id",
+          "tenant_id",
+          "actor_scope",
+          "effective_actor_scope",
+          "purpose_id",
+          "policy_digest",
+          "approved_at_ms",
+          "expires_at_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_SemanticIndexCommand": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "draft": {
+                "$ref": "#/components/schemas/ResDef_Query_SemanticBindingDraft"
+              },
+              "operation": {
+                "const": "semantic_binding_create",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "draft"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "operation": {
+                "const": "semantic_binding_get",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "filter": {
+                "$ref": "#/components/schemas/ResDef_Query_SemanticIndexFilter"
+              },
+              "operation": {
+                "const": "semantic_binding_list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "filter"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "expected_generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operation": {
+                "const": "semantic_binding_refresh",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "expected_generation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "expected_generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operation": {
+                "const": "semantic_binding_disable",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "expected_generation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "expected_generation": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "operation": {
+                "const": "semantic_binding_drop",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "expected_generation"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": "string"
+              },
+              "filter": {
+                "$ref": "#/components/schemas/ResDef_Query_SemanticIndexFilter"
+              },
+              "operation": {
+                "const": "semantic_search",
+                "type": "string"
+              },
+              "probe": {
+                "$ref": "#/components/schemas/ResDef_Query_SemanticSearchProbe"
+              }
+            },
+            "required": [
+              "operation",
+              "binding_id",
+              "probe",
+              "filter"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "binding_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "operation": {
+                "const": "semantic_queue_status",
+                "type": "string"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_SemanticIndexFilter": {
         "additionalProperties": false,
         "description": "Closed relational/identity filter. Raw predicates and SQL expressions have\nno representable field.",
@@ -133236,6 +135465,24 @@
           },
           {
             "additionalProperties": false,
+            "description": "Public RF-019 request envelope for the binding read. The other public\ncommands remain closed until their approval, catalog, and retrieval\nauthorities are wired; this route never interprets them as a read.",
+            "properties": {
+              "op": {
+                "const": "get_binding_request",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_SemanticIndexRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "The durable binding head of this owner.",
             "properties": {
               "binding_id": {
@@ -133343,6 +135590,67 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Query_SemanticIndexOperation": {
+        "enum": [
+          "semantic_binding_create",
+          "semantic_binding_get",
+          "semantic_binding_list",
+          "semantic_binding_refresh",
+          "semantic_binding_disable",
+          "semantic_binding_drop",
+          "semantic_search",
+          "semantic_queue_status"
+        ],
+        "type": "string"
+      },
+      "ResDef_Query_SemanticIndexRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_scope": {
+            "description": "Originating principal scope; this is not the delegated effective actor.",
+            "type": "string"
+          },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_SemanticIndexApproval"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "command": {
+            "$ref": "#/components/schemas/ResDef_Query_SemanticIndexCommand"
+          },
+          "effective_actor_scope": {
+            "description": "Opaque scope derived by the server from the verified delegated agent.\nThe later handler must compare it with its non-serializable guard.",
+            "type": "string"
+          },
+          "policy_identity": {
+            "$ref": "#/components/schemas/ResDef_Query_SemanticPolicyIdentity"
+          },
+          "purpose_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id",
+          "actor_scope",
+          "effective_actor_scope",
+          "purpose_id",
+          "policy_identity",
+          "command"
+        ],
+        "type": "object"
       },
       "ResDef_Query_SemanticLexicalIndexIdentity": {
         "additionalProperties": false,
@@ -133560,6 +135868,52 @@
           "slow_heavy"
         ],
         "type": "string"
+      },
+      "ResDef_Query_SemanticSearchProbe": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "model_digest": {
+                "type": "string"
+              },
+              "preprocess_digest": {
+                "type": "string"
+              },
+              "probe": {
+                "const": "canonical_text",
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "probe",
+              "text",
+              "model_digest",
+              "preprocess_digest"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "probe": {
+                "const": "vector",
+                "type": "string"
+              },
+              "vector": {
+                "$ref": "#/components/schemas/ResDef_Query_SemanticVector"
+              }
+            },
+            "required": [
+              "probe",
+              "vector"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "ResDef_Query_SemanticSourceSelector": {
         "oneOf": [
@@ -137763,6 +140117,17 @@
         "properties": {
           "context": {
             "$ref": "#/components/schemas/ResDef_Query_RequestContext"
+          },
+          "enrichment_budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_EnrichmentBudgetReservation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Engine-owned repository enrichment budget debit. Present only for an\nauthenticated outbox consumer; ordinary WorkItem batches omit it."
           },
           "idempotency_key": {
             "type": "string"
@@ -153241,6 +155606,11 @@
             "x-encoding": "Raw"
           },
           {
+            "$ref": "#/components/schemas/ResDef_Ingestion_SemanticIndexResponse",
+            "x-body": "get_binding_request",
+            "x-encoding": "Raw"
+          },
+          {
             "$ref": "#/components/schemas/ResDef_Ingestion_SemanticBindingPage",
             "x-body": "list_bindings",
             "x-encoding": "Raw"
@@ -154338,6 +156708,40 @@
             "x-encoding": "Raw"
           },
           {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Storage_McpCatalogSnapshotBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "x-body": "catalog_authority_status",
+            "x-encoding": "Raw"
+          },
+          {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Storage_McpCatalogSnapshotBinding"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "x-body": "catalog_binding_status",
+            "x-encoding": "Raw"
+          },
+          {
+            "type": "string",
+            "x-body": "catalog_owner_principal",
+            "x-encoding": "Raw"
+          },
+          {
+            "type": "string",
+            "x-body": "catalog_request_owner_principal",
+            "x-encoding": "Raw"
+          },
+          {
             "$ref": "#/components/schemas/ResDef_Storage_PackImportResult",
             "x-body": "import",
             "x-encoding": "Raw"
@@ -154345,6 +156749,11 @@
           {
             "$ref": "#/components/schemas/ResDef_Storage_PackBodyReconcileReport",
             "x-body": "reconcile_bodies",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Storage_McpCatalogSnapshotBinding",
+            "x-body": "reconcile_catalog",
             "x-encoding": "Raw"
           },
           {
@@ -154758,6 +157167,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -154846,6 +157257,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -154929,6 +157342,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155017,6 +157432,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155105,6 +157522,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155188,6 +157607,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155278,6 +157699,8 @@
           "REGISTRY_LIMIT",
           "REPLAY_NONCE_CONSUMED",
           "RESERVED_GRAPH_NAME",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155365,6 +157788,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155453,6 +157878,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155541,6 +157968,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155623,6 +158052,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155706,6 +158137,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155789,6 +158222,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155872,6 +158307,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -155955,6 +158392,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156043,6 +158482,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -156126,6 +158567,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156214,6 +158657,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156302,6 +158747,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156385,6 +158832,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156473,6 +158922,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156561,6 +159012,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156649,6 +159102,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156737,6 +159192,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156820,6 +159277,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156907,6 +159366,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -156996,6 +159457,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157084,6 +159547,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157171,6 +159636,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157259,6 +159726,8 @@
           "REDIRECTED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157343,6 +159812,8 @@
           "RAFT_NOT_CONFIGURED",
           "REGISTRY_CURSOR_STALE",
           "REGISTRY_LIMIT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157414,6 +159885,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157485,6 +159958,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157556,6 +160031,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157627,6 +160104,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157698,6 +160177,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157769,6 +160250,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157840,6 +160323,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157911,6 +160396,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -157982,6 +160469,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158053,6 +160542,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158124,6 +160615,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158194,6 +160687,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158265,6 +160760,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158336,6 +160833,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158407,6 +160906,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158478,6 +160979,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158549,6 +161052,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158620,6 +161125,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158691,6 +161198,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158762,6 +161271,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158833,6 +161344,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158904,6 +161417,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -158975,6 +161490,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159046,6 +161563,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159117,6 +161636,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159188,6 +161709,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159259,6 +161782,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159330,6 +161855,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159401,6 +161928,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159472,6 +162001,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159543,6 +162074,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159614,6 +162147,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159685,6 +162220,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159756,6 +162293,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159827,6 +162366,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159898,6 +162439,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -159969,6 +162512,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160040,6 +162585,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160111,6 +162658,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160182,6 +162731,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160253,6 +162804,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160324,6 +162877,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160395,6 +162950,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160466,6 +163023,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160537,6 +163096,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160608,6 +163169,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160679,6 +163242,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160750,6 +163315,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160821,6 +163388,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160892,6 +163461,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -160963,6 +163534,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161034,6 +163607,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161105,6 +163680,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161176,6 +163753,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161247,6 +163826,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161318,6 +163899,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161389,6 +163972,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161460,6 +164045,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161531,6 +164118,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161602,6 +164191,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161673,6 +164264,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161744,6 +164337,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161815,6 +164410,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161886,6 +164483,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -161957,6 +164556,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162028,6 +164629,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162099,6 +164702,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162170,6 +164775,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162241,6 +164848,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162312,6 +164921,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162383,6 +164994,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162454,6 +165067,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162525,6 +165140,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162596,6 +165213,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162667,6 +165286,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162738,6 +165359,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162809,6 +165432,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162880,6 +165505,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -162951,6 +165578,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163022,6 +165651,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163093,6 +165724,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163164,6 +165797,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163235,6 +165870,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163306,6 +165943,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163377,6 +166016,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163448,6 +166089,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163519,6 +166162,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163590,6 +166235,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163661,6 +166308,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163732,6 +166381,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163803,6 +166454,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163874,6 +166527,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -163945,6 +166600,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164016,6 +166673,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164087,6 +166746,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164158,6 +166819,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164229,6 +166892,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164300,6 +166965,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164376,6 +167043,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -164452,6 +167121,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -164523,6 +167194,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164599,6 +167272,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -164675,6 +167350,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -164751,6 +167428,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -164822,6 +167501,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -164898,6 +167579,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -164974,6 +167657,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165050,6 +167735,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165126,6 +167813,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165202,6 +167891,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165278,6 +167969,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165354,6 +168047,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165430,6 +168125,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165506,6 +168203,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165582,6 +168281,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165658,6 +168359,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165734,6 +168437,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165810,6 +168515,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165886,6 +168593,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -165957,6 +168666,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166028,6 +168739,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166099,6 +168812,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166175,6 +168890,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -166251,6 +168968,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -166327,6 +169046,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -166398,6 +169119,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166469,6 +169192,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166540,6 +169265,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166610,6 +169337,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -166684,6 +169413,8 @@
           "SOLVE_CERTIFICATE_REJECTED",
           "SOLVE_CONFIG_INVALID",
           "SOLVE_MODEL_INVALID",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166755,6 +169486,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166826,6 +169559,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166897,6 +169632,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -166973,6 +169710,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -167049,6 +169788,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -167125,6 +169866,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -167196,6 +169939,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -167272,6 +170017,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -167348,6 +170095,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -167425,6 +170174,8 @@
           "READ_ONLY",
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -167501,6 +170252,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -167577,6 +170330,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -167687,6 +170442,8 @@
           "REPLAY_POLICY_DEPENDENT",
           "REPLAY_SPEC_INVALID",
           "STALE_CATALOG",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "TRIALS_UNDERSTATED"
         ],
@@ -167798,6 +170555,8 @@
           "REPLAY_POLICY_DEPENDENT",
           "REPLAY_SPEC_INVALID",
           "STALE_CATALOG",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "TRIALS_UNDERSTATED"
         ],
@@ -167909,6 +170668,8 @@
           "REPLAY_POLICY_DEPENDENT",
           "REPLAY_SPEC_INVALID",
           "STALE_CATALOG",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "TRIALS_UNDERSTATED"
         ],
@@ -167986,6 +170747,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168057,6 +170820,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168133,6 +170898,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168204,6 +170971,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168275,6 +171044,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168351,6 +171122,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168427,6 +171200,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168503,6 +171278,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168574,6 +171351,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168645,6 +171424,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168716,6 +171497,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168792,6 +171575,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168870,6 +171655,8 @@
           "READ_ONLY",
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -168941,6 +171728,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169012,6 +171801,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169088,6 +171879,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169164,6 +171957,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169235,6 +172030,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169306,6 +172103,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169382,6 +172181,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169458,6 +172259,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169529,6 +172332,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169605,6 +172410,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169681,6 +172488,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169757,6 +172566,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169833,6 +172644,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169909,6 +172722,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -169985,6 +172800,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170061,6 +172878,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170132,6 +172951,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170203,6 +173024,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170279,6 +173102,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170355,6 +173180,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -170432,6 +173259,8 @@
           "READ_ONLY",
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170508,6 +173337,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170584,6 +173415,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -170660,6 +173493,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170736,6 +173571,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170812,6 +173649,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170888,6 +173727,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -170960,6 +173801,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -171036,6 +173879,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -171112,6 +173957,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171189,6 +174036,8 @@
           "READ_ONLY",
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171264,6 +174113,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171340,6 +174191,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171416,6 +174269,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171492,6 +174347,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171563,6 +174420,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -171639,6 +174498,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -171714,6 +174575,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171790,6 +174653,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -171866,6 +174731,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -171942,6 +174809,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172018,6 +174887,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172094,6 +174965,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172170,6 +175043,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172246,6 +175121,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172317,6 +175194,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172388,6 +175267,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172464,6 +175345,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172535,6 +175418,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172611,6 +175496,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172687,6 +175574,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -172758,6 +175647,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172829,6 +175720,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172900,6 +175793,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -172972,6 +175867,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173043,6 +175940,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173114,6 +176013,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173185,6 +176086,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173256,6 +176159,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173327,6 +176232,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173399,6 +176306,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173470,6 +176379,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173541,6 +176452,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173612,6 +176525,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173683,6 +176598,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173754,6 +176671,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173825,6 +176744,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173896,6 +176817,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -173967,6 +176890,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174043,6 +176968,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174119,6 +177046,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -174190,6 +177119,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174261,6 +177192,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174332,6 +177265,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174403,6 +177338,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174479,6 +177416,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174554,6 +177493,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174630,6 +177571,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -174706,6 +177649,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -174782,6 +177727,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -174858,6 +177805,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -174934,6 +177883,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175010,6 +177961,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175085,6 +178038,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175155,6 +178110,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175230,6 +178187,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175306,6 +178265,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -175377,6 +178338,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175448,6 +178411,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175524,6 +178489,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175600,6 +178567,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -175671,6 +178640,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175742,6 +178713,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175813,6 +178786,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175883,6 +178858,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -175959,6 +178936,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -176030,6 +179009,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -176101,6 +179082,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -176177,6 +179160,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -176248,6 +179233,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -176319,6 +179306,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -176390,6 +179379,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -176461,6 +179452,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -176537,6 +179530,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -176608,6 +179603,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -176684,6 +179681,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -176786,6 +179785,8 @@
           "SOURCE_SCHEMA_TYPE_MISMATCH",
           "SOURCE_WITHDRAWAL_UNKNOWN",
           "STALE_MAPPING_REFERENCE",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UNKNOWN_MAPPING_REFERENCE",
           "UNKNOWN_RELATIONSHIP_REFERENCE"
@@ -176885,6 +179886,8 @@
           "SOURCE_SCHEMA_TYPE_MISMATCH",
           "SOURCE_WITHDRAWAL_UNKNOWN",
           "STALE_MAPPING_REFERENCE",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UNKNOWN_MAPPING_REFERENCE",
           "UNKNOWN_RELATIONSHIP_REFERENCE"
@@ -176965,6 +179968,8 @@
           "READ_ONLY",
           "REDIRECTED",
           "SCHEMA_INCONSISTENT",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TELEMETRY_UNAVAILABLE",
           "TELEMETRY_WINDOW_TOO_LARGE",
           "TIMEOUT"
@@ -177038,6 +180043,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177114,6 +180121,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177190,6 +180199,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177266,6 +180277,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -177342,6 +180355,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -177418,6 +180433,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -177494,6 +180511,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177570,6 +180589,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -177641,6 +180662,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177712,6 +180735,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177788,6 +180813,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177864,6 +180891,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -177940,6 +180969,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178016,6 +181047,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178092,6 +181125,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178168,6 +181203,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178244,6 +181281,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178320,6 +181359,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178396,6 +181437,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178467,6 +181510,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178538,6 +181583,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178609,6 +181656,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178680,6 +181729,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178756,6 +181807,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178832,6 +181885,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178903,6 +181958,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -178974,6 +182031,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179050,6 +182109,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -179126,6 +182187,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -179202,6 +182265,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -179278,6 +182343,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179349,6 +182416,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179425,6 +182494,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179501,6 +182572,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179577,6 +182650,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179653,6 +182728,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179724,6 +182801,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179800,6 +182879,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -179876,6 +182957,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -179947,6 +183030,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -180023,6 +183108,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -180099,6 +183186,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -180175,6 +183264,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -180246,6 +183337,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -180321,6 +183414,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -180399,6 +183494,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -180483,6 +183580,8 @@
           "REPLAY_NONCE_CONSUMED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -180594,6 +183693,8 @@
           "REPLAY_POLICY_DEPENDENT",
           "REPLAY_SPEC_INVALID",
           "STALE_CATALOG",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "TRIALS_UNDERSTATED",
           "UNSUPPORTED_COALITION",
@@ -180679,6 +183780,8 @@
           "REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -180757,6 +183860,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -180835,6 +183940,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -180913,6 +184020,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -180991,6 +184100,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181069,6 +184180,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181147,6 +184260,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181225,6 +184340,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181303,6 +184420,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181381,6 +184500,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181459,6 +184580,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181537,6 +184660,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181615,6 +184740,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181699,6 +184826,8 @@
           "REPLAY_NONCE_CONSUMED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181768,6 +184897,7 @@
           "BUSY",
           "CANCELLED",
           "CAPACITY_DENIED",
+          "DECISION_CLAUSE_IN_UQL",
           "ENGINE_DEADLINE_EXCEEDED",
           "ENGINE_RESOURCE_EXHAUSTED",
           "ENGINE_UNAVAILABLE",
@@ -181777,10 +184907,35 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
-          "UQL_UNSUPPORTED"
+          "UQL_DUPLICATE_BINDING",
+          "UQL_EMPTY_PARAMETER_NAME",
+          "UQL_EXPECTED_INTEGER",
+          "UQL_FEATURE_NOT_IN_BUILD",
+          "UQL_INVALID_NUMBER",
+          "UQL_INVALID_RANGE",
+          "UQL_NESTING_TOO_DEEP",
+          "UQL_NULL_LITERAL",
+          "UQL_PARAMETER_TYPE",
+          "UQL_STATEMENT_NOT_PIPELINE",
+          "UQL_TRAILING_TOKENS",
+          "UQL_UNBOUND_PARAMETER",
+          "UQL_UNEXPECTED_CHARACTER",
+          "UQL_UNEXPECTED_TOKEN",
+          "UQL_UNKNOWN_BINDING",
+          "UQL_UNKNOWN_CHANNEL",
+          "UQL_UNKNOWN_FUNCTION",
+          "UQL_UNKNOWN_STAGE",
+          "UQL_UNSUPPORTED",
+          "UQL_UNSUPPORTED_VERSION",
+          "UQL_UNTERMINATED_IDENTIFIER",
+          "UQL_UNTERMINATED_STRING",
+          "UQL_UNUSED_BINDING",
+          "UQL_UNUSED_PARAMETER"
         ],
         "x-idempotent": true,
         "x-mutates": false,
@@ -181855,6 +185010,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -181924,6 +185081,7 @@
           "BUSY",
           "CANCELLED",
           "CAPACITY_DENIED",
+          "DECISION_CLAUSE_IN_UQL",
           "ENGINE_DEADLINE_EXCEEDED",
           "ENGINE_RESOURCE_EXHAUSTED",
           "ENGINE_UNAVAILABLE",
@@ -181933,10 +185091,35 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
-          "UQL_UNSUPPORTED"
+          "UQL_DUPLICATE_BINDING",
+          "UQL_EMPTY_PARAMETER_NAME",
+          "UQL_EXPECTED_INTEGER",
+          "UQL_FEATURE_NOT_IN_BUILD",
+          "UQL_INVALID_NUMBER",
+          "UQL_INVALID_RANGE",
+          "UQL_NESTING_TOO_DEEP",
+          "UQL_NULL_LITERAL",
+          "UQL_PARAMETER_TYPE",
+          "UQL_STATEMENT_NOT_PIPELINE",
+          "UQL_TRAILING_TOKENS",
+          "UQL_UNBOUND_PARAMETER",
+          "UQL_UNEXPECTED_CHARACTER",
+          "UQL_UNEXPECTED_TOKEN",
+          "UQL_UNKNOWN_BINDING",
+          "UQL_UNKNOWN_CHANNEL",
+          "UQL_UNKNOWN_FUNCTION",
+          "UQL_UNKNOWN_STAGE",
+          "UQL_UNSUPPORTED",
+          "UQL_UNSUPPORTED_VERSION",
+          "UQL_UNTERMINATED_IDENTIFIER",
+          "UQL_UNTERMINATED_STRING",
+          "UQL_UNUSED_BINDING",
+          "UQL_UNUSED_PARAMETER"
         ],
         "x-idempotent": false,
         "x-mutates": false,
@@ -182011,6 +185194,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182094,6 +185279,8 @@
           "REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182172,6 +185359,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182255,6 +185444,8 @@
           "REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182333,6 +185524,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182411,6 +185604,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182489,6 +185684,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182567,6 +185764,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182636,6 +185835,7 @@
           "BUSY",
           "CANCELLED",
           "CAPACITY_DENIED",
+          "DECISION_CLAUSE_IN_UQL",
           "ENGINE_DEADLINE_EXCEEDED",
           "ENGINE_RESOURCE_EXHAUSTED",
           "ENGINE_UNAVAILABLE",
@@ -182645,10 +185845,35 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
-          "UQL_UNSUPPORTED"
+          "UQL_DUPLICATE_BINDING",
+          "UQL_EMPTY_PARAMETER_NAME",
+          "UQL_EXPECTED_INTEGER",
+          "UQL_FEATURE_NOT_IN_BUILD",
+          "UQL_INVALID_NUMBER",
+          "UQL_INVALID_RANGE",
+          "UQL_NESTING_TOO_DEEP",
+          "UQL_NULL_LITERAL",
+          "UQL_PARAMETER_TYPE",
+          "UQL_STATEMENT_NOT_PIPELINE",
+          "UQL_TRAILING_TOKENS",
+          "UQL_UNBOUND_PARAMETER",
+          "UQL_UNEXPECTED_CHARACTER",
+          "UQL_UNEXPECTED_TOKEN",
+          "UQL_UNKNOWN_BINDING",
+          "UQL_UNKNOWN_CHANNEL",
+          "UQL_UNKNOWN_FUNCTION",
+          "UQL_UNKNOWN_STAGE",
+          "UQL_UNSUPPORTED",
+          "UQL_UNSUPPORTED_VERSION",
+          "UQL_UNTERMINATED_IDENTIFIER",
+          "UQL_UNTERMINATED_STRING",
+          "UQL_UNUSED_BINDING",
+          "UQL_UNUSED_PARAMETER"
         ],
         "x-idempotent": true,
         "x-mutates": false,
@@ -182723,6 +185948,8 @@
           "OPERATION_REDIRECTED",
           "RESULT_TOO_LARGE",
           "SQL_OWNER_REPAIR_PENDING",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UQL_BUDGET_EXCEEDED",
           "UQL_CREDENTIAL_BEARING_SPEC",
@@ -182797,6 +186024,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -182902,7 +186131,9 @@
           "SCHEMA_TERM_CURSOR_INVALID",
           "SCHEMA_TERM_PAGE_INVALID",
           "SHAPES_INVALID",
+          "STALE_OUTBOX_LEASE",
           "STALE_RECOMPUTE_FENCE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "VALIDATION_BUDGET_EXCEEDED"
         ],
@@ -183004,7 +186235,9 @@
           "SCHEMA_TERM_CURSOR_INVALID",
           "SCHEMA_TERM_PAGE_INVALID",
           "SHAPES_INVALID",
+          "STALE_OUTBOX_LEASE",
           "STALE_RECOMPUTE_FENCE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "VALIDATION_BUDGET_EXCEEDED"
         ],
@@ -183106,7 +186339,9 @@
           "SCHEMA_TERM_CURSOR_INVALID",
           "SCHEMA_TERM_PAGE_INVALID",
           "SHAPES_INVALID",
+          "STALE_OUTBOX_LEASE",
           "STALE_RECOMPUTE_FENCE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "VALIDATION_BUDGET_EXCEEDED"
         ],
@@ -183184,6 +186419,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183255,6 +186492,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183326,6 +186565,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183397,6 +186638,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183473,6 +186716,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183543,6 +186788,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183614,6 +186861,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183684,6 +186933,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183755,6 +187006,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183826,6 +187079,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183898,6 +187153,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -183970,6 +187227,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184042,6 +187301,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184114,6 +187375,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184186,6 +187449,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184263,6 +187528,8 @@
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184354,6 +187621,8 @@
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -184431,6 +187700,8 @@
           "POLICY_NATIVE_AUTHORITY_REQUIRED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184502,6 +187773,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184578,6 +187851,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184654,6 +187929,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184731,6 +188008,8 @@
           "READ_ONLY",
           "REDIRECTED",
           "STALE_AGENT_LIBRARY_REVISION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184807,6 +188086,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -184883,6 +188164,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -184954,6 +188237,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185031,6 +188316,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -185103,6 +188390,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185180,6 +188469,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -185257,6 +188548,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -185329,6 +188622,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185401,6 +188696,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185478,6 +188775,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185555,6 +188854,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185632,6 +188933,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185708,6 +189011,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -185813,6 +189118,8 @@
           "READ_ONLY",
           "REDIRECTED",
           "RESERVED_COMPONENT_ID",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "UNKNOWN_PACK_ENTRY"
         ],
@@ -185924,6 +189231,8 @@
           "REPLAY_POLICY_DEPENDENT",
           "REPLAY_SPEC_INVALID",
           "STALE_CATALOG",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT",
           "TRIALS_UNDERSTATED"
         ],
@@ -185996,6 +189305,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186072,6 +189383,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -186148,6 +189461,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186223,6 +189538,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -186298,6 +189615,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186368,6 +189687,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186443,6 +189764,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -186513,6 +189836,8 @@
           "METHOD_NOT_YET_SERVED",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186589,6 +189914,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186665,6 +189992,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186736,6 +190065,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186812,6 +190143,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -186883,6 +190216,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -186959,6 +190294,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187035,6 +190372,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187111,6 +190450,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187182,6 +190523,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187254,6 +190597,8 @@
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187325,6 +190670,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187396,6 +190743,8 @@
           "INVALID_ARGUMENT",
           "NODE_MISMATCH",
           "OPERATION_REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187473,6 +190822,8 @@
           "OPERATION_REDIRECTED",
           "READ_ONLY",
           "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187553,6 +190904,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187634,6 +190987,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187714,6 +191069,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -187794,6 +191151,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -187874,6 +191233,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -187954,6 +191315,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -188034,6 +191397,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -188118,6 +191483,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -188198,6 +191565,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188278,6 +191647,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188358,6 +191729,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188438,6 +191811,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188518,6 +191893,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188598,6 +191975,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188678,6 +192057,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188758,6 +192139,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -188838,6 +192221,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188918,6 +192303,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -188999,6 +192386,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": false,
@@ -189079,6 +192468,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,
@@ -189159,6 +192550,8 @@
           "REDIRECTED",
           "REPLAY_NONCE_CONSUMED",
           "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
           "TIMEOUT"
         ],
         "x-idempotent": true,

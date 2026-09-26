@@ -48,3 +48,6 @@ wronly
 # WRAPUP) rather than redeclaring them.
 atleast
 atmost
+# Comparative statics is the standard economics term for sensitivity of an
+# equilibrium to parameter changes. It appears in EH-423's model/schema/API.
+statics

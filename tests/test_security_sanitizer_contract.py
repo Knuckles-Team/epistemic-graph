@@ -1,5 +1,6 @@
 """Regression tests for privacy-safe synthetic credential classification."""
 
+import gzip
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,3 +48,46 @@ def test_transient_baseline_notes_are_rejected(tmp_path, monkeypatch) -> None:
     violations = sanitizer.scan_repository(tmp_path)
 
     assert any("Transient agent note detected" in item for item in violations)
+
+
+def test_compressed_text_is_inspected_for_secrets(tmp_path) -> None:
+    sanitizer = _sanitizer()
+    report = tmp_path / "report.json.gz"
+    payload = b'token="production-secret-value"\n'  # sanitizer:ignore - synthetic
+    report.write_bytes(gzip.compress(payload))
+
+    assert any(
+        "Potential unmasked secret (Generic Token Assignment)" in finding
+        for finding in sanitizer.secret_violations(report, Path(report.name))
+    )
+
+
+def test_compressed_text_has_a_bounded_expanded_size(tmp_path) -> None:
+    sanitizer = _sanitizer()
+    report = tmp_path / "report.json.gz"
+    report.write_bytes(gzip.compress(b"a" * (sanitizer.MAX_SCAN_BYTES + 1)))
+
+    assert sanitizer.secret_violations(report, Path(report.name)) == [
+        f"Source file exceeds security scan boundary: '{report.name}'"
+    ]
+
+
+@pytest.mark.parametrize("contents", [b"not gzip", gzip.compress(b"valid")[:-4]])
+def test_invalid_compressed_text_fails_closed(tmp_path, contents: bytes) -> None:
+    sanitizer = _sanitizer()
+    report = tmp_path / "report.json.gz"
+    report.write_bytes(contents)
+
+    assert sanitizer.secret_violations(report, Path(report.name)) == [
+        f"Source file could not be inspected: '{report.name}'"
+    ]
+
+
+def test_compressed_text_requires_utf8(tmp_path) -> None:
+    sanitizer = _sanitizer()
+    report = tmp_path / "report.json.gz"
+    report.write_bytes(gzip.compress(b"\xff"))
+
+    assert sanitizer.secret_violations(report, Path(report.name)) == [
+        f"Source file could not be inspected: '{report.name}'"
+    ]

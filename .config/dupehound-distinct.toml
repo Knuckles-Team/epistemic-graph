@@ -340,12 +340,12 @@ reason = """This test proves DSN scheme to SQL dialect mapping. The STOMP test p
 [[pair]]
 left_file = "crates/eg-plan/src/uql/diag.rs"
 left_name = "as_str"
-left_digest = "sha256:417855e5c1846cf8a9eaf3f27d39f98ea88e0a2cd359a4f9777939a2c4129968"
+left_digest = "sha256:b834db52bec63a494d6134ff5a400d76045c650e643cbddd329f9284d741e13b"
 right_file = "crates/eg-modality/src/rows.rs"
 right_name = "fmt"
 right_digest = "sha256:9c43b8928586495d344fe978f54732c0269731509cd794408bbd7d2a400f6ffe"
 reviewed_on = "2026-09-25"
-reason = """This is the UQL lexer diagnostic code vocabulary, which callers persist in parse errors. The modality function renders descriptive row validation text. The enum-to-string shape is routine; their error contracts and variant sets do not overlap."""
+reason = """The UQL warning enum maps a non-fatal pipeline warning to its stable code. The modality function renders row-schema validation errors. The enum-to-string shape is routine, but warning codes and modality errors have separate types, callers, and contracts."""
 
 [[pair]]
 left_file = "crates/eg-plan/src/uql/diag.rs"
@@ -500,12 +500,12 @@ reason = """IndexKind labels identify index implementations in a manifest; Index
 [[pair]]
 left_file = "src/server/handlers/decide/stat_jobs.rs"
 left_name = "serve_eval"
-left_digest = "sha256:9df32ba98e6648f8a639bfd4b8f5ccc16d60d5ed3a14173ccb2de26dc421f6a0"
+left_digest = "sha256:682e38511d45a6a45ba907af317b8067b249d2264cfa102cc623c968e286cab5"
 right_file = "src/server/handlers/decide/stat_jobs.rs"
 right_name = "serve_fit"
 right_digest = "sha256:93b7831ec80c1dcffff25609536897d8c7578224a18fc9f008dcf5f6aaba3325"
 reviewed_on = "2026-09-25"
-reason = """DecisionEval submits an evaluation job and returns EvalSubmit or EvalStatus; DecisionFit submits training and returns FitSubmit or FitStatus. Their kernels, request types, persisted job kinds, and result contracts differ. The sibling API scaffold is deliberate and preserves typed dispatch."""
+reason = """DecisionEval submits evaluation work and reads status, signed receipts and timelines. DecisionFit submits training and reads fit status. Their request types, kernels, persisted job kinds, and result contracts differ. The shared submit/status scaffold preserves typed dispatch rather than duplicating one implementation."""
 
 [[pair]]
 left_file = "src/server/mutation/plan.rs"

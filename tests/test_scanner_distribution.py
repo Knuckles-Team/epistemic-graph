@@ -261,7 +261,9 @@ def test_ci_uses_central_exact_python_version():
         for step in job.get("steps", [])
         if step.get("uses", "").startswith("actions/setup-python@")
     ]
-    assert len(setup_steps) == 12  # incl. gates-facade, gates-variants, gates-crates, python-suite
+    assert (
+        len(setup_steps) == 12
+    )  # incl. gates-facade, gates-variants, gates-crates, python-suite
     assert {filename for filename, _ in setup_steps} == set(registered)
     assert all(
         step.get("with", {}).get("python-version-file") == ".python-version"

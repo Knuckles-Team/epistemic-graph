@@ -7,13 +7,13 @@ from typing import Any, cast
 
 import pytest
 from _client_fixtures import RecordingTransport, SentCall
+
+import epistemic_graph
+from epistemic_graph.client import EpistemicGraphClient
 from epistemic_graph.generated.policy_evolution import (
     OpenWeightPolicyCapability,
     PolicyCapture,
 )
-
-import epistemic_graph
-from epistemic_graph.client import EpistemicGraphClient
 from epistemic_graph.policy_evolution import (
     PolicyEvolutionClient,
     PolicyEvolutionRefused,

@@ -88,7 +88,9 @@ class MethodPolicyRow:
 # 453 -> 454: EH-389's `GraphSchemaClasses` vocabulary read.
 # 454 -> 455: `FinanceSignalModels`, fusion and the insider model (EH-423).
 # 455 -> 456: `CheckAccess`, a principal's current access (EH-416).
-# 456 -> 455: EH-524 added `TsDefineSeries`; EH-530 retired `FinanceRollingZscore` and `FinanceEwma` (served as UQL `DERIVE` / SQL `eg_zscore`/`eg_ewma`).
+# 456 -> 455: EH-524 added `TsDefineSeries`; EH-530 retired
+# `FinanceRollingZscore` and `FinanceEwma`, now served as UQL `DERIVE` /
+# SQL `eg_zscore` / `eg_ewma`.
 # 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
 EXPECTED_METHOD_POLICY_ROWS = 456
 EXPECTED_DOMAIN_MODULES = (

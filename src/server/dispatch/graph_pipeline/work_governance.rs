@@ -204,7 +204,14 @@ pub(super) async fn dispatch_op_capacity_ops(
             )
             .await
         }
-        method @ eg_types::capacity_lease_writes!() => {
+        // Keep each served write visible here: this is the response-producing
+        // dispatch boundary, and the contract reachability gate audits its arms.
+        method @ (Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. }
+        | Method::UpdateCapacityCell { .. }
+        | Method::ThrottleCapacityCell { .. }) => {
             capacity_commit_response(backend, &fname, method, req_id).await
         }
         _ => unreachable!("capacity classifier and dispatch diverged"),

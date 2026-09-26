@@ -34,13 +34,13 @@ import msgpack
 from . import generated as _gen
 from .connector_pack import ConnectorPackClient
 from .fleet_catalog import FleetCatalogClient
-from .policy_evolution import PolicyEvolutionClient
 from .generated.server_registry import (
     RegisteredServerCursor,
     RegisteredServerListPage,
     RegisteredServerListRequest,
     RegisteredServerView,
 )
+from .policy_evolution import PolicyEvolutionClient
 from .work_market import GapClient, WorkMarketClient
 
 if TYPE_CHECKING:
@@ -12338,7 +12338,9 @@ class TimeSeriesClient:
         rows = (await _gen.storage.send_ts_list_series(self._client, {})).payload
         return [str(s) for s in (rows or [])]
 
-    async def define_series(self, series_id: str, source: str, expr: str) -> dict[str, Any]:
+    async def define_series(
+        self, series_id: str, source: str, expr: str
+    ) -> dict[str, Any]:
         """EH-524 — define ``series_id`` as a MATERIALISED DERIVED series of
         ``source`` (a series in the caller's own scope) by ``expr``, a UQL ``DERIVE``
         series expression over the source's fields ``v0..vk`` (for example

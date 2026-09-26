@@ -152,9 +152,7 @@ def test_the_restricted_principal_cannot_transition_another_kind(deputy, other):
     assert _revoke(other, foreign)["outcome"] == "applied"
 
 
-@pytest.mark.parametrize(
-    "kind", ["browser.control", "finance.order-proposal"]
-)
+@pytest.mark.parametrize("kind", ["browser.control", "finance.order-proposal"])
 def test_other_principals_are_unaffected(other, kind):
     assert _issue(other, kind)["outcome"] == "issued"
 

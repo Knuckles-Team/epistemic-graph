@@ -78,7 +78,7 @@ def kalman_level(z: pd.Series, q: float, r: float) -> pd.Series:
 
 def kalman_beta(z: pd.Series, h: pd.Series, q: float, r: float) -> pd.Series:
     out, beta, p = [], 0.0, 1.0
-    for obs, hh in zip(z, h):
+    for obs, hh in zip(z, h, strict=True):
         p = p + q
         s = hh * p * hh + r
         k = p * hh / s if abs(s) > 1e-18 else 0.0

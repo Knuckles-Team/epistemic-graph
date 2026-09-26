@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+import gzip
 import os
 import re
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 from generated_artifacts import verify as verify_generated_artifacts
@@ -280,6 +282,27 @@ def line_secret_labels(line: str) -> list[str]:
     return labels
 
 
+def _read_source_lines(file_path: Path) -> list[str] | None:
+    """Read bounded plain or gzip text; None means the scan boundary was exceeded."""
+    if file_path.stat().st_size > MAX_SCAN_BYTES:
+        return None
+    # A compressed text report is still source material. Inspect at most
+    # MAX_SCAN_BYTES of expanded content so a small gzip bomb cannot turn
+    # this hook into an unbounded allocation. Reading through EOF also
+    # verifies the gzip trailer/CRC for in-boundary reports.
+    if file_path.suffix.lower() == ".gz":
+        source = gzip.open(file_path, "rb")
+    else:
+        source = file_path.open("rb")
+    with source:
+        content = source.read(MAX_SCAN_BYTES + 1)
+    if len(content) > MAX_SCAN_BYTES:
+        return None
+    # Decode strictly. Silently discarding invalid bytes can splice a
+    # credential around the discarded byte and make a fail-open scan.
+    return content.decode("utf-8").splitlines()
+
+
 def secret_violations(file_path: Path, relative: Path) -> list[str]:
     """Credential findings in one readable, in-boundary source file."""
     if file_path.suffix.lower() in EXCLUDED_EXTENSIONS:
@@ -287,12 +310,10 @@ def secret_violations(file_path: Path, relative: Path) -> list[str]:
     if file_path.name == "security_sanitizer.py":
         return []
     try:
-        if file_path.stat().st_size > MAX_SCAN_BYTES:
+        lines = _read_source_lines(file_path)
+        if lines is None:
             return [f"Source file exceeds security scan boundary: '{relative}'"]
-        # Decode strictly. Silently discarding invalid bytes can splice a
-        # credential around the discarded byte and make a fail-open scan.
-        lines = file_path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
+    except (OSError, EOFError, UnicodeError, zlib.error):
         return [f"Source file could not be inspected: '{relative}'"]
     # Name the sanctioned remedy in the finding itself. Without it the message
     # says only that a line looks like a credential, and the cheapest way to a

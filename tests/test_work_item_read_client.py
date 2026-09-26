@@ -6,7 +6,6 @@ import asyncio
 from typing import Any, cast
 
 import pytest
-
 from _client_send_stub import CapturingEngine as FakeEngine
 
 from epistemic_graph.client import (
@@ -146,7 +145,9 @@ def test_transition_and_get_round_trip_the_lease_view() -> None:
     )
     assert answer["lease"] == ended
     assert asyncio.run(_leases(FakeEngine(None)).get(tenant="t", lease_id="l")) is None
-    assert asyncio.run(_leases(FakeEngine(LEASE)).get(tenant="t", lease_id="l")) == LEASE
+    assert (
+        asyncio.run(_leases(FakeEngine(LEASE)).get(tenant="t", lease_id="l")) == LEASE
+    )
 
 
 def test_a_lease_answer_outside_the_contract_is_refused() -> None:

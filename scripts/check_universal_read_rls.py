@@ -119,7 +119,7 @@ def _method_chunk_bodies(protocol: str) -> list[str]:
             "protocol Method chunk is unterminated or not re-exported",
         )
         chunk_bodies.append(protocol[chunk.end() : end])
-    require(chunk_bodies, "protocol Method enum has no readable variant body")
+    require(bool(chunk_bodies), "protocol Method enum has no readable variant body")
     return chunk_bodies
 
 
@@ -148,7 +148,7 @@ def method_enum_names(protocol: str) -> set[str]:
         return methods
     chunk_bodies = _method_chunk_bodies(protocol)
     methods = _method_variant_names("\n".join(chunk_bodies))
-    require(methods, "protocol Method enum has no variants")
+    require(bool(methods), "protocol Method enum has no variants")
     return methods
 
 
@@ -689,7 +689,8 @@ def main() -> None:
                 'carrier.namespace("timeseries-graph", graph)' in query,
                 "with_tsdb_scope(tenant, graph)" in query,
                 "pub fn with_tsdb_scope" in plan_exec,
-                "Op::TsScan { series, from, to } => Ok(tsdb_scan_op(" in plan_tsdb_dispatch,
+                "Op::TsScan { series, from, to } => Ok(tsdb_scan_op("
+                in plan_tsdb_dispatch,
                 "SeriesKey::new(tenant, graph, series)" in plan_tsdb_scan,
                 ".range_scoped(" in plan_tsdb_scan,
                 "tsdb_scan_honors_verified_actor_and_tenant_scope" in plan_tsdb_tests,
