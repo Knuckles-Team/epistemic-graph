@@ -2392,7 +2392,10 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
         request.work_item_id = Some("rmdd27-retired-old-revision-work-item".to_string());
     }
     let refused = dispatch_method(&cluster, leader, 3, retired_old_revision).await;
-    assert_eq!(refused.error.as_deref(), Some("STALE_AGENT_LIBRARY_REVISION"));
+    assert_eq!(
+        refused.error.as_deref(),
+        Some("STALE_AGENT_LIBRARY_REVISION")
+    );
     assert!(
         refused
             .error_detail
@@ -2709,7 +2712,10 @@ async fn kg_delegate_public_dispatch_rejects_missing_cluster_authority_scenario(
         Some("CLUSTER_CONFIGURATION_INVALID"),
         "missing clustered placement must refuse the signed KgDelegate: {response:?}"
     );
-    assert_eq!(response.error_detail.as_deref(), Some("MultiRaft placement authority is required"));
+    assert_eq!(
+        response.error_detail.as_deref(),
+        Some("MultiRaft placement authority is required")
+    );
     assert!(
         !cluster
             .has_node_in(node_id, GRAPH, "rmdd27-missing-authority-work-item")

@@ -1015,7 +1015,7 @@ mod tests {
     }
 
     #[test]
-fn prediction_decode_error_is_opaque() {
+    fn prediction_decode_error_is_opaque() {
         let core = Arc::new(GraphCore::new());
         core.add_node(
             "model:broken:v1".into(),

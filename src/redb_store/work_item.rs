@@ -13,13 +13,9 @@ use eg_storage::ScopedOwnerTableMut;
 
 use super::*;
 
-type NativeNodeRows<'a> =
-    ScopedOwnerTableMut<'a, (&'static str, &'static str), &'static [u8]>;
-type NativeEdgeRows<'a> = ScopedOwnerTableMut<
-    'a,
-    (&'static str, &'static str, &'static str, u32),
-    &'static [u8],
->;
+type NativeNodeRows<'a> = ScopedOwnerTableMut<'a, (&'static str, &'static str), &'static [u8]>;
+type NativeEdgeRows<'a> =
+    ScopedOwnerTableMut<'a, (&'static str, &'static str, &'static str, u32), &'static [u8]>;
 type NativeSequenceRows<'a> = ScopedOwnerTableMut<'a, &'static str, u64>;
 
 /// Apply one native WorkItem transition while the MutationBatch write

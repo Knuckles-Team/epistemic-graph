@@ -41,9 +41,7 @@ pub enum NativeMutationCommand {
     },
     /// Engine-owned, graph-scoped enrichment pause. The outbox lease remains
     /// local; only the budget owner row is replicated.
-    EnrichmentPark {
-        sealed_park: SealedNativeMethod,
-    },
+    EnrichmentPark { sealed_park: SealedNativeMethod },
     /// Sealed, engine-owned budget revision. Replica apply must atomically
     /// supersede the old outbox position and publish the replacement intent.
     EnrichmentTopUp {
@@ -86,77 +84,47 @@ pub enum NativeMutationCommand {
     },
     /// Engine-owned cluster-node self-report. This is intentionally not a public
     /// wire [`Method`]: only Raft startup can construct the typed command.
-    NodeInfo {
-        sealed_info: SealedNativeMethod,
-    },
+    NodeInfo { sealed_info: SealedNativeMethod },
     /// Graph-adjacent state whose deterministic kernel is not `GraphCore` alone
     /// (query catalogs, ICV policy, or an explicitly materialized state image).
-    GraphState {
-        sealed_method: SealedNativeMethod,
-    },
+    GraphState { sealed_method: SealedNativeMethod },
     /// Named OCC staging and commit coordination.
-    Transaction {
-        sealed_method: SealedNativeMethod,
-    },
+    Transaction { sealed_method: SealedNativeMethod },
     /// Durable work-item lease/result transitions.
     /// Resource reservations and host-capacity updates use this same sealed
     /// command domain so their result-producing native apply path is ordered
     /// with the WorkItem lifecycle without introducing a second authority.
-    WorkItem {
-        sealed_method: SealedNativeMethod,
-    },
+    WorkItem { sealed_method: SealedNativeMethod },
     /// Content-addressed blob cursor/chunk/refcount transitions.
     #[cfg(feature = "blob")]
-    Blob {
-        sealed_method: SealedNativeMethod,
-    },
+    Blob { sealed_method: SealedNativeMethod },
     /// Namespaced key/value transitions.
     #[cfg(feature = "kv")]
-    KeyValue {
-        sealed_method: SealedNativeMethod,
-    },
+    KeyValue { sealed_method: SealedNativeMethod },
     /// Time-series append transitions.
     #[cfg(feature = "tsdb")]
-    TimeSeries {
-        sealed_method: SealedNativeMethod,
-    },
+    TimeSeries { sealed_method: SealedNativeMethod },
     /// Durable analytics-job state-machine transitions.
     #[cfg(feature = "jobs")]
-    AnalyticsJob {
-        sealed_method: SealedNativeMethod,
-    },
+    AnalyticsJob { sealed_method: SealedNativeMethod },
     /// Durable native statechart definition/instance transitions (CONCEPT:INT-P2-2),
     /// structurally identical to `AnalyticsJob` above -- own `statecharts.redb`,
     /// not graph-scoped.
     #[cfg(feature = "statechart")]
-    Statechart {
-        sealed_method: SealedNativeMethod,
-    },
+    Statechart { sealed_method: SealedNativeMethod },
     /// SQLite catalog import transitions.
     #[cfg(feature = "sqlite-file")]
-    SqliteCatalog {
-        sealed_method: SealedNativeMethod,
-    },
+    SqliteCatalog { sealed_method: SealedNativeMethod },
     /// Channel, federation, UDF, streaming, trigger, and CEP control state.
-    SessionControl {
-        sealed_method: SealedNativeMethod,
-    },
+    SessionControl { sealed_method: SealedNativeMethod },
     /// Identity and RBAC policy state.
-    Identity {
-        sealed_method: SealedNativeMethod,
-    },
+    Identity { sealed_method: SealedNativeMethod },
     /// Cluster-wide catalog, reshard, restore, and materialized-view state.
-    ClusterAdmin {
-        sealed_method: SealedNativeMethod,
-    },
+    ClusterAdmin { sealed_method: SealedNativeMethod },
     /// Graph registry lifecycle and multi-graph parent coordination.
-    GraphLifecycle {
-        sealed_method: SealedNativeMethod,
-    },
+    GraphLifecycle { sealed_method: SealedNativeMethod },
     /// Threshold-authorized mutation translation.
-    Multisig {
-        sealed_method: SealedNativeMethod,
-    },
+    Multisig { sealed_method: SealedNativeMethod },
 }
 
 /// One exhaustive layout for the typed command envelope. Both accessors are

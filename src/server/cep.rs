@@ -693,9 +693,7 @@ mod tests {
         let unsubscribe = |sub_id| Method::CepUnsubscribe { sub_id };
 
         let denied = try_handle(&state, 1, &authority(&["kg:read"]), unsubscribe(1)).await;
-        assert!(error_of(denied)
-            .unwrap()
-            .starts_with("CEP subscriptions"));
+        assert!(error_of(denied).unwrap().starts_with("CEP subscriptions"));
         assert!(matches!(
             try_handle(&state, 2, &admin, Method::Ping).await,
             Err(Method::Ping)

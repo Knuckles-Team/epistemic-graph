@@ -37,8 +37,8 @@
 
 use crate::graph::GraphCore;
 use crate::index::{
-    ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest,
-    SecondaryIndex, SecondaryIndexFactory,
+    ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest, SecondaryIndex,
+    SecondaryIndexFactory,
 };
 use crate::lock_recovery::LockRecovery;
 
@@ -66,7 +66,11 @@ fn read_current_index<I: SecondaryIndex, T>(
     core.indexes()
         .with_server_index(kind, |index| {
             let covered = index.manifest().covers_source(version, nodes, edges);
-            index.as_any().downcast_ref::<I>().filter(|_| covered).map(read)
+            index
+                .as_any()
+                .downcast_ref::<I>()
+                .filter(|_| covered)
+                .map(read)
         })
         .flatten()
 }
@@ -783,18 +787,19 @@ impl ServedSpatialIndex {
     /// between pushdown and the snapshot-derived fallback; merely registering an
     /// empty/incomplete recovery or paged-lazy-open index is never sufficient.
     pub fn available(&self) -> bool {
-        read_current_index::<GraphSpatialIndex, _>(&self.core, IndexKind::Spatial, |_| ())
-            .is_some()
+        read_current_index::<GraphSpatialIndex, _>(&self.core, IndexKind::Spatial, |_| ()).is_some()
     }
 }
 
 #[cfg(feature = "geo")]
 impl eg_plan::SpatialSource for ServedSpatialIndex {
     fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
-        read_current_index(&self.core, IndexKind::Spatial, |index: &GraphSpatialIndex| {
-            index.query_bbox(layer, bbox)
-        })
-            .unwrap_or_default()
+        read_current_index(
+            &self.core,
+            IndexKind::Spatial,
+            |index: &GraphSpatialIndex| index.query_bbox(layer, bbox),
+        )
+        .unwrap_or_default()
     }
 }
 

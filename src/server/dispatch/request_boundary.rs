@@ -391,10 +391,7 @@ async fn dispatch_inner(
                 Ok(context) => context,
                 Err(_) => {
                     crate::metrics::auth_failure();
-                    return Response::err(
-                        req.id,
-                        "AUTHENTICATION_REQUIRED: Authentication failed",
-                    );
+                    return Response::err(req.id, "AUTHENTICATION_REQUIRED: Authentication failed");
                 }
             }
         }

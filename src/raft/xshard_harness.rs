@@ -589,7 +589,10 @@ async fn bring_up_user_graphs(
 fn as_bool(r: Response) -> bool {
     match r.result {
         Some(ResultPayload::Bool(b)) | Some(ResultPayload::Json(serde_json::Value::Bool(b))) => b,
-        other => panic!("expected Bool payload, got {other:?} (error={:?}, detail={:?})", r.error, r.error_detail),
+        other => panic!(
+            "expected Bool payload, got {other:?} (error={:?}, detail={:?})",
+            r.error, r.error_detail
+        ),
     }
 }
 
