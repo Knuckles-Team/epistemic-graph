@@ -2729,7 +2729,20 @@ def _modality_stats(value: Any) -> ServedModalityStats:
     return cast(ServedModalityStats, stats)
 
 
-class ResultTooLargeError(RuntimeError):
+class EngineResponseError(RuntimeError):
+    """Engine refusal with a stable wire code separate from diagnostic detail.
+
+    ``detail`` must not be used to classify the refusal or copied into a
+    public API response without that API's own policy check.
+    """
+
+    def __init__(self, code: str, detail: str | None = None) -> None:
+        self.code = code
+        self.detail = detail
+        super().__init__(f"{code}: {detail}" if detail else code)
+
+
+class ResultTooLargeError(EngineResponseError):
     """Raised when an unbounded read (e.g. ``nodes.list()`` / ``GetNodes``) would
     return more than the engine's configured node cap
     (``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES``,
@@ -2743,7 +2756,7 @@ class ResultTooLargeError(RuntimeError):
     """
 
 
-class StaleRouteError(RuntimeError):
+class StaleRouteError(EngineResponseError):
     """The contacted engine cannot serve the graph's current placement route.
 
     ``route`` is the engine-authored structured redirect containing the target,
@@ -2752,8 +2765,17 @@ class StaleRouteError(RuntimeError):
     placement catalog and retry without parsing an error string.
     """
 
-    def __init__(self, message: str, route: dict[str, Any] | None = None) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        route: dict[str, Any] | None = None,
+        *,
+        code: str = "OPERATION_REDIRECTED",
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(code, detail)
+        if detail is None:
+            self.args = (message,)
         self.route = dict(route or {})
         self.target_ref = str(self.route.get("target_ref") or "")
         self.group = self.route.get("group")
@@ -10564,20 +10586,17 @@ _OPERATION_REDIRECT_FIELDS = frozenset(
 )
 
 
-def _send_error_detail(detail: Any, err_msg: Any) -> Any:
+def _send_error_detail(detail: Any) -> Any:
     """Best-effort decode of the structured detail carried by an error response."""
     if isinstance(detail, (bytes, bytearray)):
         with contextlib.suppress(Exception):
             detail = msgpack.unpackb(detail, raw=False)
-    if not isinstance(detail, dict) and isinstance(err_msg, str):
-        with contextlib.suppress(json.JSONDecodeError, TypeError):
-            parsed = json.loads(err_msg)
-            if isinstance(parsed, dict):
-                detail = parsed
     return detail
 
 
-def _raise_placement_redirect(detail: dict[str, Any]) -> NoReturn:
+def _raise_placement_redirect(
+    detail: dict[str, Any], code: str, error_detail: str | None
+) -> NoReturn:
     """Turn a ``status == "redirected"`` OperationResult into StaleRouteError."""
     operation = _exact_mapping("OperationResult", detail, _OPERATION_RESULT_FIELDS)
     route = _exact_mapping(
@@ -10585,23 +10604,30 @@ def _raise_placement_redirect(detail: dict[str, Any]) -> NoReturn:
     )
     if operation["schema_version"] != "1" or route["kind"] != "placement":
         raise RuntimeError("invalid operation redirect")
-    raise StaleRouteError("placement route redirected", route)
+    raise StaleRouteError(
+        "placement route redirected", route, code=code, detail=error_detail
+    )
 
 
 def _raise_send_error(resp: dict[str, Any]) -> NoReturn:
     """Raise the typed exception for an error response frame."""
-    err_msg = resp.get("error", "Unknown error")
-    detail = _send_error_detail(resp.get("result"), err_msg)
+    code = resp.get("error")
+    if not isinstance(code, str) or not code:
+        raise RuntimeError("invalid engine response error code")
+    error_detail = resp.get("error_detail")
+    if not isinstance(error_detail, str):
+        error_detail = None
+    detail = _send_error_detail(resp.get("result"))
     if isinstance(detail, dict) and detail.get("status") == "redirected":
-        _raise_placement_redirect(detail)
+        _raise_placement_redirect(detail, code, error_detail)
     # The engine's overload backstop
     # (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) returns a typed
     # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
     # a dedicated, catchable exception (still a RuntimeError subclass) so a
     # caller can fall back to a bounded query without string-matching.
-    if isinstance(err_msg, str) and err_msg.startswith("RESULT_TOO_LARGE"):
-        raise ResultTooLargeError(err_msg)
-    raise RuntimeError(err_msg)
+    if code == "RESULT_TOO_LARGE":
+        raise ResultTooLargeError(code, error_detail)
+    raise EngineResponseError(code, error_detail)
 
 
 def _tls_env(name: str) -> str:
