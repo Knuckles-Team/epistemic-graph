@@ -1,10 +1,12 @@
 use crate::owner::contract::expected_owner_table_contract;
 use crate::owner::layout::OwnerLayout;
 use crate::physical::root::is_retired_prototype_table;
-use crate::recovery::evidence::{copy_table, HashSnapshot, StrictTableEvidence};
+use crate::recovery::evidence::{
+    copy_table, HashSnapshot, StrictRecoveryEvidence, StrictTableEvidence,
+};
 use crate::tables::open_declared_ledger_tables;
 use redb::{Key, ReadTransaction, TableDefinition, TableHandle, Value, WriteTransaction};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 // Closed owner-table registry. These names and types are the manifest contract.
 const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac");
@@ -519,6 +521,42 @@ pub(crate) fn hash_declared_owner_tables(
     }
     visit_owner_tables!(layout, hash);
     Ok(rows)
+}
+
+/// Hash precisely the typed tables named by an inspected SQL predecessor.
+/// Omitted tables have not yet been created, so a current-layout hash would
+/// either create authority by accident or fail before the offline upgrade.
+pub(crate) fn sql_predecessor_evidence(
+    source: HashSnapshot<'_>,
+    owner_tables: &[&str],
+) -> Result<StrictRecoveryEvidence, String> {
+    let mut hasher = Sha256::new();
+    let mut tables = Vec::new();
+    let mut rows = 0;
+    macro_rules! hash_predecessor {
+        ($table:expr) => {{
+            if crate::tables::ledger_table_names().contains(&$table.name())
+                || owner_tables.contains(&$table.name())
+            {
+                let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
+                rows += count;
+                tables.push(StrictTableEvidence {
+                    table_id: $table.name().to_string(),
+                    rows: count,
+                    fingerprint,
+                });
+            }
+        }};
+    }
+    crate::tables::visit_ledger_tables!(hash_predecessor);
+    let ledger_rows = rows;
+    visit_owner_tables!(OwnerLayout::Sql, hash_predecessor);
+    Ok(StrictRecoveryEvidence {
+        ledger_rows,
+        owner_rows: rows - ledger_rows,
+        fingerprint: hasher.finalize().into(),
+        tables,
+    })
 }
 
 /// Exact sorted physical table names for a closed owner layout.

@@ -69,6 +69,7 @@ mod authority;
 mod capture;
 mod contract;
 mod filesystem;
+pub(crate) use filesystem::PinnedPrivateDirectory;
 mod generation;
 mod image;
 mod journal;
