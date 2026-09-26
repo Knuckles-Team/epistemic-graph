@@ -31,8 +31,8 @@ pub use community::{community_detection, community_detection_weighted};
 pub use finance::simulate_order_matching;
 pub use graph_traversal::{
     betweenness_centrality, compute_degree_centrality, connected_components, degree_centrality_all,
-    find_cycle, get_blast_radius, get_shortest_path, graph_coloring, minimum_spanning_tree,
-    pagerank, strongly_connected_components, topological_sort,
+    find_cycle, get_blast_radius, get_shortest_path, graph_color_ephemeral, graph_coloring,
+    minimum_spanning_tree, pagerank, strongly_connected_components, topological_sort,
 };
 pub use hierarchy::{
     cluster_hierarchy, format_cluster_id, parse_cluster_id, ClusterHierarchyResult,

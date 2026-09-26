@@ -492,6 +492,20 @@ pub(super) async fn try_handle_community_algorithms(
                 ResultPayload::of::<results::GraphColoring>(crate::algorithms::graph_coloring(&g)),
             )
         }
+        Method::GraphColorEphemeral { node_ids, edges } => {
+            match compute_off_lock(req_id, move || {
+                crate::algorithms::graph_color_ephemeral(&node_ids, &edges)
+            })
+            .await
+            {
+                Ok(Ok(colors)) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<results::GraphColorEphemeral>(colors),
+                ),
+                Ok(Err(error)) => Response::err(req_id, error),
+                Err(response) => response,
+            }
+        }
         Method::ComputeSimilarityEdges { threshold } => {
             handle_compute_similarity_edges(req_id, core, threshold).await
         }

@@ -133,6 +133,12 @@ $($variants)*
 
     GraphColoring,
 
+    /// Greedy coloring of an inline undirected conflict graph without persistence.
+    GraphColorEphemeral {
+        node_ids: Vec<String>,
+        edges: Vec<(String, String)>,
+    },
+
     ComputeSimilarityEdges {
         threshold: f64,
     },

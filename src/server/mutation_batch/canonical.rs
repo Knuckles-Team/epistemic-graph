@@ -388,6 +388,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::LeaveChannel { .. }
         | Method::RunDatalogReasoning { .. }
         | Method::GraphColoring
+        | Method::GraphColorEphemeral { .. }
         | Method::FinanceLogitQuotes { .. }
         | Method::FinanceOptimizePortfolio { .. }
         | Method::TxnAddNode { .. }

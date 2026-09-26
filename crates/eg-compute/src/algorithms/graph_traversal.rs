@@ -586,3 +586,74 @@ pub fn graph_coloring(core: &GraphView) -> Vec<(String, usize)> {
 
     colors.into_iter().collect()
 }
+
+/// Color a caller-supplied undirected conflict graph without touching persisted rows.
+/// Input order is the stable greedy order; malformed endpoints and self-conflicts fail closed.
+pub fn graph_color_ephemeral(
+    node_ids: &[String],
+    edges: &[(String, String)],
+) -> Result<Vec<(String, usize)>, String> {
+    if node_ids.len() > 4096 || edges.len() > 65_536 {
+        return Err("inline graph coloring limit exceeded".into());
+    }
+    let mut neighbors: HashMap<&str, HashSet<&str>> = HashMap::with_capacity(node_ids.len());
+    for node in node_ids {
+        if node.is_empty() || neighbors.insert(node.as_str(), HashSet::new()).is_some() {
+            return Err("inline graph coloring requires unique nonempty node IDs".into());
+        }
+    }
+    for (source, target) in edges {
+        if source == target {
+            return Err("inline graph coloring cannot satisfy a self-conflict".into());
+        }
+        if !neighbors.contains_key(source.as_str()) || !neighbors.contains_key(target.as_str()) {
+            return Err("inline graph coloring edge references an unknown node".into());
+        }
+        neighbors
+            .get_mut(source.as_str())
+            .unwrap()
+            .insert(target.as_str());
+        neighbors
+            .get_mut(target.as_str())
+            .unwrap()
+            .insert(source.as_str());
+    }
+    let mut colors: HashMap<&str, usize> = HashMap::with_capacity(node_ids.len());
+    let mut result = Vec::with_capacity(node_ids.len());
+    for node in node_ids {
+        let used: HashSet<usize> = neighbors[node.as_str()]
+            .iter()
+            .filter_map(|neighbor| colors.get(neighbor).copied())
+            .collect();
+        let color = (0..=used.len())
+            .find(|candidate| !used.contains(candidate))
+            .unwrap();
+        colors.insert(node.as_str(), color);
+        result.push((node.clone(), color));
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+mod inline_coloring_tests {
+    use super::graph_color_ephemeral;
+
+    #[test]
+    fn triangle_and_isolate_are_colored_without_mutation() {
+        let nodes = ["a", "b", "c", "d"].map(str::to_string);
+        let edges =
+            [("a", "b"), ("b", "c"), ("a", "c")].map(|(a, b)| (a.to_string(), b.to_string()));
+        let result = graph_color_ephemeral(&nodes, &edges).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                ("a".into(), 0),
+                ("b".into(), 1),
+                ("c".into(), 2),
+                ("d".into(), 0)
+            ]
+        );
+        assert!(graph_color_ephemeral(&nodes, &[("a".into(), "a".into())]).is_err());
+        assert!(graph_color_ephemeral(&nodes, &[("a".into(), "x".into())]).is_err());
+    }
+}

@@ -347,6 +347,7 @@ pub(super) const REASON_FRESHNESS_METADATA: &str =
     "handlers::query::freshness_feed reads the DepClock invalidation log (versions + class/edge-type names, no row ids or content) and schema-class volatility annotations; the only instance rows it reports, ForeignSourceWatermark nodes, pass IsolationLayer::can_see_row for the caller first";
 
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
+    ("GraphColorEphemeral", "graph_ops::algorithms colors only caller-supplied node_ids and edges; it never reads GraphCore rows"),
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
     // REASON_DECISION_LOG_VISIBILITY

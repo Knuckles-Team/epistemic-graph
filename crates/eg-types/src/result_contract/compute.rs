@@ -55,6 +55,7 @@ method_results! {
     CommunityDetection(CommunityDetection) => Raw<Vec<Vec<String>>>;
     CommunityDetectEphemeral(CommunityDetectEphemeral) => Raw<Vec<Vec<String>>>;
     GraphColoring(GraphColoring) => Json<Vec<(String, usize)>>;
+    GraphColorEphemeral(GraphColorEphemeral) => Json<Vec<(String, usize)>>;
     ComputeSimilarityEdges(ComputeSimilarityEdges) => Raw<Vec<(String, String, f64)>>;
     ResolveCandidates(ResolveCandidates) => Raw<Vec<MergeProposal>>;
     ClusterHierarchyRefresh(ClusterHierarchyRefresh) => Json<algorithms::ClusterHierarchySummary>;
