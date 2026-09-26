@@ -166,7 +166,7 @@ impl IsolationLayer {
         }
         let mut updated = identity;
         updated.roles.push(role_name);
-        self.try_register_agent(updated)?;
+        self.try_register_agent_from_request(updated)?;
         Ok(true)
     }
 
