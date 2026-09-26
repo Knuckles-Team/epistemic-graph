@@ -21,6 +21,7 @@
     "crates/eg-capabilities/generated/method_catalog.rs": "4bb355e289b3f79fd6a35aacbbba0d7a0a62b674f78108ebe4f0e0824a33e20f",
     "docs/capabilities.generated.md": "08b9dc7b73d1584b55e4931cc65f62ada6107325984916c204bfbca0bf7de8e4",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
+    "epistemic_graph/contract/errors.json": "71b50024e285abad7a87e37dd29c1fee6d78d5563deed8213a8d44a185994f7a",
     "epistemic_graph/generated/__init__.py": "8247f90bba5a3856f89ea7260559162a6d1f03e94f047c41a9092a511aac6fc5",
     "epistemic_graph/generated/_ids.py": "32e4f96a6b2c680ddefef73680a7af02a01d44098efe935b98ad2169893a9ea0",
     "epistemic_graph/generated/_runtime.py": "7f2d7ced6799e3c52df4719f8dc1079f55faa5c0cf248d6e8d07114ef385da8e",
@@ -54,7 +55,7 @@
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
   "cargo_lock_sha256": "dc2edc2f85045a51b06a50177055fc5049663be4d3aa63e40ab463b265f1fc36",
-  "contract_digest": "424cd3e37b137b1f698bd98f67dcff8a8643d549f2572637dc8c22b563bac74e",
+  "contract_digest": "0604b9337ade866f14ad91d76d0ec218827402d579d341f05730fdfbf787da70",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -633,5 +634,5 @@
     "schematized": 443,
     "unclassified": 0
   },
-  "source_tree_oid": "e18dc5bf3b0cf4332cbddd328c7c9eeead6894ddba942620a5abe66cdcfb0f17"
+  "source_tree_oid": "cf2210d6b01b78bd5439e57f718b90b8910ac3bcd011eeed5eed2fa5471359de"
 }

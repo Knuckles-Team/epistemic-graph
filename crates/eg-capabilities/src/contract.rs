@@ -309,6 +309,10 @@ pub(crate) fn normalize(text: String) -> Vec<u8> {
 
 /// Every generated artifact except the receipt, which digests them.
 fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
+    // Consumers need the same closed error vocabulary that the server emits.
+    // Keep the wheel copy generated from the exact bytes of the root contract,
+    // so the receipt binds both and GraphOS can verify its pinned wheel.
+    let error_catalog = errors::catalog_json();
     let mut out = vec![
         Artifact {
             path: "contract/methods.json".to_string(),
@@ -316,7 +320,11 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
         },
         Artifact {
             path: "contract/errors.json".to_string(),
-            bytes: errors::catalog_json(),
+            bytes: error_catalog.clone(),
+        },
+        Artifact {
+            path: "epistemic_graph/contract/errors.json".to_string(),
+            bytes: error_catalog,
         },
         Artifact {
             path: "docs/capabilities.generated.md".to_string(),
