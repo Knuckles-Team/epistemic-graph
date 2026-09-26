@@ -12,7 +12,9 @@ the smallest available nonnegative color. An isolate receives color zero. A
 caller can validate both the complete node mapping and edge constraints.
 
 `compute:graph-algo` or aggregate `kg:read` authorizes this snapshot operation.
-The handler uses caller-supplied data only; it does not read tenant graph rows.
+The coloring kernel uses caller-supplied data only. The served graph handler
+still constructs its RLS-projected core before dispatch, so the operation is
+classified as RLS-routed at that boundary.
 The existing persisted `GraphColoring` operation and its wire shape remain
 unchanged. The Python generated send/decode contract must be regenerated from
 `eg-capabilities` before the AU adapter is merged. Rust/kernel and served

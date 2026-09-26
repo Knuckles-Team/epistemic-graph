@@ -112,6 +112,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "GetSubgraph",
     "GetSuccessors",
     "GraphColoring",
+    "GraphColorEphemeral",
     "HasEdge",
     "HasNode",
     "HasNodesBatch",
@@ -329,7 +330,6 @@ pub(super) const REASON_DECISION_LOG_VISIBILITY: &str =
     "DecisionLog reads committed decision records and evaluations from the tenant-bound agent_library.redb control owner, filtered by each record's own visibility (tenant for library-sourced, committing principal for graph-sourced) before any record or aggregate is formed -- never a GraphView/core.analysis_snapshot() row read";
 
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
-    ("GraphColorEphemeral", "graph_ops::algorithms colors only caller-supplied node_ids and edges; it never reads GraphCore rows"),
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
     // REASON_DECISION_LOG_VISIBILITY
