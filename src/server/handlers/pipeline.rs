@@ -1015,7 +1015,7 @@ mod tests {
     }
 
     #[test]
-    fn prediction_decode_error_keeps_family_context() {
+fn prediction_decode_error_is_opaque() {
         let core = Arc::new(GraphCore::new());
         core.add_node(
             "model:broken:v1".into(),
@@ -1032,15 +1032,18 @@ mod tests {
             })),
         );
         let response = handle_predict(1, &core, "broken".into(), 1, None, vec![vec![1.0]], false);
-        let error = response.error_detail.expect("invalid model blob must fail");
-        assert!(
-            error.starts_with("pipeline: invalid classify blob:"),
-            "{error}"
+        assert_eq!(response.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(
+            response.error_detail.as_deref(),
+            Some("unclassified engine refusal")
         );
         let response =
             handle_evaluate(2, &core, "broken".into(), 1, None, vec![vec![1.0]], vec![0]);
-        let error = response.error_detail.expect("invalid model blob must fail");
-        assert!(error.starts_with("pipeline: invalid blob:"), "{error}");
+        assert_eq!(response.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(
+            response.error_detail.as_deref(),
+            Some("unclassified engine refusal")
+        );
     }
 
     /// E2E acceptance: train + eval + serve + predict a node-classification pipeline
@@ -1353,14 +1356,16 @@ mod tests {
                 version_b: 2,
             },
         );
-        let err = match resp.result {
+        match resp.result {
             Some(_) => panic!("alice must not resolve bob's private v1 model"),
-            None => resp.error_detail.unwrap(),
-        };
-        assert!(
-            err.contains("model") && err.contains("not found"),
-            "expected a not-found error for the invisible model, got: {err}"
-        );
+            None => {
+                assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+                assert_eq!(
+                    resp.error_detail.as_deref(),
+                    Some("unclassified engine refusal")
+                );
+            }
+        }
 
         let bob = authority_for("bob");
         let resp = pipeline_try_handle(
