@@ -67,6 +67,19 @@ pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
         .iter()
         .filter(|outcome| outcome.status == eg_types::ingestion_wire::IndexFileStatus::Success)
         .count();
+    let mut evidence =
+        super::enrichment_admission::record_native_evidence(&results, &file_outcomes);
+    let endpoints: Vec<Vec<String>> = files
+        .iter()
+        .zip(&results)
+        .map(|((path, _), result)| {
+            std::iter::once(format!("file:{path}"))
+                .chain(result.nodes.iter().map(|node| node.node_id.clone()))
+                .collect()
+        })
+        .collect();
+    super::enrichment_admission::record_resolved_facts(&mut evidence, &endpoints, &indexed.edges);
+    indexed.native_rung_evidence = evidence;
     indexed.file_outcomes = file_outcomes;
     indexed
 }

@@ -50,6 +50,21 @@ pub struct IndexFileOutcome {
     pub diagnostics: BoundedVec<IndexDiagnostic, MAX_INDEX_DIAGNOSTICS_PER_FILE>,
 }
 
+/// Engine-only evidence for the native ingestion rungs of one content+grammar
+/// unit. This never crosses the wire: callers cannot claim that a rung ran or
+/// abstained to gain access to a more expensive stage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeRungEvidence {
+    pub content_digest: String,
+    pub parser_capability_digest: String,
+    pub status: IndexFileStatus,
+    pub extracted_facts: usize,
+    pub inferred_facts: usize,
+    pub derived_facts: usize,
+    pub symbol_resolution_completed: bool,
+    pub statistical_completed: bool,
+}
+
 /// An extracted graph node: the shape the AST and screen enrichments share, so the
 /// caller's persist path is one.
 #[derive(Serialize, Deserialize, Debug)]
@@ -111,6 +126,9 @@ pub struct IndexResult {
     /// Exactly one outcome per submitted file, in input order. An unsupported
     /// extension is explicit and never represented as an empty success.
     pub file_outcomes: Vec<IndexFileOutcome>,
+    #[serde(skip)]
+    #[cfg_attr(feature = "contract-schema", schemars(skip))]
+    pub native_rung_evidence: Vec<NativeRungEvidence>,
     /// Call sites bound to a definition (numerator of call-resolution coverage).
     pub calls_resolved: usize,
     /// Call sites seen but not bound (external/stdlib/ambiguous) — the remainder.

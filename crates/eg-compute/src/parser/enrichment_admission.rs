@@ -9,7 +9,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use eg_types::epistemic_operations::RequestContext;
-use eg_types::ingestion_wire::{IndexFileOutcome, IndexFileStatus};
+use eg_types::ingestion_wire::{
+    ExtractedEdge, IndexFileOutcome, IndexFileStatus, NativeRungEvidence, ParseResult,
+};
 use eg_types::native_control::{
     NativeControlSchemaVersion, SubmitWorkItemRequest, SubmitWorkItemsRequest, MAX_SUBMIT_BATCH,
 };
@@ -63,6 +65,128 @@ pub struct UnitAdmission {
     pub abstained_through: u8,
     pub allowed: bool,
     pub compute_units: u64,
+}
+
+/// A budget/policy decision from the serving authority, never inferred from
+/// a successful parse or supplied by a repository's content.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativePolicyVerdict {
+    pub allowed: bool,
+    pub compute_units: u64,
+}
+
+/// Record whether native AST, symbol resolution and statistical passes ran
+/// for each unique content+grammar unit. Raw parse facts include declarations
+/// and unresolved imports/calls; any one prevents whole-unit promotion.
+pub fn record_native_evidence(
+    results: &[ParseResult],
+    outcomes: &[IndexFileOutcome],
+) -> Vec<NativeRungEvidence> {
+    if results.len() != outcomes.len() {
+        return Vec::new();
+    }
+    results
+        .iter()
+        .zip(outcomes)
+        .map(|(result, outcome)| NativeRungEvidence {
+            content_digest: outcome.content_digest.clone(),
+            parser_capability_digest: outcome.parser_capability_digest.clone(),
+            status: outcome.status,
+            extracted_facts: result.nodes.len().saturating_add(result.edges.len()),
+            inferred_facts: 0,
+            derived_facts: 0,
+            symbol_resolution_completed: outcome.status == IndexFileStatus::Success,
+            statistical_completed: outcome.status == IndexFileStatus::Success,
+        })
+        .collect()
+}
+
+/// Attribute resolved and statistical edges back to every content unit they
+/// touch. The caller includes symbol, blob and file-version endpoints. Unknown
+/// provenance keeps that unit ineligible rather than silently treating it as
+/// an abstention.
+pub fn record_resolved_facts(
+    evidence: &mut [NativeRungEvidence],
+    unit_endpoints: &[Vec<String>],
+    edges: &[ExtractedEdge],
+) {
+    if evidence.len() != unit_endpoints.len() {
+        for item in evidence {
+            item.symbol_resolution_completed = false;
+            item.statistical_completed = false;
+        }
+        return;
+    }
+    let mut owners: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+    for (index, endpoints) in unit_endpoints.iter().enumerate() {
+        for endpoint in endpoints {
+            owners.entry(endpoint).or_default().insert(index);
+        }
+    }
+    for edge in edges {
+        let touched: BTreeSet<_> = owners
+            .get(edge.source.as_str())
+            .into_iter()
+            .chain(owners.get(edge.target.as_str()))
+            .flat_map(|indices| indices.iter().copied())
+            .collect();
+        for index in touched {
+            let item = &mut evidence[index];
+            match edge.properties.get("evidence_rung").map(String::as_str) {
+                Some("EXTRACTED") => item.extracted_facts += 1,
+                Some("INFERRED") => item.inferred_facts += 1,
+                Some("DERIVED") => item.derived_facts += 1,
+                _ => {
+                    item.symbol_resolution_completed = false;
+                    item.statistical_completed = false;
+                }
+            }
+        }
+    }
+}
+
+/// Produce a fail-closed rung-3 admission from engine-only evidence and a
+/// serving policy verdict. A parse success alone is insufficient: all three
+/// native passes must complete and assert no fact for the unit. This produces
+/// no rung-4/5 admission; each worker must report its own explicit abstention.
+pub fn native_admissions(
+    evidence: &[NativeRungEvidence],
+    policy: &BTreeMap<UnitKey, NativePolicyVerdict>,
+) -> BTreeMap<UnitKey, UnitAdmission> {
+    let mut decisions: BTreeMap<UnitKey, Option<UnitAdmission>> = BTreeMap::new();
+    for item in evidence {
+        let unit = UnitKey {
+            content_digest: item.content_digest.clone(),
+            parser_capability_digest: item.parser_capability_digest.clone(),
+        };
+        let decision = policy.get(&unit).and_then(|verdict| {
+            (item.status == IndexFileStatus::Success
+                && item.extracted_facts == 0
+                && item.inferred_facts == 0
+                && item.derived_facts == 0
+                && item.symbol_resolution_completed
+                && item.statistical_completed
+                && verdict.allowed
+                && verdict.compute_units > 0)
+                .then_some(UnitAdmission {
+                    abstained_through: 2,
+                    allowed: true,
+                    compute_units: verdict.compute_units,
+                })
+        });
+        decisions
+            .entry(unit)
+            .and_modify(|prior| {
+                if *prior != decision {
+                    *prior = None;
+                }
+            })
+            .or_insert(decision);
+    }
+    decisions
+        .into_iter()
+        .filter_map(|(unit, decision)| decision.map(|admission| (unit, admission)))
+        .collect()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -634,5 +758,65 @@ mod tests {
             to_native_submit_batch(&plan, &binding()).unwrap_err(),
             QueueBindingError::InvalidPlan
         );
+    }
+
+    #[test]
+    fn native_admission_requires_three_explicit_abstentions_and_policy() {
+        let empty = || ParseResult {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            symbols_extracted: 0,
+        };
+        let asserted = ParseResult {
+            nodes: vec![eg_types::ingestion_wire::ExtractedNode {
+                node_id: "symbol:a".into(),
+                node_type: "SYMBOL".into(),
+                properties: Default::default(),
+            }],
+            edges: Vec::new(),
+            symbols_extracted: 1,
+        };
+        let outcomes = [
+            outcome("empty", IndexFileStatus::Success),
+            outcome("asserted", IndexFileStatus::Success),
+            outcome("unsupported", IndexFileStatus::Unsupported),
+        ];
+        let mut evidence = record_native_evidence(&[empty(), asserted, empty()], &outcomes);
+        let policy = BTreeMap::from([
+            (
+                key("empty"),
+                NativePolicyVerdict {
+                    allowed: true,
+                    compute_units: 3,
+                },
+            ),
+            (
+                key("asserted"),
+                NativePolicyVerdict {
+                    allowed: true,
+                    compute_units: 3,
+                },
+            ),
+            (
+                key("unsupported"),
+                NativePolicyVerdict {
+                    allowed: true,
+                    compute_units: 3,
+                },
+            ),
+        ]);
+        let admitted = native_admissions(&evidence, &policy);
+        assert_eq!(admitted.len(), 1);
+        assert_eq!(admitted[&key("empty")].abstained_through, 2);
+        evidence[0].statistical_completed = false;
+        assert!(native_admissions(&evidence, &policy).is_empty());
+        evidence[0].statistical_completed = true;
+        let conflicting = NativeRungEvidence {
+            extracted_facts: 1,
+            ..evidence[0].clone()
+        };
+        evidence.push(conflicting);
+        assert!(native_admissions(&evidence, &policy).is_empty());
+        assert!(native_admissions(&evidence[..1], &BTreeMap::new()).is_empty());
     }
 }

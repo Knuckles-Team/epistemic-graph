@@ -3,6 +3,7 @@
 
 use super::index_branches;
 use crate::parser::branch_scope::{blob_node_id, branch_node_id, content_digest, file_version_id};
+use crate::parser::enrichment_admission::{native_admissions, NativePolicyVerdict, UnitKey};
 use eg_types::contract::BoundedVec;
 use eg_types::ingestion_wire::{
     IndexFileStatus, IndexFileVersion, IndexRef, IndexRefStatus, IndexRepositoryScope, IndexResult,
@@ -136,6 +137,17 @@ fn shared_blob_is_parsed_once_and_its_symbols_attach_to_the_blob() {
     );
     assert_eq!(result.files_parsed, 3);
     assert_eq!(nodes_of(&result, "Blob").len(), 3);
+    assert_eq!(result.native_rung_evidence.len(), 3);
+    assert!(result
+        .native_rung_evidence
+        .iter()
+        .all(|evidence| evidence.extracted_facts > 0
+            && evidence.symbol_resolution_completed
+            && evidence.statistical_completed));
+    assert!(serde_json::to_value(&result)
+        .unwrap()
+        .get("native_rung_evidence")
+        .is_none());
 }
 
 #[test]
@@ -326,4 +338,47 @@ fn malformed_scopes_are_refused() {
     ];
     let error = index_branches(twice, &two_branch_scope()).expect_err("duplicate blob");
     assert!(error.contains("twice"), "{error}");
+}
+
+#[test]
+fn empty_import_target_does_not_falsely_abstain_from_resolution() {
+    let empty = "";
+    let scoped = scope(
+        vec![live("main", 'a')],
+        vec![
+            member("main", "pkg/util.py", empty),
+            member("main", "pkg/app.py", APP_MAIN),
+        ],
+        Vec::new(),
+    );
+    let result = index_branches(
+        vec![
+            ("pkg/util.py".into(), Vec::new()),
+            ("pkg/app.py".into(), APP_MAIN.as_bytes().to_vec()),
+        ],
+        &scoped,
+    )
+    .unwrap();
+    let key = UnitKey {
+        content_digest: content_digest(empty.as_bytes()),
+        parser_capability_digest: result.file_outcomes[0].parser_capability_digest.clone(),
+    };
+    let evidence = result
+        .native_rung_evidence
+        .iter()
+        .find(|item| item.content_digest == key.content_digest)
+        .unwrap();
+    assert_eq!(evidence.extracted_facts, 0);
+    assert!(
+        evidence.inferred_facts > 0,
+        "import target gained a resolved edge"
+    );
+    let policy = std::collections::BTreeMap::from([(
+        key.clone(),
+        NativePolicyVerdict {
+            allowed: true,
+            compute_units: 1,
+        },
+    )]);
+    assert!(!native_admissions(&result.native_rung_evidence, &policy).contains_key(&key));
 }

@@ -26,6 +26,7 @@ use eg_types::ingestion_wire::{
 
 use super::branch_projection::project_scope;
 use super::branch_scope::{blob_node_id, content_digest, file_version_id, ScopeCatalog};
+use super::enrichment_admission::{record_native_evidence, record_resolved_facts};
 use super::resolve::resolve;
 use super::tree_sitter::parse_files_with_outcomes;
 
@@ -127,13 +128,46 @@ pub fn index_branches(
     out.imports_unresolved = imports.unresolved;
     out.edges.extend(imports.edges);
 
+    let mut evidence = record_native_evidence(&results, &outcomes);
+    let endpoints = evidence_endpoints(&catalog, &units.digests, &results);
+    record_resolved_facts(&mut evidence, &endpoints, &out.edges);
+
     project_scope(&catalog, &mut out.nodes, &mut out.edges);
     out.files_parsed = outcomes
         .iter()
         .filter(|outcome| outcome.status == IndexFileStatus::Success)
         .count();
+    out.native_rung_evidence = evidence;
     out.file_outcomes = units.restore_names(outcomes);
     Ok(out)
+}
+
+fn evidence_endpoints(
+    catalog: &ScopeCatalog<'_>,
+    digests: &[String],
+    results: &[ParseResult],
+) -> Vec<Vec<String>> {
+    let mut by_digest: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut endpoints: Vec<Vec<String>> = results
+        .iter()
+        .zip(digests)
+        .enumerate()
+        .map(|(index, (result, digest))| {
+            by_digest.entry(digest).or_default().push(index);
+            std::iter::once(blob_node_id(digest))
+                .chain(result.nodes.iter().map(|node| node.node_id.clone()))
+                .collect()
+        })
+        .collect();
+    for (&(_, path), &digest) in &catalog.memberships {
+        if let Some(indices) = by_digest.get(digest) {
+            let version = file_version_id(catalog.scope.repository_id.as_str(), path, digest);
+            for index in indices {
+                endpoints[*index].push(version.clone());
+            }
+        }
+    }
+    endpoints
 }
 
 #[derive(Default)]
