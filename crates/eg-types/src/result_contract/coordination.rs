@@ -140,6 +140,7 @@ method_results! {
     DecisionEvalStatus(DecisionEval / "status") => Raw<Option<DecisionJobRecord>>;
     DecisionEvalReceiptGet(DecisionEval / "receipt") => Raw<Option<crate::decision::DecisionEvalReceipt>>;
     DecisionEvalReceipts(DecisionEval / "receipts") => Raw<crate::decision::DecisionReceiptPage>;
+    DecisionEvalTimeline(DecisionEval / "timeline") => Raw<crate::decision::DecisionReceiptTimelinePage>;
     DecisionLogCommit(DecisionLog / "commit") => Raw<DecisionLogCommitted>;
     DecisionLogEvaluate(DecisionLog / "evaluate") => Raw<StoredEvaluation>;
     DecisionLogGet(DecisionLog / "get") => Raw<Option<DecisionLogEntry>>;
