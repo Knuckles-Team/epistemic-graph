@@ -6570,6 +6570,16 @@ class GraphOperationsClient:
     async def graph_coloring(self) -> list[list[Any]]:
         return (await _gen.compute.send_graph_coloring(self._client)).payload
 
+    async def graph_color_ephemeral(
+        self, node_ids: list[str], edges: list[tuple[str, str]]
+    ) -> list[list[Any]]:
+        """Color an inline undirected conflict graph without persisting it."""
+        return (
+            await _gen.compute.send_graph_color_ephemeral(
+                self._client, {"node_ids": node_ids, "edges": edges}
+            )
+        ).payload
+
     async def compute_similarity_edges(self, threshold: float) -> list[list[Any]]:
         """`(source, target, cosine)` rows for every pair at or above ``threshold``."""
         return (
