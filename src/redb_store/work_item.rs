@@ -26,6 +26,8 @@ pub(crate) struct WorkItemCommitScope<'crypto, 'outbox> {
     pub(crate) crypto: DurableCrypto<'crypto>,
     pub(crate) authoritative_now_ms: u64,
     pub(crate) outbox_id: &'outbox str,
+    /// MAC-verified originating principal, stored only as an opaque digest.
+    pub(crate) submit_actor: &'outbox str,
 }
 
 /// Refuse a per-graph scan asked about a graph other than the one its table is
@@ -63,6 +65,7 @@ mod claim;
 mod commit;
 mod control_lease;
 mod dispatch;
+mod input;
 mod lease;
 mod read;
 mod row_guard;
@@ -75,6 +78,7 @@ pub(crate) use claim::*;
 pub(crate) use commit::*;
 pub(crate) use control_lease::{apply_control_lease_rows, read_control_lease};
 pub(crate) use dispatch::*;
+pub(crate) use input::*;
 pub(crate) use lease::*;
 pub(crate) use read::{list_work_items, read_work_item, read_work_item_outcome};
 pub(crate) use row_guard::refuse_generic_native_row_write;

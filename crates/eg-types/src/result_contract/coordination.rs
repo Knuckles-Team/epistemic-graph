@@ -32,6 +32,7 @@ use crate::native_control::{
     CapacityAcquireResult, CapacityCellUpdateResult, CapacityMutationResult, CapacityReclaimResult,
     CapacityStatusResult, SubmitWorkItemResult, SubmitWorkItemsResult,
 };
+use crate::work_item_input::{WorkItemInputAnswer, WorkItemInputTransition, WorkItemPendingInput};
 use crate::work_item_read::{WorkItemOutcomeView, WorkItemPage, WorkItemView};
 
 method_results! {
@@ -55,6 +56,10 @@ method_results! {
     CommitWorkItemResult(CommitWorkItemResult) => Json<WorkItemTransition<WorkItemCommitStatus>>;
     CancelWorkItem(CancelWorkItem) => Json<WorkItemTransition<WorkItemCancelStatus>>;
     DeferWorkItem(DeferWorkItem) => Json<WorkItemDeferral>;
+    RequestWorkItemInput(RequestWorkItemInput) => Json<WorkItemInputTransition>;
+    AnswerWorkItemInput(AnswerWorkItemInput) => Json<WorkItemInputTransition>;
+    GetWorkItemPendingInput(GetWorkItemPendingInput) => Raw<Option<WorkItemPendingInput>>;
+    GetWorkItemInputAnswer(GetWorkItemInputAnswer) => Raw<Option<WorkItemInputAnswer>>;
     CasWorkItemMetadata(CasWorkItemMetadata) => Raw<CasWorkItemMetadataResult>;
     // EH-219 typed WorkItem reads. `null` when no WorkItem with this id is
     // visible to the verified tenant.

@@ -40,11 +40,34 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
         | Method::DeferWorkItem { .. }
+        | Method::RequestWorkItemInput { .. }
+        | Method::AnswerWorkItemInput { .. }
         | Method::CasWorkItemMetadata { .. }
         | Method::IssueControlLease { .. }
         | Method::TransitionControlLease { .. }) => method,
         other => return Err(other),
     };
+    let input_tenant = match &method {
+        Method::RequestWorkItemInput { request } => Some(request.tenant.as_str()),
+        Method::AnswerWorkItemInput { request } => Some(request.tenant.as_str()),
+        _ => None,
+    };
+    if input_tenant.is_some_and(|tenant| tenant != ctx.verified_context.tenant()) {
+        return Ok(Response::err(
+            ctx.req_id,
+            "ACCESS_DENIED: pending-input tenant does not match verified carrier",
+        ));
+    }
+    if matches!(&method, Method::AnswerWorkItemInput { .. })
+        && !ctx
+            .verified_context
+            .allows_exact_scope("workitem:input-answer")
+    {
+        return Ok(Response::err(
+            ctx.req_id,
+            "ACCESS_DENIED: pending-input answer requires exact workitem:input-answer scope",
+        ));
+    }
 
     #[cfg(feature = "raft")]
     let (placement_epoch, placement_fence) = if let Some(routed) = ctx.routed_raft.as_ref() {

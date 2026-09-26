@@ -136,6 +136,11 @@ impl VerifiedRequestContext {
             .any(|(offset, _)| self.scope_wildcard_domains.contains(&action[..offset]))
     }
 
+    /// Approval exchange scope: wildcard and aggregate grants are insufficient.
+    pub(crate) fn allows_exact_scope(&self, scope: &str) -> bool {
+        self.scope_index.contains(scope)
+    }
+
     /// Dedicated authority for remote analytics worker leases. A general
     /// `kg:write` grant cannot read job payloads or publish results.
     pub(crate) fn allows_analytics_worker(&self) -> bool {

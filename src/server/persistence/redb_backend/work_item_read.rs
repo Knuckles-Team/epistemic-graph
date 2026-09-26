@@ -6,6 +6,7 @@
 //! through `PersistenceBackend::as_redb`, failing closed on any other backend.
 
 use eg_types::control_lease::ControlLeaseView;
+use eg_types::work_item_input::{WorkItemInputAnswer, WorkItemPendingInput};
 use eg_types::work_item_read::{
     WorkItemListRequest, WorkItemOutcomeView, WorkItemPage, WorkItemView,
 };
@@ -23,6 +24,66 @@ type TenantPointRead<T> = for<'a> fn(
 ) -> Result<T, String>;
 
 impl RedbBackend {
+    pub(crate) async fn read_pending_work_item_input(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        work_item_id: &str,
+        actor: &str,
+    ) -> Result<Option<WorkItemPendingInput>, String> {
+        let (graph, tenant, work_item_id, actor) = (
+            graph_fname.to_owned(),
+            tenant.to_owned(),
+            work_item_id.to_owned(),
+            actor.to_owned(),
+        );
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::work_item::read_pending_work_item_input(
+                shard,
+                &graph,
+                &tenant,
+                &work_item_id,
+                &actor,
+                crypto,
+            )
+        })
+        .await
+    }
+
+    pub(crate) async fn read_answered_work_item_input(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        work_item_id: &str,
+        worker_id: &str,
+        actor: &str,
+        lease_epoch: u64,
+        fencing_token: u64,
+        now_ms: u64,
+    ) -> Result<Option<WorkItemInputAnswer>, String> {
+        let (graph, tenant, work_item_id, worker_id, actor) = (
+            graph_fname.to_owned(),
+            tenant.to_owned(),
+            work_item_id.to_owned(),
+            worker_id.to_owned(),
+            actor.to_owned(),
+        );
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::work_item::read_answered_work_item_input(
+                shard,
+                &graph,
+                &tenant,
+                &work_item_id,
+                &worker_id,
+                &actor,
+                lease_epoch,
+                fencing_token,
+                now_ms,
+                crypto,
+            )
+        })
+        .await
+    }
     async fn tenant_point_read<T: Send + 'static>(
         &self,
         graph_fname: &str,

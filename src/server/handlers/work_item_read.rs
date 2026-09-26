@@ -34,6 +34,18 @@ pub(crate) enum WorkItemRead {
         tenant: String,
         work_item_id: String,
     },
+    PendingInput {
+        tenant: String,
+        work_item_id: String,
+    },
+    InputAnswer {
+        tenant: String,
+        work_item_id: String,
+        worker_id: String,
+        lease_epoch: u64,
+        fencing_token: u64,
+        now_ms: u64,
+    },
     /// graph-os EG-2: one native control lease.
     ControlLease {
         tenant: String,
@@ -44,7 +56,10 @@ pub(crate) enum WorkItemRead {
 impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
-            Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
+            Self::Get { tenant, .. }
+            | Self::Outcome { tenant, .. }
+            | Self::PendingInput { tenant, .. }
+            | Self::InputAnswer { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLease { tenant, .. } => tenant,
         }
@@ -56,6 +71,7 @@ pub(crate) async fn answer(
     req_id: u64,
     graph_name: &str,
     verified_tenant: &str,
+    verified_actor: &str,
     persistence: &Option<Arc<dyn PersistenceBackend>>,
     read: WorkItemRead,
 ) -> Response {
@@ -64,7 +80,7 @@ pub(crate) async fn answer(
         return Response::err(req_id, denied);
     }
     let graph = crate::persist::sanitize(graph_name);
-    match serve_native(&graph, persistence, read).await {
+    match serve_native(&graph, verified_actor, persistence, read).await {
         Ok(payload) => Response::ok(req_id, payload),
         Err(error) => Response::err(req_id, format!("WorkItem read failed: {error}")),
     }
@@ -81,11 +97,13 @@ pub(crate) fn require_carrier_tenant(requested: &str, verified: &str) -> Result<
 
 async fn serve_native(
     graph: &str,
+    verified_actor: &str,
     persistence: &Option<Arc<dyn PersistenceBackend>>,
     read: WorkItemRead,
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
-        GetControlLease, GetWorkItem, GetWorkItemOutcome, ListWorkItems,
+        GetControlLease, GetWorkItem, GetWorkItemInputAnswer, GetWorkItemOutcome,
+        GetWorkItemPendingInput, ListWorkItems,
     };
     let backend = persistence
         .as_ref()
@@ -109,6 +127,40 @@ async fn serve_native(
         } => ResultPayload::of::<GetWorkItemOutcome>(
             backend
                 .read_work_item_outcome(graph, &tenant, &work_item_id)
+                .await?,
+        ),
+        WorkItemRead::PendingInput {
+            tenant,
+            work_item_id,
+        } => ResultPayload::of::<GetWorkItemPendingInput>(
+            backend
+                .read_pending_work_item_input(graph, &tenant, &work_item_id, verified_actor)
+                .await?,
+        ),
+        WorkItemRead::InputAnswer {
+            tenant,
+            work_item_id,
+            worker_id,
+            lease_epoch,
+            fencing_token,
+            now_ms: _,
+        } => ResultPayload::of::<GetWorkItemInputAnswer>(
+            backend
+                .read_answered_work_item_input(
+                    graph,
+                    &tenant,
+                    &work_item_id,
+                    &worker_id,
+                    verified_actor,
+                    lease_epoch,
+                    fencing_token,
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(|_| "system clock is before epoch".to_string())?
+                        .as_millis()
+                        .try_into()
+                        .map_err(|_| "system clock exceeds native bounds".to_string())?,
+                )
                 .await?,
         ),
         WorkItemRead::ControlLease { tenant, lease_id } => ResultPayload::of::<GetControlLease>(

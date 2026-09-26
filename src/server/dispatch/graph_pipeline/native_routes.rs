@@ -262,6 +262,28 @@ async fn route_work_item_reads(
             tenant,
             work_item_id,
         },
+        Method::GetWorkItemPendingInput {
+            tenant,
+            work_item_id,
+        } => handlers::work_item_read::WorkItemRead::PendingInput {
+            tenant,
+            work_item_id,
+        },
+        Method::GetWorkItemInputAnswer {
+            tenant,
+            work_item_id,
+            worker_id,
+            lease_epoch,
+            fencing_token,
+            now_ms,
+        } => handlers::work_item_read::WorkItemRead::InputAnswer {
+            tenant,
+            work_item_id,
+            worker_id,
+            lease_epoch,
+            fencing_token,
+            now_ms,
+        },
         Method::GetControlLease { tenant, lease_id } => {
             handlers::work_item_read::WorkItemRead::ControlLease { tenant, lease_id }
         }
@@ -284,6 +306,7 @@ async fn route_work_item_reads(
         ctx.req_id,
         ctx.graph_name,
         ctx.verified_context.tenant(),
+        &ctx.verified_context.principal_persistence_id(),
         ctx.persistence,
         read,
     )

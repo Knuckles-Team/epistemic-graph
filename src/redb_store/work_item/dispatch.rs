@@ -5,6 +5,8 @@ use super::*;
 pub(crate) struct WorkItemApplyRequest<'args, 'table, 'crypto> {
     pub(crate) graph: &'args str,
     pub(crate) batch_id: &'args str,
+    pub(crate) actor: &'args str,
+    pub(crate) authoritative_now_ms: u64,
     pub(crate) method: &'args Method,
     pub(crate) nodes:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
@@ -39,6 +41,8 @@ pub(crate) fn apply_work_item_rows(
     let WorkItemApplyRequest {
         graph,
         batch_id,
+        actor,
+        authoritative_now_ms,
         method,
         nodes,
         holds,
@@ -51,7 +55,7 @@ pub(crate) fn apply_work_item_rows(
     } = request;
     match method {
         Method::ClaimWorkItem { request } => {
-            apply_claim_work_item_row(graph, request, nodes, native_work_items, crypto)
+            apply_claim_work_item_row(graph, actor, request, nodes, native_work_items, crypto)
         }
         Method::RenewWorkItemLease {
             tenant,
@@ -158,6 +162,17 @@ pub(crate) fn apply_work_item_rows(
             nodes: &mut *nodes,
             crypto,
         }),
+        Method::RequestWorkItemInput { request } => {
+            apply_request_work_item_input_row(graph, request, authoritative_now_ms, nodes, crypto)
+        }
+        Method::AnswerWorkItemInput { request } => apply_answer_work_item_input_row(
+            graph,
+            actor,
+            request,
+            authoritative_now_ms,
+            nodes,
+            crypto,
+        ),
         // graph-os EG-2 control-lease writes share this kernel; anything else
         // is not a WorkItem-family row transition and answers `None`.
         other => apply_control_lease_rows(graph, other, nodes, crypto),

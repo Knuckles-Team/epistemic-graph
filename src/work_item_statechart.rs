@@ -57,7 +57,7 @@ use std::sync::LazyLock;
 use eg_statechart::{transition, Context, EventInput, Guard, State, StatechartDef, Transition};
 
 /// The four non-final states.
-const NON_FINAL_STATES: &[&str] = &["submitted", "ready", "leased", "running"];
+const NON_FINAL_STATES: &[&str] = &["submitted", "ready", "leased", "running", "input_required"];
 
 /// The four final states — identical to `work_item.TERMINAL_WORK_ITEM_STATUSES`.
 pub const FINAL_STATES: &[&str] = &["succeeded", "failed", "cancelled", "dead_letter"];
@@ -77,6 +77,8 @@ pub const EV_CANCEL: &str = "cancel";
 pub const EV_DEFER: &str = "defer";
 pub const EV_LEASE_RECLAIM: &str = "lease_reclaim";
 pub const EV_LEASE_EXHAUSTED: &str = "lease_exhausted";
+pub const EV_INPUT_REQUESTED: &str = "input_requested";
+pub const EV_INPUT_ANSWERED: &str = "input_answered";
 
 fn event_true(key: &str) -> Guard {
     Guard::EventEq {
@@ -113,6 +115,15 @@ pub fn work_item_statechart_def() -> StatechartDef {
     // ── claim: the authority already ran multi-row candidate selection, so the picked
     // item's `ready → leased` edge is unconditional here (ADR-5 §2 / design §3.1). ──
     transitions.push(Transition::new("ready", EV_CLAIM, "leased").with_guard(Guard::Always));
+    for from in LEASED_OR_RUNNING {
+        transitions.push(
+            Transition::new(*from, EV_INPUT_REQUESTED, "input_required")
+                .with_guard(event_true("fence_valid")),
+        );
+    }
+    transitions.push(
+        Transition::new("input_required", EV_INPUT_ANSWERED, "ready").with_guard(Guard::Always),
+    );
 
     // ── expiry sweep: an expired lease is fenced back to `ready` during selection,
     // unless its claim already consumed the retry budget.  The latter transition
@@ -201,6 +212,8 @@ pub fn work_item_statechart_def() -> StatechartDef {
             EV_DEFER.to_string(),
             EV_LEASE_RECLAIM.to_string(),
             EV_LEASE_EXHAUSTED.to_string(),
+            EV_INPUT_REQUESTED.to_string(),
+            EV_INPUT_ANSWERED.to_string(),
         ],
         transitions,
         initial: "submitted".to_string(),
@@ -330,7 +343,7 @@ mod tests {
         validate(&d).expect("work_item chart must pass eg-statechart's own validator");
         assert_eq!(d.def_id(), def().def_id(), "def_id must be deterministic");
         assert_eq!(d.initial, "submitted");
-        assert_eq!(d.states.len(), 8, "the ONE 8-value lifecycle vocabulary");
+        assert_eq!(d.states.len(), 9, "the ONE 9-value lifecycle vocabulary");
         assert_eq!(d.finals.len(), 4);
         for id in FINAL_STATES {
             assert!(d.is_final(id), "{id} must be a declared final state");
@@ -345,6 +358,7 @@ mod tests {
             "ready",
             "leased",
             "running",
+            "input_required",
             "succeeded",
             "failed",
             "cancelled",

@@ -357,6 +357,8 @@ where
         crypto,
         authoritative_now_ms: committed_at_ms,
         outbox_id: &batch.batch_id,
+        submit_actor: crate::server::mutation_batch::batch_actor(batch)
+            .ok_or_else(|| "native WorkItem submit requires a verified actor".to_string())?,
     })?;
     if generated_result.is_some() || batch.operations.len() != 1 {
         return Err(format!(
@@ -374,12 +376,16 @@ pub(crate) fn apply_native_work_item_family_operation(
     method: &Method,
     tables: &mut NativeOperationTables<'_>,
     batch: &MutationBatch,
+    committed_at_ms: u64,
     generated_result: &mut Option<Vec<u8>>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
         graph: graph_fname,
         batch_id: batch.batch_id.as_str(),
+        actor: crate::server::mutation_batch::batch_actor(batch)
+            .ok_or_else(|| "native WorkItem mutation requires a verified actor".to_string())?,
+        authoritative_now_ms: committed_at_ms,
         method,
         nodes: &mut tables.graph.nodes,
         holds: &mut tables.lane_holds,
@@ -420,6 +426,8 @@ pub(crate) fn apply_native_commit_work_item_result_operation(
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
         graph: graph_fname,
         batch_id,
+        actor: "",
+        authoritative_now_ms: 0,
         method,
         nodes: &mut tables.graph.nodes,
         holds: &mut tables.lane_holds,
@@ -567,6 +575,7 @@ fn apply_one_native_operation_row(
             method,
             tables,
             batch,
+            committed_at_ms,
             generated_result,
             crypto,
         ),

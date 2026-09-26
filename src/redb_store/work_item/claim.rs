@@ -317,6 +317,7 @@ pub(crate) fn claim_grant_lease(
 
 struct ClaimWorkItemApply<'args, 'table, 'crypto> {
     graph: &'args str,
+    actor: &'args str,
     request: &'args crate::epistemic_operations::ClaimWorkItemRequest,
     now_ms: u64,
     lease_ms: u64,
@@ -356,6 +357,7 @@ fn apply_claimed_work_item(
 ) -> Result<crate::protocol::ResultPayload, String> {
     let ClaimWorkItemApply {
         graph,
+        actor,
         request,
         now_ms,
         lease_ms,
@@ -371,6 +373,12 @@ fn apply_claimed_work_item(
     } = input;
     let worker_id = &request.worker_ref;
     let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s);
+    if !actor.is_empty() {
+        props.insert(
+            "lease_principal_ref".into(),
+            serde_json::Value::String(actor.to_string()),
+        );
+    }
     let kind = property_string(&props, "kind").to_string();
     let payload_ref = property_string(&props, "payload_ref").to_string();
     let max_attempts = property_u64(&props, "max_attempts").max(1);
@@ -418,6 +426,7 @@ fn apply_claimed_work_item(
 
 pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
     graph: &str,
+    actor: &str,
     request: &crate::epistemic_operations::ClaimWorkItemRequest,
     nodes: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     native_work_items: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
@@ -461,6 +470,7 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
     };
     Ok(Some(apply_claimed_work_item(ClaimWorkItemApply {
         graph,
+        actor,
         request,
         now_ms,
         lease_ms,

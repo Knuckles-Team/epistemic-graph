@@ -593,6 +593,7 @@ pub(crate) struct SubmitWorkItemWrite<'args, 'table, 'crypto> {
     graph: &'args str,
     work_item_id: &'args str,
     context_tenant: &'args str,
+    submit_actor: &'args str,
     request: &'args eg_types::native_control::SubmitWorkItemRequest,
     dependencies: &'args [String],
     dependency_rows: &'args [(String, bool)],
@@ -616,6 +617,7 @@ pub(crate) fn write_submit_work_item_node_and_edges(
         graph,
         work_item_id,
         context_tenant,
+        submit_actor,
         request,
         dependencies,
         dependency_rows,
@@ -636,6 +638,10 @@ pub(crate) fn write_submit_work_item_node_and_edges(
         now_s,
         status,
     )?;
+    props.insert(
+        "submit_principal_ref".into(),
+        serde_json::Value::String(submit_actor.to_string()),
+    );
     write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     write_submit_work_item_dependency_edges(
         graph,
@@ -717,6 +723,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         crypto,
         authoritative_now_ms,
         outbox_id,
+        submit_actor,
     } = scope;
     let context_tenant = request.context.tenant_id.as_str();
 
@@ -745,6 +752,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         graph,
         work_item_id: &work_item_id,
         context_tenant,
+        submit_actor,
         request,
         dependencies: &dependencies,
         dependency_rows: &dependency_rows,
@@ -786,6 +794,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
         crypto,
         authoritative_now_ms,
         outbox_id,
+        submit_actor,
     } = scope;
     use eg_types::native_control::{
         NativeControlSchemaVersion, MAX_SUBMIT_BATCH, MAX_SUBMIT_BATCH_CHANGED_IDS,
@@ -829,6 +838,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
                 crypto,
                 authoritative_now_ms,
                 outbox_id,
+                submit_actor,
             },
         )?;
         changed.extend(result.changed_work_item_ids.clone());

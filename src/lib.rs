@@ -55,6 +55,8 @@ macro_rules! work_item_kernel_writes {
             | $crate::protocol::Method::RenewWorkItemLease { .. }
             | $crate::protocol::Method::CancelWorkItem { .. }
             | $crate::protocol::Method::DeferWorkItem { .. }
+            | $crate::protocol::Method::RequestWorkItemInput { .. }
+            | $crate::protocol::Method::AnswerWorkItemInput { .. }
             | $crate::protocol::Method::CasWorkItemMetadata { .. }
             | $crate::protocol::Method::IssueControlLease { .. }
             | $crate::protocol::Method::TransitionControlLease { .. }

@@ -59,6 +59,8 @@ impl Method {
             | Self::CommitWorkItemResult { .. }
             | Self::CancelWorkItem { .. }
             | Self::DeferWorkItem { .. }
+            | Self::RequestWorkItemInput { .. }
+            | Self::AnswerWorkItemInput { .. }
             | Self::CasWorkItemMetadata { .. }
             | Self::IssueControlLease { .. }
             | Self::TransitionControlLease { .. } => MethodWriteFamily::WorkItemLease,

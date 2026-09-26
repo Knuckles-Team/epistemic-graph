@@ -84,6 +84,8 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             "GetWorkItem",
             "ListWorkItems",
             "GetWorkItemOutcome",
+            "GetWorkItemPendingInput",
+            "GetWorkItemInputAnswer",
             // graph-os EG-2: native control leases share the WorkItem kernel.
             "IssueControlLease",
             "TransitionControlLease",

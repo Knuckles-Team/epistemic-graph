@@ -75,6 +75,8 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
         Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
         Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
         Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
+        Method::RequestWorkItemInput { request } => request.tenant.clone(),
+        Method::AnswerWorkItemInput { request } => request.tenant.clone(),
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }

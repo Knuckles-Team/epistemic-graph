@@ -618,6 +618,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::GetWorkItem { .. }
         | Method::ListWorkItems { .. }
         | Method::GetWorkItemOutcome { .. }
+        | Method::GetWorkItemPendingInput { .. }
+        | Method::GetWorkItemInputAnswer { .. }
         | Method::GetControlLease { .. }
         | Method::MutationOutbox { .. } => default_mutation_domain(surface),
         Method::FinanceSabrImpliedVol { .. }

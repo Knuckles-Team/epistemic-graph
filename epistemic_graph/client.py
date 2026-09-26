@@ -4086,6 +4086,78 @@ class WorkItemClient:
             )
         ).payload
 
+    async def _require_input_method(self, method: str) -> None:
+        """Keep approval exchange closed against an older engine."""
+        supports = getattr(self._client, "supports", None)
+        if supports is None or await supports(method) is not True:
+            raise RuntimeError(f"native WorkItem pending input unavailable: {method}")
+
+    async def request_input(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Suspend one exact worker lease for a bounded human PLAN decision."""
+        await self._require_input_method("RequestWorkItemInput")
+        idempotency_key = _string(
+            "RequestWorkItemInput.idempotency_key", request.get("idempotency_key")
+        )
+        return (
+            await _gen.coordination.send_request_work_item_input(
+                self._client,
+                {"request": request},
+                idempotency_key=idempotency_key,
+            )
+        ).payload
+
+    async def answer_input(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Record a signed caller's exact-revision decision without executing it."""
+        await self._require_input_method("AnswerWorkItemInput")
+        idempotency_key = _string(
+            "AnswerWorkItemInput.idempotency_key", request.get("idempotency_key")
+        )
+        return (
+            await _gen.coordination.send_answer_work_item_input(
+                self._client,
+                {"request": request},
+                idempotency_key=idempotency_key,
+            )
+        ).payload
+
+    async def get_pending_input(
+        self, *, tenant: str, work_item_id: str
+    ) -> dict[str, Any] | None:
+        """Read a pending PLAN only under its original verified principal."""
+        await self._require_input_method("GetWorkItemPendingInput")
+        return (
+            await _gen.coordination.send_get_work_item_pending_input(
+                self._client,
+                {"tenant": tenant, "work_item_id": work_item_id},
+            )
+        ).payload
+
+    async def get_input_answer(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        worker_id: str,
+        lease_epoch: int,
+        fencing_token: int,
+        now_ms: int,
+    ) -> dict[str, Any] | None:
+        """Read an opaque answer only under a newly claimed live worker lease."""
+        await self._require_input_method("GetWorkItemInputAnswer")
+        return (
+            await _gen.coordination.send_get_work_item_input_answer(
+                self._client,
+                {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "worker_id": worker_id,
+                    "lease_epoch": int(lease_epoch),
+                    "fencing_token": int(fencing_token),
+                    "now_ms": int(now_ms),
+                },
+            )
+        ).payload
+
     async def cas_metadata(
         self,
         *,

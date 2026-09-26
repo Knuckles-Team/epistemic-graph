@@ -496,6 +496,14 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("ListWorkItems", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("GetControlLease", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("GetWorkItemOutcome", REASON_NATIVE_WORK_ITEM_TENANT_READ),
+    (
+        "GetWorkItemPendingInput",
+        REASON_NATIVE_WORK_ITEM_TENANT_READ,
+    ),
+    (
+        "GetWorkItemInputAnswer",
+        REASON_NATIVE_WORK_ITEM_TENANT_READ,
+    ),
 ];
 
 // L-RLS-1 burn-down (CONCEPT:EPI-P3-3/P3-6): the 5 methods this pass covered (see the

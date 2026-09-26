@@ -48,12 +48,16 @@ pub const WORK_ITEM_OUTCOME_DIGEST: &str = "outcome_digest";
 pub const WORK_ITEM_TRACE_REF: &str = "trace_ref";
 pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 /// Every WorkItem-row property only the native kernel may write.
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 5] = [
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 9] = [
     WORK_ITEM_ROW_REVISION,
     WORK_ITEM_OUTCOME_REF,
     WORK_ITEM_OUTCOME_DIGEST,
     WORK_ITEM_TRACE_REF,
     WORK_ITEM_TOOL_CALL_REFS,
+    "submit_principal_ref",
+    "lease_principal_ref",
+    "pending_input",
+    "input_answer",
 ];
 
 /// Most metadata keys one `ListWorkItems` `metadata_match` may name.
@@ -82,6 +86,8 @@ pub enum WorkItemStatus {
     Leased,
     /// Executing under a live lease.
     Running,
+    /// Waiting for an exact human decision; no worker lease is held.
+    InputRequired,
     Succeeded,
     Failed,
     Cancelled,
@@ -91,11 +97,12 @@ pub enum WorkItemStatus {
 
 /// The stored `status` text of each lifecycle state. A table rather than a
 /// match so the wire enum and the row vocabulary are read off one list.
-const STORED_STATUS: [(&str, WorkItemStatus); 8] = [
+const STORED_STATUS: [(&str, WorkItemStatus); 9] = [
     ("submitted", WorkItemStatus::Submitted),
     ("ready", WorkItemStatus::Ready),
     ("leased", WorkItemStatus::Leased),
     ("running", WorkItemStatus::Running),
+    ("input_required", WorkItemStatus::InputRequired),
     ("succeeded", WorkItemStatus::Succeeded),
     ("failed", WorkItemStatus::Failed),
     ("cancelled", WorkItemStatus::Cancelled),

@@ -172,6 +172,7 @@ pub mod compute_result;
 pub mod work_item_command_log;
 // EH-219 — typed, tenant-bound WorkItem reads (`GetWorkItem`/`ListWorkItems`):
 // the caller's row view, its three-bound page scan, and its cursor family.
+pub mod work_item_input;
 pub mod work_item_read;
 // The opaque tenant-bound keyset cursor shared by every paged read
 // (`AgentComponent.Search`, `ListWorkItems`).

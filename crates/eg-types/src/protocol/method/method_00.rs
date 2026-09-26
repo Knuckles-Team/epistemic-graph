@@ -436,6 +436,32 @@ macro_rules! __eg_method_chunk_0 {
         now_ms: u64,
     },
 
+    /// Suspend a fenced running WorkItem for one human PLAN decision.
+    RequestWorkItemInput {
+        request: crate::work_item_input::RequestWorkItemInput,
+    },
+
+    /// Exact-revision answer by the WorkItem's verified submitting principal.
+    AnswerWorkItemInput {
+        request: crate::work_item_input::AnswerWorkItemInput,
+    },
+
+    /// Read a pending PLAN only as its verified submitting principal.
+    GetWorkItemPendingInput {
+        tenant: String,
+        work_item_id: String,
+    },
+
+    /// Read an opaque answered PLAN only under the renewed worker lease.
+    GetWorkItemInputAnswer {
+        tenant: String,
+        work_item_id: String,
+        worker_id: String,
+        lease_epoch: u64,
+        fencing_token: u64,
+        now_ms: u64,
+    },
+
     /// Atomic compare-and-set on one WorkItem's non-authority SCHEDULING
     /// METADATA (`checkpoint_id` / `metadata` / `prio_bucket`) — the native
     /// replacement for a generic `CompareAndSetNodeFields` against a
