@@ -1,8 +1,8 @@
 # Status — the Codex
 
-> **Generated — do not edit by hand.** Produced by `scripts/build_status_page.py` from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `docs/concept_reservations.yaml`. See "How this page stays honest" at the bottom.
+> **Generated — do not edit by hand.** Produced by `scripts/build_status_page.py` from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `registry/concept_reservations.yaml`. See "How this page stays honest" at the bottom.
 
-**Honesty first.** Every capability on this page is tracked operation-by-operation, verified against the source, not against intent — the numbers below are computed from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `docs/concept_reservations.yaml` at generation time, never hand-typed.
+**Honesty first.** Every capability on this page is tracked operation-by-operation, verified against the source, not against intent — the numbers below are computed from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `registry/concept_reservations.yaml` at generation time, never hand-typed.
 
 ## Capabilities by status
 
@@ -17,7 +17,7 @@
 
 ## Concepts by pillar
 
-**665 LIVE** unique `CONCEPT:<ID>` markers (swept from every tracked `*.rs`/`*.py` file, deduplicated by full ID, then bucketed by pillar prefix — the same concept is legitimately cited at every call site that implements it, so this counts distinct IDs, never raw occurrences) and **1 RESERVED** concept IDs (open, unexpired entries in `docs/concept_reservations.yaml`) across **9 pillars**. Unlike agent-utilities, this repo has no generated `concepts.yaml` registry — the marker sweep below is this page's own generated source, not a restatement of one.
+**665 LIVE** unique `CONCEPT:<ID>` markers (swept from every tracked `*.rs`/`*.py` file, deduplicated by full ID, then bucketed by pillar prefix — the same concept is legitimately cited at every call site that implements it, so this counts distinct IDs, never raw occurrences) and **1 RESERVED** concept IDs (open, unexpired entries in `registry/concept_reservations.yaml`) across **9 pillars**. Unlike agent-utilities, this repo has no generated `concepts.yaml` registry — the marker sweep below is this page's own generated source, not a restatement of one.
 
 | Pillar | LIVE ✅ | RESERVED |
 |:------|---:|---:|
@@ -66,7 +66,7 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 
 ## How this page stays honest
 
-This page is produced by `scripts/build_status_page.py` from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `docs/concept_reservations.yaml` — never hand-typed. Regenerate it with:
+This page is produced by `scripts/build_status_page.py` from `contract/capabilities.md`, `contract/capabilities.generated.md`, and `registry/concept_reservations.yaml` — never hand-typed. Regenerate it with:
 
 ```bash
 python scripts/build_status_page.py --write
