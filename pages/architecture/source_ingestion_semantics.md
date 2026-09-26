@@ -23,6 +23,9 @@ nodes and edges. AU's current adapter consumes those functions and commits
 through EG `ApplyChangeEnvelope`. `SourceIngest` requires catalog mapping
 references and provider checkpoints for raw connector records; a derived
 graph slice carries neither, so it must not fabricate them.
+The same module owns `GraphSliceCapture`, the concurrent enrichment buffer;
+AU's `IngestionEngine._enrich_text` now builds its node/edge slice there and
+retains only the application-level extraction and commit routing.
 
 `epistemic_graph.ingestion.citation` owns content-pinned evidence resolution.
 It accepts fragment-shaped records from the current AU reader and reports
