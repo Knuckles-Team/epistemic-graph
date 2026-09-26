@@ -203,7 +203,7 @@ pub(super) fn gather_plan_rows(
     #[cfg(feature = "tsdb")]
     if tsdb_scope.is_some() && tsdb.tsdb_store.is_none() {
         return Err(
-            "graph_mine: plan requires Op::TsScan but this server has no time-series store \
+            "ENGINE_UNAVAILABLE: graph_mine plan requires Op::TsScan but this server has no time-series store \
              configured"
                 .to_string(),
         );

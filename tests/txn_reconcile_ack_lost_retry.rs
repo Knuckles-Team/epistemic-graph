@@ -780,9 +780,9 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
         .await;
         assert!(
             exact_original
-                .error_detail
+                .error
                 .as_deref()
-                .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+                .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
             "{phase} exact original nonce must be rejected: {exact_original:?}"
         );
 
@@ -1032,9 +1032,9 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
         .await;
         assert!(
             exact
-                .error_detail
+                .error
                 .as_deref()
-                .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+                .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
             "exact original {mode} nonce must be rejected: {exact:?}"
         );
 
@@ -1152,9 +1152,9 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
     .await;
     assert!(
         exact_begin
-            .error_detail
+            .error
             .as_deref()
-            .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+            .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
         "exact Begin retry must remain a kernel nonce rejection: {:?}",
         exact_begin.error
     );
@@ -1239,9 +1239,9 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
     .await;
     assert!(
         exact_stage
-            .error_detail
+            .error
             .as_deref()
-            .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+            .is_some_and(|error| error == "REPLAY_NONCE_CONSUMED"),
         "exact Stage retry must remain a kernel nonce rejection: {:?}",
         exact_stage.error
     );

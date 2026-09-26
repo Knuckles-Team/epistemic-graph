@@ -118,10 +118,7 @@ async fn commit_staged_replay_found(
             ctx.req_id,
             "MutationBatch replay probe unexpectedly committed a fresh operation",
         )),
-        Err(error) => Some(Response::err(
-            ctx.req_id,
-            format!("MutationBatch replay probe failed: {error}"),
-        )),
+        Err(error) => Some(Response::err(ctx.req_id, error)),
     }
 }
 
@@ -329,10 +326,7 @@ async fn commit_row_replay_found(
             ctx.req_id,
             "MutationBatch replay probe unexpectedly committed a fresh operation",
         )),
-        Err(error) => Some(Response::err(
-            ctx.req_id,
-            format!("MutationBatch replay probe failed: {error}"),
-        )),
+        Err(error) => Some(Response::err(ctx.req_id, error)),
     }
 }
 

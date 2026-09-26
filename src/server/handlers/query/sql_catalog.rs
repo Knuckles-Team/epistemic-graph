@@ -185,7 +185,7 @@ pub(crate) fn sql_write_ack(
             };
             dynamic_response::<query_results::Sql, _>(req_id, &result)
         }
-        Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
+        Ok(Err(msg)) => Response::err(req_id, msg),
         Err(resp) => resp,
     }
 }

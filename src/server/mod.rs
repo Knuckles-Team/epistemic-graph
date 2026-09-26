@@ -2636,7 +2636,8 @@ mod tests {
         let resp = dispatch_on_heap(&state, request(1, "__commons__", None, method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2806,7 +2807,8 @@ mod tests {
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2828,7 +2830,8 @@ mod tests {
         let resp = dispatch_on_heap(&state, request(1, "__commons__", None, method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2852,7 +2855,8 @@ mod tests {
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2876,7 +2880,8 @@ mod tests {
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2901,7 +2906,8 @@ mod tests {
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "CausalEstimate: expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2916,7 +2922,8 @@ mod tests {
             dispatch_on_heap(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "CausalCounterfactual: expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -2930,7 +2937,8 @@ mod tests {
             dispatch_on_heap(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
-            err.contains("not available in this server build"),
+            err == "METHOD_NOT_YET_SERVED"
+                && resp.error_detail.as_deref().is_some_and(|detail| detail.contains("not available in this server build")),
             "RankByProvenance: expected the not-built catch-all, got: ok={:?} err={:?}",
             resp.result,
             resp.error
@@ -5674,7 +5682,7 @@ mod tests {
         );
         assert_eq!(
             resp.error.as_deref(),
-            Some("transaction lifecycle requires the redb MutationBatch coordinator"),
+            Some("ENGINE_UNAVAILABLE"),
         );
         assert_eq!(
             state.read().await.open_txns.len(),

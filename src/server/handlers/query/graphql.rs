@@ -207,10 +207,7 @@ async fn execute_graphql_staging(
     .await
     {
         Ok(Ok(value)) => Ok(value),
-        Ok(Err(msg)) => Err(Response::err(
-            req_id,
-            format!("GraphQL cross-modal error: {msg}"),
-        )),
+        Ok(Err(msg)) => Err(Response::err(req_id, msg)),
         Err(response) => Err(response),
     }
 }

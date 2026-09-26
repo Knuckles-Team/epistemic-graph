@@ -109,7 +109,7 @@ async fn served_batch_commits_once_and_replays_its_durable_result() {
     let conflict = served
         .send(served.signed(attempt(3, "served-c"), altered))
         .await;
-    assert!(refusal(&conflict).contains("IDEMPOTENCY_CONFLICT"));
+    assert_eq!(conflict.error.as_deref(), Some("IDEMPOTENCY_CONFLICT"));
     assert_eq!(served.rows(), 1);
 }
 
@@ -149,7 +149,7 @@ async fn served_batch_requires_the_existing_insert_grant() {
         scopes: WRITE,
     };
     let denied = served.send(served.signed(attempt, foreign)).await;
-    assert!(refusal(&denied).contains("ACCESS_DENIED"));
+    assert_eq!(denied.error.as_deref(), Some("ACCESS_DENIED"));
     assert_eq!(served.rows(), 0);
 }
 

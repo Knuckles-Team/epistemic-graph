@@ -695,7 +695,7 @@ mod tests {
         let denied = try_handle(&state, 1, &authority(&["kg:read"]), unsubscribe(1)).await;
         assert!(error_of(denied)
             .unwrap()
-            .starts_with("ACCESS_DENIED: CEP subscriptions"));
+            .starts_with("CEP subscriptions"));
         assert!(matches!(
             try_handle(&state, 2, &admin, Method::Ping).await,
             Err(Method::Ping)
