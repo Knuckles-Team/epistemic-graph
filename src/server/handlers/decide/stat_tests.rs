@@ -555,6 +555,85 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     assert!(receipt.synthetic);
     assert!(timeline.entries.is_empty());
     assert_eq!(timeline.next_after, None);
+    // A separately submitted human-label fixture has its own evaluation
+    // receipt and authoritative job time. It is eligible for the timeline.
+    let mut human_data = dataset(&schema_digest, &ids, &values, 400);
+    human_data.synthetic = false;
+    human_data.items = BoundedVec::new(
+        human_data
+            .items
+            .as_slice()
+            .iter()
+            .cloned()
+            .map(|mut item| {
+                if let ItemLabel::Gold { source, .. } = &mut item.label {
+                    *source = LabelSource::Human;
+                }
+                item
+            })
+            .collect(),
+    )
+    .unwrap();
+    let human_gold = super::stat_jobs::dataset_digest(&human_data).unwrap();
+    let human_eval = DecisionEvalRequest {
+        tenant_id: TENANT.to_string(),
+        idempotency_key: "eval-human-1".to_string(),
+        candidate: EvalCandidate::DraftArtifact {
+            sha256: receipt.head_digest.clone(),
+            length: draft_length,
+        },
+        policy: DecisionPolicyRef::Default,
+        estimators: BoundedVec::new(vec![OpeEstimatorKind::Ips]).unwrap(),
+        gold_set_digest: Some(human_gold),
+        window: window(),
+        source: DatasetSource::Inline {
+            dataset: Box::new(human_data),
+        },
+        mode: eg_types::decision::EvalMode::OffPolicy,
+    };
+    let human_job: DecisionJobRecord = decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            55,
+            &verified(),
+            DecisionEvalOp::Submit {
+                request: Box::new(human_eval),
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    let DecisionJobOutput::Eval {
+        receipt: human_receipt,
+    } = succeeded(&human_job).clone()
+    else {
+        panic!("human eval output")
+    };
+    assert!(!human_receipt.synthetic);
+    assert!(human_receipt.metrics.is_some());
+    let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            56,
+            &verified(),
+            DecisionEvalOp::Timeline {
+                request: eg_types::decision::DecisionReceiptTimelineRequest {
+                    tenant_id: TENANT.to_string(),
+                    after: None,
+                    limit: 1,
+                },
+            },
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(timeline.entries.len(), 1);
+    assert_eq!(timeline.entries.as_slice()[0].receipt, *human_receipt);
+    assert_eq!(
+        timeline.entries.as_slice()[0].submitted_at_ms,
+        human_job.submitted_at_ms
+    );
+    assert_eq!(timeline.next_after, None);
     let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
         super::jobs::handle_decision_eval(
             &h.state,
