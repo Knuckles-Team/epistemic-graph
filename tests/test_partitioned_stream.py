@@ -12,6 +12,7 @@ from epistemic_graph.partitioned_stream import (
     PartitionedStreamLog,
     SyncMessageDeliveryLog,
     SyncPartitionedStreamLog,
+    delivery_depth_from_stats,
 )
 
 pytestmark = pytest.mark.no_engine
@@ -157,3 +158,13 @@ def test_delivery_nack_rejects_foreign_record_before_dlq_write() -> None:
     with pytest.raises(ValueError, match="does not belong"):
         delivery.nack("tenant-b", record, requeue=False)
     assert delivery.read_dlq("tenant-b") == []
+
+
+def test_delivery_depth_normalizes_queue_stats() -> None:
+    assert (
+        delivery_depth_from_stats(
+            {"backend": "engine", "queues": {"opaque-a": 2, "opaque-b": 3}}
+        )
+        == 5
+    )
+    assert delivery_depth_from_stats({"lag": -5, "ready": 4}) == 4

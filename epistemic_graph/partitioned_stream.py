@@ -25,6 +25,38 @@ class StreamRecord:
     payload: bytes
 
 
+def delivery_depth_from_stats(value: Any) -> int:
+    """Normalize native stream queue metrics to a nonnegative backpressure depth."""
+
+    def sum_numeric(item: Any) -> int:
+        if isinstance(item, dict):
+            return sum(sum_numeric(child) for child in item.values())
+        if isinstance(item, list | tuple):
+            return sum(sum_numeric(child) for child in item)
+        try:
+            return max(0, int(item))
+        except (TypeError, ValueError):
+            return 0
+
+    if isinstance(value, dict):
+        queues = value.get("queues")
+        if isinstance(queues, dict):
+            return sum(sum_numeric(item) for item in queues.values())
+        depths = [
+            delivery_depth_from_stats(item)
+            for key, item in value.items()
+            if key.lower() in {"depth", "queue_depth", "ready", "messages", "lag"}
+            or isinstance(item, dict | list | tuple)
+        ]
+        return max(depths, default=0)
+    if isinstance(value, list | tuple):
+        return max((delivery_depth_from_stats(item) for item in value), default=0)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 class _PartitionedStreamBase:
     """Shared durable layout and request validation for both EG client variants.
 
