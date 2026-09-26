@@ -9443,7 +9443,9 @@ class MiningClient:
         for eigengap selection. Spectral uses cosine affinity, a normalized
         Laplacian, and seeded k-means and returns per-cluster ``coherence``.
         Spectral requires explicit ``features``, accepts at most 64 rows, and
-        is read-only (``writeback=False``).
+        is read-only (``writeback=False``) under the runtime ``mining:read``
+        action. The generated method catalog conservatively lists
+        ``mining:write`` for the other clustering algorithms.
         Hierarchical also uses ``linkage`` ∈ ``single|complete|average``;
         GMM/k-medoids use ``max_iter``, and GMM uses ``seed``. With
         ``writeback=True`` each non-noise cluster is materialized as

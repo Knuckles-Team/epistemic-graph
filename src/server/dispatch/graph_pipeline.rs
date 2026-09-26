@@ -2297,3 +2297,129 @@ mod placement_route_carrier_tests {
         assert!(resp.error.is_none(), "got {:?}", resp.error);
     }
 }
+
+#[cfg(all(test, feature = "mining"))]
+mod spectral_cluster_carrier_tests {
+    use super::*;
+    use crate::acl::{
+        AgentIdentity, Grant, GrantEffect, RbacAction, RequestContextClaims, ResourceSelector, Role,
+    };
+    use crate::isolation::{AgentRole, IsolationLayer};
+    use crate::protocol::{ClusterAlgorithm, Linkage, Method, Request};
+    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const SECRET: &str = "spectral-cluster-carrier-test-secret";
+    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+    fn state_min() -> Arc<RwLock<ServerState>> {
+        let mut isolation = IsolationLayer::new();
+        isolation.add_role(Role::new("spectral-reader"));
+        isolation.add_grant(Grant {
+            role: "spectral-reader".into(),
+            resource: ResourceSelector::Graph("__commons__".into()),
+            action: RbacAction::Read,
+            effect: GrantEffect::Allow,
+        });
+        isolation.register_agent(AgentIdentity {
+            agent_id: "reader".into(),
+            role: AgentRole::Agent,
+            teams: vec![],
+            roles: vec!["spectral-reader".into()],
+        });
+        Arc::new(RwLock::new(ServerState::new_for_test(SECRET, isolation)))
+    }
+
+    fn method(algorithm: ClusterAlgorithm, writeback: bool) -> Method {
+        Method::MineCluster {
+            features: vec![
+                vec![1.0, 0.0],
+                vec![0.98, 0.02],
+                vec![0.96, 0.04],
+                vec![0.0, 1.0],
+                vec![0.02, 0.98],
+                vec![0.04, 0.96],
+            ],
+            source: None,
+            #[cfg(feature = "query")]
+            plan: None,
+            algorithm,
+            eps: 0.5,
+            min_pts: 2,
+            k: 3,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 42,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        }
+    }
+
+    fn signed(id: u64, scope: &str, method: Method) -> Request {
+        let context = RequestContextClaims {
+            principal: "reader".into(),
+            tenant: "tenant-shared".into(),
+            audience: "epistemic-graph-test".into(),
+            agent_id: "reader".into(),
+            roles: vec![],
+            scopes: vec![scope.into()],
+            policy_version: "policy-test".into(),
+            delegation: vec![],
+            node: None,
+            priority: None,
+        };
+        let mut request = Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: String::new(),
+            agent_id: Some("reader".into()),
+            method,
+        };
+        let issued_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let sequence = NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nonce = format!("spectral-carrier-{}-{id}-{sequence}", std::process::id());
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &format!("spectral-request-{id}-{sequence}"),
+            },
+        );
+        request
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn read_scopes_reach_spectral_but_not_writeback_or_other_cluster_engines() {
+        let state = state_min();
+        for (id, scope) in [(1, "kg:read"), (2, "mining:read")] {
+            let response = Box::pin(dispatch(
+                &state,
+                signed(id, scope, method(ClusterAlgorithm::Spectral, false)),
+            ))
+            .await;
+            assert!(response.error.is_none(), "{scope}: {:?}", response.error);
+            assert!(response.result.is_some());
+        }
+        for (id, algorithm, writeback) in [
+            (3, ClusterAlgorithm::Spectral, true),
+            (4, ClusterAlgorithm::Dbscan, false),
+        ] {
+            let response = Box::pin(dispatch(
+                &state,
+                signed(id, "kg:read", method(algorithm, writeback)),
+            ))
+            .await;
+            assert!(
+                response.error.as_deref().is_some_and(|error| {
+                    error.contains("ACCESS_DENIED") && error.contains("mining:write")
+                }),
+                "unexpected response: {response:?}"
+            );
+        }
+    }
+}
