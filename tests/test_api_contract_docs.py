@@ -40,7 +40,7 @@ def test_domains_cover_every_method(gen):
 
 
 def test_committed_output_matches_the_generator(gen):
-    """Freshness: the committed docs/api/*.md + docs/openapi.json are
+    """Freshness: the committed pages/api/*.md + pages/openapi.json are
     byte-identical to what the generator produces from the CURRENT
     contract/ tree right now — the same assertion `check_api_contract_docs.py`
     makes, kept here too so `pytest` alone (no extra script invocation)
@@ -65,7 +65,7 @@ def test_generation_is_deterministic(gen, tmp_path):
 
 
 def test_openapi_document_is_valid_json_and_self_contained():
-    doc = json.loads((ROOT / "docs" / "openapi.json").read_text(encoding="utf-8"))
+    doc = json.loads((ROOT / "pages" / "openapi.json").read_text(encoding="utf-8"))
     assert doc["openapi"] == "3.1.0"
     assert doc["paths"], "no paths were generated"
     assert doc["components"]["schemas"], "no schemas were generated"
@@ -102,7 +102,7 @@ def test_openapi_document_is_valid_json_and_self_contained():
 
 
 def test_every_method_has_a_path_and_authz_metadata():
-    doc = json.loads((ROOT / "docs" / "openapi.json").read_text(encoding="utf-8"))
+    doc = json.loads((ROOT / "pages" / "openapi.json").read_text(encoding="utf-8"))
     methods = json.loads(
         (ROOT / "contract" / "methods.json").read_text(encoding="utf-8")
     )
@@ -130,22 +130,22 @@ def test_mkdocs_nav_includes_every_generated_page():
     pages = set(_flatten(config["nav"]))
     expected = {"api/index.md", "swagger-ui.md"}
     domains_path = ROOT / "contract"
-    for domain_file in sorted((domains_path.parent / "docs" / "api").glob("*.md")):
+    for domain_file in sorted((domains_path.parent / "pages" / "api").glob("*.md")):
         if domain_file.name != "index.md":
             expected.add(f"api/{domain_file.name}")
     missing = expected - pages
     assert not missing, f"mkdocs.yml nav omits generated page(s): {sorted(missing)}"
     for page in expected:
-        assert (ROOT / "docs" / page).is_file()
+        assert (ROOT / "pages" / page).is_file()
 
 
 def test_swagger_ui_page_has_no_external_network_reference():
-    page = (ROOT / "docs" / "swagger-ui.md").read_text(encoding="utf-8")
+    page = (ROOT / "pages" / "swagger-ui.md").read_text(encoding="utf-8")
     assert "http://" not in page
     assert "https://" not in page
     assert "cdn." not in page.lower()
     for asset in ("swagger-ui.css", "swagger-ui-bundle.js"):
-        assert (ROOT / "docs" / "assets" / "swagger-ui" / asset).is_file()
+        assert (ROOT / "pages" / "assets" / "swagger-ui" / asset).is_file()
 
 
 def test_pre_commit_hook_is_wired():

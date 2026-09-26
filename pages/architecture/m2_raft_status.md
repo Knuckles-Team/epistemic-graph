@@ -182,7 +182,7 @@ reported 23 passing tests for that implementation record. This remains
 > `=0.10.0-alpha.26`, the line that carries `transfer_leader`) and migrated the whole
 > `src/raft/` API surface to the **v2 split-storage** model. The cooperative
 > yield-then-claim leader balancing (EG-KG.sharding.multi-raft) is **replaced** by the native graceful
-> handoff. See `docs/architecture/cluster_deployment.md` for the multi-node deploy.
+> handoff. See `pages/architecture/cluster_deployment.md` for the multi-node deploy.
 
 - **Storage = v2 split traits.** openraft 0.10 removed the combined `RaftStorage` + the
   `Adaptor`. `EgStore` now implements **`RaftLogStorage`** (+ super-trait

@@ -97,23 +97,23 @@ a reasoning platform.
 ## Interlinks with agent-utilities
 
 If you are deploying the full platform, these agent-utilities docs are the companion
-reading (paths are in the `agent-utilities` repo under `docs/`):
+reading (paths are in the `agent-utilities` repo under `pages/`):
 
-- **`docs/guides/deployment.md`** — canonical "Deploying agent-utilities" reference;
+- **`pages/guides/deployment.md`** — canonical "Deploying agent-utilities" reference;
   install extras, backend selection, running `graph-os` and the multiplexer. It uses
   this engine as the default backend.
-- **`docs/deploy.md`** — the top-level one-link self-deploy entry point (tiny /
+- **`pages/deploy.md`** — the top-level one-link self-deploy entry point (tiny /
   single-node-prod / enterprise profiles; lists the optional UIs).
-- **`docs/guides/deployment-configurations.md`** — the five-rung configuration ladder
+- **`pages/guides/deployment-configurations.md`** — the five-rung configuration ladder
   (zero-infra dev → autonomous ops); each rung names its engine deployment shape.
-- **`docs/guides/day0.md`** — the day-0 / `agent-os-genesis` bootstrap workflow.
-- **`docs/recipes/tiny.md`** — zero-infra, engine-embedded laptop/edge recipe.
-- **`docs/recipes/single-node-prod.md`** — one durable server (engine + optional
+- **`pages/guides/day0.md`** — the day-0 / `agent-os-genesis` bootstrap workflow.
+- **`pages/recipes/tiny.md`** — zero-infra, engine-embedded laptop/edge recipe.
+- **`pages/recipes/single-node-prod.md`** — one durable server (engine + optional
   Postgres/pg-age mirror).
-- **`docs/recipes/enterprise.md`** — multi-host Swarm; the engine deployed as a
+- **`pages/recipes/enterprise.md`** — multi-host Swarm; the engine deployed as a
   shared/remote database.
-- **`docs/pillars/6_geniusbot_cockpit.md`** — the geniusbot desktop cockpit.
-- **`docs/ecosystem.md`** — how agent-webui / agent-terminal-ui / geniusbot fit as
+- **`pages/pillars/6_geniusbot_cockpit.md`** — the geniusbot desktop cockpit.
+- **`pages/ecosystem.md`** — how agent-webui / agent-terminal-ui / geniusbot fit as
   peripherals to the platform.
 
 > **Reverse links wanted.** The agent-utilities docs above currently reference the

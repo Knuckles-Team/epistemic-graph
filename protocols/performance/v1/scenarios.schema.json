@@ -19,7 +19,7 @@
       "additionalProperties": false,
       "required": ["document", "registry_heading", "implemented_heading", "expected_rows"],
       "properties": {
-        "document": {"const": "docs/architecture/hot-path-complexity.md"},
+        "document": {"const": "pages/architecture/hot-path-complexity.md"},
         "registry_heading": {"const": "Implemented row identities"},
         "implemented_heading": {"const": "Implemented bounds"},
         "expected_rows": {"const": 54}

@@ -47,10 +47,10 @@ AUTHORITATIVE_PAGES = (
     "architecture/hot-path-complexity.md",
 )
 
-# Authoritative pages that have been rehomed out of docs/ (D6): still required
+# Authoritative pages that have been rehomed out of pages/ (D6): still required
 # in mkdocs nav (as an external link so the site keeps linking to them), but
 # their file now lives at the mapped repo-root-relative path instead of at
-# docs/<AUTHORITATIVE_PAGES entry>.
+# pages/<AUTHORITATIVE_PAGES entry>.
 _CANONICAL_PROPERTY_SCHEMA = "architecture/canonical-property-schema.md"
 AUTHORITATIVE_PAGES_OUTSIDE_DOCS: dict[str, str] = {
     _CANONICAL_PROPERTY_SCHEMA: _CANONICAL_PROPERTY_SCHEMA,
@@ -78,7 +78,7 @@ STALE_CLAIMS: dict[str, tuple[str, ...]] = {
         "`epistemic-tms`/`epistemic-causal` remain opt-in",
         "dataset-handle",
     ),
-    "docs/architecture/epistemic-os-hardening.md": ("dataset-handle",),
+    "pages/architecture/epistemic-os-hardening.md": ("dataset-handle",),
 }
 
 
@@ -117,8 +117,8 @@ def check_mkdocs() -> None:
             resolved = AUTHORITATIVE_PAGES_OUTSIDE_DOCS[page]
             if not (ROOT / resolved).is_file():
                 fail(f"mkdocs authoritative page does not exist: {resolved}")
-        elif not (ROOT / "docs" / page).is_file():
-            fail(f"mkdocs authoritative page does not exist: docs/{page}")
+        elif not (ROOT / "pages" / page).is_file():
+            fail(f"mkdocs authoritative page does not exist: pages/{page}")
 
 
 def check_generated_ledger() -> None:

@@ -3,7 +3,7 @@
 Interactive browser for [`openapi.json`](openapi.json), generated from the
 canonical contract registry by `scripts/gen_api_docs.py` (see the
 [API reference](api/index.md) for the same facts as Markdown). Rendered with a
-locally vendored Swagger UI (`docs/assets/swagger-ui/`, Apache-2.0, see its
+locally vendored Swagger UI (`pages/assets/swagger-ui/`, Apache-2.0, see its
 `NOTICE.md`) — no CDN, no external network request.
 
 Every request/response body here is shown as its JSON-Schema-equivalent

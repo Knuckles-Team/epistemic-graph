@@ -5,7 +5,7 @@ Lightweight advisory-shaped gate mirroring `scripts/check_status_page.py`'s
 own relationship to `scripts/build_status_page.py`: reuses
 `gen_api_docs.py`'s own render functions rather than re-implementing them, so
 there is exactly one way this repository turns `contract/` into
-`docs/api/*.md` + `docs/openapi.json` + and it is checked, not reimplemented.
+`pages/api/*.md` + `pages/openapi.json` + and it is checked, not reimplemented.
 
 Run:  python3 scripts/check_api_contract_docs.py
 """

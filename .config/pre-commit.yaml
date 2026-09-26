@@ -33,7 +33,7 @@ repos:
   # from contract/. Same shape as check-status-page above.
   # Regenerate with `python3 scripts/gen_api_docs.py --write`.
   - id: api-contract-docs
-    name: API contract docs freshness (generated docs/api/, openapi.json; see gen_api_docs.py --write)
+    name: API contract docs freshness (generated pages/api/, openapi.json; see gen_api_docs.py --write)
     entry: python3 scripts/check_api_contract_docs.py
     language: system
     pass_filenames: false
@@ -57,8 +57,8 @@ repos:
   - id: detect-private-key
   - id: trailing-whitespace
   - id: end-of-file-fixer
-    # Vendored, byte-for-byte upstream Swagger UI (docs/assets/swagger-ui/NOTICE.md).
-    exclude: ^docs/assets/swagger-ui/swagger-ui(-bundle\.js|\.css)$
+    # Vendored, byte-for-byte upstream Swagger UI (pages/assets/swagger-ui/NOTICE.md).
+    exclude: ^pages/assets/swagger-ui/swagger-ui(-bundle\.js|\.css)$
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # v0.15.12
   hooks:
@@ -117,8 +117,8 @@ repos:
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,implementor,nd,datas,alls,re-declaring,re-declares,fals,paeth", "--ignore-words=.config/codespell.ignore"]
-    # docs/assets/swagger-ui/: vendored minified upstream bundle, not prose.
-    exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/|docs/assets/swagger-ui/swagger-ui(-bundle\.js|\.css)$)
+    # pages/assets/swagger-ui/: vendored minified upstream bundle, not prose.
+    exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/|pages/assets/swagger-ui/swagger-ui(-bundle\.js|\.css)$)
 - repo: https://github.com/PyCQA/bandit
   rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
   hooks:
@@ -180,7 +180,7 @@ repos:
     # checkout (the SAME idiom check-stubs/check-sprawl below already use) --
     # the script resolves its target repo from cwd, which pre-commit always
     # sets to THIS repo's root, so it guards epistemic-graph, not agent-utilities.
-    # See docs/architecture/lane-concurrency.md (agent-utilities) and
+    # See pages/architecture/lane-concurrency.md (agent-utilities) and
     # reports/deferred/lane-concurrency-protocol.md (D-CP-3, D-CP-4).
     entry: bash -c 'repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${AGENT_UTILITIES_ROOT:-"$(dirname "$repo")/agent-utilities"}; python3 "$root/scripts/check_lane_guard.py"'
     language: system

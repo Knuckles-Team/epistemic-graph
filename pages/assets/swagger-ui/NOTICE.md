@@ -13,7 +13,7 @@ pip download --no-deps -d /tmp/swui swagger-ui-bundle
 # {swagger-ui-bundle.js, swagger-ui.css} into this directory.
 ```
 
-Vendored (rather than loaded from a CDN) so the generated `docs/swagger-ui.md`
+Vendored (rather than loaded from a CDN) so the generated `pages/swagger-ui.md`
 page works with no external network dependency, per this repository's Pages
 theme convention (`INHERIT`ed `templates/mkdocs-theme/base.mkdocs.yml` in the
 `pipelines` repo already forbids CDN-hosted content for the shared theme).
@@ -21,11 +21,11 @@ theme convention (`INHERIT`ed `templates/mkdocs-theme/base.mkdocs.yml` in the
 `.map` sourcemaps and the `swagger-ui-standalone-preset.js` topbar/URL-bar
 chrome (which defaults its "Explore" field to
 `https://petstore.swagger.io/v2/swagger.json`) are deliberately **not**
-vendored — `docs/swagger-ui.md` uses the base layout only and always points
+vendored — `pages/swagger-ui.md` uses the base layout only and always points
 `SwaggerUIBundle` at the co-located `openapi.json`, so nothing in this page
 ever references an external host.
 
 Not managed by `scripts/gen_api_docs.py` — these are static, hand-vendored
 assets, not derived from `contract/`. Re-vendor by repeating the steps above
 when a newer Swagger UI release is wanted; update the version pin here and in
-`docs/swagger-ui.md`'s comment when you do.
+`pages/swagger-ui.md`'s comment when you do.

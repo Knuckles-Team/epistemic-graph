@@ -1,11 +1,14 @@
 INHERIT: .pipeline-theme/templates/mkdocs-theme/base.mkdocs.yml
+docs_dir: pages
+theme:
+  custom_dir: .config/mkdocs-overrides
 
 site_name: "Epistemic Graph"
 site_description: "The durable multimodal knowledge and reasoning engine for the Knuckles agent ecosystem."
 site_url: "https://knuckles-team.github.io/epistemic-graph/"
 repo_name: "Knuckles-Team/epistemic-graph"
 repo_url: "https://github.com/Knuckles-Team/epistemic-graph"
-edit_uri: "edit/main/docs/"
+edit_uri: "edit/main/pages/"
 copyright: "Copyright &copy; Knuckles-Team — MIT licensed"
 
 extra:

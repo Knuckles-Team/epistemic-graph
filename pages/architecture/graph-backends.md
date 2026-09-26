@@ -80,7 +80,7 @@ configured. An acked write survives a `kill -9`. The three guarantees that make
 > (read-old → write-new) before it binds its socket; the old files are left in
 > place as a backstop. On a large KG (thousands of graphs / a multi-hundred-MB
 > commons) this can take **minutes** — see the engine's
-> [binary-promotion runbook](https://github.com/knuckles-team/epistemic-graph/blob/main/docs/deploy/binary_promotion.md)
+> [binary-promotion runbook](https://github.com/knuckles-team/epistemic-graph/blob/main/pages/deploy/binary_promotion.md)
 > for the deploy-time health-start-period handling.
 
 To opt back into the pre-flip **rebuildable-cache** model — the engine as a fast

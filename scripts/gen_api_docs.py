@@ -8,12 +8,12 @@ provenance and ``crates/eg-capabilities/src/domains/``, which is where the
 and renders two kinds of derived, byte-stable output:
 
 * Per-namespace API reference Markdown pages, one per contract ``domain``
-  (``docs/api/<domain>.md``) plus an index (``docs/api/index.md``), for the
+  (``pages/api/<domain>.md``) plus an index (``pages/api/index.md``), for the
   MkDocs site.
-* One OpenAPI 3.1 document (``docs/openapi.json``) describing every method's
+* One OpenAPI 3.1 document (``pages/openapi.json``) describing every method's
   request/result JSON-Schema shape, its ``policy``/``authz_action``
   capability metadata, and its ``stability``, served through the
-  ``docs/swagger-ui.md`` page (CONCEPT:EG-P0-1 / RF-ADR-009 Phase D rows
+  ``pages/swagger-ui.md`` page (CONCEPT:EG-P0-1 / RF-ADR-009 Phase D rows
   D7-D8).
 
 Sources (all under ``contract/``, never written here):
@@ -43,7 +43,7 @@ JSON-over-HTTP.
 KNOWN LIMITATION: exactly one ``$defs`` entry in ``method.request.json``
 (``MutationOperation.method``) carries a self-referential ``"$ref": "#"``
 pointing at that *source* file's own document root, not at a ``$defs``
-entry. After inlining into ``docs/openapi.json``'s ``components.schemas``
+entry. After inlining into ``pages/openapi.json``'s ``components.schemas``
 this ref is left as the literal string ``"#"`` (now pointing at the
 *generated* document's own root) rather than rewritten -- there is no
 component in the flattened schema it could correctly resolve to, and this
@@ -71,8 +71,8 @@ ROOT = Path(__file__).resolve().parent.parent
 CONTRACT_DIR = ROOT / "contract"
 METHODS_PATH = CONTRACT_DIR / "methods.json"
 REQUEST_SCHEMA_PATH = CONTRACT_DIR / "schemas" / "method.request.json"
-DOCS_API_DIR = ROOT / "docs" / "api"
-OPENAPI_PATH = ROOT / "docs" / "openapi.json"
+DOCS_API_DIR = ROOT / "pages" / "api"
+OPENAPI_PATH = ROOT / "pages" / "openapi.json"
 
 # Alphabetical -- matches `contract/schemas/result.<domain>.json`'s own file
 # naming and the domain breakdown in `contract/methods.json`. A domain
@@ -339,7 +339,7 @@ def build_openapi(contract: Contract) -> dict[str, Any]:
                 "url": "/",
                 "description": (
                     "Placeholder -- Epistemic Graph is embedded/deployed "
-                    "per-installation; see docs/deployment.md for real endpoints."
+                    "per-installation; see pages/deployment.md for real endpoints."
                 ),
             }
         ],

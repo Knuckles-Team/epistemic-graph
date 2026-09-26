@@ -33,7 +33,7 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 # distributed worker runtime.
 # CONCEPT:EG-P0-1 -- eg-capabilities: the machine-checked MethodPolicy capability-ledger
 # crate (exhaustive, no-wildcard `policy()` over eg-types::protocol::Method, generated
-# docs/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
+# pages/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
 # audit.rs/cdc.rs). A leaf crate (deps = eg-types ONLY, all its optional features on --
 # see eg-capabilities/Cargo.toml). Build/test it targeted:
 # `cargo build -p eg-capabilities` / `cargo test -p eg-capabilities` /
@@ -1008,7 +1008,7 @@ s3-api = ["blob", "kv", "server"]
 # main `full` build — `eg-lake`'s deps are the maintained Polars native-Parquet codec
 # (default-features off) + pure-Rust `apache-avro` (default-features off, so no
 # snappy/zstd/bzip/xz C codec), NOT the heavier upstream `arrow`/`parquet` crates a Pi
-# build must avoid; see `docs/architecture/lakehouse_ltap.md` and the W4.8 report for the
+# build must avoid; see `pages/architecture/lakehouse_ltap.md` and the W4.8 report for the
 # measured release-binary size delta.
 lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
 # Iceberg-REST catalog HTTP surface (INT-P2-3, `iceberg.apache.org/rest-catalog-spec`)
@@ -1321,7 +1321,7 @@ all = ["full"]
 cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 
 # ── Unified single binary — the opt-in in-process pyo3-engine (unified-binary
-# program, workstream W-A; see docs/architecture/unified-inprocess-engine.md) ──
+# program, workstream W-A; see pages/architecture/unified-inprocess-engine.md) ──
 #
 # Embeds `eg-core`'s `GraphCore`/`GraphRegistry` directly in the SAME process as a
 # Python extension module `epistemic_graph.engine`, so a self-contained deployment
@@ -1491,7 +1491,7 @@ eg-epistemic = { path = "crates/eg-epistemic", optional = true }
 # same published wheel and does not change the server binary's dependency graph.
 eg-numeric = { path = "crates/eg-numeric", optional = true }
 # Unified single binary — the opt-in in-process pyo3-engine (feature `pyo3-engine`,
-# NOT in default/full/cluster; see docs/architecture/unified-inprocess-engine.md).
+# NOT in default/full/cluster; see pages/architecture/unified-inprocess-engine.md).
 # Links only the PURE rlib (eg-core + parking_lot, no Python-extension FFI) unless
 # `pyo3-engine` also turns on its OWN `python` feature (`eg-pyengine/python`,
 # above) — mirrors `eg-numeric`'s optional-dependency shape exactly. The
@@ -1952,7 +1952,7 @@ required-features = ["security"]
 # In-process (the shape eg-pyengine embeds) vs out-of-process (UDS wire) latency
 # for the SAME AddNode/GetNodeProperties op (unified-binary program, workstream
 # W-A; see
-# docs/architecture/unified-inprocess-engine.md). Both arms call the IDENTICAL
+# pages/architecture/unified-inprocess-engine.md). Both arms call the IDENTICAL
 # `epistemic_graph::graph::GraphCore` mutation — the in-process arm calls it
 # directly (what `eg-pyengine` does), the out-of-process arm additionally pays
 # real length-prefixed MessagePack framing over a real Unix domain socket

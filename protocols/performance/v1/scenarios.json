@@ -2,7 +2,7 @@
   "schema_version": "1",
   "manifest_id": "g37-performance-scenarios-v1",
   "ledger": {
-    "document": "docs/architecture/hot-path-complexity.md",
+    "document": "pages/architecture/hot-path-complexity.md",
     "registry_heading": "Implemented row identities",
     "implemented_heading": "Implemented bounds",
     "expected_rows": 54

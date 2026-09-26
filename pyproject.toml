@@ -191,10 +191,10 @@ jscpd_exclusions = [
     # `contract/` (per-method request/result tables, one OpenAPI document), so
     # they repeat exactly as the contract does -- generated output under the
     # rule above; `check_api_contract_docs.py` byte-verifies them.
-    "docs/api/**",
-    "docs/openapi.json",
-    # Upstream Swagger UI, vendored byte-for-byte (docs/assets/swagger-ui/NOTICE.md).
-    "docs/assets/swagger-ui/**",
+    "pages/api/**",
+    "pages/openapi.json",
+    # Upstream Swagger UI, vendored byte-for-byte (pages/assets/swagger-ui/NOTICE.md).
+    "pages/assets/swagger-ui/**",
     "**/.git/**",
     "**/.venv/**",
     "**/venv/**",

@@ -124,14 +124,14 @@ def _validate(document: str, contract: str, store: str) -> None:
 
 def test_document_runtime_and_store_share_product_v1_contract() -> None:
     _validate(
-        _read("docs/architecture/mutation_batch.md"),
+        _read("pages/architecture/mutation_batch.md"),
         _contract_source(),
         _store_source(),
     )
 
 
 def test_gate_rejects_live_table_name_drift() -> None:
-    document = _read("docs/architecture/mutation_batch.md")
+    document = _read("pages/architecture/mutation_batch.md")
     contract = _contract_source()
     store = _store_source()
 
@@ -145,7 +145,7 @@ def test_gate_rejects_live_table_name_drift() -> None:
 
 
 def test_gate_rejects_document_version_and_flat_shape_drift() -> None:
-    document = _read("docs/architecture/mutation_batch.md")
+    document = _read("pages/architecture/mutation_batch.md")
     contract = _contract_source()
     store = _store_source()
 

@@ -1,7 +1,7 @@
 # Epistemic Graph
 
 <p align="center">
-  <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Epistemic Graph logo" width="176">
+  <img src="pages/assets/brands/epistemic-graph-logo-v1.png" alt="Epistemic Graph logo" width="176">
 </p>
 
 <p align="center">
@@ -82,11 +82,11 @@ for the current behavior of each operation.
 ## Architecture
 
 <p align="center">
-  <img src="docs/assets/runtime-architecture.svg" alt="People enter through Agent Web UI, Agent Terminal UI over REST, Geniusbot, or messaging services hosted by Graph OS. MCP, REST, and A2A clients also connect to Graph OS, which routes to Agent Utilities and Epistemic Graph. Source systems connect to Epistemic Graph through Agent Connector SDK." width="960">
+  <img src="pages/assets/runtime-architecture.svg" alt="People enter through Agent Web UI, Agent Terminal UI over REST, Geniusbot, or messaging services hosted by Graph OS. MCP, REST, and A2A clients also connect to Graph OS, which routes to Agent Utilities and Epistemic Graph. Source systems connect to Epistemic Graph through Agent Connector SDK." width="960">
 </p>
 
 <p align="center">
-  <img src="docs/assets/engine-architecture.svg" alt="Epistemic Graph architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
+  <img src="pages/assets/engine-architecture.svg" alt="Epistemic Graph architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
 People use the **Agent Web UI**, **Agent Terminal UI** (through the Graph OS

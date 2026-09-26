@@ -672,7 +672,7 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
 
 def _is_deployment_doc(path: Path) -> bool:
     value = path.as_posix().casefold()
-    return value.startswith("docs/recipes/") or any(
+    return value.startswith("pages/recipes/") or any(
         marker in value
         for marker in (
             "deploy",
@@ -918,10 +918,10 @@ def _runtime_source_artifacts(root: Path) -> list[Path]:
     made the gate structurally blind to its own back-catalogue: a machine path
     that landed in an earlier commit was never re-examined, so it stayed public
     forever. Combined with :func:`_is_public_artifact`'s *location* filter — which
-    admits only ``docs/``, ``.github/``, top-level and ``*.toml`` — the two passes
+    admits only ``pages/``, ``.github/``, top-level and ``*.toml`` — the two passes
     left a hole exactly where the real leaks live. ``docker/*.yaml`` passes the
     suffix test and fails the location test, so nothing scanned it; the gate
-    reported 7 lines in 2 ``docs/`` files while 11 tracked files carried machine
+    reported 7 lines in 2 ``pages/`` files while 11 tracked files carried machine
     paths, two of them a **personal** account name (D-PCC-1).
 
     Scanning the whole tracked tree here closes that hole without inventing a
@@ -1117,7 +1117,7 @@ def _self_check() -> tuple[int, dict]:
         bad_line = f"see {bad_root}/eg-selfcheck-leak/output.log for details\n"
         clean_line = "see /tmp/ordinary/output.log for details\n"
 
-        docs_dir = tmp / "docs"
+        docs_dir = tmp / "pages"
         docs_dir.mkdir(parents=True)
         (docs_dir / "leak.md").write_text(bad_line, encoding="utf-8")
         (docs_dir / "clean.md").write_text(clean_line, encoding="utf-8")
@@ -1134,13 +1134,13 @@ def _self_check() -> tuple[int, dict]:
 
         caught_in_public_doc = any(
             "scratch/build-host path" in category
-            for category in by_path.get("docs/leak.md", set())
+            for category in by_path.get("pages/leak.md", set())
         )
         caught_in_runtime_source = any(
             "scratch/build-host path" in category
             for category in by_path.get("some_module/tool.py", set())
         )
-        clean_doc_not_flagged = "docs/clean.md" not in by_path
+        clean_doc_not_flagged = "pages/clean.md" not in by_path
         clean_source_not_flagged = "some_module/clean_tool.py" not in by_path
 
         ok = (

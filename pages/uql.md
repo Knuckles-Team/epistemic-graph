@@ -222,7 +222,7 @@ intermediates stay ≥ 1 row — never *narrower-vs-narrower* (the exact EG-405 
 rewrite can silently flip an op's source-vs-filter role. The witnesses
 `plan_proptest::empty_intermediate_reseeds_source_breaks_commute` (the break) and
 `filter_and_asof_commute_in_nonempty_regime` (the law when non-empty) are the **spec**: a
-change to this behavior must update them and the `docs/north_star.md` row.
+change to this behavior must update them and the `pages/north_star.md` row.
 
 `REASON` confidence is **decay-neutral by default** (a bare `REASON` is a stable, deterministic
 leaf). A server/facade may bind a `(now, half_life)` decay context onto the plan context

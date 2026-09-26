@@ -133080,7 +133080,7 @@
   },
   "servers": [
     {
-      "description": "Placeholder -- Epistemic Graph is embedded/deployed per-installation; see docs/deployment.md for real endpoints.",
+      "description": "Placeholder -- Epistemic Graph is embedded/deployed per-installation; see pages/deployment.md for real endpoints.",
       "url": "/"
     }
   ],

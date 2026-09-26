@@ -150,7 +150,7 @@ coverage, and minimum-evidence requirements all pass. Promotion still commits
 through `ChangeEnvelope` and `MutationBatch`.
 
 For an Agent Utilities or GraphOS deployment, run the
-[live deployment doctor](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/guides/self-setup.md#8-verify)
+[live deployment doctor](https://github.com/Knuckles-Team/agent-utilities/blob/main/pages/guides/self-setup.md#8-verify)
 with `agent-utilities-doctor --live`; it verifies that the connected engine
 advertises and executes the native optimization capability.
 
