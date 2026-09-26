@@ -33,6 +33,7 @@ class KernelSpec:
     marker: str
     expected_stamp: str
     script: str
+    features: tuple[str, ...] = ("python",)
 
     @property
     def manifest(self) -> Path:
@@ -80,7 +81,7 @@ def build_kernel(spec: KernelSpec) -> Path:
             "-m",
             str(spec.manifest),
             "--features",
-            "python",
+            ",".join(spec.features),
             "--target-dir",
             str(TARGET_DIR),
             "--out",

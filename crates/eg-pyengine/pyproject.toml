@@ -6,7 +6,7 @@
 # `epistemic_graph` package (see docs/architecture/unified-inprocess-engine.md);
 # here it builds standalone for local proving / smoke tests.
 #
-#   maturin build --release -m crates/eg-pyengine/Cargo.toml --features python
+#   maturin build --release -m crates/eg-pyengine/Cargo.toml --features python,security
 #
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -23,4 +23,4 @@ description = "epistemic-graph in-process engine binding — pyo3 extension epis
 # imports as `epistemic_graph.engine`, exactly the way eg-numeric's `numeric`
 # #[pymodule] ships as `epistemic_graph.numeric`.
 module-name = "epistemic_graph.engine"
-features = ["python"]
+features = ["python", "security"]

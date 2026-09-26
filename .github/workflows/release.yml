@@ -203,10 +203,10 @@ jobs:
         run: python scripts/check_wheel_privacy.py numdist-gates/*.whl
       # ── Fold the eg-pyengine in-process engine binding INTO this same gates wheel,
       #    the identical pattern as the numeric kernel just above (CONCEPT:BUG-PE-002).
-      #    A separate maturin target (`crates/eg-pyengine --features python`), a
+      #    A separate maturin target (`crates/eg-pyengine --features python,security`), a
       #    separate pyo3 cdylib, folded in by `scripts/inject_pyengine.py`.
-      - name: Build gates pyengine kernel wheel (feature python)
-        run: maturin build --release -m crates/eg-pyengine/Cargo.toml --features python --out enginedist-gates
+      - name: Build gates pyengine kernel wheel (features python,security)
+        run: maturin build --release -m crates/eg-pyengine/Cargo.toml --features python,security --out enginedist-gates
       - name: Normalize build-local SBOM references (pyengine kernel wheel)
         run: python scripts/normalize_wheel_sbom.py enginedist-gates/*.whl
       - name: Normalize retained native build paths (pyengine kernel wheel)
@@ -443,12 +443,12 @@ jobs:
   #     this job.
   #
   # `tests/parity/` additionally needs the in-process `epistemic_graph.engine`
-  # pyo3 extension (`crates/eg-pyengine --features python`) built into the
+  # pyo3 extension (`crates/eg-pyengine --features python,security`) built into the
   # tree — see that test module's own docstring ("NOT expected to pass in this
   # session"). `scripts/build_pyengine_kernel.py` is the mounted/editable-path
   # build step for it (the exact companion `build_numeric_kernel.py` already
   # is for the numeric kernel), reusing the identical `maturin build --release
-  # -m crates/eg-pyengine/Cargo.toml --features python` invocation the `gates`
+  # -m crates/eg-pyengine/Cargo.toml --features python,security` invocation the `gates`
   # job's "Build gates pyengine kernel wheel" step runs for the WHEEL path.
   python-suite:
     name: Python suite (tests/)
@@ -1051,7 +1051,7 @@ jobs:
       #    (BUG-PE-002: `import epistemic_graph.engine` fails in the live shipped
       #    image because nothing built and folded this extension). Identical shape
       #    to the numeric kernel fold immediately above — a distinct maturin pyo3
-      #    cdylib target (`crates/eg-pyengine --features python`), injected by
+      #    cdylib target (`crates/eg-pyengine --features python,security`), injected by
       #    `scripts/inject_pyengine.py`. The two injections compose freely and are
       #    order-independent (each only reads/rewrites the target wheel's RECORD,
       #    never the other's extension member) — folded here right after numeric so
@@ -1066,7 +1066,7 @@ jobs:
             --release
             --out enginedist-primary
             -m crates/eg-pyengine/Cargo.toml
-            --features python
+            --features python,security
           manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
           sccache: 'false'
 
@@ -1146,7 +1146,7 @@ jobs:
             --release
             --out enginedist-reproduction
             -m crates/eg-pyengine/Cargo.toml
-            --features python
+            --features python,security
           manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
           sccache: 'false'
 
