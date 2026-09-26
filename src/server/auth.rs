@@ -1713,27 +1713,23 @@ fn admit_tenant_principal_digest(
     )
 }
 
-/// Match the tenant graph naming rule used by AU's `tenant_graph_name` until
-/// that placement adapter is retired: non `[A-Za-z0-9_.-]` runs become `_`,
-/// surrounding underscores are stripped, then ASCII is lowercased. The
-/// request body is a correlation; this verified-tenant derivation is authority.
+/// Match AU's injective tenant graph naming rule until that placement adapter
+/// is retired. Safe canonical IDs keep their existing graph names. Every
+/// other exact raw ID is UTF-8 hex encoded in the reserved `t0_` namespace;
+/// IDs beginning with that prefix are encoded too, preventing collisions.
+/// Legacy graphs for noncanonical IDs require explicit owner migration.
 fn canonical_tenant_slug(tenant: &str) -> Option<String> {
-    let mut slug = String::new();
-    let mut in_invalid_run = false;
-    for character in tenant.trim().chars() {
-        if character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-') {
-            slug.push(character.to_ascii_lowercase());
-            in_invalid_run = false;
-        } else if !in_invalid_run {
-            slug.push('_');
-            in_invalid_run = true;
-        }
-    }
-    let slug = slug.trim_matches('_');
-    if slug.is_empty() {
+    if tenant.trim().is_empty() {
         None
+    } else if !tenant.starts_with("t0_")
+        && !tenant.contains("__")
+        && tenant.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'.' | b'-')
+        })
+    {
+        Some(tenant.to_string())
     } else {
-        Some(slug.to_string())
+        Some(format!("t0_{}", hex::encode(tenant.as_bytes())))
     }
 }
 
@@ -2630,14 +2626,25 @@ mod tests {
 
     #[test]
     fn tenant_admission_slug_is_derived_from_verified_tenant() {
-        assert_eq!(canonical_tenant_slug("Team:East"), Some("team_east".into()));
-        assert_eq!(canonical_tenant_slug("  Acme.IO  "), Some("acme.io".into()));
-        assert_eq!(canonical_tenant_slug(":-Acme"), Some("-acme".into()));
-        assert_eq!(canonical_tenant_slug("__"), None);
+        let encoded = "t0_5465616d3a45617374";
+        assert_eq!(canonical_tenant_slug("Team:East"), Some(encoded.into()));
+        assert_eq!(canonical_tenant_slug("team_east"), Some("team_east".into()));
+        assert_ne!(
+            canonical_tenant_slug("Team:East"),
+            canonical_tenant_slug("Team_East")
+        );
+        assert_ne!(
+            canonical_tenant_slug("Team:East"),
+            canonical_tenant_slug(encoded)
+        );
+        assert_eq!(canonical_tenant_slug("acme.io"), Some("acme.io".into()));
+        assert_eq!(canonical_tenant_slug("__"), Some("t0_5f5f".into()));
+        assert_eq!(canonical_tenant_slug(""), None);
+        assert_eq!(canonical_tenant_slug("   "), None);
         let registry = SignerKeyRegistry {
             signers: BTreeMap::from([(
                 "svc:admission".into(),
-                scoped_entry("service-key", &["tenant:team_east"], false),
+                scoped_entry("service-key", &["tenant:t0_5465616d3a45617374"], false),
             )]),
         };
         let mut claims = verified_claims();
@@ -2645,13 +2652,13 @@ mod tests {
         claims.agent_id = claims.principal.clone();
         claims.tenant = "Team:East".into();
         let context = VerifiedRequestContext::from_verified_claims(claims, "admit-slug".into());
-        let digest = admit_tenant_principal_digest(&context, "__commons__", "alice", "team_east");
+        let digest = admit_tenant_principal_digest(&context, "__commons__", "alice", encoded);
         let signature = detached_signature("svc:admission", "service-key", &digest);
         assert!(verify_tenant_principal_admission_with_registry(
             &context,
             "__commons__",
             "alice",
-            "team_east",
+            encoded,
             &signature,
             &registry,
         )
@@ -2662,6 +2669,17 @@ mod tests {
                 "__commons__",
                 "alice",
                 "Team:East",
+                &signature,
+                &registry,
+            ),
+            Err(SIGNER_TRUST_DENIED.into()),
+        );
+        assert_eq!(
+            verify_tenant_principal_admission_with_registry(
+                &context,
+                "__commons__",
+                "alice",
+                "team_east",
                 &signature,
                 &registry,
             ),
