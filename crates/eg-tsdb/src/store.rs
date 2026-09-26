@@ -315,15 +315,11 @@ fn series_bootstrap_identity() -> Result<eg_types::MutationScopeIdentity> {
 /// and the SAME `COMPILED_BATCH_INCARNATION` constant. See that constant's doc for
 /// why a mismatch on any of the three fails every append on that scope closed.
 fn series_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::MutationScopeIdentity> {
-    let tenant = eg_types::ScopeTenantId::new(tenant).map_err(codec_err)?;
-    let resource = eg_types::LogicalName::new(resource).map_err(codec_err)?;
-    let incarnation_id =
-        eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION).map_err(codec_err)?;
-    eg_types::MutationScopeIdentity::native(
+    eg_types::MutationScopeIdentity::fixed_native(
         tenant,
         eg_types::mutation_batch::DurabilityDomain::TimeSeries,
         resource,
-        incarnation_id,
+        COMPILED_BATCH_INCARNATION,
     )
     .map_err(codec_err)
 }
