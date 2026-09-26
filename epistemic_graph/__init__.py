@@ -15,6 +15,7 @@ from pathlib import Path
 # runtime statement between `from __future__` and the last `from .xxx import`,
 # and for the overlay setup to run afterward as one clearly-scoped block.
 from .client import (
+    EngineResponseError,
     EpistemicGraphClient,
     KnowledgeStreamBatch,
     KnowledgeStreamClient,
@@ -150,6 +151,7 @@ __all__ = [
     "RequestContextClaims",
     "validate_request_context",
     "ResultTooLargeError",
+    "EngineResponseError",
     "StaleRouteError",
     "RustASTParser",
     "CLIENT_CAPABILITY_SCHEMA_VERSION",
