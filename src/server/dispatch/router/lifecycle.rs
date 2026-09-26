@@ -579,10 +579,14 @@ pub(super) async fn apply_rbac_admin(
         RbacAdminOp::AdmitTenantPrincipal {
             agent_id,
             tenant_slug,
-        } => match s
-            .isolation
-            .try_admit_tenant_principal(&agent_id, &tenant_slug)
-        {
+            initial_role,
+            initial_teams,
+        } => match s.isolation.try_admit_tenant_principal(
+            &agent_id,
+            &tenant_slug,
+            initial_role,
+            initial_teams,
+        ) {
             Ok(added) => Response::ok(
                 req_id,
                 ResultPayload::of::<eg_types::result_contract::security::RbacAdmitTenantPrincipal>(

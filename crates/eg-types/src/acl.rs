@@ -262,12 +262,15 @@ pub enum RbacAdminOp {
     RemoveRole(String),
     AddGrant(Grant),
     RemoveGrant(Grant),
-    /// Add one already-provisioned tenant role to an existing ordinary
-    /// identity without replacing its other role/team claims. Admin-gated by
-    /// `Method::RbacAdmin` and serialized in the identity consensus order.
+    /// Add one already-provisioned tenant role to an ordinary identity without
+    /// replacing its other claims. An absent identity is created with the
+    /// explicit initial role/teams. Admin-gated by `Method::RbacAdmin` and
+    /// serialized in the identity consensus order.
     AdmitTenantPrincipal {
         agent_id: String,
         tenant_slug: String,
+        initial_role: AgentRole,
+        initial_teams: Vec<String>,
     },
     /// Read-only: list the current roles + grants.
     List,
