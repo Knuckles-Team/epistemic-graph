@@ -1438,8 +1438,9 @@ mod tests {
         drop(restored);
         let restaged =
             merge_multi_binding_tenant_candidate(&root, &report, 64 * 1024 * 1024).unwrap();
-        // Simulate a process death after the canonical link is durable but
-        // before the private candidate alias is removed.
+        // Simulate a process death after the durable promotion fence and
+        // canonical link, but before the private candidate alias is removed.
+        install_migration_fence(&root, &tenant, &report.destination).unwrap();
         std::fs::hard_link(&restaged.candidate, &report.destination).unwrap();
         let recovered = recover_promoted_tenant_owner(
             &root,
@@ -1587,6 +1588,9 @@ mod tests {
         )
         .unwrap();
         drop(reopened);
+        // Opening the v2 redb source may update its store bytes. Promotion
+        // must preserve the source as it stood immediately before restaging.
+        let before_restaging = std::fs::read(&path).unwrap();
         let restaged =
             copy_single_binding_tenant_candidate(&root, &inspected, 64 * 1024 * 1024).unwrap();
         let promoted =
@@ -1594,7 +1598,7 @@ mod tests {
                 .unwrap();
         assert_eq!(promoted.destination, inspected.destination);
         assert!(!restaged.candidate.exists());
-        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(std::fs::read(&path).unwrap(), before_restaging);
         assert!(super::super::refuse_split_semantic_owner(&root, &tenant).is_err());
         let recovered =
             recover_promoted_tenant_owner(&root, &tenant, &[binding.into()], 64 * 1024 * 1024)
