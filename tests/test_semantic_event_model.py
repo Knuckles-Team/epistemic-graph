@@ -21,6 +21,8 @@ from epistemic_graph.ingestion.semantic_event_model import (
     SemanticEntityRef,
 )
 
+pytestmark = pytest.mark.no_engine
+
 
 def _slice_payload() -> dict:
     return {

@@ -22,6 +22,8 @@ from epistemic_graph.ingestion.embedding_admission import (
     sql_free_text_fields,
 )
 
+pytestmark = pytest.mark.no_engine
+
 _PROSE_TEXT = "A hand-written paragraph describing what this record actually means."
 
 
@@ -191,12 +193,12 @@ def test_sql_free_text_fields_never_strips_structural_or_priority_fields() -> No
 
 def test_sql_free_text_fields_uses_callers_protected_fields() -> None:
     row = {"status": "OPEN", "notes": "A detailed operator note"}
-    assert sql_free_text_fields(
-        "cdc", row, protected_fields=frozenset({"status"})
-    ) == row
-    assert sql_free_text_fields(
-        "cdc", row, protected_fields=frozenset()
-    ) == {"notes": "A detailed operator note"}
+    assert (
+        sql_free_text_fields("cdc", row, protected_fields=frozenset({"status"})) == row
+    )
+    assert sql_free_text_fields("cdc", row, protected_fields=frozenset()) == {
+        "notes": "A detailed operator note"
+    }
 
 
 def test_dedupe_by_content_hash_collapses_exact_duplicates() -> None:

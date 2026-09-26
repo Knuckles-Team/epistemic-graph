@@ -20,6 +20,8 @@ from epistemic_graph.ingestion.semantic_event_model import (
     TemporalAttributeValue,
 )
 
+pytestmark = pytest.mark.no_engine
+
 
 def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)

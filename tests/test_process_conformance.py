@@ -21,6 +21,8 @@ from epistemic_graph.ingestion.semantic_event_model import (
     ProcessPerspective,
 )
 
+pytestmark = pytest.mark.no_engine
+
 
 def _perspective(**overrides: object) -> ProcessPerspective:
     fields = {
