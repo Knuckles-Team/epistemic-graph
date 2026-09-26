@@ -5,10 +5,14 @@ The pure half: what a node's own properties imply, with no engine involved.
 
 from __future__ import annotations
 
+import pytest
+
 from epistemic_graph.relation_projection import (
     project_relations,
     projects_anything,
 )
+
+pytestmark = pytest.mark.no_engine
 
 
 def _concept(node_id: str, **props):

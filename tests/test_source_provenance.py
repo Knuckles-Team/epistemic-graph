@@ -1,6 +1,10 @@
 """Source identity derivation stays consistent across graph ingestion paths."""
 
+import pytest
+
 from epistemic_graph.source_provenance import stamp_source
+
+pytestmark = pytest.mark.no_engine
 
 
 def test_source_stamp_canonicalizes_and_preserves_caller_values():

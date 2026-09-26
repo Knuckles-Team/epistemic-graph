@@ -3,9 +3,13 @@ the Camunda BPMN sequence-flow lift (extractors/aris.py, extractors/camunda.py).
 
 from __future__ import annotations
 
+import pytest
+
 from epistemic_graph.graph_derivation import (
     collapse_to_lifted_targets,
 )
+
+pytestmark = pytest.mark.no_engine
 
 
 def test_collapses_through_a_single_pass_through_node():
