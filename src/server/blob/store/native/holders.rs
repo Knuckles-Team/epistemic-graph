@@ -2,6 +2,22 @@
 
 use super::super::*;
 
+pub(super) fn has_named_holder(
+    store: &RedbChunkStore,
+    digest: &str,
+    holder: &str,
+) -> Result<bool, String> {
+    validate_digest(digest)?;
+    let holder = HolderId::new(holder)?;
+    let read = store.read()?;
+    let table = read.open_owner_table(CAS_HOLDERS)?;
+    let found = table
+        .get((digest, holder.as_str()))
+        .map(|row| row.is_some())
+        .map_err(|error| error.to_string())?;
+    Ok(found)
+}
+
 pub(super) fn holder_batch(
     store: &RedbChunkStore,
     change: &HolderChange,

@@ -9,21 +9,60 @@ pub(super) fn put_engine_bodies(
     bodies: &[EngineBody],
     committed_at_ms: u64,
 ) -> Result<Vec<StoredEngineBody>, String> {
-    store.flush_chunks()?;
     let planned = super::super::super::engine_bodies::plan_engine_bodies(tenant_id, bodies)?;
     let subject = super::super::super::engine_bodies::batch_subject(&planned);
-    store.maintain(
+    put_planned_bodies(
+        store,
+        &planned,
+        committed_at_ms,
         "connector_pack_engine_bodies",
         &subject,
-        committed_at_ms,
-        |wtx| put_engine_bodies_in(store, wtx, &planned, committed_at_ms),
     )
+}
+
+pub(super) fn put_repository_bodies(
+    store: &RedbChunkStore,
+    tenant_id: &str,
+    repository_id: &str,
+    bodies: &[EngineBody],
+    committed_at_ms: u64,
+) -> Result<Vec<StoredEngineBody>, String> {
+    let planned = super::super::super::engine_bodies::plan_repository_bodies(
+        tenant_id,
+        repository_id,
+        bodies,
+    )?;
+    let subject = super::super::super::engine_bodies::repository_batch_subject(
+        tenant_id,
+        repository_id,
+        &planned,
+    );
+    put_planned_bodies(
+        store,
+        &planned,
+        committed_at_ms,
+        "repository_source_bodies",
+        &subject,
+    )
+}
+
+fn put_planned_bodies(
+    store: &RedbChunkStore,
+    planned: &[PlannedEngineBody<'_>],
+    committed_at_ms: u64,
+    event: &str,
+    subject: &str,
+) -> Result<Vec<StoredEngineBody>, String> {
+    store.flush_chunks()?;
+    store.maintain(event, subject, committed_at_ms, |wtx| {
+        put_engine_bodies_in(store, wtx, &planned, committed_at_ms)
+    })
 }
 
 fn put_engine_bodies_in(
     store: &RedbChunkStore,
     wtx: &AdmittedOwnerWrite<'_, BlobOwner>,
-    planned: &[PlannedEngineBody],
+    planned: &[PlannedEngineBody<'_>],
     committed_at_ms: u64,
 ) -> Result<Vec<StoredEngineBody>, String> {
     let shared = shared_write(wtx, &store.shared)?;
@@ -49,13 +88,13 @@ fn put_engine_bodies_in(
     Ok(planned.iter().map(|body| body.stored.clone()).collect())
 }
 
-fn engine_body_chunk_rows(planned: &[PlannedEngineBody]) -> Vec<(&str, &[u8])> {
+fn engine_body_chunk_rows(planned: &[PlannedEngineBody<'_>]) -> Vec<(&str, &[u8])> {
     planned
         .iter()
         .filter_map(|body| {
             body.chunk_digest
                 .as_deref()
-                .map(|digest| (digest, body.body.as_slice()))
+                .map(|digest| (digest, body.body))
         })
         .collect()
 }
