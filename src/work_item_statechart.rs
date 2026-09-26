@@ -79,6 +79,7 @@ pub const EV_LEASE_RECLAIM: &str = "lease_reclaim";
 pub const EV_LEASE_EXHAUSTED: &str = "lease_exhausted";
 pub const EV_INPUT_REQUESTED: &str = "input_requested";
 pub const EV_INPUT_ANSWERED: &str = "input_answered";
+pub const EV_INPUT_EXPIRED: &str = "input_expired";
 
 fn event_true(key: &str) -> Guard {
     Guard::EventEq {
@@ -123,6 +124,9 @@ pub fn work_item_statechart_def() -> StatechartDef {
     }
     transitions.push(
         Transition::new("input_required", EV_INPUT_ANSWERED, "ready").with_guard(Guard::Always),
+    );
+    transitions.push(
+        Transition::new("input_required", EV_INPUT_EXPIRED, "ready").with_guard(Guard::Always),
     );
 
     // ── expiry sweep: an expired lease is fenced back to `ready` during selection,
@@ -214,6 +218,7 @@ pub fn work_item_statechart_def() -> StatechartDef {
             EV_LEASE_EXHAUSTED.to_string(),
             EV_INPUT_REQUESTED.to_string(),
             EV_INPUT_ANSWERED.to_string(),
+            EV_INPUT_EXPIRED.to_string(),
         ],
         transitions,
         initial: "submitted".to_string(),
@@ -334,6 +339,28 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), serde_json::Value::Bool(*v)))
                 .collect(),
         )
+    }
+
+    #[test]
+    fn pending_input_expiry_returns_to_claimable_state() {
+        let d = def();
+        let ctx = Context::new();
+        let pending = transition(
+            &d,
+            "running",
+            &ctx,
+            &EventInput::with_payload(EV_INPUT_REQUESTED, payload(&[("fence_valid", true)])),
+        )
+        .unwrap();
+        assert_eq!(pending.next_state, "input_required");
+        let expired = transition(
+            &d,
+            "input_required",
+            &ctx,
+            &EventInput::new(EV_INPUT_EXPIRED),
+        )
+        .unwrap();
+        assert_eq!(expired.next_state, "ready");
     }
 
     // ── structural validity ──────────────────────────────────────────────────────────

@@ -1952,6 +1952,7 @@ mod tests {
         ("DeferWorkItem", "dedicated engine-native MutationBatch fenced deferral transition in mutation_batch.rs/redb_store.rs"),
         ("RequestWorkItemInput", "dedicated engine-native fenced WorkItem pending-input transition in mutation_batch.rs/redb_store/work_item/input.rs"),
         ("AnswerWorkItemInput", "dedicated engine-native principal-bound WorkItem input answer CAS in mutation_batch.rs/redb_store/work_item/input.rs"),
+        ("ExpireWorkItemInput", "dedicated engine-native privileged WorkItem input expiry CAS in mutation_batch.rs/redb_store/work_item/input.rs"),
         ("CasWorkItemMetadata", "dedicated engine-native MutationBatch scheduling-metadata CAS transition in mutation_batch.rs/redb_store.rs (BUG-111)"),
         ("IssueControlLease", "dedicated engine-native MutationBatch control-lease issue (absence-guarded) in the WorkItem kernel, redb_store/work_item/control_lease.rs"),
         ("TransitionControlLease", "dedicated engine-native MutationBatch control-lease revision-CAS transition in the WorkItem kernel, redb_store/work_item/control_lease.rs"),

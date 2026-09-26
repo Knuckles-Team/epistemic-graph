@@ -61,6 +61,7 @@ impl Method {
             | Self::DeferWorkItem { .. }
             | Self::RequestWorkItemInput { .. }
             | Self::AnswerWorkItemInput { .. }
+            | Self::ExpireWorkItemInput { .. }
             | Self::CasWorkItemMetadata { .. }
             | Self::IssueControlLease { .. }
             | Self::TransitionControlLease { .. } => MethodWriteFamily::WorkItemLease,

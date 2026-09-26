@@ -57,6 +57,7 @@ macro_rules! work_item_kernel_writes {
             | $crate::protocol::Method::DeferWorkItem { .. }
             | $crate::protocol::Method::RequestWorkItemInput { .. }
             | $crate::protocol::Method::AnswerWorkItemInput { .. }
+            | $crate::protocol::Method::ExpireWorkItemInput { .. }
             | $crate::protocol::Method::CasWorkItemMetadata { .. }
             | $crate::protocol::Method::IssueControlLease { .. }
             | $crate::protocol::Method::TransitionControlLease { .. }

@@ -159,6 +159,7 @@ pub(crate) fn work_item_batch_identity(
         } => Some(idempotency_key.clone()),
         Method::RequestWorkItemInput { request } => Some(request.idempotency_key.clone()),
         Method::AnswerWorkItemInput { request } => Some(request.idempotency_key.clone()),
+        Method::ExpireWorkItemInput { request } => Some(request.idempotency_key.clone()),
         Method::ClaimWorkItem { .. }
         | Method::RenewWorkItemLease { .. }
         | Method::CasWorkItemMetadata { .. } => None,

@@ -48,7 +48,7 @@ pub const WORK_ITEM_OUTCOME_DIGEST: &str = "outcome_digest";
 pub const WORK_ITEM_TRACE_REF: &str = "trace_ref";
 pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 /// Every WorkItem-row property only the native kernel may write.
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 9] = [
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 10] = [
     WORK_ITEM_ROW_REVISION,
     WORK_ITEM_OUTCOME_REF,
     WORK_ITEM_OUTCOME_DIGEST,
@@ -58,6 +58,7 @@ pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 9] = [
     "lease_principal_ref",
     "pending_input",
     "input_answer",
+    "input_expired_at_ms",
 ];
 
 /// Most metadata keys one `ListWorkItems` `metadata_match` may name.

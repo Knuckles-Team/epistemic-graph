@@ -446,6 +446,11 @@ macro_rules! __eg_method_chunk_0 {
         request: crate::work_item_input::AnswerWorkItemInput,
     },
 
+    /// Privileged exact-revision transition after a pending input deadline.
+    ExpireWorkItemInput {
+        request: crate::work_item_input::ExpireWorkItemInput,
+    },
+
     /// Read a pending PLAN only as its verified submitting principal.
     GetWorkItemPendingInput {
         tenant: String,

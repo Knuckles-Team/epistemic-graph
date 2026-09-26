@@ -173,6 +173,9 @@ pub(crate) fn apply_work_item_rows(
             nodes,
             crypto,
         ),
+        Method::ExpireWorkItemInput { request } => {
+            apply_expire_work_item_input_row(graph, request, authoritative_now_ms, nodes, crypto)
+        }
         // graph-os EG-2 control-lease writes share this kernel; anything else
         // is not a WorkItem-family row transition and answers `None`.
         other => apply_control_lease_rows(graph, other, nodes, crypto),

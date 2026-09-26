@@ -1,10 +1,10 @@
-//! EH-590 fenced pending-input writes. Both operations run in the native
+//! EH-590 fenced pending-input writes. All transitions run in the native
 //! WorkItem MutationBatch transaction, including the row revision CAS.
 
 use super::*;
 use eg_types::work_item_input::{
-    AnswerWorkItemInput, RequestWorkItemInput, WorkItemInputAnswer, WorkItemInputOutcome,
-    WorkItemInputTransition, WorkItemPendingInput,
+    AnswerWorkItemInput, ExpireWorkItemInput, InputDecision, RequestWorkItemInput,
+    WorkItemInputAnswer, WorkItemInputOutcome, WorkItemInputTransition, WorkItemPendingInput,
 };
 use eg_types::work_item_read::WORK_ITEM_ROW_REVISION;
 
@@ -110,6 +110,7 @@ pub(crate) fn apply_request_work_item_input_row(
         serde_json::to_value(pending).map_err(|e| e.to_string())?,
     );
     props.remove("input_answer");
+    props.remove("input_expired_at_ms");
     props.insert(
         "status".into(),
         serde_json::Value::String("input_required".into()),
@@ -259,6 +260,100 @@ pub(crate) fn apply_answer_work_item_input_row(
         &request.work_item_id,
         "input_required",
         crate::work_item_statechart::EV_INPUT_ANSWERED,
+        serde_json::json!({}),
+        Some("ready"),
+    );
+    write_work_item_props(nodes, graph, &request.work_item_id, &mut props, crypto)?;
+    respond(WorkItemInputOutcome::Applied, Some(next))
+}
+
+pub(crate) fn apply_expire_work_item_input_row(
+    graph: &str,
+    request: &ExpireWorkItemInput,
+    authoritative_now_ms: u64,
+    nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    use eg_types::result_contract::coordination::ExpireWorkItemInput as ResultTag;
+    use sha2::{Digest, Sha256};
+    request.validate()?;
+    let respond = |outcome, version| {
+        crate::protocol::ResultPayload::of::<ResultTag>(answer(
+            outcome,
+            &request.work_item_id,
+            version,
+        ))
+        .map(Some)
+    };
+    let Some(row) = nodes.get((graph, request.work_item_id.as_str()))? else {
+        return respond(WorkItemInputOutcome::Missing, None);
+    };
+    let mut props: serde_json::Map<String, serde_json::Value> =
+        decode_durable(&crypto.unseal(row.value())?)?;
+    if property_string(&props, "node_type") != "WorkItem"
+        || property_string(&props, "tenant") != request.tenant
+    {
+        return respond(WorkItemInputOutcome::Missing, None);
+    }
+    let version = current_version(&props);
+    if property_string(&props, "status") != "input_required" || version != request.expected_version
+    {
+        return respond(WorkItemInputOutcome::Conflict, Some(version));
+    }
+    let pending: WorkItemPendingInput = serde_json::from_value(
+        props
+            .get("pending_input")
+            .cloned()
+            .ok_or("input_required WorkItem lacks pending_input")?,
+    )
+    .map_err(|_| "pending WorkItem input is malformed".to_string())?;
+    if pending.version != version {
+        return respond(WorkItemInputOutcome::Conflict, Some(version));
+    }
+    if authoritative_now_ms < pending.expires_at_ms {
+        return respond(WorkItemInputOutcome::NotExpired, Some(version));
+    }
+    let next = version
+        .checked_add(1)
+        .ok_or("WorkItem row revision exhausted")?;
+    let mut digest = Sha256::new();
+    for field in [&request.tenant, &request.work_item_id, &pending.call_id] {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field.as_bytes());
+    }
+    digest.update(version.to_be_bytes());
+    let receipt = WorkItemInputAnswer {
+        work_item_id: request.work_item_id.clone(),
+        version: next,
+        call_id: pending.call_id,
+        plan_ref: pending.plan_ref,
+        op: pending.op,
+        params_digest: pending.params_digest,
+        decision: InputDecision::Timeout,
+        answer_ref: format!("input-timeout:sha256:{}", hex::encode(digest.finalize())),
+    };
+    props.remove("pending_input");
+    props.insert(
+        "input_answer".into(),
+        serde_json::to_value(receipt).map_err(|e| e.to_string())?,
+    );
+    props.insert(
+        "input_expired_at_ms".into(),
+        serde_json::Value::from(authoritative_now_ms),
+    );
+    props.insert("status".into(), serde_json::Value::String("ready".into()));
+    props.insert("state".into(), serde_json::Value::String("ready".into()));
+    props.insert("next_retry_at".into(), serde_json::Value::from(0.0));
+    props.insert(
+        "updated_at".into(),
+        serde_json::Value::from(authoritative_now_ms as f64 / 1000.0),
+    );
+    #[cfg(feature = "statechart")]
+    apply_work_item_mirror(
+        &mut props,
+        &request.work_item_id,
+        "input_required",
+        crate::work_item_statechart::EV_INPUT_EXPIRED,
         serde_json::json!({}),
         Some("ready"),
     );

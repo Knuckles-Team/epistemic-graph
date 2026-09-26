@@ -4120,6 +4120,20 @@ class WorkItemClient:
             )
         ).payload
 
+    async def expire_input(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Requeue an expired pending call with a native timeout receipt."""
+        await self._require_input_method("ExpireWorkItemInput")
+        idempotency_key = _string(
+            "ExpireWorkItemInput.idempotency_key", request.get("idempotency_key")
+        )
+        return (
+            await _gen.coordination.send_expire_work_item_input(
+                self._client,
+                {"request": request},
+                idempotency_key=idempotency_key,
+            )
+        ).payload
+
     async def get_pending_input(
         self, *, tenant: str, work_item_id: str
     ) -> dict[str, Any] | None:

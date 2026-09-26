@@ -42,6 +42,7 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::DeferWorkItem { .. }
         | Method::RequestWorkItemInput { .. }
         | Method::AnswerWorkItemInput { .. }
+        | Method::ExpireWorkItemInput { .. }
         | Method::CasWorkItemMetadata { .. }
         | Method::IssueControlLease { .. }
         | Method::TransitionControlLease { .. }) => method,
@@ -50,6 +51,7 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
     let input_tenant = match &method {
         Method::RequestWorkItemInput { request } => Some(request.tenant.as_str()),
         Method::AnswerWorkItemInput { request } => Some(request.tenant.as_str()),
+        Method::ExpireWorkItemInput { request } => Some(request.tenant.as_str()),
         _ => None,
     };
     if input_tenant.is_some_and(|tenant| tenant != ctx.verified_context.tenant()) {
@@ -66,6 +68,16 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         return Ok(Response::err(
             ctx.req_id,
             "ACCESS_DENIED: pending-input answer requires exact workitem:input-answer scope",
+        ));
+    }
+    if matches!(&method, Method::ExpireWorkItemInput { .. })
+        && !ctx
+            .verified_context
+            .allows_exact_scope("workitem:input-expire")
+    {
+        return Ok(Response::err(
+            ctx.req_id,
+            "ACCESS_DENIED: pending-input expiry requires exact workitem:input-expire scope",
         ));
     }
 

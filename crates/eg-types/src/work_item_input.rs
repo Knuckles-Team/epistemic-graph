@@ -34,6 +34,19 @@ pub struct RequestWorkItemInput {
 pub enum InputDecision {
     Approve,
     Deny,
+    /// Native expiry controller decision; a human answer cannot submit this.
+    Timeout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ExpireWorkItemInput {
+    pub tenant: String,
+    pub work_item_id: String,
+    pub expected_version: u64,
+    pub idempotency_key: String,
+    pub now_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +104,7 @@ pub enum WorkItemInputOutcome {
     Fenced,
     Conflict,
     Expired,
+    NotExpired,
     Denied,
 }
 
@@ -156,7 +170,24 @@ impl AnswerWorkItemInput {
         ] {
             validate_id(field, value)?;
         }
-        validate_digest(&self.params_digest)
+        validate_digest(&self.params_digest)?;
+        if self.decision == InputDecision::Timeout {
+            return Err("human answer cannot submit a timeout decision".into());
+        }
+        Ok(())
+    }
+}
+
+impl ExpireWorkItemInput {
+    pub fn validate(&self) -> Result<(), String> {
+        for (field, value) in [
+            ("tenant", self.tenant.as_str()),
+            ("work_item_id", self.work_item_id.as_str()),
+            ("idempotency_key", self.idempotency_key.as_str()),
+        ] {
+            validate_id(field, value)?;
+        }
+        Ok(())
     }
 }
 
@@ -214,6 +245,23 @@ mod tests {
         };
         value.validate().unwrap();
         value.answer_ref.clear();
+        assert!(value.validate().is_err());
+        value.answer_ref = "receipt-1".into();
+        value.decision = InputDecision::Timeout;
+        assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn expiry_requires_target_revision_and_idempotency_key() {
+        let mut value = ExpireWorkItemInput {
+            tenant: "tenant-a".into(),
+            work_item_id: "work-1".into(),
+            expected_version: 4,
+            idempotency_key: "expire-1".into(),
+            now_ms: 3_000,
+        };
+        value.validate().unwrap();
+        value.idempotency_key.clear();
         assert!(value.validate().is_err());
     }
 }

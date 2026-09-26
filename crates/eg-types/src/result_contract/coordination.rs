@@ -58,6 +58,7 @@ method_results! {
     DeferWorkItem(DeferWorkItem) => Json<WorkItemDeferral>;
     RequestWorkItemInput(RequestWorkItemInput) => Json<WorkItemInputTransition>;
     AnswerWorkItemInput(AnswerWorkItemInput) => Json<WorkItemInputTransition>;
+    ExpireWorkItemInput(ExpireWorkItemInput) => Json<WorkItemInputTransition>;
     GetWorkItemPendingInput(GetWorkItemPendingInput) => Raw<Option<WorkItemPendingInput>>;
     GetWorkItemInputAnswer(GetWorkItemInputAnswer) => Raw<Option<WorkItemInputAnswer>>;
     CasWorkItemMetadata(CasWorkItemMetadata) => Raw<CasWorkItemMetadataResult>;
