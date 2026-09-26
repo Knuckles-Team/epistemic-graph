@@ -8117,7 +8117,8 @@ class ConsensusClient:
 
         The operation signer must match the verified service principal and its
         configured ``allowed_roles`` must include ``tenant:<tenant_slug>``.
-        The engine checks the tenant against the verified request envelope.
+        The engine derives the canonical graph slug from the verified request
+        tenant and requires it to match ``tenant_slug``.
         """
         if not isinstance(agent_id, str) or not agent_id.strip():
             raise ValueError("agent_id must be a non-empty opaque identifier")

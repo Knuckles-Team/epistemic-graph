@@ -1727,6 +1727,30 @@ fn admit_tenant_principal_digest(
     )
 }
 
+/// Match the tenant graph naming rule used by AU's `tenant_graph_name` until
+/// that placement adapter is retired: non `[A-Za-z0-9_.-]` runs become `_`,
+/// surrounding underscores are stripped, then ASCII is lowercased. The
+/// request body is a correlation; this verified-tenant derivation is authority.
+fn canonical_tenant_slug(tenant: &str) -> Option<String> {
+    let mut slug = String::new();
+    let mut in_invalid_run = false;
+    for character in tenant.trim().chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-') {
+            slug.push(character.to_ascii_lowercase());
+            in_invalid_run = false;
+        } else if !in_invalid_run {
+            slug.push('_');
+            in_invalid_run = true;
+        }
+    }
+    let slug = slug.trim_matches('_');
+    if slug.is_empty() {
+        None
+    } else {
+        Some(slug.to_string())
+    }
+}
+
 /// A caller may admit only into its verified tenant, using its own trusted
 /// signer entry's `allowed_roles` allowance for that exact tenant role. The
 /// signed body cannot choose a System/Manager role or assert team membership.
@@ -1756,12 +1780,16 @@ fn verify_tenant_principal_admission_with_registry(
     registry: &SignerKeyRegistry,
 ) -> Result<(), String> {
     if graph != "__commons__"
-        || tenant_slug != context.tenant()
+        || canonical_tenant_slug(context.tenant()).as_deref() != Some(tenant_slug)
         || context.principal() != context.agent_id()
         || agent_id.trim().is_empty()
         || tenant_slug.is_empty()
         || !tenant_slug.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || byte == b'_'
+                || byte == b'-'
+                || byte == b'.'
         })
         || !tenant_slug.as_bytes()[0].is_ascii_alphanumeric()
     {
@@ -2608,6 +2636,46 @@ mod tests {
                 "acme",
                 &signature,
                 &denied_registry,
+            ),
+            Err(SIGNER_TRUST_DENIED.into()),
+        );
+    }
+
+    #[test]
+    fn tenant_admission_slug_is_derived_from_verified_tenant() {
+        assert_eq!(canonical_tenant_slug("Team:East"), Some("team_east".into()));
+        assert_eq!(canonical_tenant_slug("  Acme.IO  "), Some("acme.io".into()));
+        assert_eq!(canonical_tenant_slug("__"), None);
+        let registry = SignerKeyRegistry {
+            signers: BTreeMap::from([(
+                "svc:admission".into(),
+                scoped_entry("service-key", &["tenant:team_east"], false),
+            )]),
+        };
+        let mut claims = verified_claims();
+        claims.principal = "svc:admission".into();
+        claims.agent_id = claims.principal.clone();
+        claims.tenant = "Team:East".into();
+        let context = VerifiedRequestContext::from_verified_claims(claims, "admit-slug".into());
+        let digest = admit_tenant_principal_digest(&context, "__commons__", "alice", "team_east");
+        let signature = detached_signature("svc:admission", "service-key", &digest);
+        assert!(verify_tenant_principal_admission_with_registry(
+            &context,
+            "__commons__",
+            "alice",
+            "team_east",
+            &signature,
+            &registry,
+        )
+        .is_ok());
+        assert_eq!(
+            verify_tenant_principal_admission_with_registry(
+                &context,
+                "__commons__",
+                "alice",
+                "Team:East",
+                &signature,
+                &registry,
             ),
             Err(SIGNER_TRUST_DENIED.into()),
         );
