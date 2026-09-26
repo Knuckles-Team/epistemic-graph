@@ -1,5 +1,6 @@
 """Narrow signed client binding for first-contact tenant admission."""
 
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +16,7 @@ class _Client:
         return "admission-idem"
 
     def _sign_context_operation(self, **kwargs):
-        self.signed = kwargs
+        self.signed = deepcopy(kwargs)
         return "svc:admission:attested"
 
 
@@ -40,7 +41,7 @@ async def test_tenant_admission_signs_exact_method_and_uses_control_graph(monkey
         "params": {
             "agent_id": "alice",
             "tenant_slug": "acme",
-            "signature": "svc:admission:attested",
+            "signature": "",
         },
         "graph": "__commons__",
         "idempotency_key": "admission-idem",
