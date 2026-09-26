@@ -7,7 +7,6 @@
 
 use eg_core::index::{IndexBlock, IndexBlockReason};
 use eg_types::RowPredicate;
-use redb::ReadableTable;
 
 use super::ann_durable::{changed_since, ChangedRows, DirtyReadTable};
 use super::{decode_stored, get_schema_read, map_err, row_map, RowsReadTable, TableStore, ROWS};
