@@ -26,6 +26,7 @@ pub mod cluster;
 pub mod elementwise;
 pub mod error;
 pub mod linalg;
+pub mod prototype;
 pub mod random;
 pub mod reductions;
 // Deterministic statistics for replayable decisions (Decide layer, §4.4 and §6
