@@ -137,7 +137,7 @@ UPDATE items SET price = 8.99 WHERE id = 'sku-1';
 DELETE FROM items WHERE id = 'sku-2';
 ```
 
-Notes (verified against [`docs/interfaces/sql.md`](interfaces/sql.md)):
+Notes (verified against [`pages/interfaces/sql.md`](interfaces/sql.md)):
 
 - **`nodes`** `(id, properties JSON, …)` and **`edges`** `(src, tgt, type, …)` are
   always present — the graph store as SQL tables, with real predicate pushdown.

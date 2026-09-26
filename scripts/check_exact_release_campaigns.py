@@ -496,7 +496,7 @@ def _check_release_test_contracts(errors: list[str]) -> None:
 
 
 def _check_documentation_contract(errors: list[str]) -> None:
-    docs = _read("docs/operations/exact-release-campaigns.md")
+    docs = _read("pages/operations/exact-release-campaigns.md")
     nav = _read("mkdocs.yml")
     # rust-ci.yml was originally folded into a two-workflow release model
     # (advisory.yml, report-only + release.yml, blocking); advisory.yml was

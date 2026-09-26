@@ -15,13 +15,13 @@ pytestmark = pytest.mark.no_engine
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_SURFACES = (
     "AGENTS.md",
-    "docs/architecture/cluster_deployment.md",
-    "docs/deploy/binary_promotion.md",
+    "pages/architecture/cluster_deployment.md",
+    "pages/deploy/binary_promotion.md",
     # Relocated from agent-utilities (RF-ADR-009, EH-366): AU's own
     # equivalent gate (tests/gates/test_public_example_privacy.py)
     # dropped this file from its PUBLIC_EXAMPLES tuple on the assumption
     # this file already covered it -- it did not, until now.
-    "docs/architecture/graph-backends.md",
+    "pages/architecture/graph-backends.md",
 )
 PRIVATE_IPV4 = re.compile(
     r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|"

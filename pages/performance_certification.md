@@ -17,7 +17,7 @@ The committed contracts are:
   equivalence checks, and thresholds.
 - `protocols/performance/v1/scenarios.json`: 30 serialized scenario families
   covering every one of the 54 implemented ledger rows exactly once.
-- `docs/architecture/hot-path-complexity.md`: the stable `G37-HP-001` through
+- `pages/architecture/hot-path-complexity.md`: the stable `G37-HP-001` through
   `G37-HP-054` row identities and their qualified source-level bounds.
 - `scripts/certify_exact_performance.py`: the serialized release harness and
   path-safe JSON/Markdown evidence renderer.

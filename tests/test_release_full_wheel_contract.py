@@ -17,10 +17,10 @@ WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
 NUMERIC_CONTRACT_DOCS = (
     REPO / "AGENTS.md",
     REPO / "README.md",
-    REPO / "docs" / "architecture" / "numeric_kernel.md",
-    REPO / "docs" / "architecture" / "analytics_program.md",
-    REPO / "docs" / "capabilities.md",
-    REPO / "docs" / "concepts.md",
+    REPO / "pages" / "architecture" / "numeric_kernel.md",
+    REPO / "pages" / "architecture" / "analytics_program.md",
+    REPO / "contract" / "capabilities.md",
+    REPO / "pages" / "concepts.md",
 )
 
 
@@ -71,7 +71,7 @@ def test_current_numeric_docs_match_the_builtin_boundary_contract() -> None:
     """Current docs must not revive removed NumPy/native-ABI promises."""
 
     docs = {path: path.read_text(encoding="utf-8") for path in NUMERIC_CONTRACT_DOCS}
-    numeric = docs[REPO / "docs" / "architecture" / "numeric_kernel.md"]
+    numeric = docs[REPO / "pages" / "architecture" / "numeric_kernel.md"]
     assert "bounded built-in" in numeric
     assert "scalar↔nested-list PyO3 contract" in numeric
     assert "isolated NumPy parity oracle" in numeric

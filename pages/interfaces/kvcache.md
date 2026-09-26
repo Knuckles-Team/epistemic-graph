@@ -15,7 +15,7 @@ a token-hash.
 The engine is the **L2 tier** in the layered KV-cache hierarchy vLLM and LMCache build on top of it —
 the widest, slowest, most persistent tier, and the only one that **dedups and survives everything**.
 Each level up is smaller/faster/more volatile. (The vLLM- and LMCache-side wiring is documented in
-agent-utilities' `docs/guides/kvcache-vllm-lmcache.md` and `services/vllm/AGENTS.md`; this mirrors the
+agent-utilities' `pages/guides/kvcache-vllm-lmcache.md` and `services/vllm/AGENTS.md`; this mirrors the
 concept engine-side.)
 
 <div class="admonition architecture" markdown>

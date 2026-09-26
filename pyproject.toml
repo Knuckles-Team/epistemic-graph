@@ -211,8 +211,8 @@ jscpd_exclusions = [
     # `contract/` (per-method request/result tables, one OpenAPI document), so
     # they repeat exactly as the contract does -- generated output under the
     # rule above; `check_api_contract_docs.py` byte-verifies them.
-    "docs/api/**",
-    "docs/openapi.json",
+    "pages/api/**",
+    "pages/openapi.json",
     "**/.git/**",
     "**/.venv/**",
     "**/venv/**",

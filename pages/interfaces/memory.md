@@ -89,7 +89,7 @@ store.
     (GPU-gated) and registers the resulting checkpoint back through the model-registry role-bind
     deploy seam — optionally hot-loading it onto a live vLLM/SGLang server (`POST
     /v1/load_lora_adapter`) so it is immediately servable with no manual restart. See
-    `agent-utilities`'s `docs/architecture/` for the AU-side design and the
+    `agent-utilities`'s `pages/architecture/` for the AU-side design and the
     [forward roadmap](../roadmap.md) for what's still open beyond this.
 
 ---

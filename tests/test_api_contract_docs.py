@@ -65,7 +65,7 @@ def test_generation_is_deterministic(gen, tmp_path):
 
 
 def test_openapi_document_is_valid_json_and_self_contained():
-    doc = json.loads((ROOT / "docs" / "openapi.json").read_text(encoding="utf-8"))
+    doc = json.loads((ROOT / "pages" / "openapi.json").read_text(encoding="utf-8"))
     assert doc["openapi"] == "3.1.0"
     assert doc["paths"], "no paths were generated"
     assert doc["components"]["schemas"], "no schemas were generated"
@@ -101,7 +101,7 @@ def test_openapi_document_is_valid_json_and_self_contained():
 
 
 def test_every_method_has_a_path_and_authz_metadata():
-    doc = json.loads((ROOT / "docs" / "openapi.json").read_text(encoding="utf-8"))
+    doc = json.loads((ROOT / "pages" / "openapi.json").read_text(encoding="utf-8"))
     methods = json.loads(
         (ROOT / "contract" / "methods.json").read_text(encoding="utf-8")
     )
@@ -135,15 +135,15 @@ def test_mkdocs_nav_includes_every_generated_page():
     missing = expected - pages
     assert not missing, f"mkdocs.yml nav omits generated page(s): {sorted(missing)}"
     for page in expected:
-        assert (ROOT / "docs" / page).is_file()
+        assert (ROOT / "pages" / page).is_file()
 
 
 def test_swagger_ui_page_loads_a_pinned_integrity_checked_cdn_reference():
     """No vendored copy (a minified third-party bundle in the tree cannot carry
     an inline provenance marker, which made it an unfixable secret-history-scan
     false positive) -- instead a pinned CDN reference with SRI on both assets."""
-    page = (ROOT / "docs" / "swagger-ui.md").read_text(encoding="utf-8")
-    assert not (ROOT / "docs" / "assets" / "swagger-ui").exists()
+    page = (ROOT / "pages" / "swagger-ui.md").read_text(encoding="utf-8")
+    assert not (ROOT / "pages" / "assets" / "swagger-ui").exists()
     pinned = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@4.15.5/"
     for asset, sri in (
         (

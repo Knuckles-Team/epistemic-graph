@@ -190,8 +190,8 @@ needs neither: it is an ordinary O(1) incremental kernel, always built.
 
 ## See also
 
-- `docs/architecture/numeric-kernel.md` — the `eg-numeric` kernel internals.
-- `docs/architecture/analytics-program.md` — the Analytics Program (Surface-A Python wheel
+- `pages/architecture/numeric-kernel.md` — the `eg-numeric` kernel internals.
+- `pages/architecture/analytics-program.md` — the Analytics Program (Surface-A Python wheel
   + Surface-B SQL).
 - `crates/eg-query/src/sql/numeric.rs` — the UDF/UDAF implementations.
 - `crates/eg-query/src/sql/exec.rs` — `register_numeric` + the shared `build_ctx`.

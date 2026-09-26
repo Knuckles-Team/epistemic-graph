@@ -10,7 +10,7 @@ and renders two kinds of derived, byte-stable output:
 * Per-namespace API reference Markdown pages, one per contract ``domain``
   (``docs/api/<domain>.md``) plus an index (``docs/api/index.md``), for the
   MkDocs site.
-* One OpenAPI 3.1 document (``docs/openapi.json``) describing every method's
+* One OpenAPI 3.1 document (``pages/openapi.json``) describing every method's
   request/result JSON-Schema shape, its ``policy``/``authz_action``
   capability metadata, and its ``stability``, served through the
   ``docs/swagger-ui.md`` page (CONCEPT:EG-P0-1 / RF-ADR-009 Phase D rows
@@ -43,7 +43,7 @@ JSON-over-HTTP.
 SELF-REFERENCES: the generated contract once carried one literal
 ``"$ref": "#"`` (``MutationOperation.method``); the EH-192 strict-model
 generator resolves it to a ``$defs`` entry, so every ``$ref`` in
-``docs/openapi.json`` now names a component. The test suite pins that count
+``pages/openapi.json`` now names a component. The test suite pins that count
 at 0, so a regression in the upstream contract fails here.
 
 Usage::

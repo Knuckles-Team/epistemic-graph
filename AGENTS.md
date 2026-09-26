@@ -18,13 +18,13 @@ The Rust workspace provides the durable engine, query planner, wire protocols,
 and server. The Python package provides client and interoperability APIs. A
 single-node build is the normal deployment; `cluster` enables replicated
 operation, while `full-extras` enables optional GPU and robotics integrations.
-The architecture index in `docs/architecture/` maps the major engine
+The architecture index in `pages/architecture/` maps the major engine
 subsystems; `contract/capabilities.md` is the operation-level support matrix.
 
 - `src/`, `crates/`: Rust engine, server, and supporting crates.
 - `epistemic_graph/`: Python client and package integration.
 - `clients/`, `proto/`: client and wire-protocol definitions.
-- `docs/`, `architecture/`: user guides and technical references.
+- `pages/`, `architecture/`: user guides and technical references.
 - `scripts/`, `tests/`: development gates and regression coverage.
 - `.config/`: explicit-path tool configuration, including
   `.config/pre-commit.yaml`.
@@ -71,8 +71,8 @@ an explicit config path.
 
 ## Documentation
 
-The user guide and operation matrix are maintained in `docs/`; subsystem design
-references are indexed from `docs/architecture/`. Update source documentation
+The user guide and operation matrix are maintained in `pages/`; subsystem design
+references are indexed from `pages/architecture/`. Update source documentation
 with behavior changes and run the status-page freshness check after editing its
 inputs.
 

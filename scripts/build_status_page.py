@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the honesty-first status page (the "Codex") at status/status.md.
 
-Extends this repo's existing "Honesty first" framing (docs/index.md) into a
+Extends this repo's existing "Honesty first" framing (pages/index.md) into a
 single, generated page that other pages can link to instead of restating a
 number or a legend. Mirrors agent-utilities' `scripts/build_status_page.py`
 (same page shape, same vocabulary) but is adapted to what this repo's own
@@ -72,10 +72,10 @@ PILLAR_LABEL = {
     "AU-OS": "agent-utilities OS concepts exercised against this engine",
 }
 PILLAR_SUBTREE = {
-    "EG-AHE": "docs/architecture/",
-    "EG-KG": "docs/interfaces/ + docs/architecture/engine.md",
-    "EG-ORCH": "docs/architecture/",
-    "EG-OS": "docs/deploy/ + docs/deployment.md",
+    "EG-AHE": "pages/architecture/",
+    "EG-KG": "pages/interfaces/ + pages/architecture/engine.md",
+    "EG-ORCH": "pages/architecture/",
+    "EG-OS": "pages/deploy/ + pages/deployment.md",
     "AU-KG": "agent-utilities: docs/pillars/2_epistemic_knowledge_graph/",
     "AU-ECO": "agent-utilities: docs/pillars/4_ecosystem_peripherals.md",
     "AU-AHE": "agent-utilities: docs/pillars/3_agentic_harness_engineering.md",
@@ -309,7 +309,7 @@ def render() -> str:
             "9-pillar taxonomy (e.g. `KG-2.*`, `ORCH-1.*`, `OS-5.*`, "
             "`AHE-3.*`) and are not broken out above — this page defines an "
             "owning subtree/gate only for the pillars in "
-            '"Domain ownership" below. See `docs/concepts.md` for those '
+            '"Domain ownership" below. See `pages/concepts.md` for those '
             "markers in prose form."
         )
         lines.append("")

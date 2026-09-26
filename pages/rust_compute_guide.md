@@ -190,7 +190,7 @@ communication channels, and ACL-based isolation.
 | `server.rs` | Tokio UDS/TCP server with HMAC auth |
 | `main.rs` | Binary entry point (`epistemic-graph-server`) |
 
-See [`docs/service_mode.md`](service_mode.md) for full reference.
+See [`pages/service_mode.md`](service_mode.md) for full reference.
 
 ## Building
 

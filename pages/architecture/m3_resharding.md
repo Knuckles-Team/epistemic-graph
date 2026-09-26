@@ -21,7 +21,7 @@
 > (tenant catalog routing-override seam), `CONCEPT:EG-KG.backend.catalog-shard-resolve` (online single-node resharding,
 > R1), `CONCEPT:EG-KG.sharding.r5-feature` (catalog auto-attach gate, R5), `CONCEPT:EG-KG.sharding.eg-r6` (cold-tenant
 > whole-graph offload, R6), `CONCEPT:EG-KG.sharding.even-load-rebalance` (R3 rebalancing planner), `CONCEPT:EG-KG.sharding.m3-r4`
-> (R4 in-process BLOB streaming facade). Registered in [`docs/concepts.md`](../concepts.md).
+> (R4 in-process BLOB streaming facade). Registered in [`pages/concepts.md`](../concepts.md).
 
 > **Current-main reconciliation — `IMPLEMENTED` / `UNIT-PROVEN` where named.**
 > `online_reshard.rs`, the catalog gate, `cold_offload.rs`, `rebalance.rs`, and

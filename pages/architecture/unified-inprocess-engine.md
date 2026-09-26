@@ -18,7 +18,7 @@ Two shapes now exist, and this doc is about the second one:
 | Wheel target | `bindings = "bin"` (`epistemic-graph-server`) | A pyo3 `cdylib` (`epistemic_graph.engine`), injected into the same wheel |
 | Identity boundary | Real — client and engine are different processes/hosts | None needed for the call itself — the caller *is* the trusted process |
 | Batching rule | Non-negotiable (round-trip amortization) | **Equally non-negotiable** (lock/allocation amortization — see §5) |
-| Status | Shipped, measured (`docs/benchmarks.md`) | **This doc + a compiling, minimally-proven prototype** (`crates/eg-pyengine`) |
+| Status | Shipped, measured (`pages/benchmarks.md`) | **This doc + a compiling, minimally-proven prototype** (`crates/eg-pyengine`) |
 
 Neither shape replaces the other. `AGENTS.md` is explicit that PyO3 is restored as an
 **opt-in** path for the self-contained case, not a reversal of the out-of-process default:
@@ -334,7 +334,7 @@ The out-of-process server treats every request as coming from an **untrusted net
 boundary**: the `eg2.` envelope (principal, tenant, audience, effective agent, policy
 version, scopes, timestamp, nonce, idempotency key) is HMAC-signed against a signer
 registry and checked against a durable replay ledger before a single dispatch arm runs
-(`AGENTS.md`, `docs/service_mode.md#authentication-protocol`). None of that exists to
+(`AGENTS.md`, `pages/service_mode.md#authentication-protocol`). None of that exists to
 authenticate *content* — it exists to authenticate *origin*, because the caller could be
 any process on the wire.
 
@@ -485,7 +485,7 @@ holding the actual `GraphCore` mutation constant, what does the socket add?
   connection open, not reconnecting per call). It deliberately does **not** implement the
   `eg2.` envelope (HMAC verification, replay-ledger check) — that cost is orthogonal to
   *where the engine runs* and is already captured in the existing end-to-end measurement
-  (`docs/benchmarks.md`: `AddNode` p50 ≈ 0.187 ms / p99 ≈ 0.223 ms over UDS,
+  (`pages/benchmarks.md`: `AddNode` p50 ≈ 0.187 ms / p99 ≈ 0.223 ms over UDS,
   `scripts/bench_transport.py`). This bench isolates
   serialize-then-socket-then-deserialize specifically, so its `uds_socket` numbers are
   expected to land **below** 0.187 ms — the gap between the two is roughly what the
@@ -512,7 +512,7 @@ The in-process arm ran **~13-15x faster per op** than this bench's envelope-free
 (≈2.7-3.1 µs/op in-process vs. ≈40.8-41.7 µs/op over the socket, halving the pair cost
 above for a single op). This is internally consistent with the existing full end-to-end
 baseline: this bench's `uds_socket` numbers (≈41-42 µs/op) land well **below**
-`docs/benchmarks.md`'s ≈187 µs p50 for the SAME op over the SAME transport — exactly the
+`pages/benchmarks.md`'s ≈187 µs p50 for the SAME op over the SAME transport — exactly the
 predicted relationship, since that existing number additionally pays the `eg2.` HMAC/
 replay-ledger envelope this bench deliberately excludes; the ≈145 µs gap between the two
 is a believable order of magnitude for that envelope's own cost, not an inconsistency.

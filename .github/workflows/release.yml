@@ -1514,7 +1514,7 @@ jobs:
 
   # ── Deploy concern, not a gate (folded from the former standalone
   # advisory.yml `pages` job, itself folded from pages.yml). No
-  # `pip install -e .`, just `mkdocs build` from `docs/`. A job that calls a
+  # `pip install -e .`, just `mkdocs build` from `pages/`. A job that calls a
   # reusable workflow (`uses:`) accepts only
   # name/uses/with/secrets/needs/if/permissions/strategy/concurrency — no
   # `runs-on`/`steps`/`continue-on-error` (agent-utilities' release.yml hit
@@ -1527,7 +1527,7 @@ jobs:
     if: github.event_name == 'push'
     uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
     with:
-      content_source: docs
+      content_source: pages
       shared_theme_enabled: true
     permissions:
       contents: write

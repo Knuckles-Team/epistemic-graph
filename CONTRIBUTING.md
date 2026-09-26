@@ -36,7 +36,7 @@ pre-commit run --config .config/pre-commit.yaml --all-files
 ```
 
 The complexity (cccc) and KISS gates have written, measured terms of acceptance
-in [`docs/quality-gate-terms.md`](docs/quality-gate-terms.md) — what they accept,
+in [`pages/quality-gate-terms.md`](pages/quality-gate-terms.md) — what they accept,
 why, and what the remaining backlog is. Read it before changing a threshold.
 
 ## Adding an engine capability
@@ -47,10 +47,10 @@ client method in `epistemic_graph/client.py` — and add a round-trip test in
 `tests/`. Compute already resident in the graph should be a **batch** op (one
 round-trip over the wire), never a per-row loop: every call crosses a network
 boundary (serialize → socket → deserialize), not a function call. See
-`docs/RUST_COMPUTE_GUIDE.md` and [AGENTS.md](AGENTS.md).
+`pages/RUST_COMPUTE_GUIDE.md` and [AGENTS.md](AGENTS.md).
 
 ## Benchmarks
 
 Performance claims are measured, not asserted: `scripts/bench_transport.py`
 (latency) and `scripts/bench_scale.py` (multi-shard scaling + per-agent footprint)
-— results in `docs/benchmarks.md`.
+— results in `pages/benchmarks.md`.

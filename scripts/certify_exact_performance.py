@@ -46,7 +46,7 @@ DEFAULT_SCENARIOS = ROOT / "protocols" / "performance" / "v1" / "scenarios.json"
 DEFAULT_SCENARIO_SCHEMA = (
     ROOT / "protocols" / "performance" / "v1" / "scenarios.schema.json"
 )
-DEFAULT_COMPLEXITY_LEDGER = ROOT / "docs" / "architecture" / "hot-path-complexity.md"
+DEFAULT_COMPLEXITY_LEDGER = ROOT / "pages" / "architecture" / "hot-path-complexity.md"
 
 SCHEMA_VERSION = "1"
 GATE_ID = "G-37"
@@ -910,7 +910,7 @@ def _validate_scenario_manifest(data: dict[str, Any]) -> dict[str, Any]:
         "scenario_ledger",
     )
     if (
-        ledger["document"] != "docs/architecture/hot-path-complexity.md"
+        ledger["document"] != "pages/architecture/hot-path-complexity.md"
         or ledger["registry_heading"] != "Implemented row identities"
         or ledger["implemented_heading"] != "Implemented bounds"
         or ledger["expected_rows"] != EXPECTED_LEDGER_ROW_COUNT
