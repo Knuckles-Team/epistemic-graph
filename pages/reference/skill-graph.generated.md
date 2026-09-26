@@ -21,6 +21,7 @@ Every concept and component this repo's own registries and documentation nav dec
 - **Analytics program** — `architecture/analytics_program.md`
 - **Numeric kernel** — `architecture/numeric_kernel.md`
 - **Hot-path complexity** — `architecture/hot-path-complexity.md`
+- **Market bars and trend signals** — `architecture/finance-market.md`
 - **Graph backends and mirrors** — `architecture/graph-backends.md`
 - **Service layer** — `architecture/service-layer.md`
 - **Code intelligence** — `architecture/code-intelligence.md`
@@ -46,16 +47,16 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## Generated contract methods
 
-- **cluster (contract domain)** (30 methods) — `contract/methods.json#cluster`
+- **cluster (contract domain)** (31 methods) — `contract/methods.json#cluster`
 - **compute (contract domain)** (133 methods) — `contract/methods.json#compute`
-- **coordination (contract domain)** (38 methods) — `contract/methods.json#coordination`
-- **graph (contract domain)** (64 methods) — `contract/methods.json#graph`
-- **ingestion (contract domain)** (14 methods) — `contract/methods.json#ingestion`
-- **messaging (contract domain)** (42 methods) — `contract/methods.json#messaging`
-- **query (contract domain)** (29 methods) — `contract/methods.json#query`
-- **reasoning (contract domain)** (13 methods) — `contract/methods.json#reasoning`
-- **security (contract domain)** (6 methods) — `contract/methods.json#security`
-- **storage (contract domain)** (39 methods) — `contract/methods.json#storage`
+- **coordination (contract domain)** (54 methods) — `contract/methods.json#coordination`
+- **graph (contract domain)** (67 methods) — `contract/methods.json#graph`
+- **ingestion (contract domain)** (15 methods) — `contract/methods.json#ingestion`
+- **messaging (contract domain)** (43 methods) — `contract/methods.json#messaging`
+- **query (contract domain)** (31 methods) — `contract/methods.json#query`
+- **reasoning (contract domain)** (14 methods) — `contract/methods.json#reasoning`
+- **security (contract domain)** (11 methods) — `contract/methods.json#security`
+- **storage (contract domain)** (40 methods) — `contract/methods.json#storage`
 - **transactions (contract domain)** (21 methods) — `contract/methods.json#transactions`
 
 ## Home
@@ -92,12 +93,26 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## Reference
 
-- **Capabilities** — `capabilities.md`
-- **Generated method ledger** — `capabilities.generated.md`
+- **Capabilities** — `https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md`
+- **Generated method ledger** — `https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.generated.md`
+- **API reference** — `api/index.md`
+- **Cluster API** — `api/cluster.md`
+- **Compute API** — `api/compute.md`
+- **Coordination API** — `api/coordination.md`
+- **Graph API** — `api/graph.md`
+- **Ingestion API** — `api/ingestion.md`
+- **Messaging API** — `api/messaging.md`
+- **Query API** — `api/query.md`
+- **Reasoning API** — `api/reasoning.md`
+- **Security API** — `api/security.md`
+- **Storage API** — `api/storage.md`
+- **Transactions API** — `api/transactions.md`
+- **OpenAPI / Swagger UI** — `swagger-ui.md`
 - **Concepts** — `concepts.md`
 - **Cost and capacity** — `cost_model.md`
 - **Transport benchmarks** — `benchmarks.md`
 - **Soak and chaos benchmarks** — `benchmarks-soak.md`
+- **HelixDB comparison** — `benchmarks-helix.md`
 - **Quality terms** — `quality-gate-terms.md`
 - **Ecosystem glossary** — `glossary.md`
 - **Skill graph reference** — `reference/skill-graph.generated.md`
