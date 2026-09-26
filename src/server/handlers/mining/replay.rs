@@ -129,6 +129,11 @@ pub(super) fn replay_cluster(core: &GraphCore, method: &Method) -> bool {
     else {
         return false;
     };
+    // Spectral requests are read-only. The served handler rejects writeback
+    // before WAL admission, so no valid replay record can reach this branch.
+    if matches!(algorithm, ClusterAlgorithm::Spectral) {
+        return true;
+    }
     let (rows, ids) = build_vectors_replay(
         core,
         features,

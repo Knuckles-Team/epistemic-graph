@@ -28,7 +28,7 @@
 
 use super::math::{sq_dist, SplitMix64};
 
-mod eigen;
+pub(crate) mod eigen;
 mod lda;
 
 use eigen::jacobi_eigen;

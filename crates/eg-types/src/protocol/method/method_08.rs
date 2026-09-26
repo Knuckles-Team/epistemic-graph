@@ -86,13 +86,14 @@ $($variants)*
     },
 
 
-    /// Clustering (CONCEPT:EG-KG.mining.dbscan-density — completing the family beyond
-    /// k-Means/spectral). Partitions a feature matrix into clusters via DBSCAN,
-    /// hierarchical agglomerative, GMM (EM), or k-medoids (PAM). Rows come from
+    /// Clustering (CONCEPT:EG-KG.mining.dbscan-density). Partitions a feature matrix via DBSCAN,
+    /// hierarchical agglomerative, GMM (EM), k-medoids (PAM), or spectral. Rows come from
     /// EITHER explicit `features` OR a graph-derived `source` (the embeddings of a
     /// node label — the cross-modal "cluster the vectors of these nodes" hook).
     /// Returns rows `{cluster_id, members, centroid, score}` (+ GMM
-    /// `responsibilities`). With `writeback=true` it materializes each cluster as a
+    /// `responsibilities`, or spectral `coherence`). Spectral is read-only,
+    /// requires explicit features, and accepts at most 64 rows. For the other
+    /// algorithms, `writeback=true` materializes each cluster as a
     /// typed `:Cluster` node linked to its member nodes — a graph MUTATION, so it
     /// classifies as a write and WAL-replays by re-clustering deterministically.
     /// Gated `mining`; a build without it drops the variant.
@@ -118,7 +119,8 @@ $($variants)*
         #[cfg(feature = "query")]
         #[serde(default)]
         plan: Option<crate::wire::Plan>,
-        /// Which clustering engine to run.
+        /// Which clustering engine to run. `spectral` uses `k` as its maximum
+        /// eigengap-selected cluster count rather than a fixed target count.
         #[serde(default)]
         algorithm: ClusterAlgorithm,
         /// DBSCAN neighborhood radius.
@@ -127,7 +129,8 @@ $($variants)*
         /// DBSCAN minimum points (incl. self) for a core point.
         #[serde(default = "default_min_pts")]
         min_pts: usize,
-        /// Target cluster count for hierarchical / GMM / k-medoids.
+        /// Target cluster count for hierarchical / GMM / k-medoids; maximum
+        /// eigengap-selected count for spectral.
         #[serde(default = "default_k")]
         k: usize,
         /// Hierarchical linkage: `single` · `complete` · `average` (default).
@@ -140,6 +143,7 @@ $($variants)*
         #[serde(default)]
         seed: u64,
         /// Materialize each cluster as a typed `:Cluster` node linked to members.
+        /// Unsupported for spectral clustering.
         #[serde(default)]
         writeback: bool,
         /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per cluster (E6) —
