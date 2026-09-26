@@ -1118,10 +1118,22 @@
       "retryable": false
     },
     {
+      "class": "conflict",
+      "code": "STALE_OUTBOX_LEASE",
+      "http_status_hint": 409,
+      "retryable": true
+    },
+    {
       "class": "server",
       "code": "STALE_RECOMPUTE_FENCE",
       "http_status_hint": 400,
       "retryable": false
+    },
+    {
+      "class": "availability",
+      "code": "STALE_ROUTE",
+      "http_status_hint": 503,
+      "retryable": true
     },
     {
       "class": "availability",

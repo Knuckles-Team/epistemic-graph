@@ -39,6 +39,8 @@ const SHARED_SERVER_ERRORS: &[&str] = &[
     "CANCELLED",
     "INTERNAL",
     "TIMEOUT",
+    "STALE_ROUTE",
+    "STALE_OUTBOX_LEASE",
 ];
 
 /// A method-specific family wins over the wider domain family.

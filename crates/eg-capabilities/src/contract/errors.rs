@@ -60,12 +60,14 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("REDIRECTED", "availability"),
     ("OPERATION_REDIRECTED", "availability"),
     ("ENGINE_UNAVAILABLE", "availability"),
+    ("STALE_ROUTE", "availability"),
     ("ENGINE_DEADLINE_EXCEEDED", "availability"),
     ("CANCELLED", "availability"),
     ("TELEMETRY_UNAVAILABLE", "availability"),
     ("CAPACITY_UNAVAILABLE", "availability"),
     ("DECISIONS", "availability"),
     ("CONFLICT", "conflict"),
+    ("STALE_OUTBOX_LEASE", "conflict"),
     ("IDEMPOTENCY_CONFLICT", "conflict"),
     ("READ_ONLY", "conflict"),
     ("AUTHENTICATION_REQUIRED", "auth"),
@@ -107,6 +109,8 @@ fn retryable(code: &str) -> bool {
             | "READ_ONLY"
             | "BUSY"
             | "OPERATION_REDIRECTED"
+            | "STALE_ROUTE"
+            | "STALE_OUTBOX_LEASE"
     )
 }
 
@@ -120,6 +124,8 @@ const HTTP_HINTS: &[(&str, u16)] = &[
     ("REDIRECTED", 307),
     ("OPERATION_REDIRECTED", 307),
     ("ENGINE_UNAVAILABLE", 503),
+    ("STALE_ROUTE", 503),
+    ("STALE_OUTBOX_LEASE", 409),
     ("READ_ONLY", 503),
     ("ENGINE_DEADLINE_EXCEEDED", 504),
     ("CAPACITY_DENIED", 429),

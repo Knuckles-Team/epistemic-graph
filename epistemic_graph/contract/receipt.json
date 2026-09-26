@@ -1,10 +1,10 @@
 {
   "artifact_digests": {
-    "contract/errors.json": "becef3401e773939fc2ef57ccec1a7f043999f8123154ea530af059bc02961c2",
+    "contract/errors.json": "71b50024e285abad7a87e37dd29c1fee6d78d5563deed8213a8d44a185994f7a",
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/fixtures/method_body_vectors.json": "efd82d63b727b5dfaaf48cac69bc3307352b510f276eb550012ac808beb0ed17",
-    "contract/methods.json": "ab638b9f063d259a035694239c6c08050aab15510379ad3008f85eaab177e636",
+    "contract/methods.json": "2cd929a7e9c120950a82b71c64f370895768c8d42dad8bc0da62e48a58049494",
     "contract/schemas/method.request.json": "d2bfc5e6d4358ab816b1b78122c9b2bf1c92ecffcc6ce87baa606bf93a131d53",
     "contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "contract/schemas/result.compute.json": "7efab38024b5f7bcc9839cbf0c61ec664e044f74074f69c514b8cf613642e30f",
@@ -54,7 +54,7 @@
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
   "cargo_lock_sha256": "dc2edc2f85045a51b06a50177055fc5049663be4d3aa63e40ab463b265f1fc36",
-  "contract_digest": "cbd1b573de0b8e20bc6b0298f5e171351a1b132a9da93f25c97c89b254ac4387",
+  "contract_digest": "424cd3e37b137b1f698bd98f67dcff8a8643d549f2572637dc8c22b563bac74e",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -633,5 +633,5 @@
     "schematized": 443,
     "unclassified": 0
   },
-  "source_tree_oid": "15b08a0c83aa515f62088c8c5ce34d413b52e8057ce2d63df4ea23688aeaa7fe"
+  "source_tree_oid": "e18dc5bf3b0cf4332cbddd328c7c9eeead6894ddba942620a5abe66cdcfb0f17"
 }
