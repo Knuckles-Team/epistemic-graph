@@ -2019,6 +2019,7 @@ mod tests {
         ("CloseChannel", "opaque prepared/committed session-control MutationBatch"),
         ("SendMessage", "request-scoped opaque session-control saga; a committed retry never duplicates delivery"),
         ("RegisterIdentity", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
+        ("AdmitTenantPrincipal", "native rbac.redb MutationBatch preserves one ordinary identity and shares the RBAC snapshot WTX"),
         ("RbacAdmin", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RegisterForeignSource", "opaque prepared/committed session-control MutationBatch"),
         ("RegisterUdf", "opaque prepared/committed session-control MutationBatch"),
