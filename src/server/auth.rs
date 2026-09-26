@@ -2628,6 +2628,22 @@ mod tests {
     fn tenant_admission_slug_is_derived_from_verified_tenant() {
         let encoded = "t0_5465616d3a45617374";
         assert_eq!(canonical_tenant_slug("Team:East"), Some(encoded.into()));
+        assert_eq!(
+            canonical_tenant_slug("Team_East"),
+            Some("t0_5465616d5f45617374".into())
+        );
+        assert_eq!(
+            canonical_tenant_slug("t0_5465616d3a45617374"),
+            Some("t0_74305f353436353631366433613435363137333734".into())
+        );
+        assert_eq!(
+            canonical_tenant_slug("team__east"),
+            Some("t0_7465616d5f5f65617374".into())
+        );
+        assert_eq!(
+            canonical_tenant_slug("équipe"),
+            Some("t0_c3a97175697065".into())
+        );
         assert_eq!(canonical_tenant_slug("team_east"), Some("team_east".into()));
         assert_ne!(
             canonical_tenant_slug("Team:East"),
