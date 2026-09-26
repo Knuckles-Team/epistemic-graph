@@ -20,6 +20,8 @@ pub enum PlacementRouteRequestSchemaVersion {
 pub enum ClaimWorkItemRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
+    #[serde(rename = "2")]
+    V2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +29,8 @@ pub enum ClaimWorkItemRequestSchemaVersion {
 pub enum ClaimWorkItemResultSchemaVersion {
     #[serde(rename = "1")]
     V1,
+    #[serde(rename = "2")]
+    V2,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +148,9 @@ pub struct ClaimWorkItemResult {
     #[serde(deserialize_with = "deserialize_required_option")]
     pub tenant_in_flight: Option<u64>,
     pub changed_work_item_ids: Vec<String>,
+    /// Present only in V2; V1 claims cannot select answered WorkItems.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_input_answer: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

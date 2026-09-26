@@ -1,6 +1,7 @@
 //! WorkItem claim.rs transitions.
 
 use super::*;
+use crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion;
 
 /// One selectable row of a claim scan: `(prio_bucket, deadline, created_at_ms,
 /// node_id, props)`.  The first four components are the sort key.
@@ -126,6 +127,8 @@ pub(crate) fn claim_candidate_is_excluded(
     now_s: f64,
 ) -> bool {
     property_string(props, "status") != "ready"
+        || (request.schema_version == ClaimWorkItemRequestSchemaVersion::V1
+            && props.get("input_answer").is_some())
         || request
             .queue_ref
             .as_deref()
@@ -192,6 +195,13 @@ pub(crate) fn classify_claim_row(
     {
         return ClaimRowOutcome::Skip;
     }
+    // Old workers cannot safely resume a paused call.  Do not let a V1 scan
+    // reclaim or select an answered row, even after the V2 lease expires.
+    if request.schema_version == ClaimWorkItemRequestSchemaVersion::V1
+        && props.get("input_answer").is_some()
+    {
+        return ClaimRowOutcome::Skip;
+    }
     if matches!(status.as_str(), "leased" | "running")
         && claim_reclaim_expired_lease(&mut props, node_id, &status, now_s)
     {
@@ -253,10 +263,11 @@ pub(crate) fn claim_not_claimed_payload(
     reason: ClaimWorkItemResultReason,
     inflight: u32,
     changed_work_item_ids: Vec<String>,
+    request_version: ClaimWorkItemRequestSchemaVersion,
 ) -> Result<crate::protocol::ResultPayload, String> {
     crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
         ClaimWorkItemResult {
-            schema_version: ClaimWorkItemResultSchemaVersion::V1,
+            schema_version: claim_result_version(request_version),
             claimed: false,
             reason,
             work_item_id: None,
@@ -270,8 +281,113 @@ pub(crate) fn claim_not_claimed_payload(
             max_attempts: None,
             tenant_in_flight: Some(u64::from(inflight)),
             changed_work_item_ids,
+            has_input_answer: (request_version == ClaimWorkItemRequestSchemaVersion::V2)
+                .then_some(false),
         },
     )
+}
+
+fn claim_result_version(
+    request_version: ClaimWorkItemRequestSchemaVersion,
+) -> ClaimWorkItemResultSchemaVersion {
+    match request_version {
+        ClaimWorkItemRequestSchemaVersion::V1 => ClaimWorkItemResultSchemaVersion::V1,
+        ClaimWorkItemRequestSchemaVersion::V2 => ClaimWorkItemResultSchemaVersion::V2,
+    }
+}
+
+#[cfg(test)]
+mod pending_input_rollout_tests {
+    use super::*;
+
+    fn request(
+        schema_version: ClaimWorkItemRequestSchemaVersion,
+    ) -> crate::epistemic_operations::ClaimWorkItemRequest {
+        crate::epistemic_operations::ClaimWorkItemRequest {
+            schema_version,
+            tenant_ref: "tenant-a".into(),
+            work_item_id: None,
+            queue_ref: None,
+            resource_class: None,
+            fairness_group: None,
+            worker_ref: "worker-a".into(),
+            now_ms: 1_000,
+            lease_ms: 1_000,
+            max_tenant_in_flight: 1,
+        }
+    }
+
+    #[test]
+    fn old_claims_skip_answered_rows_even_when_ready() {
+        let answered = serde_json::json!({
+            "status": "ready",
+            "input_answer": {"decision": "approve"},
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        assert!(claim_candidate_is_excluded(
+            &answered,
+            &request(ClaimWorkItemRequestSchemaVersion::V1),
+            1.0,
+        ));
+        assert!(!claim_candidate_is_excluded(
+            &answered,
+            &request(ClaimWorkItemRequestSchemaVersion::V2),
+            1.0,
+        ));
+        let expired_lease = serde_json::json!({
+            "node_type": "WorkItem",
+            "tenant": "tenant-a",
+            "status": "leased",
+            "lease_expires_at": 0.0,
+            "attempt": 1,
+            "max_attempts": 1,
+            "input_answer": {"decision": "approve"},
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        assert!(matches!(
+            classify_claim_row(
+                &request(ClaimWorkItemRequestSchemaVersion::V1),
+                "work-a",
+                expired_lease,
+                1.0,
+            ),
+            ClaimRowOutcome::Skip
+        ));
+    }
+
+    #[test]
+    fn claim_result_preserves_v1_wire_and_marks_v2() {
+        let v1 = ClaimWorkItemResult {
+            schema_version: claim_result_version(ClaimWorkItemRequestSchemaVersion::V1),
+            claimed: false,
+            reason: ClaimWorkItemResultReason::Empty,
+            work_item_id: None,
+            kind: None,
+            payload_ref: None,
+            lease_holder_ref: None,
+            lease_epoch: None,
+            fencing_token: None,
+            lease_expires_at_ms: None,
+            attempt: None,
+            max_attempts: None,
+            tenant_in_flight: Some(0),
+            changed_work_item_ids: vec![],
+            has_input_answer: None,
+        };
+        let v1_wire = serde_json::to_value(&v1).unwrap();
+        assert!(v1_wire.get("has_input_answer").is_none());
+        let v2_wire = serde_json::to_value(ClaimWorkItemResult {
+            schema_version: claim_result_version(ClaimWorkItemRequestSchemaVersion::V2),
+            has_input_answer: Some(false),
+            ..v1
+        })
+        .unwrap();
+        assert_eq!(v2_wire["has_input_answer"], false);
+    }
 }
 
 /// Stamp the granted lease onto the selected candidate and report its
@@ -372,6 +488,7 @@ fn apply_claimed_work_item(
         crypto,
     } = input;
     let worker_id = &request.worker_ref;
+    let has_input_answer = props.get("input_answer").is_some();
     let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s);
     if !actor.is_empty() {
         props.insert(
@@ -406,7 +523,7 @@ fn apply_claimed_work_item(
     changed_work_item_ids.push(node_id.clone());
     crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
         ClaimWorkItemResult {
-            schema_version: ClaimWorkItemResultSchemaVersion::V1,
+            schema_version: claim_result_version(request.schema_version),
             claimed: true,
             reason: ClaimWorkItemResultReason::Claimed,
             work_item_id: Some(node_id),
@@ -420,6 +537,8 @@ fn apply_claimed_work_item(
             max_attempts: Some(max_attempts),
             tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
             changed_work_item_ids,
+            has_input_answer: (request.schema_version == ClaimWorkItemRequestSchemaVersion::V2)
+                .then_some(has_input_answer),
         },
     )
 }
@@ -459,6 +578,7 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
             ClaimWorkItemResultReason::TenantQuota,
             inflight,
             changed_work_item_ids,
+            request.schema_version,
         )?));
     }
     let Some((_, _, _, node_id, props)) = select_claim_candidate(candidates) else {
@@ -466,6 +586,7 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
             ClaimWorkItemResultReason::Empty,
             inflight,
             changed_work_item_ids,
+            request.schema_version,
         )?));
     };
     Ok(Some(apply_claimed_work_item(ClaimWorkItemApply {

@@ -959,6 +959,9 @@ _CLAIM_WORK_ITEM_RESULT_FIELDS = frozenset(
         "changed_work_item_ids",
     }
 )
+_CLAIM_WORK_ITEM_RESULT_V2_FIELDS = _CLAIM_WORK_ITEM_RESULT_FIELDS | frozenset(
+    {"has_input_answer"}
+)
 _CLAIM_WORK_ITEM_LEASE_COUNTERS = (
     "lease_epoch",
     "fencing_token",
@@ -3803,8 +3806,8 @@ class WorkItemClient:
         value = _exact_mapping(
             "ClaimWorkItem request", request, _CLAIM_WORK_ITEM_REQUEST_FIELDS
         )
-        if value["schema_version"] != "1":
-            raise ValueError("ClaimWorkItem schema_version must be 1")
+        if value["schema_version"] not in {"1", "2"}:
+            raise ValueError("ClaimWorkItem schema_version must be 1 or 2")
         _string("ClaimWorkItem.tenant_ref", value["tenant_ref"])
         _string("ClaimWorkItem.worker_ref", value["worker_ref"])
         for field in ("work_item_id", "queue_ref", "resource_class", "fairness_group"):
@@ -3844,11 +3847,24 @@ class WorkItemClient:
     @classmethod
     def _claim_result(cls, result: Any) -> dict[str, Any]:
         """The ClaimWorkItem answer, with its claimed/reason agreement enforced."""
+        if not isinstance(result, dict):
+            raise TypeError("ClaimWorkItem result must be a mapping")
+        version = result.get("schema_version")
+        if version not in {"1", "2"}:
+            raise ValueError("ClaimWorkItem result schema_version must be 1 or 2")
         answer = _exact_mapping(
-            "ClaimWorkItem result", result, _CLAIM_WORK_ITEM_RESULT_FIELDS
+            "ClaimWorkItem result",
+            result,
+            _CLAIM_WORK_ITEM_RESULT_V2_FIELDS
+            if version == "2"
+            else _CLAIM_WORK_ITEM_RESULT_FIELDS,
         )
-        if answer["schema_version"] != "1":
-            raise ValueError("ClaimWorkItem result schema_version must be 1")
+        if version == "2":
+            _boolean(
+                "ClaimWorkItem result.has_input_answer", answer["has_input_answer"]
+            )
+            if not answer["claimed"] and answer["has_input_answer"]:
+                raise ValueError("Unclaimed WorkItem cannot have input answer")
         claimed = _boolean("ClaimWorkItem result.claimed", answer["claimed"])
         if answer["reason"] not in {"claimed", "empty", "tenant_quota"}:
             raise ValueError("ClaimWorkItem result reason is invalid")
@@ -3887,7 +3903,10 @@ class WorkItemClient:
                 idempotency_key=idempotency_key,
             )
         ).payload
-        return self._claim_result(result)
+        answer = self._claim_result(result)
+        if answer["schema_version"] != value["schema_version"]:
+            raise ValueError("ClaimWorkItem response schema does not match request")
+        return answer
 
     async def mint_capability(self, request: dict[str, Any]) -> dict[str, Any]:
         """Mint/replay an opaque capability for the caller's live WorkItem lease.

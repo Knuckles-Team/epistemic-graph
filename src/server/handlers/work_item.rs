@@ -60,6 +60,17 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
             "ACCESS_DENIED: pending-input tenant does not match verified carrier",
         ));
     }
+    if matches!(&method, Method::ClaimWorkItem { request }
+        if request.schema_version == crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V2)
+        && !ctx
+            .verified_context
+            .allows_exact_scope("workitem:input-answer:read")
+    {
+        return Ok(Response::err(
+            ctx.req_id,
+            "ACCESS_DENIED: V2 WorkItem claim requires exact workitem:input-answer:read scope",
+        ));
+    }
     if matches!(&method, Method::AnswerWorkItemInput { .. })
         && !ctx
             .verified_context
