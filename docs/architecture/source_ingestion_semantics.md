@@ -49,6 +49,12 @@ current native commit and cursor readers consume these pure derivations while
 the durable write remains in EG. A derived slice still lacks the catalog
 mapping and provider checkpoint that raw-record `SourceIngest` requires.
 
+`epistemic_graph.ingestion.hydration_verdict` owns the pure absent-versus-hidden
+decision: a serving-principal zero with service-authority rows is an RLS
+visibility gap, never evidence that ingestion did not happen. AU retains its
+declared-universe discovery, signed manifest, and two authority-bound readers,
+then calls this EG verdict function for each source class.
+
 ## Derived-slice commit decision for AUD-18
 
 Use EG `ApplyChangeEnvelope` for **already-derived** node/edge slices. Do not
