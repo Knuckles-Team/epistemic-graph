@@ -13658,6 +13658,33 @@ class RbacClient:
             )
         ).payload
 
+    async def admit_tenant_principal(self, agent_id: str, tenant_slug: str) -> bool:
+        """Atomically add an existing tenant role to an existing identity.
+
+        EG preserves the identity's complete current role/team set in one
+        durable policy update. The role must already have the tenant graph's
+        Read and Write grants; this admin operation creates neither a role nor
+        an identity. ``True`` means added and ``False`` means already held.
+        """
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            raise ValueError("agent_id must be a non-empty opaque identifier")
+        if not isinstance(tenant_slug, str) or not tenant_slug:
+            raise ValueError("tenant_slug must be a non-empty identifier")
+        result = await _gen.security.send_rbac_admin(
+            self._client,
+            {
+                "op": {
+                    "AdmitTenantPrincipal": {
+                        "agent_id": agent_id,
+                        "tenant_slug": tenant_slug,
+                    }
+                }
+            },
+        )
+        if not isinstance(result.payload, bool):
+            raise TypeError("AdmitTenantPrincipal returned a non-boolean result")
+        return result.payload
+
     async def list(self) -> dict[str, Any]:
         """List the current policy.
 

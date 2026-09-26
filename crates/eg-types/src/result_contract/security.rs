@@ -170,6 +170,7 @@ method_results! {
     RbacRemoveRole(RbacAdmin / "RemoveRole") => Text<String>;
     RbacAddGrant(RbacAdmin / "AddGrant") => Text<String>;
     RbacRemoveGrant(RbacAdmin / "RemoveGrant") => Json<RbacGrantRemoval>;
+    RbacAdmitTenantPrincipal(RbacAdmin / "AdmitTenantPrincipal") => Json<bool>;
     RbacList(RbacAdmin / "List") => Json<RbacPolicyListing>;
     // `null` when no identity is registered for the agent; an identity holding no
     // roles is a present identity with an empty `roles` list.
