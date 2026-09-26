@@ -195,6 +195,46 @@ fn an_empty_source_file_commits() {
     on_engine(empty_source_file);
 }
 
+#[cfg(feature = "blob")]
+#[test]
+fn scoped_index_pins_source_content_in_blob_cas() {
+    on_engine(index_with_durable_source_refs);
+}
+
+#[cfg(feature = "blob")]
+async fn index_with_durable_source_refs() {
+    use epistemic_graph::server::blob::store::{ChunkStore, RedbChunkStore};
+    use epistemic_graph::server::blob::BlobCursors;
+    use std::sync::Arc;
+
+    let (_dir, dir_s, _backend, state) = durable_graph("eg-repoindex-cas").await;
+    let store = Arc::new(RedbChunkStore::open(&dir_s).unwrap());
+    state.write().await.blob = Some(Arc::new(BlobCursors::new(store.clone())));
+    let result = index(
+        &state,
+        2,
+        &[("pkg/util.py", UTIL)],
+        scope(vec![member("main", "pkg/util.py", UTIL)], Vec::new()),
+    )
+    .await;
+    let node = result["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| {
+            node["node_type"] == "Blob" && node["properties"]["content_digest"] == digest(UTIL)
+        })
+        .expect("indexed Blob");
+    let content_ref = node["properties"]["content_ref"].as_str().expect("CAS ref");
+    assert_eq!(node["properties"]["content_length"], UTIL.len().to_string());
+    let manifest = content_ref.strip_prefix("cas:sha256:").expect("CAS scheme");
+    let stored = store
+        .get_manifest(manifest)
+        .unwrap()
+        .expect("durable manifest");
+    assert_eq!(stored.len, UTIL.len() as u64);
+}
+
 /// A fresh durable engine directory with the test graph created in it.
 async fn durable_graph(
     prefix: &str,
