@@ -6,7 +6,7 @@
 
 ## Capabilities by status
 
-**265 LIVE**, **2 BUILDING**, and **0 ROADMAP** operations tracked in `contract/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `contract/capabilities.generated.md` ledger currently enumerates **456 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
+**265 LIVE**, **2 BUILDING**, and **0 ROADMAP** operations tracked in `contract/capabilities.md`'s operation-by-operation truth table (cross-check: the machine-checked `contract/capabilities.generated.md` ledger currently enumerates **460 wire methods** — a different, finer granularity, since several generated-ledger methods can compose into one `capabilities.md` row; the two are not expected to be equal, but a `capabilities.generated.md` that shrinks while `capabilities.md` does not is a drift signal).
 
 | Status | Count |
 |:------|---:|
@@ -17,20 +17,20 @@
 
 ## Concepts by pillar
 
-**665 LIVE** unique `CONCEPT:<ID>` markers (swept from every tracked `*.rs`/`*.py` file, deduplicated by full ID, then bucketed by pillar prefix — the same concept is legitimately cited at every call site that implements it, so this counts distinct IDs, never raw occurrences) and **1 RESERVED** concept IDs (open, unexpired entries in `registry/concept_reservations.yaml`) across **9 pillars**. Unlike agent-utilities, this repo has no generated `concepts.yaml` registry — the marker sweep below is this page's own generated source, not a restatement of one.
+**666 LIVE** unique `CONCEPT:<ID>` markers (swept from every tracked `*.rs`/`*.py` file, deduplicated by full ID, then bucketed by pillar prefix — the same concept is legitimately cited at every call site that implements it, so this counts distinct IDs, never raw occurrences) and **1 RESERVED** concept IDs (open, unexpired entries in `registry/concept_reservations.yaml`) across **9 pillars**. Unlike agent-utilities, this repo has no generated `concepts.yaml` registry — the marker sweep below is this page's own generated source, not a restatement of one.
 
 | Pillar | LIVE ✅ | RESERVED |
 |:------|---:|---:|
 | **AU-AHE** — agent-utilities harness concepts exercised against this engine | 0 | 0 |
 | **AU-ECO** — agent-utilities ecosystem concepts exercised against this engine | 0 | 0 |
-| **AU-KG** — agent-utilities KG concepts exercised against this engine | 34 | 0 |
+| **AU-KG** — agent-utilities KG concepts exercised against this engine | 35 | 0 |
 | **AU-ORCH** — agent-utilities orchestration concepts exercised against this engine | 3 | 0 |
 | **AU-OS** — agent-utilities OS concepts exercised against this engine | 2 | 0 |
 | **EG-AHE** — harness-facing engine concepts | 1 | 0 |
 | **EG-KG** — knowledge-graph engine core | 614 | 1 |
 | **EG-ORCH** — routing / orchestration | 2 | 0 |
 | **EG-OS** — deployment | 9 | 0 |
-| **Total** | 665 | 1 |
+| **Total** | 666 | 1 |
 
 > 2 additional unique `CONCEPT:<ID>` markers use a pre-migration prefix outside the current 9-pillar taxonomy (e.g. `KG-2.*`, `ORCH-1.*`, `OS-5.*`, `AHE-3.*`) and are not broken out above — this page defines an owning subtree/gate only for the pillars in "Domain ownership" below. See `pages/concepts.md` for those markers in prose form.
 
@@ -54,11 +54,11 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 
 | Pillar | Owning doc subtree | Primary gate |
 |:------|:------|:------|
-| **AU-AHE** | `agent-utilities: docs/pillars/3_agentic_harness_engineering.md` | agent-utilities' `scripts/check_concepts.py` |
-| **AU-ECO** | `agent-utilities: docs/pillars/4_ecosystem_peripherals.md` | agent-utilities' `scripts/check_concepts.py` |
-| **AU-KG** | `agent-utilities: docs/pillars/2_epistemic_knowledge_graph/` | agent-utilities' `scripts/check_concepts.py` |
-| **AU-ORCH** | `agent-utilities: docs/pillars/1_graph_orchestration.md` | agent-utilities' `scripts/check_concepts.py` |
-| **AU-OS** | `agent-utilities: docs/pillars/5_agent_os_infrastructure.md` | agent-utilities' `scripts/check_concepts.py` |
+| **AU-AHE** | `agent-utilities: pages/pillars/3_agentic_harness_engineering.md` | agent-utilities' `scripts/check_concepts.py` |
+| **AU-ECO** | `agent-utilities: pages/pillars/4_ecosystem_peripherals.md` | agent-utilities' `scripts/check_concepts.py` |
+| **AU-KG** | `agent-utilities: pages/pillars/2_epistemic_knowledge_graph/` | agent-utilities' `scripts/check_concepts.py` |
+| **AU-ORCH** | `agent-utilities: pages/pillars/1_graph_orchestration.md` | agent-utilities' `scripts/check_concepts.py` |
+| **AU-OS** | `agent-utilities: pages/pillars/5_agent_os_infrastructure.md` | agent-utilities' `scripts/check_concepts.py` |
 | **EG-AHE** | `pages/architecture/` | `scripts/check_documentation_contract.py` (generated-ledger regen check) |
 | **EG-KG** | `pages/interfaces/ + pages/architecture/engine.md` | `scripts/check_documentation_contract.py` (generated-ledger regen check) |
 | **EG-ORCH** | `pages/architecture/` | `scripts/check_documentation_contract.py` (generated-ledger regen check) |

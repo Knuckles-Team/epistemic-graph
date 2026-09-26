@@ -40,7 +40,7 @@ def test_domains_cover_every_method(gen):
 
 
 def test_committed_output_matches_the_generator(gen):
-    """Freshness: the committed docs/api/*.md + docs/openapi.json are
+    """Freshness: the committed pages/api/*.md + pages/openapi.json are
     byte-identical to what the generator produces from the CURRENT
     contract/ tree right now — the same assertion `check_api_contract_docs.py`
     makes, kept here too so `pytest` alone (no extra script invocation)
@@ -129,7 +129,7 @@ def test_mkdocs_nav_includes_every_generated_page():
     pages = set(_flatten(config["nav"]))
     expected = {"api/index.md", "swagger-ui.md"}
     domains_path = ROOT / "contract"
-    for domain_file in sorted((domains_path.parent / "docs" / "api").glob("*.md")):
+    for domain_file in sorted((domains_path.parent / "pages" / "api").glob("*.md")):
         if domain_file.name != "index.md":
             expected.add(f"api/{domain_file.name}")
     missing = expected - pages

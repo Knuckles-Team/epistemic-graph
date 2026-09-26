@@ -76,11 +76,11 @@ PILLAR_SUBTREE = {
     "EG-KG": "pages/interfaces/ + pages/architecture/engine.md",
     "EG-ORCH": "pages/architecture/",
     "EG-OS": "pages/deploy/ + pages/deployment.md",
-    "AU-KG": "agent-utilities: docs/pillars/2_epistemic_knowledge_graph/",
-    "AU-ECO": "agent-utilities: docs/pillars/4_ecosystem_peripherals.md",
-    "AU-AHE": "agent-utilities: docs/pillars/3_agentic_harness_engineering.md",
-    "AU-ORCH": "agent-utilities: docs/pillars/1_graph_orchestration.md",
-    "AU-OS": "agent-utilities: docs/pillars/5_agent_os_infrastructure.md",
+    "AU-KG": "agent-utilities: pages/pillars/2_epistemic_knowledge_graph/",
+    "AU-ECO": "agent-utilities: pages/pillars/4_ecosystem_peripherals.md",
+    "AU-AHE": "agent-utilities: pages/pillars/3_agentic_harness_engineering.md",
+    "AU-ORCH": "agent-utilities: pages/pillars/1_graph_orchestration.md",
+    "AU-OS": "agent-utilities: pages/pillars/5_agent_os_infrastructure.md",
 }
 PILLAR_GATE = {
     "EG-AHE": "`scripts/check_documentation_contract.py` (generated-ledger regen "

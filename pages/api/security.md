@@ -1,6 +1,44 @@
 # Security API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 8 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 11 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+
+## `AuditAppend`
+
+tenant-bound operation audit append with request-id/op idempotency and no raw params
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `security:audit-write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `TIMEOUT` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `identity_chain` | boolean | yes |  |
+| `op` | string | yes |  |
+| `params_sha256` | string | yes |  |
+| `request_id` | string | yes |  |
+| `status` | string | yes |  |
+| `surface` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `AuditAppendReceipt` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/AuditAppend`, `contract/schemas/result.security.json#/methods/AuditAppend`.
 
 ## `AuditProveInclusion`
 
@@ -18,7 +56,7 @@ provenance anchoring: Merkle inclusion proof for one node against a prior PROVEN
 | Txn participation | `Snapshot` |
 | Replay class | `NotReplayable` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `TIMEOUT` |
 
 **Request parameters**
 
@@ -35,6 +73,38 @@ provenance anchoring: Merkle inclusion proof for one node against a prior PROVEN
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/AuditProveInclusion`, `contract/schemas/result.security.json#/methods/AuditProveInclusion`.
 
+## `AuditReadEvent`
+
+read one privacy-safe operation event with a full-chain verification result
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `security:audit` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `TIMEOUT` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `seq` | integer (uint64) | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `AuditEventProof` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/AuditReadEvent`, `contract/schemas/result.security.json#/methods/AuditReadEvent`.
+
 ## `AuditVerify`
 
 | Property | Value |
@@ -49,7 +119,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Audi
 | Txn participation | `Snapshot` |
 | Replay class | `NotReplayable` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `TIMEOUT` |
 
 **Request parameters**
 
@@ -79,7 +149,7 @@ confused-deputy-safe executor re-check: would this principal's own request of re
 | Txn participation | `Snapshot` |
 | Replay class | `NotReplayable` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `TIMEOUT` |
 
 **Request parameters**
 
@@ -112,7 +182,7 @@ identity read-back closing the RegisterIdentity blind-upsert gap: None means unr
 | Txn participation | `Snapshot` |
 | Replay class | `NotReplayable` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `TIMEOUT` |
 
 **Request parameters**
 
@@ -142,7 +212,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetI
 | Txn participation | `Snapshot` |
 | Replay class | `NotReplayable` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `TIMEOUT` |
 
 **Request parameters**
 
@@ -172,7 +242,7 @@ runtime-conditional: List is a read; role and grant updates share one rbac.redb 
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `TIMEOUT` |
 | Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
 **Request parameters**
@@ -211,7 +281,7 @@ EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevati
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ELEVATION_ACTOR_UNSTAMPED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `TIMEOUT` |
 | Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
 **Request parameters**
@@ -250,7 +320,7 @@ RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `TIMEOUT` |
 | Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
 **Request parameters**
@@ -270,3 +340,36 @@ RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX
 | `result` | string | String |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/RegisterIdentity`, `contract/schemas/result.security.json#/methods/RegisterIdentity`.
+
+## `ServiceChild`
+
+caller-bound durable one-shot SERVICE child journal; security:audit-write and reserved fleet.call audit also required
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `mcp:delegate` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `NODE_MISMATCH`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `TIMEOUT` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `ServiceChildOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | one of: `ServiceChildReceipt` \| null | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/ServiceChild`, `contract/schemas/result.security.json#/methods/ServiceChild`.
