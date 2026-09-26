@@ -65,6 +65,12 @@ pub(crate) async fn handle_connector_pack(
         ConnectorPackOp::CatalogOwnerPrincipal { request } => {
             catalog_authority::serve_owner_principal(state, req_id, verified, request).await
         }
+        ConnectorPackOp::CatalogBindingStatus { request } => {
+            catalog_authority::serve_binding_status(state, req_id, verified, request).await
+        }
+        ConnectorPackOp::CatalogRequestOwnerPrincipal { request } => {
+            catalog_authority::serve_request_owner_principal(state, req_id, verified, request).await
+        }
     }
 }
 

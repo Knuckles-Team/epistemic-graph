@@ -507,7 +507,9 @@ fn validate_outbox(
 /// An outbox row is exactly bound to its parent mutation batch when the parent is
 /// committed, receipt/parent agree on identity/batch/ordinal/version/timestamp and
 /// (where both sides carry one) committed sequence, and the parent's own outbox slot
-/// at `ordinal` holds this receipt's intent.
+/// at `ordinal` holds this receipt's intent. A reserved EH-557 replacement has
+/// zero graph operations but still has this exact committed ledger parent; it
+/// receives no exception to recovery's parent/ordinal/intent checks.
 fn outbox_row_is_bound(
     receipt: &MutationOutboxRecord,
     parent: &MutationBatchRecord,
@@ -719,4 +721,91 @@ fn increment(value: &mut u64, label: &str) -> Result<(), String> {
         .checked_add(1)
         .ok_or_else(|| format!("{label} overflow"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod replacement_parent_tests {
+    use super::*;
+    use eg_types::mutation_batch::{
+        RepositoryEnrichmentTopUp, REPOSITORY_ENRICHMENT_PENDING_TOPIC,
+    };
+    use eg_types::{
+        CommittedVersion, IncarnationId, LogicalName, MutationBatch, MutationOutboxIntent,
+        MutationScopeIdentity, ScopeTenantId,
+    };
+
+    #[test]
+    fn replacement_outbox_is_bound_to_its_zero_operation_committed_parent() {
+        let identity = MutationScopeIdentity::graph(
+            ScopeTenantId::new("tenant-a").unwrap(),
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new("incarnation:replacement-parent").unwrap(),
+        );
+        let old = MutationOutboxRecord {
+            schema_version: eg_types::mutation_batch::MUTATION_BATCH_VERSION,
+            batch_id: "old-source".into(),
+            ordinal: 0,
+            identity: identity.clone(),
+            committed_version: CommittedVersion::Graph {
+                source: 4,
+                target: 5,
+            },
+            commit_sequence: Some(5),
+            intent: MutationOutboxIntent {
+                topic: REPOSITORY_ENRICHMENT_PENDING_TOPIC.into(),
+                key: "old-source".into(),
+                payload: vec![1],
+                headers: Default::default(),
+            },
+            created_at_ms: 10,
+        };
+        let batch = MutationBatch::repository_enrichment_top_up(RepositoryEnrichmentTopUp {
+            old_delivery: &old,
+            policy_sequence: 2,
+            revision_idempotency_key: "revision-2",
+            replacement_intent: MutationOutboxIntent {
+                topic: REPOSITORY_ENRICHMENT_PENDING_TOPIC.into(),
+                key: "new-source".into(),
+                payload: vec![2],
+                headers: Default::default(),
+            },
+            replacement_batch_id: "new-source",
+            serving_principal:
+                "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            graph_version: 5,
+            placement_epoch: 3,
+            fencing_token: 7,
+            created_at_ms: 11,
+        })
+        .unwrap();
+        let committed = CommittedVersion::Graph {
+            source: 5,
+            target: 6,
+        };
+        let parent = MutationBatchRecord {
+            identity,
+            batch,
+            status: MutationBatchStatus::Committed,
+            committed_version: committed,
+            result_msgpack: None,
+            committed_at_ms: 12,
+        };
+        parent.validate().unwrap();
+        let row = MutationOutboxRecord {
+            schema_version: eg_types::mutation_batch::MUTATION_BATCH_VERSION,
+            batch_id: "new-source".into(),
+            ordinal: 0,
+            identity: parent.identity.clone(),
+            committed_version: committed,
+            commit_sequence: Some(6),
+            intent: parent.batch.outbox[0].clone(),
+            created_at_ms: 11,
+        };
+        assert!(outbox_row_is_bound(&row, &parent, "new-source", 0));
+        let mut forged = row.clone();
+        forged.intent.payload.push(3);
+        assert!(!outbox_row_is_bound(&forged, &parent, "new-source", 0));
+        assert!(!outbox_row_is_bound(&row, &parent, "old-source", 0));
+        assert!(!outbox_row_is_bound(&row, &parent, "new-source", 1));
+    }
 }

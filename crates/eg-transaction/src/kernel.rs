@@ -265,7 +265,7 @@ impl MutationKernel {
     }
 
     /// Mint one write capability per member over the ONE shared transaction.
-    fn group_members<'a, D: OwnerDomain>(
+    pub(crate) fn group_members<'a, D: OwnerDomain>(
         &'a self,
         owners: &[&OwnedStoreHandle<D>],
     ) -> Result<Vec<AdmittedMutation<'a, D>>, String> {
@@ -867,7 +867,7 @@ pub(crate) fn ensure_admitted_owner<D: OwnerDomain>(
 /// The one implementation shared by [`MutationKernel::admit_current`] and
 /// [`MutationKernel::admit_group_current`]: a forked prologue is how the two
 /// would drift about which expectation a graph scope owes.
-fn current_batch<D: OwnerDomain, F>(
+pub(crate) fn current_batch<D: OwnerDomain, F>(
     write: &AdmittedMutation<'_, D>,
     owner: &OwnedStoreHandle<D>,
     build: F,
@@ -893,7 +893,7 @@ where
 /// A replayed member's receipt is already durable, so it applies nothing here
 /// and must not be able to. Marking it terminal is what lets the group commit
 /// the other members' real rows.
-fn admit_group_member<D: OwnerDomain>(
+pub(crate) fn admit_group_member<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Begin, String> {

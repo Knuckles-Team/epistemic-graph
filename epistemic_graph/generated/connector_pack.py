@@ -124,6 +124,20 @@ class ConnectorPackOpCatalogOwnerPrincipal(BaseModel):
     request: McpCatalogAuthorityStatusRequest
 
 
+class ConnectorPackOpCatalogBindingStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["catalog_binding_status"]
+    request: McpCatalogAuthorityStatusRequest
+
+
+class ConnectorPackOpCatalogRequestOwnerPrincipal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["catalog_request_owner_principal"]
+    request: McpCatalogAuthorityStatusRequest
+
+
 ConnectorPackOp = Annotated[
     ConnectorPackOpStatus
     | ConnectorPackOpImport
@@ -134,7 +148,9 @@ ConnectorPackOp = Annotated[
     | ConnectorPackOpReconcileBodies
     | ConnectorPackOpReconcileCatalog
     | ConnectorPackOpCatalogAuthorityStatus
-    | ConnectorPackOpCatalogOwnerPrincipal,
+    | ConnectorPackOpCatalogOwnerPrincipal
+    | ConnectorPackOpCatalogBindingStatus
+    | ConnectorPackOpCatalogRequestOwnerPrincipal,
     Field(discriminator="op"),
 ]
 
@@ -540,6 +556,10 @@ ConnectorPackOpCatalogAuthorityStatus.model_rebuild()
 
 ConnectorPackOpCatalogOwnerPrincipal.model_rebuild()
 
+ConnectorPackOpCatalogBindingStatus.model_rebuild()
+
+ConnectorPackOpCatalogRequestOwnerPrincipal.model_rebuild()
+
 ConnectorPackReconcileRequest.model_rebuild()
 
 ConnectorPackReprojectRequest.model_rebuild()
@@ -615,7 +635,9 @@ __all__ = [
     "ConnectorPackOp",
     "ConnectorPackOpBind",
     "ConnectorPackOpCatalogAuthorityStatus",
+    "ConnectorPackOpCatalogBindingStatus",
     "ConnectorPackOpCatalogOwnerPrincipal",
+    "ConnectorPackOpCatalogRequestOwnerPrincipal",
     "ConnectorPackOpImport",
     "ConnectorPackOpReconcileBodies",
     "ConnectorPackOpReconcileCatalog",

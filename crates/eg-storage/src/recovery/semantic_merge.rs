@@ -16,12 +16,16 @@ use crate::{open_read_only, OwnerLayout, PhysicalStoreIdentity};
 use redb::{
     Key, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition, TableHandle, Value,
 };
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct SemanticOwnerMergeEvidence {
     pub sources: Vec<StrictRecoveryEvidence>,
     pub target: StrictRecoveryEvidence,
+    /// Domain-separated digest of the exact source→target row disposition
+    /// proof, ordered by source path, closed table ordinal and redb key.
+    pub row_proof_sha256: [u8; 32],
 }
 
 /// Copy all declared owner and mutation-ledger rows from nonempty, distinct
@@ -125,11 +129,11 @@ pub fn merge_semantic_owner_files(
         return Err("semantic merge evidence changed after closing the writer".to_string());
     }
     drop(read_only);
-    prove_semantic_owner_union_read_only(source_files, candidate, &target_identity)?;
-    Ok(SemanticOwnerMergeEvidence {
-        sources: source_evidence,
-        target: verified,
-    })
+    let proof = prove_semantic_owner_union_read_only(source_files, candidate, &target_identity)?;
+    if proof.sources != source_evidence || proof.target != verified {
+        return Err("semantic merge row proof changed the recovered census".to_string());
+    }
+    Ok(proof)
 }
 
 /// Reconstruct the exact union proof after a restart or a path reanchor.
@@ -156,6 +160,7 @@ pub fn prove_semantic_owner_union_read_only(
         .open_table(SCOPE_BINDINGS)
         .map_err(|error| error.to_string())?;
     let mut source_evidence = Vec::with_capacity(source_files.len());
+    let mut source_proofs = Vec::with_capacity(source_files.len());
     for (path, identity) in source_files {
         if !distinct_paths.insert(path) || path.as_path() == destination {
             return Err("semantic union source paths are not distinct".to_string());
@@ -173,6 +178,10 @@ pub fn prove_semantic_owner_union_read_only(
         let source_table = source_read
             .open_table(SCOPE_BINDINGS)
             .map_err(|error| error.to_string())?;
+        let mut row_proof = Sha256::new();
+        row_proof.update(b"eg/semantic-owner-row-proof/v1\0");
+        proof_field(&mut row_proof, path.as_os_str().as_encoded_bytes());
+        proof_field(&mut row_proof, identity.digest());
         for row in source_table.iter().map_err(|error| error.to_string())? {
             let (key, value) = row.map_err(|error| error.to_string())?;
             let original: ScopeBinding = decode_ledger_record(value.value())?;
@@ -188,26 +197,71 @@ pub fn prove_semantic_owner_union_read_only(
             {
                 return Err("semantic merge changed a logical scope binding".to_string());
             }
+            prove_row(
+                &mut row_proof,
+                SCOPE_BINDINGS.name(),
+                key.value().as_bytes(),
+                value.value(),
+                merged.value(),
+                b"reanchored",
+            );
         }
         macro_rules! prove_content {
             ($table:expr) => {{
-                prove_table_rows(&source_read, &target_read, $table)?;
+                prove_table_rows(&source_read, &target_read, $table, &mut row_proof)?;
             }};
         }
         visit_ledger_content_tables!(prove_content);
-        prove_declared_owner_rows(&source_read, &target_read, OwnerLayout::SemanticIndex)?;
+        prove_declared_owner_rows(
+            &source_read,
+            &target_read,
+            OwnerLayout::SemanticIndex,
+            &mut row_proof,
+        )?;
+        let digest: [u8; 32] = row_proof.finalize().into();
+        source_proofs.push((path, digest));
     }
     prove_union_counts(&source_evidence, &target_evidence)?;
+    source_proofs.sort_by(|left, right| left.0.cmp(right.0));
+    let mut proof = Sha256::new();
+    proof.update(b"eg/semantic-owner-union-proof/v1\0");
+    proof.update((source_proofs.len() as u64).to_be_bytes());
+    for (path, digest) in source_proofs {
+        proof_field(&mut proof, path.as_os_str().as_encoded_bytes());
+        proof_field(&mut proof, &digest);
+    }
+    proof_field(&mut proof, &target_evidence.fingerprint);
     Ok(SemanticOwnerMergeEvidence {
         sources: source_evidence,
         target: target_evidence,
+        row_proof_sha256: proof.finalize().into(),
     })
+}
+
+/// Refuse a legacy per-binding file whose SemanticIndex owner rows name a
+/// different tenant or binding. This is separate from physical recovery
+/// validation, which binds ledger rows to scopes but does not interpret the
+/// first two components of domain-specific semantic table keys.
+pub fn prove_semantic_owner_partition_read_only(
+    path: &Path,
+    identity: &PhysicalStoreIdentity,
+    tenant: &str,
+    binding: &str,
+) -> Result<(), String> {
+    let source = open_read_only(path, None)?;
+    strict_recovery_evidence_read_only(&source, identity, OwnerLayout::SemanticIndex)?;
+    let read = source
+        .database()
+        .begin_read()
+        .map_err(|error| error.to_string())?;
+    crate::owner::registry::prove_semantic_partition(&read, tenant, binding)
 }
 
 pub(crate) fn prove_table_rows<K, V>(
     source: &ReadTransaction,
     target: &ReadTransaction,
     table: TableDefinition<'static, K, V>,
+    proof: &mut Sha256,
 ) -> Result<(), String>
 where
     K: Key + 'static,
@@ -228,8 +282,36 @@ where
         if V::as_bytes(&value.value()).as_ref() != V::as_bytes(&target_value.value()).as_ref() {
             return Err(format!("semantic union changed a row in {}", table.name()));
         }
+        prove_row(
+            proof,
+            table.name(),
+            K::as_bytes(&key.value()).as_ref(),
+            V::as_bytes(&value.value()).as_ref(),
+            V::as_bytes(&target_value.value()).as_ref(),
+            b"preserved",
+        );
     }
     Ok(())
+}
+
+fn prove_row(
+    proof: &mut Sha256,
+    table: &str,
+    key: &[u8],
+    source_value: &[u8],
+    target_value: &[u8],
+    disposition: &[u8],
+) {
+    proof_field(proof, table.as_bytes());
+    proof_field(proof, key);
+    proof_field(proof, &Sha256::digest(source_value));
+    proof_field(proof, &Sha256::digest(target_value));
+    proof_field(proof, disposition);
+}
+
+fn proof_field(proof: &mut Sha256, field: &[u8]) {
+    proof.update((field.len() as u64).to_be_bytes());
+    proof.update(field);
 }
 
 fn prove_union_counts(
@@ -278,4 +360,41 @@ fn prove_union_counts(
         return Err("semantic merge changed owner or ledger row totals".to_string());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::owner::registry::SEMANTIC_BINDINGS;
+
+    #[test]
+    fn owner_partition_rejects_a_cross_tenant_semantic_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("semantic.redb");
+        let identity = PhysicalStoreIdentity::new("semantic-partition-test").unwrap();
+        let store =
+            create_physical(&path, identity.clone(), None, OwnerLayout::SemanticIndex).unwrap();
+        let write = store.database().begin_write().unwrap();
+        write
+            .open_table(SEMANTIC_BINDINGS)
+            .unwrap()
+            .insert(("tenant-b", "binding-a", 1), b"planted".as_slice())
+            .unwrap();
+        write.commit().unwrap();
+        drop(store);
+        assert!(prove_semantic_owner_partition_read_only(
+            &path,
+            &identity,
+            "tenant-a",
+            "binding-a"
+        )
+        .is_err());
+        assert!(prove_semantic_owner_partition_read_only(
+            &path,
+            &identity,
+            "tenant-b",
+            "binding-a"
+        )
+        .is_ok());
+    }
 }

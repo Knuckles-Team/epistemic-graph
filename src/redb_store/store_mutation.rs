@@ -757,6 +757,8 @@ pub(crate) fn commit_mutation_batch_with_outbox_lease(
         input,
         Some(OutboxBatchEffect {
             lease: Some(lease),
+            #[cfg(feature = "raft")]
+            top_up: None,
             stage_reactivation,
         }),
         crypto,
@@ -782,7 +784,69 @@ pub(crate) fn commit_mutation_batch_with_reactivation_rows(
         input,
         Some(OutboxBatchEffect {
             lease: None,
+            #[cfg(feature = "raft")]
+            top_up: None,
             stage_reactivation,
+        }),
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )
+}
+
+#[cfg(feature = "raft")]
+#[derive(Clone, Copy)]
+struct TopUpSourceEffect<'a> {
+    transition: &'a crate::raft::EnrichmentTopUpTransition,
+}
+
+/// One Raft state-machine application of a verified, sealed top-up. The
+/// replacement parent, old source receipt and policy/budget/park rows commit in
+/// one admitted graph transaction on every replica.
+#[cfg(feature = "raft")]
+pub(crate) fn commit_repository_enrichment_top_up(
+    shard: &Shard,
+    graph: &str,
+    transition: &crate::raft::EnrichmentTopUpTransition,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    transition.validate(graph, committed_at_ms)?;
+    // Retain the exact sealed transition in the private commit receipt so a
+    // new leader can reconstruct a byte-identical retry after the park was
+    // cleared and the replacement cursor has advanced.
+    let receipt = rmp_serde::to_vec_named(transition)
+        .map_err(|_| "CONFLICT: enrichment top-up receipt encode failed")?;
+    let mut stage = |write: &ShardWrite<'_>| {
+        crate::redb_store::enrichment_budget::stage_parked_reactivation(
+            write,
+            graph,
+            &transition.expected_budget,
+            &transition.expected_park,
+            &transition.replacement_budget,
+            &transition.revision,
+            crypto,
+        )
+    };
+    commit_mutation_batch_inner_with_effect(
+        shard,
+        BatchCommitInput {
+            graph_fname: graph,
+            batch: &transition.replacement_batch,
+            change: None,
+            source_budget: None,
+            authoritative_state_msgpack: None,
+            crossmodal: None,
+            result_msgpack: Some(&receipt),
+            committed_at_ms,
+            audited: true,
+            crashpoint: None,
+        },
+        Some(OutboxBatchEffect {
+            lease: None,
+            top_up: Some(TopUpSourceEffect { transition }),
+            stage_reactivation: &mut stage,
         }),
         crypto,
         #[cfg(feature = "security")]
@@ -792,6 +856,8 @@ pub(crate) fn commit_mutation_batch_with_reactivation_rows(
 
 struct OutboxBatchEffect<'a> {
     lease: Option<&'a eg_types::MutationOutboxLease>,
+    #[cfg(feature = "raft")]
+    top_up: Option<TopUpSourceEffect<'a>>,
     stage_reactivation: &'a mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
 }
 
@@ -872,11 +938,32 @@ fn commit_mutation_batch_inner_with_effect(
     // rebound batch. Binding a cold graph opens its own transaction, so it must
     // happen before this group's admission.
     let handle = shard.graph(graph_fname)?;
+    #[cfg(feature = "raft")]
+    let top_up = outbox_effect.as_ref().and_then(|effect| effect.top_up);
+    #[cfg(feature = "raft")]
+    let bound = if top_up.is_some() {
+        batch.clone()
+    } else {
+        shard::bind_caller_batch(handle.as_ref(), graph_fname, batch)?
+    };
+    #[cfg(not(feature = "raft"))]
     let bound = shard::bind_caller_batch(handle.as_ref(), graph_fname, batch)?;
     if outbox_effect.is_some() && bound.outbox.is_empty() {
         return Err("CONFLICT: reactivation batch requires a replacement outbox intent".into());
     }
     let members = vec![(graph_fname.to_string(), Arc::clone(&handle))];
+    #[cfg(feature = "raft")]
+    let (group, batches) = if top_up.is_some() {
+        shard.admit_repository_enrichment_top_up_batch(
+            graph_fname,
+            &handle,
+            &bound,
+            &bound.batch_id,
+        )?
+    } else {
+        shard.admit_batch(graph_fname, &handle, &bound, &bound.batch_id)?
+    };
+    #[cfg(not(feature = "raft"))]
     let (group, batches) = shard.admit_batch(graph_fname, &handle, &bound, &bound.batch_id)?;
 
     if matches!(group.begun(1)?, Begin::Replay(_)) {
@@ -894,9 +981,46 @@ fn commit_mutation_batch_inner_with_effect(
         // replay member's fresh attempt nonce is consumed only by the commit
         // finalizer. `commit_batch` finishes the control member and seals the
         // replay member without reapplying owner rows.
-        let Begin::Replay(_record) = group.begun(1)?.clone() else {
+        let Begin::Replay(record) = group.begun(1)?.clone() else {
             return Err("admitted replay lost its receipt".to_string());
         };
+        #[cfg(feature = "raft")]
+        if let Some(top_up) = top_up {
+            let transition = top_up.transition;
+            let proposed_batch = rmp_serde::to_vec_named(&bound)
+                .map_err(|_| "CONFLICT: enrichment top-up retry encode failed")?;
+            let committed_batch = rmp_serde::to_vec_named(&record.batch)
+                .map_err(|_| "CONFLICT: enrichment top-up receipt encode failed")?;
+            if proposed_batch != committed_batch
+                || record.result_msgpack.as_deref() != result_msgpack
+                || record.committed_at_ms != committed_at_ms
+            {
+                shard.mutations().abort_group(group)?;
+                return Err("IDEMPOTENCY_CONFLICT: enrichment top-up retry changed".into());
+            }
+            if let Err(error) = shard.outbox_supersession_receipt_batch_record(
+                &group,
+                &handle,
+                &transition.consumer,
+                &transition.old_delivery,
+                committed_at_ms,
+            ) {
+                shard.mutations().abort_group(group)?;
+                return Err(error);
+            }
+            if let Err(error) = crate::redb_store::enrichment_budget::verify_reactivation_replay(
+                shard,
+                graph_fname,
+                &transition.expected_budget,
+                &transition.expected_park,
+                &transition.replacement_budget,
+                &transition.revision,
+                crypto,
+            ) {
+                shard.mutations().abort_group(group)?;
+                return Err(error);
+            }
+        }
         return finish_replayed_batch(
             shard,
             group,
@@ -961,6 +1085,20 @@ fn commit_mutation_batch_inner_with_effect(
 
     if let Some(effect) = outbox_effect.as_ref().and_then(|effect| effect.lease) {
         if let Err(error) = shard.outbox_ack_batch_lease(&group, &handle, effect, committed_at_ms) {
+            shard.mutations().abort_group(group)?;
+            return Err(error);
+        }
+    }
+    #[cfg(feature = "raft")]
+    if let Some(top_up) = top_up {
+        let transition = top_up.transition;
+        if let Err(error) = shard.outbox_supersede_batch_record(
+            &group,
+            &handle,
+            &transition.consumer,
+            &transition.old_delivery,
+            committed_at_ms,
+        ) {
             shard.mutations().abort_group(group)?;
             return Err(error);
         }
@@ -1062,6 +1200,7 @@ mod outbox_reactivation_tests {
         contract::Digest256, MutationOperation, MutationOutboxIntent, MutationScopeIdentity,
         MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
     };
+    use redb::ReadableTable;
 
     const GRAPH: &str = "graph-a";
     const CONSUMER: &str = "reactivation-worker";
@@ -1210,6 +1349,7 @@ mod outbox_reactivation_tests {
                 repository_id: "repository".into(),
                 policy_digest: "b".repeat(64),
                 total_budget_units: 5,
+                max_total_units: 5,
             },
             DurableCrypto::none(),
         )
@@ -1296,17 +1436,7 @@ mod outbox_reactivation_tests {
         );
         assert!(!a.replayed);
         assert!(!b.replayed);
-        let mut retry = replacement.clone();
-        retry.envelope = crate::redb_store::fixture_operation_envelope(
-            &retry.identity,
-            &format!("principal:sha256:{}", "a".repeat(64)),
-            43,
-            "replacement-key",
-        );
-        retry
-            .reseal_envelope(Digest256::from_bytes([1_u8; 32]))
-            .unwrap();
-        let replay = commit_owner_rows(&second, &retry, &mut |_| {
+        let replay = commit_owner_rows(&second, &replacement, &mut |_| {
             Err("callback must not run on exact replay".into())
         })
         .unwrap();

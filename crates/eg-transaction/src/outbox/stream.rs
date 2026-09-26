@@ -38,12 +38,14 @@ pub(crate) fn subscribe<D: OwnerDomain>(
     }
 }
 
-fn subscribe_in<D: OwnerDomain>(
+pub(crate) fn subscribe_in<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     identity: &MutationScopeIdentity,
     consumer: &str,
     topic: &str,
 ) -> Result<(), String> {
+    validate_consumer(consumer)?;
+    validate_topic(topic)?;
     ensure_not_graft_fenced(write, identity)?;
     let scope = ledger_scope_key(identity);
     let mut table = write.scoped_table(OUTBOX_CONSUMERS)?;

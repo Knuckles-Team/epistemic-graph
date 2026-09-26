@@ -49,7 +49,7 @@ enum PendingBudgetStatus {
 
 /// Decode only the server-owned, path-free snapshot for this exact outbox key.
 /// The caller must obtain the intent from a held durable outbox lease.
-pub(super) fn decode_pending_intent(
+pub(crate) fn decode_pending_intent(
     intent: &MutationOutboxIntent,
 ) -> Result<EligibleSnapshot, String> {
     if intent.topic != PENDING_TOPIC || intent.payload.len() > MAX_PENDING_INTENT_BYTES {
@@ -475,9 +475,17 @@ async fn classify_dead_letter(
         .into_iter()
         .find(|record| record.ordinal == position.ordinal)
         .ok_or("CORRUPT_OUTBOX: repository enrichment dead letter has no event")?;
+    record
+        .validate()
+        .map_err(|_| "CORRUPT_OUTBOX: repository enrichment dead letter row is invalid")?;
     if record.batch_id != position.batch_id
         || record.created_at_ms != position.created_at_ms
         || record.commit_sequence != Some(position.sequence)
+        || record
+            .identity
+            .scope()
+            .graph_name()
+            .is_none_or(|name| name.as_str() != graph_fname)
     {
         return Err("CORRUPT_OUTBOX: repository enrichment dead letter changed".into());
     }
@@ -642,6 +650,119 @@ mod tests {
     use eg_types::epistemic_operations::{
         RequestContextAuthenticationMethod, RequestContextSchemaVersion,
     };
+
+    #[cfg(feature = "blob")]
+    struct DeadLetterProbe {
+        row: eg_types::MutationOutboxRecord,
+        superseded: bool,
+    }
+
+    #[cfg(feature = "blob")]
+    #[async_trait::async_trait]
+    impl PersistenceBackend for DeadLetterProbe {
+        async fn load_all(
+            &self,
+            _state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
+        ) -> Result<usize, String> {
+            Ok(0)
+        }
+
+        async fn record_durable(
+            &self,
+            _graph_fname: &str,
+            _method: &crate::protocol::Method,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn read_mutation_outbox(
+            &self,
+            _graph_fname: &str,
+            batch_id: &str,
+        ) -> Result<Vec<eg_types::MutationOutboxRecord>, String> {
+            Ok((self.row.batch_id == batch_id)
+                .then(|| self.row.clone())
+                .into_iter()
+                .collect())
+        }
+
+        async fn read_enrichment_supersession(
+            &self,
+            _graph_fname: &str,
+            _source_envelope: &str,
+            _snapshot_digest: &str,
+        ) -> Result<bool, String> {
+            Ok(self.superseded)
+        }
+
+        fn shutdown(&self) {}
+    }
+
+    #[cfg(feature = "blob")]
+    #[tokio::test]
+    async fn dead_letter_requires_exact_ordered_operator_rewind() {
+        let source = snapshot(1, 1);
+        let intent = super::super::enrichment::intent_for_snapshot(source).unwrap();
+        let identity = eg_types::MutationScopeIdentity::fixed_graph(
+            "tenant",
+            "code",
+            eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
+        )
+        .unwrap();
+        let row = eg_types::MutationOutboxRecord {
+            schema_version: eg_types::MUTATION_BATCH_VERSION,
+            batch_id: "source-batch".into(),
+            ordinal: 0,
+            identity,
+            committed_version: eg_types::CommittedVersion::Graph {
+                source: 0,
+                target: 1,
+            },
+            commit_sequence: Some(1),
+            intent,
+            created_at_ms: 1,
+        };
+        let position = eg_transaction::OutboxPosition {
+            sequence: 1,
+            created_at_ms: 1,
+            batch_id: row.batch_id.clone(),
+            ordinal: 0,
+        };
+        let probe = DeadLetterProbe {
+            row,
+            superseded: true,
+        };
+        let message = classify_dead_letter(&probe, "code", &position)
+            .await
+            .unwrap();
+        assert!(message.contains("ordered rewind and stale-event ACK required"));
+        let live = DeadLetterProbe {
+            superseded: false,
+            ..probe
+        };
+        let message = classify_dead_letter(&live, "code", &position)
+            .await
+            .unwrap();
+        assert!(message.contains("repair cause before ordered rewind"));
+        let mut forged = position.clone();
+        forged.sequence += 1;
+        assert!(classify_dead_letter(&live, "code", &forged).await.is_err());
+        let wrong_graph = DeadLetterProbe {
+            row: eg_types::MutationOutboxRecord {
+                identity: eg_types::MutationScopeIdentity::fixed_graph(
+                    "tenant",
+                    "other-graph",
+                    eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
+                )
+                .unwrap(),
+                ..live.row
+            },
+            superseded: false,
+        };
+        assert!(classify_dead_letter(&wrong_graph, "code", &position)
+            .await
+            .is_err());
+    }
 
     fn service_context(tenant: &str, graph: &str, request_id: &str) -> RequestContext {
         RequestContext {

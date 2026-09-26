@@ -18,6 +18,87 @@ impl EgStore {
         req.validate_graph_command(server_secret, self.group_id)?;
         if let ReplicatedMutation::Native { command } = &req.command {
             match command {
+                NativeMutationCommand::EnrichmentTopUp { .. } => {
+                    let transition = req
+                        .command
+                        .open_enrichment_top_up(
+                            &req.graph_name,
+                            req.committed_at_ms,
+                            server_secret,
+                        )?
+                        .ok_or("replicated enrichment top-up payload is absent")?;
+                    let expected_tenant_scope =
+                        crate::server::mutation_batch::opaque_coordinator_key(
+                            "carrier-tenant",
+                            "verified",
+                            &transition.revision.tenant_id,
+                        );
+                    if req.mutation.is_internal()
+                        || req.mutation.attempt_nonce.is_none()
+                        || req.mutation.identity_bootstrap
+                        || req.mutation.tenant_scope != expected_tenant_scope
+                        || transition.revision.caller_subject.as_deref()
+                            != Some(req.mutation.principal_fingerprint.as_str())
+                        || req.mutation.batch_id != transition.replacement_batch.batch_id
+                        || req.mutation.created_at_ms != req.committed_at_ms
+                    {
+                        return Err(
+                            "ACCESS_DENIED: replicated enrichment top-up authority changed".into(),
+                        );
+                    }
+                    if crate::server::txn::consensus_graph_is_prepared(&req.graph_name) {
+                        return Err(
+                            "CONFLICT: graph is reserved by a prepared consensus transaction"
+                                .into(),
+                        );
+                    }
+                    let (core, persistence) = self.resolve_replicated_graph(req).await?;
+                    let backend = persistence
+                        .ok_or("replicated enrichment top-up requires graph persistence")?;
+                    let prior = backend
+                        .read_mutation_batch(
+                            &req.graph_fname,
+                            &transition.replacement_batch.batch_id,
+                        )
+                        .await?;
+                    transition.validate_parent_fence(
+                        req.mutation.placement_epoch,
+                        req.mutation.fencing_token,
+                        prior.as_ref(),
+                        req.committed_at_ms,
+                    )?;
+                    let committed = backend
+                        .commit_repository_enrichment_top_up(
+                            &req.graph_fname,
+                            transition,
+                            req.committed_at_ms,
+                        )
+                        .await?;
+                    committed.validate()?;
+                    // The outbox-only parent advances the durable graph version.
+                    // Publish that authoritative version on every replica,
+                    // including replay after a prior projection failure.
+                    let projection_pending = match self
+                        .install_authoritative_graph_snapshot(req, &core, &backend)
+                        .await
+                    {
+                        Ok(()) => false,
+                        Err(error) => {
+                            tracing::warn!(
+                                graph = %req.graph_fname,
+                                error = %error,
+                                "replicated enrichment top-up projection queued for repair"
+                            );
+                            true
+                        }
+                    };
+                    return Ok(Some(RaftResponse {
+                        applied: true,
+                        native_commit: Some(committed),
+                        projection_pending,
+                        ..Default::default()
+                    }));
+                }
                 NativeMutationCommand::EnrichmentPark { .. } => {
                     if !req.mutation.is_internal() {
                         return Err(

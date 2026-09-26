@@ -2021,6 +2021,7 @@ mod tests {
             ),
         )
         .await;
+        assert_eq!(resp.error.as_deref(), Some("UQL_UNKNOWN_STAGE"));
         let err = resp.error_detail.expect("malformed UQL must error");
         assert!(
             err.contains("UQL_UNKNOWN_STAGE") && err.contains("pipeline stage"),
@@ -2475,10 +2476,8 @@ mod tests {
             "an unregistered foreign source must ERROR, never silently degrade to the \
              local candidate set",
         );
-        assert!(
-            err.contains("typo_docs") && err.contains("remote_docs"),
-            "the error must name the missing source AND list what IS registered, got: {err}"
-        );
+        assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(err, "unclassified engine refusal");
 
         // The same for the UQL `FOREIGN "<name>"` marker.
         let resp = dispatch_on_heap(
@@ -2498,10 +2497,8 @@ mod tests {
         let err = resp
             .error_detail
             .expect("an unregistered FOREIGN \"<name>\" marker must error");
-        assert!(
-            err.contains("typo_docs"),
-            "the marker's error must name the missing source, got: {err}"
-        );
+        assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(err, "unclassified engine refusal");
     }
 
     // EH-373 foreign-source tenancy proofs through the full served dispatch chain.

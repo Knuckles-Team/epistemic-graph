@@ -368,6 +368,12 @@
       "retryable": false
     },
     {
+      "class": "validation",
+      "code": "DECISION_CLAUSE_IN_UQL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "server",
       "code": "DECISION_LOG_TOO_LARGE",
       "http_status_hint": 400,
@@ -1179,7 +1185,145 @@
     },
     {
       "class": "validation",
+      "code": "UQL_DUPLICATE_BINDING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_EMPTY_PARAMETER_NAME",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_EXPECTED_INTEGER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_FEATURE_NOT_IN_BUILD",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_INVALID_NUMBER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_INVALID_RANGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_NESTING_TOO_DEEP",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_NULL_LITERAL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_PARAMETER_TYPE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_STATEMENT_NOT_PIPELINE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_TRAILING_TOKENS",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNBOUND_PARAMETER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNEXPECTED_CHARACTER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNEXPECTED_TOKEN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNKNOWN_BINDING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNKNOWN_CHANNEL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNKNOWN_FUNCTION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNKNOWN_STAGE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
       "code": "UQL_UNSUPPORTED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNSUPPORTED_VERSION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNTERMINATED_IDENTIFIER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNTERMINATED_STRING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNUSED_BINDING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "UQL_UNUSED_PARAMETER",
       "http_status_hint": 400,
       "retryable": false
     },

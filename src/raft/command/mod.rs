@@ -5,7 +5,9 @@ use crate::protocol::Method;
 #[cfg(feature = "modality-serving")]
 use super::SanitizedModalityRaftCommand;
 
+mod enrichment_top_up;
 mod native;
+pub(crate) use enrichment_top_up::EnrichmentTopUpTransition;
 
 pub use native::{
     NativeMutationCommand, SealedNativeMethod, TransactionParticipantPhase,
@@ -143,6 +145,38 @@ impl ReplicatedMutation {
                     budget.as_ref(),
                 )?;
                 Ok(Some((envelope, budget)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub(crate) fn enrichment_top_up(
+        transition: &EnrichmentTopUpTransition,
+        graph: &str,
+        committed_at_ms: u64,
+        server_secret: &str,
+    ) -> Result<Self, String> {
+        transition.validate(graph, committed_at_ms)?;
+        Ok(Self::Native {
+            command: NativeMutationCommand::EnrichmentTopUp {
+                sealed_transition: SealedNativeMethod::seal_value(server_secret, transition)?,
+            },
+        })
+    }
+
+    pub(crate) fn open_enrichment_top_up(
+        &self,
+        graph: &str,
+        committed_at_ms: u64,
+        server_secret: &str,
+    ) -> Result<Option<EnrichmentTopUpTransition>, String> {
+        match self {
+            Self::Native {
+                command: NativeMutationCommand::EnrichmentTopUp { sealed_transition },
+            } => {
+                let transition = sealed_transition.open_value(server_secret)?;
+                EnrichmentTopUpTransition::validate(&transition, graph, committed_at_ms)?;
+                Ok(Some(transition))
             }
             _ => Ok(None),
         }

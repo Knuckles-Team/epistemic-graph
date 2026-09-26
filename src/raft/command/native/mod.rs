@@ -44,6 +44,11 @@ pub enum NativeMutationCommand {
     EnrichmentPark {
         sealed_park: SealedNativeMethod,
     },
+    /// Sealed, engine-owned budget revision. Replica apply must atomically
+    /// supersede the old outbox position and publish the replacement intent.
+    EnrichmentTopUp {
+        sealed_transition: SealedNativeMethod,
+    },
     #[cfg(feature = "modality-serving")]
     ServedModality {
         command: Box<SanitizedModalityRaftCommand>,
@@ -163,6 +168,7 @@ macro_rules! native_command_layout {
             unsealed {
                 ChangeEnvelope => None;
                 EnrichmentPark => None;
+                EnrichmentTopUp => None;
                 #[cfg(feature = "modality-serving")]
                 ServedModality => None;
                 TransactionParticipant => Some(NativeMutationDomain::Transaction);
@@ -290,6 +296,9 @@ fn validate_command_shape(command: &NativeMutationCommand) -> Result<(), String>
         }
         NativeMutationCommand::NodeInfo { sealed_info } => sealed_info.validate_shape(),
         NativeMutationCommand::EnrichmentPark { sealed_park } => sealed_park.validate_shape(),
+        NativeMutationCommand::EnrichmentTopUp { sealed_transition } => {
+            sealed_transition.validate_shape()
+        }
         _ => sealed_method(command).map_or(Ok(()), SealedNativeMethod::validate_shape),
     }
 }

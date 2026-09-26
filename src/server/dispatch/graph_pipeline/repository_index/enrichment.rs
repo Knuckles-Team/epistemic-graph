@@ -36,7 +36,7 @@ struct PendingSnapshot {
 /// Encode one complete immutable source as the only canonical pending intent
 /// shape. Source commits and authorized replacements use the same bounded
 /// format; neither may publish a partial page as a source snapshot.
-pub(super) fn intent_for_snapshot(
+pub(crate) fn intent_for_snapshot(
     snapshot: EligibleSnapshot,
 ) -> Result<MutationOutboxIntent, String> {
     snapshot.validate().map_err(|error| {
@@ -75,6 +75,7 @@ struct Policy {
     digest: String,
     model_digest: String,
     budget_units: u64,
+    max_total_units: u64,
     unit_cost: u64,
 }
 
@@ -117,10 +118,25 @@ impl Policy {
         if budget_units == 0 || unit_cost == 0 || unit_cost > budget_units {
             return Err("CONFLICT: repository enrichment budget is invalid".into());
         }
+        // This ceiling is committed with the source policy revision. Changing
+        // an environment variable later cannot authorize a larger top-up.
+        let max_total_units = match std::env::var("EG_REPOSITORY_ENRICHMENT_MAX_BUDGET_UNITS") {
+            Ok(value) => value
+                .parse::<u64>()
+                .map_err(|_| "CONFLICT: repository enrichment maximum budget is invalid")?,
+            Err(std::env::VarError::NotPresent) => budget_units,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err("CONFLICT: repository enrichment maximum budget is not UTF-8".into());
+            }
+        };
+        if max_total_units < budget_units {
+            return Err("CONFLICT: repository enrichment maximum budget is below its seed".into());
+        }
         Ok(Some(Self {
             digest: value(0).into(),
             model_digest: value(1).into(),
             budget_units,
+            max_total_units,
             unit_cost,
         }))
     }
@@ -387,6 +403,7 @@ pub(super) async fn pending_intent(
         repository_id: snapshot.repository_id.clone(),
         policy_digest: snapshot.policy_digest.clone(),
         total_budget_units: snapshot.budget_units,
+        max_total_units: policy.max_total_units,
     };
     Ok(Some(PendingEnrichment { intent, budget }))
 }
@@ -431,6 +448,7 @@ mod tests {
             digest: "a".repeat(64),
             model_digest: "b".repeat(64),
             budget_units: 129,
+            max_total_units: 129,
             unit_cost: 1,
         };
         let candidates = eligible_candidates(&result, &policy, "source-envelope").unwrap();

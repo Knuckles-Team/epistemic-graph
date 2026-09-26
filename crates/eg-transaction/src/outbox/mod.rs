@@ -63,6 +63,7 @@ mod rewind;
 mod rows;
 mod status;
 mod stream;
+mod supersede;
 mod views;
 
 #[cfg(test)]

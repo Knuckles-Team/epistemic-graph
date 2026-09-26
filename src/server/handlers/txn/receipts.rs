@@ -589,10 +589,7 @@ pub(super) fn seal_txn_recovery_plan(
     let plaintext = txn.encode_recovery_plan()?;
     let digest = txn.replay_intent_digest()?;
     let cipher = backend.transaction_recovery_cipher().ok_or_else(|| {
-        format!(
-            "transaction durability requires {} to be configured",
-            crate::crypto::ENCRYPTION_KEY_ENV
-        )
+        "ENGINE_UNAVAILABLE: transaction durability is not configured".to_string()
     })?;
     Ok((digest, cipher.seal(&plaintext)))
 }
@@ -602,7 +599,10 @@ pub(super) fn seal_txn_recovery_plan(
     _backend: &crate::server::persistence::redb_backend::RedbBackend,
     _txn: &GraphTxnState,
 ) -> Result<(String, Vec<u8>), String> {
-    Err("transaction durability requires a build with redb and security".to_string())
+    Err(
+        "ENGINE_UNAVAILABLE: transaction durability is not available in this server build"
+            .to_string(),
+    )
 }
 
 #[cfg(all(feature = "redb", feature = "security"))]

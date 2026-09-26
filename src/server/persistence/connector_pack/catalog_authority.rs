@@ -25,12 +25,43 @@ fn checked_scoped_binding(
     scope_digest: Digest256,
     attester_principal_id: &str,
 ) -> Result<McpCatalogSnapshotBinding, String> {
+    checked_catalog_binding(
+        row,
+        tenant_id,
+        server_name,
+        scope_digest,
+        Some(attester_principal_id),
+    )
+}
+
+/// Validate the persisted key and binding for either a mounted attester or a
+/// separate pack-control reader. Only the attester path compares principals.
+fn checked_catalog_binding(
+    row: McpCatalogAuthorityRow,
+    tenant_id: &str,
+    server_name: &str,
+    scope_digest: Digest256,
+    attester_principal_id: Option<&str>,
+) -> Result<McpCatalogSnapshotBinding, String> {
+    let configuration_digest = Digest256::framed(
+        b"eg/mcp-served-joined-config/v1",
+        &[
+            row.tenant_id.as_bytes(),
+            row.server_name.as_bytes(),
+            row.component_digest.as_bytes(),
+            row.registration_config_digest.as_bytes(),
+        ],
+    )?;
     if row.tenant_id != tenant_id
         || row.server_name != server_name
         || row.binding.authorization_scope_digest != scope_digest
-        || row.attester_principal_id != attester_principal_id
+        || row.attester_principal_id.is_empty()
+        || attester_principal_id.is_some_and(|principal| row.attester_principal_id != principal)
         || row.binding.configuration_revision == 0
         || row.binding.catalog_generation == 0
+        || row.binding.child_connection_generation == 0
+        || row.configuration_digest != configuration_digest
+        || row.registry_digest == Digest256::from_bytes([0; 32])
         || row.binding.snapshot_digest == Digest256::from_bytes([0; 32])
     {
         return Err("MCP catalog authority row differs from verified scope".into());
@@ -39,6 +70,37 @@ fn checked_scoped_binding(
 }
 
 impl AgentLibraryStore {
+    /// Read the current scoped binding for a separately authenticated
+    /// pack-control service. The handler must check its verified tenant/grant.
+    pub(crate) fn mcp_catalog_binding_status(
+        &self,
+        tenant_id: &str,
+        server_name: &str,
+        scope_digest: Digest256,
+    ) -> Result<Option<McpCatalogSnapshotBinding>, String> {
+        if tenant_id.is_empty()
+            || !eg_types::result_contract::cluster::is_valid_server_name(server_name)
+            || scope_digest == Digest256::from_bytes([0; 32])
+        {
+            return Err("invalid scoped MCP catalog binding read".into());
+        }
+        let scope_hex = scope_digest.to_hex();
+        let read = self.read()?;
+        let table = read.open_owner_table(eg_storage::MCP_CATALOG_SCOPES)?;
+        let row = table
+            .get((tenant_id, server_name, scope_hex.as_str()))
+            .map_err(|error| error.to_string())?
+            .map(|value| {
+                crate::server::persistence::agent_row::decode::<McpCatalogAuthorityRow>(
+                    value.value(),
+                    "MCP scoped catalog",
+                )
+            })
+            .transpose()?;
+        row.map(|row| checked_catalog_binding(row, tenant_id, server_name, scope_digest, None))
+            .transpose()
+    }
+
     /// Read the scoped generation from one committed owner snapshot.
     pub(crate) fn mcp_catalog_authority_status(
         &self,
@@ -289,6 +351,29 @@ mod tests {
                 checked_scoped_binding(row.clone(), tenant, server, digest, principal).is_err()
             );
         }
+    }
+
+    #[test]
+    fn request_binding_read_keeps_tenant_server_scope_and_digest_checks() {
+        let row = authority_row();
+        let scope = row.binding.authorization_scope_digest;
+        assert_eq!(
+            checked_catalog_binding(row.clone(), "tenant-a", "child-a", scope, None).unwrap(),
+            row.binding
+        );
+        for (tenant, server, digest) in [
+            ("tenant-b", "child-a", scope),
+            ("tenant-a", "child-b", scope),
+            ("tenant-a", "child-a", Digest256::from_bytes([5; 32])),
+        ] {
+            assert!(checked_catalog_binding(row.clone(), tenant, server, digest, None).is_err());
+        }
+        let mut corrupt = row.clone();
+        corrupt.binding.snapshot_digest = Digest256::from_bytes([0; 32]);
+        assert!(checked_catalog_binding(corrupt, "tenant-a", "child-a", scope, None).is_err());
+        let mut corrupt = row;
+        corrupt.configuration_digest = Digest256::from_bytes([0; 32]);
+        assert!(checked_catalog_binding(corrupt, "tenant-a", "child-a", scope, None).is_err());
     }
 
     #[test]

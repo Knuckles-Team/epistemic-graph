@@ -24,6 +24,15 @@ mod grant;
 #[cfg(all(feature = "redb", feature = "ast", feature = "blob", feature = "raft"))]
 #[path = "repository_enrichment_worker/raft_park.rs"]
 mod raft_park;
+#[cfg(all(
+    feature = "redb",
+    feature = "ast",
+    feature = "blob",
+    feature = "raft",
+    feature = "security"
+))]
+#[path = "repository_enrichment_worker/raft_top_up.rs"]
+pub(crate) mod raft_top_up;
 #[cfg(all(feature = "redb", feature = "ast", feature = "blob", feature = "raft"))]
 pub(crate) use raft_park::propose_and_release_park;
 

@@ -4,101 +4,12 @@
 
 use super::lexer::{LexError, LexErrorKind};
 
-/// The closed set of UQL error kinds. [`UqlCode::as_str`] is the stable wire name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum UqlCode {
-    // lexical
-    UnexpectedCharacter,
-    UnterminatedString,
-    UnterminatedIdentifier,
-    InvalidNumber,
-    EmptyParameterName,
-    // syntax
-    UnexpectedToken,
-    UnknownStage,
-    ExpectedInteger,
-    TrailingTokens,
-    NestingTooDeep,
-    InvalidRange,
-    DecisionClauseInUql,
-    UnsupportedVersion,
-    DuplicateBinding,
-    UnknownBinding,
-    UnusedBinding,
-    NullLiteral,
-    StatementNotPipeline,
-    CredentialBearingSpec,
-    UnknownChannel,
-    UnknownFunction,
-    // parameters
-    UnboundParameter,
-    ParameterType,
-    UnusedParameter,
-    // build
-    FeatureNotInBuild,
-}
+/// The closed diagnostic vocabulary is owned by the wire contract so the
+/// planner, response boundary, and generated API cannot drift.
+pub use eg_types::contract::UqlCode;
 
-/// Every code (for docs and exhaustiveness tests).
-pub const ALL_CODES: &[UqlCode] = &[
-    UqlCode::UnexpectedCharacter,
-    UqlCode::UnterminatedString,
-    UqlCode::UnterminatedIdentifier,
-    UqlCode::InvalidNumber,
-    UqlCode::EmptyParameterName,
-    UqlCode::UnexpectedToken,
-    UqlCode::UnknownStage,
-    UqlCode::ExpectedInteger,
-    UqlCode::TrailingTokens,
-    UqlCode::NestingTooDeep,
-    UqlCode::InvalidRange,
-    UqlCode::DecisionClauseInUql,
-    UqlCode::UnsupportedVersion,
-    UqlCode::DuplicateBinding,
-    UqlCode::UnknownBinding,
-    UqlCode::UnusedBinding,
-    UqlCode::NullLiteral,
-    UqlCode::StatementNotPipeline,
-    UqlCode::CredentialBearingSpec,
-    UqlCode::UnknownChannel,
-    UqlCode::UnknownFunction,
-    UqlCode::UnboundParameter,
-    UqlCode::ParameterType,
-    UqlCode::UnusedParameter,
-    UqlCode::FeatureNotInBuild,
-];
-
-impl UqlCode {
-    /// The stable name (`UQL_…`), what callers and agents match on.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::UnexpectedCharacter => "UQL_UNEXPECTED_CHARACTER",
-            Self::UnterminatedString => "UQL_UNTERMINATED_STRING",
-            Self::UnterminatedIdentifier => "UQL_UNTERMINATED_IDENTIFIER",
-            Self::InvalidNumber => "UQL_INVALID_NUMBER",
-            Self::EmptyParameterName => "UQL_EMPTY_PARAMETER_NAME",
-            Self::UnexpectedToken => "UQL_UNEXPECTED_TOKEN",
-            Self::UnknownStage => "UQL_UNKNOWN_STAGE",
-            Self::ExpectedInteger => "UQL_EXPECTED_INTEGER",
-            Self::TrailingTokens => "UQL_TRAILING_TOKENS",
-            Self::NestingTooDeep => "UQL_NESTING_TOO_DEEP",
-            Self::InvalidRange => "UQL_INVALID_RANGE",
-            Self::DecisionClauseInUql => "DECISION_CLAUSE_IN_UQL",
-            Self::UnsupportedVersion => "UQL_UNSUPPORTED_VERSION",
-            Self::DuplicateBinding => "UQL_DUPLICATE_BINDING",
-            Self::UnknownBinding => "UQL_UNKNOWN_BINDING",
-            Self::UnusedBinding => "UQL_UNUSED_BINDING",
-            Self::NullLiteral => "UQL_NULL_LITERAL",
-            Self::StatementNotPipeline => "UQL_STATEMENT_NOT_PIPELINE",
-            Self::CredentialBearingSpec => "UQL_CREDENTIAL_BEARING_SPEC",
-            Self::UnknownChannel => "UQL_UNKNOWN_CHANNEL",
-            Self::UnknownFunction => "UQL_UNKNOWN_FUNCTION",
-            Self::UnboundParameter => "UQL_UNBOUND_PARAMETER",
-            Self::ParameterType => "UQL_PARAMETER_TYPE",
-            Self::UnusedParameter => "UQL_UNUSED_PARAMETER",
-            Self::FeatureNotInBuild => "UQL_FEATURE_NOT_IN_BUILD",
-        }
-    }
-}
+/// Every UQL diagnostic code, in canonical declaration order.
+pub const ALL_CODES: &[UqlCode] = UqlCode::ALL;
 
 impl From<LexErrorKind> for UqlCode {
     fn from(kind: LexErrorKind) -> Self {

@@ -799,7 +799,9 @@ fn prune_resolved<D: OwnerDomain>(
         validate_stamp(&delivery.identity, identity)?;
         validate_delivery_key(&delivery, consumer, &position)?;
         validate_delivery_state(&delivery, acked_through)?;
-        if delivery.delivered() {
+        // A lease-free source supersession retains its terminal row as the
+        // exact Raft retry receipt. Ordinary acknowledged rows remain prunable.
+        if delivery.delivered() && delivery.lease_epoch != 0 {
             stale.push((position.batch_id, position.ordinal));
         }
     }

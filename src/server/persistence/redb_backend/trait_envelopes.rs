@@ -45,6 +45,24 @@ macro_rules! persistence_envelopes {
             rx.await.map_err(|_| "redb writer dropped repository ChangeEnvelope completion".to_string())?
         }
 
+        #[cfg(feature = "raft")]
+        async fn commit_repository_enrichment_top_up(
+            &self,
+            graph_fname: &str,
+            transition: crate::raft::EnrichmentTopUpTransition,
+            committed_at_ms: u64,
+        ) -> Result<MutationBatchCommit, String> {
+            let (done, rx) = oneshot::channel();
+            let cmd = Cmd::RepositoryEnrichmentTopUp {
+                graph: graph_fname.to_string(),
+                transition: Box::new(transition),
+                committed_at_ms,
+                done,
+            };
+            self.enqueue(graph_fname, cmd, "commit_repository_enrichment_top_up").await?;
+            rx.await.map_err(|_| "redb writer dropped enrichment top-up completion".to_string())?
+        }
+
         async fn commit_change_envelopes(
             &self,
             graph_fname: &str,

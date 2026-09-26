@@ -57,8 +57,8 @@ use eg_transaction::{
 use eg_transaction::{GraftDestination, GraftSource, GraftedScope, OwnerPayloadTransfer};
 use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 use eg_types::{
-    MutationBatch, MutationBatchRecord, MutationOutboxLease, MutationProjectionCursor,
-    MutationScopeIdentity,
+    MutationBatch, MutationBatchRecord, MutationOutboxLease, MutationOutboxRecord,
+    MutationProjectionCursor, MutationScopeIdentity,
 };
 
 mod batch;
@@ -452,6 +452,31 @@ impl Shard {
         )
     }
 
+    /// Admit the exact leader-sealed EH-557 replacement parent. Unlike a
+    /// caller batch, this reserved maintenance parent is already bound to the
+    /// graph shard scope; the private kernel gate refuses it from ordinary
+    /// mutation admission. Its OCC version stays verbatim for exact replay.
+    #[cfg(feature = "raft")]
+    pub(crate) fn admit_repository_enrichment_top_up_batch<'a>(
+        &'a self,
+        graph: &'a str,
+        handle: &'a ShardHandle,
+        batch: &'a MutationBatch,
+        op_id: &'a str,
+    ) -> Result<(AdmittedGroup<'a, GraphShardOwner>, Vec<MutationBatch>), String> {
+        if !batch.is_repository_enrichment_top_up()
+            || batch.identity != graph_scope_identity(graph)?
+            || batch.serving_principal() != handle.principal()
+        {
+            return Err("CONFLICT: repository enrichment replacement parent is unbound".into());
+        }
+        self.mutations
+            .admit_group_current_repository_enrichment_top_up(
+                self.control_intent(op_id),
+                ScopedIntent::new(handle, batch),
+            )
+    }
+
     /// Build the shard's control-scope maintenance batch for a later member of
     /// a shared caller transaction.  The first control member is created by
     /// [`Self::admit_batch`]; subsequent envelope members reuse the same
@@ -602,6 +627,45 @@ impl Shard {
     ) -> Result<MutationProjectionCursor, String> {
         self.mutations
             .outbox_ack_in(group.member(1)?, handle.as_ref(), lease, now_ms)
+    }
+
+    /// Resolve the old enrichment source by exact record in the replacement
+    /// parent's admitted graph member; no node-local delivery lease is used.
+    #[cfg(feature = "raft")]
+    pub(crate) fn outbox_supersede_batch_record(
+        &self,
+        group: &AdmittedGroup<'_, GraphShardOwner>,
+        handle: &ShardHandle,
+        consumer: &str,
+        record: &MutationOutboxRecord,
+        now_ms: u64,
+    ) -> Result<MutationProjectionCursor, String> {
+        self.mutations.outbox_supersede_in(
+            group.member(1)?,
+            handle.as_ref(),
+            consumer,
+            record,
+            now_ms,
+        )
+    }
+
+    /// Read the retained terminal source receipt on an exact Raft retry.
+    #[cfg(feature = "raft")]
+    pub(crate) fn outbox_supersession_receipt_batch_record(
+        &self,
+        group: &AdmittedGroup<'_, GraphShardOwner>,
+        handle: &ShardHandle,
+        consumer: &str,
+        record: &MutationOutboxRecord,
+        original_ms: u64,
+    ) -> Result<MutationProjectionCursor, String> {
+        self.mutations.outbox_supersession_receipt_in(
+            group.member(1)?,
+            handle.as_ref(),
+            consumer,
+            record,
+            original_ms,
+        )
     }
 
     /// Give one lease back unacknowledged, so another worker may claim it now

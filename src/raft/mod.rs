@@ -192,6 +192,7 @@ pub use modality::SanitizedModalityRaftCommand;
 pub(crate) use modality::{decode_sanitized_modality_result, SanitizedModalityMutation};
 
 mod command;
+pub(crate) use command::EnrichmentTopUpTransition;
 pub use command::{
     NativeMutationCommand, ReplicatedMutation, SealedNativeMethod, TransactionParticipantPhase,
     NATIVE_CONSENSUS_METHODS,

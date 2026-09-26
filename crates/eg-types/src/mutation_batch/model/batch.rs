@@ -2,7 +2,32 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{MutationCapability, MutationEnvelope, MutationOperation, MutationScopeIdentity};
+use super::{
+    MutationCapability, MutationEnvelope, MutationOperation, MutationOutboxRecord, MutationScope,
+    MutationScopeIdentity,
+};
+use crate::contract::Digest256;
+
+/// Reserved maintenance kind for one EH-557 replacement intent. Admission of
+/// this shape still requires the private, verified Raft top-up transition.
+pub const REPOSITORY_ENRICHMENT_TOP_UP_KIND: &str = "repository_enrichment_top_up";
+pub const REPOSITORY_ENRICHMENT_PENDING_TOPIC: &str = "repository.enrichment.pending";
+
+/// Inputs already checked by the private Raft top-up transition. The old row
+/// and policy sequence are bound into the maintenance subject, so a retry of a
+/// different revision cannot masquerade as the same replacement parent.
+pub struct RepositoryEnrichmentTopUp<'a> {
+    pub old_delivery: &'a MutationOutboxRecord,
+    pub policy_sequence: u64,
+    pub revision_idempotency_key: &'a str,
+    pub replacement_intent: MutationOutboxIntent,
+    pub replacement_batch_id: &'a str,
+    pub serving_principal: &'a str,
+    pub graph_version: u64,
+    pub placement_epoch: u64,
+    pub fencing_token: u64,
+    pub created_at_ms: u64,
+}
 
 /// Digest/version descriptor for authenticated authoritative graph material.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +130,88 @@ pub struct MutationBatch {
 }
 
 impl MutationBatch {
+    /// Build the real ledger parent for a replacement intent. This constructor
+    /// does not confer admission authority; the kernel's dedicated top-up path
+    /// must verify the old delivery and revision in the same admitted write.
+    pub fn repository_enrichment_top_up(
+        input: RepositoryEnrichmentTopUp<'_>,
+    ) -> Result<Self, String> {
+        input.old_delivery.validate()?;
+        if input.old_delivery.intent.topic != REPOSITORY_ENRICHMENT_PENDING_TOPIC
+            || input.old_delivery.intent.key == input.replacement_intent.key
+        {
+            return Err("repository enrichment top-up requires a distinct pending source".into());
+        }
+        if input.replacement_intent.key != input.replacement_batch_id {
+            return Err("repository enrichment replacement batch must name its new source".into());
+        }
+        let identity = input.old_delivery.identity.clone();
+        if !matches!(identity.scope(), MutationScope::Graph { .. }) {
+            return Err("repository enrichment replacement requires graph scope".into());
+        }
+        let ordinal = input.old_delivery.ordinal.to_be_bytes();
+        let sequence = input.policy_sequence.to_be_bytes();
+        let subject = Digest256::framed(
+            b"eg/repository-enrichment-top-up-parent/v1",
+            &[
+                input.old_delivery.batch_id.as_bytes(),
+                &ordinal,
+                input.old_delivery.intent.key.as_bytes(),
+                &input.old_delivery.intent.payload,
+                &sequence,
+            ],
+        )?;
+        let envelope = MutationEnvelope::maintenance(
+            input.serving_principal,
+            REPOSITORY_ENRICHMENT_TOP_UP_KIND,
+            &format!("outbox-replacement:{subject}"),
+            input.revision_idempotency_key,
+        )?;
+        let batch = Self {
+            schema_version: crate::mutation_batch::MUTATION_BATCH_VERSION,
+            batch_id: input.replacement_batch_id.to_string(),
+            envelope,
+            identity,
+            placement_epoch: input.placement_epoch,
+            version_expectation: VersionExpectation::Graph(input.graph_version),
+            fencing_token: Some(input.fencing_token),
+            authoritative_state: None,
+            operations: Vec::new(),
+            outbox: vec![input.replacement_intent],
+            created_at_ms: input.created_at_ms,
+        };
+        batch.validate()?;
+        Ok(batch)
+    }
+
+    /// Exact reserved zero-operation parent shape. This is a description, not
+    /// an authority grant: ordinary commit admission must refuse it.
+    pub fn is_repository_enrichment_top_up(&self) -> bool {
+        let MutationEnvelope::Maintenance(envelope) = &self.envelope else {
+            return false;
+        };
+        self.operations.is_empty()
+            && self.authoritative_state.is_none()
+            && matches!(self.identity.scope(), MutationScope::Graph { .. })
+            && matches!(self.version_expectation, VersionExpectation::Graph(_))
+            && self.placement_epoch > 0
+            && self.fencing_token.is_some()
+            && envelope.kind.as_str() == REPOSITORY_ENRICHMENT_TOP_UP_KIND
+            && envelope
+                .subject
+                .as_str()
+                .strip_prefix("outbox-replacement:")
+                .is_some_and(|hex| {
+                    hex.len() == 64
+                        && hex
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                })
+            && self.outbox.len() == 1
+            && self.outbox[0].topic == REPOSITORY_ENRICHMENT_PENDING_TOPIC
+            && self.outbox[0].key == self.batch_id
+            && self.outbox[0].headers.is_empty()
+    }
     /// A batch that applies over its owner's native version with no placement
     /// epoch, fencing token or staged state -- the shape every native owner
     /// write shares. `content` is the batch's final operations and outbox.

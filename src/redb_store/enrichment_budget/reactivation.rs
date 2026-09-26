@@ -17,7 +17,7 @@ struct Supersession {
 /// source intent; each accepted top-up creates the next source's revision.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct RepositoryEnrichmentPolicyRevision {
+pub struct RepositoryEnrichmentPolicyRevision {
     pub(crate) schema_version: u8,
     pub(crate) tenant_id: String,
     pub(crate) graph: String,
@@ -26,6 +26,10 @@ pub(crate) struct RepositoryEnrichmentPolicyRevision {
     pub(crate) snapshot_digest: String,
     pub(crate) policy_digest: String,
     pub(crate) total_budget_units: u64,
+    /// Immutable source-committed operator ceiling; legacy rows decode as
+    /// zero and cannot authorize a top-up.
+    #[serde(default)]
+    pub(crate) max_total_units: u64,
     pub(crate) sequence: u64,
     pub(crate) prior_source_envelope: Option<String>,
     pub(crate) prior_snapshot_digest: Option<String>,
@@ -33,6 +37,25 @@ pub(crate) struct RepositoryEnrichmentPolicyRevision {
     pub(crate) caller_subject: Option<String>,
     pub(crate) verified_action: Option<String>,
     pub(crate) idempotency_key: Option<String>,
+}
+
+/// Read the committed source policy. Caller-supplied proposal bytes never
+/// stand in for this row at the producer boundary.
+pub(crate) fn read_policy_revision(
+    shard: &Shard,
+    graph: &str,
+    source_envelope: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<RepositoryEnrichmentPolicyRevision>, String> {
+    if source_envelope.is_empty() || source_envelope.len() > MAX_ENVELOPE_BYTES {
+        return Err("INVALID_ARGUMENT: repository enrichment source is invalid".into());
+    }
+    let handle = shard.graph(graph)?;
+    let read = shard.read(&handle)?;
+    let rows = read.scoped_owner_table(POLICY_REVISIONS)?;
+    rows.get((graph, source_envelope))?
+        .map(|row| decode_durable(&crypto.unseal(row.value())?))
+        .transpose()
 }
 
 pub(super) fn seed_policy_revision(
@@ -52,6 +75,7 @@ pub(super) fn seed_policy_revision(
         snapshot_digest: authority.snapshot_digest.clone(),
         policy_digest: authority.policy_digest.clone(),
         total_budget_units: authority.total_budget_units,
+        max_total_units: authority.max_total_units,
         sequence: 0,
         prior_source_envelope: None,
         prior_snapshot_digest: None,
@@ -125,6 +149,69 @@ pub(crate) fn is_superseded(
     Ok(true)
 }
 
+/// Verify an exact Raft retry against durable owner rows. Later funded pages
+/// may advance the replacement checkpoint, so compare its immutable authority
+/// rather than requiring the original cursor bytes to remain unchanged.
+pub(crate) fn verify_reactivation_replay(
+    shard: &Shard,
+    graph: &str,
+    expected: &BudgetCheckpoint,
+    park: &EnrichmentBudgetPark,
+    replacement: &BudgetCheckpoint,
+    revision: &RepositoryEnrichmentPolicyRevision,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let handle = shard.graph(graph)?;
+    let read = shard.read(&handle)?;
+    let saved_revision: RepositoryEnrichmentPolicyRevision = read
+        .scoped_owner_table(POLICY_REVISIONS)?
+        .get((graph, replacement.source_envelope.as_str()))?
+        .map(|row| decode_durable(&crypto.unseal(row.value())?))
+        .transpose()?
+        .ok_or("CONFLICT: enrichment top-up replay lacks policy revision")?;
+    if saved_revision != *revision {
+        return Err("CONFLICT: enrichment top-up replay revision changed".into());
+    }
+    let marker: Supersession = read
+        .scoped_owner_table(SUPERSESSIONS)?
+        .get((graph, expected.source_envelope.as_str()))?
+        .map(|row| decode_durable(&crypto.unseal(row.value())?))
+        .transpose()?
+        .ok_or("CONFLICT: enrichment top-up replay lacks supersession")?;
+    if marker.schema_version != 1
+        || marker.old_source_envelope != expected.source_envelope
+        || marker.old_snapshot_digest != expected.snapshot_digest
+        || marker.new_source_envelope != replacement.source_envelope
+        || marker.new_snapshot_digest != replacement.snapshot_digest
+        || marker.replacement_policy_digest != revision.policy_digest
+        || park.policy_digest != revision.prior_policy_digest.as_deref().unwrap_or_default()
+    {
+        return Err("CONFLICT: enrichment top-up replay supersession changed".into());
+    }
+    let checkpoint: BudgetCheckpoint = read
+        .scoped_owner_table(BUDGETS)?
+        .get((graph, replacement.source_envelope.as_str()))?
+        .map(|row| decode_durable(&crypto.unseal(row.value())?))
+        .transpose()?
+        .ok_or("CONFLICT: enrichment top-up replay lacks replacement budget")?;
+    if checkpoint.schema_version != 1
+        || checkpoint.tenant_id != replacement.tenant_id
+        || checkpoint.source_envelope != replacement.source_envelope
+        || checkpoint.snapshot_digest != replacement.snapshot_digest
+        || checkpoint.total_budget_units != replacement.total_budget_units
+        || checkpoint
+            .spent_units
+            .checked_add(checkpoint.reserved_units)
+            .and_then(|spent| spent.checked_add(checkpoint.remaining_units))
+            != Some(checkpoint.total_budget_units)
+        || checkpoint.next_index < replacement.next_index
+        || checkpoint.page_number < replacement.page_number
+    {
+        return Err("CONFLICT: enrichment top-up replay budget changed".into());
+    }
+    Ok(())
+}
+
 /// Compare and swap the parked budget rows inside an already admitted graph
 /// transaction. The caller must authenticate the policy revision and, in this
 /// same transaction, resolve the old outbox delivery and publish the revised
@@ -188,6 +275,9 @@ pub(crate) fn stage_parked_reactivation(
         || old_policy.snapshot_digest != expected.snapshot_digest
         || old_policy.policy_digest != expected_park.policy_digest
         || old_policy.total_budget_units != expected.total_budget_units
+        || old_policy.max_total_units == 0
+        || old_policy.max_total_units < revision.total_budget_units
+        || revision.max_total_units != old_policy.max_total_units
         || old_policy.sequence.checked_add(1) != Some(revision.sequence)
     {
         return Err("CONFLICT: repository enrichment policy sequence changed".into());
@@ -256,6 +346,7 @@ fn validate_policy_revision(
         || !valid_digest(&revision.policy_digest)
         || revision.policy_digest == park.policy_digest
         || revision.total_budget_units != replacement.total_budget_units
+        || revision.max_total_units < revision.total_budget_units
         || revision.sequence == 0
         || revision.prior_source_envelope.as_deref() != Some(expected.source_envelope.as_str())
         || revision.prior_snapshot_digest.as_deref() != Some(expected.snapshot_digest.as_str())
@@ -360,6 +451,7 @@ mod tests {
             snapshot_digest: next.snapshot_digest.clone(),
             policy_digest: "e".repeat(64),
             total_budget_units: next.total_budget_units,
+            max_total_units: 14,
             sequence: 1,
             prior_source_envelope: Some(old.source_envelope.clone()),
             prior_snapshot_digest: Some(old.snapshot_digest.clone()),
@@ -410,6 +502,7 @@ mod tests {
                     repository_id: "repository".into(),
                     policy_digest: park.policy_digest.clone(),
                     total_budget_units: old.total_budget_units,
+                    max_total_units: 14,
                 },
                 DurableCrypto::none(),
             )?;
@@ -419,6 +512,12 @@ mod tests {
             budgets.insert((graph, old.source_envelope.as_str()), bytes.as_slice())?;
             Ok(())
         });
+        let retained =
+            read_policy_revision(&shard, graph, &old.source_envelope, DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+        assert_eq!(retained.max_total_units, 14);
+        assert_eq!(retained.sequence, 0);
         commit("reactivation/park", &|write| {
             park_underfunded(write, graph, &park, DurableCrypto::none())
         });
@@ -448,7 +547,7 @@ mod tests {
         );
         assert_eq!(
             read_park(&shard, graph, DurableCrypto::none()).unwrap(),
-            Some(park.clone())
+            Some(park)
         );
         let mut stale_budget = old.clone();
         stale_budget.last_page_key = format!("repository-enrichment-page:{}", "f".repeat(64));
@@ -484,8 +583,9 @@ mod tests {
                 &revised_policy(&old, &next),
                 DurableCrypto::none(),
             )?;
-            assert!(ensure_active_source(write.graph(graph)?, graph, &old.source_envelope)
-                .is_err());
+            assert!(
+                ensure_active_source(write.graph(graph)?, graph, &old.source_envelope).is_err()
+            );
             assert!(park_underfunded(write, graph, &park, DurableCrypto::none()).is_err());
             Ok(())
         });
@@ -537,6 +637,109 @@ mod tests {
         assert!(read_park(&reopened, graph, DurableCrypto::none())
             .unwrap()
             .is_none());
+        drop(reopened);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn zero_page_top_up_persists_funded_source_and_supersession_across_reopen() {
+        let path = crate::redb_store::temp_path("eg-enrichment-zero-topup", "durable");
+        let shard = Shard::open(&path).unwrap();
+        let graph = "reactivation-graph";
+        let (mut old, _, mut next) = parked_rows();
+        old.next_index = 0;
+        old.page_number = 0;
+        old.reserved_units = 0;
+        old.remaining_units = 10;
+        old.last_page_key.clear();
+        next.next_index = 0;
+        next.page_number = 0;
+        next.reserved_units = 0;
+        next.remaining_units = 14;
+        next.last_page_key.clear();
+        let park = EnrichmentBudgetPark {
+            schema_version: 1,
+            source_envelope: old.source_envelope.clone(),
+            snapshot_digest: old.snapshot_digest.clone(),
+            next_index: 0,
+            page_number: 0,
+            remaining_units: 10,
+            required_units: 11,
+            policy_digest: "b".repeat(64),
+            parked_at_ms: 1,
+        };
+        let commit = |tag: &str, apply: &dyn Fn(&ShardWrite<'_>) -> Result<(), String>| {
+            let members = shard.graph_members(&[graph]).unwrap();
+            let (group, batches) = shard.admit_maintenance(&members, tag).unwrap();
+            let write = ShardWrite::open(&shard, &group, &members, &batches).unwrap();
+            apply(&write).unwrap();
+            write.finish().unwrap();
+            shard.commit_drain(group, &batches, 1).unwrap();
+        };
+        commit("zero-topup/seed", &|write| {
+            seed_source_budget(
+                write,
+                graph,
+                &SourceBudgetAuthority {
+                    tenant_id: old.tenant_id.clone(),
+                    source_envelope: old.source_envelope.clone(),
+                    snapshot_digest: old.snapshot_digest.clone(),
+                    repository_id: "repository".into(),
+                    policy_digest: park.policy_digest.clone(),
+                    total_budget_units: 10,
+                    max_total_units: 14,
+                },
+                DurableCrypto::none(),
+            )
+        });
+        commit("zero-topup/park", &|write| {
+            park_underfunded(write, graph, &park, DurableCrypto::none())
+        });
+        let revision = revised_policy(&old, &next);
+        commit("zero-topup/replace", &|write| {
+            stage_parked_reactivation(
+                write,
+                graph,
+                &old,
+                &park,
+                &next,
+                &revision,
+                DurableCrypto::none(),
+            )
+        });
+        drop(shard);
+        let reopened = Shard::open(&path).unwrap();
+        assert_eq!(
+            read(
+                &reopened,
+                graph,
+                &next.source_envelope,
+                DurableCrypto::none()
+            )
+            .unwrap(),
+            Some(next.clone())
+        );
+        assert!(read_park(&reopened, graph, DurableCrypto::none())
+            .unwrap()
+            .is_none());
+        assert!(is_superseded(
+            &reopened,
+            graph,
+            &old.source_envelope,
+            &old.snapshot_digest,
+            DurableCrypto::none(),
+        )
+        .unwrap());
+        verify_reactivation_replay(
+            &reopened,
+            graph,
+            &old,
+            &park,
+            &next,
+            &revision,
+            DurableCrypto::none(),
+        )
+        .unwrap();
         drop(reopened);
         let _ = std::fs::remove_file(path);
     }

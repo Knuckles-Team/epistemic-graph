@@ -246,6 +246,26 @@ macro_rules! writer_command_arms {
             let _ = done.send(res);
             false
         }
+        #[cfg(feature = "raft")]
+        Cmd::RepositoryEnrichmentTopUp {
+            graph,
+            transition,
+            committed_at_ms,
+            done,
+        } => {
+            flush(pending);
+            let result = crate::redb_store::commit_repository_enrichment_top_up(
+                shard,
+                &graph,
+                &transition,
+                committed_at_ms,
+                crypto,
+                #[cfg(feature = "security")]
+                &mut pending.audit_tail,
+            );
+            let _ = done.send(result);
+            false
+        }
         Cmd::MutationBatchCommit { payload, done } => {
             let MutationBatchPayload {
                 graph,

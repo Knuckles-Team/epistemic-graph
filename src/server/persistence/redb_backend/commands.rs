@@ -229,6 +229,15 @@ pub(crate) enum Cmd {
         payload: Box<MutationBatchPayload>,
         done: oneshot::Sender<Result<MutationBatchCommit, String>>,
     },
+    /// Sealed Raft top-up; the writer owns the old outbox supersession,
+    /// replacement parent and policy/budget/park CAS in one fsync.
+    #[cfg(feature = "raft")]
+    RepositoryEnrichmentTopUp {
+        graph: String,
+        transition: Box<crate::raft::EnrichmentTopUpTransition>,
+        committed_at_ms: u64,
+        done: oneshot::Sender<Result<MutationBatchCommit, String>>,
+    },
     /// Native WorkItem capability mint/verify.  These commands flush pending
     /// graph mutations first and execute the control-row authorization plus
     /// private capability ledger operation in one writer-owned transaction.

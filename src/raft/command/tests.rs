@@ -41,6 +41,7 @@ fn sealed_repository_budget_is_bound_to_exact_source_intent() {
         repository_id: snapshot.repository_id.clone(),
         policy_digest: snapshot.policy_digest.clone(),
         total_budget_units: snapshot.budget_units,
+        max_total_units: snapshot.budget_units,
     };
     envelope.mutation.outbox.push(MutationOutboxIntent {
         topic: "repository.enrichment.pending".into(),

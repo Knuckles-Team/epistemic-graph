@@ -245,6 +245,24 @@ pub fn ops() -> Vec<(&'static str, ConnectorPackOp)> {
                 },
             },
         ),
+        (
+            "ConnectorPack.catalog_binding_status",
+            ConnectorPackOp::CatalogBindingStatus {
+                request: McpCatalogAuthorityStatusRequest {
+                    tenant_id: "tenant-a".to_string(),
+                    server_name: "connector-a".to_string(),
+                },
+            },
+        ),
+        (
+            "ConnectorPack.catalog_request_owner_principal",
+            ConnectorPackOp::CatalogRequestOwnerPrincipal {
+                request: McpCatalogAuthorityStatusRequest {
+                    tenant_id: "tenant-a".to_string(),
+                    server_name: "connector-a".to_string(),
+                },
+            },
+        ),
     ]
 }
 

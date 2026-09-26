@@ -52,7 +52,7 @@ pub(crate) fn begin<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Begin, String> {
-    begin_inner(write, batch, false)
+    begin_inner(write, batch, false, false)
 }
 
 /// Admit one of the kernel's reserved graft batches.
@@ -65,16 +65,37 @@ pub(crate) fn begin_graft<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Begin, String> {
-    begin_inner(write, batch, true)
+    begin_inner(write, batch, true, false)
+}
+
+/// Admit the reserved, outbox-only parent for a replicated repository
+/// enrichment top-up. Public mutation entry points refuse this namespace.
+pub(crate) fn begin_repository_enrichment_top_up<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+) -> Result<Begin, String> {
+    begin_inner(write, batch, false, true)
 }
 
 fn begin_inner<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
     allow_reserved_graft: bool,
+    allow_repository_enrichment_top_up: bool,
 ) -> Result<Begin, String> {
     if !allow_reserved_graft && is_reserved_graft_batch(batch) {
         return Err("reserved graft batch namespace is kernel-owned".to_string());
+    }
+    let reserved_top_up_kind = matches!(
+        &batch.envelope,
+        MutationEnvelope::Maintenance(envelope)
+            if envelope.kind.as_str()
+                == eg_types::mutation_batch::REPOSITORY_ENRICHMENT_TOP_UP_KIND
+    );
+    if reserved_top_up_kind != allow_repository_enrichment_top_up
+        || (allow_repository_enrichment_top_up && !batch.is_repository_enrichment_top_up())
+    {
+        return Err("repository enrichment top-up requires its private Raft admission".into());
     }
     batch.validate_write_budget()?;
     write.verify_scope(&batch.identity)?;

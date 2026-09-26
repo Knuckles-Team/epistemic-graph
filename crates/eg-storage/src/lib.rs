@@ -103,7 +103,8 @@ pub use recovery::evidence::{
     StrictTableEvidence,
 };
 pub use recovery::semantic_merge::{
-    merge_semantic_owner_files, prove_semantic_owner_union_read_only, SemanticOwnerMergeEvidence,
+    merge_semantic_owner_files, prove_semantic_owner_partition_read_only,
+    prove_semantic_owner_union_read_only, SemanticOwnerMergeEvidence,
 };
 pub use recovery::validate::{
     validate_recovery_store, validate_recovery_store_read_only, RecoveryStoreCounts,

@@ -29,6 +29,16 @@ mod pipeline;
 mod repository_index;
 #[cfg(all(feature = "ast", feature = "redb", feature = "blob", feature = "raft"))]
 pub(crate) use repository_index::plan_held_underfunded_park;
+#[cfg(all(
+    feature = "ast",
+    feature = "redb",
+    feature = "blob",
+    feature = "raft",
+    feature = "security"
+))]
+pub(crate) use repository_index::{
+    decode_pending_enrichment_intent, enrichment_intent_for_snapshot,
+};
 #[cfg(all(feature = "ast", feature = "redb", feature = "blob"))]
 pub(crate) use repository_index::{drain_repository_enrichment_once, DrainOutcome};
 mod work_governance;

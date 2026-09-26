@@ -48,6 +48,9 @@ pub struct SourceBudgetAuthority {
     pub(crate) repository_id: String,
     pub(crate) policy_digest: String,
     pub(crate) total_budget_units: u64,
+    /// Source-committed ceiling. Zero on legacy rows denies reactivation.
+    #[serde(default)]
+    pub(crate) max_total_units: u64,
 }
 
 /// A budget seed may accompany only the engine-attested source intent in its
@@ -73,7 +76,9 @@ pub(crate) fn validate_source_envelope(
                 && valid_digest(&authority.snapshot_digest)
                 && !authority.repository_id.is_empty()
                 && valid_digest(&authority.policy_digest)
-                && authority.total_budget_units > 0 =>
+                && authority.total_budget_units > 0
+                && (authority.max_total_units == 0
+                    || authority.max_total_units >= authority.total_budget_units) =>
         {
             validate_source_intent(envelope, authority, intent)
         }
@@ -167,6 +172,8 @@ pub(crate) fn seed_source_budget(
         || authority.repository_id.chars().any(char::is_control)
         || !valid_digest(&authority.policy_digest)
         || authority.total_budget_units == 0
+        || (authority.max_total_units != 0
+            && authority.max_total_units < authority.total_budget_units)
     {
         return Err("CONFLICT: repository enrichment source budget is invalid".into());
     }
@@ -464,7 +471,10 @@ pub(crate) fn park_underfunded(
 
 mod reactivation;
 pub(crate) use reactivation::is_superseded;
+pub(crate) use reactivation::read_policy_revision;
 pub(crate) use reactivation::stage_parked_reactivation;
+#[cfg(feature = "raft")]
+pub(crate) use reactivation::verify_reactivation_replay;
 pub(crate) use reactivation::RepositoryEnrichmentPolicyRevision;
 
 /// Read before each outbox claim, including the first claim after restart.
@@ -625,6 +635,7 @@ mod tests {
             repository_id: "repository".into(),
             policy_digest: "b".repeat(64),
             total_budget_units: 10,
+            max_total_units: 10,
         };
         let commit = |tag: &str, apply: &dyn Fn(&ShardWrite<'_>) -> Result<(), String>| {
             let members = shard.graph_members(&[graph]).unwrap();

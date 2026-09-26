@@ -155,6 +155,28 @@ macro_rules! persistence_native {
         crate::redb_store::enrichment_budget::read(&shard, graph_fname, source_envelope, crypto)
     }
 
+    async fn read_enrichment_policy_revision(
+        &self,
+        graph_fname: &str,
+        source_envelope: &str,
+    ) -> Result<Option<crate::redb_store::enrichment_budget::RepositoryEnrichmentPolicyRevision>, String> {
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
+        #[cfg(not(feature = "security"))]
+        let crypto = crate::redb_store::DurableCrypto::none();
+        crate::redb_store::enrichment_budget::read_policy_revision(
+            &shard,
+            graph_fname,
+            source_envelope,
+            crypto,
+        )
+    }
+
     async fn read_enrichment_budget_park(
         &self,
         graph_fname: &str,

@@ -33,6 +33,106 @@ fn require_catalog_owner_read(
     Ok(())
 }
 
+fn require_catalog_request_read(
+    verified: &VerifiedRequestContext,
+    tenant_id: &str,
+) -> Result<(), String> {
+    if tenant_id != verified.tenant() || !verified.allows_action("agent:pack-control") {
+        return Err("ACCESS_DENIED: connector pack catalog read is unavailable".into());
+    }
+    Ok(())
+}
+
+/// Read the committed binding under the request's verified tenant and logical
+/// server scope. A pack-control service can inspect the child attester's
+/// binding, but this operation never gives it reconciliation authority.
+pub(super) async fn serve_binding_status(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    request: eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
+) -> Response {
+    #[cfg(not(feature = "redb"))]
+    {
+        let _ = (state, verified, request);
+        Response::err(req_id, "MCP catalog authority requires the redb feature")
+    }
+    #[cfg(feature = "redb")]
+    {
+        if let Err(error) = require_catalog_request_read(verified, &request.tenant_id) {
+            return Response::err(req_id, error);
+        }
+        let scope = match verified.tenant_local_catalog_partition_digest(&request.server_name) {
+            Ok(scope) => scope,
+            Err(error) => return Response::err(req_id, error),
+        };
+        let store = match state.write().await.ensure_agent_library() {
+            Ok(store) => store,
+            Err(error) => return Response::err(req_id, error),
+        };
+        match store.mcp_catalog_binding_status(verified.tenant(), &request.server_name, scope) {
+            Ok(binding) => Response::ok(
+                req_id,
+                crate::protocol::ResultPayload::of_ref::<
+                    eg_types::result_contract::storage::ConnectorPackCatalogBindingStatus,
+                >(&binding),
+            ),
+            Err(error) => Response::err(req_id, error),
+        }
+    }
+}
+
+/// Return EG's actual mutation owner for a request-scoped importer only while
+/// that verified tenant/server/scope has a valid persisted catalog binding.
+pub(super) async fn serve_request_owner_principal(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    request: eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
+) -> Response {
+    #[cfg(not(feature = "redb"))]
+    {
+        let _ = (state, verified, request);
+        Response::err(req_id, "MCP catalog authority requires the redb feature")
+    }
+    #[cfg(feature = "redb")]
+    {
+        if let Err(error) = require_catalog_request_read(verified, &request.tenant_id) {
+            return Response::err(req_id, error);
+        }
+        let scope = match verified.tenant_local_catalog_partition_digest(&request.server_name) {
+            Ok(scope) => scope,
+            Err(error) => return Response::err(req_id, error),
+        };
+        let store = match state.write().await.ensure_agent_library() {
+            Ok(store) => store,
+            Err(error) => return Response::err(req_id, error),
+        };
+        match store.mcp_catalog_binding_status(verified.tenant(), &request.server_name, scope) {
+            Ok(Some(_)) => {
+                let owner = store.owner_principal();
+                let digest = owner.strip_prefix("principal:sha256:");
+                if !digest.is_some_and(|value| {
+                    value.len() == 64
+                        && value
+                            .bytes()
+                            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+                }) {
+                    return Response::err(req_id, "AgentLibrary owner principal is invalid");
+                }
+                Response::ok(
+                    req_id,
+                    crate::protocol::ResultPayload::of_ref::<
+                        eg_types::result_contract::storage::ConnectorPackCatalogRequestOwnerPrincipal,
+                    >(&owner.to_string()),
+                )
+            }
+            Ok(None) => Response::err(req_id, "scoped MCP catalog authority is unavailable"),
+            Err(error) => Response::err(req_id, error),
+        }
+    }
+}
+
 /// Return the actual AgentLibrary owner only to the same verified child
 /// attester that has a persisted scoped catalog row and pack-control grant.
 /// This is a read, not a way for the caller to assert its own owner principal.
@@ -287,5 +387,15 @@ mod tests {
         );
         assert!(require_catalog_owner_read(&importer, "tenant-a").is_ok());
         assert!(require_catalog_owner_read(&importer, "tenant-b").is_err());
+        let request_reader = VerifiedRequestContext::verified_for_test_with_scopes(
+            "connector-sync-service",
+            "tenant-a",
+            &["agent:pack-control"],
+        );
+        assert!(require_catalog_request_read(&request_reader, "tenant-a").is_ok());
+        assert!(require_catalog_request_read(&request_reader, "tenant-b").is_err());
+        assert!(require_catalog_owner_read(&request_reader, "tenant-a").is_err());
+        assert!(require_catalog_attester(&request_reader, "tenant-a", true).is_err());
+        assert!(require_catalog_request_read(&read, "tenant-a").is_err());
     }
 }

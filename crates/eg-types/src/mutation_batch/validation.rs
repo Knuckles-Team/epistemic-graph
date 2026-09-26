@@ -120,6 +120,9 @@ fn validate_required(value: &str, label: &str) -> Result<(), String> {
 
 fn validate_operations(batch: &MutationBatch) -> Result<(), String> {
     if batch.operations.is_empty() {
+        if batch.is_repository_enrichment_top_up() {
+            return Ok(());
+        }
         return Err("mutation batch must contain at least one operation".to_string());
     }
     for (expected, operation) in batch.operations.iter().enumerate() {
@@ -462,5 +465,65 @@ mod commit_tests {
             IncarnationId::new("incarnation:commit-validation").unwrap(),
         );
         assert!(wrong_identity.validate().is_err());
+    }
+
+    #[test]
+    fn repository_top_up_has_one_reserved_outbox_parent_without_graph_operations() {
+        let parent = graph_commit(MutationBatchStatus::Committed);
+        let old = MutationOutboxRecord {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: parent.record.batch.batch_id.clone(),
+            ordinal: 0,
+            identity: parent.identity.clone(),
+            committed_version: parent.record.committed_version,
+            commit_sequence: Some(5),
+            intent: MutationOutboxIntent {
+                topic: REPOSITORY_ENRICHMENT_PENDING_TOPIC.into(),
+                key: "old-source".into(),
+                payload: vec![1, 2, 3],
+                headers: Default::default(),
+            },
+            created_at_ms: 10,
+        };
+        let replacement = MutationOutboxIntent {
+            topic: REPOSITORY_ENRICHMENT_PENDING_TOPIC.into(),
+            key: "new-source".into(),
+            payload: vec![4, 5, 6],
+            headers: Default::default(),
+        };
+        let input = RepositoryEnrichmentTopUp {
+            old_delivery: &old,
+            policy_sequence: 3,
+            revision_idempotency_key: "top-up-revision-3",
+            replacement_intent: replacement,
+            replacement_batch_id: "new-source",
+            serving_principal: parent.record.batch.serving_principal(),
+            graph_version: 5,
+            placement_epoch: 3,
+            fencing_token: 4,
+            created_at_ms: 11,
+        };
+        let batch = MutationBatch::repository_enrichment_top_up(input).unwrap();
+        assert!(batch.operations.is_empty());
+        assert!(batch.is_repository_enrichment_top_up());
+        batch.validate_write_budget().unwrap();
+
+        let mut forged = batch.clone();
+        forged.outbox[0]
+            .headers
+            .insert("actor".into(), "forged".into());
+        assert!(forged.validate().is_err());
+        let mut forged = batch.clone();
+        forged.outbox[0].topic = "another.topic".into();
+        assert!(forged.validate().is_err());
+        let mut forged = batch.clone();
+        forged.envelope = parent.record.batch.envelope;
+        assert!(forged.validate().is_err());
+        let mut forged = batch.clone();
+        forged.outbox.clear();
+        assert!(forged.validate().is_err());
+        let mut forged = batch;
+        forged.placement_epoch = 0;
+        assert!(forged.validate().is_err());
     }
 }

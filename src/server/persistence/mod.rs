@@ -241,6 +241,19 @@ pub trait PersistenceBackend: Send + Sync {
         Err("persistence backend does not support enrichment budget reads".to_string())
     }
 
+    /// Committed operator ceiling and source sequence used by the private
+    /// top-up producer. Legacy rows decode with a zero ceiling and deny.
+    async fn read_enrichment_policy_revision(
+        &self,
+        _graph_fname: &str,
+        _source_envelope: &str,
+    ) -> Result<
+        Option<crate::redb_store::enrichment_budget::RepositoryEnrichmentPolicyRevision>,
+        String,
+    > {
+        Err("persistence backend does not support enrichment policy reads".to_string())
+    }
+
     /// Graph-wide pause observed before every enrichment outbox claim.
     async fn read_enrichment_budget_park(
         &self,
@@ -570,6 +583,18 @@ pub trait PersistenceBackend: Send + Sync {
         _committed_at_ms: u64,
     ) -> Result<ChangeEnvelopeCommit, String> {
         Err("persistence backend does not support atomic repository budget seed".into())
+    }
+
+    /// Apply one sealed, graph-Raft enrichment top-up with an exact source
+    /// supersession and replacement parent in the writer's graph transaction.
+    #[cfg(all(feature = "redb", feature = "raft"))]
+    async fn commit_repository_enrichment_top_up(
+        &self,
+        _graph_fname: &str,
+        _transition: crate::raft::EnrichmentTopUpTransition,
+        _committed_at_ms: u64,
+    ) -> Result<MutationBatchCommit, String> {
+        Err("persistence backend does not support replicated enrichment top-up".into())
     }
 
     /// Commit a BATCH of engine-native governed ingest units that all target

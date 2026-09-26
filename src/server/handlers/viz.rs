@@ -325,12 +325,8 @@ fn render(
         store.content_fingerprint(&request.dataset_ref)
     };
     let fingerprint = fingerprint.ok_or_else(|| {
-        format!(
-            "dataset `{}` is unavailable: no data was supplied on this request and no \
-             matching dataset has been previously ingested — refusing to render (an empty \
-             chart here would be indistinguishable from a real zero-row result)",
-            request.dataset_ref
-        )
+        "ENGINE_UNAVAILABLE: visualization dataset unavailable under the verified owner scope"
+            .to_string()
     })?;
 
     let query_hash = eg_viz_core::query_hash(&spec, &request.dataset_ref, fingerprint)

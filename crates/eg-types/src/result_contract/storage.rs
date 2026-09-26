@@ -104,6 +104,8 @@ method_results! {
     ConnectorPackReconcileCatalog(ConnectorPack / "reconcile_catalog") => Raw<McpCatalogSnapshotBinding>;
     ConnectorPackCatalogAuthorityStatus(ConnectorPack / "catalog_authority_status") => Raw<Option<McpCatalogSnapshotBinding>>;
     ConnectorPackCatalogOwnerPrincipal(ConnectorPack / "catalog_owner_principal") => Raw<String>;
+    ConnectorPackCatalogBindingStatus(ConnectorPack / "catalog_binding_status") => Raw<Option<McpCatalogSnapshotBinding>>;
+    ConnectorPackCatalogRequestOwnerPrincipal(ConnectorPack / "catalog_request_owner_principal") => Raw<String>;
     WriteBackCreate(WriteBack / "create") => Raw<SourceChangeSet>;
     WriteBackGet(WriteBack / "get") => Raw<Option<SourceChangeSet>>;
     WriteBackRecordAttempt(WriteBack / "record_attempt") => Raw<WriteBackReceipt>;

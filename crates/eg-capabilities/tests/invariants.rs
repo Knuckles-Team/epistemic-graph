@@ -419,6 +419,10 @@ fn contract_wave_op_policies_follow_their_ops() {
 
     let reads = [
         "ConnectorPack.status",
+        "ConnectorPack.catalog_authority_status",
+        "ConnectorPack.catalog_owner_principal",
+        "ConnectorPack.catalog_binding_status",
+        "ConnectorPack.catalog_request_owner_principal",
         "DecisionFit.status",
         "DecisionEval.status",
         "DecisionLog.get",

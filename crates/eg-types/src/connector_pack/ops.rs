@@ -1,6 +1,7 @@
 //! The `Method::ConnectorPack` operation set.
 //!
-//! Three reads (`status`, `catalog_authority_status`, `catalog_owner_principal`), one bulk import, and
+//! Five reads (`status`, `catalog_authority_status`, `catalog_owner_principal`,
+//! `catalog_binding_status`, `catalog_request_owner_principal`), one bulk import, and
 //! administrative operations.
 //! The read/write split and the authorization action both live on the op, so
 //! the capability ledger and `server::access::requires_write` cannot drift
@@ -133,6 +134,16 @@ pub enum ConnectorPackOp {
     CatalogOwnerPrincipal {
         request: McpCatalogAuthorityStatusRequest,
     },
+    /// Read the current tenant/server/scope binding as a pack-control service.
+    /// Unlike attester status, this does not confer catalog reconciliation.
+    CatalogBindingStatus {
+        request: McpCatalogAuthorityStatusRequest,
+    },
+    /// Return EG's actual AgentLibrary mutation owner to a verified
+    /// pack-control request identity for an existing scoped catalog row.
+    CatalogRequestOwnerPrincipal {
+        request: McpCatalogAuthorityStatusRequest,
+    },
 }
 
 impl ConnectorPackOp {
@@ -143,6 +154,8 @@ impl ConnectorPackOp {
             Self::Status { .. }
                 | Self::CatalogAuthorityStatus { .. }
                 | Self::CatalogOwnerPrincipal { .. }
+                | Self::CatalogBindingStatus { .. }
+                | Self::CatalogRequestOwnerPrincipal { .. }
         )
     }
 
@@ -165,6 +178,8 @@ impl ConnectorPackOp {
             Self::ReconcileCatalog { .. } => "admin:connector-pack",
             Self::CatalogAuthorityStatus { .. } => "connector:catalog-attest",
             Self::CatalogOwnerPrincipal { .. } => "agent:pack-control",
+            Self::CatalogBindingStatus { .. } => "agent:pack-control",
+            Self::CatalogRequestOwnerPrincipal { .. } => "agent:pack-control",
         }
     }
 
@@ -182,6 +197,8 @@ impl ConnectorPackOp {
             Self::ReconcileCatalog { request } => &request.context.tenant_id,
             Self::CatalogAuthorityStatus { request } => &request.tenant_id,
             Self::CatalogOwnerPrincipal { request } => &request.tenant_id,
+            Self::CatalogBindingStatus { request } => &request.tenant_id,
+            Self::CatalogRequestOwnerPrincipal { request } => &request.tenant_id,
         }
     }
 
@@ -199,6 +216,8 @@ impl ConnectorPackOp {
             Self::ReconcileCatalog { .. } => None,
             Self::CatalogAuthorityStatus { .. } => None,
             Self::CatalogOwnerPrincipal { .. } => None,
+            Self::CatalogBindingStatus { .. } => None,
+            Self::CatalogRequestOwnerPrincipal { .. } => None,
         }
     }
 }

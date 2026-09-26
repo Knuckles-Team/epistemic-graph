@@ -6726,6 +6726,42 @@
             "request"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read the current tenant/server/scope binding as a pack-control service.\nUnlike attester status, this does not confer catalog reconciliation.",
+          "properties": {
+            "op": {
+              "const": "catalog_binding_status",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/McpCatalogAuthorityStatusRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Return EG's actual AgentLibrary mutation owner to a verified\npack-control request identity for an existing scoped catalog row.",
+          "properties": {
+            "op": {
+              "const": "catalog_request_owner_principal",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/McpCatalogAuthorityStatusRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
         }
       ]
     },

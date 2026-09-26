@@ -53,6 +53,7 @@ pub fn declared_error_code(code: &str) -> bool {
         super::ServerErrorCode::ALL
             .iter()
             .any(|item| item.as_str() == code),
+        super::UqlCode::ALL.iter().any(|item| item.as_str() == code),
         crate::decision::DecisionErrorCode::ALL
             .iter()
             .any(|item| item.as_str() == code),

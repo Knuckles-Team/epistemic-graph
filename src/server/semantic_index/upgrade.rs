@@ -7,10 +7,10 @@
 
 use super::{legacy_semantic_owner_dir, sanitize_owner_segment, tenant_semantic_owner_file};
 use eg_storage::{
-    adopt_recovery, merge_semantic_owner_files, open_read_only, open_recovery,
-    prove_scope_bindings_reanchored_read_only, prove_semantic_owner_union_read_only,
-    strict_recovery_evidence, strict_recovery_evidence_read_only, OwnerLayout,
-    PhysicalStoreIdentity, StrictRecoveryEvidence,
+    adopt_recovery, layout_digest_hex, merge_semantic_owner_files, open_read_only, open_recovery,
+    prove_scope_bindings_reanchored_read_only, prove_semantic_owner_partition_read_only,
+    prove_semantic_owner_union_read_only, strict_recovery_evidence,
+    strict_recovery_evidence_read_only, OwnerLayout, PhysicalStoreIdentity, StrictRecoveryEvidence,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -62,6 +62,23 @@ pub(super) struct TenantOwnerPromotion {
     pub destination: PathBuf,
     pub source_census_digest: [u8; 32],
     pub target_evidence: StrictRecoveryEvidence,
+}
+
+/// EG-derived half of `rf019-tenant-activation-claim/v1`. Global signed
+/// receipt IDs/digests are deliberately absent: the checker must supply those
+/// from its fixed trust authority, never from this owner observer or a caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct VerifiedTenantMigrationObservation {
+    pub tenant_id: String,
+    pub binding_ids: Vec<String>,
+    pub owner_path: PathBuf,
+    pub owner_device: u64,
+    pub owner_inode: u64,
+    pub owner_size: u64,
+    pub owner_sha256: String,
+    pub owner_layout_sha256: String,
+    pub source_census_sha256: String,
+    pub migration_proof_sha256: String,
 }
 
 /// Inspect every declared v2 binding under an exclusive engine lock.
@@ -511,6 +528,230 @@ pub(super) fn recover_promoted_tenant_owner(
     verify_promoted_under_lease(persist_dir, tenant, binding_ids, max_total_bytes)
 }
 
+/// Produce the native migration observation for a checker-owned signer. The
+/// only inputs are the tenant/catalog selector and explicit I/O budgets. All
+/// digests, row dispositions and owner file facts are recomputed while EG's
+/// exclusive engine lease is held; there is no caller-supplied observation.
+/// The returned value is evidence, never a serving authorization token.
+pub(super) fn observe_promoted_tenant_owner(
+    persist_dir: &Path,
+    tenant: &str,
+    binding_ids: &[String],
+    max_source_bytes: u64,
+    max_owner_bytes: u64,
+) -> Result<VerifiedTenantMigrationObservation, String> {
+    if binding_ids.is_empty()
+        || binding_ids.len() > 32
+        || !claim_token(tenant)
+        || binding_ids.iter().any(|binding| !claim_token(binding))
+        || max_source_bytes == 0
+        || max_source_bytes > 8 * 1024 * 1024 * 1024
+        || max_owner_bytes == 0
+        || max_owner_bytes > 8 * 1024 * 1024 * 1024
+    {
+        return Err("semantic activation observation exceeds the closed claim bounds".to_string());
+    }
+    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let promoted = verify_promoted_under_lease(persist_dir, tenant, binding_ids, max_source_bytes)?;
+    let current = inspect_under_lease_with_destination(
+        persist_dir,
+        tenant,
+        binding_ids,
+        max_source_bytes,
+        true,
+    )?;
+    if current.source_census_digest != promoted.source_census_digest
+        || current.destination != promoted.destination
+    {
+        return Err("semantic activation source changed after promotion proof".to_string());
+    }
+    for source in &current.sources {
+        prove_semantic_owner_partition_read_only(
+            &source.source_file,
+            &legacy_physical_identity(tenant, &source.binding_id)?,
+            tenant,
+            &source.binding_id,
+        )?;
+        for table in [
+            "semantic_bindings",
+            "mutation_replay_operations",
+            "ledger_outbox",
+        ] {
+            if source
+                .evidence
+                .tables
+                .iter()
+                .find(|entry| entry.table_id == table)
+                .map_or(true, |entry| entry.rows == 0)
+            {
+                return Err(format!(
+                    "semantic activation source {} lacks a populated {table}",
+                    source.binding_id
+                ));
+            }
+        }
+    }
+    let sources = source_files_with_identities(&current)?;
+    let proof = prove_semantic_owner_union_read_only(
+        &sources,
+        &current.destination,
+        &tenant_physical_identity(&current.destination)?,
+    )?;
+    if proof.target != promoted.target_evidence
+        || proof
+            .sources
+            .iter()
+            .zip(&current.sources)
+            .any(|(observed, source)| observed != &source.evidence)
+    {
+        return Err("semantic activation row proof changed during observation".to_string());
+    }
+    let canonical =
+        std::fs::canonicalize(&current.destination).map_err(|error| error.to_string())?;
+    if canonical != current.destination {
+        return Err("semantic activation owner path is not canonical".to_string());
+    }
+    if canonical.to_str().is_none() {
+        return Err("semantic activation owner path is not UTF-8".to_string());
+    }
+    let owner = fingerprint_owner_file(&canonical, max_owner_bytes)?;
+    let ordered: Vec<_> = current
+        .sources
+        .iter()
+        .map(|source| source.binding_id.clone())
+        .collect();
+    if ordered.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err("semantic activation binding set is not sorted and unique".to_string());
+    }
+    let layout = layout_digest_hex(OwnerLayout::SemanticIndex);
+    let mut proof_digest = Sha256::new();
+    proof_digest.update(b"eg/rf019-tenant-migration-observation/v1\0");
+    hash_field(&mut proof_digest, tenant.as_bytes());
+    proof_digest.update((ordered.len() as u64).to_be_bytes());
+    for binding in &ordered {
+        hash_field(&mut proof_digest, binding.as_bytes());
+    }
+    hash_field(&mut proof_digest, canonical.as_os_str().as_encoded_bytes());
+    proof_digest.update(owner.device.to_be_bytes());
+    proof_digest.update(owner.inode.to_be_bytes());
+    proof_digest.update(owner.size.to_be_bytes());
+    proof_digest.update(owner.sha256);
+    proof_digest.update(current.source_census_digest);
+    proof_digest.update(proof.row_proof_sha256);
+    proof_digest.update(proof.target.fingerprint);
+    hash_field(&mut proof_digest, layout.as_bytes());
+    Ok(VerifiedTenantMigrationObservation {
+        tenant_id: tenant.to_string(),
+        binding_ids: ordered,
+        owner_path: canonical,
+        owner_device: owner.device,
+        owner_inode: owner.inode,
+        owner_size: owner.size,
+        owner_sha256: hex::encode(owner.sha256),
+        owner_layout_sha256: layout,
+        source_census_sha256: hex::encode(current.source_census_digest),
+        migration_proof_sha256: hex::encode(proof_digest.finalize()),
+    })
+}
+
+fn claim_token(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 128
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes[1..]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_.:-".contains(byte))
+}
+
+struct OwnerFingerprint {
+    device: u64,
+    inode: u64,
+    size: u64,
+    sha256: [u8; 32],
+}
+
+#[cfg(target_os = "linux")]
+fn fingerprint_owner_file(path: &Path, max_bytes: u64) -> Result<OwnerFingerprint, String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    // Linux O_NOFOLLOW. EG's normal engine lease fences cooperative writers;
+    // this descriptor check also refuses a changed/symlinked owner pathname.
+    const O_NOFOLLOW: i32 = 0o400000;
+    let named_before = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    let before = file.metadata().map_err(|error| error.to_string())?;
+    if !named_before.file_type().is_file()
+        || !before.is_file()
+        || named_before.nlink() != 1
+        || before.nlink() != 1
+        || before.len() > max_bytes
+    {
+        return Err("semantic activation owner file is not a bounded single-link file".to_string());
+    }
+    let mut digest = Sha256::new();
+    let mut count = 0_u64;
+    let mut block = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut block).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        count = count
+            .checked_add(read as u64)
+            .ok_or_else(|| "semantic activation owner byte count overflowed".to_string())?;
+        if count > max_bytes {
+            return Err("semantic activation owner byte budget exceeded".to_string());
+        }
+        digest.update(&block[..read]);
+    }
+    let after = file.metadata().map_err(|error| error.to_string())?;
+    let named_after = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    let stable = (
+        before.dev(),
+        before.ino(),
+        before.len(),
+        before.mtime(),
+        before.mtime_nsec(),
+        before.ctime(),
+        before.ctime_nsec(),
+    ) == (
+        after.dev(),
+        after.ino(),
+        after.len(),
+        after.mtime(),
+        after.mtime_nsec(),
+        after.ctime(),
+        after.ctime_nsec(),
+    ) && (before.dev(), before.ino(), before.len(), before.nlink())
+        == (
+            named_after.dev(),
+            named_after.ino(),
+            named_after.len(),
+            named_after.nlink(),
+        )
+        && named_after.file_type().is_file()
+        && (before.dev(), before.ino(), before.len())
+            == (named_before.dev(), named_before.ino(), named_before.len());
+    if !stable || count != before.len() {
+        return Err("semantic activation owner changed while observed".to_string());
+    }
+    Ok(OwnerFingerprint {
+        device: before.dev(),
+        inode: before.ino(),
+        size: count,
+        sha256: digest.finalize().into(),
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn fingerprint_owner_file(_path: &Path, _max_bytes: u64) -> Result<OwnerFingerprint, String> {
+    Err("semantic activation owner observation requires Linux no-follow open".to_string())
+}
+
 fn verify_promoted_under_lease(
     persist_dir: &Path,
     tenant: &str,
@@ -858,6 +1099,145 @@ fn hash_field(hasher: &mut Sha256, bytes: &[u8]) {
 mod tests {
     use super::*;
 
+    fn populated_binding(tenant: &str, binding: &str) -> eg_types::semantic_index::SemanticBinding {
+        use eg_types::semantic_index::{
+            SemanticAnnIndexMethod, SemanticAnnIndexSpec, SemanticBinding, SemanticBindingDraft,
+            SemanticLexicalIndexSpec, SemanticModelIdentity, SemanticPolicyComponents,
+            SemanticSourceSelector, SemanticVectorMetric, SqlColumnRef, SEMANTIC_SQL_CATALOG_ID,
+        };
+        SemanticBinding::create(SemanticBindingDraft {
+            binding_id: binding.to_string(),
+            tenant_id: tenant.to_string(),
+            actor_scope: "semantic:index-maintainer".to_string(),
+            effective_actor_scope: "semantic:agent:index-maintainer".to_string(),
+            purpose_id: "retrieval".to_string(),
+            policy: SemanticPolicyComponents {
+                rbac_policy_revision: 1,
+                rbac_policy_digest: "sha256:rbac".to_string(),
+                row_policy_revision: 1,
+                row_policy_digest: "sha256:row-policy".to_string(),
+                source_acl_revision: 7,
+                source_acl_digest: "sha256:sql-acl-state".to_string(),
+            },
+            source_selector: SemanticSourceSelector::SqlColumnRef(SqlColumnRef {
+                catalog_id: SEMANTIC_SQL_CATALOG_ID.to_string(),
+                schema_id: "public".to_string(),
+                table_id: "articles".to_string(),
+                column_id: "body".to_string(),
+            }),
+            source_schema_digest: "sha256:schema".to_string(),
+            source_revision: "source-v1".to_string(),
+            source_field_set_digest: "sha256:field-set".to_string(),
+            dimension: 3,
+            metric: SemanticVectorMetric::Cosine,
+            model: SemanticModelIdentity {
+                model_id: "embedding-model".to_string(),
+                model_revision: "revision-1".to_string(),
+                preprocess_digest: "sha256:preprocess".to_string(),
+                model_digest: "sha256:model".to_string(),
+            },
+            generation: 1,
+            maintenance_policy_id: "semantic-maintenance".to_string(),
+            lexical_index: SemanticLexicalIndexSpec {
+                analyzer_id: "standard".to_string(),
+                analyzer_revision: "1".to_string(),
+                analyzer_config_digest: "sha256:analyzer".to_string(),
+            },
+            ann_index: SemanticAnnIndexSpec {
+                method: SemanticAnnIndexMethod::IvfPq,
+                parameters_digest: "sha256:ann-parameters".to_string(),
+            },
+            created_at: "2026-09-08T00:00:00Z".to_string(),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn populated_two_binding_observation_is_exact_and_source_mutation_refused() {
+        use eg_core::compute::semantic_index_service::SemanticIndexService;
+        use eg_types::contract::Nonce;
+        use std::io::Write;
+        use std::sync::Arc;
+
+        let root = std::env::temp_dir().join(format!("semantic-observe-{}", uuid::Uuid::new_v4()));
+        let tenant = format!("tenant:{}", uuid::Uuid::new_v4());
+        let (grant_proof, _) = *super::super::semantic_server_secrets();
+        for (index, binding) in ["a", "b"].into_iter().enumerate() {
+            let service = SemanticIndexService::open(
+                &legacy_semantic_owner_dir(&root, &tenant, binding),
+                Arc::new(super::super::TenantScopedSemanticVerifier {
+                    tenant: tenant.clone(),
+                    proof: grant_proof,
+                }),
+                super::super::semantic_owner_principal(),
+                &grant_proof,
+                &tenant,
+                binding,
+            )
+            .unwrap();
+            let stored = service
+                .admit_binding_operation(
+                    &populated_binding(&tenant, binding),
+                    1,
+                    "semantic-index-observer-test",
+                    &format!("observe-{index}"),
+                    Nonce::from_bytes([index as u8 + 1; 32]),
+                )
+                .unwrap();
+            assert!(!stored.replayed);
+            drop(service);
+        }
+        let bindings = ["b".to_string(), "a".to_string()];
+        let inspected =
+            inspect_tenant_owner_upgrade(&root, &tenant, &bindings, 64 * 1024 * 1024).unwrap();
+        let candidate =
+            merge_multi_binding_tenant_candidate(&root, &inspected, 64 * 1024 * 1024).unwrap();
+        promote_multi_binding_tenant_candidate(&root, &inspected, &candidate, 64 * 1024 * 1024)
+            .unwrap();
+        let first = observe_promoted_tenant_owner(
+            &root,
+            &tenant,
+            &bindings,
+            64 * 1024 * 1024,
+            64 * 1024 * 1024,
+        )
+        .unwrap();
+        let second = observe_promoted_tenant_owner(
+            &root,
+            &tenant,
+            &bindings,
+            64 * 1024 * 1024,
+            64 * 1024 * 1024,
+        )
+        .unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first.binding_ids, vec!["a", "b"]);
+        assert_eq!(first.owner_path, inspected.destination);
+        assert_eq!(first.owner_sha256.len(), 64);
+        assert_eq!(first.owner_layout_sha256.len(), 64);
+        assert_eq!(
+            first.source_census_sha256,
+            hex::encode(inspected.source_census_digest)
+        );
+        assert_eq!(first.migration_proof_sha256.len(), 64);
+        assert!(super::super::open_semantic_service(&root, &tenant, "a").is_err());
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&inspected.sources[0].source_file)
+            .unwrap()
+            .write_all(b"source changed")
+            .unwrap();
+        assert!(observe_promoted_tenant_owner(
+            &root,
+            &tenant,
+            &bindings,
+            64 * 1024 * 1024,
+            64 * 1024 * 1024,
+        )
+        .is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn complete_two_binding_census_is_stable_and_read_only() {
         use eg_core::compute::semantic_index_service::SemanticIndexService;
@@ -1010,6 +1390,14 @@ mod tests {
         // closed; the offline promotion proof is not an activation receipt.
         assert!(super::super::open_semantic_service(&root, &tenant, "a").is_err());
         assert!(super::super::existing_semantic_service(&root, &tenant, "b").is_err());
+        assert!(observe_promoted_tenant_owner(
+            &root,
+            &tenant,
+            &["a".into(), "b".into()],
+            64 * 1024 * 1024,
+            64 * 1024 * 1024,
+        )
+        .is_err());
         for (source, original) in inspected.sources.iter().zip(sources) {
             assert_eq!(std::fs::read(&source.source_file).unwrap(), original);
         }

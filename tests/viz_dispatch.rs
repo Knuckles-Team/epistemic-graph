@@ -364,12 +364,12 @@ async fn omitting_dataset_against_an_unknown_dataset_ref_is_an_explicit_unavaila
         "an unknown dataset_ref with no data supplied must be a clear \
          'unavailable' error, never a fabricated empty render"
     );
-    assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
+    assert_eq!(resp.error.as_deref(), Some("ENGINE_UNAVAILABLE"));
     let message = resp
         .error_detail
         .expect("an unavailable dataset needs diagnostic detail");
     assert!(
-        message.contains("unavailable"),
+        message.contains("unavailable") && !message.contains("ds:never-ingested"),
         "error message should explain the data is unavailable, got: {message}"
     );
 }

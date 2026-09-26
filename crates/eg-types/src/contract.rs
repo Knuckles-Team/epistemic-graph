@@ -11,6 +11,7 @@ mod engine_error_code;
 mod error_code;
 mod identifiers;
 mod server_error_code;
+mod uql_error_code;
 
 pub(crate) use bounded_writer::BoundedWriter;
 pub use collections::{BoundedVec, RecordBytes};
@@ -25,6 +26,7 @@ pub use identifiers::{
     SchemaId, ScopeKind, TenantId, UtcUnixNanos, VerificationStatus,
 };
 pub use server_error_code::ServerErrorCode;
+pub use uql_error_code::UqlCode;
 
 /// Whether a located-evidence region is well-formed: every coordinate finite
 /// and a strictly positive extent. The wire contract and the modality artifact

@@ -8032,7 +8032,28 @@
             ]
           }
         },
+        "catalog_binding_status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/McpCatalogSnapshotBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
         "catalog_owner_principal": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": "string"
+          }
+        },
+        "catalog_request_owner_principal": {
           "dynamic": null,
           "encoding": "Raw",
           "schema": {

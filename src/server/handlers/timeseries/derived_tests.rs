@@ -219,15 +219,19 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
     for (series, source, expr, why) in refusals {
         let response = fx.define(TENANT, series, source, expr).await;
         let error = response.error_detail.unwrap_or_default();
-        assert!(error.contains(why), "{series} over {source}: {error}");
+        assert!(
+            response.error.as_deref() == Some(why) || error.contains(why),
+            "{series} over {source}: code={:?}, detail={error}",
+            response.error
+        );
     }
     // A deployment serves one tenant: a request context for another tenant is refused
     // at authentication (`auth::claims::validate_deployment_binding`), before any
-    // handler runs, for the define and for a read alike. That refusal has no stable
-    // error code yet (the prose below is what `auth`'s own binding table pins), so the
-    // test pins the prose AND that nothing of the foreign tenant is written or read.
+    // handler runs, for the define and for a read alike. Pin the stable code,
+    // detail, and absence of any foreign tenant write or read.
     const FOREIGN_TENANT: &str = "request context tenant does not match graph tenant";
     let foreign = fx.define("tenant-other", "px_z2", "px", EXPR).await;
+    assert_eq!(foreign.error.as_deref(), Some("AUTH_TENANT_MISMATCH"));
     let error = foreign.error_detail.unwrap_or_default();
     assert!(error.contains(FOREIGN_TENANT), "foreign define: {error}");
     let foreign_range = fx
@@ -240,6 +244,7 @@ async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
             },
         )
         .await;
+    assert_eq!(foreign_range.error.as_deref(), Some("AUTH_TENANT_MISMATCH"));
     assert!(
         foreign_range.result.is_none(),
         "a foreign tenant reads nothing"

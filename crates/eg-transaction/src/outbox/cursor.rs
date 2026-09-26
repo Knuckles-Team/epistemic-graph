@@ -169,7 +169,14 @@ fn prepare_ack<D: OwnerDomain>(
     claim::validate_claim_cursor(write, &scope, &topic, identity, &claim_cursor)?;
     validate_delivery_state(&delivery, claim_cursor.acked_through.as_ref())?;
     require_advance(claim_cursor.acked_through.as_ref(), &position)?;
-    require_no_earlier_gap(write, &scope, lease, &claim_cursor, &position)?;
+    require_no_earlier_gap(
+        write,
+        &scope,
+        &lease.consumer,
+        identity,
+        &claim_cursor,
+        &position,
+    )?;
     let cursor = build_cursor(&lease.consumer, &lease.record, now_ms)?;
     validate_stamp(&cursor.identity, identity)?;
     claim_cursor.acked_through = Some(position.clone());
@@ -248,7 +255,7 @@ fn cursor_names(
 }
 
 /// The watermark may only move forward, in the index's order.
-fn require_advance(
+pub(crate) fn require_advance(
     acked_through: Option<&OutboxPosition>,
     position: &OutboxPosition,
 ) -> Result<(), String> {
@@ -268,14 +275,15 @@ fn require_advance(
 /// the gap is refused rather than absorbed. A dead-lettered predecessor counts
 /// as resolved: that is what stops one poison event from wedging the stream
 /// permanently.
-fn require_no_earlier_gap<D: OwnerDomain>(
+pub(crate) fn require_no_earlier_gap<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     scope: &str,
-    lease: &MutationOutboxLease,
+    consumer: &str,
+    identity: &MutationScopeIdentity,
     claim_cursor: &OutboxClaimCursor,
     position: &OutboxPosition,
 ) -> Result<(), String> {
-    let topic = subscribed_topic(write, scope, &lease.consumer)?;
+    let topic = subscribed_topic(write, scope, consumer)?;
     let page = index::scan_in_write(
         write,
         scope,
@@ -286,14 +294,8 @@ fn require_no_earlier_gap<D: OwnerDomain>(
     let table = write.scoped_table(OUTBOX_DELIVERIES)?;
     let mut reached_position = false;
     for entry in page.entries {
-        index::validate_position_in_write(
-            write,
-            scope,
-            &topic,
-            &lease.record.identity,
-            &entry.position,
-        )
-        .map_err(|error| format!("CORRUPT_OUTBOX_INDEX: {error}"))?;
+        index::validate_position_in_write(write, scope, &topic, identity, &entry.position)
+            .map_err(|error| format!("CORRUPT_OUTBOX_INDEX: {error}"))?;
         if entry.position >= *position {
             reached_position = entry.position == *position;
             break;
@@ -301,7 +303,7 @@ fn require_no_earlier_gap<D: OwnerDomain>(
         let delivery = table
             .get((
                 scope,
-                lease.consumer.as_str(),
+                consumer,
                 entry.position.batch_id.as_str(),
                 entry.position.ordinal,
             ))?
@@ -309,8 +311,8 @@ fn require_no_earlier_gap<D: OwnerDomain>(
             .transpose()?;
         let resolved = match delivery {
             Some(row) => {
-                validate_stamp(&row.identity, &lease.record.identity)?;
-                validate_delivery_key(&row, &lease.consumer, &entry.position)?;
+                validate_stamp(&row.identity, identity)?;
+                validate_delivery_key(&row, consumer, &entry.position)?;
                 validate_delivery_state(&row, claim_cursor.acked_through.as_ref())?;
                 row.resolved()
             }

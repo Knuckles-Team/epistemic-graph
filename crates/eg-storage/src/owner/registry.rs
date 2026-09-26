@@ -5,7 +5,9 @@ use crate::recovery::evidence::{
     copy_table, HashSnapshot, StrictRecoveryEvidence, StrictTableEvidence,
 };
 use crate::tables::open_declared_ledger_tables;
-use redb::{Key, ReadTransaction, TableDefinition, TableHandle, Value, WriteTransaction};
+use redb::{
+    Key, ReadTransaction, ReadableTable, TableDefinition, TableHandle, Value, WriteTransaction,
+};
 use sha2::{Digest, Sha256};
 
 // Closed owner-table registry. These names and types are the manifest contract.
@@ -513,13 +515,55 @@ pub(crate) fn prove_declared_owner_rows(
     source: &ReadTransaction,
     target: &ReadTransaction,
     layout: OwnerLayout,
+    proof: &mut Sha256,
 ) -> Result<(), String> {
     macro_rules! prove {
         ($table:expr) => {{
-            crate::recovery::semantic_merge::prove_table_rows(source, target, $table)?;
+            crate::recovery::semantic_merge::prove_table_rows(source, target, $table, proof)?;
         }};
     }
     visit_owner_tables!(layout, prove);
+    Ok(())
+}
+
+/// A v2 semantic owner for one binding cannot contribute rows for another
+/// tenant or binding to a tenant-owned merge. Every SemanticIndex owner-table
+/// key begins with the same `(tenant, binding)` pair.
+pub(crate) fn prove_semantic_partition(
+    source: &ReadTransaction,
+    tenant: &str,
+    binding: &str,
+) -> Result<(), String> {
+    macro_rules! partition {
+        ($table:expr) => {{
+            let table = source
+                .open_table($table)
+                .map_err(|error| error.to_string())?;
+            for row in table.iter().map_err(|error| error.to_string())? {
+                let (key, _) = row.map_err(|error| error.to_string())?;
+                if key.value().0 != tenant || key.value().1 != binding {
+                    return Err("semantic owner row escaped its tenant binding".to_string());
+                }
+            }
+        }};
+    }
+    partition!(SEMANTIC_BINDINGS);
+    partition!(SEMANTIC_HEADS);
+    partition!(SEMANTIC_STAGES);
+    partition!(SEMANTIC_STATES);
+    partition!(SEMANTIC_SOURCE_PROGRESS);
+    partition!(SEMANTIC_POINTERS);
+    partition!(SEMANTIC_DEAD_LETTERS);
+    partition!(SEMANTIC_TOMBSTONES);
+    partition!(SEMANTIC_SQL_SOURCES);
+    partition!(SEMANTIC_GRAPH_PROJECTIONS);
+    partition!(SEMANTIC_AUTH_RECEIPTS);
+    partition!(SEMANTIC_CHECKPOINTS);
+    partition!(SEMANTIC_CHECKPOINT_HEADS);
+    partition!(SEMANTIC_LEXICAL);
+    partition!(SEMANTIC_ANN);
+    partition!(SEMANTIC_VECTORS);
+    partition!(ANN_CODES);
     Ok(())
 }
 
