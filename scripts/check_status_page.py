@@ -5,7 +5,7 @@ Lightweight advisory CI check (wired into .github/workflows/release.yml's
 `documentation-advisory` job) for the Codex/status page: fails when
 `status/status.md` is stale relative to
 `contract/capabilities.md`, `contract/capabilities.generated.md`, or
-`docs/concept_reservations.yaml`. Reuses `scripts/build_status_page.py`'s own
+`registry/concept_reservations.yaml`. Reuses `scripts/build_status_page.py`'s own
 render function rather than re-implementing the parsing/rendering logic — a
 second independent implementation is exactly how agent-utilities'
 1216/1203/1196 concept-count drift happened.
@@ -37,7 +37,7 @@ def main() -> int:
         print(
             "check_status_page: FAIL: status/status.md is stale relative to "
             "contract/capabilities.md / contract/capabilities.generated.md / "
-            "docs/concept_reservations.yaml. "
+            "registry/concept_reservations.yaml. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,
         )

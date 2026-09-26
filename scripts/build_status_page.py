@@ -22,7 +22,7 @@ Sources (never hand-typed):
   therefore the actual source of the LIVE/BUILDING/ROADMAP capability counts
   -- capabilities.generated.md cannot supply them because it carries no
   status field.
-* ``docs/concept_reservations.yaml`` -- the concept-ID reservation ledger.
+* ``registry/concept_reservations.yaml`` -- the concept-ID reservation ledger.
   Entries with ``status: reserved`` count as RESERVED.
 * Every ``CONCEPT:<ID>`` marker in tracked ``*.rs``/``*.py`` source -- swept
   and bucketed by pillar prefix (the part before the first ``.``, e.g.
@@ -52,7 +52,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CAPABILITIES_MD = ROOT / "contract" / "capabilities.md"
 CAPABILITIES_GENERATED_MD = ROOT / "contract" / "capabilities.generated.md"
-RESERVATIONS_PATH = ROOT / "docs" / "concept_reservations.yaml"
+RESERVATIONS_PATH = ROOT / "registry" / "concept_reservations.yaml"
 STATUS_PATH = ROOT / "status" / "status.md"
 
 CONCEPT_MARKER_RE = re.compile(r"CONCEPT:([A-Za-z]{2,5}-[A-Za-z0-9]+)\.[A-Za-z0-9.-]+")
@@ -100,7 +100,7 @@ HONESTY_FRAMING = (
     "**Honesty first.** Every capability on this page is tracked "
     "operation-by-operation, verified against the source, not against "
     "intent — the numbers below are computed from `contract/capabilities.md`, "
-    "`contract/capabilities.generated.md`, and `docs/concept_reservations.yaml` "
+    "`contract/capabilities.generated.md`, and `registry/concept_reservations.yaml` "
     "at generation time, never hand-typed."
 )
 
@@ -249,7 +249,7 @@ def render() -> str:
         "> **Generated — do not edit by hand.** Produced by "
         "`scripts/build_status_page.py` from `contract/capabilities.md`, "
         "`contract/capabilities.generated.md`, and "
-        "`docs/concept_reservations.yaml`. See "
+        "`registry/concept_reservations.yaml`. See "
         '"How this page stays honest" at the bottom.'
     )
     lines.append("")
@@ -287,7 +287,7 @@ def render() -> str:
         "cited at every call site that implements it, so this counts "
         "distinct IDs, never raw occurrences) and "
         f"**{total_reserved} RESERVED** concept IDs (open, unexpired entries "
-        "in `docs/concept_reservations.yaml`) across "
+        "in `registry/concept_reservations.yaml`) across "
         f"**{len(pillars)} pillars**. Unlike agent-utilities, this repo has "
         "no generated `concepts.yaml` registry — the marker sweep below is "
         "this page's own generated source, not a restatement of one."
@@ -358,7 +358,7 @@ def render() -> str:
     lines.append(
         "This page is produced by `scripts/build_status_page.py` from "
         "`contract/capabilities.md`, `contract/capabilities.generated.md`, and "
-        "`docs/concept_reservations.yaml` — never hand-typed. Regenerate it "
+        "`registry/concept_reservations.yaml` — never hand-typed. Regenerate it "
         "with:"
     )
     lines.append("")
@@ -413,7 +413,7 @@ def main() -> int:
     if current != rendered:
         print(
             "status/status.md is stale relative to contract/capabilities.md / "
-            "contract/capabilities.generated.md / docs/concept_reservations.yaml. "
+            "contract/capabilities.generated.md / registry/concept_reservations.yaml. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,
         )
