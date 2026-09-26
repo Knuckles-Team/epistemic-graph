@@ -24,12 +24,14 @@ use super::{
 };
 
 const ROOT: &str = "/etc/agent-utilities/rf019";
+const CLAIMS: &str = "/etc/agent-utilities/rf019/claims";
 const MANIFEST: &str = "/etc/agent-utilities/rf019/activation-manifest.json";
 const AUTHORITY: &str = "/etc/agent-utilities/rf019/server-preflight-authority.json";
 const HELPER: &str = "/usr/local/bin/rf019-activation-preflight";
 const MAX_HELPER_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HANDOFF_BYTES: usize = 128 * 1024;
 const MAX_OWNER_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const MAX_CLAIM_BYTES: u64 = 8192;
 const PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Deserialize)]
@@ -54,6 +56,10 @@ struct Grant {
     source_census_sha256: String,
     migration_proof_sha256: String,
     claim_payload_digest: String,
+    claim_device: u64,
+    claim_inode: u64,
+    claim_size: u64,
+    claim_sha256: String,
     expires_at_unix: u64,
     implementation_receipt_sha256: String,
     runtime_receipt_sha256: String,
@@ -265,6 +271,52 @@ fn token(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"_.:-".contains(byte))
 }
 
+/// Reobserve the fixed, signed claim file after taking engine.lock. The
+/// preflight helper verified its signature and consumed its nonce once; this
+/// check binds that same file to the serving grant without consuming again.
+fn fixed_claim_matches(grant: &Grant) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let directory = fs::symlink_metadata(CLAIMS).map_err(|error| error.to_string())?;
+        if !directory.file_type().is_dir()
+            || directory.uid() != 0
+            || directory.permissions().mode() & 0o777 != 0o700
+            || fs::canonicalize(CLAIMS).map_err(|error| error.to_string())? != Path::new(CLAIMS)
+        {
+            return Err("RF-019 fixed claim directory authority refused".to_string());
+        }
+        let name = hex::encode(Sha256::digest(grant.tenant_id.as_bytes()));
+        let path = Path::new(CLAIMS).join(format!("{name}.json"));
+        let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if !metadata.file_type().is_file()
+            || metadata.uid() != 0
+            || metadata.permissions().mode() & 0o777 != 0o600
+            || metadata.nlink() != 1
+            || grant.claim_size > MAX_CLAIM_BYTES
+        {
+            return Err("RF-019 fixed signed claim file authority refused".to_string());
+        }
+        let (digest, device, inode, size) = digest_file(&path, MAX_CLAIM_BYTES)?;
+        if (device, inode, size, hex::encode(digest))
+            != (
+                grant.claim_device,
+                grant.claim_inode,
+                grant.claim_size,
+                grant.claim_sha256.clone(),
+            )
+        {
+            return Err("RF-019 signed claim changed before serving lock".to_string());
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = grant;
+        Err("RF-019 activation requires no-follow Unix claim files".to_string())
+    }
+}
+
 fn run_fixed_helper(args: &[&str]) -> Result<Vec<u8>, String> {
     fn bounded_pipe<R: Read + Send + 'static>(
         mut pipe: R,
@@ -414,6 +466,7 @@ pub fn install(pending: PendingRf019Activation, persist_dir: &Path) -> Result<()
             || !hex_digest(&grant.source_census_sha256)
             || !hex_digest(&grant.migration_proof_sha256)
             || !hex_digest(&grant.claim_payload_digest)
+            || !hex_digest(&grant.claim_sha256)
             || !hex_digest(&grant.implementation_receipt_sha256)
             || !hex_digest(&grant.runtime_receipt_sha256)
         {
@@ -480,6 +533,9 @@ pub fn install(pending: PendingRf019Activation, persist_dir: &Path) -> Result<()
         )) != receipt_pair
     {
         return Err("RF-019 global signed receipts changed before serving lock".to_string());
+    }
+    for grant in checked.values() {
+        fixed_claim_matches(grant)?;
     }
     let mut active = activated()
         .lock()
