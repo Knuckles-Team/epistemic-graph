@@ -19,6 +19,7 @@ if __name__ == "__main__":
                 marker="__engine__",
                 expected_stamp="eg-pyengine",
                 script="build_pyengine_kernel.py",
+                features=("python", "security"),
             )
         )
     )
