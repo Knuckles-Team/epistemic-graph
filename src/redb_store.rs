@@ -2542,6 +2542,75 @@ mod mutation_batch_tests {
     }
 
     #[test]
+    fn scoped_relationship_batch_preserves_other_durable_parallel_edges() {
+        let path = temp_path("public-batch-rel-upsert");
+        let mut initial = batch("batch-rel-seed", "idem-rel-seed");
+        initial.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: DurabilityDomain::GraphRows,
+            method: public_batch_method(serde_json::json!([
+                {"op": "add_node", "id": "member", "properties": {}},
+                {"op": "add_node", "id": "community", "properties": {}},
+                {"op": "add_edge", "source": "member", "target": "community", "properties": {"relationship": "OTHER", "weight": 1}},
+                {"op": "add_edge", "source": "member", "target": "community", "properties": {"relationship": "PART_OF_COMMUNITY", "weight": 0.1}},
+                {"op": "upsert_edge_relationship", "source": "member", "target": "community", "properties": {"relationship": "PART_OF_COMMUNITY", "weight": 0.9}}
+            ])),
+        }];
+        initial
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .unwrap();
+        {
+            let db = open(&path);
+            commit_at(&db, &initial, None).unwrap();
+        }
+        let mut repeat = batch("batch-rel-repeat", "idem-rel-repeat");
+        repeat.version_expectation = VersionExpectation::Graph(4);
+        repeat.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: DurabilityDomain::GraphRows,
+            method: public_batch_method(serde_json::json!([{
+                "op": "upsert_edge_relationship", "source": "member", "target": "community",
+                "properties": {"relationship": "PART_OF_COMMUNITY", "weight": 0.9}
+            }])),
+        }];
+        repeat
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .unwrap();
+        {
+            let db = open(&path);
+            let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            assert_eq!(dump.edges.len(), 2);
+            commit_at(&db, &repeat, None).unwrap();
+        }
+        {
+            let db = open(&path);
+            let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                dump.edges.len(),
+                2,
+                "replay must not duplicate the relationship"
+            );
+            let mut props: Vec<serde_json::Value> = dump
+                .edges
+                .iter()
+                .map(|(_, _, blob)| rmp_serde::from_slice(blob).unwrap())
+                .collect();
+            props.sort_by_key(|row| row["relationship"].as_str().unwrap().to_string());
+            assert_eq!(props[0]["relationship"], "OTHER");
+            assert_eq!(props[0]["weight"], 1);
+            assert_eq!(props[1]["relationship"], "PART_OF_COMMUNITY");
+            assert_eq!(props[1]["weight"], 0.9);
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn malformed_or_state_invalid_public_batch_rolls_back_all_rows() {
         for (tag, method) in [
             (
