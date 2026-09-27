@@ -119,7 +119,10 @@ async fn dispatch_query_family(
 fn is_sql_query_method(method: &Method) -> bool {
     matches!(
         method,
-        Method::Sql { .. } | Method::UnifiedQuery { .. } | Method::Uql { .. }
+        Method::Sql { .. }
+            | Method::UnifiedQuery { .. }
+            | Method::RetrieveDocumentSections { .. }
+            | Method::Uql { .. }
     )
 }
 
@@ -131,6 +134,14 @@ async fn dispatch_sql_query(ctx: &QueryHandlerCtx<'_>, method: Method) -> Result
             params_msgpack,
         } => handle_sql(ctx, query, params_msgpack).await,
         Method::UnifiedQuery { plan } => handle_unified_query(ctx, plan).await,
+        Method::RetrieveDocumentSections {
+            document_id,
+            query,
+            top_k,
+            beam_width,
+        } => {
+            Ok(handle_retrieve_document_sections(ctx, document_id, query, top_k, beam_width).await)
+        }
         Method::Uql { text, params } => handle_uql(ctx, text, params).await,
         other => Err(other),
     }

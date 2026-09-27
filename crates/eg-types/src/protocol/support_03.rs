@@ -1,5 +1,29 @@
 use super::*;
 
+/// One evidence range ranked from persisted section metadata (EH-509).
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DocumentSectionCitation {
+    pub node_id: String,
+    pub title: String,
+    pub score: f64,
+    pub char_start: u64,
+    pub char_end: u64,
+    pub page_start: Option<u32>,
+    pub page_end: Option<u32>,
+    pub path: Vec<String>,
+}
+
+/// The identity and citations of one tenant-bound document retrieval.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DocumentSectionRetrieval {
+    pub document_id: String,
+    pub citations: Vec<DocumentSectionCitation>,
+}
+
 /// Materialized result of a fenced `Method::RecomputeMaterialization` writeback.
 /// All identifiers are domain-separated opaque projection references.
 #[cfg(feature = "epistemic")]

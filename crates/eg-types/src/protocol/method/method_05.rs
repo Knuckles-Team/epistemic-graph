@@ -96,6 +96,17 @@ $($variants)*
         plan: crate::wire::Plan,
     },
 
+    /// EH-509: rank persisted section metadata for one document in the verified
+    /// tenant's current graph. The server reads an RLS-filtered snapshot and
+    /// returns only cited character/page ranges, never section body text.
+    #[cfg(feature = "query")]
+    RetrieveDocumentSections {
+        document_id: String,
+        query: String,
+        top_k: usize,
+        beam_width: usize,
+    },
+
 
     // ── UQL — the one query-TEXT surface (UQL-07/08/09, EH-434) ─────────────────
     // The human/agent-writable counterpart of `UnifiedQuery`: a UQL statement whose

@@ -130,6 +130,10 @@ pub(in crate::server) use dispatch::try_handle;
 pub(in crate::server) use dispatch::{try_handle_with_policy, PolicyAwareQuery};
 mod sql_read;
 pub(crate) use sql_read::*;
+#[cfg(feature = "query")]
+mod document_retrieval;
+#[cfg(feature = "query")]
+pub(crate) use document_retrieval::handle_retrieve_document_sections;
 mod explain_handlers;
 pub(crate) use explain_handlers::*;
 mod nl;
