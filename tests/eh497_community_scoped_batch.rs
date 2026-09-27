@@ -120,3 +120,83 @@ async fn signed_community_batch_preserves_parallel_edges_and_actor_stamps() {
     assert_eq!(props["_owner_id"], "writer:alice");
     assert_eq!(props["classification"], "confidential");
 }
+
+#[tokio::test]
+async fn pair_wide_upsert_still_replaces_all_and_unsigned_scoped_write_is_denied() {
+    let state = test_support::durable_state(SECRET, common::current_isolation());
+    {
+        let server = &mut *state.write().await;
+        server
+            .registry
+            .create_graph(GRAPH, GraphType::Commons, None)
+            .unwrap();
+    }
+    let seed = batch(json!([
+        {"op": "add_node", "id": "a", "properties": {}},
+        {"op": "add_node", "id": "b", "properties": {}},
+        {"op": "add_edge", "source": "a", "target": "b",
+            "properties": {"relationship": "OTHER"}},
+        {"op": "add_edge", "source": "a", "target": "b",
+            "properties": {"relationship": "PART_OF_COMMUNITY"}}
+    ]));
+    assert!(call(&state, 10, seed).await.error.is_none());
+
+    let mut unsigned = test_support::request(
+        SECRET,
+        11,
+        GRAPH,
+        batch(
+            json!([{"op": "upsert_edge_relationship", "source": "a", "target": "b",
+            "properties": {"relationship": "PART_OF_COMMUNITY", "weight": 0.9}}]),
+        ),
+    );
+    unsigned.auth_token.clear();
+    let denied = Box::pin(dispatch(&state, unsigned)).await;
+    assert!(denied.error.is_some(), "unsigned mutation was accepted");
+    let unchanged = call(&state, 12, Method::GetEdges).await;
+    assert_eq!(test_support::edge_rows(&unchanged).len(), 2);
+
+    assert!(call(
+        &state,
+        13,
+        batch(json!([{"op": "upsert_edge", "source": "a", "target": "b",
+            "properties": {"relationship": "REPLACEMENT"}}])),
+    )
+    .await
+    .error
+    .is_none());
+    let pair_replaced = call(&state, 14, Method::GetEdges).await;
+    let pair_rows = test_support::edge_rows(&pair_replaced);
+    assert_eq!(
+        pair_rows.len(),
+        1,
+        "legacy pair-wide upsert must remove both edges"
+    );
+    let pair_props: Value = rmp_serde::from_slice(&pair_rows[0].2).unwrap();
+    assert_eq!(pair_props["relationship"], "REPLACEMENT");
+
+    assert!(call(
+        &state,
+        15,
+        batch(
+            json!([{"op": "upsert_edge_relationship", "source": "a", "target": "b",
+            "properties": {"relationship": "PART_OF_COMMUNITY"}}])
+        ),
+    )
+    .await
+    .error
+    .is_none());
+    let scoped = call(&state, 16, Method::GetEdges).await;
+    let mut relationships: Vec<String> = test_support::edge_rows(&scoped)
+        .iter()
+        .map(|(_, _, blob)| {
+            let props: Value = rmp_serde::from_slice(blob).unwrap();
+            props["relationship"].as_str().unwrap().to_owned()
+        })
+        .collect();
+    relationships.sort();
+    assert_eq!(
+        relationships,
+        vec!["PART_OF_COMMUNITY".to_string(), "REPLACEMENT".to_string()]
+    );
+}
