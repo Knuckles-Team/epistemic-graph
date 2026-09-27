@@ -6,6 +6,9 @@ use eg_types::control_lease::ControlLeaseTarget;
 
 use super::super::test_shard::{open, with_nodes, GRAPH};
 
+const ACTOR: &str =
+    "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
 fn issue(lease_id: &str, tenant: &str) -> IssueControlLeaseRequest {
     let mut grant = serde_json::Map::new();
     grant.insert("tool_ids".into(), serde_json::json!(["click", "type"]));
@@ -18,6 +21,7 @@ fn issue(lease_id: &str, tenant: &str) -> IssueControlLeaseRequest {
         expires_at_ms: 301_000,
         hard_expires_at_ms: 901_000,
         idempotency_key: format!("issue:{lease_id}"),
+        issuer: None,
     }
 }
 
@@ -44,7 +48,7 @@ fn decode<T: serde::de::DeserializeOwned>(payload: Option<crate::protocol::Resul
 
 fn issued(shard: &Shard, tag: &str, request: IssueControlLeaseRequest) -> ControlLeaseIssued {
     decode(with_nodes(shard, tag, |nodes| {
-        apply_issue_control_lease_row(GRAPH, &request, nodes, DurableCrypto::none())
+        apply_issue_control_lease_row(GRAPH, ACTOR, &request, nodes, DurableCrypto::none())
     }))
 }
 
@@ -71,6 +75,10 @@ fn an_issued_lease_is_readable_only_by_its_tenant_and_an_id_is_issued_once() {
     let view = get(&temp.shard, "tenant-a", "lease-1").expect("own lease is visible");
     assert_eq!(view.status, ControlLeaseStatus::Active);
     assert_eq!(view.revision, 1);
+    assert_eq!(
+        view.issuer, None,
+        "legacy lease views keep their wire shape"
+    );
     assert_eq!(Some(view), first.lease);
     assert_eq!(
         get(&temp.shard, "tenant-b", "lease-1"),
@@ -159,4 +167,43 @@ fn a_single_use_lease_is_consumed_once_and_can_still_be_revoked() {
         (view.status, view.revision),
         (ControlLeaseStatus::Revoked, 3)
     );
+}
+
+#[test]
+fn approval_issuer_is_bound_to_batch_actor_and_survives_transition() {
+    use eg_types::control_lease::{
+        ControlLeaseIssuer, ControlLeaseIssuerKind, HUMAN_WORKER_DELEGATION_KIND,
+    };
+
+    let temp = open("lease-human-issuer");
+    let mut request = issue("approval-1", "tenant-a");
+    request.kind = HUMAN_WORKER_DELEGATION_KIND.into();
+    request.issuer = Some(ControlLeaseIssuer {
+        principal_ref:
+            "principal:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                .into(),
+        kind: ControlLeaseIssuerKind::Human,
+    });
+    let mismatch = with_nodes(&temp.shard, "wrong-issuer", |nodes| {
+        Ok(
+            apply_issue_control_lease_row(GRAPH, ACTOR, &request, nodes, DurableCrypto::none())
+                .unwrap_err(),
+        )
+    });
+    assert!(mismatch.contains("verified batch actor"));
+    request.issuer.as_mut().unwrap().principal_ref = ACTOR.into();
+    let lease = issued(&temp.shard, "issue-human", request).lease.unwrap();
+    assert_eq!(
+        lease.issuer.as_ref().unwrap().kind,
+        ControlLeaseIssuerKind::Human
+    );
+    transitioned(
+        &temp.shard,
+        "end-human",
+        end("approval-1", 1, ControlLeaseTarget::Revoked),
+    );
+    let ended = get(&temp.shard, "tenant-a", "approval-1").unwrap();
+    assert_eq!(ended.status, ControlLeaseStatus::Revoked);
+    assert_eq!(ended.issuer, lease.issuer);
+    assert!(get(&temp.shard, "tenant-b", "approval-1").is_none());
 }

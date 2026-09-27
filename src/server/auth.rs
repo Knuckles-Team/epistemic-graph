@@ -891,7 +891,7 @@ fn require_oidc() -> bool {
 fn bind_verified_identity(
     claims: &RequestContextClaims,
     oidc_token: Option<&str>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let Some(validator) = primary_oidc_validator()? else {
         // No OIDC verifier is configured. Default posture: preserve today's
         // HMAC-only behavior. MANDATORY-OIDC posture: fail closed — a
@@ -904,7 +904,7 @@ fn bind_verified_identity(
                     .to_string(),
             );
         }
-        return Ok(());
+        return Ok(None);
     };
     let token = oidc_token
         .map(str::trim)
@@ -992,14 +992,14 @@ fn bind_verified_identity(
             ));
         }
     }
-    Ok(())
+    Ok(verified.principal_kind)
 }
 
 #[cfg(not(feature = "oidc"))]
 fn bind_verified_identity(
     _claims: &RequestContextClaims,
     _oidc_token: Option<&str>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     // This build has no `oidc` feature, so no verifier can ever exist. Same
     // shared `require_oidc()` posture as the `oidc`-feature variant above:
     // SECURE BY DEFAULT since 2026-07-22 — a build lacking the `oidc` feature
@@ -1016,7 +1016,7 @@ fn bind_verified_identity(
                 .to_string(),
         );
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Convert the authenticated transport nonce into the fixed-width nonce the
@@ -1064,7 +1064,8 @@ fn verify_envelope_v2_with(
         return Err("request timestamp is outside the allowed clock-skew window".to_string());
     }
     validate_context_claims(req, &envelope.context, policy)?;
-    bind_verified_identity(&envelope.context, envelope.oidc_token.as_deref())?;
+    let verified_oidc_kind =
+        bind_verified_identity(&envelope.context, envelope.oidc_token.as_deref())?;
     if envelope.idempotency_key.trim().is_empty() {
         return Err("request idempotency key must not be empty".to_string());
     }
@@ -1084,7 +1085,8 @@ fn verify_envelope_v2_with(
         envelope.context,
         envelope.idempotency_key,
         Some(wire_nonce),
-    ))
+    )
+    .with_verified_oidc_kind(verified_oidc_kind))
 }
 
 // ── policy entry point ─────────────────────────────────────────────────────
@@ -3246,6 +3248,7 @@ mod tests {
                 tenant: tenant.map(str::to_string),
                 roles: HashSet::new(),
                 scopes: scopes.iter().map(|s| s.to_string()).collect(),
+                principal_kind: None,
             }
         }
 

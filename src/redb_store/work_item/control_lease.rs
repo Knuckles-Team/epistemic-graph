@@ -9,8 +9,9 @@
 
 use eg_types::control_lease::{
     is_tenant_control_lease, validate_control_lease_get, ControlLeaseIssueOutcome,
-    ControlLeaseIssued, ControlLeaseTransition, ControlLeaseTransitionOutcome, ControlLeaseView,
-    IssueControlLeaseRequest, TransitionControlLeaseRequest,
+    ControlLeaseIssued, ControlLeaseIssuerKind, ControlLeaseTransition,
+    ControlLeaseTransitionOutcome, ControlLeaseView, IssueControlLeaseRequest,
+    TransitionControlLeaseRequest, HUMAN_WORKER_DELEGATION_KIND,
 };
 use eg_types::result_contract::coordination::{IssueControlLease, TransitionControlLease};
 
@@ -36,13 +37,14 @@ fn load_row(
 /// method that is not a control-lease write.
 pub(crate) fn apply_control_lease_rows(
     graph: &str,
+    actor: &str,
     method: &Method,
     nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     match method {
         Method::IssueControlLease { request } => {
-            apply_issue_control_lease_row(graph, request, nodes, crypto)
+            apply_issue_control_lease_row(graph, actor, request, nodes, crypto)
         }
         Method::TransitionControlLease { request } => {
             apply_transition_control_lease_row(graph, request, nodes, crypto)
@@ -55,11 +57,25 @@ pub(crate) fn apply_control_lease_rows(
 /// whatever it is, and is left untouched.
 pub(crate) fn apply_issue_control_lease_row(
     graph: &str,
+    actor: &str,
     request: &IssueControlLeaseRequest,
     nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     request.validate()?;
+    if actor.is_empty() {
+        return Err("control lease issuance requires a verified actor".into());
+    }
+    if let Some(issuer) = &request.issuer {
+        if issuer.principal_ref != actor {
+            return Err("control lease issuer does not match verified batch actor".into());
+        }
+    }
+    if request.kind == HUMAN_WORKER_DELEGATION_KIND
+        && request.issuer.as_ref().map(|issuer| issuer.kind) != Some(ControlLeaseIssuerKind::Human)
+    {
+        return Err("human-worker delegation requires a verified human issuer".into());
+    }
     if load_row(nodes, graph, &request.lease_id, crypto)?.is_some() {
         return crate::protocol::ResultPayload::of::<IssueControlLease>(ControlLeaseIssued {
             outcome: ControlLeaseIssueOutcome::Collision,

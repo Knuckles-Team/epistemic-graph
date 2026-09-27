@@ -12,6 +12,7 @@ fn issue() -> IssueControlLeaseRequest {
         expires_at_ms: 301_000,
         hard_expires_at_ms: 901_000,
         idempotency_key: "issue-1".into(),
+        issuer: None,
     }
 }
 
@@ -102,4 +103,27 @@ fn only_the_declared_edges_are_legal() {
             assert_eq!(to.allowed_from(from), legal, "{from:?} -> {to:?}");
         }
     }
+}
+
+#[test]
+fn approval_kind_requires_typed_human_issuer_and_row_round_trip() {
+    let mut request = issue();
+    request.kind = HUMAN_WORKER_DELEGATION_KIND.into();
+    request.grant.insert("origin_kind".into(), "human".into());
+    assert!(
+        request.validate().is_err(),
+        "grant text is not issuer evidence"
+    );
+    assert!(ControlLeaseView::from_row("browserlease_1", &request.row()).is_err());
+    request.issuer = Some(ControlLeaseIssuer {
+        principal_ref:
+            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .into(),
+        kind: ControlLeaseIssuerKind::Unverified,
+    });
+    assert!(request.validate().is_err());
+    request.issuer.as_mut().unwrap().kind = ControlLeaseIssuerKind::Human;
+    request.validate().unwrap();
+    let view = ControlLeaseView::from_row("browserlease_1", &request.row()).unwrap();
+    assert_eq!(view.issuer, request.issuer);
 }

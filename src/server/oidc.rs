@@ -149,6 +149,9 @@ struct BindingClaims {
     /// `agent_id` (the possibly-delegated effective actor; delegation is
     /// verified separately by `validate_context_claims`'s chain check).
     sub: String,
+    /// Issuer-attested actor class. Missing or unknown is never human authority.
+    #[serde(default)]
+    principal_kind: Option<String>,
     #[serde(default)]
     tenant_id: Option<String>,
     #[serde(default)]
@@ -198,6 +201,7 @@ pub(crate) struct VerifiedTokenClaims {
     pub(crate) tenant: Option<String>,
     pub(crate) roles: HashSet<String>,
     pub(crate) scopes: HashSet<String>,
+    pub(crate) principal_kind: Option<String>,
 }
 
 /// A Keycloak-realm JWT validator with a lazily-refreshed JWKS key cache.
@@ -450,6 +454,7 @@ impl JwtValidator {
             tenant,
             roles,
             scopes,
+            principal_kind: claims.principal_kind,
         })
     }
 }
@@ -547,6 +552,18 @@ mod tests {
         assert!(claims.roles.contains("kg:read"));
         assert!(claims.scopes.contains("kg:read"));
         assert!(claims.scopes.contains("kg:write"));
+        assert_eq!(claims.principal_kind, None);
+    }
+
+    #[test]
+    fn principal_kind_comes_only_from_signed_token_claims() {
+        let mut claims = base_claims();
+        claims["principal_kind"] = serde_json::json!("human");
+        let human = validator().validate_claims(&sign(KID, &claims)).unwrap();
+        assert_eq!(human.principal_kind.as_deref(), Some("human"));
+        claims["principal_kind"] = serde_json::json!("service");
+        let service = validator().validate_claims(&sign(KID, &claims)).unwrap();
+        assert_eq!(service.principal_kind.as_deref(), Some("service"));
     }
 
     #[test]

@@ -4623,10 +4623,31 @@ _CONTROL_LEASE_VIEW_FIELDS = frozenset(
 
 
 def _control_lease_view(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != _CONTROL_LEASE_VIEW_FIELDS:
+    if not isinstance(value, dict) or set(value) not in (
+        _CONTROL_LEASE_VIEW_FIELDS,
+        _CONTROL_LEASE_VIEW_FIELDS | {"issuer"},
+    ):
         raise RuntimeError("control lease view does not match the typed contract")
     if value["status"] not in ("active", "consumed", "revoked", "expired"):
         raise RuntimeError("control lease view carries an unknown status")
+    issuer = value.get("issuer")
+    if value["kind"] == "graphos.human-worker-delegation" and (
+        not isinstance(issuer, dict) or issuer.get("kind") != "human"
+    ):
+        raise RuntimeError("human-worker delegation lease lacks verified issuer")
+    if issuer is not None:
+        if not isinstance(issuer, dict) or set(issuer) != {"principal_ref", "kind"}:
+            raise RuntimeError("control lease issuer does not match the typed contract")
+        if issuer["kind"] not in {"human", "unverified"}:
+            raise RuntimeError("control lease issuer carries an unknown kind")
+        principal_ref = issuer["principal_ref"]
+        digest = (
+            principal_ref.removeprefix("principal:sha256:")
+            if isinstance(principal_ref, str)
+            else ""
+        )
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise RuntimeError("control lease issuer principal is not an opaque digest")
     return value
 
 

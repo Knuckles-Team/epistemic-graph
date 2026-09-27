@@ -181,6 +181,30 @@ def test_a_lease_answer_outside_the_contract_is_refused() -> None:
         )
 
 
+def test_human_issuer_evidence_is_projected_and_malformed_evidence_is_refused() -> None:
+    approval = {
+        **LEASE,
+        "kind": "graphos.human-worker-delegation",
+        "issuer": {
+            "principal_ref": "principal:sha256:" + "a" * 64,
+            "kind": "human",
+        },
+    }
+    assert (
+        asyncio.run(_leases(_Engine(approval)).get(tenant="t", lease_id="l"))
+        == approval
+    )
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _leases(_Engine({**LEASE, "kind": approval["kind"]})).get(
+                tenant="t", lease_id="l"
+            )
+        )
+    forged = {**approval, "issuer": {"principal_ref": "human-a", "kind": "human"}}
+    with pytest.raises(RuntimeError):
+        asyncio.run(_leases(_Engine(forged)).get(tenant="t", lease_id="l"))
+
+
 # -- graph-os EG-3 committed provenance ---------------------------------------
 
 

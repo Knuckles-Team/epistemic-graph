@@ -48,16 +48,27 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::TransitionControlLease { .. }) => method,
         other => return Err(other),
     };
-    let input_tenant = match &method {
+    let method = match method {
+        Method::IssueControlLease { mut request } => {
+            request = match bind_control_lease_issuer(request, ctx.verified_context) {
+                Ok(bound) => bound,
+                Err(error) => return Ok(Response::err(ctx.req_id, error)),
+            };
+            Method::IssueControlLease { request }
+        }
+        other => other,
+    };
+    let native_tenant = match &method {
         Method::RequestWorkItemInput { request } => Some(request.tenant.as_str()),
         Method::AnswerWorkItemInput { request } => Some(request.tenant.as_str()),
         Method::ExpireWorkItemInput { request } => Some(request.tenant.as_str()),
+        Method::IssueControlLease { request } => Some(request.tenant.as_str()),
         _ => None,
     };
-    if input_tenant.is_some_and(|tenant| tenant != ctx.verified_context.tenant()) {
+    if native_tenant.is_some_and(|tenant| tenant != ctx.verified_context.tenant()) {
         return Ok(Response::err(
             ctx.req_id,
-            "ACCESS_DENIED: pending-input tenant does not match verified carrier",
+            "ACCESS_DENIED: native WorkItem tenant does not match verified carrier",
         ));
     }
     if matches!(&method, Method::ClaimWorkItem { request }
@@ -118,6 +129,107 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
             Err(error) => Response::err(ctx.req_id, format!("WorkItem mutation failed: {error}")),
         };
     Ok(response)
+}
+
+fn bind_control_lease_issuer(
+    mut request: eg_types::control_lease::IssueControlLeaseRequest,
+    verified: &crate::server::auth::VerifiedRequestContext,
+) -> Result<eg_types::control_lease::IssueControlLeaseRequest, String> {
+    if request.issuer.is_some() {
+        return Err("ACCESS_DENIED: control lease issuer evidence is server-owned".into());
+    }
+    if request.kind == eg_types::control_lease::HUMAN_WORKER_DELEGATION_KIND {
+        if !verified.verified_human_issuer()
+            || !verified.allows_exact_scope("workitem:human-issuer")
+        {
+            return Err("ACCESS_DENIED: human-worker delegation requires an OIDC-verified, undelegated human and exact issuer scope".into());
+        }
+        request.issuer = Some(eg_types::control_lease::ControlLeaseIssuer {
+            principal_ref: verified.principal_persistence_id(),
+            kind: eg_types::control_lease::ControlLeaseIssuerKind::Human,
+        });
+    }
+    Ok(request)
+}
+
+#[cfg(test)]
+mod issuer_tests {
+    use super::*;
+    use crate::acl::RequestContextClaims;
+    use eg_types::control_lease::{
+        ControlLeaseIssuer, ControlLeaseIssuerKind, IssueControlLeaseRequest,
+        HUMAN_WORKER_DELEGATION_KIND,
+    };
+
+    fn issue() -> IssueControlLeaseRequest {
+        IssueControlLeaseRequest {
+            tenant: "tenant-a".into(),
+            lease_id: "approval-1".into(),
+            kind: HUMAN_WORKER_DELEGATION_KIND.into(),
+            grant: serde_json::Map::from_iter([("origin_kind".into(), "human".into())]),
+            issued_at_ms: 1,
+            expires_at_ms: 2,
+            hard_expires_at_ms: 3,
+            idempotency_key: "approval-1".into(),
+            issuer: None,
+        }
+    }
+
+    fn context(kind: Option<&str>, scopes: &[&str], delegated: bool) -> VerifiedRequestContext {
+        let principal = "human-a".to_string();
+        VerifiedRequestContext::from_verified_claims(
+            RequestContextClaims {
+                principal: principal.clone(),
+                tenant: "tenant-a".into(),
+                agent_id: if delegated {
+                    "worker-a".into()
+                } else {
+                    principal.clone()
+                },
+                delegation: if delegated {
+                    vec![principal, "worker-a".into()]
+                } else {
+                    vec![]
+                },
+                scopes: scopes.iter().map(|scope| (*scope).into()).collect(),
+                ..RequestContextClaims::default()
+            },
+            "approval-1".into(),
+        )
+        .with_verified_oidc_kind(kind.map(str::to_string))
+    }
+
+    #[test]
+    fn human_issuer_requires_verified_oidc_kind_exact_scope_and_no_delegation() {
+        let exact = ["workitem:human-issuer"];
+        for carrier in [
+            context(None, &exact, false),
+            context(Some("service"), &exact, false),
+            context(Some("human"), &["*"], false),
+            context(Some("human"), &exact, true),
+        ] {
+            assert!(bind_control_lease_issuer(issue(), &carrier).is_err());
+        }
+        let bound =
+            bind_control_lease_issuer(issue(), &context(Some("human"), &exact, false)).unwrap();
+        assert_eq!(bound.issuer.unwrap().kind, ControlLeaseIssuerKind::Human);
+    }
+
+    #[test]
+    fn caller_cannot_supply_issuer_even_when_it_names_the_same_subject() {
+        let mut request = issue();
+        request.issuer = Some(ControlLeaseIssuer {
+            principal_ref:
+                "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .into(),
+            kind: ControlLeaseIssuerKind::Human,
+        });
+        assert!(bind_control_lease_issuer(
+            request,
+            &context(Some("human"), &["workitem:human-issuer"], false),
+        )
+        .is_err());
+    }
 }
 
 /// Commit one native WorkItem method through the durable MutationBatch path under

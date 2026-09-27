@@ -33,6 +33,8 @@ use crate::work_item_read::WORK_ITEM_ROW_REVISION;
 
 /// `node_type` of a control-lease row.
 pub const CONTROL_LEASE_NODE_TYPE: &str = "ControlLease";
+/// Approval leases require an independently verified human issuer.
+pub const HUMAN_WORKER_DELEGATION_KIND: &str = "graphos.human-worker-delegation";
 /// Largest encoded grant body.
 pub const MAX_CONTROL_LEASE_GRANT_BYTES: usize = 64 * 1024;
 /// Longest `hard_expires_at_ms - issued_at_ms` a lease may span (24 hours).
@@ -127,6 +129,27 @@ pub struct IssueControlLeaseRequest {
     pub hard_expires_at_ms: u64,
     /// Caller-stable retry identity for this issue.
     pub idempotency_key: String,
+    /// Filled only by the serving authentication boundary. Caller-supplied
+    /// issuer evidence is rejected before the method reaches the native log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<ControlLeaseIssuer>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ControlLeaseIssuerKind {
+    Human,
+    Unverified,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ControlLeaseIssuer {
+    /// One-way digest of the issuer authenticated by the request boundary.
+    pub principal_ref: String,
+    pub kind: ControlLeaseIssuerKind,
 }
 
 /// `TransitionControlLease`: consume or end a lease, CAS on its read revision.
@@ -158,6 +181,9 @@ pub struct ControlLeaseView {
     pub hard_expires_at_ms: u64,
     /// Row revision: 1 at issue, bumped by every transition.
     pub revision: u64,
+    /// Absent only for legacy rows issued before native actor attribution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<ControlLeaseIssuer>,
 }
 
 /// How an issue resolved.
@@ -213,6 +239,17 @@ fn bounded(field: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn valid_issuer_ref(value: &str) -> bool {
+    value
+        .strip_prefix("principal:sha256:")
+        .is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        })
+}
+
 /// Validate a `GetControlLease` request's own fields.
 pub fn validate_control_lease_get(tenant: &str, lease_id: &str) -> Result<(), String> {
     bounded("tenant", tenant)?;
@@ -243,6 +280,20 @@ impl IssueControlLeaseRequest {
                     .to_string(),
             );
         }
+        if self.kind == HUMAN_WORKER_DELEGATION_KIND {
+            let issuer = self
+                .issuer
+                .as_ref()
+                .ok_or("human-worker delegation requires verified issuer evidence")?;
+            if issuer.kind != ControlLeaseIssuerKind::Human {
+                return Err("human-worker delegation requires a verified human issuer".into());
+            }
+        }
+        if let Some(issuer) = &self.issuer {
+            if !valid_issuer_ref(&issuer.principal_ref) {
+                return Err("control lease issuer principal must be an opaque digest".into());
+            }
+        }
         Ok(())
     }
 
@@ -261,6 +312,12 @@ impl IssueControlLeaseRequest {
         row.insert("issued_at_ms".into(), self.issued_at_ms.into());
         row.insert("expires_at_ms".into(), self.expires_at_ms.into());
         row.insert("hard_expires_at_ms".into(), self.hard_expires_at_ms.into());
+        if let Some(issuer) = &self.issuer {
+            row.insert(
+                "issuer".into(),
+                serde_json::to_value(issuer).expect("typed issuer is JSON serializable"),
+            );
+        }
         row
     }
 }
@@ -292,6 +349,27 @@ impl ControlLeaseView {
         let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or("");
         let status = ControlLeaseStatus::from_stored(text("status"))
             .ok_or_else(|| format!("control lease '{lease_id}' carries an unrecognized status"))?;
+        let issuer: Option<ControlLeaseIssuer> = row
+            .get("issuer")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|_| format!("control lease '{lease_id}' carries malformed issuer evidence"))?;
+        if issuer
+            .as_ref()
+            .is_some_and(|issuer| !valid_issuer_ref(&issuer.principal_ref))
+        {
+            return Err(format!(
+                "control lease '{lease_id}' carries invalid issuer evidence"
+            ));
+        }
+        if text("kind") == HUMAN_WORKER_DELEGATION_KIND
+            && issuer.as_ref().map(|issuer| issuer.kind) != Some(ControlLeaseIssuerKind::Human)
+        {
+            return Err(format!(
+                "control lease '{lease_id}' lacks a verified human issuer"
+            ));
+        }
         Ok(Self {
             lease_id: lease_id.to_string(),
             kind: text("kind").to_string(),
@@ -305,6 +383,7 @@ impl ControlLeaseView {
             expires_at_ms: number("expires_at_ms"),
             hard_expires_at_ms: number("hard_expires_at_ms"),
             revision: number(WORK_ITEM_ROW_REVISION).max(1),
+            issuer,
         })
     }
 }

@@ -31,6 +31,8 @@ pub(crate) struct VerifiedRequestContext {
     wire_nonce: Option<Nonce>,
     scope_index: HashSet<String>,
     scope_wildcard_domains: HashSet<String>,
+    /// Only an independently validated OIDC bearer can populate this.
+    verified_oidc_kind: Option<String>,
 }
 
 impl VerifiedRequestContext {
@@ -58,7 +60,19 @@ impl VerifiedRequestContext {
             wire_nonce,
             scope_index,
             scope_wildcard_domains,
+            verified_oidc_kind: None,
         }
+    }
+
+    pub(crate) fn with_verified_oidc_kind(mut self, kind: Option<String>) -> Self {
+        self.verified_oidc_kind = kind;
+        self
+    }
+
+    pub(crate) fn verified_human_issuer(&self) -> bool {
+        self.verified_oidc_kind.as_deref() == Some("human")
+            && self.claims.principal == self.claims.agent_id
+            && self.claims.delegation.is_empty()
     }
 
     /// Reconstruct the privacy-safe authority carried by a committed Raft entry.
