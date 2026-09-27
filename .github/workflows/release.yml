@@ -579,11 +579,6 @@ jobs:
           toolchain: stable
       - name: Install the pinned toolchain's wasm32 target
         run: rustup target add wasm32-unknown-unknown
-      # Node runs the pinned binaryen wasm-opt (the platform-neutral node build),
-      # so it is set up before the codec rebuild, not only for the JS tests.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22'
       - name: Rebuild the embedded method-body codec and require the committed copies
         run: python3 scripts/build_method_codec_wasm.py --check
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -593,6 +588,9 @@ jobs:
       - name: Go client tests (method-body vectors + unit tests)
         working-directory: clients/go
         run: go test -count=1 ./...
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
       - name: Install locked JavaScript client dependencies
         working-directory: clients/js
         run: npm ci --ignore-scripts --no-audit --no-fund

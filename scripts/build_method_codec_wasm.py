@@ -13,19 +13,11 @@ to the fresh module, so a wire change in eg-types cannot ride past a stale
 client codec. Needs the pinned toolchain's ``wasm32-unknown-unknown`` target
 (``rustup target add wasm32-unknown-unknown``).
 
-The linked module then goes through binaryen's ``wasm-opt -Oz`` (EH-383), pinned
-to one exact release by version AND archive sha256: the platform-neutral
-``binaryen-<version>-node`` build (``wasm-opt`` itself compiled to WebAssembly),
-run under Node. Being WebAssembly, the optimizer is the same bytes on every host
-architecture, so the committed module stays byte-identical across hosts and CI.
-The archive is fetched once into the tool cache (``$EG_TOOL_CACHE``, else
-``$XDG_CACHE_HOME/epistemic-graph/tools``) and verified before every use; a
-mismatched archive fails the build, never runs. ``$EG_BINARYEN_ARCHIVE`` names
-a local copy for offline builds (verified the same way; nothing is fetched).
-Needs ``node`` on PATH.
-The feature flags are exactly the wasm32-unknown-unknown target features rustc
-emits, so the optimizer can never introduce an instruction the hosts' runtimes
-(wazero, Node) were not already required to support.
+The Rust ``method-codec`` profile supplies the module bytes directly. The
+builder verifies the WebAssembly header and refuses an import section, then
+``--check`` compares both client copies byte for byte and reports their SHA-256
+digests. The generated-artifact ledger separately pins the committed SHA-256
+for each copy. No post-link executable or archive is needed.
 """
 
 from __future__ import annotations
@@ -33,11 +25,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
-import shutil
 import subprocess
 import sys
-import tarfile
-import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -50,42 +39,20 @@ else:
     except ModuleNotFoundError:  # imported as a package in tests
         from scripts.configure_rust_path_remap import encoded_rustflags
 
+try:
+    from generated_artifacts import verify as verify_artifact_pins
+except ModuleNotFoundError:  # imported as a package in tests
+    from scripts.generated_artifacts import verify as verify_artifact_pins
+
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "wasm32-unknown-unknown"
 PROFILE = "method-codec"
 MODULE = "eg_method_codec.wasm"
 CLIENT_DIRS = ("clients/go", "clients/js")
 
-BINARYEN_VERSION = "version_133"
-BINARYEN_ARCHIVE = f"binaryen-{BINARYEN_VERSION}-node.tar.gz"
-BINARYEN_URL = (
-    "https://github.com/WebAssembly/binaryen/releases/download/"
-    f"{BINARYEN_VERSION}/{BINARYEN_ARCHIVE}"
-)
-BINARYEN_SHA256 = "3507aedecef25c46f2889530a7da304677e97122869274125f782b586cb508ab"
-WASM_OPT_FILES = ("wasm-opt.js", "wasm-opt.wasm")
-# rustc's wasm32-unknown-unknown feature set -- no more, so the optimizer cannot
-# emit an instruction the module did not already need.
-WASM_FEATURES = (
-    "--enable-bulk-memory",
-    "--enable-bulk-memory-opt",
-    "--enable-nontrapping-float-to-int",
-    "--enable-sign-ext",
-    "--enable-mutable-globals",
-    "--enable-reference-types",
-    "--enable-multivalue",
-)
-WASM_OPT_PASSES = ("-Oz", "--strip-debug", "--strip-producers")
-# wasm-opt starts one worker per logical CPU, all inside ONE 32-bit wasm heap;
-# on a 64-core host that exhausts the heap and aborts ("RuntimeError:
-# unreachable"). A fixed count removes the host dependency; the output is the
-# same bytes at 1, 4 or 24 workers (verified: sha256 dab9d7fe...).
-WASM_OPT_CORES = "4"
-
 
 def build(root: Path, target_dir: Path) -> bytes:
-    """Compile the codec module, optimize it with the pinned wasm-opt, and
-    return its bytes."""
+    """Compile the Rust codec and return its import-free WebAssembly bytes."""
 
     # Hermetic flags: ambient RUSTFLAGS would change the module per host. The
     # Cargo and rustup homes are named explicitly (their defaults) so their
@@ -114,88 +81,62 @@ def build(root: Path, target_dir: Path) -> bytes:
         TARGET,
     ]
     subprocess.run(command, cwd=root, env=env, check=True)
-    return optimize(target_dir / TARGET / PROFILE / MODULE, tool_cache())
+    module = (target_dir / TARGET / PROFILE / MODULE).read_bytes()
+    verify_no_imports(module)
+    return module
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-# Offline / air-gapped builds: point this at a local copy of the pinned archive;
-# it is verified like a download and nothing is fetched.
-ARCHIVE_OVERRIDE_ENV = "EG_BINARYEN_ARCHIVE"
-# Where the verified archive and the extracted optimizer are kept between builds.
-TOOL_CACHE_ENV = "EG_TOOL_CACHE"
+def _read_size(module: bytes, offset: int) -> tuple[int, int]:
+    """Read a bounded WebAssembly section size (unsigned LEB128 u32)."""
+
+    value = 0
+    for shift in range(0, 35, 7):
+        if offset >= len(module):
+            raise ValueError("truncated WebAssembly section size")
+        byte = module[offset]
+        offset += 1
+        if shift == 28 and byte > 0x0F:
+            raise ValueError("invalid WebAssembly section size")
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, offset
+    raise ValueError("invalid WebAssembly section size")
 
 
-def tool_cache() -> Path:
-    """The stable tool cache: ``$EG_TOOL_CACHE``, else the user cache directory."""
+def verify_no_imports(module: bytes) -> None:
+    """Fail closed if the linked module has imports or malformed sections."""
 
-    configured = os.environ.get(TOOL_CACHE_ENV)
-    if configured:
-        return Path(configured)
-    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
-    return Path(base) / "epistemic-graph" / "tools"
-
-
-def _verified(archive: Path) -> Path:
-    actual = _sha256(archive.read_bytes())
-    if actual != BINARYEN_SHA256:
-        raise SystemExit(
-            f"REFUSED: {archive} sha256={actual}, pinned {BINARYEN_SHA256} "
-            f"({BINARYEN_ARCHIVE})"
-        )
-    return archive
+    if not module.startswith(b"\x00asm\x01\x00\x00\x00"):
+        raise ValueError("invalid WebAssembly magic or version")
+    offset = 8
+    while offset < len(module):
+        section_id = module[offset]
+        size, body_start = _read_size(module, offset + 1)
+        offset = body_start + size
+        if offset > len(module):
+            raise ValueError("truncated WebAssembly section")
+        if section_id == 2:
+            raise ValueError("method codec must have zero WebAssembly imports")
 
 
-def pinned_archive(tools: Path) -> Path:
-    """The pinned binaryen archive, verified on every use.
+def _check_artifact_pins(root: Path) -> bool:
+    """Require both client copies to match their reviewed ledger hashes."""
 
-    ``$EG_BINARYEN_ARCHIVE`` names a local copy and disables any download;
-    otherwise the archive is fetched once into ``tools``. A checksum mismatch
-    fails the build either way.
-    """
-
-    override = os.environ.get(ARCHIVE_OVERRIDE_ENV)
-    if override:
-        return _verified(Path(override))
-    archive = tools / BINARYEN_ARCHIVE
-    if not archive.exists():
-        tools.mkdir(parents=True, exist_ok=True)
-        partial = archive.with_suffix(".partial")
-        with urllib.request.urlopen(BINARYEN_URL, timeout=120) as response:
-            partial.write_bytes(response.read())
-        partial.replace(archive)
-    return _verified(archive)
+    verified, problems = verify_artifact_pins(root)
+    required = {f"{client}/{MODULE}" for client in CLIENT_DIRS}
+    for path in sorted(required - verified):
+        problems.append(f"missing verified pin: {path}")
+    for problem in problems:
+        print(f"REFUSED: {problem}", file=sys.stderr)
+    return not problems
 
 
-def wasm_opt_dir(tools: Path) -> Path:
-    """Extract the optimizer's two files from the verified archive."""
-
-    target = tools / f"binaryen-{BINARYEN_VERSION}"
-    with tarfile.open(pinned_archive(tools)) as archive:
-        for name in WASM_OPT_FILES:
-            member = archive.getmember(f"binaryen-{BINARYEN_VERSION}/{name}")
-            archive.extract(member, tools, filter="data")
-    return target
-
-
-def optimize(module: Path, tools: Path) -> bytes:
-    """Run the pinned ``wasm-opt -Oz`` over the linked module."""
-
-    node = shutil.which("node")
-    if node is None:
-        raise SystemExit("node is required to run the pinned binaryen wasm-opt")
-    optimized = module.with_suffix(".opt.wasm")
-    script = wasm_opt_dir(tools) / "wasm-opt.js"
-    command = [node, str(script), *WASM_FEATURES, *WASM_OPT_PASSES]
-    env = {**os.environ, "BINARYEN_CORES": WASM_OPT_CORES}
-    subprocess.run([*command, str(module), "-o", str(optimized)], check=True, env=env)
-    return optimized.read_bytes()
-
-
-def check(root: Path, module: bytes) -> int:
-    """Compare every committed copy with the fresh module."""
+def _check_client_copies(root: Path, module: bytes) -> bool:
+    """Require both embedded copies to equal the freshly built module."""
 
     stale = []
     for client in CLIENT_DIRS:
@@ -210,6 +151,13 @@ def check(root: Path, module: bytes) -> int:
             + " -- run scripts/build_method_codec_wasm.py",
             file=sys.stderr,
         )
+    return not stale
+
+
+def check(root: Path, module: bytes) -> int:
+    """Require fresh bytes and matching reviewed SHA-256 pins for both copies."""
+
+    if not _check_client_copies(root, module) or not _check_artifact_pins(root):
         return 1
     print(
         f"OK: {MODULE} sha256={_sha256(module)} ({len(module)} bytes) in every client"

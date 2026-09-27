@@ -77,8 +77,8 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
         job_skip_reasons={
             "language-clients": (
                 "CI-only client job: installs the pinned toolchain's wasm32 target "
-                "(rustup download), the pinned binaryen wasm-opt archive (run under "
-                "node), the Go toolchain and the locked npm dependencies, "
+                "(rustup download), the Go toolchain and the locked npm "
+                "dependencies, "
                 "which a local hook may not download. Run it locally with "
                 "`rustup target add wasm32-unknown-unknown && "
                 "python3 scripts/build_method_codec_wasm.py --check`, then "
