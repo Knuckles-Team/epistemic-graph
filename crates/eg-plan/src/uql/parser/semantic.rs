@@ -155,7 +155,11 @@ impl<'a> Parser<'a> {
         Ok(ForeignSourceSpec::HttpJson {
             url,
             json_path,
-            field_map: eg_types::wire::HttpFieldMap { id, score },
+            field_map: eg_types::wire::HttpFieldMap {
+                id,
+                score,
+                columns: Default::default(),
+            },
         })
     }
 

@@ -90,7 +90,8 @@ class MethodPolicyRow:
 # 455 -> 456: `CheckAccess`, a principal's current access (EH-416).
 # 456 -> 455: EH-524 added `TsDefineSeries`; EH-530 retired `FinanceRollingZscore` and `FinanceEwma` (served as UQL `DERIVE` / SQL `eg_zscore`/`eg_ewma`).
 # 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
-EXPECTED_METHOD_POLICY_ROWS = 456
+# 456 -> 457: EH-572's owner-scoped `QueryForeignColumns` read.
+EXPECTED_METHOD_POLICY_ROWS = 457
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

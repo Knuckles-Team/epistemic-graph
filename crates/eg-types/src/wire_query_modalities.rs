@@ -10,6 +10,39 @@
 ))]
 use serde::{Deserialize, Serialize};
 
+/// Comparison accepted by the owner-scoped foreign-column read surface.
+#[cfg(feature = "federation")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ForeignColumnComparison {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+/// A predicate over a column named in the registered source mapping.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignColumnPredicate {
+    pub column: String,
+    pub comparison: ForeignColumnComparison,
+    pub value: serde_json::Value,
+}
+
+/// One bounded result row after all local residual predicates and projection.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignColumnRow {
+    pub id: String,
+    pub score: Option<f32>,
+    pub columns: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
 /// SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-KG.ontology.concept-9).
 /// Pure serde here (Pi-safe, no eg-geo dep); the executor maps it to eg-geo's `algebra`
 /// behind eg-plan's `geo` gate. Unary ops (`Buffer`/`ConvexHull`/`Simplify`/`Centroid`)
@@ -443,4 +476,8 @@ pub struct HttpFieldMap {
     /// The element field whose numeric value is the row score (absent ⇒ unscored).
     #[serde(default)]
     pub score: Option<String>,
+    /// Mapping-approved output column name to JSON element field. Existing
+    /// id/score-only registrations deserialize with no exposed columns.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub columns: std::collections::BTreeMap<String, String>,
 }

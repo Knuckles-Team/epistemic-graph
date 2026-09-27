@@ -2266,6 +2266,7 @@ mod tests {
                         field_map: eg_types::wire::HttpFieldMap {
                             id: "id".into(),
                             score: None,
+                            columns: Default::default(),
                         },
                     },
                 },

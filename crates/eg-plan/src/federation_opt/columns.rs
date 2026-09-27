@@ -379,6 +379,19 @@ mod tests {
             .query_columns("records", &["secret".into()], &[], &session)
             .unwrap_err();
         assert!(refused.contains("not exposed"));
+        let numeric = registry
+            .query_columns(
+                "records",
+                &["name".into()],
+                &[ColumnPredicate {
+                    column: "name".into(),
+                    comparison: Comparison::Eq,
+                    value: json!(42),
+                }],
+                &session,
+            )
+            .unwrap_err();
+        assert!(numeric.contains("require string values"));
         let bad = eg_types::wire::ForeignSourceSpec::Sql {
             columns: vec!["name; DROP".into()],
             ..mapped.clone()
@@ -415,6 +428,63 @@ mod tests {
         assert!(rendered.contains("CAST(eg_fed.\"name\" AS TEXT) = 'O''Brien'"));
         assert!(
             render_sql_columns("SELECT 1", "id; DROP", None, &plan, SqlDialect::Postgres).is_err()
+        );
+    }
+
+    #[test]
+    fn mapped_sql_source_residual_recovers_inexact_remote_superset() {
+        use std::sync::Arc;
+
+        struct SqlSuperset;
+        impl crate::federation::ForeignSource for SqlSuperset {
+            fn fetch(&self) -> Result<crate::rowset::RowSet, String> {
+                unreachable!("column query must use fetch_projected")
+            }
+
+            fn fetch_projected(&self, plan: &ColumnPlan) -> Result<ForeignRows, String> {
+                assert_eq!(plan.remote_projection, vec!["name"]);
+                assert_eq!(plan.remote_filters.len(), 1);
+                Ok(ForeignRows::from_rows([
+                    ForeignRow {
+                        id: "a".into(),
+                        score: None,
+                        columns: BTreeMap::from([("name".into(), json!("Ada"))]),
+                    },
+                    ForeignRow {
+                        id: "b".into(),
+                        score: None,
+                        columns: BTreeMap::from([("name".into(), json!("Bea"))]),
+                    },
+                ]))
+            }
+        }
+
+        let spec = eg_types::wire::ForeignSourceSpec::Sql {
+            dsn: "postgres://db.invalid/records".into(),
+            query: "SELECT id, name FROM records".into(),
+            id_field: "id".into(),
+            score_field: None,
+            columns: vec!["name".into()],
+        };
+        let mut registry = crate::federation::ForeignSourceRegistry::new();
+        registry.register_mock_spec("records", spec, Arc::new(SqlSuperset));
+        let rows = registry
+            .query_columns(
+                "records",
+                &["name".into()],
+                &[ColumnPredicate {
+                    column: "name".into(),
+                    comparison: Comparison::Eq,
+                    value: json!("Bea"),
+                }],
+                &crate::federation_opt::FederationSession::from_env(),
+            )
+            .unwrap();
+        assert_eq!(rows.rows().len(), 1);
+        assert_eq!(rows.rows()[0].id, "b");
+        assert_eq!(
+            rows.rows()[0].columns,
+            BTreeMap::from([("name".into(), json!("Bea"))])
         );
     }
 }

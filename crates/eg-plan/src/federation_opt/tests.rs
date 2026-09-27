@@ -135,6 +135,7 @@ impl MockApi {
             field_map: HttpFieldMap {
                 id: "ref".into(),
                 score: None,
+                columns: Default::default(),
             },
         }
     }
@@ -307,6 +308,7 @@ fn placeholders_outside_the_query_string_never_template_the_destination() {
         field_map: HttpFieldMap {
             id: "ref".into(),
             score: None,
+            columns: Default::default(),
         },
     };
     let err = execute(

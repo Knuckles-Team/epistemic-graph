@@ -604,7 +604,14 @@ pub struct HttpJsonSource<'a> {
 
 impl ForeignSource for HttpJsonSource<'_> {
     fn fetch(&self) -> Result<RowSet, String> {
+        self.fetch_columns()
+            .map(crate::federation_opt::ForeignRows::into_rowset)
+    }
+
+    fn fetch_columns(&self) -> Result<crate::federation_opt::ForeignRows, String> {
         use std::io::Read;
+
+        validate_http_column_mapping(self.field_map)?;
 
         if self.json_path.len() > MAX_HTTP_JSON_PATH_BYTES
             || self.field_map.id.is_empty()
@@ -679,6 +686,7 @@ impl ForeignSource for HttpJsonSource<'_> {
         }
 
         let mut rows = Vec::with_capacity(elems.len());
+        let mut projected_bytes = 0usize;
         for element in elems {
             let Some(value) = element.get(&self.field_map.id) else {
                 continue;
@@ -694,9 +702,28 @@ impl ForeignSource for HttpJsonSource<'_> {
                 .and_then(|v| v.as_f64())
                 .filter(|value| value.is_finite() && value.abs() <= f32::MAX as f64)
                 .map(|value| value as f32);
-            rows.push((id, score));
+            let mut columns = std::collections::BTreeMap::new();
+            for (alias, field) in &self.field_map.columns {
+                let Some(value) = element.get(field) else {
+                    continue;
+                };
+                let value_bytes = match value {
+                    serde_json::Value::String(text) => text.len(),
+                    serde_json::Value::Number(number) => number.to_string().len(),
+                    serde_json::Value::Bool(_) | serde_json::Value::Null => 5,
+                    _ => continue,
+                };
+                projected_bytes = projected_bytes
+                    .saturating_add(alias.len())
+                    .saturating_add(value_bytes);
+                if projected_bytes > MAX_HTTP_JSON_BODY_BYTES {
+                    return Err("federation: HTTP column projection exceeds limit".to_string());
+                }
+                columns.insert(alias.clone(), value.clone());
+            }
+            rows.push(crate::federation_opt::ForeignRow { id, score, columns });
         }
-        Ok(RowSet::from_rows(rows))
+        Ok(crate::federation_opt::ForeignRows::from_rows(rows))
     }
 }
 
@@ -1420,6 +1447,21 @@ impl ForeignSourceRegistry {
         self
     }
 
+    /// Exercise a mapped spec against a deterministic source in unit tests. A
+    /// production registration always binds its real spec-derived transport.
+    #[cfg(test)]
+    pub(crate) fn register_mock_spec(
+        &mut self,
+        name: impl Into<String>,
+        spec: ForeignSourceSpec,
+        source: SharedForeignSource,
+    ) -> &mut Self {
+        let name = name.into();
+        self.sources.insert(name.clone(), source);
+        self.specs.insert(name, spec);
+        self
+    }
+
     /// The spec a `register_spec` entry was registered with (`None` for table/closure sources).
     pub fn spec(&self, name: &str) -> Option<&ForeignSourceSpec> {
         self.specs.get(name)
@@ -1527,6 +1569,18 @@ impl ForeignSourceRegistry {
                 score_field,
                 ..
             } => {
+                // The SQL column reader currently decodes every selected field
+                // as lexical text. A numeric/null JSON predicate would never
+                // match that text in the local residual, so refuse it before
+                // touching the source until typed SQL decoding is available.
+                if predicates
+                    .iter()
+                    .any(|predicate| !predicate.value.is_string())
+                {
+                    return Err(
+                        "federation: SQL column predicates require string values".to_string()
+                    );
+                }
                 let mut exposed: std::collections::BTreeSet<String> =
                     columns.iter().cloned().collect();
                 exposed.insert(id_field.clone());
@@ -1535,9 +1589,31 @@ impl ForeignSourceRegistry {
                 }
                 exposed
             }
+            ForeignSourceSpec::HttpJson { field_map, .. } => {
+                validate_http_column_mapping(field_map)?;
+                field_map.columns.keys().cloned().collect()
+            }
             _ => return Err("federation: this source has no column mapping".to_string()),
         };
-        let plan = ColumnPlan::new(&exposed, output, predicates, true, sql_filter_support)?;
+        let (projection_supported, filter_support): (
+            bool,
+            fn(&crate::federation_opt::ColumnPredicate) -> crate::federation_opt::PushdownSupport,
+        ) = match spec {
+            ForeignSourceSpec::Sql { .. } => (true, sql_filter_support),
+            // HTTP APIs have no declared field-selection or filter parameters in
+            // this spec. Fetch the mapped columns, then evaluate residuals here.
+            ForeignSourceSpec::HttpJson { .. } => (false, |_| {
+                crate::federation_opt::PushdownSupport::Unsupported
+            }),
+            _ => unreachable!("only mapped source kinds reach column planning"),
+        };
+        let plan = ColumnPlan::new(
+            &exposed,
+            output,
+            predicates,
+            projection_supported,
+            filter_support,
+        )?;
         session.with_meter(|meter| meter.charge_request())?;
         let rows = self.resolve_projected(name, &plan)?;
         session.with_meter(|meter| {
@@ -1552,6 +1628,9 @@ impl ForeignSourceRegistry {
 /// registration's SQL statement is the only data boundary: this list only names
 /// selected columns; it cannot introduce another source or a new credential.
 pub fn validate_column_mapping(spec: &ForeignSourceSpec) -> Result<(), String> {
+    if let ForeignSourceSpec::HttpJson { field_map, .. } = spec {
+        return validate_http_column_mapping(field_map);
+    }
     let ForeignSourceSpec::Sql {
         id_field,
         score_field,
@@ -1573,6 +1652,25 @@ pub fn validate_column_mapping(spec: &ForeignSourceSpec) -> Result<(), String> {
             .map_err(|_| "federation: invalid SQL column mapping".to_string())?;
         if !seen.insert(name.to_ascii_lowercase()) {
             return Err("federation: duplicate SQL column mapping".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn validate_http_column_mapping(field_map: &HttpFieldMap) -> Result<(), String> {
+    if field_map.columns.len() > 128 {
+        return Err("federation: HTTP column mapping exceeds 128 columns".to_string());
+    }
+    for (alias, field) in &field_map.columns {
+        if alias.is_empty()
+            || alias.len() > 128
+            || !alias
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            || field.is_empty()
+            || field.len() > MAX_HTTP_JSON_FIELD_BYTES
+        {
+            return Err("federation: invalid HTTP column mapping".to_string());
         }
     }
     Ok(())

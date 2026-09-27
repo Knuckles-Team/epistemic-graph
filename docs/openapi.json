@@ -12006,8 +12006,47 @@
         ],
         "type": "string"
       },
+      "ReqDef_ForeignColumnComparison": {
+        "description": "Comparison accepted by the owner-scoped foreign-column read surface.",
+        "enum": [
+          "Eq",
+          "Ne",
+          "Lt",
+          "Le",
+          "Gt",
+          "Ge"
+        ],
+        "type": "string"
+      },
+      "ReqDef_ForeignColumnPredicate": {
+        "description": "A predicate over a column named in the registered source mapping.",
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/ReqDef_ForeignColumnComparison"
+          },
+          "value": true
+        },
+        "required": [
+          "column",
+          "comparison",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ReqDef_ForeignCypherBackend": {
+        "description": "External Cypher dialect and transport are a single explicit choice.",
+        "enum": [
+          "Neo4j",
+          "Age",
+          "FalkorDb"
+        ],
+        "type": "string"
+      },
       "ReqDef_ForeignSourceSpec": {
-        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`. Two\nkinds, behind one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
+        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`.\nSource kinds share one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -12108,6 +12147,14 @@
             "properties": {
               "Sql": {
                 "properties": {
+                  "columns": {
+                    "default": [],
+                    "description": "Query-selected columns the registering owner permits a column query to\nread. Empty for legacy id/score-only registrations. Names are checked\nas SQL identifiers before projection or filter pushdown (EH-572).",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
                   "dsn": {
                     "description": "The external database DSN (e.g. `postgres://host:5432/db`).",
                     "type": "string"
@@ -12144,7 +12191,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike the self-describing variants\nabove (which carry the full connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
+            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike self-describing variants\n(which carry their connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
             "properties": {
               "Named": {
                 "properties": {
@@ -12161,6 +12208,126 @@
             },
             "required": [
               "Named"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Trino/Starburst coordinator. This is a query-time source, not an ingest\ncursor. Registration must bind a verified service identity and probe the\ncatalog before a driver may advertise any pushdown capability. No credential\nis serialized into this spec.",
+            "properties": {
+              "Trino": {
+                "properties": {
+                  "catalog": {
+                    "type": "string"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "schema": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "endpoint",
+                  "catalog",
+                  "schema",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Trino"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Cypher-capable external graph. AGE uses a PostgreSQL transport; Neo4j\nuses Bolt; FalkorDB uses its own protocol. The dialect is explicit so a\ngeneric Cypher claim cannot accidentally select the wrong driver.",
+            "properties": {
+              "Cypher": {
+                "properties": {
+                  "backend": {
+                    "$ref": "#/components/schemas/ReqDef_ForeignCypherBackend"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "graph": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "backend",
+                  "endpoint",
+                  "graph",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Cypher"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Spark output is a sealed batch artifact reference. Interactive Spark SQL\npushdown is deliberately absent: a query may read only a completed,\nregistered artifact, never launch a job or trust a caller-provided path.",
+            "properties": {
+              "SparkBatch": {
+                "properties": {
+                  "artifact_ref": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "artifact_ref",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "SparkBatch"
             ],
             "type": "object"
           }
@@ -15648,7 +15815,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
             "properties": {
               "method": {
                 "const": "GetNodesByLabel",
@@ -19298,7 +19465,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 \u21d2 no cap).",
+            "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
             "properties": {
               "method": {
                 "const": "UnionGetNodesByLabel",
@@ -26696,6 +26863,47 @@
                 "required": [
                   "name",
                   "source"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read mapped columns from this caller's registered SQL source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
+            "properties": {
+              "method": {
+                "const": "QueryForeignColumns",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "columns": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "predicates": {
+                    "default": [],
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_ForeignColumnPredicate"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
                 ],
                 "type": "object"
               }
@@ -56644,7 +56852,7 @@
       },
       "Req_GetNodesByLabel": {
         "additionalProperties": false,
-        "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+        "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
         "properties": {
           "method": {
             "const": "GetNodesByLabel",
@@ -60902,6 +61110,47 @@
         ],
         "type": "object"
       },
+      "Req_QueryForeignColumns": {
+        "additionalProperties": false,
+        "description": "Read mapped columns from this caller's registered SQL source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
+        "properties": {
+          "method": {
+            "const": "QueryForeignColumns",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "columns": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "name": {
+                "type": "string"
+              },
+              "predicates": {
+                "default": [],
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_ForeignColumnPredicate"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
       "Req_QueryWorkItemReservation": {
         "additionalProperties": false,
         "description": "Exact bounded read of a native reservation or retained lifecycle tombstone.",
@@ -64774,7 +65023,7 @@
       },
       "Req_UnionGetNodesByLabel": {
         "additionalProperties": false,
-        "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 \u21d2 no cap).",
+        "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
         "properties": {
           "method": {
             "const": "UnionGetNodesByLabel",
@@ -103358,8 +103607,71 @@
         ],
         "type": "string"
       },
+      "ResDef_Query_ForeignColumnComparison": {
+        "description": "Comparison accepted by the owner-scoped foreign-column read surface.",
+        "enum": [
+          "Eq",
+          "Ne",
+          "Lt",
+          "Le",
+          "Gt",
+          "Ge"
+        ],
+        "type": "string"
+      },
+      "ResDef_Query_ForeignColumnPredicate": {
+        "description": "A predicate over a column named in the registered source mapping.",
+        "properties": {
+          "column": {
+            "type": "string"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/ResDef_Query_ForeignColumnComparison"
+          },
+          "value": true
+        },
+        "required": [
+          "column",
+          "comparison",
+          "value"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_ForeignColumnRow": {
+        "description": "One bounded result row after all local residual predicates and projection.",
+        "properties": {
+          "columns": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "score": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "columns"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_ForeignCypherBackend": {
+        "description": "External Cypher dialect and transport are a single explicit choice.",
+        "enum": [
+          "Neo4j",
+          "Age",
+          "FalkorDb"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_ForeignSourceSpec": {
-        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`. Two\nkinds, behind one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
+        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`.\nSource kinds share one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -103460,6 +103772,14 @@
             "properties": {
               "Sql": {
                 "properties": {
+                  "columns": {
+                    "default": [],
+                    "description": "Query-selected columns the registering owner permits a column query to\nread. Empty for legacy id/score-only registrations. Names are checked\nas SQL identifiers before projection or filter pushdown (EH-572).",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
                   "dsn": {
                     "description": "The external database DSN (e.g. `postgres://host:5432/db`).",
                     "type": "string"
@@ -103496,7 +103816,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike the self-describing variants\nabove (which carry the full connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
+            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike self-describing variants\n(which carry their connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
             "properties": {
               "Named": {
                 "properties": {
@@ -103513,6 +103833,126 @@
             },
             "required": [
               "Named"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Trino/Starburst coordinator. This is a query-time source, not an ingest\ncursor. Registration must bind a verified service identity and probe the\ncatalog before a driver may advertise any pushdown capability. No credential\nis serialized into this spec.",
+            "properties": {
+              "Trino": {
+                "properties": {
+                  "catalog": {
+                    "type": "string"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "schema": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "endpoint",
+                  "catalog",
+                  "schema",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Trino"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Cypher-capable external graph. AGE uses a PostgreSQL transport; Neo4j\nuses Bolt; FalkorDB uses its own protocol. The dialect is explicit so a\ngeneric Cypher claim cannot accidentally select the wrong driver.",
+            "properties": {
+              "Cypher": {
+                "properties": {
+                  "backend": {
+                    "$ref": "#/components/schemas/ResDef_Query_ForeignCypherBackend"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "graph": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "backend",
+                  "endpoint",
+                  "graph",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Cypher"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Spark output is a sealed batch artifact reference. Interactive Spark SQL\npushdown is deliberately absent: a query may read only a completed,\nregistered artifact, never launch a job or trust a caller-provided path.",
+            "properties": {
+              "SparkBatch": {
+                "properties": {
+                  "artifact_ref": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "artifact_ref",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "SparkBatch"
             ],
             "type": "object"
           }
@@ -107276,7 +107716,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
             "properties": {
               "method": {
                 "const": "GetNodesByLabel",
@@ -110926,7 +111366,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 \u21d2 no cap).",
+            "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
             "properties": {
               "method": {
                 "const": "UnionGetNodesByLabel",
@@ -118324,6 +118764,47 @@
                 "required": [
                   "name",
                   "source"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read mapped columns from this caller's registered SQL source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
+            "properties": {
+              "method": {
+                "const": "QueryForeignColumns",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "columns": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "predicates": {
+                    "default": [],
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_ForeignColumnPredicate"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name"
                 ],
                 "type": "object"
               }
@@ -153421,6 +153902,13 @@
         "type": "array",
         "x-encoding": "Raw"
       },
+      "Res_query_QueryForeignColumns": {
+        "items": {
+          "$ref": "#/components/schemas/ResDef_Query_ForeignColumnRow"
+        },
+        "type": "array",
+        "x-encoding": "Raw"
+      },
       "Res_query_RankByProvenance": {
         "$ref": "#/components/schemas/ResDef_Query_RankByProvenanceResult",
         "x-encoding": "Raw"
@@ -154285,7 +154773,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 456 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 457 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -175563,6 +176051,63 @@
           "ACCESS_DENIED"
         ],
         "x-idempotent": false,
+        "x-mutates": false,
+        "x-replay-class": "NotReplayable",
+        "x-stability": "stable",
+        "x-txn-participation": "Snapshot"
+      }
+    },
+    "/rpc/query/QueryForeignColumns": {
+      "post": {
+        "operationId": "QueryForeignColumns",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_QueryForeignColumns"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_query_QueryForeignColumns"
+                }
+              }
+            },
+            "description": "`QueryForeignColumns` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "Verified owner-scoped mapped-column read with bounded source fetch and local predicate residual",
+        "tags": [
+          "query"
+        ],
+        "x-audited": false,
+        "x-authz-action": "federation:read",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "None",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED"
+        ],
+        "x-idempotent": true,
         "x-mutates": false,
         "x-replay-class": "NotReplayable",
         "x-stability": "stable",

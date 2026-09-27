@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 456,
+  "method_count": 457,
   "methods": [
     {
       "consumer_profiles": [
@@ -15138,6 +15138,45 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.query.json#/methods/UnifiedQuery",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "QueryForeignColumns",
+      "note": "Verified owner-scoped mapped-column read with bounded source fetch and local predicate residual",
+      "policy": {
+        "audited": false,
+        "authz_action": "federation:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/QueryForeignColumns"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/QueryForeignColumns",
         "selected_by": null
       },
       "stability": "stable"

@@ -52,6 +52,7 @@ fn key_only_source() -> ForeignSourceSpec {
         field_map: HttpFieldMap {
             id: "ref".into(),
             score: None,
+            columns: Default::default(),
         },
     }
 }
