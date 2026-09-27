@@ -480,6 +480,36 @@ impl SemanticIndexOp {
         }
         validate_text("tenant_id", self.tenant_id())?;
         validate_text("binding_id", self.binding_id())?;
+        // Keep this dispatch exhaustive. A new operation must be assigned a
+        // shape validator before it can compile; each validator also rejects
+        // an unexpected variant instead of accepting it by default.
+        match self {
+            Self::AdmitBinding { .. }
+            | Self::RefreshBinding { .. }
+            | Self::TransitionBinding { .. }
+            | Self::DropBinding { .. } => self.validate_binding_ops(),
+            Self::AdmitSourceRecord { .. }
+            | Self::AdmitSourcePage { .. }
+            | Self::AdmitSourceReconcile { .. }
+            | Self::AdmitSourceReplacement { .. } => self.validate_source_ops(),
+            Self::SubscribeStageConsumer { .. }
+            | Self::ClaimStageLeases { .. }
+            | Self::ValidateStageLease { .. }
+            | Self::StageStatus { .. } => self.validate_consumer_ops(),
+            Self::CompleteStage { .. }
+            | Self::CompleteGenerationStage { .. }
+            | Self::CompleteSqlSourceStage { .. }
+            | Self::ReplayCompletedSqlSourceStage { .. }
+            | Self::ReleaseStageLease { .. } => self.validate_completion_ops(),
+            Self::Binding { .. }
+            | Self::SqlSourceManifest { .. }
+            | Self::ListBindings { .. }
+            | Self::LiveGeneration { .. } => self.validate_query_ops(),
+            Self::GetBindingRequest { .. } => unreachable!("validated above"),
+        }
+    }
+
+    fn validate_binding_ops(&self) -> Result<(), SemanticIndexError> {
         match self {
             Self::AdmitBinding {
                 tenant_id,
@@ -517,6 +547,12 @@ impl SemanticIndexOp {
                 validate_generation(*expected_generation)?;
                 validate_idempotency_key(idempotency_key)
             }
+            _ => Err(SemanticIndexError::AuthorizationContextMismatch),
+        }
+    }
+
+    fn validate_source_ops(&self) -> Result<(), SemanticIndexError> {
+        match self {
             Self::AdmitSourceRecord { record, .. } | Self::AdmitSourceReconcile { record, .. } => {
                 validate_outbox_record(record)
             }
@@ -536,6 +572,12 @@ impl SemanticIndexOp {
                 validate_generation(source_manifest.generation)?;
                 validate_outbox_record(record)
             }
+            _ => Err(SemanticIndexError::AuthorizationContextMismatch),
+        }
+    }
+
+    fn validate_consumer_ops(&self) -> Result<(), SemanticIndexError> {
+        match self {
             Self::SubscribeStageConsumer { consumer, .. } | Self::StageStatus { consumer, .. } => {
                 validate_text("consumer", consumer)
             }
@@ -566,6 +608,12 @@ impl SemanticIndexOp {
                 validate_text("consumer", consumer)?;
                 validate_lease(lease)
             }
+            _ => Err(SemanticIndexError::AuthorizationContextMismatch),
+        }
+    }
+
+    fn validate_completion_ops(&self) -> Result<(), SemanticIndexError> {
+        match self {
             Self::CompleteStage {
                 lease,
                 transition,
@@ -612,8 +660,13 @@ impl SemanticIndexOp {
                 expected_intent.validate()
             }
             Self::ReleaseStageLease { lease, .. } => validate_lease(lease),
+            _ => Err(SemanticIndexError::AuthorizationContextMismatch),
+        }
+    }
+
+    fn validate_query_ops(&self) -> Result<(), SemanticIndexError> {
+        match self {
             Self::Binding { .. } | Self::LiveGeneration { .. } => Ok(()),
-            Self::GetBindingRequest { .. } => unreachable!("validated above"),
             Self::SqlSourceManifest {
                 generation,
                 source_entity_id,
@@ -632,6 +685,7 @@ impl SemanticIndexOp {
                 }
                 validate_cursor("cursor", cursor)
             }
+            _ => Err(SemanticIndexError::AuthorizationContextMismatch),
         }
     }
 }

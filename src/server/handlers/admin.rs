@@ -112,7 +112,7 @@ mod security_tests {
 mod agent_library_security_tests {
     use super::{backup_bundle_name, bind_agent_library_context, bind_agent_library_draft};
     use crate::acl::RequestContextClaims;
-    use crate::protocol::{Method, Request, ResultPayload};
+    use crate::protocol::{Method, Request};
     use crate::server::authority_context::VerifiedRequestContext;
     use crate::server::persistence::durable_stores::BundledStoreSource;
     use eg_types::contract::Nonce;
@@ -277,15 +277,7 @@ mod agent_library_security_tests {
     fn response_write_result(
         response: crate::protocol::Response,
     ) -> eg_types::AgentLibraryWriteResult {
-        assert!(
-            response.error.is_none(),
-            "unexpected route error: {:?}",
-            response.error
-        );
-        let Some(ResultPayload::Raw(bytes)) = response.result else {
-            panic!("Agent Library route did not return a raw typed result");
-        };
-        rmp_serde::from_slice(&bytes).expect("decode Agent Library route result")
+        crate::test_support::decode_raw_response("Agent Library route", response)
     }
 
     /// Outbox rows the fixture's own component seeds contribute.

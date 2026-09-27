@@ -276,41 +276,50 @@ pub(crate) fn write_intent(
             .unwrap_or("commit-intent"),
         uuid::Uuid::new_v4().simple()
     ));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(&tmp_path)
-        .map_err(|_| "commit-intent temporary file could not be created".to_string())?;
-    use std::io::Write;
-    file.write_all(&bytes).map_err(|_| {
-        let _ = std::fs::remove_file(&tmp_path);
-        "commit-intent temporary file write failed".to_string()
-    })?;
-    file.sync_all().map_err(|_| {
-        let _ = std::fs::remove_file(&tmp_path);
-        "commit-intent temporary file could not be durably synced".to_string()
-    })?;
-    drop(file);
+    write_temporary_intent(&tmp_path, &bytes)?;
 
     #[cfg(test)]
     invoke_pre_install_hook(&tmp_path, &path);
 
+    publish_intent(&tmp_path, &path, &dir, intent)?;
+    Ok(())
+}
+
+/// Complete the temporary record before its canonical name becomes visible.
+fn write_temporary_intent(tmp_path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = eg_core::fs::create_private_new_file(tmp_path)
+        .map_err(|_| "commit-intent temporary file could not be created".to_string())?;
+    use std::io::Write;
+    file.write_all(bytes).map_err(|_| {
+        let _ = std::fs::remove_file(tmp_path);
+        "commit-intent temporary file write failed".to_string()
+    })?;
+    file.sync_all().map_err(|_| {
+        let _ = std::fs::remove_file(tmp_path);
+        "commit-intent temporary file could not be durably synced".to_string()
+    })?;
+    drop(file);
+    Ok(())
+}
+
+/// Publish without replacing an earlier attempt; an exact retry is a no-op.
+fn publish_intent(
+    tmp_path: &Path,
+    path: &Path,
+    dir: &Path,
+    intent: &CommitIntent,
+) -> Result<(), String> {
     // `hard_link` fails with AlreadyExists instead of replacing the canonical
     // entry, giving us the no-replace publication primitive available in the
     // standard library. The source and destination share this owner directory,
     // so publication is atomic and cannot expose a partially written record.
-    match std::fs::hard_link(&tmp_path, &path) {
+    match std::fs::hard_link(tmp_path, path) {
         Ok(()) => {
-            let _ = std::fs::remove_file(&tmp_path);
+            let _ = std::fs::remove_file(tmp_path);
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let _ = std::fs::remove_file(&tmp_path);
-            let existing_bytes = std::fs::read(&path)
+            let _ = std::fs::remove_file(tmp_path);
+            let existing_bytes = std::fs::read(path)
                 .map_err(|_| "existing commit-intent could not be read".to_string())?;
             let existing = eg_types::msgpack::decode_bounded::<CommitIntent>(
                 &existing_bytes,
@@ -321,8 +330,7 @@ pub(crate) fn write_intent(
                 return Err("commit-intent path has a different operation id".to_string());
             }
             if existing.same_replay_recipe(intent)? {
-                sync_owner_dir(&dir)?;
-                return Ok(());
+                return sync_owner_dir(dir);
             }
             return Err(
                 "IDEMPOTENCY_CONFLICT: commit-intent recipe differs from the durable retry"
@@ -330,12 +338,12 @@ pub(crate) fn write_intent(
             );
         }
         Err(_) => {
-            let _ = std::fs::remove_file(&tmp_path);
+            let _ = std::fs::remove_file(tmp_path);
             return Err("commit-intent file could not be published".to_string());
         }
     }
 
-    sync_owner_dir(&dir)?;
+    sync_owner_dir(dir)?;
     Ok(())
 }
 

@@ -76,10 +76,41 @@ fn bounded_id(value: &str) -> bool {
 }
 
 fn sha256_hex(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    eg_types::contract::Digest256::parse(value).is_ok()
+}
+
+fn valid_candidate(unit: &EligibleUnit) -> bool {
+    let Some(content_digest) = unit.content_digest.strip_prefix("sha256:") else {
+        return false;
+    };
+    let Some(input_digest) = unit.input_ref.strip_prefix("cas:sha256:") else {
+        return false;
+    };
+    sha256_hex(content_digest)
+        && sha256_hex(input_digest)
+        && bounded_id(&unit.parser_capability_digest)
+        && unit.content_length <= MAX_REPOSITORY_CONTENT_BYTES
+        && unit.compute_units != 0
+}
+
+fn validate_candidates(units: &[EligibleUnit]) -> Result<(), SnapshotError> {
+    let mut seen = BTreeSet::new();
+    let mut previous = None;
+    for unit in units {
+        if !valid_candidate(unit) {
+            return Err(SnapshotError::InvalidCandidate);
+        }
+        let key = (&unit.content_digest, &unit.parser_capability_digest);
+        if !seen.insert(key) {
+            return Err(SnapshotError::DuplicateCandidate);
+        }
+        let sort_key = (!unit.demanded, key);
+        if previous.is_some_and(|prior| prior > sort_key) {
+            return Err(SnapshotError::NonDeterministicOrder);
+        }
+        previous = Some(sort_key);
+    }
+    Ok(())
 }
 
 impl EligibleSnapshot {
@@ -114,34 +145,7 @@ impl EligibleSnapshot {
         if self.units.len() > MAX_ELIGIBLE_UNITS {
             return Err(SnapshotError::TooManyCandidates);
         }
-        let mut seen = BTreeSet::new();
-        let mut previous = None;
-        for unit in &self.units {
-            let Some(content_digest) = unit.content_digest.strip_prefix("sha256:") else {
-                return Err(SnapshotError::InvalidCandidate);
-            };
-            let Some(input_digest) = unit.input_ref.strip_prefix("cas:sha256:") else {
-                return Err(SnapshotError::InvalidCandidate);
-            };
-            if !sha256_hex(content_digest)
-                || !sha256_hex(input_digest)
-                || !bounded_id(&unit.parser_capability_digest)
-                || unit.content_length > MAX_REPOSITORY_CONTENT_BYTES
-                || unit.compute_units == 0
-            {
-                return Err(SnapshotError::InvalidCandidate);
-            }
-            let key = (&unit.content_digest, &unit.parser_capability_digest);
-            if !seen.insert(key) {
-                return Err(SnapshotError::DuplicateCandidate);
-            }
-            let sort_key = (!unit.demanded, key);
-            if previous.is_some_and(|prior| prior > sort_key) {
-                return Err(SnapshotError::NonDeterministicOrder);
-            }
-            previous = Some(sort_key);
-        }
-        Ok(())
+        validate_candidates(&self.units)
     }
 
     /// Digest of the validated, deterministically ordered wire record.
@@ -173,6 +177,40 @@ pub struct EnrichmentBudgetCheckpoint {
 }
 
 impl EnrichmentBudgetCheckpoint {
+    fn valid_budget_partition(&self, snapshot: &EligibleSnapshot) -> bool {
+        self.spent_units
+            .checked_add(self.reserved_units)
+            .and_then(|used| used.checked_add(self.remaining_units))
+            == Some(snapshot.budget_units)
+    }
+
+    fn valid_page_state(&self) -> bool {
+        let has_valid_key = self.last_batch_key.as_deref().is_none_or(|key| {
+            key.strip_prefix("repository-enrichment-page:")
+                .is_some_and(sha256_hex)
+        });
+        has_valid_key
+            && ((self.page_number == 0) == self.last_batch_key.is_none())
+            && (self.page_number != 0 || self.next_index == 0)
+            && (self.page_number != 0 || (self.reserved_units == 0 && self.spent_units == 0))
+    }
+
+    /// Project the native authority row into the parser's validated page cursor.
+    /// Callers check snapshot ownership and then run `validate` on this value.
+    pub fn from_durable(durable: &eg_types::native_control::EnrichmentBudgetCheckpoint) -> Self {
+        Self {
+            schema_version: durable.schema_version,
+            snapshot_digest: durable.snapshot_digest.clone(),
+            next_index: durable.next_index as usize,
+            page_number: durable.page_number,
+            reserved_units: durable.reserved_units,
+            spent_units: durable.spent_units,
+            remaining_units: durable.remaining_units,
+            last_batch_key: (!durable.last_page_key.is_empty())
+                .then(|| durable.last_page_key.clone()),
+        }
+    }
+
     pub fn initial(snapshot: &EligibleSnapshot) -> Result<Self, SnapshotError> {
         Ok(Self {
             schema_version: 1,
@@ -191,18 +229,8 @@ impl EnrichmentBudgetCheckpoint {
             || self.snapshot_digest != snapshot.digest()?
             || self.next_index > snapshot.units.len()
             || self.page_number as usize > self.next_index
-            || self
-                .spent_units
-                .checked_add(self.reserved_units)
-                .and_then(|used| used.checked_add(self.remaining_units))
-                != Some(snapshot.budget_units)
-            || self.last_batch_key.as_deref().is_some_and(|key| {
-                !key.strip_prefix("repository-enrichment-page:")
-                    .is_some_and(sha256_hex)
-            })
-            || (self.page_number == 0) != self.last_batch_key.is_none()
-            || (self.page_number == 0 && self.next_index != 0)
-            || (self.page_number == 0 && (self.reserved_units != 0 || self.spent_units != 0))
+            || !self.valid_budget_partition(snapshot)
+            || !self.valid_page_state()
         {
             return Err(SnapshotError::InvalidCheckpoint);
         }

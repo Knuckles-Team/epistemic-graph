@@ -10,11 +10,13 @@ use crate::codec::{decode_ledger_record, encode_bounded};
 use crate::kernel::create_physical;
 use crate::owner::{copy_declared_owner_tables, prove_declared_owner_rows, validate_manifest_read};
 use crate::physical::binding::ScopeBinding;
-use crate::physical::manifest::OwnerManifest;
+use crate::physical::incarnation::{StoreIdentityDigest, StoreIncarnation};
+use crate::physical::root::PhysicalStore;
 use crate::tables::{visit_ledger_content_tables, OWNER_MANIFEST, SCOPE_BINDINGS};
 use crate::{open_read_only, OwnerLayout, PhysicalStoreIdentity};
 use redb::{
     Key, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition, TableHandle, Value,
+    WriteTransaction,
 };
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -47,6 +49,121 @@ pub fn merge_semantic_owner_files(
     if candidate.exists() {
         return Err("semantic merge candidate already exists".to_string());
     }
+    let (source_evidence, max_epoch) = census_semantic_sources(source_files, candidate)?;
+    let epoch = max_epoch
+        .checked_add(1)
+        .ok_or_else(|| "semantic merge authority epoch exhausted".to_string())?;
+    let target = create_physical(
+        candidate,
+        target_identity.clone(),
+        None,
+        OwnerLayout::SemanticIndex,
+    )?;
+    let staged = stage_merge(&target, source_files, &source_evidence, epoch)?;
+    drop(target);
+    let verified = verify_committed_merge(candidate, &target_identity, &staged)?;
+    let proof = prove_semantic_owner_union_read_only(source_files, candidate, &target_identity)?;
+    if proof.sources != source_evidence || proof.target != verified {
+        return Err("semantic merge row proof changed the recovered census".to_string());
+    }
+    Ok(proof)
+}
+
+fn stage_merge(
+    target: &PhysicalStore,
+    source_files: &[(PathBuf, PhysicalStoreIdentity)],
+    source_evidence: &[StrictRecoveryEvidence],
+    epoch: u64,
+) -> Result<StrictRecoveryEvidence, String> {
+    let mut write = target
+        .database()
+        .begin_write()
+        .map_err(|error| error.to_string())?;
+    write
+        .set_durability(redb::Durability::Immediate)
+        .map_err(|error| error.to_string())?;
+    write_merged_manifest(target, &write, epoch)?;
+    copy_merge_sources(source_files, source_evidence, &write, target.incarnation())?;
+    let staged = strict_snapshot_write(&write, OwnerLayout::SemanticIndex)?;
+    prove_union_counts(source_evidence, &staged)?;
+    write.commit().map_err(|error| error.to_string())?;
+    Ok(staged)
+}
+
+fn write_merged_manifest(
+    target: &PhysicalStore,
+    write: &WriteTransaction,
+    epoch: u64,
+) -> Result<(), String> {
+    let mut manifest = target.manifest().clone();
+    manifest.authority_epoch = epoch;
+    manifest.validate()?;
+    let bytes = encode_bounded(&manifest, "semantic merged owner manifest")?;
+    let mut owner_manifest = write
+        .open_table(OWNER_MANIFEST)
+        .map_err(|error| error.to_string())?;
+    owner_manifest
+        .insert("manifest", bytes.as_slice())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn copy_merge_sources(
+    source_files: &[(PathBuf, PhysicalStoreIdentity)],
+    source_evidence: &[StrictRecoveryEvidence],
+    write: &WriteTransaction,
+    incarnation: &StoreIncarnation,
+) -> Result<(), String> {
+    for ((path, identity), expected) in source_files.iter().zip(source_evidence) {
+        let store = open_read_only(path, None)?;
+        let read = store
+            .database()
+            .begin_read()
+            .map_err(|error| error.to_string())?;
+        // Revalidate each exact source before copying after target creation.
+        validate_manifest_read(&read, identity, OwnerLayout::SemanticIndex)?;
+        if strict_snapshot_read(&read, OwnerLayout::SemanticIndex)? != *expected {
+            return Err("semantic merge source changed before table copy".to_string());
+        }
+        copy_bindings(&read, write, incarnation)?;
+        copy_ledger_rows(&read, write)?;
+        copy_declared_owner_tables(&read, write, OwnerLayout::SemanticIndex)?;
+    }
+    Ok(())
+}
+
+fn verify_committed_merge(
+    candidate: &Path,
+    target_identity: &PhysicalStoreIdentity,
+    staged: &StrictRecoveryEvidence,
+) -> Result<StrictRecoveryEvidence, String> {
+    let reopened = crate::StorageKernel::open_owner::<crate::SemanticIndexOwner>(
+        candidate,
+        target_identity.clone(),
+        None,
+    )?;
+    let verified = strict_evidence_of(reopened.store())?;
+    if verified != *staged {
+        return Err("semantic merge evidence changed after durable reopen".to_string());
+    }
+    drop(reopened);
+    let read_only = open_read_only(candidate, None)?;
+    let final_evidence = strict_recovery_evidence_read_only(
+        &read_only,
+        target_identity,
+        OwnerLayout::SemanticIndex,
+    )?;
+    if final_evidence != verified {
+        return Err("semantic merge evidence changed after closing the writer".to_string());
+    }
+    drop(read_only);
+    Ok(verified)
+}
+
+fn census_semantic_sources(
+    source_files: &[(PathBuf, PhysicalStoreIdentity)],
+    candidate: &Path,
+) -> Result<(Vec<StrictRecoveryEvidence>, u64), String> {
     let mut source_paths = std::collections::BTreeSet::new();
     let mut source_evidence = Vec::with_capacity(source_files.len());
     let mut max_epoch = 0_u64;
@@ -65,75 +182,7 @@ pub fn merge_semantic_owner_files(
         max_epoch = max_epoch.max(manifest.authority_epoch);
         source_evidence.push(evidence);
     }
-    let epoch = max_epoch
-        .checked_add(1)
-        .ok_or_else(|| "semantic merge authority epoch exhausted".to_string())?;
-    let target = create_physical(
-        candidate,
-        target_identity.clone(),
-        None,
-        OwnerLayout::SemanticIndex,
-    )?;
-    let mut write = target
-        .database()
-        .begin_write()
-        .map_err(|error| error.to_string())?;
-    write
-        .set_durability(redb::Durability::Immediate)
-        .map_err(|error| error.to_string())?;
-    let mut manifest: OwnerManifest = target.manifest().clone();
-    manifest.authority_epoch = epoch;
-    manifest.validate()?;
-    let bytes = encode_bounded(&manifest, "semantic merged owner manifest")?;
-    write
-        .open_table(OWNER_MANIFEST)
-        .map_err(|error| error.to_string())?
-        .insert("manifest", bytes.as_slice())
-        .map_err(|error| error.to_string())?;
-    for ((path, identity), expected) in source_files.iter().zip(&source_evidence) {
-        let store = open_read_only(path, None)?;
-        let read = store
-            .database()
-            .begin_read()
-            .map_err(|error| error.to_string())?;
-        // Revalidate each exact source before copying after target creation.
-        validate_manifest_read(&read, identity, OwnerLayout::SemanticIndex)?;
-        if strict_snapshot_read(&read, OwnerLayout::SemanticIndex)? != *expected {
-            return Err("semantic merge source changed before table copy".to_string());
-        }
-        copy_bindings(&read, &write, target.incarnation())?;
-        copy_ledger_rows(&read, &write)?;
-        copy_declared_owner_tables(&read, &write, OwnerLayout::SemanticIndex)?;
-    }
-    let staged = strict_snapshot_write(&write, OwnerLayout::SemanticIndex)?;
-    prove_union_counts(&source_evidence, &staged)?;
-    write.commit().map_err(|error| error.to_string())?;
-    drop(target);
-    let reopened = crate::StorageKernel::open_owner::<crate::SemanticIndexOwner>(
-        candidate,
-        target_identity.clone(),
-        None,
-    )?;
-    let verified = strict_evidence_of(reopened.store())?;
-    if verified != staged {
-        return Err("semantic merge evidence changed after durable reopen".to_string());
-    }
-    drop(reopened);
-    let read_only = open_read_only(candidate, None)?;
-    let final_evidence = strict_recovery_evidence_read_only(
-        &read_only,
-        &target_identity,
-        OwnerLayout::SemanticIndex,
-    )?;
-    if final_evidence != verified {
-        return Err("semantic merge evidence changed after closing the writer".to_string());
-    }
-    drop(read_only);
-    let proof = prove_semantic_owner_union_read_only(source_files, candidate, &target_identity)?;
-    if proof.sources != source_evidence || proof.target != verified {
-        return Err("semantic merge row proof changed the recovered census".to_string());
-    }
-    Ok(proof)
+    Ok((source_evidence, max_epoch))
 }
 
 /// Reconstruct the exact union proof after a restart or a path reanchor.
@@ -156,69 +205,19 @@ pub fn prove_semantic_owner_union_read_only(
         .database()
         .begin_read()
         .map_err(|error| error.to_string())?;
-    let target_table = target_read
-        .open_table(SCOPE_BINDINGS)
-        .map_err(|error| error.to_string())?;
     let mut source_evidence = Vec::with_capacity(source_files.len());
     let mut source_proofs = Vec::with_capacity(source_files.len());
     for (path, identity) in source_files {
         if !distinct_paths.insert(path) || path.as_path() == destination {
             return Err("semantic union source paths are not distinct".to_string());
         }
-        let source = open_read_only(path, None)?;
-        source_evidence.push(strict_recovery_evidence_read_only(
-            &source,
+        let (evidence, digest) = prove_source_rows(
+            path,
             identity,
-            OwnerLayout::SemanticIndex,
-        )?);
-        let source_read = source
-            .database()
-            .begin_read()
-            .map_err(|error| error.to_string())?;
-        let source_table = source_read
-            .open_table(SCOPE_BINDINGS)
-            .map_err(|error| error.to_string())?;
-        let mut row_proof = Sha256::new();
-        row_proof.update(b"eg/semantic-owner-row-proof/v1\0");
-        proof_field(&mut row_proof, path.as_os_str().as_encoded_bytes());
-        proof_field(&mut row_proof, identity.digest());
-        for row in source_table.iter().map_err(|error| error.to_string())? {
-            let (key, value) = row.map_err(|error| error.to_string())?;
-            let original: ScopeBinding = decode_ledger_record(value.value())?;
-            let merged = target_table
-                .get(key.value())
-                .map_err(|error| error.to_string())?
-                .ok_or_else(|| "semantic merge omitted a scope binding".to_string())?;
-            let adopted: ScopeBinding = decode_ledger_record(merged.value())?;
-            if original.schema_version != adopted.schema_version
-                || original.identity != adopted.identity
-                || original.initial_version != adopted.initial_version
-                || adopted.store_identity_digest != target.incarnation().identity_digest()
-            {
-                return Err("semantic merge changed a logical scope binding".to_string());
-            }
-            prove_row(
-                &mut row_proof,
-                SCOPE_BINDINGS.name(),
-                key.value().as_bytes(),
-                value.value(),
-                merged.value(),
-                b"reanchored",
-            );
-        }
-        macro_rules! prove_content {
-            ($table:expr) => {{
-                prove_table_rows(&source_read, &target_read, $table, &mut row_proof)?;
-            }};
-        }
-        visit_ledger_content_tables!(prove_content);
-        prove_declared_owner_rows(
-            &source_read,
             &target_read,
-            OwnerLayout::SemanticIndex,
-            &mut row_proof,
+            target.incarnation().identity_digest(),
         )?;
-        let digest: [u8; 32] = row_proof.finalize().into();
+        source_evidence.push(evidence);
         source_proofs.push((path, digest));
     }
     prove_union_counts(&source_evidence, &target_evidence)?;
@@ -236,6 +235,78 @@ pub fn prove_semantic_owner_union_read_only(
         target: target_evidence,
         row_proof_sha256: proof.finalize().into(),
     })
+}
+
+fn prove_source_rows(
+    path: &Path,
+    identity: &PhysicalStoreIdentity,
+    target_read: &ReadTransaction,
+    target_digest: StoreIdentityDigest,
+) -> Result<(StrictRecoveryEvidence, [u8; 32]), String> {
+    let source = open_read_only(path, None)?;
+    let evidence =
+        strict_recovery_evidence_read_only(&source, identity, OwnerLayout::SemanticIndex)?;
+    let source_read = source
+        .database()
+        .begin_read()
+        .map_err(|error| error.to_string())?;
+    let mut row_proof = Sha256::new();
+    row_proof.update(b"eg/semantic-owner-row-proof/v1\0");
+    proof_field(&mut row_proof, path.as_os_str().as_encoded_bytes());
+    proof_field(&mut row_proof, identity.digest());
+    prove_scope_rows(&source_read, target_read, target_digest, &mut row_proof)?;
+    macro_rules! prove_content {
+        ($table:expr) => {{
+            prove_table_rows(&source_read, target_read, $table, &mut row_proof)?;
+        }};
+    }
+    visit_ledger_content_tables!(prove_content);
+    prove_declared_owner_rows(
+        &source_read,
+        target_read,
+        OwnerLayout::SemanticIndex,
+        &mut row_proof,
+    )?;
+    Ok((evidence, row_proof.finalize().into()))
+}
+
+fn prove_scope_rows(
+    source_read: &ReadTransaction,
+    target_read: &ReadTransaction,
+    target_digest: StoreIdentityDigest,
+    row_proof: &mut Sha256,
+) -> Result<(), String> {
+    let source_table = source_read
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let target_table = target_read
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    for row in source_table.iter().map_err(|error| error.to_string())? {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let original: ScopeBinding = decode_ledger_record(value.value())?;
+        let merged = target_table
+            .get(key.value())
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "semantic merge omitted a scope binding".to_string())?;
+        let adopted: ScopeBinding = decode_ledger_record(merged.value())?;
+        if original.schema_version != adopted.schema_version
+            || original.identity != adopted.identity
+            || original.initial_version != adopted.initial_version
+            || adopted.store_identity_digest != target_digest
+        {
+            return Err("semantic merge changed a logical scope binding".to_string());
+        }
+        prove_row(
+            row_proof,
+            SCOPE_BINDINGS.name(),
+            key.value().as_bytes(),
+            value.value(),
+            merged.value(),
+            b"reanchored",
+        );
+    }
+    Ok(())
 }
 
 /// Refuse a legacy per-binding file whose SemanticIndex owner rows name a

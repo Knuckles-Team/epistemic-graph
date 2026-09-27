@@ -300,15 +300,7 @@ pub(crate) fn require_no_earlier_gap<D: OwnerDomain>(
             reached_position = entry.position == *position;
             break;
         }
-        let delivery = table
-            .get((
-                scope,
-                consumer,
-                entry.position.batch_id.as_str(),
-                entry.position.ordinal,
-            ))?
-            .map(|value| decode_row::<OutboxDelivery>(value.value()))
-            .transpose()?;
+        let delivery = delivery_at_position!(table, scope, consumer, entry.position)?;
         let resolved = match delivery {
             Some(row) => {
                 validate_stamp(&row.identity, identity)?;

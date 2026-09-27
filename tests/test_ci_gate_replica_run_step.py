@@ -227,6 +227,47 @@ def test_run_step_leads_pytest_addopts_with_a_short_basetemp(module):
     assert status == 0
 
 
+def test_readonly_preferred_temp_falls_back_to_short_writable_temp(monkeypatch):
+    sys.path.insert(0, str(SCRIPT_PATH.parent))
+    from ci_replica import pytest_temp
+
+    previous = pytest_temp._BASETEMP
+    real_mkdtemp = pytest_temp.tempfile.mkdtemp
+    preferred, fallback = pytest_temp._parents()
+    attempted = []
+
+    def mkdtemp(*, prefix, dir):
+        attempted.append(dir)
+        if dir == preferred:
+            raise PermissionError("read-only replica sandbox")
+        return real_mkdtemp(prefix=prefix, dir=dir)
+
+    monkeypatch.setattr(pytest_temp.tempfile, "mkdtemp", mkdtemp)
+    monkeypatch.setattr(pytest_temp, "_BASETEMP", None)
+    try:
+        basetemp = pytest_temp.short_basetemp()
+        assert attempted == [preferred, fallback]
+        assert basetemp.is_relative_to(fallback)
+        assert pytest_temp.fits_socket_limit(basetemp)
+    finally:
+        if pytest_temp._BASETEMP is not None:
+            pytest_temp.shutil.rmtree(pytest_temp._BASETEMP.parent)
+        pytest_temp._BASETEMP = previous
+
+
+def test_no_writable_short_temp_root_fails_closed(monkeypatch):
+    sys.path.insert(0, str(SCRIPT_PATH.parent))
+    from ci_replica import pytest_temp
+
+    def readonly(*, prefix, dir):
+        raise PermissionError(f"{dir} is read-only")
+
+    monkeypatch.setattr(pytest_temp.tempfile, "mkdtemp", readonly)
+    monkeypatch.setattr(pytest_temp, "_BASETEMP", None)
+    with pytest.raises(RuntimeError, match="no writable short pytest temp root"):
+        pytest_temp.short_basetemp()
+
+
 def test_the_deepest_engine_socket_under_the_short_basetemp_binds(tmp_path):
     import socket
 

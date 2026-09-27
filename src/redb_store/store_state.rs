@@ -8,16 +8,15 @@ pub(crate) struct StagedMutationRows {
 /// The row-phase inputs, bundled out of [`stage_mutation_batch_rows`]'s
 /// parameter list.
 pub(crate) struct StagedRowInput<'a> {
-    pub(crate) graph_fname: &'a str,
-    pub(crate) batch: &'a MutationBatch,
-    pub(crate) change: Option<&'a ChangeEnvelope>,
-    pub(crate) source_budget:
-        Option<&'a crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
-    pub(crate) authoritative_state_msgpack: Option<&'a [u8]>,
+    pub(crate) rows: BatchRowInput<'a>,
     pub(crate) crossmodal: Option<&'a CrossModalBatchRows<'a>>,
-    pub(crate) committed_at_ms: u64,
-    pub(crate) audited: bool,
-    pub(crate) crashpoint: Option<MutationBatchCrashpoint>,
+}
+
+pub(crate) type RowEffect<'a> = dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String> + 'a;
+
+pub(crate) struct RowStagingOptions<'effect, 'crypto> {
+    pub(crate) effect: Option<&'effect mut RowEffect<'effect>>,
+    pub(crate) crypto: DurableCrypto<'crypto>,
 }
 
 /// Every OWNER row one batch writes, inside the admitted group.
@@ -34,14 +33,47 @@ pub(crate) fn stage_mutation_batch_rows(
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
 ) -> Result<StagedMutationRows, String> {
+    stage_mutation_batch_rows_with_effect(
+        shard,
+        group,
+        members,
+        batches,
+        input,
+        RowStagingOptions {
+            effect: None,
+            crypto,
+        },
+        #[cfg(feature = "security")]
+        staged_audit_tail,
+    )
+}
+
+/// Share the owner-row admission/finalization boundary with reactivation.
+/// The optional effect runs only after ordinary rows stage successfully, and
+/// `finish` still closes the admission on either outcome.
+pub(crate) fn stage_mutation_batch_rows_with_effect(
+    shard: &Shard,
+    group: &AdmittedGroup<'_, GraphShardOwner>,
+    members: &[(String, Arc<OwnedStoreHandle<GraphShardOwner>>)],
+    batches: &[MutationBatch],
+    input: StagedRowInput<'_>,
+    mut options: RowStagingOptions<'_, '_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
+) -> Result<StagedMutationRows, String> {
     let write = ShardWrite::open(shard, group, members, batches)?;
     let staged = stage_rows_in(
         &write,
         input,
-        crypto,
+        options.crypto,
         #[cfg(feature = "security")]
         staged_audit_tail,
-    );
+    )
+    .and_then(|staged| {
+        if let Some(effect) = options.effect.as_mut() {
+            effect(&write)?;
+        }
+        Ok(staged)
+    });
     let finished = write.finish();
     match (staged, finished) {
         (Ok(staged), Ok(())) => Ok(staged),
@@ -57,15 +89,18 @@ pub(crate) fn stage_rows_in(
     #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
 ) -> Result<StagedMutationRows, String> {
     let StagedRowInput {
-        graph_fname,
-        batch,
-        change,
-        source_budget,
-        authoritative_state_msgpack,
+        rows:
+            BatchRowInput {
+                graph_fname,
+                batch,
+                change,
+                source_budget,
+                authoritative_state_msgpack,
+                committed_at_ms,
+                audited,
+                crashpoint,
+            },
         crossmodal,
-        committed_at_ms,
-        audited,
-        crashpoint,
     } = input;
 
     // Domain preconditions the kernel cannot know: an envelope must not already

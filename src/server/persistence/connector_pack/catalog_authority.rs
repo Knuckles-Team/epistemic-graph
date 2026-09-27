@@ -5,8 +5,9 @@
 
 use eg_types::agent_library::AgentLibraryMutationContext;
 use eg_types::connector_pack::{
-    reconcile_catalog_authority, reconcile_joined_configuration, McpCatalogAuthorityCandidate,
-    McpCatalogAuthorityRow, McpCatalogSnapshotBinding, McpJoinedConfigurationRow,
+    catalog_authority::joined_configuration_digest, reconcile_catalog_authority,
+    reconcile_joined_configuration, McpCatalogAuthorityCandidate, McpCatalogAuthorityRow,
+    McpCatalogSnapshotBinding, McpJoinedConfigurationRow,
 };
 use eg_types::contract::Digest256;
 use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
@@ -43,33 +44,68 @@ fn checked_catalog_binding(
     scope_digest: Digest256,
     attester_principal_id: Option<&str>,
 ) -> Result<McpCatalogSnapshotBinding, String> {
-    let configuration_digest = Digest256::framed(
-        b"eg/mcp-served-joined-config/v1",
-        &[
-            row.tenant_id.as_bytes(),
-            row.server_name.as_bytes(),
-            row.component_digest.as_bytes(),
-            row.registration_config_digest.as_bytes(),
-        ],
+    let configuration_digest = joined_configuration_digest(
+        &row.tenant_id,
+        &row.server_name,
+        row.component_digest,
+        row.registration_config_digest,
     )?;
-    if row.tenant_id != tenant_id
-        || row.server_name != server_name
-        || row.binding.authorization_scope_digest != scope_digest
-        || row.attester_principal_id.is_empty()
-        || attester_principal_id.is_some_and(|principal| row.attester_principal_id != principal)
-        || row.binding.configuration_revision == 0
-        || row.binding.catalog_generation == 0
-        || row.binding.child_connection_generation == 0
-        || row.configuration_digest != configuration_digest
-        || row.registry_digest == Digest256::from_bytes([0; 32])
-        || row.binding.snapshot_digest == Digest256::from_bytes([0; 32])
+    if catalog_scope_mismatch(
+        &row,
+        tenant_id,
+        server_name,
+        scope_digest,
+        attester_principal_id,
+    ) || catalog_binding_invalid(&row, configuration_digest)
     {
         return Err("MCP catalog authority row differs from verified scope".into());
     }
     Ok(row.binding)
 }
 
+fn catalog_scope_mismatch(
+    row: &McpCatalogAuthorityRow,
+    tenant_id: &str,
+    server_name: &str,
+    scope_digest: Digest256,
+    attester_principal_id: Option<&str>,
+) -> bool {
+    row.tenant_id != tenant_id
+        || row.server_name != server_name
+        || row.binding.authorization_scope_digest != scope_digest
+        || row.attester_principal_id.is_empty()
+        || attester_principal_id.is_some_and(|principal| row.attester_principal_id != principal)
+}
+
+fn catalog_binding_invalid(row: &McpCatalogAuthorityRow, configuration_digest: Digest256) -> bool {
+    row.binding.configuration_revision == 0
+        || row.binding.catalog_generation == 0
+        || row.binding.child_connection_generation == 0
+        || row.configuration_digest != configuration_digest
+        || row.registry_digest == Digest256::from_bytes([0; 32])
+        || row.binding.snapshot_digest == Digest256::from_bytes([0; 32])
+}
+
 impl AgentLibraryStore {
+    fn catalog_authority_row(
+        &self,
+        tenant_id: &str,
+        server_name: &str,
+        scope_digest: Digest256,
+    ) -> Result<Option<McpCatalogAuthorityRow>, String> {
+        let scope_hex = scope_digest.to_hex();
+        let read = self.read()?;
+        let table = read.open_owner_table(eg_storage::MCP_CATALOG_SCOPES)?;
+        let row = table
+            .get((tenant_id, server_name, scope_hex.as_str()))
+            .map_err(|error| error.to_string())?
+            .map(|value| {
+                crate::server::persistence::agent_row::decode(value.value(), "MCP scoped catalog")
+            })
+            .transpose()?;
+        Ok(row)
+    }
+
     /// Read the current scoped binding for a separately authenticated
     /// pack-control service. The handler must check its verified tenant/grant.
     pub(crate) fn mcp_catalog_binding_status(
@@ -84,19 +120,7 @@ impl AgentLibraryStore {
         {
             return Err("invalid scoped MCP catalog binding read".into());
         }
-        let scope_hex = scope_digest.to_hex();
-        let read = self.read()?;
-        let table = read.open_owner_table(eg_storage::MCP_CATALOG_SCOPES)?;
-        let row = table
-            .get((tenant_id, server_name, scope_hex.as_str()))
-            .map_err(|error| error.to_string())?
-            .map(|value| {
-                crate::server::persistence::agent_row::decode::<McpCatalogAuthorityRow>(
-                    value.value(),
-                    "MCP scoped catalog",
-                )
-            })
-            .transpose()?;
+        let row = self.catalog_authority_row(tenant_id, server_name, scope_digest)?;
         row.map(|row| checked_catalog_binding(row, tenant_id, server_name, scope_digest, None))
             .transpose()
     }
@@ -115,19 +139,7 @@ impl AgentLibraryStore {
         {
             return Err("invalid scoped MCP catalog authority read".into());
         }
-        let scope_hex = scope_digest.to_hex();
-        let read = self.read()?;
-        let table = read.open_owner_table(eg_storage::MCP_CATALOG_SCOPES)?;
-        let row = table
-            .get((tenant_id, server_name, scope_hex.as_str()))
-            .map_err(|error| error.to_string())?
-            .map(|value| {
-                crate::server::persistence::agent_row::decode::<McpCatalogAuthorityRow>(
-                    value.value(),
-                    "MCP scoped catalog",
-                )
-            })
-            .transpose()?;
+        let row = self.catalog_authority_row(tenant_id, server_name, scope_digest)?;
         row.map(|row| {
             checked_scoped_binding(
                 row,
@@ -300,23 +312,7 @@ mod tests {
     use super::*;
 
     fn authority_row() -> McpCatalogAuthorityRow {
-        let candidate = McpCatalogAuthorityCandidate {
-            tenant_id: "tenant-a".into(),
-            server_name: "child-a".into(),
-            attester_principal_id: "principal:sha256:attester-a".into(),
-            discovery_tenant: "tenant-a".into(),
-            component_revision: 3,
-            component_digest: Digest256::from_bytes([1; 32]),
-            registry_revision: 8,
-            registry_digest: Digest256::from_bytes([7; 32]),
-            registration_config_digest: Digest256::from_bytes([2; 32]),
-            four_family_digest: Digest256::from_bytes([3; 32]),
-            child_id: "mounted-child-a".into(),
-            local_catalog_epoch: 1,
-            child_connection_generation: 2,
-            authorization_scope_digest: Digest256::from_bytes([4; 32]),
-            expected_catalog_generation: None,
-        };
+        let candidate = eg_types::connector_pack::catalog_authority::sample_authority_candidate();
         let config = reconcile_joined_configuration(None, &candidate).unwrap();
         reconcile_catalog_authority(None, &config, &candidate).unwrap()
     }
@@ -378,23 +374,9 @@ mod tests {
 
     #[test]
     fn replay_identity_binds_scope_child_and_source() {
-        let mut candidate = McpCatalogAuthorityCandidate {
-            tenant_id: "tenant-a".into(),
-            server_name: "child-a".into(),
-            attester_principal_id: "principal:sha256:attester-a".into(),
-            discovery_tenant: "tenant-a".into(),
-            component_revision: 3,
-            component_digest: Digest256::from_bytes([1; 32]),
-            registry_revision: 8,
-            registry_digest: Digest256::from_bytes([7; 32]),
-            registration_config_digest: Digest256::from_bytes([2; 32]),
-            four_family_digest: Digest256::from_bytes([3; 32]),
-            child_id: "mounted-child-a".into(),
-            local_catalog_epoch: 1,
-            child_connection_generation: 2,
-            authorization_scope_digest: Digest256::from_bytes([4; 32]),
-            expected_catalog_generation: Some(1),
-        };
+        let mut candidate =
+            eg_types::connector_pack::catalog_authority::sample_authority_candidate();
+        candidate.expected_catalog_generation = Some(1);
         let original = candidate_digest("mcp:a/mcp_server/child-a", &candidate).unwrap();
         candidate.authorization_scope_digest = Digest256::from_bytes([5; 32]);
         assert_ne!(

@@ -49,18 +49,12 @@ impl BindingChange<'_> {
 /// A principal persistence id: `principal:sha256:<64 lowercase hex>`, the
 /// only form a verified caller is ever compared under.
 pub(crate) fn validate_importer(importer: &str) -> Result<(), String> {
-    let valid = importer
+    let invalid = || "INVALID_IMPORTER: importer must be a principal persistence id".to_string();
+    let digest = importer
         .strip_prefix("principal:sha256:")
-        .is_some_and(|hex| {
-            hex.len() == 64
-                && hex
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        });
-    if valid {
-        return Ok(());
-    }
-    Err("INVALID_IMPORTER: importer must be a principal persistence id".to_string())
+        .ok_or_else(invalid)?;
+    Digest256::parse(digest).map_err(|_| invalid())?;
+    Ok(())
 }
 
 impl AgentLibraryStore {

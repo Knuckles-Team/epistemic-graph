@@ -245,6 +245,22 @@ fn purge_within_retention(
     table.purge_scope_rows()
 }
 
+/// Purge private capability and invocation rows under the caller's bound
+/// owner scope. Both admitted writes and graft payload writes implement this
+/// narrow capability; neither can name a different graph here.
+fn purge_private_rows(write: &impl OwnerPayloadWrite) -> Result<(), String> {
+    purge_within_retention(
+        &mut write.open_scoped_table(CAPABILITIES)?,
+        MAX_CAPABILITY_ROWS,
+        "native capability retention bound exceeded",
+    )?;
+    purge_within_retention(
+        &mut write.open_scoped_table(INVOCATIONS)?,
+        MAX_INVOCATION_ROWS,
+        "native capability invocation retention bound exceeded",
+    )
+}
+
 /// Drop this module's rows for one graph inside an admitted group, opening the
 /// native provenance table itself.
 pub(crate) fn clear_graph_rows(write: &ShardWrite<'_>, graph: &str) -> Result<(), String> {
@@ -262,16 +278,7 @@ pub(crate) fn clear_graph_rows_with_native(
     native_work_items: &mut CapabilityRows<'_>,
 ) -> Result<(), String> {
     let rows = write.graph(graph)?;
-    purge_within_retention(
-        &mut rows.open_scoped_table(CAPABILITIES)?,
-        MAX_CAPABILITY_ROWS,
-        "native capability retention bound exceeded",
-    )?;
-    purge_within_retention(
-        &mut rows.open_scoped_table(INVOCATIONS)?,
-        MAX_INVOCATION_ROWS,
-        "native capability invocation retention bound exceeded",
-    )?;
+    purge_private_rows(rows)?;
     purge_within_retention(
         native_work_items,
         MAX_NATIVE_WORK_ITEM_ROWS,
@@ -308,16 +315,7 @@ pub(crate) fn clear_graph_rows_in_wtx(
 /// cannot reach mutation-ledger tables or another graph.
 pub(crate) fn clear_graph_rows_in_payload<W: OwnerPayloadWrite>(write: &W) -> Result<(), String> {
     let mut native_work_items = write.open_scoped_table(NATIVE_WORK_ITEMS)?;
-    purge_within_retention(
-        &mut write.open_scoped_table(CAPABILITIES)?,
-        MAX_CAPABILITY_ROWS,
-        "native capability retention bound exceeded",
-    )?;
-    purge_within_retention(
-        &mut write.open_scoped_table(INVOCATIONS)?,
-        MAX_INVOCATION_ROWS,
-        "native capability invocation retention bound exceeded",
-    )?;
+    purge_private_rows(write)?;
     purge_within_retention(
         &mut native_work_items,
         MAX_NATIVE_WORK_ITEM_ROWS,
@@ -333,16 +331,7 @@ pub(crate) fn clear_graph_rows_in_wtx_with_native(
     write: &AdmittedOwnerWrite<'_, GraphShardOwner>,
     native_work_items: &mut CapabilityRows<'_>,
 ) -> Result<(), String> {
-    purge_within_retention(
-        &mut write.open_scoped_table(CAPABILITIES)?,
-        MAX_CAPABILITY_ROWS,
-        "native capability retention bound exceeded",
-    )?;
-    purge_within_retention(
-        &mut write.open_scoped_table(INVOCATIONS)?,
-        MAX_INVOCATION_ROWS,
-        "native capability invocation retention bound exceeded",
-    )?;
+    purge_private_rows(write)?;
     purge_within_retention(
         native_work_items,
         MAX_NATIVE_WORK_ITEM_ROWS,
@@ -1023,26 +1012,8 @@ fn decode_private<T: serde::de::DeserializeOwned>(
     decode_durable(&plain).map_err(|_| "capability record is invalid".to_string())
 }
 
-fn bounded_text(value: &str, max: usize) -> bool {
-    !value.trim().is_empty() && value.len() <= max
-}
-
-fn validate_authority(graph: &str, authority: &AuthenticatedAuthority) -> Result<(), String> {
-    if !bounded_text(graph, MAX_AUTHORITY_TEXT_BYTES)
-        || !bounded_text(&authority.tenant, MAX_AUTHORITY_TEXT_BYTES)
-        || !bounded_text(&authority.audience, MAX_AUTHORITY_TEXT_BYTES)
-        || !bounded_text(&authority.principal, MAX_AUTHORITY_TEXT_BYTES)
-        || !bounded_text(&authority.agent_id, MAX_AUTHORITY_TEXT_BYTES)
-        || !bounded_text(&authority.session, MAX_AUTHORITY_TEXT_BYTES)
-        || !bounded_text(&authority.incarnation_id, MAX_AUTHORITY_TEXT_BYTES)
-    {
-        return Err("capability authority is invalid".to_string());
-    }
-    if authority.authority_epoch == 0 {
-        return Err("capability authority is invalid".to_string());
-    }
-    Ok(())
-}
+mod authority;
+use authority::{bounded_text, validate_authority};
 
 fn prune_expired(
     capabilities: &mut CapabilityRows<'_>,
@@ -1109,9 +1080,7 @@ fn verification_refusal_result() -> WorkItemClaimCapabilityResult {
 mod tests {
     use super::*;
     use crate::mutation_batch::{
-        DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationOperation,
-        MutationScopeIdentity, MutationSurface, ScopeTenantId, VersionExpectation,
-        MUTATION_BATCH_VERSION,
+        IncarnationId, LogicalName, MutationBatch, MutationScopeIdentity, ScopeTenantId,
     };
     use crate::protocol::Method;
     use crate::redb_store::shard::Shard;
@@ -1174,83 +1143,72 @@ mod tests {
         try_commit_method(shard, method).expect("public native graph mutation");
     }
 
-    fn claim_native(shard: &Shard, id: &str, worker: &str, now_ms: u64, key: &str) {
-        let expected_graph_version = super::super::read_mutation_graph_version(shard, "graph-a")
-            .expect("read mutation graph version");
-        // A CALLER identity: `graph_scope_identity` builds the POST-binding
-        // shard scope `(GRAPH_SHARD_TENANT, graph, incarnation)`, and handing
-        // that to `shard::bind_caller_batch` -- whose contract is to bind a
-        // caller batch ONTO that scope -- is refused with "'__shard__' is the
-        // graph shard's reserved scope tenant and cannot be a caller tenant".
-        // See the same fix in `resource_reservation_tests::resource_batch`.
+    fn sealed_work_item_batch(
+        method: Method,
+        prefix: &str,
+        key: &str,
+        now_ms: u64,
+        expected_graph_version: u64,
+    ) -> MutationBatch {
+        // Use the caller scope; the shard's reserved tenant is bound only at
+        // admission, never supplied by this fixture.
         let identity = MutationScopeIdentity::graph(
             ScopeTenantId::new("tenant-a").expect("valid caller tenant"),
             LogicalName::new("graph-a").expect("valid graph name"),
             IncarnationId::new("incarnation:test:work-item-capability").expect("valid incarnation"),
         );
-        let mut batch = MutationBatch {
-            schema_version: MUTATION_BATCH_VERSION,
-            batch_id: format!("claim-{key}"),
-            envelope: super::super::fixture_operation_envelope(
-                &identity,
-                &format!("principal:sha256:{}", "a".repeat(64)),
-                now_ms,
-                &format!("claim-key-{key}"),
-            ),
+        super::super::control_fixture_batch(super::super::ControlFixtureBatch {
             identity,
-            placement_epoch: 0,
-            version_expectation: VersionExpectation::Graph(expected_graph_version),
-            fencing_token: None,
-            authoritative_state: None,
-            operations: vec![MutationOperation {
-                ordinal: 0,
-                surface: MutationSurface::Job,
-                domain: DurabilityDomain::ControlPlane,
-                method: Method::ClaimWorkItem {
-                    request: crate::epistemic_operations::ClaimWorkItemRequest {
-                        schema_version:
-                            crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
-                        tenant_ref: "tenant-a".to_string(),
-                        work_item_id: Some(id.to_string()),
-                        queue_ref: None,
-                        resource_class: None,
-                        fairness_group: None,
-                        worker_ref: worker.to_string(),
-                        now_ms,
-                        lease_ms: 100_000,
-                        max_tenant_in_flight: 64,
-                    },
-                },
-            }],
-            outbox: Vec::new(),
+            batch_id: format!("{prefix}-{key}"),
+            actor: format!("principal:sha256:{}", "a".repeat(64)),
+            request_id: now_ms,
+            idempotency_key: format!("{prefix}-key-{key}"),
+            expected_version: expected_graph_version,
+            method,
             created_at_ms: now_ms,
-        };
-        batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
-            .expect("a fixture batch reseals its envelope over its final body");
+        })
+    }
+
+    fn commit_work_item_batch(shard: &Shard, batch: &MutationBatch, now_ms: u64) -> bool {
         #[cfg(feature = "security")]
         let mut audit_tail = super::super::AuditTailCache::new();
-        let committed = super::super::commit_mutation_batch_inner(
+        super::super::commit_mutation_batch_inner(
             shard,
-            super::super::BatchCommitInput {
-                graph_fname: "graph-a",
-                batch: &batch,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: None,
-                crossmodal: None,
-                result_msgpack: None,
-                committed_at_ms: now_ms,
-                audited: true,
-                crashpoint: None,
-            },
+            super::super::BatchCommitInput::compact("graph-a", batch, None, now_ms),
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit_tail,
         )
-        .expect("native claim");
+        .expect("native WorkItem fixture mutation")
+        .replayed
+    }
+
+    fn claim_native(shard: &Shard, id: &str, worker: &str, now_ms: u64, key: &str) {
+        let expected_graph_version = super::super::read_mutation_graph_version(shard, "graph-a")
+            .expect("read mutation graph version");
+        let batch = sealed_work_item_batch(
+            Method::ClaimWorkItem {
+                request: crate::epistemic_operations::ClaimWorkItemRequest {
+                    schema_version:
+                        crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".to_string(),
+                    work_item_id: Some(id.to_string()),
+                    queue_ref: None,
+                    resource_class: None,
+                    fairness_group: None,
+                    worker_ref: worker.to_string(),
+                    now_ms,
+                    lease_ms: 100_000,
+                    max_tenant_in_flight: 64,
+                },
+            },
+            "claim",
+            key,
+            now_ms,
+            expected_graph_version,
+        );
         assert!(
-            !committed.replayed,
+            !commit_work_item_batch(shard, &batch, now_ms),
             "claim fixture must be a fresh mutation"
         );
     }
@@ -1362,77 +1320,27 @@ mod tests {
     ) {
         let expected_graph_version = super::super::read_mutation_graph_version(shard, "graph-a")
             .expect("read mutation graph version");
-        // A CALLER identity: `graph_scope_identity` builds the POST-binding
-        // shard scope `(GRAPH_SHARD_TENANT, graph, incarnation)`, and handing
-        // that to `shard::bind_caller_batch` -- whose contract is to bind a
-        // caller batch ONTO that scope -- is refused with "'__shard__' is the
-        // graph shard's reserved scope tenant and cannot be a caller tenant".
-        // See the same fix in `resource_reservation_tests::resource_batch`.
-        let identity = MutationScopeIdentity::graph(
-            ScopeTenantId::new("tenant-a").expect("valid caller tenant"),
-            LogicalName::new("graph-a").expect("valid graph name"),
-            IncarnationId::new("incarnation:test:work-item-capability").expect("valid incarnation"),
-        );
-        let mut batch = MutationBatch {
-            schema_version: MUTATION_BATCH_VERSION,
-            batch_id: format!("result-{key}"),
-            envelope: super::super::fixture_operation_envelope(
-                &identity,
-                &format!("principal:sha256:{}", "a".repeat(64)),
+        let batch = sealed_work_item_batch(
+            Method::CommitWorkItemResult {
+                tenant: "tenant-a".to_string(),
+                work_item_id: item.to_string(),
+                worker_id: "worker-a".to_string(),
+                lease_epoch,
+                fencing_token,
+                idempotency_key: format!("work-result-{key}"),
+                outcome: outcome.to_string(),
+                result_ref: None,
+                outcome_extension: None,
+                error_ref: None,
+                retryable,
                 now_ms,
-                &format!("result-key-{key}"),
-            ),
-            identity,
-            placement_epoch: 0,
-            version_expectation: VersionExpectation::Graph(expected_graph_version),
-            fencing_token: None,
-            authoritative_state: None,
-            operations: vec![MutationOperation {
-                ordinal: 0,
-                surface: MutationSurface::Job,
-                domain: DurabilityDomain::ControlPlane,
-                method: Method::CommitWorkItemResult {
-                    tenant: "tenant-a".to_string(),
-                    work_item_id: item.to_string(),
-                    worker_id: "worker-a".to_string(),
-                    lease_epoch,
-                    fencing_token,
-                    idempotency_key: format!("work-result-{key}"),
-                    outcome: outcome.to_string(),
-                    result_ref: None,
-                    outcome_extension: None,
-                    error_ref: None,
-                    retryable,
-                    now_ms,
-                },
-            }],
-            outbox: Vec::new(),
-            created_at_ms: now_ms,
-        };
-        batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
-            .expect("a fixture batch reseals its envelope over its final body");
-        #[cfg(feature = "security")]
-        let mut audit_tail = super::super::AuditTailCache::new();
-        super::super::commit_mutation_batch_inner(
-            shard,
-            super::super::BatchCommitInput {
-                graph_fname: "graph-a",
-                batch: &batch,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: None,
-                crossmodal: None,
-                result_msgpack: None,
-                committed_at_ms: now_ms,
-                audited: true,
-                crashpoint: None,
             },
-            DurableCrypto::none(),
-            #[cfg(feature = "security")]
-            &mut audit_tail,
-        )
-        .expect("native WorkItem result");
+            "result",
+            key,
+            now_ms,
+            expected_graph_version,
+        );
+        commit_work_item_batch(shard, &batch, now_ms);
     }
 
     /// A scoped table has no `len()` -- it would have to answer for every graph

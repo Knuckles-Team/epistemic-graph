@@ -92,13 +92,14 @@ pub(super) fn seed_policy_revision(
         }
         return Ok(());
     }
-    let bytes = rmp_serde::to_vec_named(&proposed)
-        .map_err(|_| "repository enrichment source policy encode failed")?;
-    rows.insert(
-        (graph, authority.source_envelope.as_str()),
-        crypto.seal(&bytes).as_ref(),
-    )?;
-    Ok(())
+    put_sealed_row(
+        &mut rows,
+        graph,
+        &authority.source_envelope,
+        &proposed,
+        crypto,
+        "repository enrichment source policy encode failed",
+    )
 }
 
 /// A node may have an old local outbox delivery after a Raft leader changed.
@@ -126,13 +127,7 @@ pub(crate) fn is_superseded(
         return Ok(false);
     };
     let marker: Supersession = decode_durable(&crypto.unseal(row.value())?)?;
-    if marker.schema_version != 1
-        || marker.old_source_envelope != source_envelope
-        || marker.old_snapshot_digest != snapshot_digest
-        || marker.new_source_envelope == source_envelope
-        || !valid_digest(&marker.new_snapshot_digest)
-        || !valid_digest(&marker.replacement_policy_digest)
-    {
+    if !valid_supersession_marker(&marker, source_envelope, snapshot_digest) {
         return Err("CONFLICT: repository enrichment supersession is invalid".into());
     }
     let next: BudgetCheckpoint = read
@@ -147,6 +142,19 @@ pub(crate) fn is_superseded(
         return Err("CONFLICT: repository enrichment supersession target changed".into());
     }
     Ok(true)
+}
+
+fn valid_supersession_marker(
+    marker: &Supersession,
+    source_envelope: &str,
+    snapshot_digest: &str,
+) -> bool {
+    marker.schema_version == 1
+        && marker.old_source_envelope == source_envelope
+        && marker.old_snapshot_digest == snapshot_digest
+        && marker.new_source_envelope != source_envelope
+        && valid_digest(&marker.new_snapshot_digest)
+        && valid_digest(&marker.replacement_policy_digest)
 }
 
 /// Verify an exact Raft retry against durable owner rows. Later funded pages
@@ -178,14 +186,7 @@ pub(crate) fn verify_reactivation_replay(
         .map(|row| decode_durable(&crypto.unseal(row.value())?))
         .transpose()?
         .ok_or("CONFLICT: enrichment top-up replay lacks supersession")?;
-    if marker.schema_version != 1
-        || marker.old_source_envelope != expected.source_envelope
-        || marker.old_snapshot_digest != expected.snapshot_digest
-        || marker.new_source_envelope != replacement.source_envelope
-        || marker.new_snapshot_digest != replacement.snapshot_digest
-        || marker.replacement_policy_digest != revision.policy_digest
-        || park.policy_digest != revision.prior_policy_digest.as_deref().unwrap_or_default()
-    {
+    if !replay_marker_matches(&marker, expected, park, replacement, revision) {
         return Err("CONFLICT: enrichment top-up replay supersession changed".into());
     }
     let checkpoint: BudgetCheckpoint = read
@@ -194,22 +195,48 @@ pub(crate) fn verify_reactivation_replay(
         .map(|row| decode_durable(&crypto.unseal(row.value())?))
         .transpose()?
         .ok_or("CONFLICT: enrichment top-up replay lacks replacement budget")?;
-    if checkpoint.schema_version != 1
-        || checkpoint.tenant_id != replacement.tenant_id
-        || checkpoint.source_envelope != replacement.source_envelope
-        || checkpoint.snapshot_digest != replacement.snapshot_digest
-        || checkpoint.total_budget_units != replacement.total_budget_units
-        || checkpoint
-            .spent_units
-            .checked_add(checkpoint.reserved_units)
-            .and_then(|spent| spent.checked_add(checkpoint.remaining_units))
-            != Some(checkpoint.total_budget_units)
-        || checkpoint.next_index < replacement.next_index
-        || checkpoint.page_number < replacement.page_number
-    {
+    if !replay_checkpoint_matches(&checkpoint, replacement) {
         return Err("CONFLICT: enrichment top-up replay budget changed".into());
     }
     Ok(())
+}
+
+fn replay_marker_matches(
+    marker: &Supersession,
+    expected: &BudgetCheckpoint,
+    park: &EnrichmentBudgetPark,
+    replacement: &BudgetCheckpoint,
+    revision: &RepositoryEnrichmentPolicyRevision,
+) -> bool {
+    marker.schema_version == 1
+        && marker.old_source_envelope == expected.source_envelope
+        && marker.old_snapshot_digest == expected.snapshot_digest
+        && marker.new_source_envelope == replacement.source_envelope
+        && marker.new_snapshot_digest == replacement.snapshot_digest
+        && marker.replacement_policy_digest == revision.policy_digest
+        && park.policy_digest == revision.prior_policy_digest.as_deref().unwrap_or_default()
+}
+
+fn replay_checkpoint_matches(
+    checkpoint: &BudgetCheckpoint,
+    replacement: &BudgetCheckpoint,
+) -> bool {
+    checkpoint.schema_version == 1
+        && checkpoint.tenant_id == replacement.tenant_id
+        && checkpoint.source_envelope == replacement.source_envelope
+        && checkpoint.snapshot_digest == replacement.snapshot_digest
+        && checkpoint.total_budget_units == replacement.total_budget_units
+        && budget_balances(checkpoint)
+        && checkpoint.next_index >= replacement.next_index
+        && checkpoint.page_number >= replacement.page_number
+}
+
+struct ReactivationRows<'a> {
+    graph: &'a str,
+    expected: &'a BudgetCheckpoint,
+    expected_park: &'a EnrichmentBudgetPark,
+    replacement: &'a BudgetCheckpoint,
+    revision: &'a RepositoryEnrichmentPolicyRevision,
 }
 
 /// Compare and swap the parked budget rows inside an already admitted graph
@@ -236,8 +263,33 @@ pub(crate) fn stage_parked_reactivation(
     if revision.graph != graph {
         return Err("ACCESS_DENIED: repository enrichment revision graph differs".into());
     }
+    let rows = ReactivationRows {
+        graph,
+        expected,
+        expected_park,
+        replacement,
+        revision,
+    };
+    check_parked_reactivation(write, &rows, crypto)?;
+    stage_reactivation_rows(write, &rows, crypto)
+}
+
+/// Compare all durable owner rows before writing any replacement row. The
+/// caller retains the admitted write transaction across this check and stage.
+fn check_parked_reactivation(
+    write: &ShardWrite<'_>,
+    rows: &ReactivationRows<'_>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let ReactivationRows {
+        graph,
+        expected,
+        expected_park,
+        replacement,
+        ..
+    } = *rows;
     let scope = write.graph(graph)?;
-    let mut budgets = scope.open_scoped_table(BUDGETS)?;
+    let budgets = scope.open_scoped_table(BUDGETS)?;
     let old: BudgetCheckpoint = budgets
         .get((graph, expected.source_envelope.as_str()))?
         .map(|row| decode_durable(&crypto.unseal(row.value())?))
@@ -252,7 +304,7 @@ pub(crate) fn stage_parked_reactivation(
     {
         return Err("CONFLICT: replacement repository enrichment budget already exists".into());
     }
-    let mut parks = scope.open_scoped_table(PARKS)?;
+    let parks = scope.open_scoped_table(PARKS)?;
     let park: EnrichmentBudgetPark = parks
         .get(graph)?
         .map(|row| decode_durable(&crypto.unseal(row.value())?))
@@ -261,24 +313,29 @@ pub(crate) fn stage_parked_reactivation(
     if park != *expected_park {
         return Err("CONFLICT: repository enrichment park changed".into());
     }
-    let mut policies = scope.open_scoped_table(POLICY_REVISIONS)?;
+    check_policy_and_supersession(write, rows, crypto)
+}
+
+fn check_policy_and_supersession(
+    write: &ShardWrite<'_>,
+    rows: &ReactivationRows<'_>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let ReactivationRows {
+        graph,
+        expected,
+        replacement,
+        ..
+    } = *rows;
+    let scope = write.graph(graph)?;
+    let policies = scope.open_scoped_table(POLICY_REVISIONS)?;
     let old_policy: RepositoryEnrichmentPolicyRevision = policies
         .get((graph, expected.source_envelope.as_str()))?
         .map(|row| decode_durable(&crypto.unseal(row.value())?))
         .transpose()?
         .ok_or("CONFLICT: repository enrichment prior policy is absent")?;
-    if old_policy.schema_version != 1
-        || old_policy.graph != graph
-        || old_policy.tenant_id != expected.tenant_id
-        || old_policy.repository_id != revision.repository_id
-        || old_policy.source_envelope != expected.source_envelope
-        || old_policy.snapshot_digest != expected.snapshot_digest
-        || old_policy.policy_digest != expected_park.policy_digest
-        || old_policy.total_budget_units != expected.total_budget_units
-        || old_policy.max_total_units == 0
-        || old_policy.max_total_units < revision.total_budget_units
-        || revision.max_total_units != old_policy.max_total_units
-        || old_policy.sequence.checked_add(1) != Some(revision.sequence)
+    if !policy_source_matches(&old_policy, rows)
+        || !policy_budget_and_sequence_match(&old_policy, rows)
     {
         return Err("CONFLICT: repository enrichment policy sequence changed".into());
     }
@@ -288,18 +345,66 @@ pub(crate) fn stage_parked_reactivation(
     {
         return Err("CONFLICT: repository enrichment replacement policy already exists".into());
     }
-    let mut supersessions = scope.open_scoped_table(SUPERSESSIONS)?;
+    let supersessions = scope.open_scoped_table(SUPERSESSIONS)?;
     if supersessions
         .get((graph, expected.source_envelope.as_str()))?
         .is_some()
     {
         return Err("CONFLICT: repository enrichment source is already superseded".into());
     }
-    let bytes = rmp_serde::to_vec_named(replacement)
-        .map_err(|_| "repository enrichment replacement budget encode failed")?;
-    budgets.insert(
-        (graph, replacement.source_envelope.as_str()),
-        crypto.seal(&bytes).as_ref(),
+    Ok(())
+}
+
+fn policy_source_matches(
+    old: &RepositoryEnrichmentPolicyRevision,
+    rows: &ReactivationRows<'_>,
+) -> bool {
+    old.schema_version == 1
+        && old.graph == rows.graph
+        && old.tenant_id == rows.expected.tenant_id
+        && old.repository_id == rows.revision.repository_id
+        && old.source_envelope == rows.expected.source_envelope
+        && old.snapshot_digest == rows.expected.snapshot_digest
+        && old.policy_digest == rows.expected_park.policy_digest
+}
+
+fn policy_budget_and_sequence_match(
+    old: &RepositoryEnrichmentPolicyRevision,
+    rows: &ReactivationRows<'_>,
+) -> bool {
+    old.total_budget_units == rows.expected.total_budget_units
+        && old.max_total_units != 0
+        && old.max_total_units >= rows.revision.total_budget_units
+        && rows.revision.max_total_units == old.max_total_units
+        && old.sequence.checked_add(1) == Some(rows.revision.sequence)
+}
+
+/// Stage all four row transitions in the same admitted transaction. Opening
+/// each table before the first insert preserves the original failure boundary.
+fn stage_reactivation_rows(
+    write: &ShardWrite<'_>,
+    rows: &ReactivationRows<'_>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let ReactivationRows {
+        graph,
+        expected,
+        replacement,
+        revision,
+        ..
+    } = *rows;
+    let scope = write.graph(graph)?;
+    let mut budgets = scope.open_scoped_table(BUDGETS)?;
+    let mut parks = scope.open_scoped_table(PARKS)?;
+    let mut policies = scope.open_scoped_table(POLICY_REVISIONS)?;
+    let mut supersessions = scope.open_scoped_table(SUPERSESSIONS)?;
+    put_sealed_row(
+        &mut budgets,
+        graph,
+        &replacement.source_envelope,
+        replacement,
+        crypto,
+        "repository enrichment replacement budget encode failed",
     )?;
     let marker = Supersession {
         schema_version: 1,
@@ -309,17 +414,21 @@ pub(crate) fn stage_parked_reactivation(
         new_snapshot_digest: replacement.snapshot_digest.clone(),
         replacement_policy_digest: revision.policy_digest.clone(),
     };
-    let marker_bytes = rmp_serde::to_vec_named(&marker)
-        .map_err(|_| "repository enrichment supersession encode failed")?;
-    supersessions.insert(
-        (graph, expected.source_envelope.as_str()),
-        crypto.seal(&marker_bytes).as_ref(),
+    put_sealed_row(
+        &mut supersessions,
+        graph,
+        &expected.source_envelope,
+        &marker,
+        crypto,
+        "repository enrichment supersession encode failed",
     )?;
-    let revision_bytes = rmp_serde::to_vec_named(revision)
-        .map_err(|_| "repository enrichment replacement policy encode failed")?;
-    policies.insert(
-        (graph, replacement.source_envelope.as_str()),
-        crypto.seal(&revision_bytes).as_ref(),
+    put_sealed_row(
+        &mut policies,
+        graph,
+        &replacement.source_envelope,
+        revision,
+        crypto,
+        "repository enrichment replacement policy encode failed",
     )?;
     parks.remove(graph)?;
     Ok(())
@@ -331,33 +440,58 @@ fn validate_policy_revision(
     park: &EnrichmentBudgetPark,
     replacement: &BudgetCheckpoint,
 ) -> Result<(), String> {
-    use crate::parser::enrichment_reactivation::TOP_UP_ACTION;
-    let bounded = |value: &str| {
-        !value.is_empty()
-            && value.len() <= MAX_ENVELOPE_BYTES
-            && !value.chars().any(char::is_control)
-    };
-    if revision.schema_version != 1
-        || !bounded(&revision.graph)
-        || revision.tenant_id != expected.tenant_id
-        || !bounded(&revision.repository_id)
-        || revision.source_envelope != replacement.source_envelope
-        || revision.snapshot_digest != replacement.snapshot_digest
-        || !valid_digest(&revision.policy_digest)
-        || revision.policy_digest == park.policy_digest
-        || revision.total_budget_units != replacement.total_budget_units
-        || revision.max_total_units < revision.total_budget_units
-        || revision.sequence == 0
-        || revision.prior_source_envelope.as_deref() != Some(expected.source_envelope.as_str())
-        || revision.prior_snapshot_digest.as_deref() != Some(expected.snapshot_digest.as_str())
-        || revision.prior_policy_digest.as_deref() != Some(park.policy_digest.as_str())
-        || !revision.caller_subject.as_deref().is_some_and(bounded)
-        || revision.verified_action.as_deref() != Some(TOP_UP_ACTION)
-        || !revision.idempotency_key.as_deref().is_some_and(bounded)
+    if !revision_source_matches(revision, expected, replacement)
+        || !revision_budget_matches(revision, park, replacement)
+        || !revision_prior_and_caller_matches(revision, expected, park)
     {
         return Err("ACCESS_DENIED: repository enrichment policy revision is invalid".into());
     }
     Ok(())
+}
+
+fn revision_source_matches(
+    revision: &RepositoryEnrichmentPolicyRevision,
+    expected: &BudgetCheckpoint,
+    replacement: &BudgetCheckpoint,
+) -> bool {
+    revision.schema_version == 1
+        && bounded_envelope(&revision.graph)
+        && revision.tenant_id == expected.tenant_id
+        && bounded_envelope(&revision.repository_id)
+        && revision.source_envelope == replacement.source_envelope
+        && revision.snapshot_digest == replacement.snapshot_digest
+}
+
+fn revision_budget_matches(
+    revision: &RepositoryEnrichmentPolicyRevision,
+    park: &EnrichmentBudgetPark,
+    replacement: &BudgetCheckpoint,
+) -> bool {
+    valid_digest(&revision.policy_digest)
+        && revision.policy_digest != park.policy_digest
+        && revision.total_budget_units == replacement.total_budget_units
+        && revision.max_total_units >= revision.total_budget_units
+        && revision.sequence != 0
+}
+
+fn revision_prior_and_caller_matches(
+    revision: &RepositoryEnrichmentPolicyRevision,
+    expected: &BudgetCheckpoint,
+    park: &EnrichmentBudgetPark,
+) -> bool {
+    use crate::parser::enrichment_reactivation::TOP_UP_ACTION;
+    revision.prior_source_envelope.as_deref() == Some(expected.source_envelope.as_str())
+        && revision.prior_snapshot_digest.as_deref() == Some(expected.snapshot_digest.as_str())
+        && revision.prior_policy_digest.as_deref() == Some(park.policy_digest.as_str())
+        && revision
+            .caller_subject
+            .as_deref()
+            .is_some_and(bounded_envelope)
+        && revision.verified_action.as_deref() == Some(TOP_UP_ACTION)
+        && revision
+            .idempotency_key
+            .as_deref()
+            .is_some_and(bounded_envelope)
 }
 
 fn validate_reactivation_rows(
@@ -372,36 +506,91 @@ fn validate_reactivation_rows(
         .checked_sub(expected.total_budget_units)
         .filter(|added| *added > 0)
         .ok_or("CONFLICT: repository enrichment top-up must increase budget")?;
-    if replacement.schema_version != 1
-        || replacement.tenant_id != expected.tenant_id
-        || replacement.source_envelope == expected.source_envelope
-        || replacement.source_envelope.is_empty()
-        || replacement.source_envelope.len() > MAX_ENVELOPE_BYTES
-        || replacement.source_envelope.chars().any(char::is_control)
-        || !valid_digest(&replacement.snapshot_digest)
-        || replacement.snapshot_digest == expected.snapshot_digest
-        || !valid_digest(replacement_policy_digest)
-        || replacement_policy_digest == expected_park.policy_digest
-        || replacement.next_index != expected.next_index
-        || replacement.page_number != expected.page_number
-        || replacement.reserved_units != expected.reserved_units
-        || replacement.spent_units != expected.spent_units
-        || replacement.last_page_key != expected.last_page_key
-        || expected.remaining_units.checked_add(added) != Some(replacement.remaining_units)
-        || replacement
-            .spent_units
-            .checked_add(replacement.reserved_units)
-            .and_then(|used| used.checked_add(replacement.remaining_units))
-            != Some(replacement.total_budget_units)
+    if !replacement_source_matches(
+        expected,
+        expected_park,
+        replacement,
+        replacement_policy_digest,
+    ) || !replacement_cursor_matches(expected, replacement, added)
     {
         return Err("CONFLICT: repository enrichment replacement budget is invalid".into());
     }
     Ok(())
 }
 
+fn replacement_source_matches(
+    expected: &BudgetCheckpoint,
+    expected_park: &EnrichmentBudgetPark,
+    replacement: &BudgetCheckpoint,
+    replacement_policy_digest: &str,
+) -> bool {
+    replacement.schema_version == 1
+        && replacement.tenant_id == expected.tenant_id
+        && replacement.source_envelope != expected.source_envelope
+        && bounded_envelope(&replacement.source_envelope)
+        && valid_digest(&replacement.snapshot_digest)
+        && replacement.snapshot_digest != expected.snapshot_digest
+        && valid_digest(replacement_policy_digest)
+        && replacement_policy_digest != expected_park.policy_digest
+}
+
+fn replacement_cursor_matches(
+    expected: &BudgetCheckpoint,
+    replacement: &BudgetCheckpoint,
+    added: u64,
+) -> bool {
+    replacement.next_index == expected.next_index
+        && replacement.page_number == expected.page_number
+        && replacement.reserved_units == expected.reserved_units
+        && replacement.spent_units == expected.spent_units
+        && replacement.last_page_key == expected.last_page_key
+        && expected.remaining_units.checked_add(added) == Some(replacement.remaining_units)
+        && budget_balances(replacement)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn commit_maintenance(
+        shard: &Shard,
+        graph: &str,
+        tag: &str,
+        apply: &dyn Fn(&ShardWrite<'_>) -> Result<(), String>,
+    ) {
+        let members = shard.graph_members(&[graph]).unwrap();
+        let (group, batches) = shard.admit_maintenance(&members, tag).unwrap();
+        let write = ShardWrite::open(shard, &group, &members, &batches).unwrap();
+        apply(&write).unwrap();
+        write.finish().unwrap();
+        shard.commit_drain(group, &batches, 1).unwrap();
+    }
+
+    fn source_authority(
+        old: &BudgetCheckpoint,
+        park: &EnrichmentBudgetPark,
+    ) -> SourceBudgetAuthority {
+        SourceBudgetAuthority {
+            tenant_id: old.tenant_id.clone(),
+            source_envelope: old.source_envelope.clone(),
+            snapshot_digest: old.snapshot_digest.clone(),
+            repository_id: "repository".into(),
+            policy_digest: park.policy_digest.clone(),
+            total_budget_units: old.total_budget_units,
+            max_total_units: 14,
+        }
+    }
+
+    fn assert_superseded(shard: &Shard, graph: &str, old: &BudgetCheckpoint) {
+        assert!(is_superseded(
+            shard,
+            graph,
+            &old.source_envelope,
+            &old.snapshot_digest,
+            DurableCrypto::none(),
+        )
+        .unwrap());
+    }
 
     fn parked_rows() -> (BudgetCheckpoint, EnrichmentBudgetPark, BudgetCheckpoint) {
         let old = BudgetCheckpoint {
@@ -483,27 +672,11 @@ mod tests {
         let shard = Shard::open(&path).unwrap();
         let graph = "reactivation-graph";
         let (old, park, next) = parked_rows();
-        let commit = |tag: &str, apply: &dyn Fn(&ShardWrite<'_>) -> Result<(), String>| {
-            let members = shard.graph_members(&[graph]).unwrap();
-            let (group, batches) = shard.admit_maintenance(&members, tag).unwrap();
-            let write = ShardWrite::open(&shard, &group, &members, &batches).unwrap();
-            apply(&write).unwrap();
-            write.finish().unwrap();
-            shard.commit_drain(group, &batches, 1).unwrap();
-        };
-        commit("reactivation/seed", &|write| {
+        commit_maintenance(&shard, graph, "reactivation/seed", &|write| {
             seed_source_budget(
                 write,
                 graph,
-                &SourceBudgetAuthority {
-                    tenant_id: old.tenant_id.clone(),
-                    source_envelope: old.source_envelope.clone(),
-                    snapshot_digest: old.snapshot_digest.clone(),
-                    repository_id: "repository".into(),
-                    policy_digest: park.policy_digest.clone(),
-                    total_budget_units: old.total_budget_units,
-                    max_total_units: 14,
-                },
+                &source_authority(&old, &park),
                 DurableCrypto::none(),
             )?;
             let scope = write.graph(graph)?;
@@ -518,7 +691,7 @@ mod tests {
                 .unwrap();
         assert_eq!(retained.max_total_units, 14);
         assert_eq!(retained.sequence, 0);
-        commit("reactivation/park", &|write| {
+        commit_maintenance(&shard, graph, "reactivation/park", &|write| {
             park_underfunded(write, graph, &park, DurableCrypto::none())
         });
         let mut stale = park.clone();
@@ -551,7 +724,7 @@ mod tests {
         );
         let mut stale_budget = old.clone();
         stale_budget.last_page_key = format!("repository-enrichment-page:{}", "f".repeat(64));
-        commit("reactivation/revise", &|write| {
+        commit_maintenance(&shard, graph, "reactivation/revise", &|write| {
             assert!(stage_parked_reactivation(
                 write,
                 graph,
@@ -626,14 +799,7 @@ mod tests {
             .is_none());
         drop(shard);
         let reopened = Shard::open(&path).unwrap();
-        assert!(is_superseded(
-            &reopened,
-            graph,
-            &old.source_envelope,
-            &old.snapshot_digest,
-            DurableCrypto::none(),
-        )
-        .unwrap());
+        assert_superseded(&reopened, graph, &old);
         assert!(read_park(&reopened, graph, DurableCrypto::none())
             .unwrap()
             .is_none());
@@ -668,35 +834,19 @@ mod tests {
             policy_digest: "b".repeat(64),
             parked_at_ms: 1,
         };
-        let commit = |tag: &str, apply: &dyn Fn(&ShardWrite<'_>) -> Result<(), String>| {
-            let members = shard.graph_members(&[graph]).unwrap();
-            let (group, batches) = shard.admit_maintenance(&members, tag).unwrap();
-            let write = ShardWrite::open(&shard, &group, &members, &batches).unwrap();
-            apply(&write).unwrap();
-            write.finish().unwrap();
-            shard.commit_drain(group, &batches, 1).unwrap();
-        };
-        commit("zero-topup/seed", &|write| {
+        commit_maintenance(&shard, graph, "zero-topup/seed", &|write| {
             seed_source_budget(
                 write,
                 graph,
-                &SourceBudgetAuthority {
-                    tenant_id: old.tenant_id.clone(),
-                    source_envelope: old.source_envelope.clone(),
-                    snapshot_digest: old.snapshot_digest.clone(),
-                    repository_id: "repository".into(),
-                    policy_digest: park.policy_digest.clone(),
-                    total_budget_units: 10,
-                    max_total_units: 14,
-                },
+                &source_authority(&old, &park),
                 DurableCrypto::none(),
             )
         });
-        commit("zero-topup/park", &|write| {
+        commit_maintenance(&shard, graph, "zero-topup/park", &|write| {
             park_underfunded(write, graph, &park, DurableCrypto::none())
         });
         let revision = revised_policy(&old, &next);
-        commit("zero-topup/replace", &|write| {
+        commit_maintenance(&shard, graph, "zero-topup/replace", &|write| {
             stage_parked_reactivation(
                 write,
                 graph,
@@ -722,14 +872,7 @@ mod tests {
         assert!(read_park(&reopened, graph, DurableCrypto::none())
             .unwrap()
             .is_none());
-        assert!(is_superseded(
-            &reopened,
-            graph,
-            &old.source_envelope,
-            &old.snapshot_digest,
-            DurableCrypto::none(),
-        )
-        .unwrap());
+        assert_superseded(&reopened, graph, &old);
         verify_reactivation_replay(
             &reopened,
             graph,

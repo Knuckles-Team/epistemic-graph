@@ -479,52 +479,18 @@ fn resource_batch(
         LogicalName::new("graph-a").expect("valid resource-reservation graph name"),
         IncarnationId::new("incarnation:test:resource-reservation").expect("valid incarnation"),
     );
-    let mut batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.to_string(),
-        envelope: super::fixture_operation_envelope(
-            &identity,
-            &format!("principal:sha256:{}", "b".repeat(64)),
-            77,
-            idempotency_key,
-        ),
-        // Graph scope, not native: `commit_mutation_batch_inner` (via
-        // `mutation_batch_graph_name`) fails closed on any batch that is not
-        // graph-scoped, so this is the only route these fixtures actually
-        // commit through. `DurabilityDomain::ControlPlane` is one of the
-        // "either" domains (`may_own_native_scope` AND legal in a graph
-        // scope per the graph arm of `validate_operations`), so it is free to
-        // take the graph route here. `"graph-a"` is reused verbatim as the
-        // graph name -- the exact literal the old flat `graph` field carried
-        // -- rather than inventing a new sentinel.
+    // Graph-scoped control rows take this exact mutation route; the supplied
+    // version is checked against the live shard row at admission.
+    control_fixture_batch(ControlFixtureBatch {
         identity,
-        placement_epoch: 0,
-        // A graph-scoped batch is OCC-checked for real:
-        // `check_occ_version_and_fence` (in `commit_mutation_batch_inner`)
-        // requires `expected_version` to equal the live
-        // `MUTATION_GRAPH_VERSION["graph-a"]` row at commit time, or the
-        // commit fails closed with `STALE_VERSION`. `expected_version` is
-        // supplied by the caller, traced from that test's own seed/commit
-        // chain (a fresh `seed_resource_database` starts the counter at
-        // `INITIAL_GRAPH_VERSION` = 0; every prior non-replayed commit against
-        // the same database advances it by exactly one, replays and raw
-        // out-of-band table writes do not).
-        version_expectation: VersionExpectation::Graph(expected_version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Job,
-            domain: DurabilityDomain::ControlPlane,
-            method,
-        }],
-        outbox: Vec::new(),
+        batch_id: batch_id.to_string(),
+        actor: format!("principal:sha256:{}", "b".repeat(64)),
+        request_id: 77,
+        idempotency_key: idempotency_key.to_string(),
+        expected_version,
+        method,
         created_at_ms: 1_000,
-    };
-    batch
-        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
-        .expect("a fixture batch reseals its envelope over its final body");
-    batch
+    })
 }
 
 /// Rebuild a committed fixture as a fresh invocation over the same stable
@@ -553,18 +519,7 @@ fn commit_resource_batch_at(
     let mut audit = AuditTailCache::new();
     commit_mutation_batch_inner(
         shard,
-        BatchCommitInput {
-            graph_fname: "graph-a",
-            batch,
-            change: None,
-            source_budget: None,
-            authoritative_state_msgpack: None,
-            crossmodal: None,
-            result_msgpack: None,
-            committed_at_ms: 1_000,
-            audited: true,
-            crashpoint,
-        },
+        BatchCommitInput::compact("graph-a", batch, None, 1_000).with_crashpoint(crashpoint),
         DurableCrypto::none(),
         #[cfg(feature = "security")]
         &mut audit,

@@ -9,7 +9,6 @@
 use crate::admitted::AdmittedMutation;
 use crate::graft::{GraftDestination, GraftIntent, GraftSource, GraftedScope};
 use crate::group::{expected_current_version, AdmittedGroup, CurrentIntent, ScopedIntent};
-use crate::outbox::{OutboxBackfillOutcome, OutboxClaimBudget, OutboxClaimOutcome};
 use crate::replay::{
     finalize_replay_receipt_in, record_replay_in, resolve_nonce_in, resolve_replay_in,
     ReplayResolution,
@@ -22,22 +21,18 @@ use eg_storage::{
 };
 use eg_types::authority::{NonceReplayKey, OperationReplayIdentity};
 use eg_types::mutation::MutationReceipt;
-use eg_types::{
-    MutationBatch, MutationBatchRecord, MutationOutboxLease, MutationProjectionCursor,
-    MutationScopeIdentity,
-};
+use eg_types::{MutationBatch, MutationBatchRecord, MutationScopeIdentity};
 use std::collections::BTreeSet;
+
+mod outbox;
 
 /// The sole mutation owner over one physical owner file.
 pub struct MutationKernel {
     // `pub(crate)` rather than a `pub(crate)` accessor method: every inherent
     // method this kernel exposes from another file in this crate's own
     // module tree (`outbox::operator`'s `impl MutationKernel` included) reads
-    // this field directly, and kernel.rs is already near `kiss`'s
-    // functions-per-file cap, so a same-crate field is one file-aggregate
-    // finding cheaper than an equivalent accessor without changing what is
-    // reachable from outside the crate (still nothing -- `pub(crate)` stops
-    // at this crate's boundary either way).
+    // this field directly. A same-crate field keeps those operations within
+    // the single authority while remaining private outside this crate.
     pub(crate) authority: MutationOwnerAuthority,
 }
 
@@ -232,21 +227,15 @@ impl MutationKernel {
             .chain(member_intents.iter().map(|intent| intent.owner))
             .collect();
         let admitted = self.group_members(&owners)?;
-        let control_batch = match current_batch(&admitted[0], control_owner, control_build) {
-            Ok(batch) => batch,
-            Err(error) => {
-                let _ = AdmittedGroup::new(admitted, Vec::new()).end(false);
-                return Err(error);
-            }
-        };
         let mut begins = Vec::with_capacity(admitted.len());
-        let control_begin = match admit_group_member(&admitted[0], &control_batch) {
-            Ok(begun) => begun,
-            Err(error) => {
-                let _ = AdmittedGroup::new(admitted, begins).end(false);
-                return Err(error);
-            }
-        };
+        let (control_batch, control_begin) =
+            match admit_current_group_control(&admitted[0], control_owner, control_build) {
+                Ok(control) => control,
+                Err(error) => {
+                    let _ = AdmittedGroup::new(admitted, begins).end(false);
+                    return Err(error);
+                }
+            };
         begins.push(control_begin);
         let mut batches = vec![control_batch];
         for (write, intent) in admitted.iter().skip(1).zip(member_intents.iter()) {
@@ -561,135 +550,6 @@ impl MutationKernel {
         crate::ledger::bound_scope_version(write, owner.identity())
     }
 
-    /// Durably subscribe one consumer of `owner`'s scope to one outbox topic.
-    ///
-    /// A subscription is the consumer's liveness and the boundary of its
-    /// ordered stream. It is idempotent for the same topic and refused for a
-    /// different one: changing it would move every position the consumer's
-    /// cursor already names.
-    pub fn outbox_subscribe<D: OwnerDomain>(
-        &self,
-        owner: &OwnedStoreHandle<D>,
-        consumer: &str,
-        topic: &str,
-    ) -> Result<(), String> {
-        crate::outbox::subscribe(&self.authority, owner, consumer, topic)
-    }
-
-    /// Claim pending outbox rows of `owner`'s scope for one durable consumer.
-    ///
-    /// Rows come in commit order from a durable scan position, each under a
-    /// lease keyed `(scope, consumer, batch id, ordinal)` with a monotonic
-    /// epoch. Selection and lease installation share one transaction, so two
-    /// workers of one consumer can never both hold a row, and a crash between
-    /// claim and ack leaves the lease to expire -- delivery is at-least-once.
-    ///
-    /// `budget` carries the caller-owned sweep-local 25% consecutive-claim cap
-    /// across the scopes the caller visits. The composition scheduler chooses
-    /// tenant order and weights and must reuse one budget for that sweep; this
-    /// kernel does not persist cross-scope scheduler debt. A full in-flight
-    /// queue or an exhausted sweep cap claims nothing and leaves the
-    /// durable intention pending; it never drops work.
-    pub fn outbox_claim<D: OwnerDomain>(
-        &self,
-        owner: &OwnedStoreHandle<D>,
-        consumer: &str,
-        budget: &mut OutboxClaimBudget,
-    ) -> Result<OutboxClaimOutcome, String> {
-        crate::outbox::claim(&self.authority, owner, consumer, budget)
-    }
-
-    /// Index every outbox row of `owner`'s scope that has no index row yet.
-    ///
-    /// The commit-ordered index exists only because `commit::write_outbox`
-    /// writes it, so every row committed before this protocol landed is
-    /// invisible to a claim -- never delivered and reported as no lag at all.
-    /// The returned completion bit is durable state: an already-indexed page
-    /// may report zero inserts while later primary rows still need repair.
-    pub fn outbox_backfill_index<D: OwnerDomain>(
-        &self,
-        owner: &OwnedStoreHandle<D>,
-    ) -> Result<OutboxBackfillOutcome, String> {
-        crate::outbox::backfill(&self.authority, owner)
-    }
-
-    /// Acknowledge one held lease and advance the consumer's projection cursor
-    /// in the SAME admitted transaction.
-    ///
-    /// A crash between marking the row delivered and moving the watermark is
-    /// therefore not representable: both land or neither does.
-    pub fn outbox_ack<D: OwnerDomain>(
-        &self,
-        owner: &OwnedStoreHandle<D>,
-        lease: &MutationOutboxLease,
-        now_ms: u64,
-    ) -> Result<MutationProjectionCursor, String> {
-        crate::outbox::ack(&self.authority, owner, lease, now_ms)
-    }
-
-    /// Validate one held lease inside an already-admitted owner transaction.
-    ///
-    /// This performs the exact checks [`Self::outbox_ack_in`] will repeat, but
-    /// writes nothing. Domain consumers use it before opening their owner-row
-    /// gate so a stale, expired, released or out-of-order lease cannot stage an
-    /// effect that will only be rejected after the effect ran.
-    pub fn outbox_validate_in<D: OwnerDomain>(
-        &self,
-        write: &AdmittedMutation<'_, D>,
-        owner: &OwnedStoreHandle<D>,
-        lease: &MutationOutboxLease,
-        now_ms: u64,
-    ) -> Result<(), String> {
-        ensure_admitted_owner(write, owner)?;
-        crate::outbox::validate_in(write, owner.identity(), lease, now_ms)
-    }
-
-    /// Acknowledge one held lease inside an already-admitted owner transaction.
-    ///
-    /// This method does not commit `write`. The caller first writes its owner
-    /// rows and terminal receipt, then adds this delivery transition and commits
-    /// the admitted batch once, making the effect, receipt and acknowledgement
-    /// indivisible. Requiring an admitted, scope-matching write prevents this
-    /// entry point from becoming a second standalone acknowledgement authority.
-    pub fn outbox_ack_in<D: OwnerDomain>(
-        &self,
-        write: &AdmittedMutation<'_, D>,
-        owner: &OwnedStoreHandle<D>,
-        lease: &MutationOutboxLease,
-        now_ms: u64,
-    ) -> Result<MutationProjectionCursor, String> {
-        ensure_admitted_owner(write, owner)?;
-        crate::outbox::ack_in_transaction(write, owner.identity(), lease, now_ms)
-    }
-
-    /// Give one held lease back without delivering it, so the row is
-    /// immediately re-claimable. The released lease can never be acknowledged.
-    pub fn outbox_release<D: OwnerDomain>(
-        &self,
-        owner: &OwnedStoreHandle<D>,
-        lease: &MutationOutboxLease,
-    ) -> Result<(), String> {
-        crate::outbox::release(&self.authority, owner, lease)
-    }
-
-    /// Retire every expired lease of one consumer, returning how many. An
-    /// expired lease is already re-claimable; this makes the queue's reported
-    /// in-flight count agree with that.
-    pub fn outbox_expire<D: OwnerDomain>(
-        &self,
-        owner: &OwnedStoreHandle<D>,
-        consumer: &str,
-        now_ms: u64,
-    ) -> Result<u32, String> {
-        crate::outbox::expire(&self.authority, owner, consumer, now_ms)
-    }
-
-    // `outbox_reject`, `outbox_reject_in`, `outbox_dead_letters` and
-    // `outbox_rewind` are inherent methods too, defined in
-    // `outbox::operator` to keep this file's aggregates from growing further
-    // (`Self::authority` is the seam that lets another file in this crate's
-    // module tree write an `impl MutationKernel` block at all).
-
     /// Phases B and C of a graft: copy the fenced scope's whole ledger into
     /// `destination` verbatim, then retire the source binding
     /// (RF-RULING-004 application note 4).
@@ -885,6 +745,21 @@ where
         ));
     }
     Ok(batch)
+}
+
+/// Build and admit a group's control member under its shared write lock.
+/// The caller owns group rollback if either step fails.
+pub(crate) fn admit_current_group_control<D: OwnerDomain, F>(
+    write: &AdmittedMutation<'_, D>,
+    owner: &OwnedStoreHandle<D>,
+    build: F,
+) -> Result<(MutationBatch, Begin), String>
+where
+    F: FnOnce(u64) -> Result<MutationBatch, String>,
+{
+    let batch = current_batch(write, owner, build)?;
+    let begun = admit_group_member(write, &batch)?;
+    Ok((batch, begun))
 }
 
 /// Admit one group member through exactly the check a sole writer runs, and

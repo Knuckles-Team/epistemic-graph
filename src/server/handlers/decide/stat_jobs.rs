@@ -586,10 +586,7 @@ async fn serve_eval(
     reader: LogReader,
     op: DecisionEvalOp,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{
-        DecisionEvalReceiptGet, DecisionEvalReceipts, DecisionEvalStatus, DecisionEvalSubmit,
-        DecisionEvalTimeline,
-    };
+    use eg_types::result_contract::coordination::{DecisionEvalStatus, DecisionEvalSubmit};
     let (store, now_ms) = store_and_now(state).await?;
     match op {
         DecisionEvalOp::Submit { request } => {
@@ -611,145 +608,166 @@ async fn serve_eval(
             &request.tenant_id,
             &request.job_id,
         )?),
-        DecisionEvalOp::Receipt { request } => {
-            if !valid_receipt_digest(&request.receipt_digest) {
-                return Err("INVALID_ARGUMENT: receipt_digest must be a sha256 digest".into());
-            }
-            let receipt = store
-                .decision_artifact(&request.tenant_id, &receipt_key(&request.receipt_digest))?
-                .map(|bytes| decode_artifact(&bytes, "evaluation receipt"))
-                .transpose()?;
-            if receipt
-                .as_ref()
-                .is_some_and(|stored: &eg_types::decision::DecisionEvalReceipt| {
-                    stored.receipt_digest != request.receipt_digest
-                })
-            {
-                return Err("CORRUPT_DECISION_ARTIFACT: receipt digest disagrees with key".into());
-            }
-            ResultPayload::of::<DecisionEvalReceiptGet>(receipt)
-        }
-        DecisionEvalOp::Receipts { request } => {
-            if !(1..=50).contains(&request.limit) {
-                return Err("INVALID_ARGUMENT: receipt page limit must be 1..50".into());
-            }
-            if request
-                .after
-                .as_deref()
-                .is_some_and(|value| !valid_receipt_digest(value))
-            {
-                return Err("INVALID_ARGUMENT: receipt cursor must be a sha256 digest".into());
-            }
-            let after = request.after.as_deref().map(receipt_key);
-            let rows = store.decision_artifacts_page(
-                &request.tenant_id,
-                "receipt:",
-                after.as_deref(),
-                usize::from(request.limit) + 1,
-            )?;
-            let has_more = rows.len() > usize::from(request.limit);
-            let page_rows = rows.into_iter().take(usize::from(request.limit));
-            let mut receipts = Vec::new();
-            for (key, bytes) in page_rows {
-                let receipt: eg_types::decision::DecisionEvalReceipt =
-                    decode_artifact(&bytes, "evaluation receipt")?;
-                if receipt_key(&receipt.receipt_digest) != key {
-                    return Err(
-                        "CORRUPT_DECISION_ARTIFACT: receipt digest disagrees with key".into(),
-                    );
-                }
-                receipts.push(receipt);
-            }
-            let next_after = if has_more {
-                receipts
-                    .last()
-                    .map(|receipt: &eg_types::decision::DecisionEvalReceipt| {
-                        receipt.receipt_digest.clone()
-                    })
-            } else {
-                None
-            };
-            ResultPayload::of::<DecisionEvalReceipts>(DecisionReceiptPage {
-                receipts: BoundedVec::new(receipts)?,
-                next_after,
-            })
-        }
-        DecisionEvalOp::Timeline { request } => {
-            if !(1..=50).contains(&request.limit) {
-                return Err("INVALID_ARGUMENT: timeline page limit must be 1..50".into());
-            }
-            if request
-                .after
-                .as_deref()
-                .is_some_and(|value| !valid_timeline_cursor(value))
-            {
-                return Err("INVALID_ARGUMENT: invalid timeline cursor".into());
-            }
-            let after = request
-                .after
-                .as_ref()
-                .map(|cursor| format!("receipt-time:{cursor}"));
-            let rows = store.decision_artifacts_page(
-                &request.tenant_id,
-                "receipt-time:",
-                after.as_deref(),
-                usize::from(request.limit) + 1,
-            )?;
-            let has_more = rows.len() > usize::from(request.limit);
-            let mut entries = Vec::new();
-            let mut last_cursor = None;
-            for (key, _) in rows.into_iter().take(usize::from(request.limit)) {
-                let cursor = key
-                    .strip_prefix("receipt-time:")
-                    .ok_or("CORRUPT_DECISION_ARTIFACT: invalid timeline key")?;
-                if !valid_timeline_cursor(cursor) {
-                    return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline key".into());
-                }
-                let submitted_at_ms = cursor[..20]
-                    .parse::<u64>()
-                    .map_err(|_| "CORRUPT_DECISION_ARTIFACT: invalid timeline time")?;
-                let digest = &cursor[21..];
-                let bytes = store
-                    .decision_artifact(&request.tenant_id, &receipt_key(digest))?
-                    .ok_or("CORRUPT_DECISION_ARTIFACT: timeline receipt absent")?;
-                let receipt: eg_types::decision::DecisionEvalReceipt =
-                    decode_artifact(&bytes, "evaluation receipt")?;
-                if receipt.receipt_digest != digest
-                    || receipt.synthetic
-                    || receipt.metrics.is_none()
-                {
-                    return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline receipt".into());
-                }
-                let threshold_alert = store
-                    .decision_artifact(&request.tenant_id, &receipt_threshold_key(digest))?
-                    .map(|bytes| {
-                        decode_artifact::<DecisionThresholdAssessment>(
-                            &bytes,
-                            "decision threshold assessment",
-                        )
-                    })
-                    .transpose()?;
-                if threshold_alert
-                    .as_ref()
-                    .is_some_and(|assessment| assessment.policy_digest != receipt.policy_digest)
-                {
-                    return Err(
-                        "CORRUPT_DECISION_ARTIFACT: threshold policy digest mismatch".into(),
-                    );
-                }
-                entries.push(DecisionReceiptTimelineEntry {
-                    submitted_at_ms,
-                    receipt,
-                    threshold_alert,
-                });
-                last_cursor = Some(cursor.to_string());
-            }
-            ResultPayload::of::<DecisionEvalTimeline>(DecisionReceiptTimelinePage {
-                entries: BoundedVec::new(entries)?,
-                next_after: if has_more { last_cursor } else { None },
-            })
-        }
+        DecisionEvalOp::Receipt { request } => serve_eval_receipt(&store, &request),
+        DecisionEvalOp::Receipts { request } => serve_eval_receipts(&store, &request),
+        DecisionEvalOp::Timeline { request } => serve_eval_timeline(&store, &request),
     }
+}
+
+fn serve_eval_receipt(
+    store: &AgentLibraryStore,
+    request: &eg_types::decision::DecisionReceiptGetRequest,
+) -> Result<ResultPayload, String> {
+    use eg_types::result_contract::coordination::DecisionEvalReceiptGet;
+
+    if !valid_receipt_digest(&request.receipt_digest) {
+        return Err("INVALID_ARGUMENT: receipt_digest must be a sha256 digest".into());
+    }
+    let receipt = store
+        .decision_artifact(&request.tenant_id, &receipt_key(&request.receipt_digest))?
+        .map(|bytes| decode_artifact(&bytes, "evaluation receipt"))
+        .transpose()?;
+    if receipt
+        .as_ref()
+        .is_some_and(|stored: &eg_types::decision::DecisionEvalReceipt| {
+            stored.receipt_digest != request.receipt_digest
+        })
+    {
+        return Err("CORRUPT_DECISION_ARTIFACT: receipt digest disagrees with key".into());
+    }
+    ResultPayload::of::<DecisionEvalReceiptGet>(receipt)
+}
+
+fn serve_eval_receipts(
+    store: &AgentLibraryStore,
+    request: &eg_types::decision::DecisionReceiptListRequest,
+) -> Result<ResultPayload, String> {
+    use eg_types::result_contract::coordination::DecisionEvalReceipts;
+
+    if !(1..=50).contains(&request.limit) {
+        return Err("INVALID_ARGUMENT: receipt page limit must be 1..50".into());
+    }
+    if request
+        .after
+        .as_deref()
+        .is_some_and(|value| !valid_receipt_digest(value))
+    {
+        return Err("INVALID_ARGUMENT: receipt cursor must be a sha256 digest".into());
+    }
+    let after = request.after.as_deref().map(receipt_key);
+    let rows = store.decision_artifacts_page(
+        &request.tenant_id,
+        "receipt:",
+        after.as_deref(),
+        usize::from(request.limit) + 1,
+    )?;
+    let has_more = rows.len() > usize::from(request.limit);
+    let page_rows = rows.into_iter().take(usize::from(request.limit));
+    let mut receipts = Vec::new();
+    for (key, bytes) in page_rows {
+        let receipt: eg_types::decision::DecisionEvalReceipt =
+            decode_artifact(&bytes, "evaluation receipt")?;
+        if receipt_key(&receipt.receipt_digest) != key {
+            return Err("CORRUPT_DECISION_ARTIFACT: receipt digest disagrees with key".into());
+        }
+        receipts.push(receipt);
+    }
+    let next_after = if has_more {
+        receipts
+            .last()
+            .map(|receipt: &eg_types::decision::DecisionEvalReceipt| receipt.receipt_digest.clone())
+    } else {
+        None
+    };
+    ResultPayload::of::<DecisionEvalReceipts>(DecisionReceiptPage {
+        receipts: BoundedVec::new(receipts)?,
+        next_after,
+    })
+}
+
+fn serve_eval_timeline(
+    store: &AgentLibraryStore,
+    request: &eg_types::decision::DecisionReceiptTimelineRequest,
+) -> Result<ResultPayload, String> {
+    use eg_types::result_contract::coordination::DecisionEvalTimeline;
+
+    if !(1..=50).contains(&request.limit) {
+        return Err("INVALID_ARGUMENT: timeline page limit must be 1..50".into());
+    }
+    if request
+        .after
+        .as_deref()
+        .is_some_and(|value| !valid_timeline_cursor(value))
+    {
+        return Err("INVALID_ARGUMENT: invalid timeline cursor".into());
+    }
+    let after = request
+        .after
+        .as_ref()
+        .map(|cursor| format!("receipt-time:{cursor}"));
+    let rows = store.decision_artifacts_page(
+        &request.tenant_id,
+        "receipt-time:",
+        after.as_deref(),
+        usize::from(request.limit) + 1,
+    )?;
+    let has_more = rows.len() > usize::from(request.limit);
+    let mut entries = Vec::new();
+    let mut last_cursor = None;
+    for (key, _) in rows.into_iter().take(usize::from(request.limit)) {
+        let (entry, cursor) = timeline_entry(store, &request.tenant_id, &key)?;
+        entries.push(entry);
+        last_cursor = Some(cursor);
+    }
+    ResultPayload::of::<DecisionEvalTimeline>(DecisionReceiptTimelinePage {
+        entries: BoundedVec::new(entries)?,
+        next_after: if has_more { last_cursor } else { None },
+    })
+}
+
+fn timeline_entry(
+    store: &AgentLibraryStore,
+    tenant_id: &str,
+    key: &str,
+) -> Result<(DecisionReceiptTimelineEntry, String), String> {
+    let cursor = key
+        .strip_prefix("receipt-time:")
+        .ok_or("CORRUPT_DECISION_ARTIFACT: invalid timeline key")?;
+    if !valid_timeline_cursor(cursor) {
+        return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline key".into());
+    }
+    let submitted_at_ms = cursor[..20]
+        .parse::<u64>()
+        .map_err(|_| "CORRUPT_DECISION_ARTIFACT: invalid timeline time")?;
+    let digest = &cursor[21..];
+    let bytes = store
+        .decision_artifact(tenant_id, &receipt_key(digest))?
+        .ok_or("CORRUPT_DECISION_ARTIFACT: timeline receipt absent")?;
+    let receipt: eg_types::decision::DecisionEvalReceipt =
+        decode_artifact(&bytes, "evaluation receipt")?;
+    if receipt.receipt_digest != digest || receipt.synthetic || receipt.metrics.is_none() {
+        return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline receipt".into());
+    }
+    let threshold_alert = store
+        .decision_artifact(tenant_id, &receipt_threshold_key(digest))?
+        .map(|bytes| {
+            decode_artifact::<DecisionThresholdAssessment>(&bytes, "decision threshold assessment")
+        })
+        .transpose()?;
+    if threshold_alert
+        .as_ref()
+        .is_some_and(|assessment| assessment.policy_digest != receipt.policy_digest)
+    {
+        return Err("CORRUPT_DECISION_ARTIFACT: threshold policy digest mismatch".into());
+    }
+    Ok((
+        DecisionReceiptTimelineEntry {
+            submitted_at_ms,
+            receipt,
+            threshold_alert,
+        },
+        cursor.to_string(),
+    ))
 }
 
 fn valid_receipt_digest(value: &str) -> bool {
@@ -778,6 +796,61 @@ fn respond(
             Response::err(req_id, error)
         }
     }
+}
+
+fn tenant_refusal(method: &str) -> String {
+    format!("ACCESS_DENIED: {method} tenant must match the verified request tenant")
+}
+
+enum DecisionJobOperation {
+    Fit(DecisionFitOp),
+    Eval(DecisionEvalOp),
+}
+
+async fn handle_decision_job(
+    state: &SharedState,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    op: DecisionJobOperation,
+) -> Response {
+    let (method, tenant_id) = match &op {
+        DecisionJobOperation::Fit(op) => ("DecisionFit", op.tenant_id()),
+        DecisionJobOperation::Eval(op) => ("DecisionEval", op.tenant_id()),
+    };
+    if tenant_id != verified.tenant() {
+        return Response::err(req_id, tenant_refusal(method));
+    }
+    let span = telemetry::span(method, verified.tenant());
+    let reader = LogReader::served(state, verified).await;
+    let result = async {
+        match op {
+            DecisionJobOperation::Fit(op) => serve_fit(state, reader, op).await,
+            DecisionJobOperation::Eval(op) => serve_eval(state, reader, op).await,
+        }
+    }
+    .instrument(span)
+    .await;
+    respond(req_id, method, result)
+}
+
+/// Serve one `DecisionFit` op.
+pub(super) async fn handle_fit(
+    state: &SharedState,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    op: DecisionFitOp,
+) -> Response {
+    handle_decision_job(state, req_id, verified, DecisionJobOperation::Fit(op)).await
+}
+
+/// Serve one `DecisionEval` op.
+pub(super) async fn handle_eval(
+    state: &SharedState,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    op: DecisionEvalOp,
+) -> Response {
+    handle_decision_job(state, req_id, verified, DecisionJobOperation::Eval(op)).await
 }
 
 #[cfg(test)]
@@ -889,48 +962,4 @@ mod threshold_tests {
         receipt.metrics = None;
         assert!(threshold_assessment(&receipt, &policy).is_none());
     }
-}
-
-fn tenant_refusal(method: &str) -> String {
-    format!("ACCESS_DENIED: {method} tenant must match the verified request tenant")
-}
-
-/// Serve one `DecisionFit` op.
-pub(super) async fn handle_fit(
-    state: &SharedState,
-    req_id: u64,
-    verified: &VerifiedRequestContext,
-    op: DecisionFitOp,
-) -> Response {
-    if op.tenant_id() != verified.tenant() {
-        return Response::err(req_id, tenant_refusal("DecisionFit"));
-    }
-    let span = telemetry::span("DecisionFit", verified.tenant());
-    respond(
-        req_id,
-        "DecisionFit",
-        serve_fit(state, LogReader::served(state, verified).await, op)
-            .instrument(span)
-            .await,
-    )
-}
-
-/// Serve one `DecisionEval` op.
-pub(super) async fn handle_eval(
-    state: &SharedState,
-    req_id: u64,
-    verified: &VerifiedRequestContext,
-    op: DecisionEvalOp,
-) -> Response {
-    if op.tenant_id() != verified.tenant() {
-        return Response::err(req_id, tenant_refusal("DecisionEval"));
-    }
-    let span = telemetry::span("DecisionEval", verified.tenant());
-    respond(
-        req_id,
-        "DecisionEval",
-        serve_eval(state, LogReader::served(state, verified).await, op)
-            .instrument(span)
-            .await,
-    )
 }

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use eg_storage::{OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier};
 use eg_transaction::OutboxClaimBudget;
 use eg_types::contract::Nonce;
 use eg_types::mutation_batch::{
@@ -11,9 +10,8 @@ use eg_types::mutation_batch::{
 };
 use eg_types::semantic_index::{
     SemanticBinding, SemanticBindingState, SemanticDigest, SemanticIndexError,
-    SemanticSourceDirtyIntent, SemanticSourceSelector, SemanticSqlSourceIdentity,
-    SemanticStageArtifact, SemanticStageOutcome, SemanticStageReceipt, SemanticStageTransition,
-    SEMANTIC_SOURCE_DIRTY_TOPIC,
+    SemanticSourceDirtyIntent, SemanticSourceSelector, SemanticStageArtifact, SemanticStageOutcome,
+    SemanticStageReceipt, SemanticStageTransition, SEMANTIC_SOURCE_DIRTY_TOPIC,
 };
 use sha2::{Digest, Sha256};
 
@@ -28,28 +26,6 @@ const FIRST_CURSOR: &[u8] = b"after-first-source";
 const PRINCIPAL: &str =
     "principal:sha256:3aa1ceaf4fe702f5451e6e93096e8ee6c4c1dbb71bbce468105043b435a5b82a";
 const PROOF: &[u8] = b"semantic-reconciliation-regression-proof";
-
-struct ReconciliationVerifier;
-
-impl ScopeGrantVerifier for ReconciliationVerifier {
-    fn verify(
-        &self,
-        _physical: &PhysicalStoreIdentity,
-        layout: OwnerLayout,
-        identity: &eg_types::MutationScopeIdentity,
-        principal: &str,
-        proof: &[u8],
-    ) -> Result<(), String> {
-        if layout != OwnerLayout::SemanticIndex
-            || identity.tenant().as_str() != TENANT
-            || principal != PRINCIPAL
-            || proof != PROOF
-        {
-            return Err("semantic reconciliation test scope was refused".to_string());
-        }
-        Ok(())
-    }
-}
 
 fn digest(byte: u8) -> SemanticDigest {
     SemanticDigest::from_bytes([byte; 32])
@@ -75,23 +51,15 @@ fn source(binding: &SemanticBinding, identity: u8, bytes: &[u8]) -> SemanticSqlS
     let SemanticSourceSelector::SqlColumnRef(selector) = &binding.source_selector else {
         panic!("fixture source selector is SQL");
     };
-    SemanticSqlSourceRecord {
-        source_identity: SemanticSqlSourceIdentity::create(
-            selector,
-            binding.tenant_id.clone(),
-            digest(identity),
-        ),
-        source_revision: binding.source_revision.clone(),
-        value: SemanticSqlSourceValue::Present {
+    super::test_fixture::source_record(
+        binding,
+        selector,
+        digest(identity),
+        &binding.source_revision,
+        SemanticSqlSourceValue::Present {
             source_bytes: bytes.to_vec(),
         },
-        source_schema_revision: 9,
-        source_schema_digest: binding.source_schema_digest.clone(),
-        source_field_set_digest: binding.source_field_set_digest.clone(),
-        source_acl_revision: binding.policy_identity.components.source_acl_revision,
-        source_acl_digest: binding.policy_identity.components.source_acl_digest.clone(),
-        authorization_receipt_digest: digest(40),
-    }
+    )
 }
 
 fn dirty_record(batch_id: &str, input: u8, source: u64, target: u64) -> MutationOutboxRecord {
@@ -137,7 +105,11 @@ fn temp_dir(label: &str) -> PathBuf {
 fn open_service(dir: &Path) -> SemanticIndexService {
     SemanticIndexService::open(
         dir,
-        Arc::new(ReconciliationVerifier),
+        Arc::new(super::test_fixture::TestSemanticScopeVerifier {
+            tenant: TENANT,
+            principal: PRINCIPAL,
+            proof: PROOF,
+        }),
         PRINCIPAL,
         PROOF,
         TENANT,
@@ -231,88 +203,10 @@ fn complete_source_stages(
     }
 }
 
-struct InterruptedPagedPort {
-    revision: String,
-    first: SemanticSqlSourceRecord,
-    second: SemanticSqlSourceRecord,
-    fail_second_read: bool,
-    calls: Arc<Mutex<Vec<Option<Vec<u8>>>>>,
-}
-
-impl SemanticSqlSourceReadPort for InterruptedPagedPort {
-    fn read_current_sql_source_page(
-        &self,
-        _binding: &SemanticBinding,
-        _wakeup: &SemanticSourceDirtyIntent,
-        _record: &MutationOutboxRecord,
-        cursor: Option<&[u8]>,
-    ) -> Result<SemanticSqlSourceReadPage, SemanticIndexError> {
-        self.calls.lock().unwrap().push(cursor.map(<[u8]>::to_vec));
-        match cursor {
-            None => Ok(SemanticSqlSourceReadPage {
-                source_revision: self.revision.clone(),
-                complete_snapshot_receipt_digest: None,
-                sources: vec![self.first.clone()],
-                next_cursor: Some(FIRST_CURSOR.to_vec()),
-                complete: false,
-            }),
-            Some(FIRST_CURSOR) if self.fail_second_read => {
-                Err(SemanticIndexError::SourceManifestMismatch)
-            }
-            Some(FIRST_CURSOR) => Ok(SemanticSqlSourceReadPage {
-                source_revision: self.revision.clone(),
-                complete_snapshot_receipt_digest: Some(digest(77)),
-                sources: vec![self.second.clone()],
-                next_cursor: None,
-                complete: true,
-            }),
-            Some(_) => Err(SemanticIndexError::SourceManifestMismatch),
-        }
-    }
-}
-
 struct CompletePage {
     revision: String,
     complete_snapshot_receipt: SemanticDigest,
     sources: Vec<SemanticSqlSourceRecord>,
-}
-
-struct InterruptedEmptySnapshot {
-    revision: String,
-    fail_final_read: bool,
-    calls: Arc<Mutex<Vec<Option<Vec<u8>>>>>,
-}
-
-impl SemanticSqlSourceReadPort for InterruptedEmptySnapshot {
-    fn read_current_sql_source_page(
-        &self,
-        _binding: &SemanticBinding,
-        _wakeup: &SemanticSourceDirtyIntent,
-        _record: &MutationOutboxRecord,
-        cursor: Option<&[u8]>,
-    ) -> Result<SemanticSqlSourceReadPage, SemanticIndexError> {
-        self.calls.lock().unwrap().push(cursor.map(<[u8]>::to_vec));
-        match cursor {
-            None => Ok(SemanticSqlSourceReadPage {
-                source_revision: self.revision.clone(),
-                complete_snapshot_receipt_digest: None,
-                sources: Vec::new(),
-                next_cursor: Some(FIRST_CURSOR.to_vec()),
-                complete: false,
-            }),
-            Some(FIRST_CURSOR) if self.fail_final_read => {
-                Err(SemanticIndexError::SourceManifestMismatch)
-            }
-            Some(FIRST_CURSOR) => Ok(SemanticSqlSourceReadPage {
-                source_revision: self.revision.clone(),
-                complete_snapshot_receipt_digest: Some(digest(89)),
-                sources: Vec::new(),
-                next_cursor: None,
-                complete: true,
-            }),
-            Some(_) => Err(SemanticIndexError::SourceManifestMismatch),
-        }
-    }
 }
 
 impl SemanticSqlSourceReadPort for CompletePage {
@@ -347,13 +241,15 @@ fn partial_checkpoint_resumes_after_reopen_and_replays_exact_s1() {
 
     let service = open_service(&dir);
     service.admit_binding(&binding, 1).unwrap();
-    let interrupted = InterruptedPagedPort {
-        revision: revision.clone(),
-        first: first.clone(),
-        second: second.clone(),
-        fail_second_read: true,
-        calls: Arc::clone(&first_calls),
-    };
+    let interrupted = super::test_fixture::ScriptedSourcePort::two_pages(
+        revision.clone(),
+        vec![first.clone()],
+        vec![second.clone()],
+        digest(77),
+        FIRST_CURSOR,
+        true,
+        Arc::clone(&first_calls),
+    );
     assert!(service
         .admit_sql_source_dirty_reconcile(&record, &interrupted, 2)
         .is_err());
@@ -387,13 +283,15 @@ fn partial_checkpoint_resumes_after_reopen_and_replays_exact_s1() {
         .is_some());
 
     let resumed_calls = Arc::new(Mutex::new(Vec::new()));
-    let resumed = InterruptedPagedPort {
-        revision: revision.clone(),
-        first: first.clone(),
-        second: second.clone(),
-        fail_second_read: false,
-        calls: Arc::clone(&resumed_calls),
-    };
+    let resumed = super::test_fixture::ScriptedSourcePort::two_pages(
+        revision.clone(),
+        vec![first.clone()],
+        vec![second.clone()],
+        digest(77),
+        FIRST_CURSOR,
+        false,
+        Arc::clone(&resumed_calls),
+    );
     let completed = service
         .admit_sql_source_dirty_reconcile(&record, &resumed, 4)
         .unwrap();
@@ -469,11 +367,15 @@ fn missing_sources_become_tombstones_only_after_complete_snapshot_proof() {
     let deletion_revision = source_revision(170, 2);
     let deletion_wakeup = dirty_record("source-dirty-after-delete", 82, 2, 3);
     let interrupted_calls = Arc::new(Mutex::new(Vec::new()));
-    let interrupted = InterruptedEmptySnapshot {
-        revision: deletion_revision.clone(),
-        fail_final_read: true,
-        calls: Arc::clone(&interrupted_calls),
-    };
+    let interrupted = super::test_fixture::ScriptedSourcePort::two_pages(
+        deletion_revision.clone(),
+        Vec::new(),
+        Vec::new(),
+        digest(89),
+        FIRST_CURSOR,
+        true,
+        Arc::clone(&interrupted_calls),
+    );
     assert!(service
         .admit_sql_source_dirty_reconcile(&deletion_wakeup, &interrupted, 7)
         .is_err());
@@ -494,11 +396,15 @@ fn missing_sources_become_tombstones_only_after_complete_snapshot_proof() {
     let completed = service
         .admit_sql_source_dirty_reconcile(
             &deletion_wakeup,
-            &InterruptedEmptySnapshot {
-                revision: deletion_revision.clone(),
-                fail_final_read: false,
-                calls: Arc::clone(&final_calls),
-            },
+            &super::test_fixture::ScriptedSourcePort::two_pages(
+                deletion_revision.clone(),
+                Vec::new(),
+                Vec::new(),
+                digest(89),
+                FIRST_CURSOR,
+                false,
+                Arc::clone(&final_calls),
+            ),
             8,
         )
         .unwrap();
@@ -543,27 +449,9 @@ fn leased_s1_completion_persists_the_explicit_authorization_time() {
     service
         .admit_sql_source_dirty_reconcile(&record, &port, 2)
         .unwrap();
-    service
-        .transition_binding_operation(
-            1,
-            SemanticBindingState::Building,
-            3,
-            "semantic:index-maintainer",
-            "open-stage-consumer",
-            Nonce::from_bytes([91; 32]),
-        )
-        .unwrap();
-    service
-        .subscribe_stage_consumer("semantic-s1-worker")
-        .unwrap();
-    let mut budget = OutboxClaimBudget::new(1, 5_000, 4).unwrap();
-    let outcome = service
-        .claim_stage_leases("semantic-s1-worker", &mut budget)
-        .unwrap();
-    assert_eq!(outcome.claims.len(), 1);
-    let lease = &outcome.claims[0];
+    let lease = super::test_fixture::claim_single_source_stage(&service, 1);
     let intent = service
-        .validate_stage_lease(lease, "semantic-s1-worker", 5)
+        .validate_stage_lease(&lease, "semantic-s1-worker", 5)
         .unwrap();
     let output_digest = match &source.value {
         SemanticSqlSourceValue::Present { source_bytes } => {
@@ -590,7 +478,7 @@ fn leased_s1_completion_persists_the_explicit_authorization_time() {
     assert_eq!(authorization.authorized_at, AUTHORIZED_AT);
 
     let receipt = service
-        .complete_sql_source_stage(lease, &transition, &source, AUTHORIZED_AT, None, 6)
+        .complete_sql_source_stage(&lease, &transition, &source, AUTHORIZED_AT, None, 6)
         .unwrap();
     assert!(!receipt.replayed);
     let retained = service
@@ -618,7 +506,7 @@ fn leased_s1_completion_persists_the_explicit_authorization_time() {
 
     let service = open_service(&dir);
     let (retained_transition, replay) = service
-        .replay_completed_sql_source_stage(lease, &intent, 7)
+        .replay_completed_sql_source_stage(&lease, &intent, 7)
         .unwrap()
         .expect("the committed S1 resolves before another source decision");
     assert!(replay.replayed);

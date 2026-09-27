@@ -1018,7 +1018,7 @@ jobs:
             --features ${{ env.MATURIN_FEATURES }}
             ${{ matrix.maturin_args }}
           # zig gives reproducible glibc-pinned linux cross-builds.
-          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          manylinux: &eg-release-manylinux ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
           sccache: 'false'
 
       # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
@@ -1039,7 +1039,7 @@ jobs:
             --out numdist-primary
             -m crates/eg-numeric/Cargo.toml
             --features python
-          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          manylinux: *eg-release-manylinux
           sccache: 'false'
 
       - name: Fold primary numeric kernel into the epistemic-graph wheel
@@ -1067,7 +1067,7 @@ jobs:
             --out enginedist-primary
             -m crates/eg-pyengine/Cargo.toml
             --features python,security
-          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          manylinux: *eg-release-manylinux
           sccache: 'false'
 
       - name: Fold primary pyengine kernel into the epistemic-graph wheel
@@ -1114,7 +1114,7 @@ jobs:
             --out dist-reproduction
             --features ${{ env.MATURIN_FEATURES }}
             ${{ matrix.maturin_args }}
-          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          manylinux: *eg-release-manylinux
           sccache: 'false'
 
       - name: Build reproduction eg-numeric kernel (same target)
@@ -1128,7 +1128,7 @@ jobs:
             --out numdist-reproduction
             -m crates/eg-numeric/Cargo.toml
             --features python
-          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          manylinux: *eg-release-manylinux
           sccache: 'false'
 
       - name: Fold reproduction numeric kernel into the epistemic-graph wheel
@@ -1147,7 +1147,7 @@ jobs:
             --out enginedist-reproduction
             -m crates/eg-pyengine/Cargo.toml
             --features python,security
-          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          manylinux: *eg-release-manylinux
           sccache: 'false'
 
       - name: Fold reproduction pyengine kernel into the epistemic-graph wheel

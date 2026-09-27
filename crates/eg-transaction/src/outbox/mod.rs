@@ -54,6 +54,26 @@ use crate::tables::FENCES;
 use eg_storage::{decode_ledger_record, ledger_scope_key};
 use eg_types::MutationScopeIdentity;
 
+// Read/write scoped table guards are different types, but both outbox cursor
+// advancement and queue status must decode the same delivery row key.
+macro_rules! delivery_at_position {
+    ($table:expr, $scope:expr, $consumer:expr, $position:expr) => {{
+        $table
+            .get((
+                $scope,
+                $consumer,
+                $position.batch_id.as_str(),
+                $position.ordinal,
+            ))?
+            .map(|value| {
+                crate::outbox::rows::decode_row::<crate::outbox::rows::OutboxDelivery>(
+                    value.value(),
+                )
+            })
+            .transpose()
+    }};
+}
+
 mod claim;
 mod cursor;
 mod dead_letters;

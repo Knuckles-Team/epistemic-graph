@@ -7,9 +7,8 @@ use sha2::{Digest, Sha256};
 
 use crate::graph::GraphCore;
 use crate::mutation_batch::{
-    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationOperation,
-    MutationOutboxIntent, MutationScopeIdentity, MutationStateDescriptor, MutationSurface,
-    ScopeTenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    DurabilityDomain, MutationBatch, MutationOperation, MutationOutboxIntent,
+    MutationScopeIdentity, MutationStateDescriptor, MutationSurface, MUTATION_BATCH_VERSION,
 };
 use crate::protocol::Method;
 use crate::server::persistence::PersistenceBackend;
@@ -17,6 +16,9 @@ use crate::server::persistence::PersistenceBackend;
 use super::canonical::{domain_for, lower_canonical_operation, surface_for};
 use super::digest::{principal_fingerprint, ENGINE_LEDGER_PRINCIPAL};
 use super::terminal_outcome::lower_terminal_outcome_extensions;
+
+mod finish_helpers;
+use finish_helpers::{compiled_outbox, compiled_scope_identity};
 
 /// Resolve the current graph version without treating RAM as a substitute for a
 /// missing durable authority. Version zero is the sole implicit bootstrap state;
@@ -519,14 +521,9 @@ fn finish_batch(
     // lib.rs -- correctly so for most of its content, which genuinely needs the
     // `redb` crate -- but its projection-wakeup encoder is pure serialization +
     // hashing with no redb dependency, and this call site (every `compile_methods`,
-    // every backend) carries no cfg of its own. Same shape as BUG-CX-104 / the
-    // `dispatch.rs` fix (commit `bc280437`): a caller reaching a cfg-gated producer
-    // it doesn't itself gate. `redb_store.rs`/`lib.rs` are outside this lane's
-    // ownership (`plans/complex/DISPATCH-REGISTRY.tsv` scopes WD10-P-SLIM to this
-    // file + `handlers/graph_ops.rs`), so the fix lives here: branch on the same
-    // feature the producer is gated on, and for the `not(redb)` arm, encode the
-    // identical payload shape locally rather than making `redb_store` unconditional
-    // (which would pull the `redb`/`eg-storage`/`eg-transaction` deps into every slim build).
+    // every backend) carries no cfg of its own. The pure encoder is available
+    // in both redb-only and server-only builds, without importing either
+    // feature-gated module into the other.
     // The projection payload is folded into the SAME `canonical_payload_digest`
     // as the operations themselves (`digest_outbox` hashes `intent.payload`
     // verbatim), so it has to be derived from the same identity-normalized
@@ -536,21 +533,21 @@ fn finish_batch(
     // after `digest_operations` alone was normalized. One rule, one helper --
     // `eg_types::mutation_batch::identity_normalized_operations`.
     let identity_operations = eg_types::mutation_batch::identity_normalized_operations(&operations);
-    #[cfg(feature = "redb")]
-    let summary = crate::redb_store::projection_payload_for_operations(&identity_operations)?;
-    #[cfg(not(feature = "redb"))]
-    let summary = projection_wakeup_payload_without_redb(&identity_operations)?;
+    let summary =
+        crate::projection_wakeup::projection_payload_for_operations(&identity_operations)?;
     // The typed wake-up is computed HERE, before the envelope is minted, rather
     // than installed over the finished batch afterwards: the envelope's
     // canonical payload digest covers the outbox, so a payload rewritten after
     // the mint would leave the envelope covering bytes the batch no longer has.
+    #[cfg(feature = "epistemic-tms")]
+    let mut outbox_plan = outbox_plan;
     #[cfg(feature = "epistemic-tms")]
     let summary = if outbox_plan.reasoning_events.is_empty() {
         summary
     } else {
         reasoning_wakeup_payload(
             &identity_operations,
-            outbox_plan.reasoning_events,
+            std::mem::take(&mut outbox_plan.reasoning_events),
             ctx.authoritative_state.is_some(),
         )?
     };
@@ -584,101 +581,16 @@ fn finish_batch(
     // `context.principal` against a caller now compares that header.
     let principal = ENGINE_LEDGER_PRINCIPAL.to_string();
     reject_reserved_shard_identifiers(ctx.tenant, ctx.graph)?;
-    let tenant_id = ScopeTenantId::new(ctx.tenant.to_string())?;
-    let resource_name = LogicalName::new(ctx.graph.to_string())?;
-    let incarnation_id = IncarnationId::new(COMPILED_BATCH_INCARNATION)
-        .expect("COMPILED_BATCH_INCARNATION is a valid static incarnation id");
-    let expected_version = ctx.expected_graph_version.ok_or_else(|| {
-        "mutation batch requires its actual observed version under v1: VersionExpectation has \
-         no unversioned arm available to an ordinary tenant (see validate_version_expectation); \
-         pass the real current version instead of None"
-            .to_string()
-    })?;
-    let (identity, version_expectation) = match scope_override {
-        Some(identity) => {
-            let expectation = if graph_scope {
-                VersionExpectation::Graph(expected_version)
-            } else {
-                VersionExpectation::Native(expected_version)
-            };
-            (identity, expectation)
-        }
-        None if graph_scope => (
-            MutationScopeIdentity::graph(tenant_id, resource_name, incarnation_id),
-            VersionExpectation::Graph(expected_version),
-        ),
-        None => {
-            let domain = operations
-                .first()
-                .map(|operation| operation.domain)
-                .ok_or_else(|| {
-                    "mutation batch has no operations to derive its native domain from".to_string()
-                })?;
-            (
-                MutationScopeIdentity::native(tenant_id, domain, resource_name, incarnation_id)?,
-                VersionExpectation::Native(expected_version),
-            )
-        }
-    };
-    let terminal_outcome = outbox_plan
-        .extra
-        .iter()
-        .any(|intent| intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC);
-    let mut outbox = if terminal_outcome {
-        // A terminal receipt's conditional RunEvent is the batch's one outbox
-        // currency. The generic projection wake-up would publish a second row
-        // for the same WorkItem transition and would survive no-op/fenced
-        // results unless the native terminal result filtered it too.
-        outbox_plan.extra
-    } else {
-        let projection = MutationOutboxIntent {
-            topic: "engine.projection.rebuild".to_string(),
-            key: ctx.batch_id.to_string(),
-            payload: summary,
-            // `actor` is the verified caller's fingerprint on EVERY batch this
-            // module compiles, whichever ledger commits it. It is the single
-            // source of caller attribution, so an owner-store batch — whose
-            // `context.principal` must be the store's serving principal — loses
-            // none, and a graph batch gains no second, divergent copy.
-            headers: BTreeMap::from([
-                ("scope_sha256".to_string(), scope_digest.clone()),
-                ("actor".to_string(), actor.clone()),
-            ]),
-        };
-        let mut outbox = vec![projection];
-        outbox.extend(outbox_plan.extra);
-        outbox
-    };
-    if terminal_outcome {
-        for intent in &mut outbox {
-            if intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC {
-                // The conditional terminal event replaces the generic
-                // projection row, so carry the same universal attribution and
-                // scope binding on the sole row that remains.
-                intent
-                    .headers
-                    .insert("scope_sha256".to_string(), scope_digest.clone());
-                intent.headers.insert("actor".to_string(), actor.clone());
-            }
-        }
-    }
-    if let Some(input_digest) = outbox_plan.semantic_source_dirty_input {
-        let source_scope_digest = eg_types::semantic_index::SemanticDigest::from_bytes(
-            *identity.binding_digest().as_bytes(),
-        );
-        let intent = eg_types::semantic_index::SemanticSourceDirtyIntent::new(
-            source_scope_digest,
-            input_digest,
-        );
-        outbox.push(MutationOutboxIntent {
-            topic: eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC.to_string(),
-            key: ctx.batch_id.to_string(),
-            payload: intent.to_canonical_cbor().map_err(|error| {
-                format!("semantic source-dirty intent encoding rejected: {error:?}")
-            })?,
-            headers: BTreeMap::new(),
-        });
-    }
+    let (identity, version_expectation) =
+        compiled_scope_identity(&ctx, &operations, graph_scope, scope_override)?;
+    let outbox = compiled_outbox(
+        outbox_plan,
+        &identity,
+        summary,
+        &scope_digest,
+        &actor,
+        ctx.batch_id,
+    )?;
     let envelope = compiled_envelope(&ctx, &identity, &actor, &principal, &operations, &outbox)?;
     let batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
@@ -862,45 +774,6 @@ fn reject_reserved_shard_identifiers(tenant: &str, graph: &str) -> Result<(), St
         return Err("reserved graph-shard identifier cannot be supplied by a caller".to_string());
     }
     Ok(())
-}
-
-/// `finish_batch`'s outbox projection-wakeup payload for builds without the `redb`
-/// feature, where `crate::redb_store::projection_payload_for_operations` doesn't
-/// exist (that module is `#[cfg(feature = "redb")]`). Encodes the identical shape
-/// that function produces -- `epistemic-tms`'s typed `ReasoningProjectionWakeup` when
-/// that feature is also on, else the plain digest-only summary -- so a redb-less
-/// build's outbox row is byte-for-byte what a redb build would have written for the
-/// same operations. See the `finish_batch` call site for why this duplication exists
-/// instead of ungating `redb_store.rs` itself.
-#[cfg(not(feature = "redb"))]
-fn projection_wakeup_payload_without_redb(
-    operations: &[MutationOperation],
-) -> Result<Vec<u8>, String> {
-    #[cfg(feature = "epistemic-tms")]
-    {
-        let encoded_operations =
-            rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
-        let methods = operations
-            .iter()
-            .map(|operation| operation.method.clone())
-            .collect::<Vec<_>>();
-        let wakeup = eg_epistemic::ReasoningProjectionWakeup::bounded(
-            operations.len(),
-            hex::encode(Sha256::digest(encoded_operations)),
-            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
-        )?;
-        rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
-    }
-    #[cfg(not(feature = "epistemic-tms"))]
-    {
-        let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
-        rmp_serde::to_vec_named(&serde_json::json!({
-            "schema": "epistemic.mutation.projection.v1",
-            "operations": operations.len(),
-            "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
-        }))
-        .map_err(|e| e.to_string())
-    }
 }
 
 /// State-backed commits deliberately retain no caller payload, repository path,

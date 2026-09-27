@@ -160,26 +160,7 @@ impl AgentLibraryStore {
         prefix: &str,
         limit: usize,
     ) -> Result<Vec<(String, Vec<u8>)>, String> {
-        let read = self.read()?;
-        let table = read.open_owner_table(DECISION_ARTIFACTS)?;
-        let mut out = Vec::new();
-        for row in table
-            .range((tenant_id, prefix)..)
-            .map_err(|error| error.to_string())?
-        {
-            let (key, value) = row.map_err(|error| error.to_string())?;
-            let (row_tenant, row_key) = key.value();
-            if row_tenant != tenant_id || !row_key.starts_with(prefix) {
-                break;
-            }
-            if out.len() == limit {
-                return Err(format!(
-                    "DECISION_LOG_TOO_LARGE: more than {limit} rows under {prefix}"
-                ));
-            }
-            out.push((row_key.to_string(), value.value().to_vec()));
-        }
-        Ok(out)
+        self.scan_decision_artifacts(tenant_id, prefix, None, limit, true)
     }
 
     /// Read at most `limit` tenant rows after an exclusive key cursor. The
@@ -191,12 +172,22 @@ impl AgentLibraryStore {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Vec<(String, Vec<u8>)>, String> {
+        self.scan_decision_artifacts(tenant_id, prefix, after, limit, false)
+    }
+
+    fn scan_decision_artifacts(
+        &self,
+        tenant_id: &str,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+        reject_truncation: bool,
+    ) -> Result<Vec<(String, Vec<u8>)>, String> {
         let read = self.read()?;
         let table = read.open_owner_table(DECISION_ARTIFACTS)?;
-        let start = after.unwrap_or(prefix);
         let mut out = Vec::new();
         for row in table
-            .range((tenant_id, start)..)
+            .range((tenant_id, after.unwrap_or(prefix))..)
             .map_err(|error| error.to_string())?
         {
             let (key, value) = row.map_err(|error| error.to_string())?;
@@ -207,8 +198,13 @@ impl AgentLibraryStore {
             if after == Some(row_key) {
                 continue;
             }
+            if reject_truncation && out.len() == limit {
+                return Err(format!(
+                    "DECISION_LOG_TOO_LARGE: more than {limit} rows under {prefix}"
+                ));
+            }
             out.push((row_key.to_string(), value.value().to_vec()));
-            if out.len() == limit {
+            if !reject_truncation && out.len() == limit {
                 break;
             }
         }

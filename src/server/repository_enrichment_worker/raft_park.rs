@@ -16,6 +16,19 @@ use crate::server::state::ServerState;
 
 const SERVICE: &str = "repository-enrichment-v1";
 
+fn verify_park_service(tenant_id: &str) -> Result<(), String> {
+    let verified = VerifiedRequestContext::authenticated_fixed_service_actor(
+        SERVICE,
+        &["work:submit", "repository:enrichment:submit"],
+    )?;
+    if verified.tenant() != tenant_id || !verified.allows_action("repository:enrichment:submit") {
+        return Err(
+            "ACCESS_DENIED: repository enrichment park service authority is invalid".into(),
+        );
+    }
+    Ok(())
+}
+
 /// A held event is re-read against its durable budget before proposing.
 /// Release is local and follows the quorum-applied park; on refusal we still
 /// release the exact lease so a one-hour claim TTL cannot strand the stream.
@@ -80,17 +93,7 @@ async fn propose_park(
     if &park != expected_park {
         return Err("CONFLICT: repository enrichment park changed before proposal".into());
     }
-    let verified = VerifiedRequestContext::authenticated_fixed_service_actor(
-        SERVICE,
-        &["work:submit", "repository:enrichment:submit"],
-    )?;
-    if verified.tenant() != snapshot.tenant_id
-        || !verified.allows_action("repository:enrichment:submit")
-    {
-        return Err(
-            "ACCESS_DENIED: repository enrichment park service authority is invalid".into(),
-        );
-    }
+    verify_park_service(&snapshot.tenant_id)?;
     #[cfg(feature = "security")]
     {
         let mut current = state.write().await;

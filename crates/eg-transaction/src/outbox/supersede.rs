@@ -7,7 +7,7 @@
 
 use crate::admitted::AdmittedMutation;
 use crate::group::{AdmittedGroup, CurrentIntent, ScopedIntent};
-use crate::kernel::{admit_group_member, current_batch, ensure_admitted_owner, MutationKernel};
+use crate::kernel::{admit_current_group_control, ensure_admitted_owner, MutationKernel};
 use crate::outbox::claim;
 use crate::outbox::cursor::{
     build_cursor, read_cursor_in_write, refuse_if_rewind_pending, require_advance,
@@ -43,20 +43,14 @@ impl MutationKernel {
     ) -> Result<(AdmittedGroup<'a, D>, Vec<MutationBatch>), String> {
         let owners = [control.owner, replacement.owner];
         let admitted = self.group_members(&owners)?;
-        let control_batch = match current_batch(&admitted[0], control.owner, control.build) {
-            Ok(batch) => batch,
-            Err(error) => {
-                let _ = AdmittedGroup::new(admitted, Vec::new()).end(false);
-                return Err(error);
-            }
-        };
-        let control_begin = match admit_group_member(&admitted[0], &control_batch) {
-            Ok(begun) => begun,
-            Err(error) => {
-                let _ = AdmittedGroup::new(admitted, Vec::new()).end(false);
-                return Err(error);
-            }
-        };
+        let (control_batch, control_begin) =
+            match admit_current_group_control(&admitted[0], control.owner, control.build) {
+                Ok(control) => control,
+                Err(error) => {
+                    let _ = AdmittedGroup::new(admitted, Vec::new()).end(false);
+                    return Err(error);
+                }
+            };
         let replacement_batch = replacement.batch;
         let replacement_begin =
             match commit::begin_repository_enrichment_top_up(&admitted[1], replacement_batch) {

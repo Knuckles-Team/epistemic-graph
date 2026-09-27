@@ -816,6 +816,27 @@ fn clone_edge(e: &ExtractedEdge) -> ExtractedEdge {
 }
 
 #[cfg(test)]
+pub(crate) fn files(pairs: &[(&str, &str)]) -> Vec<(String, Vec<u8>)> {
+    pairs
+        .iter()
+        .map(|(p, s)| (p.to_string(), s.as_bytes().to_vec()))
+        .collect()
+}
+
+#[cfg(test)]
+pub(crate) fn node_id(r: &IndexResult, name: &str, file: &str) -> String {
+    r.nodes
+        .iter()
+        .find(|n| {
+            n.properties.get("name").map(String::as_str) == Some(name)
+                && n.properties.get("file_path").map(String::as_str) == Some(file)
+        })
+        .unwrap_or_else(|| panic!("no {name} in {file}"))
+        .node_id
+        .clone()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -844,13 +865,6 @@ mod tests {
             .edges
             .iter()
             .all(|edge| edge.properties.contains_key(EVIDENCE_RUNG)));
-    }
-
-    fn files(pairs: &[(&str, &str)]) -> Vec<(String, Vec<u8>)> {
-        pairs
-            .iter()
-            .map(|(p, s)| (p.to_string(), s.as_bytes().to_vec()))
-            .collect()
     }
 
     /// Helper: collect resolved `calls` edges as (caller_name, callee_name) by
@@ -885,18 +899,6 @@ mod tests {
                     && e.properties.get("name").map(String::as_str) == Some(callee)
             })
             .and_then(|e| e.properties.get("strategy").cloned())
-    }
-
-    fn node_id(r: &IndexResult, name: &str, file: &str) -> String {
-        r.nodes
-            .iter()
-            .find(|n| {
-                n.properties.get("name").map(String::as_str) == Some(name)
-                    && n.properties.get("file_path").map(String::as_str) == Some(file)
-            })
-            .unwrap_or_else(|| panic!("no {name} in {file}"))
-            .node_id
-            .clone()
     }
 
     #[test]

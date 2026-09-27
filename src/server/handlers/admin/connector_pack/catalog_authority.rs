@@ -1,12 +1,76 @@
 //! Authenticated tenant-local served-child catalog reconciliation.
 
-use std::sync::Arc;
+use super::{Arc, Response, RwLock, ServerState, VerifiedRequestContext};
 
-use tokio::sync::RwLock;
+#[cfg(not(feature = "redb"))]
+fn unavailable_catalog_response<T>(
+    req_id: u64,
+    _state: &Arc<RwLock<ServerState>>,
+    _verified: &VerifiedRequestContext,
+    _request: T,
+) -> Response {
+    Response::err(req_id, "MCP catalog authority requires the redb feature")
+}
 
-use crate::protocol::Response;
-use crate::server::auth::VerifiedRequestContext;
-use crate::server::state::ServerState;
+#[derive(Clone, Copy)]
+enum CatalogRead {
+    RequestBinding,
+    RequestOwner,
+    AttesterStatus,
+    AttesterOwner,
+}
+
+#[cfg(feature = "redb")]
+async fn read_catalog(
+    state: &Arc<RwLock<ServerState>>,
+    verified: &VerifiedRequestContext,
+    request: &eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
+    access: CatalogRead,
+) -> Result<
+    (
+        Arc<crate::server::persistence::agent_library::AgentLibraryStore>,
+        Option<eg_types::connector_pack::McpCatalogSnapshotBinding>,
+    ),
+    String,
+> {
+    match access {
+        CatalogRead::RequestBinding | CatalogRead::RequestOwner => {
+            require_catalog_request_read(verified, &request.tenant_id)?
+        }
+        CatalogRead::AttesterStatus => {
+            require_catalog_attester(verified, &request.tenant_id, false)?
+        }
+        CatalogRead::AttesterOwner => require_catalog_owner_read(verified, &request.tenant_id)?,
+    }
+    let scope = verified.tenant_local_catalog_partition_digest(&request.server_name)?;
+    let store = state.write().await.ensure_agent_library()?;
+    let binding = match access {
+        CatalogRead::RequestBinding | CatalogRead::RequestOwner => {
+            store.mcp_catalog_binding_status(verified.tenant(), &request.server_name, scope)?
+        }
+        CatalogRead::AttesterStatus | CatalogRead::AttesterOwner => store
+            .mcp_catalog_authority_status(
+                verified.tenant(),
+                &request.server_name,
+                scope,
+                &verified.principal_persistence_id(),
+            )?,
+    };
+    Ok((store, binding))
+}
+
+#[cfg(feature = "redb")]
+fn verified_owner_principal(
+    store: &crate::server::persistence::agent_library::AgentLibraryStore,
+) -> Result<String, String> {
+    let owner = store.owner_principal();
+    let digest = owner
+        .strip_prefix("principal:sha256:")
+        .ok_or_else(|| "AgentLibrary owner principal is invalid".to_string())?;
+    eg_types::contract::Digest256::parse(digest)
+        .map_err(|_| "AgentLibrary owner principal is invalid".to_string())?;
+    Ok(owner.to_string())
+}
 
 fn require_catalog_attester(
     verified: &VerifiedRequestContext,
@@ -43,193 +107,87 @@ fn require_catalog_request_read(
     Ok(())
 }
 
-/// Read the committed binding under the request's verified tenant and logical
-/// server scope. A pack-control service can inspect the child attester's
-/// binding, but this operation never gives it reconciliation authority.
-pub(super) async fn serve_binding_status(
+/// Serve all catalog reads through one authenticated, scoped store snapshot.
+async fn serve_catalog_read(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
+    access: CatalogRead,
 ) -> Response {
     #[cfg(not(feature = "redb"))]
     {
-        let _ = (state, verified, request);
-        Response::err(req_id, "MCP catalog authority requires the redb feature")
+        let _ = access;
+        unavailable_catalog_response(req_id, state, verified, request)
     }
     #[cfg(feature = "redb")]
     {
-        if let Err(error) = require_catalog_request_read(verified, &request.tenant_id) {
-            return Response::err(req_id, error);
-        }
-        let scope = match verified.tenant_local_catalog_partition_digest(&request.server_name) {
-            Ok(scope) => scope,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let store = match state.write().await.ensure_agent_library() {
-            Ok(store) => store,
-            Err(error) => return Response::err(req_id, error),
-        };
-        match store.mcp_catalog_binding_status(verified.tenant(), &request.server_name, scope) {
-            Ok(binding) => Response::ok(
+        match read_catalog(state, verified, &request, access).await {
+            Ok((_, binding)) if matches!(access, CatalogRead::RequestBinding) => Response::ok(
                 req_id,
                 crate::protocol::ResultPayload::of_ref::<
                     eg_types::result_contract::storage::ConnectorPackCatalogBindingStatus,
                 >(&binding),
             ),
-            Err(error) => Response::err(req_id, error),
-        }
-    }
-}
-
-/// Return EG's actual mutation owner for a request-scoped importer only while
-/// that verified tenant/server/scope has a valid persisted catalog binding.
-pub(super) async fn serve_request_owner_principal(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    verified: &VerifiedRequestContext,
-    request: eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
-) -> Response {
-    #[cfg(not(feature = "redb"))]
-    {
-        let _ = (state, verified, request);
-        Response::err(req_id, "MCP catalog authority requires the redb feature")
-    }
-    #[cfg(feature = "redb")]
-    {
-        if let Err(error) = require_catalog_request_read(verified, &request.tenant_id) {
-            return Response::err(req_id, error);
-        }
-        let scope = match verified.tenant_local_catalog_partition_digest(&request.server_name) {
-            Ok(scope) => scope,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let store = match state.write().await.ensure_agent_library() {
-            Ok(store) => store,
-            Err(error) => return Response::err(req_id, error),
-        };
-        match store.mcp_catalog_binding_status(verified.tenant(), &request.server_name, scope) {
-            Ok(Some(_)) => {
-                let owner = store.owner_principal();
-                let digest = owner.strip_prefix("principal:sha256:");
-                if !digest.is_some_and(|value| {
-                    value.len() == 64
-                        && value
-                            .bytes()
-                            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-                }) {
-                    return Response::err(req_id, "AgentLibrary owner principal is invalid");
-                }
-                Response::ok(
-                    req_id,
-                    crate::protocol::ResultPayload::of_ref::<
-                        eg_types::result_contract::storage::ConnectorPackCatalogRequestOwnerPrincipal,
-                    >(&owner.to_string()),
-                )
-            }
-            Ok(None) => Response::err(req_id, "scoped MCP catalog authority is unavailable"),
-            Err(error) => Response::err(req_id, error),
-        }
-    }
-}
-
-/// Return the actual AgentLibrary owner only to the same verified child
-/// attester that has a persisted scoped catalog row and pack-control grant.
-/// This is a read, not a way for the caller to assert its own owner principal.
-pub(super) async fn serve_owner_principal(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    verified: &VerifiedRequestContext,
-    request: eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
-) -> Response {
-    #[cfg(not(feature = "redb"))]
-    {
-        let _ = (state, verified, request);
-        Response::err(req_id, "MCP catalog authority requires the redb feature")
-    }
-    #[cfg(feature = "redb")]
-    {
-        if let Err(error) = require_catalog_owner_read(verified, &request.tenant_id) {
-            return Response::err(req_id, error);
-        }
-        let scope = match verified.tenant_local_catalog_partition_digest(&request.server_name) {
-            Ok(scope) => scope,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let store = match state.write().await.ensure_agent_library() {
-            Ok(store) => store,
-            Err(error) => return Response::err(req_id, error),
-        };
-        match store.mcp_catalog_authority_status(
-            verified.tenant(),
-            &request.server_name,
-            scope,
-            &verified.principal_persistence_id(),
-        ) {
-            Ok(Some(_)) => {
-                let owner = store.owner_principal();
-                let digest = owner.strip_prefix("principal:sha256:");
-                if !digest.is_some_and(|value| {
-                    value.len() == 64
-                        && value
-                            .bytes()
-                            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-                }) {
-                    return Response::err(req_id, "AgentLibrary owner principal is invalid");
-                }
-                Response::ok(
-                    req_id,
-                    crate::protocol::ResultPayload::of_ref::<
-                        eg_types::result_contract::storage::ConnectorPackCatalogOwnerPrincipal,
-                    >(&owner.to_string()),
-                )
-            }
-            Ok(None) => Response::err(req_id, "scoped MCP catalog authority is unavailable"),
-            Err(error) => Response::err(req_id, error),
-        }
-    }
-}
-
-pub(super) async fn serve_status(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    verified: &VerifiedRequestContext,
-    request: eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
-) -> Response {
-    #[cfg(not(feature = "redb"))]
-    {
-        let _ = (state, verified, request);
-        Response::err(req_id, "MCP catalog authority requires the redb feature")
-    }
-    #[cfg(feature = "redb")]
-    {
-        if let Err(error) = require_catalog_attester(verified, &request.tenant_id, false) {
-            return Response::err(req_id, error);
-        }
-        let scope = match verified.tenant_local_catalog_partition_digest(&request.server_name) {
-            Ok(scope) => scope,
-            Err(error) => return Response::err(req_id, error),
-        };
-        let store = match state.write().await.ensure_agent_library() {
-            Ok(store) => store,
-            Err(error) => return Response::err(req_id, error),
-        };
-        match store.mcp_catalog_authority_status(
-            verified.tenant(),
-            &request.server_name,
-            scope,
-            &verified.principal_persistence_id(),
-        ) {
-            Ok(binding) => Response::ok(
+            Ok((_, binding)) if matches!(access, CatalogRead::AttesterStatus) => Response::ok(
                 req_id,
                 crate::protocol::ResultPayload::of_ref::<
                     eg_types::result_contract::storage::ConnectorPackCatalogAuthorityStatus,
                 >(&binding),
             ),
+            Ok((store, Some(_))) => match verified_owner_principal(&store) {
+                Ok(owner) if matches!(access, CatalogRead::AttesterOwner) => Response::ok(
+                    req_id,
+                    crate::protocol::ResultPayload::of_ref::<
+                        eg_types::result_contract::storage::ConnectorPackCatalogOwnerPrincipal,
+                    >(&owner),
+                ),
+                Ok(owner) => Response::ok(
+                    req_id,
+                    crate::protocol::ResultPayload::of_ref::<
+                        eg_types::result_contract::storage::ConnectorPackCatalogRequestOwnerPrincipal,
+                    >(&owner),
+                ),
+                Err(error) => Response::err(req_id, error),
+            },
+            Ok((_, None)) => Response::err(req_id, "scoped MCP catalog authority is unavailable"),
             Err(error) => Response::err(req_id, error),
         }
     }
 }
+
+// These four names are the existing ConnectorPack dispatch surface. Their
+// policy and response formatting live in the single scoped read above.
+macro_rules! catalog_read_handler {
+    ($(#[$doc:meta])* $name:ident, $access:ident) => {
+        $(#[$doc])*
+        pub(super) async fn $name(
+            state: &Arc<RwLock<ServerState>>,
+            req_id: u64,
+            verified: &VerifiedRequestContext,
+            request: eg_types::connector_pack::McpCatalogAuthorityStatusRequest,
+        ) -> Response {
+            serve_catalog_read(state, req_id, verified, request, CatalogRead::$access).await
+        }
+    };
+}
+
+catalog_read_handler!(
+    /// Read a binding under the verified request's tenant and server scope.
+    serve_binding_status, RequestBinding
+);
+catalog_read_handler!(
+    /// Read EG's owner principal for a request-scoped importer with a binding.
+    serve_request_owner_principal, RequestOwner
+);
+catalog_read_handler!(
+    /// Read EG's owner principal for the verified child attester.
+    serve_owner_principal, AttesterOwner
+);
+catalog_read_handler!(
+    /// Read the scoped catalog status for the verified child attester.
+    serve_status, AttesterStatus
+);
 
 pub(super) async fn serve(
     state: &Arc<RwLock<ServerState>>,
@@ -239,8 +197,7 @@ pub(super) async fn serve(
 ) -> Response {
     #[cfg(not(feature = "redb"))]
     {
-        let _ = (state, verified, request);
-        Response::err(req_id, "MCP catalog authority requires the redb feature")
+        unavailable_catalog_response(req_id, state, verified, request)
     }
     #[cfg(feature = "redb")]
     {
@@ -257,6 +214,39 @@ pub(super) async fn serve(
 }
 
 #[cfg(feature = "redb")]
+fn validate_mounted_attestation(
+    verified: &VerifiedRequestContext,
+    request: &eg_types::connector_pack::McpCatalogReconcileRequest,
+) -> Result<(), String> {
+    if request.discovery_tenant != verified.tenant()
+        || request.child_id.is_empty()
+        || request.local_catalog_epoch == 0
+        || request.child_connection_generation == 0
+    {
+        return Err("invalid mounted-child catalog attestation".into());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "redb")]
+fn validate_registration_identity(
+    request: &eg_types::connector_pack::McpCatalogReconcileRequest,
+    registry_revision: u64,
+    registry_digest: eg_types::contract::Digest256,
+    desired: eg_types::result_contract::cluster::ServerDesiredState,
+) -> Result<(), String> {
+    use eg_types::result_contract::cluster::ServerDesiredState;
+
+    if registry_revision != request.registry_revision
+        || registry_digest != request.registry_digest
+        || desired != ServerDesiredState::Enabled
+    {
+        return Err("stale or disabled MCP server registration".into());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "redb")]
 async fn reconcile(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -266,16 +256,9 @@ async fn reconcile(
     use eg_types::agent_component::AgentComponentKind;
     use eg_types::agent_library::AgentLibraryLifecycle;
     use eg_types::contract::Digest256;
-    use eg_types::result_contract::cluster::ServerDesiredState;
 
     require_catalog_attester(verified, &request.context.tenant_id, true)?;
-    if request.discovery_tenant != verified.tenant()
-        || request.child_id.is_empty()
-        || request.local_catalog_epoch == 0
-        || request.child_connection_generation == 0
-    {
-        return Err("invalid mounted-child catalog attestation".into());
-    }
+    validate_mounted_attestation(verified, &request)?;
     // Registry mutation takes this same graph lock. Keep it until both EG
     // authority rows commit, so the joined registration cannot move between
     // source verification and persistence.
@@ -287,12 +270,12 @@ async fn reconcile(
             &request.server_name,
         )
         .await?;
-    if registry_revision != request.registry_revision
-        || registry_digest != request.registry_digest
-        || registration.desired != ServerDesiredState::Enabled
-    {
-        return Err("stale or disabled MCP server registration".into());
-    }
+    validate_registration_identity(
+        &request,
+        registry_revision,
+        registry_digest,
+        registration.desired,
+    )?;
     let registration_digest = Digest256::sha256(
         &serde_json::to_vec(&serde_json::json!({
             "url": registration.url,

@@ -34,30 +34,41 @@ impl ServiceGraphGrant<'_> {
             ));
         }
         let role = self.role(graph);
-        for action in [RbacAction::Read, RbacAction::Write] {
-            let grant = Grant {
-                role: role.clone(),
-                resource: ResourceSelector::Graph(graph.to_string()),
-                action,
-                effect: GrantEffect::Allow,
-            };
-            if !isolation.rbac().grants().contains(&grant) {
-                isolation.try_add_role(Role::new(role.clone()))?;
-                isolation.try_add_grant(grant)?;
-            }
-        }
-        let mut identity = isolation
-            .get_identity(self.actor)
-            .unwrap_or_else(|| AgentIdentity {
-                agent_id: self.actor.to_string(),
-                role: AgentRole::Agent,
-                teams: Vec::new(),
-                roles: Vec::new(),
-            });
-        if identity.roles.contains(&role) {
-            return Ok(());
-        }
-        identity.roles.push(role);
-        isolation.try_register_agent(identity)
+        ensure_exact_graph_grant(isolation, graph, self.actor, role)
     }
+}
+
+/// Install an exact-graph read/write role and attach it to one service actor.
+/// Callers retain their own policy-bootstrap refusal before entering here.
+pub(crate) fn ensure_exact_graph_grant(
+    isolation: &mut IsolationLayer,
+    graph: &str,
+    actor: &str,
+    role: String,
+) -> Result<(), String> {
+    for action in [RbacAction::Read, RbacAction::Write] {
+        let grant = Grant {
+            role: role.clone(),
+            resource: ResourceSelector::Graph(graph.to_string()),
+            action,
+            effect: GrantEffect::Allow,
+        };
+        if !isolation.rbac().grants().contains(&grant) {
+            isolation.try_add_role(Role::new(role.clone()))?;
+            isolation.try_add_grant(grant)?;
+        }
+    }
+    let mut identity = isolation
+        .get_identity(actor)
+        .unwrap_or_else(|| AgentIdentity {
+            agent_id: actor.to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+    if identity.roles.contains(&role) {
+        return Ok(());
+    }
+    identity.roles.push(role);
+    isolation.try_register_agent(identity)
 }

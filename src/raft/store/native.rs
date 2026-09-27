@@ -19,187 +19,12 @@ impl EgStore {
         if let ReplicatedMutation::Native { command } = &req.command {
             match command {
                 NativeMutationCommand::EnrichmentTopUp { .. } => {
-                    let transition = req
-                        .command
-                        .open_enrichment_top_up(
-                            &req.graph_name,
-                            req.committed_at_ms,
-                            server_secret,
-                        )?
-                        .ok_or("replicated enrichment top-up payload is absent")?;
-                    let expected_tenant_scope =
-                        crate::server::mutation_batch::opaque_coordinator_key(
-                            "carrier-tenant",
-                            "verified",
-                            &transition.revision.tenant_id,
-                        );
-                    if req.mutation.is_internal()
-                        || req.mutation.attempt_nonce.is_none()
-                        || req.mutation.identity_bootstrap
-                        || req.mutation.tenant_scope != expected_tenant_scope
-                        || transition.revision.caller_subject.as_deref()
-                            != Some(req.mutation.principal_fingerprint.as_str())
-                        || req.mutation.batch_id != transition.replacement_batch.batch_id
-                        || req.mutation.created_at_ms != req.committed_at_ms
-                    {
-                        return Err(
-                            "ACCESS_DENIED: replicated enrichment top-up authority changed".into(),
-                        );
-                    }
-                    if crate::server::txn::consensus_graph_is_prepared(&req.graph_name) {
-                        return Err(
-                            "CONFLICT: graph is reserved by a prepared consensus transaction"
-                                .into(),
-                        );
-                    }
-                    let (core, persistence) = self.resolve_replicated_graph(req).await?;
-                    let backend = persistence
-                        .ok_or("replicated enrichment top-up requires graph persistence")?;
-                    let prior = backend
-                        .read_mutation_batch(
-                            &req.graph_fname,
-                            &transition.replacement_batch.batch_id,
-                        )
-                        .await?;
-                    transition.validate_parent_fence(
-                        req.mutation.placement_epoch,
-                        req.mutation.fencing_token,
-                        prior.as_ref(),
-                        req.committed_at_ms,
-                    )?;
-                    let committed = backend
-                        .commit_repository_enrichment_top_up(
-                            &req.graph_fname,
-                            transition,
-                            req.committed_at_ms,
-                        )
-                        .await?;
-                    committed.validate()?;
-                    // The outbox-only parent advances the durable graph version.
-                    // Publish that authoritative version on every replica,
-                    // including replay after a prior projection failure.
-                    let projection_pending = match self
-                        .install_authoritative_graph_snapshot(req, &core, &backend)
-                        .await
-                    {
-                        Ok(()) => false,
-                        Err(error) => {
-                            tracing::warn!(
-                                graph = %req.graph_fname,
-                                error = %error,
-                                "replicated enrichment top-up projection queued for repair"
-                            );
-                            true
-                        }
-                    };
-                    return Ok(Some(RaftResponse {
-                        applied: true,
-                        native_commit: Some(committed),
-                        projection_pending,
-                        ..Default::default()
-                    }));
+                    return Ok(Some(
+                        self.apply_enrichment_top_up(req, server_secret).await?,
+                    ));
                 }
                 NativeMutationCommand::EnrichmentPark { .. } => {
-                    if !req.mutation.is_internal() {
-                        return Err(
-                            "ACCESS_DENIED: replicated enrichment park requires internal authority"
-                                .into(),
-                        );
-                    }
-                    let park = req
-                        .command
-                        .open_enrichment_park(server_secret)?
-                        .ok_or("replicated enrichment park payload is absent")?;
-                    if park.parked_at_ms != req.committed_at_ms {
-                        return Err("CONFLICT: replicated enrichment park timestamp changed".into());
-                    }
-                    let (_, persistence) = self.resolve_replicated_graph(req).await?;
-                    let backend = persistence
-                        .ok_or("replicated enrichment park requires graph persistence")?;
-                    let outcome = backend
-                        .park_enrichment_budget(&req.graph_fname, park)
-                        .await
-                        .map(|()| true);
-                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
-                }
-                NativeMutationCommand::TransactionParticipant {
-                    phase,
-                    coordinator_id,
-                    participant_id,
-                    ..
-                } => {
-                    let plan = command.open_transaction_plan(server_secret)?;
-                    let outcome = crate::server::apply_replicated_transaction_participant(
-                        &self.ctx.state,
-                        req.mutation.request_id,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        self.group_id,
-                        *phase,
-                        crate::server::ReplicatedParticipantRef {
-                            coordinator_id,
-                            participant_id: *participant_id,
-                            plan: plan.as_deref(),
-                        },
-                    )
-                    .await;
-                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
-                }
-                NativeMutationCommand::TransactionDecision {
-                    coordinator_id,
-                    commit,
-                } => {
-                    let outcome = crate::server::apply_replicated_transaction_decision(
-                        &self.ctx.state,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        coordinator_id,
-                        *commit,
-                    )
-                    .await;
-                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
-                }
-                NativeMutationCommand::TransactionFinalize {
-                    coordinator_id,
-                    commit,
-                } => {
-                    let outcome = crate::server::apply_replicated_transaction_finalize(
-                        &self.ctx.state,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        coordinator_id,
-                        *commit,
-                    )
-                    .await;
-                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
-                }
-                #[cfg(feature = "jobs")]
-                NativeMutationCommand::JobPublicationCommit { coordinator_id, .. } => {
-                    let plan = command.open_job_publication_payload(server_secret)?;
-                    let outcome = crate::server::apply_replicated_job_publication_commit(
-                        &self.ctx.state,
-                        req.mutation.request_id,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        self.group_id,
-                        coordinator_id,
-                        &plan,
-                    )
-                    .await;
-                    return Ok(Some(Self::native_commit_outcome_to_response(outcome)));
-                }
-                #[cfg(feature = "jobs")]
-                NativeMutationCommand::JobPublicationFinalize { coordinator_id, .. } => {
-                    let receipt = command.open_job_publication_payload(server_secret)?;
-                    let outcome = crate::server::apply_replicated_job_publication_finalize(
-                        &self.ctx.state,
-                        req.committed_at_ms,
-                        &req.mutation,
-                        coordinator_id,
-                        &receipt,
-                    )
-                    .await;
-                    return Ok(Some(Self::native_result_outcome_to_response(outcome)));
+                    return Ok(Some(self.apply_enrichment_park(req, server_secret).await?));
                 }
                 NativeMutationCommand::NodeInfo { .. } => {
                     let info = command.open_node_info(server_secret)?;
@@ -213,6 +38,12 @@ impl EgStore {
                 }
                 _ => {}
             }
+            if let Some(response) = self
+                .try_apply_native_transaction(req, command, server_secret)
+                .await?
+            {
+                return Ok(Some(response));
+            }
             if let Some(method) = command.open_public_method(server_secret)? {
                 return Ok(Some(
                     self.try_apply_public_native_method(req, method).await?,
@@ -220,6 +51,218 @@ impl EgStore {
             }
         }
         Ok(None)
+    }
+
+    async fn try_apply_native_transaction(
+        &self,
+        req: &RaftRequest,
+        command: &NativeMutationCommand,
+        server_secret: &str,
+    ) -> Result<Option<RaftResponse>, String> {
+        match command {
+            NativeMutationCommand::TransactionParticipant {
+                phase,
+                coordinator_id,
+                participant_id,
+                ..
+            } => Ok(Some(
+                self.apply_transaction_participant(
+                    req,
+                    command,
+                    *phase,
+                    coordinator_id,
+                    *participant_id,
+                    server_secret,
+                )
+                .await?,
+            )),
+            NativeMutationCommand::TransactionDecision {
+                coordinator_id,
+                commit,
+            } => {
+                let outcome = crate::server::apply_replicated_transaction_decision(
+                    &self.ctx.state,
+                    req.committed_at_ms,
+                    &req.mutation,
+                    coordinator_id,
+                    *commit,
+                )
+                .await;
+                Ok(Some(Self::native_bool_outcome_to_response(outcome)))
+            }
+            NativeMutationCommand::TransactionFinalize {
+                coordinator_id,
+                commit,
+            } => {
+                let outcome = crate::server::apply_replicated_transaction_finalize(
+                    &self.ctx.state,
+                    req.committed_at_ms,
+                    &req.mutation,
+                    coordinator_id,
+                    *commit,
+                )
+                .await;
+                Ok(Some(Self::native_bool_outcome_to_response(outcome)))
+            }
+            #[cfg(feature = "jobs")]
+            NativeMutationCommand::JobPublicationCommit { coordinator_id, .. } => {
+                let plan = command.open_job_publication_payload(server_secret)?;
+                let outcome = crate::server::apply_replicated_job_publication_commit(
+                    &self.ctx.state,
+                    req.mutation.request_id,
+                    req.committed_at_ms,
+                    &req.mutation,
+                    self.group_id,
+                    coordinator_id,
+                    &plan,
+                )
+                .await;
+                Ok(Some(Self::native_commit_outcome_to_response(outcome)))
+            }
+            #[cfg(feature = "jobs")]
+            NativeMutationCommand::JobPublicationFinalize { coordinator_id, .. } => {
+                let receipt = command.open_job_publication_payload(server_secret)?;
+                let outcome = crate::server::apply_replicated_job_publication_finalize(
+                    &self.ctx.state,
+                    req.committed_at_ms,
+                    &req.mutation,
+                    coordinator_id,
+                    &receipt,
+                )
+                .await;
+                Ok(Some(Self::native_result_outcome_to_response(outcome)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    async fn apply_transaction_participant(
+        &self,
+        req: &RaftRequest,
+        command: &NativeMutationCommand,
+        phase: crate::raft::TransactionParticipantPhase,
+        coordinator_id: &str,
+        participant_id: u64,
+        server_secret: &str,
+    ) -> Result<RaftResponse, String> {
+        let plan = command.open_transaction_plan(server_secret)?;
+        let outcome = crate::server::apply_replicated_transaction_participant(
+            &self.ctx.state,
+            req.mutation.request_id,
+            req.committed_at_ms,
+            &req.mutation,
+            self.group_id,
+            phase,
+            crate::server::ReplicatedParticipantRef {
+                coordinator_id,
+                participant_id,
+                plan: plan.as_deref(),
+            },
+        )
+        .await;
+        Ok(Self::native_bool_outcome_to_response(outcome))
+    }
+
+    async fn apply_enrichment_top_up(
+        &self,
+        req: &RaftRequest,
+        server_secret: &str,
+    ) -> Result<RaftResponse, String> {
+        let transition = req
+            .command
+            .open_enrichment_top_up(&req.graph_name, req.committed_at_ms, server_secret)?
+            .ok_or("replicated enrichment top-up payload is absent")?;
+        let expected_tenant_scope = crate::server::mutation_batch::opaque_coordinator_key(
+            "carrier-tenant",
+            "verified",
+            &transition.revision.tenant_id,
+        );
+        if Self::top_up_authority_changed(req, &transition, &expected_tenant_scope) {
+            return Err("ACCESS_DENIED: replicated enrichment top-up authority changed".into());
+        }
+        if crate::server::txn::consensus_graph_is_prepared(&req.graph_name) {
+            return Err("CONFLICT: graph is reserved by a prepared consensus transaction".into());
+        }
+        let (core, persistence) = self.resolve_replicated_graph(req).await?;
+        let backend =
+            persistence.ok_or("replicated enrichment top-up requires graph persistence")?;
+        let prior = backend
+            .read_mutation_batch(&req.graph_fname, &transition.replacement_batch.batch_id)
+            .await?;
+        transition.validate_parent_fence(
+            req.mutation.placement_epoch,
+            req.mutation.fencing_token,
+            prior.as_ref(),
+            req.committed_at_ms,
+        )?;
+        let committed = backend
+            .commit_repository_enrichment_top_up(&req.graph_fname, transition, req.committed_at_ms)
+            .await?;
+        committed.validate()?;
+        // The outbox-only parent advances the durable graph version.
+        // Publish that authoritative version on every replica,
+        // including replay after a prior projection failure.
+        let projection_pending = match self
+            .install_authoritative_graph_snapshot(req, &core, &backend)
+            .await
+        {
+            Ok(()) => false,
+            Err(error) => {
+                tracing::warn!(
+                    graph = %req.graph_fname,
+                    error = %error,
+                    "replicated enrichment top-up projection queued for repair"
+                );
+                true
+            }
+        };
+        Ok(RaftResponse {
+            applied: true,
+            native_commit: Some(committed),
+            projection_pending,
+            ..Default::default()
+        })
+    }
+
+    fn top_up_authority_changed(
+        req: &RaftRequest,
+        transition: &crate::raft::EnrichmentTopUpTransition,
+        expected_tenant_scope: &str,
+    ) -> bool {
+        req.mutation.is_internal()
+            || req.mutation.attempt_nonce.is_none()
+            || req.mutation.identity_bootstrap
+            || req.mutation.tenant_scope != expected_tenant_scope
+            || transition.revision.caller_subject.as_deref()
+                != Some(req.mutation.principal_fingerprint.as_str())
+            || req.mutation.batch_id != transition.replacement_batch.batch_id
+            || req.mutation.created_at_ms != req.committed_at_ms
+    }
+
+    async fn apply_enrichment_park(
+        &self,
+        req: &RaftRequest,
+        server_secret: &str,
+    ) -> Result<RaftResponse, String> {
+        if !req.mutation.is_internal() {
+            return Err(
+                "ACCESS_DENIED: replicated enrichment park requires internal authority".into(),
+            );
+        }
+        let park = req
+            .command
+            .open_enrichment_park(server_secret)?
+            .ok_or("replicated enrichment park payload is absent")?;
+        if park.parked_at_ms != req.committed_at_ms {
+            return Err("CONFLICT: replicated enrichment park timestamp changed".into());
+        }
+        let (_, persistence) = self.resolve_replicated_graph(req).await?;
+        let backend = persistence.ok_or("replicated enrichment park requires graph persistence")?;
+        let outcome = backend
+            .park_enrichment_budget(&req.graph_fname, park)
+            .await
+            .map(|()| true);
+        Ok(Self::native_bool_outcome_to_response(outcome))
     }
 
     /// `Ok(value) => RaftResponse{native_result: Some(Bool(value))}` /

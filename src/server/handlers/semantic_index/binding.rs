@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use eg_core::compute::semantic_ann_codes::OperationAttribution;
+use eg_core::compute::semantic_index_service::SemanticIndexService;
+use eg_types::contract::Nonce;
 use eg_types::result_contract::ingestion as ingestion_results;
 use eg_types::semantic_index::{SemanticBinding, SemanticIndexOp, SemanticSqlSourceManifest};
 
@@ -11,6 +13,50 @@ use super::{blocking, contracts, reply, stamp_draft_identity, SemanticIndexConte
 
 pub(super) fn invalid_semantic_input(req_id: u64, subject: &'static str) -> Response {
     Response::err(req_id, format!("INVALID_ARGUMENT: {subject} rejected"))
+}
+
+/// Every operation-bound binding mutation consumes the same verified
+/// attempt nonce before crossing the service's durable mutation boundary.
+fn verified_attempt_nonce(ctx: &SemanticIndexContext<'_>) -> Result<Nonce, Response> {
+    ctx.authority.attempt_nonce().ok_or_else(|| {
+        Response::err(
+            ctx.req_id,
+            "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
+        )
+    })
+}
+
+/// Capture one verified operation identity and service handle before an
+/// operation crosses into the blocking native mutation path.
+fn binding_operation_inputs(
+    ctx: &SemanticIndexContext<'_>,
+) -> Result<(Arc<SemanticIndexService>, u64, String, Nonce), Response> {
+    let nonce = verified_attempt_nonce(ctx)?;
+    Ok((
+        Arc::clone(&ctx.service),
+        ctx.now_ms,
+        ctx.authority.agent_id().to_string(),
+        nonce,
+    ))
+}
+
+/// Validate a replacement against its stamped caller identity and worker
+/// authorization before either mutation path can touch durable state.
+pub(super) fn checked_replacement(
+    ctx: &SemanticIndexContext<'_>,
+    mut draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
+    source_manifest: eg_types::semantic_index::SemanticSqlSourceManifestDraft,
+) -> Result<(SemanticBinding, SemanticSqlSourceManifest), Response> {
+    stamp_draft_identity(&mut draft, ctx.authority);
+    let replacement = SemanticBinding::create(*draft)
+        .map_err(|_| invalid_semantic_input(ctx.req_id, "semantic binding"))?;
+    let manifest = SemanticSqlSourceManifest::create(source_manifest)
+        .map_err(|_| invalid_semantic_input(ctx.req_id, "semantic source manifest"))?;
+    let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
+    adapter
+        .authorize_binding_worker(&replacement, ctx.authority)
+        .map_err(|error| Response::err(ctx.req_id, error))?;
+    Ok((replacement, manifest))
 }
 
 pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) -> Response {
@@ -41,38 +87,61 @@ pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) 
             next_state,
             idempotency_key,
             ..
-        } => transition_binding(ctx, expected_generation, next_state, idempotency_key).await,
+        } => {
+            binding_lifecycle(
+                ctx,
+                expected_generation,
+                BindingLifecycle::Transition(next_state),
+                idempotency_key,
+            )
+            .await
+        }
         SemanticIndexOp::DropBinding {
             expected_generation,
             idempotency_key,
             ..
-        } => drop_binding(ctx, expected_generation, idempotency_key).await,
+        } => {
+            binding_lifecycle(
+                ctx,
+                expected_generation,
+                BindingLifecycle::Drop,
+                idempotency_key,
+            )
+            .await
+        }
         _ => unreachable!("binding handler received a non-binding operation"),
     }
 }
 
-async fn admit_binding(
+fn checked_admission_inputs(
     ctx: &SemanticIndexContext<'_>,
     mut draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
+) -> Result<
+    (
+        SemanticBinding,
+        Arc<SemanticIndexService>,
+        u64,
+        String,
+        Nonce,
+    ),
+    Response,
+> {
+    stamp_draft_identity(&mut draft, ctx.authority);
+    let binding = SemanticBinding::create(*draft)
+        .map_err(|_| invalid_semantic_input(ctx.req_id, "semantic binding"))?;
+    let (service, now_ms, actor, nonce) = binding_operation_inputs(ctx)?;
+    Ok((binding, service, now_ms, actor, nonce))
+}
+
+async fn admit_binding(
+    ctx: &SemanticIndexContext<'_>,
+    draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
     idempotency_key: String,
 ) -> Response {
-    stamp_draft_identity(&mut draft, ctx.authority);
-    let binding = match SemanticBinding::create(*draft) {
-        Ok(binding) => binding,
-        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic binding"),
+    let (binding, service, now_ms, actor, nonce) = match checked_admission_inputs(ctx, draft) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
     };
-    let nonce = match ctx.authority.attempt_nonce() {
-        Some(nonce) => nonce,
-        None => {
-            return Response::err(
-                ctx.req_id,
-                "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
-            )
-        }
-    };
-    let actor = ctx.authority.agent_id().to_string();
-    let service = Arc::clone(&ctx.service);
-    let now_ms = ctx.now_ms;
     reply::<ingestion_results::SemanticIndexAdmitBinding, _>(
         ctx.req_id,
         blocking(ctx.req_id, move || {
@@ -86,35 +155,18 @@ async fn admit_binding(
 async fn refresh_binding(
     ctx: &SemanticIndexContext<'_>,
     expected_generation: u64,
-    mut draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
+    draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
     source_manifest: eg_types::semantic_index::SemanticSqlSourceManifestDraft,
     idempotency_key: String,
 ) -> Response {
-    stamp_draft_identity(&mut draft, ctx.authority);
-    let replacement = match SemanticBinding::create(*draft) {
-        Ok(binding) => binding,
-        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic binding"),
+    let (replacement, manifest) = match checked_replacement(ctx, draft, source_manifest) {
+        Ok(validated) => validated,
+        Err(response) => return response,
     };
-    let manifest = match SemanticSqlSourceManifest::create(source_manifest) {
-        Ok(manifest) => manifest,
-        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic source manifest"),
+    let (service, now_ms, actor, nonce) = match binding_operation_inputs(ctx) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
     };
-    let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
-    if let Err(error) = adapter.authorize_binding_worker(&replacement, ctx.authority) {
-        return Response::err(ctx.req_id, error);
-    }
-    let nonce = match ctx.authority.attempt_nonce() {
-        Some(nonce) => nonce,
-        None => {
-            return Response::err(
-                ctx.req_id,
-                "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
-            )
-        }
-    };
-    let actor = ctx.authority.agent_id().to_string();
-    let service = Arc::clone(&ctx.service);
-    let now_ms = ctx.now_ms;
     reply::<ingestion_results::SemanticIndexRefreshBinding, _>(
         ctx.req_id,
         blocking(ctx.req_id, move || {
@@ -135,72 +187,54 @@ async fn refresh_binding(
     )
 }
 
-async fn transition_binding(
-    ctx: &SemanticIndexContext<'_>,
-    expected_generation: u64,
-    next_state: eg_types::semantic_index::SemanticBindingState,
-    idempotency_key: String,
-) -> Response {
-    let nonce = match ctx.authority.attempt_nonce() {
-        Some(nonce) => nonce,
-        None => {
-            return Response::err(
-                ctx.req_id,
-                "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
-            )
-        }
-    };
-    let actor = ctx.authority.agent_id().to_string();
-    let service = Arc::clone(&ctx.service);
-    let now_ms = ctx.now_ms;
-    reply::<ingestion_results::SemanticIndexTransitionBinding, _>(
-        ctx.req_id,
-        blocking(ctx.req_id, move || {
-            service.transition_binding_operation(
-                expected_generation,
-                next_state,
-                now_ms,
-                &actor,
-                &idempotency_key,
-                nonce,
-            )
-        })
-        .await
-        .map(contracts::receipt),
-    )
+enum BindingLifecycle {
+    Transition(eg_types::semantic_index::SemanticBindingState),
+    Drop,
 }
 
-async fn drop_binding(
+async fn binding_lifecycle(
     ctx: &SemanticIndexContext<'_>,
     expected_generation: u64,
+    command: BindingLifecycle,
     idempotency_key: String,
 ) -> Response {
-    let nonce = match ctx.authority.attempt_nonce() {
-        Some(nonce) => nonce,
-        None => {
-            return Response::err(
+    let (service, now_ms, actor, nonce) = match binding_operation_inputs(ctx) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    match command {
+        BindingLifecycle::Transition(next_state) => {
+            reply::<ingestion_results::SemanticIndexTransitionBinding, _>(
                 ctx.req_id,
-                "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
+                blocking(ctx.req_id, move || {
+                    service.transition_binding_operation(
+                        expected_generation,
+                        next_state,
+                        now_ms,
+                        &actor,
+                        &idempotency_key,
+                        nonce,
+                    )
+                })
+                .await
+                .map(contracts::receipt),
             )
         }
-    };
-    let actor = ctx.authority.agent_id().to_string();
-    let service = Arc::clone(&ctx.service);
-    let now_ms = ctx.now_ms;
-    reply::<ingestion_results::SemanticIndexDropBinding, _>(
-        ctx.req_id,
-        blocking(ctx.req_id, move || {
-            service.drop_binding_operation(
-                expected_generation,
-                now_ms,
-                &actor,
-                &idempotency_key,
-                nonce,
-            )
-        })
-        .await
-        .map(contracts::receipt),
-    )
+        BindingLifecycle::Drop => reply::<ingestion_results::SemanticIndexDropBinding, _>(
+            ctx.req_id,
+            blocking(ctx.req_id, move || {
+                service.drop_binding_operation(
+                    expected_generation,
+                    now_ms,
+                    &actor,
+                    &idempotency_key,
+                    nonce,
+                )
+            })
+            .await
+            .map(contracts::receipt),
+        ),
+    }
 }
 
 #[cfg(test)]

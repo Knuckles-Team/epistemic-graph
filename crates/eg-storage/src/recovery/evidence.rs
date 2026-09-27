@@ -7,7 +7,7 @@ use crate::owner::{
     validate_declared_tables_write, validate_manifest_read,
 };
 use crate::physical::binding::ScopeBinding;
-use crate::physical::incarnation::StoreIncarnation;
+use crate::physical::incarnation::{StoreIdentityDigest, StoreIncarnation};
 use crate::physical::manifest::OwnerManifest;
 use crate::physical::read_only::ReadOnlyStore;
 use crate::physical::root::PhysicalStore;
@@ -93,15 +93,14 @@ pub fn prove_scope_bindings_reanchored_read_only(
             (Some(Ok((source_key, source_value))), Some(Ok((target_key, target_value)))) => {
                 let source_binding: ScopeBinding = decode_ledger_record(source_value.value())?;
                 let target_binding: ScopeBinding = decode_ledger_record(target_value.value())?;
-                if source_key.value() != target_key.value()
-                    || source_binding.schema_version != target_binding.schema_version
-                    || source_binding.identity != target_binding.identity
-                    || source_binding.initial_version != target_binding.initial_version
-                    || source_binding.store_identity_digest
-                        != source.incarnation().identity_digest()
-                    || target_binding.store_identity_digest
-                        != target.incarnation().identity_digest()
-                {
+                if !same_reanchored_binding(
+                    source_key.value(),
+                    target_key.value(),
+                    &source_binding,
+                    &target_binding,
+                    source.incarnation().identity_digest(),
+                    target.incarnation().identity_digest(),
+                ) {
                     return Err("strict copy changed a logical scope binding".to_string());
                 }
             }
@@ -109,6 +108,22 @@ pub fn prove_scope_bindings_reanchored_read_only(
             _ => return Err("strict copy changed scope-binding cardinality".to_string()),
         }
     }
+}
+
+fn same_reanchored_binding(
+    source_key: &str,
+    target_key: &str,
+    source: &ScopeBinding,
+    target: &ScopeBinding,
+    source_digest: StoreIdentityDigest,
+    target_digest: StoreIdentityDigest,
+) -> bool {
+    source_key == target_key
+        && source.schema_version == target.schema_version
+        && source.identity == target.identity
+        && source.initial_version == target.initial_version
+        && source.store_identity_digest == source_digest
+        && target.store_identity_digest == target_digest
 }
 
 #[cfg(test)]
@@ -305,6 +320,28 @@ pub(crate) fn copy_ledger_rows(
     Ok(rows)
 }
 
+/// Reject an existing destination key before copying each source row. The
+/// physical binding copy supplies its reanchor step; ordinary tables copy
+/// their typed value unchanged.
+macro_rules! copy_source_rows {
+    ($source:ident, $target:ident, $key:ident, $value:ident, $collision:expr, $copy:block) => {{
+        let mut rows = 0;
+        for row in $source.iter().map_err(|error| error.to_string())? {
+            let ($key, $value) = row.map_err(|error| error.to_string())?;
+            if $target
+                .get($key.value())
+                .map_err(|error| error.to_string())?
+                .is_some()
+            {
+                return Err($collision);
+            }
+            $copy
+            rows += 1;
+        }
+        Ok(rows)
+    }};
+}
+
 pub(crate) fn copy_bindings(
     source: &ReadTransaction,
     target: &WriteTransaction,
@@ -316,25 +353,21 @@ pub(crate) fn copy_bindings(
     let mut target_table = target
         .open_table(SCOPE_BINDINGS)
         .map_err(|error| error.to_string())?;
-    let mut rows = 0;
-    for row in source_table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        if target_table
-            .get(key.value())
-            .map_err(|error| error.to_string())?
-            .is_some()
+    copy_source_rows!(
+        source_table,
+        target_table,
+        key,
+        value,
+        "strict copy would overwrite a scope binding".to_string(),
         {
-            return Err("strict copy would overwrite a scope binding".to_string());
+            let mut binding: ScopeBinding = decode_ledger_record(value.value())?;
+            binding.store_identity_digest = root.identity_digest();
+            let bytes = encode_bounded(&binding, "strict backup scope binding")?;
+            target_table
+                .insert(key.value(), bytes.as_slice())
+                .map_err(|error| error.to_string())?;
         }
-        let mut binding: ScopeBinding = decode_ledger_record(value.value())?;
-        binding.store_identity_digest = root.identity_digest();
-        let bytes = encode_bounded(&binding, "strict backup scope binding")?;
-        target_table
-            .insert(key.value(), bytes.as_slice())
-            .map_err(|error| error.to_string())?;
-        rows += 1;
-    }
-    Ok(rows)
+    )
 }
 
 pub(crate) fn copy_table<K, V>(
@@ -352,25 +385,18 @@ where
     let mut target_table = target
         .open_table(definition)
         .map_err(|error| error.to_string())?;
-    let mut rows = 0;
-    for row in source_table.iter().map_err(|error| error.to_string())? {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        if target_table
-            .get(key.value())
-            .map_err(|error| error.to_string())?
-            .is_some()
+    copy_source_rows!(
+        source_table,
+        target_table,
+        key,
+        value,
+        format!("strict copy would overwrite a row in {}", definition.name()),
         {
-            return Err(format!(
-                "strict copy would overwrite a row in {}",
-                definition.name()
-            ));
+            target_table
+                .insert(key.value(), value.value())
+                .map_err(|error| error.to_string())?;
         }
-        target_table
-            .insert(key.value(), value.value())
-            .map_err(|error| error.to_string())?;
-        rows += 1;
-    }
-    Ok(rows)
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -391,25 +417,22 @@ impl HashSnapshot<'_> {
     {
         let mut table_hasher = Sha256::new();
         hash_tag(&mut table_hasher, definition.name().as_bytes());
+        // The read and write transaction types differ, but their typed table
+        // opens must feed the same strict byte-hashing path.
+        macro_rules! hash_opened {
+            ($transaction:expr) => {{
+                let table = $transaction
+                    .open_table(definition)
+                    .map_err(|error| error.to_string())?;
+                hash_rows(
+                    &mut table_hasher,
+                    table.iter().map_err(|error| error.to_string())?,
+                )?
+            }};
+        }
         let rows = match self {
-            Self::Read(transaction) => {
-                let table = transaction
-                    .open_table(definition)
-                    .map_err(|error| error.to_string())?;
-                hash_rows(
-                    &mut table_hasher,
-                    table.iter().map_err(|error| error.to_string())?,
-                )?
-            }
-            Self::Write(transaction) => {
-                let table = transaction
-                    .open_table(definition)
-                    .map_err(|error| error.to_string())?;
-                hash_rows(
-                    &mut table_hasher,
-                    table.iter().map_err(|error| error.to_string())?,
-                )?
-            }
+            Self::Read(transaction) => hash_opened!(transaction),
+            Self::Write(transaction) => hash_opened!(transaction),
         };
         let fingerprint: [u8; 32] = table_hasher.finalize().into();
         hash_tag(hasher, &fingerprint);

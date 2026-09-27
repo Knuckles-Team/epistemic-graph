@@ -1,16 +1,14 @@
 use std::sync::Arc;
 
 use eg_types::result_contract::ingestion as ingestion_results;
-use eg_types::semantic_index::{SemanticBinding, SemanticIndexOp, SemanticSqlSourceManifest};
+use eg_types::semantic_index::SemanticIndexOp;
 
 use crate::protocol::Response;
-use crate::server::semantic_index::SemanticIndexServerAdapter;
 
+use super::binding::checked_replacement;
+#[cfg(test)]
 use super::binding::invalid_semantic_input;
-use super::{
-    blocking, contracts, decode_cursor, read_port, reply, stamp_draft_identity,
-    SemanticIndexContext,
-};
+use super::{blocking, contracts, decode_cursor, read_port, reply, SemanticIndexContext};
 
 pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) -> Response {
     match op {
@@ -87,23 +85,14 @@ async fn admit_reconcile(
 
 async fn admit_replacement(
     ctx: &SemanticIndexContext<'_>,
-    mut draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
+    draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
     source_manifest: eg_types::semantic_index::SemanticSqlSourceManifestDraft,
     record: eg_types::mutation_batch::MutationOutboxRecord,
 ) -> Response {
-    stamp_draft_identity(&mut draft, ctx.authority);
-    let replacement = match SemanticBinding::create(*draft) {
-        Ok(binding) => binding,
-        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic binding"),
+    let (replacement, manifest) = match checked_replacement(ctx, draft, source_manifest) {
+        Ok(validated) => validated,
+        Err(response) => return response,
     };
-    let manifest = match SemanticSqlSourceManifest::create(source_manifest) {
-        Ok(manifest) => manifest,
-        Err(_) => return invalid_semantic_input(ctx.req_id, "semantic source manifest"),
-    };
-    let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
-    if let Err(error) = adapter.authorize_binding_worker(&replacement, ctx.authority) {
-        return Response::err(ctx.req_id, error);
-    }
     let service = Arc::clone(&ctx.service);
     let now_ms = ctx.now_ms;
     reply::<ingestion_results::SemanticIndexAdmitSourceReplacement, _>(

@@ -10,6 +10,7 @@ license = "MIT"
 name = "eg_compute"
 
 [features]
+test-support = []
 # `algorithms`, `ast`, and `parser` are always compiled (algorithms is used by
 # the always-on graph-op handlers); the heavy domains are gated so a slim build
 # links neither their code nor their deps. Mirrors the facade feature names 1:1.

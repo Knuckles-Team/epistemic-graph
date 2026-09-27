@@ -3901,6 +3901,7 @@ components:
       - "tests/test_dupehound_census.py"
       - "tests/test_dupehound_ledger.py"
       - "tests/test_durable_crash.py"
+      - "tests/test_durable_table_registration_census.py"
       - "tests/test_e1_guard_wiring.py"
       - "tests/test_epi_gapfill_roundtrip.py"
       - "tests/test_epistemic_graph.py"

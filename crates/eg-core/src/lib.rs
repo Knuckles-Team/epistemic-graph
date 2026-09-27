@@ -56,6 +56,9 @@ pub mod durable_apply;
 /// watermarks. Its change detector is the dependency clock, so it is gated with it.
 #[cfg(feature = "result-cache")]
 pub mod freshness;
+/// A small, dependency-free filesystem primitive shared by the query spill
+/// owner and the server's durable commit-intent writer.
+pub mod fs;
 pub mod graph;
 pub mod index;
 /// EH-536 — cooperative interruption of long CPU-bound work on behalf of a

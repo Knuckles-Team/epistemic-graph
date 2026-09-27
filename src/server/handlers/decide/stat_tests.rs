@@ -270,6 +270,51 @@ async fn decide(h: &Harness, request: DecideRequest) -> Result<DecisionBatch, St
     decode(super::statistical::handle_decide(&h.state, 1, &verified(), request).await)
 }
 
+async fn decide_and_assert_abstains(
+    h: &Harness,
+    schema_pin: &ComponentDependency,
+    head_pin: Option<ComponentDependency>,
+) -> DecisionBatch {
+    let batch = decide(
+        h,
+        request(
+            schema_pin,
+            head_pin,
+            DecisionPolicyRef::Default,
+            QuestionSafety::Ordinary,
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        batch.records.as_slice()[0].outcome,
+        StatisticalOutcome::Abstained { .. }
+    ));
+    batch
+}
+
+async fn receipt_timeline_first_page(
+    h: &Harness,
+    req_id: u64,
+) -> eg_types::decision::DecisionReceiptTimelinePage {
+    decode(
+        super::jobs::handle_decision_eval(
+            &h.state,
+            req_id,
+            &verified(),
+            DecisionEvalOp::Timeline {
+                request: eg_types::decision::DecisionReceiptTimelineRequest {
+                    tenant_id: TENANT.to_string(),
+                    after: None,
+                    limit: 1,
+                },
+            },
+        )
+        .await,
+    )
+    .unwrap()
+}
+
 /// Gold items that are noisy copies of the live matrix, gold = the option the
 /// query matches best (row 0 after sorting by id).
 fn dataset(schema_digest: &str, ids: &[String], values: &[i64], n: usize) -> LabelledDataset {
@@ -484,22 +529,8 @@ async fn route_fixture(h: &Harness) -> RouteFixture {
 
     // No head under the default (deterministic-only) policy: abstain, with the
     // matrix recorded exactly and the record digest reproducible.
-    let batch = decide(
-        h,
-        request(
-            &schema_pin,
-            None,
-            DecisionPolicyRef::Default,
-            QuestionSafety::Ordinary,
-        ),
-    )
-    .await
-    .unwrap();
+    let batch = decide_and_assert_abstains(h, &schema_pin, None).await;
     let record = &batch.records.as_slice()[0];
-    assert!(matches!(
-        record.outcome,
-        StatisticalOutcome::Abstained { .. }
-    ));
     assert_eq!(
         eg_types::decision::digest::statistical_record_digest(record),
         record.record_digest
@@ -663,24 +694,9 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         .await,
     )
     .unwrap();
-    assert_eq!(page.receipts.as_slice(), &[receipt.clone()]);
+    assert_eq!(page.receipts.as_slice(), std::slice::from_ref(&receipt));
     assert_eq!(page.next_after, None);
-    let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
-        super::jobs::handle_decision_eval(
-            &h.state,
-            54,
-            &verified(),
-            DecisionEvalOp::Timeline {
-                request: eg_types::decision::DecisionReceiptTimelineRequest {
-                    tenant_id: TENANT.to_string(),
-                    after: None,
-                    limit: 1,
-                },
-            },
-        )
-        .await,
-    )
-    .unwrap();
+    let timeline = receipt_timeline_first_page(&h, 54).await;
     // This fixture labels by synthetic construction, so it must not enter
     // the real-world calibrated timeline even though it has metrics.
     assert!(receipt.synthetic);
@@ -743,22 +759,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     };
     assert!(human_receipt.synthetic);
     assert!(human_receipt.metrics.is_some());
-    let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
-        super::jobs::handle_decision_eval(
-            &h.state,
-            56,
-            &verified(),
-            DecisionEvalOp::Timeline {
-                request: eg_types::decision::DecisionReceiptTimelineRequest {
-                    tenant_id: TENANT.to_string(),
-                    after: None,
-                    limit: 1,
-                },
-            },
-        )
-        .await,
-    )
-    .unwrap();
+    let timeline = receipt_timeline_first_page(&h, 56).await;
     assert!(timeline.entries.is_empty());
     assert_eq!(timeline.next_after, None);
     // The fitted calibration and caller-authored evaluation labels both lack
@@ -810,22 +811,8 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
 
     // An inline-fitted head is synthetic even when its caller claims Human
     // labels. Its apparent calibration cannot authorize an ordinary Act.
-    let batch = decide(
-        &h,
-        request(
-            &schema_pin,
-            Some(head_pin.clone()),
-            DecisionPolicyRef::Default,
-            QuestionSafety::Ordinary,
-        ),
-    )
-    .await
-    .unwrap();
+    let batch = decide_and_assert_abstains(&h, &schema_pin, Some(head_pin.clone())).await;
     let record = &batch.records.as_slice()[0];
-    assert!(matches!(
-        record.outcome,
-        StatisticalOutcome::Abstained { .. }
-    ));
     assert!(record.calibration.is_none());
     assert!(record.audit.is_none());
     assert!(record.logging_propensities.is_empty());

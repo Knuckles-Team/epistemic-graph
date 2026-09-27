@@ -39,14 +39,55 @@ pub struct ReactivationPlan {
 }
 
 fn digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    eg_types::contract::Digest256::parse(value).is_ok()
 }
 
 fn bounded_identity(value: &str) -> bool {
     !value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
+}
+
+fn park_matches_checkpoint(
+    old: &EligibleSnapshot,
+    durable: &DurableBudgetCheckpoint,
+    park: &EnrichmentBudgetPark,
+    old_digest: &str,
+) -> bool {
+    park.schema_version == 1
+        && park.source_envelope == old.source_envelope
+        && park.snapshot_digest == old_digest
+        && park.policy_digest == old.policy_digest
+        && park.next_index == durable.next_index
+        && park.page_number == durable.page_number
+        && park.remaining_units == durable.remaining_units
+        && park.required_units > durable.remaining_units
+        && old
+            .units
+            .get(durable.next_index as usize)
+            .is_some_and(|unit| unit.compute_units == park.required_units)
+}
+
+fn proposal_matches_source(
+    old: &EligibleSnapshot,
+    proposal: &BudgetRevisionProposal,
+    old_digest: &str,
+) -> bool {
+    proposal.tenant_id == old.tenant_id
+        && proposal.graph == old.graph
+        && proposal.repository_id == old.repository_id
+        && proposal.source_envelope == old.source_envelope
+        && proposal.source_snapshot_digest == old_digest
+        && proposal.prior_policy_digest == old.policy_digest
+        && proposal.verified_action == TOP_UP_ACTION
+}
+
+fn proposal_has_valid_revision(old: &EligibleSnapshot, proposal: &BudgetRevisionProposal) -> bool {
+    bounded_identity(&proposal.caller_subject)
+        && bounded_identity(&proposal.idempotency_key)
+        && bounded_identity(&proposal.new_source_envelope)
+        && proposal.new_source_envelope != old.source_envelope
+        && digest(&proposal.replacement_policy_digest)
+        && proposal.replacement_policy_digest != old.policy_digest
+        && proposal.expected_policy_sequence.checked_add(1) == Some(proposal.next_policy_sequence)
 }
 
 /// Derive a new immutable source snapshot while preserving every already
@@ -72,49 +113,15 @@ pub fn plan_reactivation(
     {
         return Err("CONFLICT: old enrichment budget authority is invalid".into());
     }
-    let old_checkpoint = EnrichmentBudgetCheckpoint {
-        schema_version: durable.schema_version,
-        snapshot_digest: durable.snapshot_digest.clone(),
-        next_index: durable.next_index as usize,
-        page_number: durable.page_number,
-        reserved_units: durable.reserved_units,
-        spent_units: durable.spent_units,
-        remaining_units: durable.remaining_units,
-        last_batch_key: (!durable.last_page_key.is_empty()).then(|| durable.last_page_key.clone()),
-    };
+    let old_checkpoint = EnrichmentBudgetCheckpoint::from_durable(durable);
     old_checkpoint
         .validate(old)
         .map_err(|_| "CONFLICT: old enrichment checkpoint is invalid")?;
-    if park.schema_version != 1
-        || park.source_envelope != old.source_envelope
-        || park.snapshot_digest != old_digest
-        || park.policy_digest != old.policy_digest
-        || park.next_index != durable.next_index
-        || park.page_number != durable.page_number
-        || park.remaining_units != durable.remaining_units
-        || park.required_units <= durable.remaining_units
-        || old
-            .units
-            .get(durable.next_index as usize)
-            .map(|unit| unit.compute_units)
-            != Some(park.required_units)
-    {
+    if !park_matches_checkpoint(old, durable, park, &old_digest) {
         return Err("CONFLICT: enrichment park is stale".into());
     }
-    if proposal.tenant_id != old.tenant_id
-        || proposal.graph != old.graph
-        || proposal.repository_id != old.repository_id
-        || proposal.source_envelope != old.source_envelope
-        || proposal.source_snapshot_digest != old_digest
-        || proposal.prior_policy_digest != old.policy_digest
-        || proposal.verified_action != TOP_UP_ACTION
-        || !bounded_identity(&proposal.caller_subject)
-        || !bounded_identity(&proposal.idempotency_key)
-        || !bounded_identity(&proposal.new_source_envelope)
-        || proposal.new_source_envelope == old.source_envelope
-        || !digest(&proposal.replacement_policy_digest)
-        || proposal.replacement_policy_digest == old.policy_digest
-        || proposal.expected_policy_sequence.checked_add(1) != Some(proposal.next_policy_sequence)
+    if !proposal_matches_source(old, proposal, &old_digest)
+        || !proposal_has_valid_revision(old, proposal)
     {
         return Err("ACCESS_DENIED: enrichment revision does not match source authority".into());
     }
@@ -153,17 +160,7 @@ pub fn plan_reactivation(
         total_budget_units: proposal.replacement_total_units,
         last_page_key: durable.last_page_key.clone(),
     };
-    let revised_checkpoint = EnrichmentBudgetCheckpoint {
-        schema_version: 1,
-        snapshot_digest: checkpoint.snapshot_digest.clone(),
-        next_index: checkpoint.next_index as usize,
-        page_number: checkpoint.page_number,
-        reserved_units: checkpoint.reserved_units,
-        spent_units: checkpoint.spent_units,
-        remaining_units: checkpoint.remaining_units,
-        last_batch_key: (!checkpoint.last_page_key.is_empty())
-            .then(|| checkpoint.last_page_key.clone()),
-    };
+    let revised_checkpoint = EnrichmentBudgetCheckpoint::from_durable(&checkpoint);
     revised_checkpoint
         .validate(&snapshot)
         .map_err(|_| "CONFLICT: revised enrichment checkpoint is invalid")?;
@@ -181,18 +178,11 @@ mod tests {
     use super::*;
 
     fn source(cost: u64, budget: u64) -> EligibleSnapshot {
-        EligibleSnapshot {
-            schema_version: 1,
-            tenant_id: "tenant".into(),
-            graph: "code".into(),
-            repository_id: "repo".into(),
-            source_envelope: "source-one".into(),
-            source_commit_ref: "source-one".into(),
-            policy_digest: "a".repeat(64),
-            catalog_digest: "b".repeat(64),
-            model_digest: "c".repeat(64),
-            budget_units: budget,
-            units: (0..2)
+        crate::test_support::repository_enrichment_snapshot(
+            "tenant",
+            "code",
+            budget,
+            (0..2)
                 .map(|i| EligibleUnit {
                     content_digest: format!("sha256:{i:064x}"),
                     parser_capability_digest: "parser:v1".into(),
@@ -203,7 +193,7 @@ mod tests {
                     demanded: false,
                 })
                 .collect(),
-        }
+        )
     }
 
     fn checkpoint(source: &EligibleSnapshot, advanced: bool) -> DurableBudgetCheckpoint {

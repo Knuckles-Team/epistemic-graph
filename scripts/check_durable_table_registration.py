@@ -156,14 +156,65 @@ def _function_body(relative: str, name: str) -> str:
     return _rust_comments_mask(source)[opener : closer + 1]
 
 
-def _constant_body(relative: str, name: str) -> str:
-    text = _rust_comments_mask(read(relative))
-    match = re.search(r"\bconst\s+" + re.escape(name) + r"\s*:[^=]*=\s*&\s*\[", text)
-    if match is None:
-        raise GateError(f"registry constant is absent: {relative}::{name}")
-    opener = match.end() - 1
-    closer = _balanced_span_from(text, opener, "[", "]")
-    return text[opener : closer + 1]
+def _literal_list(body: str, description: str) -> set[str]:
+    """Read a literal-only comma list; an unknown expression cannot prove coverage."""
+
+    if not re.fullmatch(r'\s*(?:"[^"\\\n]*"\s*,\s*)*(?:"[^"\\\n]*"\s*)?', body):
+        raise GateError(f"{description} is not a literal-only comma list")
+    return _literals(body)
+
+
+def _graph_shard_census(source: str) -> set[str]:
+    """Resolve the current shard census, including its shared lineage macro."""
+
+    text = _rust_comments_mask(source)
+    name = SHARD_CENSUS_CONSTANT
+    direct = re.search(r"\bconst\s+" + name + r"\s*:[^=]*=\s*&\s*\[", text)
+    if direct is not None:
+        opener = direct.end() - 1
+        closer = _balanced_span_from(text, opener, "[", "]")
+        return _literal_list(text[opener + 1 : closer], name)
+
+    invocation = re.search(
+        r"\bconst\s+" + name + r"\s*:[^=]*=\s*graph_shard_table_names!\s*\(",
+        text,
+    )
+    if invocation is None:
+        raise GateError(f"registry constant is absent: {SHARD_CENSUS}::{name}")
+    opener = invocation.end() - 1
+    closer = _balanced_span_from(text, opener, "(", ")")
+    if not re.match(r"\s*;", text[closer + 1 :]):
+        raise GateError(f"{name} macro invocation has an unknown suffix")
+    inserted = _literal_list(text[opener + 1 : closer], f"{name} macro arguments")
+
+    definitions = list(
+        re.finditer(r"\bmacro_rules!\s*graph_shard_table_names\s*\{", text)
+    )
+    if len(definitions) != 1:
+        raise GateError(
+            "graph_shard_table_names macro definition is absent or ambiguous"
+        )
+    macro_open = definitions[0].end() - 1
+    macro_close = _balanced_span_from(text, macro_open, "{", "}")
+    macro = text[macro_open + 1 : macro_close]
+    signature, separator, expansion = macro.partition("=>")
+    if not separator or re.sub(r"\s+", "", signature) != "($($enrichment:expr),*$(,)?)":
+        raise GateError("graph_shard_table_names macro signature is unsupported")
+    arrays = list(re.finditer(r"&\s*\[", expansion))
+    if len(arrays) != 1:
+        raise GateError("graph_shard_table_names macro array is absent or ambiguous")
+    array_open = arrays[0].end() - 1
+    array_close = _balanced_span_from(expansion, array_open, "[", "]")
+    slot = "$($enrichment,)*"
+    common = expansion[array_open + 1 : array_close]
+    if common.count(slot) != 1:
+        raise GateError(
+            "graph_shard_table_names macro enrichment slot is absent or ambiguous"
+        )
+    return (
+        _literal_list(common.replace(slot, ""), "graph_shard_table_names macro body")
+        | inserted
+    )
 
 
 def _literals(body: str) -> set[str]:
@@ -204,7 +255,7 @@ def registries() -> tuple[dict[str, set[str]], dict[str, list[str]]]:
     """The three registries' explicit entries, and their declared rules."""
 
     access = _function_body(ACCESS_REGISTRY, ACCESS_FUNCTION)
-    shard = set(_literals(_constant_body(SHARD_CENSUS, SHARD_CENSUS_CONSTANT)))
+    shard = _graph_shard_census(read(SHARD_CENSUS))
     rules: dict[str, list[str]] = {}
 
     # The access registry answers two whole families by RULE rather than by

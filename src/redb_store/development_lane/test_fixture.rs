@@ -10,6 +10,29 @@ pub(super) struct NativeLaneFixture {
     remove_file_on_drop: bool,
 }
 
+#[derive(Clone, Copy)]
+enum FixtureBatchKind {
+    WorkItem,
+    OwnerCas,
+}
+
+impl FixtureBatchKind {
+    fn fields(self) -> (&'static str, MutationSurface, DurabilityDomain) {
+        match self {
+            Self::WorkItem => (
+                "native-work-item",
+                MutationSurface::Job,
+                DurabilityDomain::ControlPlane,
+            ),
+            Self::OwnerCas => (
+                "native-owner-cas",
+                MutationSurface::Graph,
+                DurabilityDomain::GraphRows,
+            ),
+        }
+    }
+}
+
 impl Drop for NativeLaneFixture {
     fn drop(&mut self) {
         if self.remove_file_on_drop {
@@ -105,6 +128,78 @@ impl NativeLaneFixture {
         rmp_serde::from_slice(bytes).expect("typed lane result")
     }
 
+    fn sealed_fixture_batch(
+        &self,
+        method: Method,
+        batch_suffix: &str,
+        kind: FixtureBatchKind,
+        expected_graph_version: u64,
+        committed_at_ms: u64,
+    ) -> Result<MutationBatch, String> {
+        let (prefix, surface, domain) = kind.fields();
+        let batch_id = format!("{prefix}:{batch_suffix}");
+        let identity = MutationScopeIdentity::graph(
+            ScopeTenantId::new(self.reserve.tenant_ref.clone())?,
+            LogicalName::new(TEST_GRAPH)?,
+            IncarnationId::new("incarnation:test:development-lane")?,
+        );
+        let mut batch = MutationBatch {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: batch_id.clone(),
+            envelope: super::super::super::fixture_operation_envelope(
+                &identity,
+                &format!("principal:sha256:{}", "a".repeat(64)),
+                committed_at_ms,
+                &format!("{prefix}-idem:{batch_suffix}"),
+            ),
+            identity,
+            placement_epoch: 0,
+            version_expectation: VersionExpectation::Graph(expected_graph_version),
+            fencing_token: None,
+            authoritative_state: None,
+            operations: vec![MutationOperation {
+                ordinal: 0,
+                surface,
+                domain,
+                method,
+            }],
+            outbox: vec![MutationOutboxIntent {
+                topic: "native-lane.test".into(),
+                key: batch_id,
+                payload: Vec::new(),
+                headers: Default::default(),
+            }],
+            created_at_ms: committed_at_ms,
+        };
+        batch
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
+        Ok(batch)
+    }
+
+    fn commit_fixture_batch(
+        &self,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+        crashpoint: Option<super::super::super::MutationBatchCrashpoint>,
+    ) -> Result<MutationBatchCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit = super::super::super::AuditTailCache::new();
+        super::super::super::commit_mutation_batch_inner(
+            &self.shard,
+            super::super::super::BatchCommitInput::compact(
+                TEST_GRAPH,
+                batch,
+                None,
+                committed_at_ms,
+            )
+            .with_crashpoint(crashpoint),
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+        )
+    }
+
     pub(super) fn commit_work_item(
         &self,
         method: Method,
@@ -160,62 +255,14 @@ impl NativeLaneFixture {
             },
             None => super::super::super::read_mutation_graph_version(&self.shard, TEST_GRAPH)?,
         };
-        let identity = MutationScopeIdentity::graph(
-            ScopeTenantId::new(self.reserve.tenant_ref.clone())?,
-            LogicalName::new(TEST_GRAPH)?,
-            IncarnationId::new("incarnation:test:development-lane")?,
-        );
-        let mut batch = MutationBatch {
-            schema_version: MUTATION_BATCH_VERSION,
-            batch_id: batch_id.clone(),
-            envelope: super::super::super::fixture_operation_envelope(
-                &identity,
-                &format!("principal:sha256:{}", "a".repeat(64)),
-                committed_at_ms,
-                &format!("native-work-item-idem:{batch_suffix}"),
-            ),
-            identity,
-            placement_epoch: 0,
-            version_expectation: VersionExpectation::Graph(expected_graph_version),
-            fencing_token: None,
-            authoritative_state: None,
-            operations: vec![MutationOperation {
-                ordinal: 0,
-                surface: MutationSurface::Job,
-                domain: DurabilityDomain::ControlPlane,
-                method,
-            }],
-            outbox: vec![MutationOutboxIntent {
-                topic: "native-lane.test".into(),
-                key: format!("native-work-item:{batch_suffix}"),
-                payload: Vec::new(),
-                headers: Default::default(),
-            }],
-            created_at_ms: committed_at_ms,
-        };
-        batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
-            .expect("a fixture batch reseals its envelope over its final body");
-        #[cfg(feature = "security")]
-        let mut audit = super::super::super::AuditTailCache::new();
-        super::super::super::commit_mutation_batch_inner(
-            &self.shard,
-            super::super::super::BatchCommitInput {
-                graph_fname: TEST_GRAPH,
-                batch: &batch,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: None,
-                crossmodal: None,
-                result_msgpack: None,
-                committed_at_ms,
-                audited: true,
-                crashpoint,
-            },
-            DurableCrypto::none(),
-            #[cfg(feature = "security")]
-            &mut audit,
-        )
+        let batch = self.sealed_fixture_batch(
+            method,
+            batch_suffix,
+            FixtureBatchKind::WorkItem,
+            expected_graph_version,
+            committed_at_ms,
+        )?;
+        self.commit_fixture_batch(&batch, committed_at_ms, crashpoint)
     }
 
     pub(super) fn compare_and_set_work_item_owner(
@@ -233,66 +280,18 @@ impl NativeLaneFixture {
         let updates_msgpack =
             rmp_serde::to_vec_named(&serde_json::json!({"lease_owner": updated_owner}))
                 .map_err(|error| error.to_string())?;
-        let identity = MutationScopeIdentity::graph(
-            ScopeTenantId::new(self.reserve.tenant_ref.clone())?,
-            LogicalName::new(TEST_GRAPH)?,
-            IncarnationId::new("incarnation:test:development-lane")?,
-        );
-        let mut batch = MutationBatch {
-            schema_version: MUTATION_BATCH_VERSION,
-            batch_id: format!("native-owner-cas:{batch_suffix}"),
-            envelope: super::super::super::fixture_operation_envelope(
-                &identity,
-                &format!("principal:sha256:{}", "a".repeat(64)),
-                committed_at_ms,
-                &format!("native-owner-cas-idem:{batch_suffix}"),
-            ),
-            identity,
-            placement_epoch: 0,
-            version_expectation: VersionExpectation::Graph(expected_graph_version),
-            fencing_token: None,
-            authoritative_state: None,
-            operations: vec![MutationOperation {
-                ordinal: 0,
-                surface: MutationSurface::Graph,
-                domain: DurabilityDomain::GraphRows,
-                method: Method::CompareAndSetNodeFields {
-                    node_id: self.reserve.work_item_id.clone(),
-                    conditions_msgpack,
-                    updates_msgpack,
-                },
-            }],
-            outbox: vec![MutationOutboxIntent {
-                topic: "native-lane.test".into(),
-                key: format!("native-owner-cas:{batch_suffix}"),
-                payload: Vec::new(),
-                headers: Default::default(),
-            }],
-            created_at_ms: committed_at_ms,
-        };
-        batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
-            .expect("a fixture batch reseals its envelope over its final body");
-        #[cfg(feature = "security")]
-        let mut audit = super::super::super::AuditTailCache::new();
-        super::super::super::commit_mutation_batch_inner(
-            &self.shard,
-            super::super::super::BatchCommitInput {
-                graph_fname: TEST_GRAPH,
-                batch: &batch,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: None,
-                crossmodal: None,
-                result_msgpack: None,
-                committed_at_ms,
-                audited: true,
-                crashpoint: None,
+        let batch = self.sealed_fixture_batch(
+            Method::CompareAndSetNodeFields {
+                node_id: self.reserve.work_item_id.clone(),
+                conditions_msgpack,
+                updates_msgpack,
             },
-            DurableCrypto::none(),
-            #[cfg(feature = "security")]
-            &mut audit,
-        )
+            batch_suffix,
+            FixtureBatchKind::OwnerCas,
+            expected_graph_version,
+            committed_at_ms,
+        )?;
+        self.commit_fixture_batch(&batch, committed_at_ms, None)
     }
 
     pub(super) fn commit_work_item_result(

@@ -283,6 +283,80 @@ fn validate_plan(plan: &AdmissionPlan) -> Result<(), QueueBindingError> {
     Ok(())
 }
 
+fn binding_has_authority(binding: &QueueBinding) -> bool {
+    [
+        &binding.context.tenant_id,
+        &binding.context.graph,
+        &binding.policy_digest,
+        &binding.catalog_digest,
+        &binding.model_digest,
+        &binding.source_commit_ref,
+    ]
+    .into_iter()
+    .all(|value| !value.trim().is_empty())
+}
+
+fn native_request(
+    candidate: &EnrichmentCandidate,
+    binding: &QueueBinding,
+) -> Result<SubmitWorkItemRequest, QueueBindingError> {
+    let input_ref = binding
+        .input_refs
+        .get(&candidate.unit)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(QueueBindingError::MissingInput)?;
+    let digest = queue_digest(&[
+        &binding.context.tenant_id,
+        &binding.context.graph,
+        &candidate.unit.content_digest,
+        &candidate.unit.parser_capability_digest,
+        candidate.stage.work_kind(),
+        input_ref,
+        &binding.policy_digest,
+        &binding.catalog_digest,
+        &binding.model_digest,
+        &binding.source_commit_ref,
+        &candidate.reserved_compute_units.to_string(),
+        if candidate.demanded {
+            "demanded"
+        } else {
+            "queued"
+        },
+    ]);
+    let mut metadata = BTreeMap::new();
+    metadata.insert(
+        "content_digest".into(),
+        candidate.unit.content_digest.clone().into(),
+    );
+    metadata.insert(
+        "parser_capability_digest".into(),
+        candidate.unit.parser_capability_digest.clone().into(),
+    );
+    metadata.insert(
+        "reserved_compute_units".into(),
+        candidate.reserved_compute_units.into(),
+    );
+    Ok(SubmitWorkItemRequest {
+        schema_version: NativeControlSchemaVersion::V1,
+        context: binding.context.clone(),
+        work_item_id: None,
+        idempotency_key: format!("repository-enrichment:{digest}"),
+        command_digest: digest,
+        kind: candidate.stage.work_kind().into(),
+        priority: if candidate.demanded { 1 } else { 0 },
+        depends_on: Vec::new(),
+        input_ref: input_ref.clone(),
+        policy_digest: binding.policy_digest.clone(),
+        catalog_digest: binding.catalog_digest.clone(),
+        model_digest: binding.model_digest.clone(),
+        max_attempts: 3,
+        deadline_unix: None,
+        metadata,
+        provenance_refs: vec![binding.source_commit_ref.clone()],
+        max_tenant_in_flight: 0,
+    })
+}
+
 /// Lower one admitted plan to the existing native atomic queue command.
 ///
 /// This does not submit or authenticate the command. The served adapter must
@@ -300,72 +374,12 @@ pub fn to_native_submit_batch(
         return Err(QueueBindingError::ExceedsAtomicBatch);
     }
     validate_plan(plan)?;
-    if binding.context.tenant_id.trim().is_empty()
-        || binding.context.graph.trim().is_empty()
-        || binding.policy_digest.trim().is_empty()
-        || binding.catalog_digest.trim().is_empty()
-        || binding.model_digest.trim().is_empty()
-        || binding.source_commit_ref.trim().is_empty()
-    {
+    if !binding_has_authority(binding) {
         return Err(QueueBindingError::MissingAuthority);
     }
     let mut requests = Vec::with_capacity(plan.candidates.len());
     for candidate in &plan.candidates {
-        let input_ref = binding
-            .input_refs
-            .get(&candidate.unit)
-            .filter(|value| !value.trim().is_empty())
-            .ok_or(QueueBindingError::MissingInput)?;
-        let digest = queue_digest(&[
-            &binding.context.tenant_id,
-            &binding.context.graph,
-            &candidate.unit.content_digest,
-            &candidate.unit.parser_capability_digest,
-            candidate.stage.work_kind(),
-            input_ref,
-            &binding.policy_digest,
-            &binding.catalog_digest,
-            &binding.model_digest,
-            &binding.source_commit_ref,
-            &candidate.reserved_compute_units.to_string(),
-            if candidate.demanded {
-                "demanded"
-            } else {
-                "queued"
-            },
-        ]);
-        let mut metadata = BTreeMap::new();
-        metadata.insert(
-            "content_digest".into(),
-            candidate.unit.content_digest.clone().into(),
-        );
-        metadata.insert(
-            "parser_capability_digest".into(),
-            candidate.unit.parser_capability_digest.clone().into(),
-        );
-        metadata.insert(
-            "reserved_compute_units".into(),
-            candidate.reserved_compute_units.into(),
-        );
-        requests.push(SubmitWorkItemRequest {
-            schema_version: NativeControlSchemaVersion::V1,
-            context: binding.context.clone(),
-            work_item_id: None,
-            idempotency_key: format!("repository-enrichment:{digest}"),
-            command_digest: digest,
-            kind: candidate.stage.work_kind().into(),
-            priority: if candidate.demanded { 1 } else { 0 },
-            depends_on: Vec::new(),
-            input_ref: input_ref.clone(),
-            policy_digest: binding.policy_digest.clone(),
-            catalog_digest: binding.catalog_digest.clone(),
-            model_digest: binding.model_digest.clone(),
-            max_attempts: 3,
-            deadline_unix: None,
-            metadata,
-            provenance_refs: vec![binding.source_commit_ref.clone()],
-            max_tenant_in_flight: 0,
-        });
+        requests.push(native_request(candidate, binding)?);
     }
     let mut keys: Vec<_> = requests
         .iter()
@@ -406,6 +420,27 @@ pub fn plan_enrichment(
     .map(|page| page.plan)
 }
 
+fn validate_page_inputs(
+    outcomes: &[IndexFileOutcome],
+    budget_units: u64,
+    source_revision: &str,
+    policy_digest: &str,
+) -> Result<(), AdmissionError> {
+    if outcomes.len() > MAX_OUTCOMES {
+        return Err(AdmissionError::TooManyOutcomes);
+    }
+    if budget_units == 0 {
+        return Err(AdmissionError::InvalidBudget);
+    }
+    if source_revision.trim().is_empty() {
+        return Err(AdmissionError::InvalidSourceRevision);
+    }
+    if policy_digest.trim().is_empty() {
+        return Err(AdmissionError::InvalidPolicyDigest);
+    }
+    Ok(())
+}
+
 /// Select one atomic batch. Each continuation requires a fresh serving-policy
 /// authorization for `budget_units`; this function never spends future pages'
 /// budgets or submits their work. The cursor binds the exact eligible ordering
@@ -419,18 +454,7 @@ pub fn plan_enrichment_page(
     policy_digest: &str,
     cursor: Option<&EnrichmentCursor>,
 ) -> Result<EnrichmentPage, AdmissionError> {
-    if outcomes.len() > MAX_OUTCOMES {
-        return Err(AdmissionError::TooManyOutcomes);
-    }
-    if budget_units == 0 {
-        return Err(AdmissionError::InvalidBudget);
-    }
-    if source_revision.trim().is_empty() {
-        return Err(AdmissionError::InvalidSourceRevision);
-    }
-    if policy_digest.trim().is_empty() {
-        return Err(AdmissionError::InvalidPolicyDigest);
-    }
+    validate_page_inputs(outcomes, budget_units, source_revision, policy_digest)?;
     let mut status: BTreeMap<UnitKey, Option<IndexFileStatus>> = BTreeMap::new();
     for outcome in outcomes {
         let key = UnitKey {
@@ -562,6 +586,26 @@ mod tests {
             content_digest: digest.into(),
             parser_capability_digest: "grammar:v1".into(),
         }
+    }
+
+    fn atomic_batch_fixture() -> (Vec<IndexFileOutcome>, BTreeMap<UnitKey, UnitAdmission>) {
+        let outcomes: Vec<_> = (0..MAX_SUBMIT_BATCH + 2)
+            .map(|index| outcome(&format!("blob-{index:03}"), IndexFileStatus::Success))
+            .collect();
+        let admissions = outcomes
+            .iter()
+            .map(|item| {
+                (
+                    key(&item.content_digest),
+                    UnitAdmission {
+                        abstained_through: 2,
+                        allowed: true,
+                        compute_units: 1,
+                    },
+                )
+            })
+            .collect();
+        (outcomes, admissions)
     }
 
     fn binding() -> QueueBinding {
@@ -810,22 +854,7 @@ mod tests {
 
     #[test]
     fn planner_never_exceeds_one_atomic_native_batch() {
-        let outcomes: Vec<_> = (0..MAX_SUBMIT_BATCH + 2)
-            .map(|index| outcome(&format!("blob-{index:03}"), IndexFileStatus::Success))
-            .collect();
-        let admissions = outcomes
-            .iter()
-            .map(|item| {
-                (
-                    key(&item.content_digest),
-                    UnitAdmission {
-                        abstained_through: 2,
-                        allowed: true,
-                        compute_units: 1,
-                    },
-                )
-            })
-            .collect();
+        let (outcomes, admissions) = atomic_batch_fixture();
         let plan = plan_enrichment(
             &outcomes,
             &admissions,
@@ -840,22 +869,7 @@ mod tests {
 
     #[test]
     fn continuation_drains_more_than_one_atomic_batch_without_duplicates() {
-        let outcomes: Vec<_> = (0..MAX_SUBMIT_BATCH + 2)
-            .map(|index| outcome(&format!("blob-{index:03}"), IndexFileStatus::Success))
-            .collect();
-        let admissions = outcomes
-            .iter()
-            .map(|item| {
-                (
-                    key(&item.content_digest),
-                    UnitAdmission {
-                        abstained_through: 2,
-                        allowed: true,
-                        compute_units: 1,
-                    },
-                )
-            })
-            .collect();
+        let (outcomes, admissions) = atomic_batch_fixture();
         let first = plan_enrichment_page(
             &outcomes,
             &admissions,

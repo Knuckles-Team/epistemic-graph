@@ -148,26 +148,7 @@ pub fn change_causality(result: &IndexResult, changed_symbol_id: &str) -> HashSe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::resolve::index_repository;
-
-    fn files(pairs: &[(&str, &str)]) -> Vec<(String, Vec<u8>)> {
-        pairs
-            .iter()
-            .map(|(p, s)| (p.to_string(), s.as_bytes().to_vec()))
-            .collect()
-    }
-
-    fn node_id(r: &IndexResult, name: &str, file: &str) -> String {
-        r.nodes
-            .iter()
-            .find(|n| {
-                n.properties.get("name").map(String::as_str) == Some(name)
-                    && n.properties.get("file_path").map(String::as_str) == Some(file)
-            })
-            .unwrap_or_else(|| panic!("no {name} in {file}"))
-            .node_id
-            .clone()
-    }
+    use crate::parser::resolve::{files, index_repository, node_id};
 
     #[test]
     fn call_graph_direct_edge_matches_resolved_calls() {

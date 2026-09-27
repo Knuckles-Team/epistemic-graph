@@ -265,8 +265,11 @@ macro_rules! visit_graph_shard_tables {
 }
 pub(crate) use visit_graph_shard_tables;
 
-/// The census, in the same order the visit macro walks it.
-pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
+/// The frozen pre-enrichment census is shared with lineage; current layouts
+/// insert only their new tables at the explicit enrichment slot. A change to
+/// any common name must update the pinned predecessor digest deliberately.
+macro_rules! graph_shard_table_names {
+    ($($enrichment:expr),* $(,)?) => { &[
     "nodes",
     "edges",
     "ledger",
@@ -303,10 +306,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
     "capacity_leases",
     "capacity_usage",
     "capacity_idempotency",
-    "repository_enrichment_budgets",
-    "repository_enrichment_policy_revisions",
-    "repository_enrichment_supersessions",
-    "repository_enrichment_parks",
+    $($enrichment,)*
     "work_item_claim_capabilities",
     "work_item_claim_capability_invocations",
     "native_work_item_authority",
@@ -324,10 +324,18 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
     "series_chunks",
     "series_meta",
     "series_projection_state",
-    // Appended last so the layout before the node-payload scrub is exactly the
-    // prefix without it (`GRAPH_SHARD_BEFORE_STORAGE_SCRUB`).
     "storage_scrub_cursor",
-];
+    ] };
+}
+pub(crate) use graph_shard_table_names;
+
+/// The current census, in the same order the visit macro walks it.
+pub(crate) const GRAPH_SHARD_TABLES: &[&str] = graph_shard_table_names!(
+    "repository_enrichment_budgets",
+    "repository_enrichment_policy_revisions",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
+);
 
 /// The eight tables of the shard's retired private mutation ledger.
 ///

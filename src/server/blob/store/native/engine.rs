@@ -55,7 +55,7 @@ fn put_planned_bodies(
 ) -> Result<Vec<StoredEngineBody>, String> {
     store.flush_chunks()?;
     store.maintain(event, subject, committed_at_ms, |wtx| {
-        put_engine_bodies_in(store, wtx, &planned, committed_at_ms)
+        put_engine_bodies_in(store, wtx, planned, committed_at_ms)
     })
 }
 

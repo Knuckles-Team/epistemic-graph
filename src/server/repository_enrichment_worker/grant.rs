@@ -1,7 +1,6 @@
 //! Exact-graph RBAC grant for the in-process repository enrichment consumer.
 
-use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
+use crate::isolation::IsolationLayer;
 
 pub(super) const SERVICE_ACTOR: &str = "service:repository-enrichment-v1";
 
@@ -16,32 +15,58 @@ pub(super) fn ensure(isolation: &mut IsolationLayer, graph: &str) -> Result<(), 
     if isolation.identity_bootstrap_pending() {
         return Err("REPOSITORY_ENRICHMENT_POLICY_UNBOOTSTRAPPED".into());
     }
-    let role = role_for(graph);
-    for action in [RbacAction::Read, RbacAction::Write] {
-        let grant = Grant {
-            role: role.clone(),
-            resource: ResourceSelector::Graph(graph.to_string()),
-            action,
-            effect: GrantEffect::Allow,
-        };
-        if !isolation.rbac().grants().contains(&grant) {
-            isolation.try_add_role(Role::new(role.clone()))?;
-            isolation.try_add_grant(grant)?;
-        }
-    }
-    let mut identity = isolation
-        .get_identity(SERVICE_ACTOR)
-        .unwrap_or_else(|| AgentIdentity {
-            agent_id: SERVICE_ACTOR.to_string(),
-            role: AgentRole::Agent,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
-    if identity.roles.contains(&role) {
-        return Ok(());
-    }
-    identity.roles.push(role);
-    isolation.try_register_agent(identity)
+    crate::server::service_grant::ensure_exact_graph_grant(
+        isolation,
+        graph,
+        SERVICE_ACTOR,
+        role_for(graph),
+    )
+}
+
+fn retained_source_matches(
+    retained: &crate::redb_store::enrichment_budget::RepositoryEnrichmentPolicyRevision,
+    proposal: &crate::parser::enrichment_reactivation::BudgetRevisionProposal,
+) -> bool {
+    retained.schema_version == 1
+        && retained.tenant_id == proposal.tenant_id
+        && retained.graph == proposal.graph
+        && retained.repository_id == proposal.repository_id
+        && retained.source_envelope == proposal.source_envelope
+        && retained.snapshot_digest == proposal.source_snapshot_digest
+        && retained.policy_digest == proposal.prior_policy_digest
+        && retained.sequence == proposal.expected_policy_sequence
+}
+
+fn retained_budget_allows(
+    retained: &crate::redb_store::enrichment_budget::RepositoryEnrichmentPolicyRevision,
+    proposal: &crate::parser::enrichment_reactivation::BudgetRevisionProposal,
+) -> bool {
+    retained.max_total_units > 0
+        && retained.total_budget_units < proposal.replacement_total_units
+        && retained.max_total_units >= proposal.replacement_total_units
+}
+
+fn caller_has_authority(
+    verified: &crate::server::authority_context::VerifiedRequestContext,
+    isolation: &IsolationLayer,
+    graph_type: crate::protocol::GraphType,
+    graph_owner: Option<&str>,
+    proposal: &crate::parser::enrichment_reactivation::BudgetRevisionProposal,
+) -> bool {
+    use crate::parser::enrichment_reactivation::TOP_UP_ACTION;
+    verified.allows_action(TOP_UP_ACTION)
+        && crate::server::access::principal_may_access(
+            isolation,
+            verified.agent_id(),
+            &proposal.graph,
+            graph_type,
+            graph_owner,
+            eg_types::acl::AccessCheck::Write,
+        )
+        && verified.tenant() == proposal.tenant_id
+        && verified.principal_persistence_id() == proposal.caller_subject
+        && verified.idempotency_key() == proposal.idempotency_key
+        && proposal.verified_action == TOP_UP_ACTION
 }
 
 /// Bind a proposed top-up record to the authenticated request, exact graph
@@ -59,19 +84,7 @@ pub(super) fn bind_top_up_identity(
     replacement: &eg_types::native_control::EnrichmentBudgetCheckpoint,
 ) -> Result<crate::redb_store::enrichment_budget::RepositoryEnrichmentPolicyRevision, String> {
     use crate::parser::enrichment_reactivation::TOP_UP_ACTION;
-    if !verified.allows_action(TOP_UP_ACTION)
-        || !crate::server::access::principal_may_access(
-            isolation,
-            verified.agent_id(),
-            &proposal.graph,
-            graph_type,
-            graph_owner,
-            eg_types::acl::AccessCheck::Write,
-        )
-        || verified.tenant() != proposal.tenant_id
-        || verified.principal_persistence_id() != proposal.caller_subject
-        || verified.idempotency_key() != proposal.idempotency_key
-        || proposal.verified_action != TOP_UP_ACTION
+    if !caller_has_authority(verified, isolation, graph_type, graph_owner, proposal)
         || proposal.next_policy_sequence
             != proposal
                 .expected_policy_sequence
@@ -80,17 +93,8 @@ pub(super) fn bind_top_up_identity(
         || replacement.tenant_id != proposal.tenant_id
         || replacement.source_envelope != proposal.new_source_envelope
         || replacement.total_budget_units != proposal.replacement_total_units
-        || retained.schema_version != 1
-        || retained.tenant_id != proposal.tenant_id
-        || retained.graph != proposal.graph
-        || retained.repository_id != proposal.repository_id
-        || retained.source_envelope != proposal.source_envelope
-        || retained.snapshot_digest != proposal.source_snapshot_digest
-        || retained.policy_digest != proposal.prior_policy_digest
-        || retained.sequence != proposal.expected_policy_sequence
-        || retained.max_total_units == 0
-        || retained.total_budget_units >= proposal.replacement_total_units
-        || retained.max_total_units < proposal.replacement_total_units
+        || !retained_source_matches(retained, proposal)
+        || !retained_budget_allows(retained, proposal)
     {
         return Err("ACCESS_DENIED: repository enrichment top-up caller is not verified".into());
     }
@@ -119,7 +123,8 @@ pub(super) fn bind_top_up_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::isolation::AccessLevel;
+    use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+    use crate::isolation::{AccessLevel, AgentIdentity, AgentRole};
     use crate::protocol::GraphType;
 
     #[test]
@@ -219,6 +224,30 @@ mod tests {
             row.caller_subject.as_deref(),
             Some(verified.principal_persistence_id().as_str())
         );
+        let mut mismatched = retained.clone();
+        mismatched.schema_version = 2;
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
+        mismatched = retained.clone();
+        mismatched.tenant_id = "tenant-b".into();
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
+        mismatched = retained.clone();
+        mismatched.graph = "graph-b".into();
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
+        mismatched = retained.clone();
+        mismatched.repository_id = "other-repo".into();
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
+        mismatched = retained.clone();
+        mismatched.source_envelope = "other-source".into();
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
+        mismatched = retained.clone();
+        mismatched.snapshot_digest = "e".repeat(64);
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
+        mismatched = retained.clone();
+        mismatched.policy_digest = "f".repeat(64);
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
+        mismatched = retained.clone();
+        mismatched.sequence = 1;
+        assert!(bind(&verified, &proposal, &mismatched, &isolation).is_err());
         let no_grant = VerifiedRequestContext::verified_for_test_with_scopes(
             "operator",
             "tenant-a",

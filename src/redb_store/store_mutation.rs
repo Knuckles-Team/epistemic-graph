@@ -33,20 +33,7 @@ pub(crate) fn commit_mutation_batch(
 ) -> Result<MutationBatchCommit, String> {
     commit_mutation_batch_inner(
         shard,
-        BatchCommitInput {
-            graph_fname,
-            batch,
-            change: None,
-            source_budget: None,
-            authoritative_state_msgpack: None,
-            crossmodal: None,
-            result_msgpack,
-            committed_at_ms,
-            // Compact-row batches never carry `authoritative_state`, so this is
-            // inert (see `commit_mutation_batch_inner`).
-            audited: true,
-            crashpoint: None,
-        },
+        BatchCommitInput::compact(graph_fname, batch, result_msgpack, committed_at_ms),
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
@@ -82,16 +69,18 @@ pub(crate) fn commit_mutation_batch_state(
     commit_mutation_batch_inner(
         shard,
         BatchCommitInput {
-            graph_fname: input.graph_fname,
-            batch: input.batch,
-            change: None,
-            source_budget: None,
-            authoritative_state_msgpack: Some(input.authoritative_state_msgpack),
+            rows: BatchRowInput {
+                graph_fname: input.graph_fname,
+                batch: input.batch,
+                change: None,
+                source_budget: None,
+                authoritative_state_msgpack: Some(input.authoritative_state_msgpack),
+                committed_at_ms: input.committed_at_ms,
+                audited: input.audited,
+                crashpoint: None,
+            },
             crossmodal: None,
             result_msgpack: input.result_msgpack,
-            committed_at_ms: input.committed_at_ms,
-            audited: input.audited,
-            crashpoint: None,
         },
         crypto,
         #[cfg(feature = "security")]
@@ -99,568 +88,10 @@ pub(crate) fn commit_mutation_batch_state(
     )
 }
 
-/// Engine-native ChangeEnvelope commit. Graph rows, every material/governance
-/// projection, version/cursor fences, terminal batch/envelope records, and the
-/// CDC outbox are written by one redb transaction and one durability barrier.
-pub(crate) fn commit_change_envelope(
-    shard: &Shard,
-    graph_fname: &str,
-    envelope: &ChangeEnvelope,
-    committed_at_ms: u64,
-    crypto: DurableCrypto<'_>,
-    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
-) -> Result<ChangeEnvelopeCommit, String> {
-    commit_change_envelope_with_budget(
-        shard,
-        graph_fname,
-        envelope,
-        None,
-        committed_at_ms,
-        crypto,
-        #[cfg(feature = "security")]
-        audit_tail,
-    )
-}
-
-pub(crate) fn commit_change_envelope_with_budget(
-    shard: &Shard,
-    graph_fname: &str,
-    envelope: &ChangeEnvelope,
-    source_budget: Option<&crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
-    committed_at_ms: u64,
-    crypto: DurableCrypto<'_>,
-    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
-) -> Result<ChangeEnvelopeCommit, String> {
-    envelope.validate()?;
-    let mutation = commit_mutation_batch_inner(
-        shard,
-        BatchCommitInput {
-            graph_fname,
-            batch: &envelope.mutation,
-            change: Some(envelope),
-            source_budget,
-            authoritative_state_msgpack: None,
-            crossmodal: None,
-            result_msgpack: None,
-            committed_at_ms,
-            // No `authoritative_state`, so `audited` is inert here.
-            audited: true,
-            crashpoint: None,
-        },
-        crypto,
-        #[cfg(feature = "security")]
-        audit_tail,
-    )?;
-    let outbox_count = envelope
-        .mutation
-        .operations
-        .len()
-        .checked_add(envelope.mutation.outbox.len())
-        .and_then(|count| count.checked_add(1))
-        .and_then(|count| u32::try_from(count).ok())
-        .ok_or_else(|| "change envelope outbox count overflow".to_string())?;
-    Ok(ChangeEnvelopeCommit {
-        envelope_id: envelope.envelope_id.clone(),
-        batch_id: envelope.mutation.batch_id.clone(),
-        content_version: envelope.content_version.clone(),
-        cursor: envelope.cursor.clone(),
-        outbox_count,
-        replayed: mutation.replayed,
-    })
-}
-
-/// A ChangeEnvelope batch aborted at `index` (the first envelope that failed its
-/// idempotency/version/cursor/fence check or row projection). Because every envelope
-/// for one graph shares ONE atomic transaction, the abort rolls back the whole
-/// group — no envelope in it commits — and the caller reports the batch outcome per
-/// envelope honestly.
-#[derive(Debug, Clone)]
-pub(crate) struct ChangeEnvelopesError {
-    pub(crate) index: usize,
-    pub(crate) error: String,
-}
-
-/// Engine-native BATCH ChangeEnvelope commit: apply EVERY envelope in `envelopes`
-/// (all of which must target `graph_fname`) into ONE redb transaction and one
-/// durability barrier (CONCEPT:EG-KG.ingest.batched-change-envelopes). The envelopes
-/// are applied in order; read-your-writes inside the shared transaction chains each
-/// envelope's content-version, cursor, and +1 graph-version onto the previous one,
-/// so a page of records built with sequential `expected_graph_version`s commits as a
-/// single fsync instead of N.
-///
-/// Atomicity is per graph-batch: the first envelope that fails a check aborts the
-/// whole transaction (nothing in this group commits) and returns [`ChangeEnvelopesError`]
-/// naming the offending index. An idempotent replay with a fresh attempt nonce is
-/// NOT a failure — it is reported per envelope via `ChangeEnvelopeCommit::replayed` and the
-/// transaction still commits its non-replayed siblings. When every envelope is a
-/// replay, nothing was written and the transaction is dropped without an fsync,
-/// exactly like the single-envelope path.
-pub(crate) fn commit_change_envelopes(
-    shard: &Shard,
-    graph_fname: &str,
-    envelopes: &[ChangeEnvelope],
-    committed_at_ms: u64,
-    crypto: DurableCrypto<'_>,
-    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
-) -> Result<Vec<ChangeEnvelopeCommit>, ChangeEnvelopesError> {
-    validate_change_envelope_batch_size(envelopes)?;
-    if envelopes.is_empty() {
-        return Ok(Vec::new());
-    }
-    let prepared = prepare_change_envelopes(shard, graph_fname, envelopes)?;
-    let start = start_change_envelope_group(
-        shard,
-        graph_fname,
-        &prepared.handle,
-        &prepared.bound,
-        envelopes,
-        &prepared.outbox_counts,
-    )?;
-    let session = match start {
-        ChangeEnvelopeStart::AllReplayed(commits) => return Ok(commits),
-        ChangeEnvelopeStart::Active(session) => *session,
-    };
-    #[cfg(feature = "security")]
-    let mut staged_audit_tail = audit_tail.clone();
-    let session = process_change_envelopes(
-        shard,
-        ChangeEnvelopeBatch {
-            graph_fname,
-            envelopes,
-            bound: &prepared.bound,
-            outbox_counts: &prepared.outbox_counts,
-            members: &prepared.members,
-        },
-        session,
-        committed_at_ms,
-        crypto,
-        #[cfg(feature = "security")]
-        &mut staged_audit_tail,
-    )?;
-    finish_change_envelope_group(
-        shard,
-        session,
-        #[cfg(feature = "security")]
-        audit_tail,
-        #[cfg(feature = "security")]
-        staged_audit_tail,
-    )
-}
-
-fn validate_change_envelope_batch_size(
-    envelopes: &[ChangeEnvelope],
-) -> Result<(), ChangeEnvelopesError> {
-    let max_batch = crate::change_envelope::MAX_ENVELOPES_PER_BATCH;
-    if envelopes.len() > max_batch {
-        return Err(change_envelope_error(
-            0,
-            format!(
-                "CHANGE_BATCH_TOO_LARGE: {} envelopes exceed the {max_batch} cap",
-                envelopes.len()
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn change_envelope_error(index: usize, error: String) -> ChangeEnvelopesError {
-    ChangeEnvelopesError { index, error }
-}
-
-struct PreparedChangeEnvelopes {
-    handle: Arc<OwnedStoreHandle<GraphShardOwner>>,
-    bound: Vec<MutationBatch>,
-    members: Vec<(String, Arc<OwnedStoreHandle<GraphShardOwner>>)>,
-    outbox_counts: Vec<u32>,
-}
-
-fn prepare_change_envelopes(
-    shard: &Shard,
-    graph_fname: &str,
-    envelopes: &[ChangeEnvelope],
-) -> Result<PreparedChangeEnvelopes, ChangeEnvelopesError> {
-    let handle = shard
-        .graph(graph_fname)
-        .map_err(|error| change_envelope_error(0, error))?;
-    let bound = envelopes
-        .iter()
-        .enumerate()
-        .map(|(index, envelope)| {
-            envelope
-                .validate()
-                .map_err(|error| change_envelope_error(index, error))?;
-            shard::bind_caller_batch(handle.as_ref(), graph_fname, &envelope.mutation)
-                .map_err(|error| change_envelope_error(index, error))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let outbox_counts = envelopes
-        .iter()
-        .enumerate()
-        .map(|(index, envelope)| {
-            envelope
-                .mutation
-                .operations
-                .len()
-                .checked_add(envelope.mutation.outbox.len())
-                .and_then(|count| count.checked_add(1))
-                .and_then(|count| u32::try_from(count).ok())
-                .ok_or_else(|| {
-                    change_envelope_error(
-                        index,
-                        "change envelope outbox count overflow".to_string(),
-                    )
-                })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(PreparedChangeEnvelopes {
-        members: vec![(graph_fname.to_string(), Arc::clone(&handle))],
-        handle,
-        bound,
-        outbox_counts,
-    })
-}
-
-struct ChangeEnvelopeSession<'a> {
-    group: AdmittedGroup<'a, GraphShardOwner>,
-    first_batches: Vec<MutationBatch>,
-    first_control_begin: Begin,
-    first_graph_begin: Begin,
-    first_fresh: usize,
-    commits: Vec<ChangeEnvelopeCommit>,
-    control_version: u64,
-    final_control_batch: MutationBatch,
-    final_graph_batch: MutationBatch,
-}
-
-struct ChangeEnvelopeBatch<'a> {
-    graph_fname: &'a str,
-    envelopes: &'a [ChangeEnvelope],
-    bound: &'a [MutationBatch],
-    outbox_counts: &'a [u32],
-    members: &'a [(String, Arc<OwnedStoreHandle<GraphShardOwner>>)],
-}
-
-struct ChangeEnvelopeRowInput<'a> {
-    graph_fname: &'a str,
-    members: &'a [(String, Arc<OwnedStoreHandle<GraphShardOwner>>)],
-    current_batches: &'a [MutationBatch],
-    envelope: &'a ChangeEnvelope,
-    committed_at_ms: u64,
-    control_source: Option<u64>,
-    graph_source: Option<u64>,
-}
-
-enum ChangeEnvelopeStart<'a> {
-    AllReplayed(Vec<ChangeEnvelopeCommit>),
-    Active(Box<ChangeEnvelopeSession<'a>>),
-}
-
-fn start_change_envelope_group<'a>(
-    shard: &'a Shard,
-    graph_fname: &'a str,
-    handle: &'a Arc<OwnedStoreHandle<GraphShardOwner>>,
-    bound: &'a [MutationBatch],
-    envelopes: &'a [ChangeEnvelope],
-    outbox_counts: &'a [u32],
-) -> Result<ChangeEnvelopeStart<'a>, ChangeEnvelopesError> {
-    let mut first_fresh = 0usize;
-    let mut commits = Vec::with_capacity(envelopes.len());
-    loop {
-        let (group, batches) = shard
-            .admit_batch(
-                graph_fname,
-                handle,
-                &bound[first_fresh],
-                &bound[first_fresh].batch_id,
-            )
-            .map_err(|error| change_envelope_error(first_fresh, error))?;
-        let control_begin = group
-            .begun(0)
-            .map_err(|error| change_envelope_error(first_fresh, error))?
-            .clone();
-        let graph_begin = group
-            .begun(1)
-            .map_err(|error| change_envelope_error(first_fresh, error))?
-            .clone();
-        match graph_begin {
-            Begin::Replay(_) => {
-                shard
-                    .mutations()
-                    .abort_group(group)
-                    .map_err(|error| change_envelope_error(first_fresh, error))?;
-                commits.push(change_envelope_commit(
-                    &envelopes[first_fresh],
-                    outbox_counts[first_fresh],
-                    true,
-                ));
-                first_fresh += 1;
-                if first_fresh == envelopes.len() {
-                    return Ok(ChangeEnvelopeStart::AllReplayed(commits));
-                }
-            }
-            Begin::Apply { .. } => {
-                if !matches!(&control_begin, Begin::Apply { .. }) {
-                    shard
-                        .mutations()
-                        .abort_group(group)
-                        .map_err(|error| change_envelope_error(first_fresh, error))?;
-                    return Err(change_envelope_error(
-                        first_fresh,
-                        "the shard control member unexpectedly replayed for a fresh envelope"
-                            .to_string(),
-                    ));
-                }
-                let control_version = match &control_begin {
-                    Begin::Apply { source_version } => {
-                        source_version.unwrap_or(0).saturating_add(1)
-                    }
-                    Begin::Replay(_) => unreachable!("fresh graph member requires fresh control"),
-                };
-                return Ok(ChangeEnvelopeStart::Active(Box::new(
-                    ChangeEnvelopeSession {
-                        group,
-                        first_batches: batches.clone(),
-                        first_control_begin: control_begin,
-                        first_graph_begin: graph_begin,
-                        first_fresh,
-                        commits,
-                        control_version,
-                        final_control_batch: batches[0].clone(),
-                        final_graph_batch: batches[1].clone(),
-                    },
-                )));
-            }
-        }
-    }
-}
-
-fn change_envelope_commit(
-    envelope: &ChangeEnvelope,
-    outbox_count: u32,
-    replayed: bool,
-) -> ChangeEnvelopeCommit {
-    ChangeEnvelopeCommit {
-        envelope_id: envelope.envelope_id.clone(),
-        batch_id: envelope.mutation.batch_id.clone(),
-        content_version: envelope.content_version.clone(),
-        cursor: envelope.cursor.clone(),
-        outbox_count,
-        replayed,
-    }
-}
-
-fn process_change_envelopes<'a>(
-    shard: &Shard,
-    batch: ChangeEnvelopeBatch<'_>,
-    mut session: ChangeEnvelopeSession<'a>,
-    committed_at_ms: u64,
-    crypto: DurableCrypto<'_>,
-    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
-) -> Result<ChangeEnvelopeSession<'a>, ChangeEnvelopesError> {
-    for index in session.first_fresh..batch.envelopes.len() {
-        if let Err(error) = process_change_envelope_at(
-            shard,
-            &batch,
-            &mut session,
-            index,
-            committed_at_ms,
-            crypto,
-            #[cfg(feature = "security")]
-            staged_audit_tail,
-        ) {
-            return abort_change_envelope_session(shard, session, error);
-        }
-    }
-    Ok(session)
-}
-
-struct ChangeEnvelopeFailure {
-    index: usize,
-    error: String,
-}
-
-fn process_change_envelope_at(
-    shard: &Shard,
-    batch: &ChangeEnvelopeBatch<'_>,
-    session: &mut ChangeEnvelopeSession<'_>,
-    index: usize,
-    committed_at_ms: u64,
-    crypto: DurableCrypto<'_>,
-    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
-) -> Result<(), ChangeEnvelopeFailure> {
-    let graph_begin = change_graph_begin(session, index, batch.bound)
-        .map_err(|error| ChangeEnvelopeFailure { index, error })?;
-    if matches!(graph_begin, Begin::Replay(_)) {
-        session.commits.push(change_envelope_commit(
-            &batch.envelopes[index],
-            batch.outbox_counts[index],
-            true,
-        ));
-        return Ok(());
-    }
-    let graph_source = match graph_begin {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => unreachable!("replay handled above"),
-    };
-    let (control_batch, control_source) =
-        change_control_batch(shard, batch.graph_fname, session, index, batch.bound)
-            .map_err(|error| ChangeEnvelopeFailure { index, error })?;
-    let current_batches = vec![control_batch, batch.bound[index].clone()];
-    finish_change_envelope_rows(
-        shard,
-        session,
-        ChangeEnvelopeRowInput {
-            graph_fname: batch.graph_fname,
-            members: batch.members,
-            current_batches: &current_batches,
-            envelope: &batch.envelopes[index],
-            committed_at_ms,
-            control_source,
-            graph_source,
-        },
-        crypto,
-        #[cfg(feature = "security")]
-        staged_audit_tail,
-    )
-    .map_err(|error| ChangeEnvelopeFailure { index, error })?;
-    session.control_version = control_source.unwrap_or(0).saturating_add(1);
-    session.final_control_batch = current_batches[0].clone();
-    session.final_graph_batch = current_batches[1].clone();
-    session.commits.push(change_envelope_commit(
-        &batch.envelopes[index],
-        batch.outbox_counts[index],
-        false,
-    ));
-    Ok(())
-}
-
-fn change_graph_begin(
-    session: &ChangeEnvelopeSession<'_>,
-    index: usize,
-    bound: &[MutationBatch],
-) -> Result<Begin, String> {
-    if index == session.first_fresh {
-        return Ok(session.first_graph_begin.clone());
-    }
-    session
-        .group
-        .member(1)
-        .and_then(|member| member.begin(&bound[index]))
-}
-
-fn change_control_batch(
-    shard: &Shard,
-    graph_fname: &str,
-    session: &ChangeEnvelopeSession<'_>,
-    index: usize,
-    bound: &[MutationBatch],
-) -> Result<(MutationBatch, Option<u64>), String> {
-    if index == session.first_fresh {
-        let source_version = match &session.first_control_begin {
-            Begin::Apply { source_version } => *source_version,
-            Begin::Replay(_) => unreachable!("fresh graph member requires fresh control"),
-        };
-        return Ok((session.first_batches[0].clone(), source_version));
-    }
-    let control_batch = shard.maintenance_batch_at(
-        &format!("change-envelope/{graph_fname}/{}", bound[index].batch_id),
-        session.control_version,
-    )?;
-    let control_begin = session.group.control().begin(&control_batch)?;
-    let source_version = match control_begin {
-        Begin::Apply { source_version } => source_version,
-        Begin::Replay(_) => {
-            return Err(
-                "the shard control member unexpectedly replayed for a fresh envelope".to_string(),
-            )
-        }
-    };
-    Ok((control_batch, source_version))
-}
-
-fn finish_change_envelope_rows(
-    shard: &Shard,
-    session: &ChangeEnvelopeSession<'_>,
-    input: ChangeEnvelopeRowInput<'_>,
-    crypto: DurableCrypto<'_>,
-    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
-) -> Result<(), String> {
-    let staged = stage_mutation_batch_rows(
-        shard,
-        &session.group,
-        input.members,
-        input.current_batches,
-        StagedRowInput {
-            graph_fname: input.graph_fname,
-            batch: &input.current_batches[1],
-            change: Some(input.envelope),
-            source_budget: None,
-            authoritative_state_msgpack: None,
-            crossmodal: None,
-            committed_at_ms: input.committed_at_ms,
-            audited: true,
-            crashpoint: None,
-        },
-        crypto,
-        #[cfg(feature = "security")]
-        staged_audit_tail,
-    )?;
-    shard.mutations().finish(
-        session.group.control(),
-        &input.current_batches[0],
-        None,
-        input.committed_at_ms,
-        input.control_source,
-    )?;
-    shard.mutations().finish(
-        session.group.member(1)?,
-        &input.current_batches[1],
-        staged.generated_result,
-        input.committed_at_ms,
-        input.graph_source,
-    )?;
-    Ok(())
-}
-
-fn abort_change_envelope_session<'a>(
-    shard: &Shard,
-    session: ChangeEnvelopeSession<'a>,
-    failure: ChangeEnvelopeFailure,
-) -> Result<ChangeEnvelopeSession<'a>, ChangeEnvelopesError> {
-    match shard.mutations().abort_group(session.group) {
-        Ok(()) => Err(change_envelope_error(failure.index, failure.error)),
-        Err(abort) => Err(change_envelope_error(
-            failure.index,
-            format!("{}; abort failed: {abort}", failure.error),
-        )),
-    }
-}
-
-fn finish_change_envelope_group<'a>(
-    shard: &Shard,
-    session: ChangeEnvelopeSession<'a>,
-    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
-    #[cfg(feature = "security")] staged_audit_tail: AuditTailCache,
-) -> Result<Vec<ChangeEnvelopeCommit>, ChangeEnvelopesError> {
-    let ChangeEnvelopeSession {
-        group,
-        first_fresh,
-        commits,
-        final_control_batch,
-        final_graph_batch,
-        ..
-    } = session;
-    let final_batches = [final_control_batch, final_graph_batch];
-    let commit_refs: Vec<&MutationBatch> = final_batches.iter().collect();
-    if let Err(error) = shard.mutations().commit_group(group, &commit_refs) {
-        return Err(change_envelope_error(first_fresh, error));
-    }
-    #[cfg(feature = "security")]
-    {
-        *audit_tail = staged_audit_tail;
-    }
-    Ok(commits)
-}
+mod change_envelope;
+#[cfg(test)]
+pub(crate) use change_envelope::{commit_change_envelope, ChangeEnvelopesError};
+pub(crate) use change_envelope::{commit_change_envelope_with_budget, commit_change_envelopes};
 
 /// Non-graph rows that participate in an authoritative cross-modal
 /// [`MutationBatch`] commit. The coordinator metadata, graph rows, semantic/blob
@@ -703,17 +134,13 @@ pub(crate) fn commit_mutation_batch_crossmodal(
     commit_mutation_batch_inner(
         shard,
         BatchCommitInput {
-            graph_fname: input.graph_fname,
-            batch: input.batch,
-            change: None,
-            source_budget: None,
-            authoritative_state_msgpack: None,
             crossmodal: Some(input.rows),
-            result_msgpack: input.result_msgpack,
-            committed_at_ms: input.committed_at_ms,
-            // No `authoritative_state`, so `audited` is inert here.
-            audited: true,
-            crashpoint: None,
+            ..BatchCommitInput::compact(
+                input.graph_fname,
+                input.batch,
+                input.result_msgpack,
+                input.committed_at_ms,
+            )
         },
         crypto,
         #[cfg(feature = "security")]
@@ -721,17 +148,14 @@ pub(crate) fn commit_mutation_batch_crossmodal(
     )
 }
 
-/// The inputs every batch-commit entry point shares, bundled so the phases
-/// below stay inside the argument cap without positional strings.
-pub(crate) struct BatchCommitInput<'a> {
+/// Common owner-row inputs for both the commit and row-staging phases.
+pub(crate) struct BatchRowInput<'a> {
     pub(crate) graph_fname: &'a str,
     pub(crate) batch: &'a MutationBatch,
     pub(crate) change: Option<&'a ChangeEnvelope>,
     pub(crate) source_budget:
         Option<&'a crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
     pub(crate) authoritative_state_msgpack: Option<&'a [u8]>,
-    pub(crate) crossmodal: Option<CrossModalBatchRows<'a>>,
-    pub(crate) result_msgpack: Option<&'a [u8]>,
     pub(crate) committed_at_ms: u64,
     /// Whether THIS commit appends tamper-evident audit-chain entries. Only
     /// consulted on the authoritative-state branches; see the note below on why
@@ -739,6 +163,47 @@ pub(crate) struct BatchCommitInput<'a> {
     pub(crate) audited: bool,
     pub(crate) crashpoint: Option<MutationBatchCrashpoint>,
 }
+
+/// The inputs every batch-commit entry point shares, bundled so the phases
+/// below stay inside the argument cap without positional strings.
+pub(crate) struct BatchCommitInput<'a> {
+    pub(crate) rows: BatchRowInput<'a>,
+    pub(crate) crossmodal: Option<CrossModalBatchRows<'a>>,
+    pub(crate) result_msgpack: Option<&'a [u8]>,
+}
+
+impl<'a> BatchCommitInput<'a> {
+    /// Default fields for a batch without out-of-line authoritative state.
+    /// Cross-modal callers replace the row effect; the audit bit is inert.
+    pub(crate) fn compact(
+        graph_fname: &'a str,
+        batch: &'a MutationBatch,
+        result_msgpack: Option<&'a [u8]>,
+        committed_at_ms: u64,
+    ) -> Self {
+        Self {
+            rows: BatchRowInput {
+                graph_fname,
+                batch,
+                change: None,
+                source_budget: None,
+                authoritative_state_msgpack: None,
+                committed_at_ms,
+                audited: true,
+                crashpoint: None,
+            },
+            crossmodal: None,
+            result_msgpack,
+        }
+    }
+
+    pub(crate) fn with_crashpoint(mut self, crashpoint: Option<MutationBatchCrashpoint>) -> Self {
+        self.rows.crashpoint = crashpoint;
+        self
+    }
+}
+
+type ReactivationStage<'a> = dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String> + 'a;
 
 /// Private opt-in for an enrichment reactivation. The callback stages the
 /// budget/park CAS in the same owner-row admission as the canonical batch.
@@ -748,19 +213,15 @@ pub(crate) fn commit_mutation_batch_with_outbox_lease(
     shard: &Shard,
     input: BatchCommitInput<'_>,
     lease: &eg_types::MutationOutboxLease,
-    stage_reactivation: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    stage_reactivation: &mut ReactivationStage<'_>,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<MutationBatchCommit, String> {
-    commit_mutation_batch_inner_with_effect(
+    commit_mutation_batch_with_reactivation_effect(
         shard,
         input,
-        Some(OutboxBatchEffect {
-            lease: Some(lease),
-            #[cfg(feature = "raft")]
-            top_up: None,
-            stage_reactivation,
-        }),
+        Some(lease),
+        stage_reactivation,
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
@@ -775,7 +236,26 @@ pub(crate) fn commit_mutation_batch_with_outbox_lease(
 pub(crate) fn commit_mutation_batch_with_reactivation_rows(
     shard: &Shard,
     input: BatchCommitInput<'_>,
-    stage_reactivation: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    stage_reactivation: &mut ReactivationStage<'_>,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    commit_mutation_batch_with_reactivation_effect(
+        shard,
+        input,
+        None,
+        stage_reactivation,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )
+}
+
+fn commit_mutation_batch_with_reactivation_effect(
+    shard: &Shard,
+    input: BatchCommitInput<'_>,
+    lease: Option<&eg_types::MutationOutboxLease>,
+    stage_reactivation: &mut ReactivationStage<'_>,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<MutationBatchCommit, String> {
@@ -783,7 +263,7 @@ pub(crate) fn commit_mutation_batch_with_reactivation_rows(
         shard,
         input,
         Some(OutboxBatchEffect {
-            lease: None,
+            lease,
             #[cfg(feature = "raft")]
             top_up: None,
             stage_reactivation,
@@ -831,18 +311,12 @@ pub(crate) fn commit_repository_enrichment_top_up(
     };
     commit_mutation_batch_inner_with_effect(
         shard,
-        BatchCommitInput {
-            graph_fname: graph,
-            batch: &transition.replacement_batch,
-            change: None,
-            source_budget: None,
-            authoritative_state_msgpack: None,
-            crossmodal: None,
-            result_msgpack: Some(&receipt),
+        BatchCommitInput::compact(
+            graph,
+            &transition.replacement_batch,
+            Some(&receipt),
             committed_at_ms,
-            audited: true,
-            crashpoint: None,
-        },
+        ),
         Some(OutboxBatchEffect {
             lease: None,
             top_up: Some(TopUpSourceEffect { transition }),
@@ -858,7 +332,7 @@ struct OutboxBatchEffect<'a> {
     lease: Option<&'a eg_types::MutationOutboxLease>,
     #[cfg(feature = "raft")]
     top_up: Option<TopUpSourceEffect<'a>>,
-    stage_reactivation: &'a mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+    stage_reactivation: &'a mut ReactivationStage<'a>,
 }
 
 /// Commit ONE caller batch: its graph rows, its governance material, its
@@ -909,34 +383,17 @@ pub(crate) fn commit_mutation_batch_inner(
 fn commit_mutation_batch_inner_with_effect(
     shard: &Shard,
     input: BatchCommitInput<'_>,
-    mut outbox_effect: Option<OutboxBatchEffect<'_>>,
+    outbox_effect: Option<OutboxBatchEffect<'_>>,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<MutationBatchCommit, String> {
-    let BatchCommitInput {
-        graph_fname,
-        batch,
-        change,
-        source_budget,
-        authoritative_state_msgpack,
-        crossmodal,
-        result_msgpack,
-        committed_at_ms,
-        audited,
-        crashpoint,
-    } = input;
-    // Audit-tail updates are staged alongside the transaction. Advancing the
-    // process cache before the commit would create a false tail when an
-    // injected or real failure drops it.
-    #[cfg(feature = "security")]
-    let mut staged_audit_tail = audit_tail.clone();
+    let graph_fname = input.rows.graph_fname;
+    let batch = input.rows.batch;
+    let committed_at_ms = input.rows.committed_at_ms;
+    let result_msgpack = input.result_msgpack;
 
-    // The compiler preserves the verified caller scope on the batch because it
-    // is part of the request authority. Bind exactly once at the physical
-    // shard boundary: the ledger identity and serving principal belong to the
-    // shard, while the caller authority and outbox attribution remain in the
-    // rebound batch. Binding a cold graph opens its own transaction, so it must
-    // happen before this group's admission.
+    // Bind before admission: a cold graph opens its own transaction. Raft
+    // top-up already carries its sealed batch and must remain byte-identical.
     let handle = shard.graph(graph_fname)?;
     #[cfg(feature = "raft")]
     let top_up = outbox_effect.as_ref().and_then(|effect| effect.top_up);
@@ -951,7 +408,6 @@ fn commit_mutation_batch_inner_with_effect(
     if outbox_effect.is_some() && bound.outbox.is_empty() {
         return Err("CONFLICT: reactivation batch requires a replacement outbox intent".into());
     }
-    let members = vec![(graph_fname.to_string(), Arc::clone(&handle))];
     #[cfg(feature = "raft")]
     let (group, batches) = if top_up.is_some() {
         shard.admit_repository_enrichment_top_up_batch(
@@ -967,114 +423,115 @@ fn commit_mutation_batch_inner_with_effect(
     let (group, batches) = shard.admit_batch(graph_fname, &handle, &bound, &bound.batch_id)?;
 
     if matches!(group.begun(1)?, Begin::Replay(_)) {
-        if outbox_effect
-            .as_ref()
-            .is_some_and(|effect| effect.lease.is_some())
-        {
-            shard.mutations().abort_group(group)?;
-            return Err(
-                "CONFLICT: reactivation batch already committed; delivery state must be reconciled"
-                    .into(),
-            );
-        }
-        // A byte-identical retry still has to commit the admitted group: the
-        // replay member's fresh attempt nonce is consumed only by the commit
-        // finalizer. `commit_batch` finishes the control member and seals the
-        // replay member without reapplying owner rows.
-        let Begin::Replay(record) = group.begun(1)?.clone() else {
-            return Err("admitted replay lost its receipt".to_string());
-        };
-        #[cfg(feature = "raft")]
-        if let Some(top_up) = top_up {
-            let transition = top_up.transition;
-            let proposed_batch = rmp_serde::to_vec_named(&bound)
-                .map_err(|_| "CONFLICT: enrichment top-up retry encode failed")?;
-            let committed_batch = rmp_serde::to_vec_named(&record.batch)
-                .map_err(|_| "CONFLICT: enrichment top-up receipt encode failed")?;
-            if proposed_batch != committed_batch
-                || record.result_msgpack.as_deref() != result_msgpack
-                || record.committed_at_ms != committed_at_ms
-            {
-                shard.mutations().abort_group(group)?;
-                return Err("IDEMPOTENCY_CONFLICT: enrichment top-up retry changed".into());
-            }
-            if let Err(error) = shard.outbox_supersession_receipt_batch_record(
-                &group,
-                &handle,
-                &transition.consumer,
-                &transition.old_delivery,
-                committed_at_ms,
-            ) {
-                shard.mutations().abort_group(group)?;
-                return Err(error);
-            }
-            if let Err(error) = crate::redb_store::enrichment_budget::verify_reactivation_replay(
-                shard,
-                graph_fname,
-                &transition.expected_budget,
-                &transition.expected_park,
-                &transition.replacement_budget,
-                &transition.revision,
-                crypto,
-            ) {
-                shard.mutations().abort_group(group)?;
-                return Err(error);
-            }
-        }
-        return finish_replayed_batch(
+        return finish_admitted_replay(
             shard,
             group,
             &batches,
-            &bound,
-            result_msgpack,
-            committed_at_ms,
+            &handle,
+            ReplayCommitInput {
+                graph_fname,
+                bound: &bound,
+                result_msgpack,
+                committed_at_ms,
+                crypto,
+                has_lease: outbox_effect
+                    .as_ref()
+                    .is_some_and(|effect| effect.lease.is_some()),
+                #[cfg(feature = "raft")]
+                top_up,
+            },
         );
     }
 
-    if let Some(effect) = outbox_effect.as_ref().and_then(|effect| effect.lease) {
-        if let Err(error) =
-            shard.outbox_validate_batch_lease(&group, &handle, effect, committed_at_ms)
-        {
+    finish_fresh_batch(
+        shard,
+        AdmittedFreshBatch {
+            group,
+            batches,
+            handle: &handle,
+            bound: &bound,
+            input,
+            outbox_effect,
+        },
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    )
+}
+
+struct AdmittedFreshBatch<'g, 'i, 'e> {
+    group: AdmittedGroup<'g, GraphShardOwner>,
+    batches: Vec<MutationBatch>,
+    handle: &'g Arc<OwnedStoreHandle<GraphShardOwner>>,
+    bound: &'g MutationBatch,
+    input: BatchCommitInput<'i>,
+    outbox_effect: Option<OutboxBatchEffect<'e>>,
+}
+
+fn finish_fresh_batch(
+    shard: &Shard,
+    admission: AdmittedFreshBatch<'_, '_, '_>,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    let AdmittedFreshBatch {
+        group,
+        batches,
+        handle,
+        bound,
+        input,
+        outbox_effect,
+    } = admission;
+    let BatchCommitInput {
+        rows,
+        crossmodal,
+        result_msgpack,
+    } = input;
+    // The cache advances only after commit, never when a row or callback fails.
+    #[cfg(feature = "security")]
+    let mut staged_audit_tail = audit_tail.clone();
+    #[cfg(feature = "raft")]
+    let top_up = outbox_effect.as_ref().and_then(|effect| effect.top_up);
+    let lease = outbox_effect.as_ref().and_then(|effect| effect.lease);
+    let stage_reactivation = outbox_effect.map(|effect| effect.stage_reactivation);
+    if let Some(effect) = lease {
+        if let Err(error) = shard.mutations().outbox_validate_in(
+            group.member(1)?,
+            handle.as_ref(),
+            effect,
+            rows.committed_at_ms,
+        ) {
             shard.mutations().abort_group(group)?;
             return Err(error);
         }
     }
 
     let staged_input = StagedRowInput {
-        graph_fname,
-        batch: &bound,
-        change,
-        source_budget,
-        authoritative_state_msgpack,
+        rows: BatchRowInput {
+            graph_fname: rows.graph_fname,
+            batch: bound,
+            change: rows.change,
+            source_budget: rows.source_budget,
+            authoritative_state_msgpack: rows.authoritative_state_msgpack,
+            committed_at_ms: rows.committed_at_ms,
+            audited: rows.audited,
+            crashpoint: rows.crashpoint,
+        },
         crossmodal: crossmodal.as_ref(),
-        committed_at_ms,
-        audited,
-        crashpoint,
     };
-    let staged_rows = if let Some(effect) = outbox_effect.as_mut() {
-        stage_mutation_batch_rows_with_reactivation(
-            shard,
-            &group,
-            &members,
-            &batches,
-            staged_input,
-            effect.stage_reactivation,
+    let staged_rows = stage_mutation_batch_rows_with_effect(
+        shard,
+        &group,
+        &[(rows.graph_fname.to_string(), Arc::clone(handle))],
+        &batches,
+        staged_input,
+        RowStagingOptions {
+            effect: stage_reactivation,
             crypto,
-            #[cfg(feature = "security")]
-            &mut staged_audit_tail,
-        )
-    } else {
-        stage_mutation_batch_rows(
-            shard,
-            &group,
-            &members,
-            &batches,
-            staged_input,
-            crypto,
-            #[cfg(feature = "security")]
-            &mut staged_audit_tail,
-        )
-    };
+        },
+        #[cfg(feature = "security")]
+        &mut staged_audit_tail,
+    );
     let staged = match staged_rows {
         Ok(staged) => staged,
         Err(error) => {
@@ -1083,8 +540,13 @@ fn commit_mutation_batch_inner_with_effect(
         }
     };
 
-    if let Some(effect) = outbox_effect.as_ref().and_then(|effect| effect.lease) {
-        if let Err(error) = shard.outbox_ack_batch_lease(&group, &handle, effect, committed_at_ms) {
+    if let Some(effect) = lease {
+        if let Err(error) = shard.mutations().outbox_ack_in(
+            group.member(1)?,
+            handle.as_ref(),
+            effect,
+            rows.committed_at_ms,
+        ) {
             shard.mutations().abort_group(group)?;
             return Err(error);
         }
@@ -1097,23 +559,27 @@ fn commit_mutation_batch_inner_with_effect(
             &handle,
             &transition.consumer,
             &transition.old_delivery,
-            committed_at_ms,
+            rows.committed_at_ms,
         ) {
             shard.mutations().abort_group(group)?;
             return Err(error);
         }
     }
 
-    run_mutation_batch_crashpoint(&bound, crashpoint, MutationBatchCrashpoint::BeforeCommit)?;
+    run_mutation_batch_crashpoint(
+        bound,
+        rows.crashpoint,
+        MutationBatchCrashpoint::BeforeCommit,
+    )?;
     crate::mutation_batch::apply_certification_fault(
-        &bound,
+        bound,
         crate::mutation_batch::MutationCommitPhase::BeforeCommit,
     )?;
 
     let result = staged
         .generated_result
         .or_else(|| result_msgpack.map(ToOwned::to_owned));
-    let committed = shard.commit_batch(group, &batches, result, committed_at_ms)?;
+    let committed = shard.commit_batch(group, &batches, result, rows.committed_at_ms)?;
 
     #[cfg(feature = "security")]
     {
@@ -1121,12 +587,12 @@ fn commit_mutation_batch_inner_with_effect(
     }
 
     run_mutation_batch_crashpoint(
-        &bound,
-        crashpoint,
+        bound,
+        rows.crashpoint,
         MutationBatchCrashpoint::AfterCommitBeforeAck,
     )?;
     crate::mutation_batch::apply_certification_fault(
-        &bound,
+        bound,
         crate::mutation_batch::MutationCommitPhase::AfterCommitBeforeAck,
     )?;
 
@@ -1139,33 +605,83 @@ fn commit_mutation_batch_inner_with_effect(
     Ok(commit)
 }
 
-fn stage_mutation_batch_rows_with_reactivation(
+struct ReplayCommitInput<'a> {
+    graph_fname: &'a str,
+    bound: &'a MutationBatch,
+    result_msgpack: Option<&'a [u8]>,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'a>,
+    has_lease: bool,
+    #[cfg(feature = "raft")]
+    top_up: Option<TopUpSourceEffect<'a>>,
+}
+
+fn finish_admitted_replay(
     shard: &Shard,
-    group: &AdmittedGroup<'_, GraphShardOwner>,
-    members: &[(String, Arc<OwnedStoreHandle<GraphShardOwner>>)],
+    group: AdmittedGroup<'_, GraphShardOwner>,
     batches: &[MutationBatch],
-    input: StagedRowInput<'_>,
-    stage_reactivation: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
-    crypto: DurableCrypto<'_>,
-    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
-) -> Result<StagedMutationRows, String> {
-    let write = ShardWrite::open(shard, group, members, batches)?;
-    let staged = stage_rows_in(
-        &write,
-        input,
-        crypto,
-        #[cfg(feature = "security")]
-        staged_audit_tail,
-    )
-    .and_then(|staged| {
-        stage_reactivation(&write)?;
-        Ok(staged)
-    });
-    let finished = write.finish();
-    match (staged, finished) {
-        (Ok(staged), Ok(())) => Ok(staged),
-        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+    handle: &Arc<OwnedStoreHandle<GraphShardOwner>>,
+    input: ReplayCommitInput<'_>,
+) -> Result<MutationBatchCommit, String> {
+    if input.has_lease {
+        shard.mutations().abort_group(group)?;
+        return Err(
+            "CONFLICT: reactivation batch already committed; delivery state must be reconciled"
+                .into(),
+        );
     }
+    // A byte-identical retry consumes the fresh attempt nonce in commit_batch
+    // without reapplying any owner rows.
+    let Begin::Replay(record) = group.begun(1)?.clone() else {
+        return Err("admitted replay lost its receipt".to_string());
+    };
+    #[cfg(feature = "raft")]
+    if let Some(top_up) = input.top_up {
+        let transition = top_up.transition;
+        let proposed_batch = rmp_serde::to_vec_named(input.bound)
+            .map_err(|_| "CONFLICT: enrichment top-up retry encode failed")?;
+        let committed_batch = rmp_serde::to_vec_named(&record.batch)
+            .map_err(|_| "CONFLICT: enrichment top-up receipt encode failed")?;
+        if proposed_batch != committed_batch
+            || record.result_msgpack.as_deref() != input.result_msgpack
+            || record.committed_at_ms != input.committed_at_ms
+        {
+            shard.mutations().abort_group(group)?;
+            return Err("IDEMPOTENCY_CONFLICT: enrichment top-up retry changed".into());
+        }
+        if let Err(error) = shard.outbox_supersession_receipt_batch_record(
+            &group,
+            handle,
+            &transition.consumer,
+            &transition.old_delivery,
+            input.committed_at_ms,
+        ) {
+            shard.mutations().abort_group(group)?;
+            return Err(error);
+        }
+        if let Err(error) = crate::redb_store::enrichment_budget::verify_reactivation_replay(
+            shard,
+            input.graph_fname,
+            &transition.expected_budget,
+            &transition.expected_park,
+            &transition.replacement_budget,
+            &transition.revision,
+            input.crypto,
+        ) {
+            shard.mutations().abort_group(group)?;
+            return Err(error);
+        }
+    }
+    #[cfg(not(feature = "raft"))]
+    let _ = (handle, record, input.graph_fname, input.crypto);
+    finish_replayed_batch(
+        shard,
+        group,
+        batches,
+        input.bound,
+        input.result_msgpack,
+        input.committed_at_ms,
+    )
 }
 
 fn finish_replayed_batch(
@@ -1246,22 +762,12 @@ mod outbox_reactivation_tests {
         shard: &Shard,
         batch: &MutationBatch,
         lease: Option<&eg_types::MutationOutboxLease>,
-        stage: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+        stage: &mut ReactivationStage<'_>,
     ) -> Result<MutationBatchCommit, String> {
         #[cfg(feature = "security")]
         let mut audit_tail = AuditTailCache::new();
-        let input = BatchCommitInput {
-            graph_fname: GRAPH,
-            batch,
-            change: None,
-            source_budget: None,
-            authoritative_state_msgpack: None,
-            crossmodal: None,
-            result_msgpack: None,
-            committed_at_ms: if lease.is_some() { 12 } else { 10 },
-            audited: true,
-            crashpoint: None,
-        };
+        let input =
+            BatchCommitInput::compact(GRAPH, batch, None, if lease.is_some() { 12 } else { 10 });
         if let Some(lease) = lease {
             commit_mutation_batch_with_outbox_lease(
                 shard,
@@ -1286,24 +792,13 @@ mod outbox_reactivation_tests {
     fn commit_owner_rows(
         shard: &Shard,
         batch: &MutationBatch,
-        stage: &mut dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), String>,
+        stage: &mut ReactivationStage<'_>,
     ) -> Result<MutationBatchCommit, String> {
         #[cfg(feature = "security")]
         let mut audit_tail = AuditTailCache::new();
         commit_mutation_batch_with_reactivation_rows(
             shard,
-            BatchCommitInput {
-                graph_fname: GRAPH,
-                batch,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: None,
-                crossmodal: None,
-                result_msgpack: None,
-                committed_at_ms: 10,
-                audited: true,
-                crashpoint: None,
-            },
+            BatchCommitInput::compact(GRAPH, batch, None, 10),
             stage,
             DurableCrypto::none(),
             #[cfg(feature = "security")]
@@ -1353,6 +848,24 @@ mod outbox_reactivation_tests {
         )
     }
 
+    fn assert_replacement_persisted(shard: &Shard) {
+        assert!(has_node(shard, "replacement-node"));
+        assert!(crate::redb_store::enrichment_budget::read(
+            shard,
+            GRAPH,
+            CALLBACK_SOURCE,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .is_some());
+        assert_eq!(
+            crate::redb_store::read_mutation_outbox(shard, GRAPH, "replacement")
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
     #[test]
     fn held_delivery_replacement_and_callback_rows_commit_together() {
         let path = crate::redb_store::temp_path("outbox-reactivation", "atomic-success");
@@ -1364,21 +877,7 @@ mod outbox_reactivation_tests {
         drop(shard);
 
         let reopened = Shard::open(&path).unwrap();
-        assert!(has_node(&reopened, "replacement-node"));
-        assert!(crate::redb_store::enrichment_budget::read(
-            &reopened,
-            GRAPH,
-            CALLBACK_SOURCE,
-            DurableCrypto::none(),
-        )
-        .unwrap()
-        .is_some());
-        assert_eq!(
-            crate::redb_store::read_mutation_outbox(&reopened, GRAPH, "replacement")
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_replacement_persisted(&reopened);
         let cursor = reopened.outbox_cursor(GRAPH, CONSUMER).unwrap().unwrap();
         assert_eq!(cursor.batch_id, "source");
         drop(reopened);
@@ -1444,21 +943,7 @@ mod outbox_reactivation_tests {
 
         for path in [&path_a, &path_b] {
             let reopened = Shard::open(path).unwrap();
-            assert!(has_node(&reopened, "replacement-node"));
-            assert!(crate::redb_store::enrichment_budget::read(
-                &reopened,
-                GRAPH,
-                CALLBACK_SOURCE,
-                DurableCrypto::none(),
-            )
-            .unwrap()
-            .is_some());
-            assert_eq!(
-                crate::redb_store::read_mutation_outbox(&reopened, GRAPH, "replacement")
-                    .unwrap()
-                    .len(),
-                1
-            );
+            assert_replacement_persisted(&reopened);
             drop(reopened);
             let _ = std::fs::remove_file(path);
         }

@@ -15,7 +15,7 @@ WHAT
 ----
 Every replicated step gets ``PYTEST_ADDOPTS=--basetemp=<short>`` whose deepest
 engine socket fits the limit.  ``<short>`` is one directory per replica process
-under the system's short-lived temporary root, so two replica processes on one host
+under a short writable temporary root, so two replica processes on one host
 never share -- pytest deletes an explicit basetemp before it starts.  A step's
 own ``PYTEST_ADDOPTS`` is kept AFTER ours, so a step that names its own
 ``--basetemp`` still wins.  Only pytest reads the variable.
@@ -39,21 +39,37 @@ SOCKET_TAIL = "/popen-gw999/epistemic-graph-runtime999/engine.sock"
 _BASETEMP: Path | None = None
 
 
-def _parent() -> Path:
-    temp_root = Path(tempfile.gettempdir())
-    root = Path(temp_root.anchor)
-    var_tmp = root / "var" / "tmp"
-    return var_tmp if var_tmp.is_dir() else root / "tmp"
+def _parents() -> tuple[Path, Path]:
+    """Try the conventional short roots; existence alone does not imply writable."""
+    root = Path(tempfile.gettempdir()).anchor
+    return (Path(root) / "var" / "tmp", Path(root) / "tmp")
 
 
 def short_basetemp() -> Path:
     """This replica process's pytest base temp (created lazily, removed at exit)."""
     global _BASETEMP
     if _BASETEMP is None:
-        _BASETEMP = _parent() / f"egr-{os.getuid()}-{os.getpid()}" / "pt"
-        _BASETEMP.parent.mkdir(mode=0o700, exist_ok=True)
-        atexit.register(shutil.rmtree, _BASETEMP.parent, True)
+        _BASETEMP = _create_short_basetemp()
     return _BASETEMP
+
+
+def _create_short_basetemp() -> Path:
+    failures = []
+    for parent in _parents():
+        try:
+            directory = Path(
+                tempfile.mkdtemp(prefix=f"egr-{os.getuid()}-{os.getpid()}-", dir=parent)
+            )
+        except OSError as exc:
+            failures.append(f"{parent}: {exc}")
+            continue
+        basetemp = directory / "pt"
+        if fits_socket_limit(basetemp):
+            atexit.register(shutil.rmtree, directory, True)
+            return basetemp
+        shutil.rmtree(directory)
+        failures.append(f"{parent}: AF_UNIX socket path would exceed 107 bytes")
+    raise RuntimeError("no writable short pytest temp root: " + "; ".join(failures))
 
 
 def fits_socket_limit(basetemp: Path) -> bool:

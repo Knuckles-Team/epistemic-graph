@@ -209,7 +209,7 @@ pub fn ops() -> Vec<(&'static str, ConnectorPackOp)> {
         (
             "ConnectorPack.reconcile_catalog",
             ConnectorPackOp::ReconcileCatalog {
-                request: McpCatalogReconcileRequest {
+                request: Box::new(McpCatalogReconcileRequest {
                     context: mutation_context(),
                     server_name: "connector-a".to_string(),
                     component_id: "mcp:connector-a/mcp_server/connector-a".to_string(),
@@ -224,7 +224,7 @@ pub fn ops() -> Vec<(&'static str, ConnectorPackOp)> {
                     local_catalog_epoch: 3,
                     child_connection_generation: 5,
                     expected_catalog_generation: Some(4),
-                },
+                }),
             },
         ),
         (

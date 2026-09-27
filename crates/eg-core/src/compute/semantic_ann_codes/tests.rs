@@ -20,7 +20,7 @@ use super::persist::persist_stage_artifact_with_lease;
 use super::reconciliation::{compare_source_revision, validate_sql_source_revision};
 use super::rows::BoundCodeRows;
 use super::stage::stage_intent_outbox;
-use super::{OperationAttribution, SemanticCodeStore};
+use super::{ExistingTenantOwnerOpen, OperationAttribution, SemanticCodeStore};
 use crate::compute::semantic::SemanticStore;
 use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
 use eg_storage::{
@@ -57,6 +57,18 @@ use redb::ReadableTable;
 
 pub(super) const TENANT: &str = "native";
 pub(super) const BINDING: &str = "semantic-binding-a";
+
+fn merged_tenant_owner_input(binding: &str) -> ExistingTenantOwnerOpen<'_> {
+    ExistingTenantOwnerOpen {
+        verifier: Arc::new(TestScopeVerifier {
+            layout: OwnerLayout::SemanticIndex,
+        }),
+        principal: TEST_PRINCIPAL,
+        proof: TEST_PROOF,
+        tenant: TENANT,
+        binding,
+    }
+}
 
 fn digest(byte: u8) -> SemanticDigest {
     SemanticDigest::from_bytes([byte; 32])
@@ -553,17 +565,9 @@ fn tenant_owner_merge_preserves_populated_binding_replay_and_outbox_rows() {
         );
     }
     for (index, (source, bytes, binding, key)) in originals.iter().enumerate() {
-        let migrated = SemanticCodeStore::open_tenant(
-            &target,
-            Arc::new(TestScopeVerifier {
-                layout: OwnerLayout::SemanticIndex,
-            }),
-            TEST_PRINCIPAL,
-            TEST_PROOF,
-            TENANT,
-            &binding.binding_id,
-        )
-        .unwrap();
+        let migrated =
+            SemanticCodeStore::open_tenant(&target, merged_tenant_owner_input(&binding.binding_id))
+                .unwrap();
         assert_eq!(migrated.read_binding().unwrap(), Some(binding.clone()));
         let replay = migrated
             .store_binding_operation(
@@ -578,13 +582,7 @@ fn tenant_owner_merge_preserves_populated_binding_replay_and_outbox_rows() {
         drop(migrated);
         let service = SemanticIndexService::open_tenant(
             &target,
-            Arc::new(TestScopeVerifier {
-                layout: OwnerLayout::SemanticIndex,
-            }),
-            TEST_PRINCIPAL,
-            TEST_PROOF,
-            TENANT,
-            &binding.binding_id,
+            merged_tenant_owner_input(&binding.binding_id),
         )
         .unwrap();
         assert_eq!(service.binding().unwrap(), Some(binding.clone()));

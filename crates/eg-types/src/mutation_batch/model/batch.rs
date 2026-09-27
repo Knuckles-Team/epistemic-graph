@@ -129,6 +129,12 @@ pub struct MutationBatch {
     pub created_at_ms: u64,
 }
 
+fn valid_top_up_subject(subject: &str) -> bool {
+    subject
+        .strip_prefix("outbox-replacement:")
+        .is_some_and(|digest| Digest256::parse(digest).is_ok())
+}
+
 impl MutationBatch {
     /// Build the real ledger parent for a replacement intent. This constructor
     /// does not confer admission authority; the kernel's dedicated top-up path
@@ -190,24 +196,23 @@ impl MutationBatch {
         let MutationEnvelope::Maintenance(envelope) = &self.envelope else {
             return false;
         };
+        self.has_top_up_parent_shape()
+            && envelope.kind.as_str() == REPOSITORY_ENRICHMENT_TOP_UP_KIND
+            && valid_top_up_subject(envelope.subject.as_str())
+            && self.has_top_up_outbox_shape()
+    }
+
+    fn has_top_up_parent_shape(&self) -> bool {
         self.operations.is_empty()
             && self.authoritative_state.is_none()
             && matches!(self.identity.scope(), MutationScope::Graph { .. })
             && matches!(self.version_expectation, VersionExpectation::Graph(_))
             && self.placement_epoch > 0
             && self.fencing_token.is_some()
-            && envelope.kind.as_str() == REPOSITORY_ENRICHMENT_TOP_UP_KIND
-            && envelope
-                .subject
-                .as_str()
-                .strip_prefix("outbox-replacement:")
-                .is_some_and(|hex| {
-                    hex.len() == 64
-                        && hex
-                            .bytes()
-                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                })
-            && self.outbox.len() == 1
+    }
+
+    fn has_top_up_outbox_shape(&self) -> bool {
+        self.outbox.len() == 1
             && self.outbox[0].topic == REPOSITORY_ENRICHMENT_PENDING_TOPIC
             && self.outbox[0].key == self.batch_id
             && self.outbox[0].headers.is_empty()

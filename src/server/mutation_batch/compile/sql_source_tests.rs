@@ -1,6 +1,7 @@
 //! Regression coverage for typed SQL-owner compilation before envelope issuance.
 
 use super::*;
+use crate::mutation_batch::VersionExpectation;
 use eg_types::change_envelope::CursorPosition;
 use eg_types::contract::{BoundedVec, Digest256, Nonce, RecordBytes, ResourceId};
 use eg_types::storage_wire::{

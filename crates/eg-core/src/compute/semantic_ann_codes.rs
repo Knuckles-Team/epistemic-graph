@@ -185,6 +185,12 @@ pub fn tenant_owner_file_name(tenant: &str) -> String {
     door::tenant_store_file_name(tenant)
 }
 
+/// Canonical v2 per-binding owner basename used by both serving and the
+/// offline tenant-owner upgrade census.
+pub fn binding_owner_file_name(tenant: &str, binding: &str) -> String {
+    door::store_file_name(tenant, binding)
+}
+
 /// Serializable: this is what `Method::SemanticIndex` returns to a
 /// connector for every committed semantic mutation.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -216,6 +222,17 @@ pub struct OperationAttribution<'a> {
     pub nonce: Nonce,
 }
 
+/// Inputs for reopening one already-migrated tenant owner. Constructing
+/// these inputs grants no serving authority: the caller must separately prove
+/// the tenant activation before calling `open_tenant`.
+pub struct ExistingTenantOwnerOpen<'a> {
+    pub verifier: Arc<dyn ScopeGrantVerifier>,
+    pub principal: &'a str,
+    pub proof: &'a [u8],
+    pub tenant: &'a str,
+    pub binding: &'a str,
+}
+
 /// Durable, kernel-backed ANN code tier for one `(tenant, binding)` semantic
 /// index, holding any number of generations of which exactly one is live.
 pub struct SemanticCodeStore {
@@ -237,6 +254,14 @@ impl std::fmt::Debug for SemanticCodeStore {
 }
 
 impl SemanticCodeStore {
+    fn with_door(door: ServingDoor, tenant: &str, binding: &str) -> Self {
+        Self {
+            door,
+            tenant: tenant.to_string(),
+            binding: binding.to_string(),
+        }
+    }
+
     /// Open (or create) this binding's owner file through the storage kernel
     /// under [`eg_storage::OwnerLayout::SemanticIndex`].
     ///
@@ -257,29 +282,23 @@ impl SemanticCodeStore {
         binding: &str,
     ) -> Result<Self, SemanticCodeError> {
         let door = ServingDoor::open(dir, verifier.as_ref(), principal, proof, tenant, binding)?;
-        Ok(Self {
-            door,
-            tenant: tenant.to_string(),
-            binding: binding.to_string(),
-        })
+        Ok(Self::with_door(door, tenant, binding))
     }
 
     /// Resolve a binding that already exists in one activated tenant owner.
     /// This never creates a file, scope binding or replay-ledger authority.
     pub(crate) fn open_tenant(
         path: &Path,
-        verifier: Arc<dyn ScopeGrantVerifier>,
-        principal: &str,
-        proof: &[u8],
-        tenant: &str,
-        binding: &str,
+        input: ExistingTenantOwnerOpen<'_>,
     ) -> Result<Self, SemanticCodeError> {
-        let door =
-            ServingDoor::open_tenant(path, verifier.as_ref(), principal, proof, tenant, binding)?;
-        Ok(Self {
-            door,
-            tenant: tenant.to_string(),
-            binding: binding.to_string(),
-        })
+        let door = ServingDoor::open_tenant(
+            path,
+            input.verifier.as_ref(),
+            input.principal,
+            input.proof,
+            input.tenant,
+            input.binding,
+        )?;
+        Ok(Self::with_door(door, input.tenant, input.binding))
     }
 }

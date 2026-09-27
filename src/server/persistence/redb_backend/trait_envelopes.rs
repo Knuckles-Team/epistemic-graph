@@ -1,3 +1,29 @@
+/// Both envelope admissions use the same writer command and durable receipt.
+/// The caller supplies the optional repository budget and its distinct error
+/// wording; neither path can bypass the shard routing guard in `enqueue`.
+pub(super) async fn commit_one_envelope(
+    backend: &super::RedbBackend,
+    graph_fname: &str,
+    envelope: &crate::change_envelope::ChangeEnvelope,
+    committed_at_ms: u64,
+    source_budget: Option<crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
+    label: &str,
+    dropped: &str,
+) -> Result<crate::change_envelope::ChangeEnvelopeCommit, String> {
+    let (done, rx) = tokio::sync::oneshot::channel();
+    let cmd = super::Cmd::ChangeEnvelopeCommit {
+        payload: Box::new(super::ChangeEnvelopePayload {
+            graph: graph_fname.to_string(),
+            envelope: envelope.clone(),
+            committed_at_ms,
+            source_budget,
+        }),
+        done,
+    };
+    backend.enqueue(graph_fname, cmd, label).await?;
+    rx.await.map_err(|_| dropped.to_string())?
+}
+
 macro_rules! persistence_envelopes {
     ($next:ident { $($methods:tt)* }) => {
     $next! {
@@ -8,20 +34,16 @@ macro_rules! persistence_envelopes {
             envelope: &ChangeEnvelope,
             committed_at_ms: u64,
         ) -> Result<ChangeEnvelopeCommit, String> {
-            let (done, rx) = oneshot::channel();
-            let cmd = Cmd::ChangeEnvelopeCommit {
-                payload: Box::new(ChangeEnvelopePayload {
-                    graph: graph_fname.to_string(),
-                    envelope: envelope.clone(),
-                    committed_at_ms,
-                    source_budget: None,
-                }),
-                done,
-            };
-            self.enqueue(graph_fname, cmd, "commit_change_envelope")
-                .await?;
-            rx.await
-                .map_err(|_| "redb writer dropped ChangeEnvelope completion".to_string())?
+            super::trait_envelopes::commit_one_envelope(
+                self,
+                graph_fname,
+                envelope,
+                committed_at_ms,
+                None,
+                "commit_change_envelope",
+                "redb writer dropped ChangeEnvelope completion",
+            )
+            .await
         }
 
         async fn commit_repository_change_envelope(
@@ -31,18 +53,16 @@ macro_rules! persistence_envelopes {
             authority: crate::redb_store::enrichment_budget::SourceBudgetAuthority,
             committed_at_ms: u64,
         ) -> Result<ChangeEnvelopeCommit, String> {
-            let (done, rx) = oneshot::channel();
-            let cmd = Cmd::ChangeEnvelopeCommit {
-                payload: Box::new(ChangeEnvelopePayload {
-                    graph: graph_fname.to_string(),
-                    envelope: envelope.clone(),
-                    committed_at_ms,
-                    source_budget: Some(authority),
-                }),
-                done,
-            };
-            self.enqueue(graph_fname, cmd, "commit_repository_change_envelope").await?;
-            rx.await.map_err(|_| "redb writer dropped repository ChangeEnvelope completion".to_string())?
+            super::trait_envelopes::commit_one_envelope(
+                self,
+                graph_fname,
+                envelope,
+                committed_at_ms,
+                Some(authority),
+                "commit_repository_change_envelope",
+                "redb writer dropped repository ChangeEnvelope completion",
+            )
+            .await
         }
 
         #[cfg(feature = "raft")]

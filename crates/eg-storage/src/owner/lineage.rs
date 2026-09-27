@@ -140,64 +140,11 @@ const SQL_DATA_LOST: &str = "its SQL catalog and rows require an explicit offlin
                              before normal open, or re-ingestion after moving the file aside";
 
 /// Frozen GraphShard census before the EH-557 enrichment budget authority.
-/// This must not be derived from today's live registry: later inserted tables
-/// would otherwise rewrite the historical predecessor's identity.
-const GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT: &[&str] = &[
-    "nodes",
-    "edges",
-    "ledger",
-    "semantic_store",
-    "audit_chain",
-    "provenance_anchor_members",
-    "graph_meta",
-    "work_item_command_sequence",
-    "resource_reservations",
-    "resource_reservation_tenant_index",
-    "resource_reservation_attempts",
-    "resource_hosts",
-    "resource_exclusivity",
-    "resource_fairness",
-    "resource_concurrency",
-    "resource_anti_affinity",
-    "resource_disk_policies",
-    "change_envelopes",
-    "content_versions",
-    "change_cursors",
-    "change_blobs",
-    "change_features",
-    "change_evidence",
-    "change_policies",
-    "change_lineage",
-    "raft_log",
-    "raft_meta",
-    "xshard_prepare",
-    "xshard_decision",
-    "matviews",
-    "plan_matviews",
-    "matview_operator_state",
-    "capacity_cells",
-    "capacity_leases",
-    "capacity_usage",
-    "capacity_idempotency",
-    "work_item_claim_capabilities",
-    "work_item_claim_capability_invocations",
-    "native_work_item_authority",
-    "development_lane_holds",
-    "development_lane_tenant_index",
-    "development_lane_lane_index",
-    "development_lane_repository_branch_index",
-    "development_lane_worktree_index",
-    "development_lane_work_item_index",
-    "development_lane_counters",
-    "development_lane_pressure_index",
-    "development_lane_policies",
-    "development_lane_invocations",
-    "encryption_canary",
-    "series_chunks",
-    "series_meta",
-    "series_projection_state",
-    "storage_scrub_cursor",
-];
+/// The shared macro has an explicit insertion slot, so later current-layout
+/// tables cannot silently enter this historical predecessor. The pinned
+/// predecessor digest test catches edits to any common name or order.
+const GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT: &[&str] =
+    super::graph_shard::graph_shard_table_names!();
 
 /// Earlier graph-shard layout before the node-payload scrub cursor (EH-384).
 const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT

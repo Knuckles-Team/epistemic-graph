@@ -17,6 +17,25 @@ pub use native::{
 #[cfg(test)]
 mod tests;
 
+/// Build the same pending-source outbox record for Raft command tests in both
+/// this module and its top-up child. The production decoder still validates it.
+#[cfg(test)]
+fn pending_repository_intent(
+    snapshot: crate::parser::enrichment_snapshot::EligibleSnapshot,
+    topic: &str,
+) -> eg_types::MutationOutboxIntent {
+    eg_types::MutationOutboxIntent {
+        topic: topic.into(),
+        key: snapshot.source_envelope.clone(),
+        payload: rmp_serde::to_vec_named(&serde_json::json!({
+            "budget_status": "unreserved",
+            "snapshot": snapshot,
+        }))
+        .unwrap(),
+        headers: Default::default(),
+    }
+}
+
 /// A deterministic command accepted by the replicated state machine.
 ///
 /// Public RPC methods are deliberately not the Raft wire schema. Every
@@ -217,10 +236,7 @@ impl ReplicatedMutation {
         park: &eg_types::native_control::EnrichmentBudgetPark,
     ) -> Result<(), String> {
         fn digest(value: &str) -> bool {
-            value.len() == 64
-                && value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            eg_types::contract::Digest256::parse(value).is_ok()
         }
         if park.schema_version != 1
             || park.parked_at_ms == 0

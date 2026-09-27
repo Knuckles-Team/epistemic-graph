@@ -106,20 +106,10 @@ async fn commit_staged_replay_found(
         Ok(batch) => batch,
         Err(response) => return Some(response),
     };
-    match persistence
+    let committed = persistence
         .commit_mutation_batch_state(fname, &batch, Vec::new(), None, created_at_ms, plan.audited)
-        .await
-    {
-        Ok(committed) if committed.replayed => Some(
-            commit_mutation_body_replay_response(ctx, persistence, fname, committed.record, prep)
-                .await,
-        ),
-        Ok(_) => Some(Response::err(
-            ctx.req_id,
-            "MutationBatch replay probe unexpectedly committed a fresh operation",
-        )),
-        Err(error) => Some(Response::err(ctx.req_id, error)),
-    }
+        .await;
+    replay_commit_result(ctx, persistence, fname, prep, committed).await
 }
 
 async fn staged_replay_descriptor(
@@ -314,20 +304,34 @@ async fn commit_row_replay_found(
         Ok(batch) => batch,
         Err(response) => return Some(response),
     };
-    match persistence
+    let committed = persistence
         .commit_mutation_batch(fname, &batch, None, created_at_ms)
-        .await
-    {
+        .await;
+    replay_commit_result(ctx, persistence, fname, prep, committed).await
+}
+
+async fn replay_commit_result(
+    ctx: &MutationCtx<'_>,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    prep: &CommitPrep,
+    committed: Result<crate::mutation_batch::MutationBatchCommit, String>,
+) -> Option<Response> {
+    match committed {
         Ok(committed) if committed.replayed => Some(
             commit_mutation_body_replay_response(ctx, persistence, fname, committed.record, prep)
                 .await,
         ),
-        Ok(_) => Some(Response::err(
-            ctx.req_id,
-            "MutationBatch replay probe unexpectedly committed a fresh operation",
-        )),
+        Ok(_) => Some(unexpected_fresh_replay(ctx)),
         Err(error) => Some(Response::err(ctx.req_id, error)),
     }
+}
+
+fn unexpected_fresh_replay(ctx: &MutationCtx<'_>) -> Response {
+    Response::err(
+        ctx.req_id,
+        "MutationBatch replay probe unexpectedly committed a fresh operation",
+    )
 }
 
 /// Compile `methods` into a batch and encode `payload` as its durable result — the

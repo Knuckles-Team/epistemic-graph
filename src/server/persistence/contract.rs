@@ -155,8 +155,10 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Reconstruct the registry from durable storage at boot. Returns the number
-    /// of graphs loaded. No-op (Ok(0)) when nothing is configured.
-    async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String>;
+    /// of graphs loaded. Backends without a recovery implementation fail closed.
+    async fn load_all(&self, _state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+        Err("persistence backend does not support graph recovery".to_string())
+    }
 
     /// Populate the registry's CATALOG ONLY at boot (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) —
     /// every graph's identity (name/type), with NO node/edge data read. Each
@@ -217,8 +219,10 @@ pub trait PersistenceBackend: Send + Sync {
     /// Backpressure (NOT drop): a full writer queue must block/await capacity or
     /// fail loudly — never silently discard the mutation.
     ///
-    /// Implementations must provide a real awaited commit barrier.
-    async fn record_durable(&self, graph_fname: &str, method: &Method) -> Result<(), String>;
+    /// Implementations that support writes must provide a real awaited commit barrier.
+    async fn record_durable(&self, _graph_fname: &str, _method: &Method) -> Result<(), String> {
+        Err("persistence backend does not support durable graph writes".to_string())
+    }
 
     /// Commit one canonical mutation batch as the authoritative all-or-nothing
     /// unit.  Implementations must persist operation rows, terminal status,

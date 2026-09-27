@@ -99,66 +99,9 @@ pub(crate) fn native_retry_operations(
     )
 }
 
-/// Encode the derived projection wake-up for an immutable operation list.
-///
-/// Native resource retries compare this derived intent after normalizing the
-/// authority-owned lifecycle timestamp. Keeping the digest construction here
-/// prevents the retry path from drifting from the producer in
-/// `server::mutation_batch::finish_batch`.
-///
-/// BUG-PE-037: moved here from `server::mutation_batch` (which imports Tokio
-/// and is gated on `server`) -- this and `projection_payload_for_operations`
-/// below are pure (sha2/rmp_serde/serde_json only) and this module's own doc
-/// comment above is explicit that it "compiles under `--features redb`
-/// ALONE (no `server`)"; the prior location broke exactly that contract for
-/// `native_retry_outbox_match`, below, one of this module's own callers.
-/// `server::mutation_batch::finish_batch` now calls
-/// `crate::redb_store::projection_payload_for_operations` instead of
-/// keeping a second copy.
-pub(crate) fn projection_summary_for_operations(
-    operations: &[MutationOperation],
-) -> Result<Vec<u8>, String> {
-    let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
-    use sha2::{Digest, Sha256};
-    rmp_serde::to_vec_named(&serde_json::json!({
-        "schema": "epistemic.mutation.projection.v1",
-        "operations": operations.len(),
-        "operations_sha256": hex::encode(Sha256::digest(&encoded_operations)),
-    }))
-    .map_err(|e| e.to_string())
-}
-
-/// Encode the feature-aware projection wake-up payload for an operation list.
-///
-/// `epistemic-tms` replaces the ordinary summary with a typed
-/// `ReasoningProjectionWakeup`. Retry reconciliation must derive the same
-/// payload as the producer, including that feature-specific shape.
-pub(crate) fn projection_payload_for_operations(
-    operations: &[MutationOperation],
-) -> Result<Vec<u8>, String> {
-    #[cfg(feature = "epistemic-tms")]
-    {
-        use sha2::{Digest, Sha256};
-
-        let encoded_operations =
-            rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
-        let methods = operations
-            .iter()
-            .map(|operation| operation.method.clone())
-            .collect::<Vec<_>>();
-        let wakeup = eg_epistemic::ReasoningProjectionWakeup::bounded(
-            operations.len(),
-            hex::encode(Sha256::digest(encoded_operations)),
-            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
-        )?;
-        rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
-    }
-
-    #[cfg(not(feature = "epistemic-tms"))]
-    {
-        projection_summary_for_operations(operations)
-    }
-}
+// Keep the historical redb_store entry point for callers while the encoder
+// lives above the redb/server feature boundary.
+pub(crate) use crate::projection_wakeup::projection_payload_for_operations;
 
 /// Compare the derived projection wake-up for a retry.  Native resource
 /// operations contain one authority-owned `now_ms`, so the raw outbox digest

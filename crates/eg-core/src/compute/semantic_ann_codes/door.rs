@@ -624,7 +624,7 @@ pub(super) fn tenant_store_file_name(tenant: &str) -> String {
 #[cfg(test)]
 mod tenant_open_tests {
     use super::{store_file_name, tenant_store_file_name};
-    use crate::compute::semantic_ann_codes::SemanticCodeStore;
+    use crate::compute::semantic_ann_codes::{ExistingTenantOwnerOpen, SemanticCodeStore};
     use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
     use eg_storage::{merge_semantic_owner_files, OwnerLayout, PhysicalStoreIdentity};
     use std::sync::Arc;
@@ -672,31 +672,37 @@ mod tenant_open_tests {
         };
         let first = SemanticCodeStore::open_tenant(
             &target,
-            verifier(),
-            TEST_PRINCIPAL,
-            TEST_PROOF,
-            tenant,
-            "binding-a",
+            ExistingTenantOwnerOpen {
+                verifier: verifier(),
+                principal: TEST_PRINCIPAL,
+                proof: TEST_PROOF,
+                tenant,
+                binding: "binding-a",
+            },
         )
         .unwrap();
         let second = SemanticCodeStore::open_tenant(
             &target,
-            verifier(),
-            TEST_PRINCIPAL,
-            TEST_PROOF,
-            tenant,
-            "binding-b",
+            ExistingTenantOwnerOpen {
+                verifier: verifier(),
+                principal: TEST_PRINCIPAL,
+                proof: TEST_PROOF,
+                tenant,
+                binding: "binding-b",
+            },
         )
         .unwrap();
         assert!(first.read_binding().unwrap().is_none());
         assert!(second.read_binding().unwrap().is_none());
         assert!(SemanticCodeStore::open_tenant(
             &target,
-            verifier(),
-            TEST_PRINCIPAL,
-            TEST_PROOF,
-            tenant,
-            "binding-c",
+            ExistingTenantOwnerOpen {
+                verifier: verifier(),
+                principal: TEST_PRINCIPAL,
+                proof: TEST_PROOF,
+                tenant,
+                binding: "binding-c",
+            },
         )
         .is_err());
         drop(first);

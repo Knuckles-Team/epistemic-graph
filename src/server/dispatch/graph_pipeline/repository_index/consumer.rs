@@ -34,6 +34,18 @@ pub(super) const PENDING_TOPIC: &str = "repository.enrichment.pending";
 pub(super) const CONSUMER: &str = "repository-enrichment-v1";
 const MAX_PENDING_INTENT_BYTES: usize = 4 * 1024 * 1024;
 
+#[cfg(feature = "blob")]
+fn lease_matches_graph(lease: &MutationOutboxLease, graph_fname: &str) -> bool {
+    lease.consumer == CONSUMER
+        && lease
+            .record
+            .identity
+            .scope()
+            .graph_name()
+            .is_some_and(|name| name.as_str() == graph_fname)
+        && lease.record.commit_sequence.is_some()
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PendingSnapshot {
@@ -106,16 +118,7 @@ pub(super) fn checkpoint_from_durable(
     {
         return Err("CONFLICT: repository enrichment budget owner mismatch".into());
     }
-    let checkpoint = EnrichmentBudgetCheckpoint {
-        schema_version: durable.schema_version,
-        snapshot_digest: durable.snapshot_digest.clone(),
-        next_index: durable.next_index as usize,
-        page_number: durable.page_number,
-        reserved_units: durable.reserved_units,
-        spent_units: durable.spent_units,
-        remaining_units: durable.remaining_units,
-        last_batch_key: (!durable.last_page_key.is_empty()).then(|| durable.last_page_key.clone()),
-    };
+    let checkpoint = EnrichmentBudgetCheckpoint::from_durable(durable);
     checkpoint
         .validate(snapshot)
         .map_err(|_| "CONFLICT: repository enrichment budget checkpoint is invalid")?;
@@ -228,17 +231,7 @@ pub(crate) async fn plan_held_underfunded_park(
     committed_at_ms: u64,
 ) -> Result<(EligibleSnapshot, EnrichmentBudgetPark), String> {
     lease.record.validate()?;
-    if lease.consumer != CONSUMER
-        || lease
-            .record
-            .identity
-            .scope()
-            .graph_name()
-            .map(|name| name.as_str())
-            != Some(graph_fname)
-        || lease.record.commit_sequence.is_none()
-        || committed_at_ms >= lease.lease_until_ms
-    {
+    if !lease_matches_graph(lease, graph_fname) || committed_at_ms >= lease.lease_until_ms {
         return Err("CONFLICT: repository enrichment park lease is invalid".into());
     }
     let snapshot = decode_pending_intent(&lease.record.intent)?;
@@ -372,19 +365,41 @@ pub(super) fn lower_native_page(
     Ok(request)
 }
 
-/// One bounded durable outbox sweep. The caller must provide a trusted service
-/// authority for each page and a submit function that returns only after the
-/// native WorkItem+budget commit receipt. Neither identity nor budget authority
-/// is reconstructed from the outbox body.
 #[cfg(feature = "blob")]
-pub(crate) async fn drain_once<A, AF, S, F, P, PF>(
-    persistence: &dyn PersistenceBackend,
-    graph_fname: &str,
-    store: Arc<dyn crate::server::blob::store::ChunkStore>,
-    mut authority_for_page: A,
-    mut submit: S,
-    mut park_source: P,
-) -> Result<DrainOutcome, String>
+pub(crate) struct PageCallbacks<A, S, P> {
+    authority_for_page: A,
+    submit: S,
+    park_source: P,
+}
+
+#[cfg(feature = "blob")]
+pub(crate) trait PageActions {
+    type AuthorityFuture: Future<
+        Output = Result<(crate::server::auth::VerifiedRequestContext, RequestContext), String>,
+    >;
+    type SubmitFuture: Future<Output = Result<(), String>>;
+    type ParkFuture: Future<Output = Result<(), String>>;
+
+    fn authority_for_page(
+        &mut self,
+        tenant: String,
+        graph: String,
+        page_key: String,
+    ) -> Self::AuthorityFuture;
+    fn submit(
+        &mut self,
+        verified: crate::server::auth::VerifiedRequestContext,
+        request: SubmitWorkItemsRequest,
+    ) -> Self::SubmitFuture;
+    fn park_source(
+        &mut self,
+        lease: MutationOutboxLease,
+        park: EnrichmentBudgetPark,
+    ) -> Self::ParkFuture;
+}
+
+#[cfg(feature = "blob")]
+impl<A, AF, S, F, P, PF> PageActions for PageCallbacks<A, S, P>
 where
     A: FnMut(String, String, String) -> AF,
     AF: Future<
@@ -394,6 +409,43 @@ where
     F: Future<Output = Result<(), String>>,
     P: FnMut(MutationOutboxLease, EnrichmentBudgetPark) -> PF,
     PF: Future<Output = Result<(), String>>,
+{
+    type AuthorityFuture = AF;
+    type SubmitFuture = F;
+    type ParkFuture = PF;
+
+    fn authority_for_page(&mut self, tenant: String, graph: String, page_key: String) -> AF {
+        (self.authority_for_page)(tenant, graph, page_key)
+    }
+
+    fn submit(
+        &mut self,
+        verified: crate::server::auth::VerifiedRequestContext,
+        request: SubmitWorkItemsRequest,
+    ) -> F {
+        (self.submit)(verified, request)
+    }
+
+    fn park_source(&mut self, lease: MutationOutboxLease, park: EnrichmentBudgetPark) -> PF {
+        (self.park_source)(lease, park)
+    }
+}
+
+/// One bounded durable outbox sweep. The caller must provide a trusted service
+/// authority for each page and a submit function that returns only after the
+/// native WorkItem+budget commit receipt. Neither identity nor budget authority
+/// is reconstructed from the outbox body.
+#[cfg(feature = "blob")]
+pub(crate) async fn drain_once<A, S, P>(
+    persistence: &dyn PersistenceBackend,
+    graph_fname: &str,
+    store: Arc<dyn crate::server::blob::store::ChunkStore>,
+    authority_for_page: A,
+    submit: S,
+    park_source: P,
+) -> Result<DrainOutcome, String>
+where
+    PageCallbacks<A, S, P>: PageActions,
 {
     // The park is graph-wide and durable. Read it before subscribing/claiming
     // on every sweep, including the first sweep after process restart.
@@ -438,16 +490,12 @@ where
             .await?;
         return Ok(DrainOutcome::Parked);
     }
-    process_held_lease(
-        persistence,
-        graph_fname,
-        store,
-        &lease,
-        &mut authority_for_page,
-        &mut submit,
-        &mut park_source,
-    )
-    .await
+    let mut callbacks = PageCallbacks {
+        authority_for_page,
+        submit,
+        park_source,
+    };
+    process_held_lease(persistence, graph_fname, store, &lease, &mut callbacks).await
 }
 
 #[cfg(feature = "blob")]
@@ -511,36 +559,15 @@ async fn classify_dead_letter(
 }
 
 #[cfg(feature = "blob")]
-async fn process_held_lease<A, AF, S, F, P, PF>(
+async fn process_held_lease<C: PageActions>(
     persistence: &dyn PersistenceBackend,
     graph_fname: &str,
     store: Arc<dyn crate::server::blob::store::ChunkStore>,
     lease: &MutationOutboxLease,
-    authority_for_page: &mut A,
-    submit: &mut S,
-    park_source: &mut P,
-) -> Result<DrainOutcome, String>
-where
-    A: FnMut(String, String, String) -> AF,
-    AF: Future<
-        Output = Result<(crate::server::auth::VerifiedRequestContext, RequestContext), String>,
-    >,
-    S: FnMut(crate::server::auth::VerifiedRequestContext, SubmitWorkItemsRequest) -> F,
-    F: Future<Output = Result<(), String>>,
-    P: FnMut(MutationOutboxLease, EnrichmentBudgetPark) -> PF,
-    PF: Future<Output = Result<(), String>>,
-{
+    callbacks: &mut C,
+) -> Result<DrainOutcome, String> {
     lease.record.validate()?;
-    if lease.consumer != CONSUMER
-        || lease
-            .record
-            .identity
-            .scope()
-            .graph_name()
-            .map(|name| name.as_str())
-            != Some(graph_fname)
-        || lease.record.commit_sequence.is_none()
-    {
+    if !lease_matches_graph(lease, graph_fname) {
         return Err("CONFLICT: repository enrichment lease consumer mismatch".into());
     }
     let snapshot = decode_pending_intent(&lease.record.intent)?;
@@ -586,60 +613,105 @@ where
                 let park = plan_underfunded_park(&snapshot, &checkpoint, now_ms)?;
                 // The adapter owns the local or replicated park barrier and
                 // releases this exact held lease only after that barrier.
-                park_source(lease.clone(), park).await?;
+                callbacks.park_source(lease.clone(), park).await?;
                 return Ok(DrainOutcome::Parked);
             }
             PageDecision::Ready(page) => {
-                let owned_snapshot = snapshot.clone();
-                let owned_page = page.clone();
-                let owned_store = Arc::clone(&store);
-                tokio::task::spawn_blocking(move || {
-                    verify_page_cas(owned_store.as_ref(), &owned_snapshot, &owned_page)
-                })
-                .await
-                .map_err(|_| "CONFLICT: repository enrichment CAS worker failed")??;
-                let (verified, wire) = authority_for_page(
-                    snapshot.tenant_id.clone(),
-                    snapshot.graph.clone(),
-                    page.page_key.clone(),
+                checkpoint = submit_ready_page(
+                    persistence,
+                    graph_fname,
+                    &store,
+                    ReadyPage {
+                        snapshot: &snapshot,
+                        checkpoint: &checkpoint,
+                        plan: &page,
+                    },
+                    now_ms,
+                    callbacks,
                 )
                 .await?;
-                if verified.idempotency_key() != page.page_key
-                    || !verified.allows_action("work:submit")
-                    || !verified.allows_action("repository:enrichment:submit")
-                    || !crate::server::handlers::delegation::context_matches_verified_authority(
-                        &wire, &verified,
-                    )
-                    || wire.subject_id.trim().is_empty()
-                    || wire.trace_id.trim().is_empty()
-                    || wire
-                        .scopes
-                        .iter()
-                        .any(|scope| scope.trim().is_empty() || !verified.allows_action(scope))
-                    || wire.issued_at_ms > now_ms
-                    || wire.expires_at_ms <= now_ms
-                {
-                    return Err(
-                        "ACCESS_DENIED: repository enrichment service authority is invalid".into(),
-                    );
-                }
-                let request = lower_native_page(&snapshot, &checkpoint, &page, wire)?;
-                submit(verified, request).await?;
-                let advanced = read_checkpoint(persistence, graph_fname, &snapshot).await?;
-                if advanced.next_index < page.end_index
-                    || (advanced.next_index == page.end_index
-                        && advanced.last_batch_key.as_deref() != Some(page.page_key.as_str()))
-                {
-                    return Err(
-                        "CONFLICT: repository enrichment native receipt did not advance budget"
-                            .into(),
-                    );
-                }
-                checkpoint = advanced;
                 pages = pages.saturating_add(1);
             }
         }
     }
+}
+
+/// Verify the service grant before admitting a native page. The grant must
+/// bind this exact page and remain valid at the authoritative sweep time.
+#[cfg(feature = "blob")]
+fn verify_page_service_authority(
+    verified: &crate::server::auth::VerifiedRequestContext,
+    wire: &RequestContext,
+    page_key: &str,
+    now_ms: u64,
+) -> Result<(), String> {
+    if verified.idempotency_key() != page_key
+        || !verified.allows_action("work:submit")
+        || !verified.allows_action("repository:enrichment:submit")
+        || !crate::server::handlers::delegation::context_matches_verified_authority(wire, verified)
+        || wire.subject_id.trim().is_empty()
+        || wire.trace_id.trim().is_empty()
+        || wire
+            .scopes
+            .iter()
+            .any(|scope| scope.trim().is_empty() || !verified.allows_action(scope))
+        || wire.issued_at_ms > now_ms
+        || wire.expires_at_ms <= now_ms
+    {
+        return Err("ACCESS_DENIED: repository enrichment service authority is invalid".into());
+    }
+    Ok(())
+}
+
+/// A page is complete only after the native receipt advances the durable
+/// checkpoint to its exact idempotency key.
+#[cfg(feature = "blob")]
+struct ReadyPage<'a> {
+    snapshot: &'a EligibleSnapshot,
+    checkpoint: &'a EnrichmentBudgetCheckpoint,
+    plan: &'a PagePlan,
+}
+
+#[cfg(feature = "blob")]
+async fn submit_ready_page<C: PageActions>(
+    persistence: &dyn PersistenceBackend,
+    graph_fname: &str,
+    store: &Arc<dyn crate::server::blob::store::ChunkStore>,
+    ready: ReadyPage<'_>,
+    now_ms: u64,
+    callbacks: &mut C,
+) -> Result<EnrichmentBudgetCheckpoint, String> {
+    let ReadyPage {
+        snapshot,
+        checkpoint,
+        plan: page,
+    } = ready;
+    let owned_snapshot = snapshot.clone();
+    let owned_page = page.clone();
+    let owned_store = Arc::clone(store);
+    tokio::task::spawn_blocking(move || {
+        verify_page_cas(owned_store.as_ref(), &owned_snapshot, &owned_page)
+    })
+    .await
+    .map_err(|_| "CONFLICT: repository enrichment CAS worker failed")??;
+    let (verified, wire) = callbacks
+        .authority_for_page(
+            snapshot.tenant_id.clone(),
+            snapshot.graph.clone(),
+            page.page_key.clone(),
+        )
+        .await?;
+    verify_page_service_authority(&verified, &wire, &page.page_key, now_ms)?;
+    let request = lower_native_page(snapshot, checkpoint, page, wire)?;
+    callbacks.submit(verified, request).await?;
+    let advanced = read_checkpoint(persistence, graph_fname, snapshot).await?;
+    if advanced.next_index < page.end_index
+        || (advanced.next_index == page.end_index
+            && advanced.last_batch_key.as_deref() != Some(page.page_key.as_str()))
+    {
+        return Err("CONFLICT: repository enrichment native receipt did not advance budget".into());
+    }
+    Ok(advanced)
 }
 
 #[cfg(test)]
@@ -660,21 +732,6 @@ mod tests {
     #[cfg(feature = "blob")]
     #[async_trait::async_trait]
     impl PersistenceBackend for DeadLetterProbe {
-        async fn load_all(
-            &self,
-            _state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
-        ) -> Result<usize, String> {
-            Ok(0)
-        }
-
-        async fn record_durable(
-            &self,
-            _graph_fname: &str,
-            _method: &crate::protocol::Method,
-        ) -> Result<(), String> {
-            Ok(())
-        }
-
         async fn read_mutation_outbox(
             &self,
             _graph_fname: &str,
@@ -809,6 +866,13 @@ mod tests {
         }
     }
 
+    fn ready_page(source: &EligibleSnapshot, checkpoint: &EnrichmentBudgetCheckpoint) -> PagePlan {
+        match plan_next_page(source, checkpoint).expect("valid page plan") {
+            PageDecision::Ready(page) => page,
+            other => panic!("expected a funded page, got {other:?}"),
+        }
+    }
+
     #[test]
     fn pending_intent_requires_exact_source_and_bounded_valid_snapshot() {
         let source = snapshot(2, 2);
@@ -874,9 +938,7 @@ mod tests {
     fn funded_pages_cover_one_hundred_thirty_units_without_renewing_budget() {
         let source = snapshot(130, 130);
         let mut checkpoint = EnrichmentBudgetCheckpoint::initial(&source).unwrap();
-        let PageDecision::Ready(first) = plan_next_page(&source, &checkpoint).unwrap() else {
-            panic!("first page should be funded");
-        };
+        let first = ready_page(&source, &checkpoint);
         assert_eq!(first.end_index, MAX_SUBMIT_BATCH);
         assert_eq!(first.reserve_units, MAX_SUBMIT_BATCH as u64);
         checkpoint.next_index = first.end_index;
@@ -884,9 +946,7 @@ mod tests {
         checkpoint.reserved_units = first.reserve_units;
         checkpoint.remaining_units -= first.reserve_units;
         checkpoint.last_batch_key = Some(first.page_key);
-        let PageDecision::Ready(second) = plan_next_page(&source, &checkpoint).unwrap() else {
-            panic!("second page should be funded");
-        };
+        let second = ready_page(&source, &checkpoint);
         assert_eq!(second.start_index, MAX_SUBMIT_BATCH);
         assert_eq!(second.end_index, 130);
         assert_eq!(second.reserve_units, 2);
@@ -897,9 +957,7 @@ mod tests {
     fn underfunded_unit_stays_pending_at_the_same_cursor() {
         let source = snapshot(2, 1);
         let checkpoint = EnrichmentBudgetCheckpoint::initial(&source).unwrap();
-        let PageDecision::Ready(first) = plan_next_page(&source, &checkpoint).unwrap() else {
-            panic!("first page should fit");
-        };
+        let first = ready_page(&source, &checkpoint);
         let mut exhausted = checkpoint;
         exhausted.next_index = first.end_index;
         exhausted.page_number = 1;
@@ -938,9 +996,7 @@ mod tests {
         let mut source = snapshot(2, u64::MAX);
         source.units[0].compute_units = u64::MAX;
         let checkpoint = EnrichmentBudgetCheckpoint::initial(&source).unwrap();
-        let PageDecision::Ready(page) = plan_next_page(&source, &checkpoint).unwrap() else {
-            panic!("first unit should fit");
-        };
+        let page = ready_page(&source, &checkpoint);
         assert_eq!(page.end_index, 1);
         assert_eq!(page.reserve_units, u64::MAX);
     }
@@ -973,9 +1029,7 @@ mod tests {
     fn native_page_binds_atomic_budget_and_stable_page_identity() {
         let source = snapshot(2, 2);
         let checkpoint = EnrichmentBudgetCheckpoint::initial(&source).unwrap();
-        let PageDecision::Ready(page) = plan_next_page(&source, &checkpoint).unwrap() else {
-            panic!("page should be funded");
-        };
+        let page = ready_page(&source, &checkpoint);
         let context = service_context(&source.tenant_id, &source.graph, &page.page_key);
         let first = lower_native_page(&source, &checkpoint, &page, context.clone()).unwrap();
         let retry = lower_native_page(&source, &checkpoint, &page, context).unwrap();
@@ -998,9 +1052,7 @@ mod tests {
     fn native_page_refuses_unscoped_service_or_stale_checkpoint() {
         let source = snapshot(1, 1);
         let checkpoint = EnrichmentBudgetCheckpoint::initial(&source).unwrap();
-        let PageDecision::Ready(page) = plan_next_page(&source, &checkpoint).unwrap() else {
-            panic!("page should be funded");
-        };
+        let page = ready_page(&source, &checkpoint);
         let wrong = service_context("other-tenant", &source.graph, &page.page_key);
         assert!(lower_native_page(&source, &checkpoint, &page, wrong).is_err());
         let mut ordinary_worker = service_context(&source.tenant_id, &source.graph, &page.page_key);
@@ -1043,9 +1095,7 @@ mod tests {
         source.units[0].input_ref = format!("cas:sha256:{}", stored[0].manifest_digest);
         source.units[0].content_length = body.len() as u64;
         let checkpoint = EnrichmentBudgetCheckpoint::initial(&source).unwrap();
-        let PageDecision::Ready(page) = plan_next_page(&source, &checkpoint).unwrap() else {
-            panic!("source should form one page");
-        };
+        let page = ready_page(&source, &checkpoint);
         verify_page_cas(&store, &source, &page).unwrap();
         let mut wrong_length = page;
         wrong_length.units[0].content_length += 1;

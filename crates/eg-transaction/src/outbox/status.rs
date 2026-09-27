@@ -13,7 +13,7 @@ use crate::outbox::rows::{
     OUTBOX_QUEUE_CAPACITY,
 };
 use crate::outbox::{claim, cursor, index, stream};
-use crate::tables::{OUTBOX_CLAIM_CURSORS, OUTBOX_DELIVERIES, OUTBOX_FAIRNESS};
+use crate::tables::{OUTBOX_DELIVERIES, OUTBOX_FAIRNESS};
 use eg_storage::{ledger_scope_key, OwnerDomain, ScopedRead};
 use eg_types::MutationScopeIdentity;
 
@@ -186,15 +186,7 @@ fn pending_rows<D: OwnerDomain>(
     for entry in page.entries {
         index::validate_position_in_read(read, scope, topic, read.scope(), &entry.position)
             .map_err(|error| format!("CORRUPT_OUTBOX_INDEX: {error}"))?;
-        let delivery = table
-            .get((
-                scope,
-                consumer,
-                entry.position.batch_id.as_str(),
-                entry.position.ordinal,
-            ))?
-            .map(|value| decode_row::<OutboxDelivery>(value.value()))
-            .transpose()?;
+        let delivery = delivery_at_position!(table, scope, consumer, entry.position)?;
         let (resolved, attempt, leased) = fold_delivery(
             delivery,
             read.scope(),
@@ -305,21 +297,7 @@ fn claim_cursor<D: OwnerDomain>(
     scope: &str,
     consumer: &str,
 ) -> Result<Option<OutboxClaimCursor>, String> {
-    let table = read.scoped_table(OUTBOX_CLAIM_CURSORS)?;
-    let row = table
-        .get((scope, consumer))?
-        .map(|value| decode_row::<OutboxClaimCursor>(value.value()))
-        .transpose()?;
-    if let Some(cursor) = &row {
-        validate_stamp(&cursor.identity, read.scope())?;
-        if cursor.schema_version != eg_types::MUTATION_BATCH_VERSION {
-            return Err("CORRUPT_OUTBOX_CURSOR: unsupported row schema".to_string());
-        }
-        if cursor.consumer != consumer {
-            return Err("CORRUPT_OUTBOX_CURSOR: consumer does not match its key".to_string());
-        }
-    }
-    Ok(row)
+    claim::read_claim_cursor_optional_in_read(read, scope, consumer, read.scope())
 }
 
 fn validate_claim_cursor<D: OwnerDomain>(

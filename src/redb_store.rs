@@ -50,6 +50,52 @@ where
         .any(|(expected, actual)| expected.is_some_and(|expected| expected != actual))
 }
 
+/// One test-only graph-scoped control batch, shared by reservation and
+/// WorkItem-capability fixtures. Both exercise the same caller-to-shard
+/// binding, but retain their own actor, attempt time, and stable identity.
+#[cfg(test)]
+pub(crate) struct ControlFixtureBatch {
+    pub(crate) identity: eg_types::MutationScopeIdentity,
+    pub(crate) batch_id: String,
+    pub(crate) actor: String,
+    pub(crate) request_id: u64,
+    pub(crate) idempotency_key: String,
+    pub(crate) expected_version: u64,
+    pub(crate) method: Method,
+    pub(crate) created_at_ms: u64,
+}
+
+#[cfg(test)]
+pub(crate) fn control_fixture_batch(input: ControlFixtureBatch) -> MutationBatch {
+    let mut batch = MutationBatch {
+        schema_version: MUTATION_BATCH_VERSION,
+        batch_id: input.batch_id,
+        envelope: fixture_operation_envelope(
+            &input.identity,
+            &input.actor,
+            input.request_id,
+            &input.idempotency_key,
+        ),
+        identity: input.identity,
+        placement_epoch: 0,
+        version_expectation: VersionExpectation::Graph(input.expected_version),
+        fencing_token: None,
+        authoritative_state: None,
+        operations: vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Job,
+            domain: DurabilityDomain::ControlPlane,
+            method: input.method,
+        }],
+        outbox: Vec::new(),
+        created_at_ms: input.created_at_ms,
+    };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
+    batch
+}
+
 mod commit_timing;
 mod sealed_rows;
 mod store_batch;
@@ -1498,18 +1544,8 @@ mod mutation_batch_tests {
         let mut audit = AuditTailCache::new();
         commit_mutation_batch_inner(
             shard,
-            BatchCommitInput {
-                graph_fname,
-                batch,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: None,
-                crossmodal: None,
-                result_msgpack: Some(&[0x81, 0xa2, b'o', b'k']),
-                committed_at_ms: 101,
-                audited: true,
-                crashpoint: point,
-            },
+            BatchCommitInput::compact(graph_fname, batch, Some(&[0x81, 0xa2, b'o', b'k']), 101)
+                .with_crashpoint(point),
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
@@ -1555,21 +1591,14 @@ mod mutation_batch_tests {
         commit_mutation_batch_inner(
             shard,
             BatchCommitInput {
-                graph_fname: "graph-a",
-                batch,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: None,
                 crossmodal: Some(CrossModalBatchRows {
                     methods,
                     vectors,
                     blob_refs: &[],
                     measurements: &[],
                 }),
-                result_msgpack: Some(&[0x81, 0xa2, b'o', b'k']),
-                committed_at_ms: 101,
-                audited: true,
-                crashpoint: point,
+                ..BatchCommitInput::compact("graph-a", batch, Some(&[0x81, 0xa2, b'o', b'k']), 101)
+                    .with_crashpoint(point)
             },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
@@ -4909,16 +4938,14 @@ mod mutation_batch_tests {
         assert!(commit_mutation_batch_inner(
             &db,
             BatchCommitInput {
-                graph_fname: "graph-a",
-                batch: &mutation,
-                change: None,
-                source_budget: None,
-                authoritative_state_msgpack: Some(&state),
+                rows: BatchRowInput {
+                    authoritative_state_msgpack: Some(&state),
+                    ..BatchCommitInput::compact("graph-a", &mutation, None, 103)
+                        .with_crashpoint(Some(MutationBatchCrashpoint::BeforeCommit))
+                        .rows
+                },
                 crossmodal: None,
                 result_msgpack: None,
-                committed_at_ms: 103,
-                audited: true,
-                crashpoint: Some(MutationBatchCrashpoint::BeforeCommit),
             },
             DurableCrypto::none(),
             #[cfg(feature = "security")]

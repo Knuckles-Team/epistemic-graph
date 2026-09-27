@@ -112,6 +112,9 @@ pub(crate) mod bounded_join;
 /// permanent outage. A bare `.unwrap()` on a poisoned lock is the absence of a
 /// decision; these make the decision explicit and visible.
 pub(crate) mod lock_recovery;
+// Pure mutation outbox encoding shared by redb-only retry and server-only
+// compilation; neither feature may import the other's gated module.
+pub(crate) mod projection_wakeup;
 #[cfg(feature = "redb")]
 pub mod redb_store;
 // The one shape every small kernel-owned sidecar file in this binary takes.

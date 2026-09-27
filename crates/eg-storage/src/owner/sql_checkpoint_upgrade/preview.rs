@@ -90,19 +90,22 @@ pub(super) fn inspect(
     )
 }
 
-pub(crate) fn inspect_with(
+pub(crate) fn inspect_with<F>(
     source: &File,
     incarnation: &StoreIncarnation,
     physical: &PhysicalStoreIdentity,
     integrity: Option<&dyn PrivatePayloadIntegrity>,
     options: &SqlSourceCheckpointInspectionOptions,
-    inspect: fn(
+    inspect: F,
+) -> Result<(OwnerManifest, StrictRecoveryEvidence, [u8; 32]), String>
+where
+    F: FnOnce(
         &Database,
         &StoreIncarnation,
         &PhysicalStoreIdentity,
         Option<&dyn PrivatePayloadIntegrity>,
     ) -> Result<(OwnerManifest, StrictRecoveryEvidence), String>,
-) -> Result<(OwnerManifest, StrictRecoveryEvidence, [u8; 32]), String> {
+{
     validate_source_size(source, options.max_bytes)?;
     let mut scratch = SqlPreviewScratch::create(&options.staging_root)?;
     let (backend, preview_file) = exclusive_backend(
@@ -128,18 +131,21 @@ pub(crate) fn inspect_with(
     Ok((manifest, evidence, fingerprint))
 }
 
-fn inspect_recovered_preview(
+fn inspect_recovered_preview<F>(
     backend: BoundedPreviewBackend,
     incarnation: &StoreIncarnation,
     physical: &PhysicalStoreIdentity,
     integrity: Option<&dyn PrivatePayloadIntegrity>,
-    inspect: fn(
+    inspect: F,
+) -> Result<(OwnerManifest, StrictRecoveryEvidence), String>
+where
+    F: FnOnce(
         &Database,
         &StoreIncarnation,
         &PhysicalStoreIdentity,
         Option<&dyn PrivatePayloadIntegrity>,
     ) -> Result<(OwnerManifest, StrictRecoveryEvidence), String>,
-) -> Result<(OwnerManifest, StrictRecoveryEvidence), String> {
+{
     let database = upgrade_builder()
         .create_with_backend(backend)
         .map_err(|error| error.to_string())?;

@@ -57,7 +57,7 @@ pub(crate) async fn handle_connector_pack(
             reconcile::serve(state, req_id, verified, request).await
         }
         ConnectorPackOp::ReconcileCatalog { request } => {
-            catalog_authority::serve(state, req_id, verified, request).await
+            catalog_authority::serve(state, req_id, verified, *request).await
         }
         ConnectorPackOp::CatalogAuthorityStatus { request } => {
             catalog_authority::serve_status(state, req_id, verified, request).await

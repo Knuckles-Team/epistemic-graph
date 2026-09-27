@@ -19,8 +19,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::{
-    semantic_owner_principal, semantic_registry, semantic_server_secrets,
-    tenant_semantic_owner_file, upgrade, TenantScopedSemanticVerifier,
+    semantic_owner_principal, semantic_registry, semantic_scope_verifier, semantic_server_secrets,
+    tenant_semantic_owner_file, upgrade,
 };
 
 const ROOT: &str = "/etc/agent-utilities/rf019";
@@ -101,14 +101,9 @@ fn opened() -> &'static Mutex<HashSet<(String, String)>> {
 fn digest_file(path: &Path, max_bytes: u64) -> Result<([u8; 32], u64, u64, u64), String> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-        const O_NOFOLLOW: i32 = 0o400000;
+        use std::os::unix::fs::MetadataExt;
         let named = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-        let mut file = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(O_NOFOLLOW)
-            .open(path)
-            .map_err(|error| error.to_string())?;
+        let mut file = upgrade::open_existing_nofollow(path)?;
         let before = file.metadata().map_err(|error| error.to_string())?;
         if !named.file_type().is_file()
             || !before.is_file()
@@ -119,38 +114,16 @@ fn digest_file(path: &Path, max_bytes: u64) -> Result<([u8; 32], u64, u64, u64),
         {
             return Err("RF-019 owner or helper file identity refused".to_string());
         }
-        let mut sha = Sha256::new();
-        let mut bytes = 0_u64;
-        let mut block = [0_u8; 64 * 1024];
-        loop {
-            let read = file.read(&mut block).map_err(|error| error.to_string())?;
-            if read == 0 {
-                break;
-            }
-            bytes = bytes
-                .checked_add(read as u64)
-                .ok_or_else(|| "RF-019 byte budget overflowed".to_string())?;
-            if bytes > max_bytes {
-                return Err("RF-019 file exceeded its byte budget".to_string());
-            }
-            sha.update(&block[..read]);
-        }
+        let (digest, bytes) = upgrade::hash_bounded_reader(
+            &mut file,
+            max_bytes,
+            "RF-019 byte budget overflowed",
+            "RF-019 file exceeded its byte budget",
+        )?;
         let after = file.metadata().map_err(|error| error.to_string())?;
         let named_after = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
         if bytes != before.len()
-            || (
-                before.dev(),
-                before.ino(),
-                before.len(),
-                before.mtime(),
-                before.mtime_nsec(),
-            ) != (
-                after.dev(),
-                after.ino(),
-                after.len(),
-                after.mtime(),
-                after.mtime_nsec(),
-            )
+            || !upgrade::same_opened_file_observation(&before, &after)
             || (after.dev(), after.ino(), after.len(), after.nlink())
                 != (
                     named_after.dev(),
@@ -161,7 +134,7 @@ fn digest_file(path: &Path, max_bytes: u64) -> Result<([u8; 32], u64, u64, u64),
         {
             return Err("RF-019 file changed during observation".to_string());
         }
-        Ok((sha.finalize().into(), before.dev(), before.ino(), bytes))
+        Ok((digest, before.dev(), before.ino(), bytes))
     }
     #[cfg(not(unix))]
     {
@@ -202,23 +175,7 @@ fn authority_observation_unchanged(
 ) -> bool {
     use std::os::unix::fs::MetadataExt;
 
-    let opened_unchanged = (
-        before.dev(),
-        before.ino(),
-        before.len(),
-        before.mtime(),
-        before.mtime_nsec(),
-        before.ctime(),
-        before.ctime_nsec(),
-    ) == (
-        after.dev(),
-        after.ino(),
-        after.len(),
-        after.mtime(),
-        after.mtime_nsec(),
-        after.ctime(),
-        after.ctime_nsec(),
-    );
+    let opened_unchanged = upgrade::same_opened_file_observation(before, after);
     let name_still_refers_to_open_file = (after.dev(), after.ino(), after.len(), after.nlink())
         == (
             named_after.dev(),
@@ -240,15 +197,8 @@ fn read_fixed_authority_file(
     owner_uid: u32,
     after_open: impl FnOnce(),
 ) -> Result<Vec<u8>, String> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    const O_NOFOLLOW: i32 = 0o400000;
     let named = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    let mut file = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NOFOLLOW)
-        .open(path)
-        .map_err(|error| error.to_string())?;
+    let mut file = upgrade::open_existing_nofollow(path)?;
     let before = file.metadata().map_err(|error| error.to_string())?;
     if !initial_authority_identity(&named, &before, owner_uid) {
         return Err("RF-019 fixed preflight authority identity refused".to_string());
@@ -267,55 +217,67 @@ fn read_fixed_authority_file(
     Ok(raw)
 }
 
+#[cfg(unix)]
+fn validate_fixed_trust_paths() -> Result<(), String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    for directory in [
+        "/etc",
+        "/etc/agent-utilities",
+        ROOT,
+        "/usr",
+        "/usr/local",
+        "/usr/local/bin",
+    ] {
+        let metadata = fs::symlink_metadata(directory).map_err(|error| error.to_string())?;
+        if !metadata.file_type().is_dir()
+            || metadata.uid() != 0
+            || metadata.permissions().mode() & 0o022 != 0
+            || fs::canonicalize(directory).map_err(|error| error.to_string())?
+                != Path::new(directory)
+        {
+            return Err("RF-019 fixed trust path is not root-owned and canonical".to_string());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn validate_fixed_authority_owners() -> Result<(), String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let root = fs::symlink_metadata(ROOT).map_err(|error| error.to_string())?;
+    let config = fs::symlink_metadata(AUTHORITY).map_err(|error| error.to_string())?;
+    let manifest = fs::symlink_metadata(MANIFEST).map_err(|error| error.to_string())?;
+    let helper = fs::symlink_metadata(HELPER).map_err(|error| error.to_string())?;
+    let helper_parent =
+        fs::symlink_metadata("/usr/local/bin").map_err(|error| error.to_string())?;
+    let root_ok =
+        root.file_type().is_dir() && root.permissions().mode() & 0o777 == 0o700 && root.uid() == 0;
+    let config_ok = owned_private_authority_file(&config, 0);
+    let manifest_ok = owned_private_authority_file(&manifest, 0);
+    let helper_ok = valid_fixed_helper_owner(&helper, &helper_parent);
+    if !(root_ok && config_ok && manifest_ok && helper_ok) {
+        return Err("RF-019 fixed preflight authority ownership refused".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn valid_fixed_helper_owner(helper: &fs::Metadata, parent: &fs::Metadata) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    helper.file_type().is_file()
+        && helper.uid() == 0
+        && helper.permissions().mode() & 0o111 != 0
+        && helper.permissions().mode() & 0o022 == 0
+        && parent.file_type().is_dir()
+        && parent.uid() == 0
+        && parent.permissions().mode() & 0o022 == 0
+}
+
 fn fixed_authority(persist_dir: &Path) -> Result<[u8; 32], String> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        for directory in [
-            "/etc",
-            "/etc/agent-utilities",
-            ROOT,
-            "/usr",
-            "/usr/local",
-            "/usr/local/bin",
-        ] {
-            let metadata = fs::symlink_metadata(directory).map_err(|error| error.to_string())?;
-            if !metadata.file_type().is_dir()
-                || metadata.uid() != 0
-                || metadata.permissions().mode() & 0o022 != 0
-                || fs::canonicalize(directory).map_err(|error| error.to_string())?
-                    != Path::new(directory)
-            {
-                return Err("RF-019 fixed trust path is not root-owned and canonical".to_string());
-            }
-        }
-        let root = fs::symlink_metadata(ROOT).map_err(|error| error.to_string())?;
-        let config = fs::symlink_metadata(AUTHORITY).map_err(|error| error.to_string())?;
-        let manifest = fs::symlink_metadata(MANIFEST).map_err(|error| error.to_string())?;
-        let helper = fs::symlink_metadata(HELPER).map_err(|error| error.to_string())?;
-        let helper_parent =
-            fs::symlink_metadata("/usr/local/bin").map_err(|error| error.to_string())?;
-        if !root.file_type().is_dir()
-            || root.permissions().mode() & 0o777 != 0o700
-            || root.uid() != 0
-            || !config.file_type().is_file()
-            || config.permissions().mode() & 0o777 != 0o600
-            || config.uid() != 0
-            || config.nlink() != 1
-            || !manifest.file_type().is_file()
-            || manifest.permissions().mode() & 0o777 != 0o600
-            || manifest.uid() != 0
-            || manifest.nlink() != 1
-            || !helper.file_type().is_file()
-            || helper.uid() != 0
-            || helper.permissions().mode() & 0o111 == 0
-            || helper.permissions().mode() & 0o022 != 0
-            || !helper_parent.file_type().is_dir()
-            || helper_parent.uid() != 0
-            || helper_parent.permissions().mode() & 0o022 != 0
-        {
-            return Err("RF-019 fixed preflight authority ownership refused".to_string());
-        }
+        validate_fixed_trust_paths()?;
+        validate_fixed_authority_owners()?;
         let raw = read_fixed_authority_file(Path::new(AUTHORITY), 0, || {})?;
         let authority: HelperAuthority = serde_json::from_slice(&raw)
             .map_err(|_| "RF-019 fixed preflight authority is invalid".to_string())?;
@@ -339,20 +301,7 @@ fn fixed_authority(persist_dir: &Path) -> Result<[u8; 32], String> {
 }
 
 fn hex_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn token(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    !bytes.is_empty()
-        && bytes.len() <= 128
-        && bytes[0].is_ascii_alphanumeric()
-        && bytes[1..]
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"_.:-".contains(byte))
+    eg_types::contract::Digest256::parse(value).is_ok()
 }
 
 /// Reobserve the fixed, signed claim file after taking engine.lock. The
@@ -361,24 +310,14 @@ fn token(value: &str) -> bool {
 fn fixed_claim_matches(grant: &Grant) -> Result<(), String> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let directory = fs::symlink_metadata(CLAIMS).map_err(|error| error.to_string())?;
-        if !directory.file_type().is_dir()
-            || directory.uid() != 0
-            || directory.permissions().mode() & 0o777 != 0o700
-            || fs::canonicalize(CLAIMS).map_err(|error| error.to_string())? != Path::new(CLAIMS)
-        {
+        if !valid_fixed_claim_directory(&directory)? {
             return Err("RF-019 fixed claim directory authority refused".to_string());
         }
         let name = hex::encode(Sha256::digest(grant.tenant_id.as_bytes()));
         let path = Path::new(CLAIMS).join(format!("{name}.json"));
         let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
-        if !metadata.file_type().is_file()
-            || metadata.uid() != 0
-            || metadata.permissions().mode() & 0o777 != 0o600
-            || metadata.nlink() != 1
-            || grant.claim_size > MAX_CLAIM_BYTES
-        {
+        if !owned_private_authority_file(&metadata, 0) || grant.claim_size > MAX_CLAIM_BYTES {
             return Err("RF-019 fixed signed claim file authority refused".to_string());
         }
         let (digest, device, inode, size) = digest_file(&path, MAX_CLAIM_BYTES)?;
@@ -398,6 +337,40 @@ fn fixed_claim_matches(grant: &Grant) -> Result<(), String> {
     {
         let _ = grant;
         Err("RF-019 activation requires no-follow Unix claim files".to_string())
+    }
+}
+
+#[cfg(unix)]
+fn valid_fixed_claim_directory(metadata: &fs::Metadata) -> Result<bool, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    Ok(metadata.file_type().is_dir()
+        && metadata.uid() == 0
+        && metadata.permissions().mode() & 0o777 == 0o700
+        && fs::canonicalize(CLAIMS).map_err(|error| error.to_string())? == Path::new(CLAIMS))
+}
+
+fn wait_for_fixed_helper(
+    child: &mut std::process::Child,
+    overflow: &AtomicBool,
+    started: Instant,
+) -> Result<std::process::ExitStatus, String> {
+    loop {
+        if overflow.load(Ordering::Acquire) || started.elapsed() >= PREFLIGHT_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            // Do not join a pipe reader held open by an orphaned descendant.
+            // The startup error exits this process without publishing a grant.
+            return Err("RF-019 fixed preflight helper exceeded resource limits".to_string());
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("RF-019 fixed preflight helper wait failed".to_string());
+            }
+        }
     }
 }
 
@@ -446,36 +419,23 @@ fn run_fixed_helper(args: &[&str]) -> Result<Vec<u8>, String> {
         Arc::clone(&overflow),
     );
     let started = Instant::now();
-    let status = loop {
-        if overflow.load(Ordering::Acquire) || started.elapsed() >= PREFLIGHT_TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
-            // Do not join a pipe reader held open by an orphaned descendant.
-            // The startup error exits this process without publishing a grant.
-            return Err("RF-019 fixed preflight helper exceeded resource limits".to_string());
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("RF-019 fixed preflight helper wait failed".to_string());
-            }
-        }
-    };
+    let status = wait_for_fixed_helper(&mut child, &overflow, started)?;
     while !stdout.is_finished() || !stderr.is_finished() {
         if started.elapsed() >= PREFLIGHT_TIMEOUT {
             return Err("RF-019 fixed preflight pipe remained open".to_string());
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    let stdout = stdout
-        .join()
-        .map_err(|_| "RF-019 helper stdout reader failed".to_string())??;
-    let stderr = stderr
-        .join()
-        .map_err(|_| "RF-019 helper stderr reader failed".to_string())??;
+    let stdout = crate::bounded_join::join_within(
+        stdout,
+        "RF-019 helper stdout reader",
+        PREFLIGHT_TIMEOUT.saturating_sub(started.elapsed()),
+    )??;
+    let stderr = crate::bounded_join::join_within(
+        stderr,
+        "RF-019 helper stderr reader",
+        PREFLIGHT_TIMEOUT.saturating_sub(started.elapsed()),
+    )??;
     if !status.success() || !stderr.is_empty() || stdout.len() > MAX_HANDOFF_BYTES {
         return Err("RF-019 fixed preflight helper refused".to_string());
     }
@@ -521,86 +481,74 @@ pub fn preflight(persist_dir: &Path) -> Result<PendingRf019Activation, String> {
     })
 }
 
-/// Recheck exact owner facts after startup owns engine.lock, then install only
-/// these in-memory tenant grants. No caller-provided observation is accepted.
-pub fn install(pending: PendingRf019Activation, persist_dir: &Path) -> Result<(), String> {
-    if pending.grants.is_empty() {
-        return Ok(());
+fn valid_grant_scope(grant: &Grant, persist_dir: &Path, now: u64) -> bool {
+    upgrade::claim_token(&grant.tenant_id)
+        && !grant.binding_ids.is_empty()
+        && grant.binding_ids.len() <= 32
+        && !grant
+            .binding_ids
+            .iter()
+            .any(|binding| !upgrade::claim_token(binding))
+        && !grant.binding_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        && grant.owner_path == tenant_semantic_owner_file(persist_dir, &grant.tenant_id)
+        && grant.expires_at_unix >= now
+}
+
+fn valid_grant_digests(grant: &Grant) -> bool {
+    hex_digest(&grant.owner_sha256)
+        && hex_digest(&grant.owner_layout_sha256)
+        && hex_digest(&grant.source_census_sha256)
+        && hex_digest(&grant.migration_proof_sha256)
+        && hex_digest(&grant.claim_payload_digest)
+        && hex_digest(&grant.claim_sha256)
+        && hex_digest(&grant.implementation_receipt_sha256)
+        && hex_digest(&grant.runtime_receipt_sha256)
+}
+
+fn validate_grant_identity(grant: &Grant, persist_dir: &Path, now: u64) -> Result<(), String> {
+    if !valid_grant_scope(grant, persist_dir, now) || !valid_grant_digests(grant) {
+        return Err("RF-019 activation grant identity or freshness refused".to_string());
     }
-    if digest_file(Path::new(MANIFEST), 8192)?.0 != pending.manifest_sha256.unwrap_or_default() {
-        return Err("RF-019 activation manifest changed before lock".to_string());
+    Ok(())
+}
+
+fn validate_grant_owner(grant: &Grant, persist_dir: &Path) -> Result<(), String> {
+    let native = upgrade::observe_promoted_tenant_owner_under_existing_lease(
+        persist_dir,
+        &grant.tenant_id,
+        &grant.binding_ids,
+        MAX_OWNER_BYTES,
+        MAX_OWNER_BYTES,
+    )?;
+    if native.owner_path != grant.owner_path
+        || native.owner_device != grant.owner_device
+        || native.owner_inode != grant.owner_inode
+        || native.owner_size != grant.owner_size
+        || native.owner_sha256 != grant.owner_sha256
+        || native.owner_layout_sha256 != grant.owner_layout_sha256
+        || native.source_census_sha256 != grant.source_census_sha256
+        || native.migration_proof_sha256 != grant.migration_proof_sha256
+    {
+        return Err("RF-019 source or migration proof changed before serving lock".to_string());
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| error.to_string())?
-        .as_secs();
-    let mut checked = HashMap::new();
-    let mut receipt_pair: Option<(String, String)> = None;
-    let mut claim_digests = HashSet::new();
-    for grant in pending.grants {
-        if !token(&grant.tenant_id)
-            || grant.binding_ids.is_empty()
-            || grant.binding_ids.len() > 32
-            || grant.binding_ids.iter().any(|binding| !token(binding))
-            || grant.binding_ids.windows(2).any(|pair| pair[0] >= pair[1])
-            || grant.owner_path != tenant_semantic_owner_file(persist_dir, &grant.tenant_id)
-            || grant.expires_at_unix < now
-            || !hex_digest(&grant.owner_sha256)
-            || !hex_digest(&grant.owner_layout_sha256)
-            || !hex_digest(&grant.source_census_sha256)
-            || !hex_digest(&grant.migration_proof_sha256)
-            || !hex_digest(&grant.claim_payload_digest)
-            || !hex_digest(&grant.claim_sha256)
-            || !hex_digest(&grant.implementation_receipt_sha256)
-            || !hex_digest(&grant.runtime_receipt_sha256)
-        {
-            return Err("RF-019 activation grant identity or freshness refused".to_string());
-        }
-        let pair = (
-            grant.implementation_receipt_sha256.clone(),
-            grant.runtime_receipt_sha256.clone(),
-        );
-        if receipt_pair
-            .as_ref()
-            .is_some_and(|expected| expected != &pair)
-            || !claim_digests.insert(grant.claim_payload_digest.clone())
-        {
-            return Err("RF-019 activation grants disagree on signed authority".to_string());
-        }
-        receipt_pair.get_or_insert(pair);
-        let native = upgrade::observe_promoted_tenant_owner_under_existing_lease(
-            persist_dir,
-            &grant.tenant_id,
-            &grant.binding_ids,
-            MAX_OWNER_BYTES,
-            MAX_OWNER_BYTES,
-        )?;
-        if native.owner_path != grant.owner_path
-            || native.owner_device != grant.owner_device
-            || native.owner_inode != grant.owner_inode
-            || native.owner_size != grant.owner_size
-            || native.owner_sha256 != grant.owner_sha256
-            || native.owner_layout_sha256 != grant.owner_layout_sha256
-            || native.source_census_sha256 != grant.source_census_sha256
-            || native.migration_proof_sha256 != grant.migration_proof_sha256
-        {
-            return Err("RF-019 source or migration proof changed before serving lock".to_string());
-        }
-        let (digest, device, inode, size) = digest_file(&grant.owner_path, MAX_OWNER_BYTES)?;
-        if (device, inode, size, hex::encode(digest))
-            != (
-                grant.owner_device,
-                grant.owner_inode,
-                grant.owner_size,
-                grant.owner_sha256.clone(),
-            )
-        {
-            return Err("RF-019 v3 owner changed before serving lock".to_string());
-        }
-        if checked.insert(grant.tenant_id.clone(), grant).is_some() {
-            return Err("RF-019 activation tenant is duplicated".to_string());
-        }
+    let (digest, device, inode, size) = digest_file(&grant.owner_path, MAX_OWNER_BYTES)?;
+    if (device, inode, size, hex::encode(digest))
+        != (
+            grant.owner_device,
+            grant.owner_inode,
+            grant.owner_size,
+            grant.owner_sha256.clone(),
+        )
+    {
+        return Err("RF-019 v3 owner changed before serving lock".to_string());
     }
+    Ok(())
+}
+
+fn verify_receipt_pins(
+    persist_dir: &Path,
+    receipt_pair: Option<(String, String)>,
+) -> Result<(), String> {
     // This helper mode reruns only the fixed global checker, never EG's
     // offline observer, so it can run while the server owns engine.lock.
     let helper_digest = fixed_authority(persist_dir)?;
@@ -618,6 +566,45 @@ pub fn install(pending: PendingRf019Activation, persist_dir: &Path) -> Result<()
     {
         return Err("RF-019 global signed receipts changed before serving lock".to_string());
     }
+    Ok(())
+}
+
+/// Recheck exact owner facts after startup owns engine.lock, then install only
+/// these in-memory tenant grants. No caller-provided observation is accepted.
+pub fn install(pending: PendingRf019Activation, persist_dir: &Path) -> Result<(), String> {
+    if pending.grants.is_empty() {
+        return Ok(());
+    }
+    if digest_file(Path::new(MANIFEST), 8192)?.0 != pending.manifest_sha256.unwrap_or_default() {
+        return Err("RF-019 activation manifest changed before lock".to_string());
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    let mut checked = HashMap::new();
+    let mut receipt_pair: Option<(String, String)> = None;
+    let mut claim_digests = HashSet::new();
+    for grant in pending.grants {
+        validate_grant_identity(&grant, persist_dir, now)?;
+        let pair = (
+            grant.implementation_receipt_sha256.clone(),
+            grant.runtime_receipt_sha256.clone(),
+        );
+        if receipt_pair
+            .as_ref()
+            .is_some_and(|expected| expected != &pair)
+            || !claim_digests.insert(grant.claim_payload_digest.clone())
+        {
+            return Err("RF-019 activation grants disagree on signed authority".to_string());
+        }
+        receipt_pair.get_or_insert(pair);
+        validate_grant_owner(&grant, persist_dir)?;
+        if checked.insert(grant.tenant_id.clone(), grant).is_some() {
+            return Err("RF-019 activation tenant is duplicated".to_string());
+        }
+    }
+    verify_receipt_pins(persist_dir, receipt_pair)?;
     for grant in checked.values() {
         fixed_claim_matches(grant)?;
     }
@@ -638,11 +625,11 @@ pub(super) fn has_grant(tenant: &str) -> Result<bool, String> {
     Ok(active.contains_key(tenant))
 }
 
-pub(super) fn open_service(
+fn verified_open_grant(
     persist_dir: &Path,
     tenant: &str,
     binding_id: &str,
-) -> Result<Arc<SemanticIndexService>, String> {
+) -> Result<Grant, String> {
     let grant = {
         let active = activated()
             .lock()
@@ -671,6 +658,15 @@ pub(super) fn open_service(
             return Err("RF-019 v3 owner identity changed after activation".to_string());
         }
     }
+    Ok(grant)
+}
+
+pub(super) fn open_service(
+    persist_dir: &Path,
+    tenant: &str,
+    binding_id: &str,
+) -> Result<Arc<SemanticIndexService>, String> {
+    let grant = verified_open_grant(persist_dir, tenant, binding_id)?;
     let key = (tenant.to_string(), binding_id.to_string());
     let mut registry = semantic_registry()
         .lock()
@@ -689,14 +685,13 @@ pub(super) fn open_service(
     let service = Arc::new(
         SemanticIndexService::open_tenant(
             &grant.owner_path,
-            Arc::new(TenantScopedSemanticVerifier {
-                tenant: tenant.to_string(),
-                proof,
-            }),
-            semantic_owner_principal(),
-            &proof,
-            tenant,
-            binding_id,
+            eg_core::compute::semantic_ann_codes::ExistingTenantOwnerOpen {
+                verifier: semantic_scope_verifier(tenant, proof),
+                principal: semantic_owner_principal(),
+                proof: &proof,
+                tenant,
+                binding: binding_id,
+            },
         )
         .map_err(|error| error.to_string())?,
     );

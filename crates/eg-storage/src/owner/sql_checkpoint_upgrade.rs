@@ -67,15 +67,43 @@ impl SqlSourceCheckpointInspectionOptions {
 /// }
 /// ```
 pub struct ValidatedSqlSourceCheckpointUpgrade {
-    path: PathBuf,
-    physical_path: PathBuf,
-    pinned_file: File,
-    incarnation: StoreIncarnation,
-    manifest: OwnerManifest,
-    evidence: StrictRecoveryEvidence,
-    source_fingerprint: [u8; 32],
-    source_bytes: u64,
-    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    source: ValidatedUpgradeSource,
+}
+
+/// The exact read-only source evidence shared by both offline owner upgrades.
+/// No clone or public constructor can duplicate the pinned descriptor.
+pub(super) struct ValidatedUpgradeSource {
+    pub(super) path: PathBuf,
+    pub(super) physical_path: PathBuf,
+    pub(super) pinned_file: File,
+    pub(super) incarnation: StoreIncarnation,
+    pub(super) manifest: OwnerManifest,
+    pub(super) evidence: StrictRecoveryEvidence,
+    pub(super) source_fingerprint: [u8; 32],
+    pub(super) source_bytes: u64,
+    pub(super) private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+}
+
+impl ValidatedUpgradeSource {
+    pub(super) fn new(
+        path: &Path,
+        pinned: (File, StoreIncarnation, PathBuf),
+        inspected: (OwnerManifest, StrictRecoveryEvidence, [u8; 32]),
+        source_bytes: u64,
+        private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    ) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            pinned_file: pinned.0,
+            incarnation: pinned.1,
+            physical_path: pinned.2,
+            manifest: inspected.0,
+            evidence: inspected.1,
+            source_fingerprint: inspected.2,
+            source_bytes,
+            private_integrity,
+        }
+    }
 }
 
 /// Authority transition only: no source rows, replay identities or SQL source
@@ -100,12 +128,7 @@ pub fn inspect_sql_source_checkpoint_upgrade(
     options: SqlSourceCheckpointInspectionOptions,
 ) -> Result<ValidatedSqlSourceCheckpointUpgrade, String> {
     preview::validate_options(&options.staging_root, options.max_bytes)?;
-    let pinned_file = File::open(path).map_err(|error| error.to_string())?;
-    pinned_file
-        .try_lock_shared()
-        .map_err(|error| error.to_string())?;
-    let (incarnation, physical_path) = StoreIncarnation::derive(path)?;
-    validate_descriptor_path(&pinned_file, path)?;
+    let (pinned_file, incarnation, physical_path) = pin_upgrade_source(path)?;
     let (manifest, evidence, source_fingerprint) = preview::inspect(
         &pinned_file,
         &incarnation,
@@ -127,15 +150,13 @@ pub fn inspect_sql_source_checkpoint_upgrade(
     // later exclusive open. Intervening changes are caught by its fingerprint.
     pinned_file.unlock().map_err(|error| error.to_string())?;
     Ok(ValidatedSqlSourceCheckpointUpgrade {
-        path: path.to_path_buf(),
-        physical_path,
-        pinned_file,
-        incarnation,
-        manifest,
-        evidence,
-        source_fingerprint,
-        source_bytes,
-        private_integrity,
+        source: ValidatedUpgradeSource::new(
+            path,
+            (pinned_file, incarnation, physical_path),
+            (manifest, evidence, source_fingerprint),
+            source_bytes,
+            private_integrity,
+        ),
     })
 }
 
@@ -145,11 +166,7 @@ pub fn inspect_sql_source_checkpoint_upgrade(
 pub fn upgrade_sql_source_checkpoints(
     token: ValidatedSqlSourceCheckpointUpgrade,
 ) -> Result<(StorageKernel, SqlSourceCheckpointUpgradeReport), String> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&token.path)
-        .map_err(|error| error.to_string())?;
+    let file = open_upgrade_writer(&token.source.path)?;
     upgrade_opened_predecessor(token, file)
 }
 
@@ -205,34 +222,33 @@ fn upgrade_opened_predecessor(
     file: File,
 ) -> Result<(StorageKernel, SqlSourceCheckpointUpgradeReport), String> {
     validate_upgrade_descriptor(&token, &file)?;
-    let (backend, opened_file) = preview::exclusive_backend(file, &token.path)?;
-    validate_upgrade_descriptor(&token, &opened_file)?;
-    preview::validate_fingerprint(&opened_file, token.source_bytes, token.source_fingerprint)?;
-    let database = upgrade_builder()
-        .create_with_backend(backend)
-        .map_err(|error| error.to_string())?;
-    validate_upgrade_descriptor(&token, &opened_file)?;
-    {
-        let read = database.begin_read().map_err(|error| error.to_string())?;
-        let (manifest, _) = inspect_predecessor(
-            &read,
-            &token.incarnation,
-            &token.manifest.physical_identity,
-            token.private_integrity.as_deref(),
-        )?;
-        if manifest != token.manifest {
-            return Err("SQL checkpoint predecessor manifest changed after inspection".to_string());
-        }
-    }
+    let (backend, opened_file) = preview::exclusive_backend(file, &token.source.path)?;
+    let database = open_verified_upgrade_database(backend, &opened_file, &token.source, |file| {
+        validate_upgrade_descriptor(&token, file)
+    })?;
+    validate_reopened_predecessor(
+        &database,
+        &token.source.manifest,
+        "SQL checkpoint predecessor manifest changed after inspection",
+        |read| {
+            inspect_predecessor(
+                read,
+                &token.source.incarnation,
+                &token.source.manifest.physical_identity,
+                token.source.private_integrity.as_deref(),
+            )
+            .map(|(manifest, _)| manifest)
+        },
+    )?;
     let current = commit_checkpoint_layout(&database, &token, &opened_file)?;
     let report = upgrade_report(&token, &current);
     drop(database);
     drop(opened_file);
     let options = StoreOpenOptions::default().with_cache_bytes(UPGRADE_CACHE_BYTES)?;
     let kernel = StorageKernel::open_owner_with::<SqlOwner>(
-        &token.path,
+        &token.source.path,
         current.physical_identity,
-        token.private_integrity,
+        token.source.private_integrity,
         options,
     )?;
     Ok((kernel, report))
@@ -244,17 +260,45 @@ pub(crate) fn upgrade_builder() -> redb::Builder {
     builder
 }
 
+/// Open native recovery only after the exact source bytes are checked, then
+/// recheck descriptor identity before reading any predecessor table.
+pub(super) fn open_verified_upgrade_database<F>(
+    backend: redb::backends::FileBackend,
+    opened_file: &File,
+    source: &ValidatedUpgradeSource,
+    mut validate_descriptor: F,
+) -> Result<Database, String>
+where
+    F: FnMut(&File) -> Result<(), String>,
+{
+    validate_descriptor(opened_file)?;
+    preview::validate_fingerprint(opened_file, source.source_bytes, source.source_fingerprint)?;
+    let database = upgrade_builder()
+        .create_with_backend(backend)
+        .map_err(|error| error.to_string())?;
+    validate_descriptor(opened_file)?;
+    Ok(database)
+}
+
+/// Both offline transitions use one immediate-durability write, with their
+/// format-specific descriptor and census checks before the first typed open.
+pub(super) fn begin_immediate_upgrade_write(
+    database: &Database,
+) -> Result<WriteTransaction, String> {
+    let mut write = database.begin_write().map_err(|error| error.to_string())?;
+    write
+        .set_durability(redb::Durability::Immediate)
+        .map_err(|error| error.to_string())?;
+    Ok(write)
+}
+
 fn inspect_predecessor(
     read: &ReadTransaction,
     incarnation: &StoreIncarnation,
     physical_identity: &PhysicalStoreIdentity,
     private_integrity: Option<&dyn PrivatePayloadIntegrity>,
 ) -> Result<(OwnerManifest, StrictRecoveryEvidence), String> {
-    validate_incarnation_read(read, incarnation)?;
-    let table = read
-        .open_table(OWNER_MANIFEST)
-        .map_err(|error| error.to_string())?;
-    let manifest = read_manifest_slot(&table)?;
+    let manifest = read_predecessor_manifest(read, incarnation)?;
     contract::validate_predecessor(&manifest)?;
     if manifest.physical_identity != *physical_identity {
         return Err(
@@ -273,6 +317,56 @@ fn inspect_predecessor(
         |sealed: &[u8], digest: &str| authenticate_with(private_integrity, sealed, digest);
     validate_recovery_content(incarnation, read, &authenticate)?;
     Ok((manifest, evidence))
+}
+
+pub(super) fn read_predecessor_manifest(
+    read: &ReadTransaction,
+    incarnation: &StoreIncarnation,
+) -> Result<OwnerManifest, String> {
+    validate_incarnation_read(read, incarnation)?;
+    let table = read
+        .open_table(OWNER_MANIFEST)
+        .map_err(|error| error.to_string())?;
+    read_manifest_slot(&table)
+}
+
+pub(super) fn validate_reopened_predecessor<F>(
+    database: &Database,
+    expected: &OwnerManifest,
+    changed_error: &str,
+    inspect: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&ReadTransaction) -> Result<OwnerManifest, String>,
+{
+    let read = database.begin_read().map_err(|error| error.to_string())?;
+    if inspect(&read)? != *expected {
+        return Err(changed_error.to_string());
+    }
+    Ok(())
+}
+
+pub(super) fn read_upgrade_write_manifest(
+    write: &WriteTransaction,
+) -> Result<OwnerManifest, String> {
+    let table = write
+        .open_table(OWNER_MANIFEST)
+        .map_err(|error| error.to_string())?;
+    read_manifest_slot(&table)
+}
+
+pub(super) fn stage_upgrade_manifest(
+    write: &WriteTransaction,
+    current: &OwnerManifest,
+    label: &str,
+) -> Result<(), String> {
+    let encoded = encode_bounded(current, label)?;
+    write
+        .open_table(OWNER_MANIFEST)
+        .map_err(|error| error.to_string())?
+        .insert("manifest", encoded.as_slice())
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn predecessor_evidence(
@@ -305,24 +399,39 @@ where
     M: IntoIterator,
     M::Item: MultimapTableHandle,
 {
-    let expected: BTreeSet<_> = contract::contracts_for(manifest)?
+    let expected = contract::contracts_for(manifest)?
         .into_iter()
         .map(|contract| contract.table_id)
         .collect();
+    validate_exact_table_census(
+        expected,
+        normal,
+        multimap,
+        "SQL checkpoint predecessor table census is not exact",
+    )
+}
+
+/// Compare a predecessor's declared table names with the physical census
+/// before any typed write-side table open. Both offline owner upgraders use
+/// this check so neither can accidentally admit an extra multimap table.
+pub(super) fn validate_exact_table_census<N, M>(
+    expected: BTreeSet<String>,
+    normal: N,
+    multimap: M,
+    error: &str,
+) -> Result<(), String>
+where
+    N: IntoIterator,
+    N::Item: TableHandle,
+    M: IntoIterator,
+    M::Item: MultimapTableHandle,
+{
     let actual: BTreeSet<_> = normal
         .into_iter()
         .map(|table| table.name().to_string())
         .collect();
     if actual != expected || multimap.into_iter().next().is_some() {
-        return Err("SQL checkpoint predecessor table census is not exact".to_string());
-    }
-    Ok(())
-}
-
-fn validate_token_physical_root(token: &ValidatedSqlSourceCheckpointUpgrade) -> Result<(), String> {
-    let (incarnation, physical_path) = StoreIncarnation::derive(&token.path)?;
-    if incarnation != token.incarnation || physical_path != token.physical_path {
-        return Err("SQL checkpoint physical file changed after inspection".to_string());
+        return Err(error.to_string());
     }
     Ok(())
 }
@@ -334,9 +443,52 @@ fn validate_upgrade_descriptor(
     token: &ValidatedSqlSourceCheckpointUpgrade,
     opened_file: &File,
 ) -> Result<(), String> {
-    validate_same_descriptor(&token.pinned_file, opened_file)?;
-    validate_descriptor_path(opened_file, &token.path)?;
-    validate_token_physical_root(token)
+    validate_pinned_upgrade_file(
+        &token.source.pinned_file,
+        opened_file,
+        &token.source.path,
+        (
+            &token.source.incarnation,
+            token.source.physical_path.as_path(),
+        ),
+        "SQL checkpoint physical file changed after inspection",
+    )
+}
+
+/// Recheck the descriptor, published path and incarnation together on every
+/// offline upgrade boundary, including immediately before durable commit.
+pub(super) fn validate_pinned_upgrade_file(
+    pinned_file: &File,
+    opened_file: &File,
+    path: &Path,
+    physical: (&StoreIncarnation, &Path),
+    changed_error: &str,
+) -> Result<(), String> {
+    validate_same_descriptor(pinned_file, opened_file)?;
+    validate_descriptor_path(opened_file, path)?;
+    if StoreIncarnation::derive(path)? != (physical.0.clone(), physical.1.to_path_buf()) {
+        return Err(changed_error.to_string());
+    }
+    Ok(())
+}
+
+/// Pin the source inode before the preview can open or recover a scratch copy.
+pub(super) fn pin_upgrade_source(path: &Path) -> Result<(File, StoreIncarnation, PathBuf), String> {
+    let pinned_file = File::open(path).map_err(|error| error.to_string())?;
+    pinned_file
+        .try_lock_shared()
+        .map_err(|error| error.to_string())?;
+    let (incarnation, physical_path) = StoreIncarnation::derive(path)?;
+    validate_descriptor_path(&pinned_file, path)?;
+    Ok((pinned_file, incarnation, physical_path))
+}
+
+pub(super) fn open_upgrade_writer(path: &Path) -> Result<File, String> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn validate_descriptor_path(file: &File, path: &Path) -> Result<(), String> {
@@ -395,15 +547,12 @@ fn begin_checkpoint_write(
     token: &ValidatedSqlSourceCheckpointUpgrade,
     opened_file: &File,
 ) -> Result<WriteTransaction, String> {
-    let mut write = database.begin_write().map_err(|error| error.to_string())?;
-    write
-        .set_durability(redb::Durability::Immediate)
-        .map_err(|error| error.to_string())?;
+    let write = begin_immediate_upgrade_write(database)?;
     validate_upgrade_descriptor(token, opened_file)?;
-    validate_handle_write(&store_handle(token.incarnation.clone()), &write)?;
+    validate_handle_write(&store_handle(token.source.incarnation.clone()), &write)?;
     // The actual census must precede every write-side typed open.
     validate_predecessor_census(
-        &token.manifest,
+        &token.source.manifest,
         write.list_tables().map_err(|error| error.to_string())?,
         write
             .list_multimap_tables()
@@ -418,15 +567,10 @@ fn unchanged_predecessor(
     write: &WriteTransaction,
     token: &ValidatedSqlSourceCheckpointUpgrade,
 ) -> Result<OwnerManifest, String> {
-    let old = {
-        let table = write
-            .open_table(OWNER_MANIFEST)
-            .map_err(|error| error.to_string())?;
-        read_manifest_slot(&table)?
-    };
+    let old = read_upgrade_write_manifest(write)?;
     contract::validate_predecessor(&old)?;
-    if old != token.manifest
-        || predecessor_evidence(&old, HashSnapshot::Write(write))? != token.evidence
+    if old != token.source.manifest
+        || predecessor_evidence(&old, HashSnapshot::Write(write))? != token.source.evidence
     {
         return Err("SQL checkpoint predecessor changed before atomic upgrade".to_string());
     }
@@ -455,12 +599,7 @@ fn stage_checkpoint_layout(
         .map_err(|error| error.to_string())?;
     #[cfg(test)]
     tests::crash_at("after_table");
-    let encoded = encode_bounded(current, "SQL checkpoint upgraded owner manifest")?;
-    write
-        .open_table(OWNER_MANIFEST)
-        .map_err(|error| error.to_string())?
-        .insert("manifest", encoded.as_slice())
-        .map_err(|error| error.to_string())?;
+    stage_upgrade_manifest(write, current, "SQL checkpoint upgraded owner manifest")?;
     #[cfg(test)]
     tests::crash_at("after_manifest");
     super::validate_manifest_write(write, &current.physical_identity, OwnerLayout::Sql)?;
@@ -472,11 +611,14 @@ fn upgrade_report(
     current: &OwnerManifest,
 ) -> SqlSourceCheckpointUpgradeReport {
     SqlSourceCheckpointUpgradeReport {
-        previous_layout_digest: token.manifest.layout_digest,
+        previous_layout_digest: token.source.manifest.layout_digest,
         current_layout_digest: current.layout_digest,
-        previous_authority_digest: token.manifest.authority_digest(&token.incarnation),
-        current_authority_digest: current.authority_digest(&token.incarnation),
-        previous_authority_epoch: token.manifest.authority_epoch,
+        previous_authority_digest: token
+            .source
+            .manifest
+            .authority_digest(&token.source.incarnation),
+        current_authority_digest: current.authority_digest(&token.source.incarnation),
+        previous_authority_epoch: token.source.manifest.authority_epoch,
         current_authority_epoch: current.authority_epoch,
     }
 }

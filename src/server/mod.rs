@@ -2657,6 +2657,18 @@ mod tests {
         assert_eq!(pair[1]["id"].as_str(), Some("bob"));
     }
 
+    fn assert_not_built(resp: &Response, label: &str) {
+        assert!(
+            resp.error.as_deref() == Some("METHOD_NOT_YET_SERVED")
+                && resp.error_detail.as_deref().is_some_and(|detail| {
+                    detail.contains("not available in this server build")
+                }),
+            "{label}: expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
     /// Feature-gating contract for the Cypher surface (CONCEPT:EG-KG.query.dep-free-behind): with the
     /// `cypher` feature off, `Method::CypherQuery`'s handler arm is compiled away
     /// and the request must hit the not-built catch-all. (Compiled out when
@@ -2670,17 +2682,7 @@ mod tests {
             mode: crate::protocol::CypherMode::Read,
         };
         let resp = dispatch_on_heap(&state, request(1, "__commons__", None, method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "method");
     }
 
     /// End-to-end (CONCEPT:EG-KG.query.sparql-completeness): add the SAME alice-KNOWS->bob graph the Cypher
@@ -2844,17 +2846,7 @@ mod tests {
         };
         let resp =
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "method");
     }
 
     /// Same feature-gating contract for the SQL surface (CONCEPT:EG-KG.query.read-only-sql-query): with
@@ -2870,17 +2862,7 @@ mod tests {
             params_msgpack: Vec::new(),
         };
         let resp = dispatch_on_heap(&state, request(1, "__commons__", None, method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "method");
     }
 
     /// Feature-gating contract for X-1 (CONCEPT:EG-X1): `Method::ExplainEvidence`
@@ -2898,17 +2880,7 @@ mod tests {
         };
         let resp =
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "method");
     }
 
     /// Feature-gating contract for EPI-P3-7 (gap-fill): `Method::ResolveConflict`
@@ -2926,17 +2898,7 @@ mod tests {
         };
         let resp =
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "method");
     }
 
     /// Same feature-gating contract for EPI-P3-3/P3-6: `Method::CausalEstimate`/
@@ -2955,17 +2917,7 @@ mod tests {
         };
         let resp =
             dispatch_on_heap(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "CausalEstimate: expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "CausalEstimate");
 
         let method = Method::CausalCounterfactual {
             variables: vec![],
@@ -2974,17 +2926,7 @@ mod tests {
         };
         let resp =
             dispatch_on_heap(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "CausalCounterfactual: expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "CausalCounterfactual");
 
         let method = Method::RankByProvenance {
             candidates: vec![],
@@ -2992,17 +2934,7 @@ mod tests {
         };
         let resp =
             dispatch_on_heap(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
-        let err = resp.error.as_deref().unwrap_or("");
-        assert!(
-            err == "METHOD_NOT_YET_SERVED"
-                && resp
-                    .error_detail
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("not available in this server build")),
-            "RankByProvenance: expected the not-built catch-all, got: ok={:?} err={:?}",
-            resp.result,
-            resp.error
-        );
+        assert_not_built(&resp, "RankByProvenance");
     }
 
     #[cfg(feature = "redb")]

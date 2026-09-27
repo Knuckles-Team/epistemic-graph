@@ -19,17 +19,6 @@ struct LockProbePersistence {
 
 #[async_trait::async_trait]
 impl PersistenceBackend for LockProbePersistence {
-    async fn load_all(
-        &self,
-        _state: &Arc<tokio::sync::RwLock<crate::server::ServerState>>,
-    ) -> Result<usize, String> {
-        Ok(0)
-    }
-
-    async fn record_durable(&self, _graph_fname: &str, _method: &Method) -> Result<(), String> {
-        Ok(())
-    }
-
     async fn read_mutation_graph_version(&self, _graph_fname: &str) -> Result<Option<u64>, String> {
         Ok(Some(0))
     }

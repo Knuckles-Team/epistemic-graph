@@ -7,7 +7,6 @@ fn sealed_repository_budget_is_bound_to_exact_source_intent() {
     use crate::parser::enrichment_snapshot::EligibleSnapshot;
     use crate::redb_store::enrichment_budget::SourceBudgetAuthority;
     use eg_types::ingestion_wire::{ExtractedNode, IndexResult};
-    use eg_types::mutation_batch::MutationOutboxIntent;
 
     let result = IndexResult {
         nodes: vec![ExtractedNode {
@@ -43,16 +42,10 @@ fn sealed_repository_budget_is_bound_to_exact_source_intent() {
         total_budget_units: snapshot.budget_units,
         max_total_units: snapshot.budget_units,
     };
-    envelope.mutation.outbox.push(MutationOutboxIntent {
-        topic: "repository.enrichment.pending".into(),
-        key: snapshot.source_envelope.clone(),
-        payload: rmp_serde::to_vec_named(&serde_json::json!({
-            "budget_status": "unreserved",
-            "snapshot": snapshot,
-        }))
-        .unwrap(),
-        headers: Default::default(),
-    });
+    envelope.mutation.outbox.push(pending_repository_intent(
+        snapshot,
+        "repository.enrichment.pending",
+    ));
     assert!(ReplicatedMutation::change_envelope(&envelope, "secret").is_err());
     let command =
         ReplicatedMutation::change_envelope_with_budget(&envelope, Some(&authority), "secret")

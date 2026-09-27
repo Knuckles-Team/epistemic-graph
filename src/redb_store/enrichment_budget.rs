@@ -12,7 +12,7 @@
 //! ACK away the remaining eligible units. This module deliberately exposes no
 //! public top-up method or implicit budget replenishment.
 
-use eg_storage::{GraphShardOwner, PhysicalWriteCapability};
+use eg_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTableMut};
 use redb::TableDefinition;
 
 use eg_types::native_control::{
@@ -69,21 +69,27 @@ pub(crate) fn validate_source_envelope(
         .collect();
     match (authority, pending.as_slice()) {
         (None, []) => Ok(()),
-        (Some(authority), [intent])
-            if authority.tenant_id == envelope.mutation.identity.tenant().as_str()
-                && authority.source_envelope == envelope.envelope_id
-                && intent.key == envelope.envelope_id
-                && valid_digest(&authority.snapshot_digest)
-                && !authority.repository_id.is_empty()
-                && valid_digest(&authority.policy_digest)
-                && authority.total_budget_units > 0
-                && (authority.max_total_units == 0
-                    || authority.max_total_units >= authority.total_budget_units) =>
-        {
+        (Some(authority), [intent]) if source_envelope_matches(envelope, authority, intent) => {
             validate_source_intent(envelope, authority, intent)
         }
         _ => Err("CONFLICT: repository enrichment source authority does not match envelope".into()),
     }
+}
+
+fn source_envelope_matches(
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    authority: &SourceBudgetAuthority,
+    intent: &eg_types::mutation_batch::MutationOutboxIntent,
+) -> bool {
+    authority.tenant_id == envelope.mutation.identity.tenant().as_str()
+        && authority.source_envelope == envelope.envelope_id
+        && intent.key == envelope.envelope_id
+        && valid_digest(&authority.snapshot_digest)
+        && !authority.repository_id.is_empty()
+        && valid_digest(&authority.policy_digest)
+        && authority.total_budget_units > 0
+        && (authority.max_total_units == 0
+            || authority.max_total_units >= authority.total_budget_units)
 }
 
 #[cfg(feature = "ast")]
@@ -146,10 +152,30 @@ fn validate_source_intent(
 }
 
 fn valid_digest(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    eg_types::contract::Digest256::parse(value).is_ok()
+}
+
+/// The three persisted accounting buckets must partition the committed total.
+/// Use checked arithmetic so a corrupt row cannot wrap back into balance.
+fn budget_balances(row: &BudgetCheckpoint) -> bool {
+    row.spent_units
+        .checked_add(row.reserved_units)
+        .and_then(|used| used.checked_add(row.remaining_units))
+        == Some(row.total_budget_units)
+}
+
+/// Encode and seal a graph-owned budget row at the same storage boundary.
+fn put_sealed_row<T: serde::Serialize>(
+    rows: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    key: &str,
+    value: &T,
+    crypto: DurableCrypto<'_>,
+    encode_error: &'static str,
+) -> Result<(), String> {
+    let bytes = rmp_serde::to_vec_named(value).map_err(|_| encode_error)?;
+    rows.insert((graph, key), crypto.seal(&bytes).as_ref())?;
+    Ok(())
 }
 
 /// Seed budget authority in the same admitted ShardWrite that stores the
@@ -161,20 +187,7 @@ pub(crate) fn seed_source_budget(
     authority: &SourceBudgetAuthority,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    if authority.tenant_id.is_empty()
-        || authority.tenant_id.len() > MAX_ENVELOPE_BYTES
-        || authority.source_envelope.is_empty()
-        || authority.source_envelope.len() > MAX_ENVELOPE_BYTES
-        || authority.source_envelope.chars().any(char::is_control)
-        || !valid_digest(&authority.snapshot_digest)
-        || authority.repository_id.is_empty()
-        || authority.repository_id.len() > MAX_ENVELOPE_BYTES
-        || authority.repository_id.chars().any(char::is_control)
-        || !valid_digest(&authority.policy_digest)
-        || authority.total_budget_units == 0
-        || (authority.max_total_units != 0
-            && authority.max_total_units < authority.total_budget_units)
-    {
+    if !valid_seed_authority(authority) {
         return Err("CONFLICT: repository enrichment source budget is invalid".into());
     }
     let scope = write.graph(graph)?;
@@ -182,19 +195,7 @@ pub(crate) fn seed_source_budget(
     let mut rows = scope.open_scoped_table(BUDGETS)?;
     if let Some(existing) = rows.get((graph, authority.source_envelope.as_str()))? {
         let row: BudgetCheckpoint = decode_durable(&crypto.unseal(existing.value())?)?;
-        if row.schema_version != 1
-            || row.tenant_id != authority.tenant_id
-            || row.source_envelope != authority.source_envelope
-            || row.snapshot_digest != authority.snapshot_digest
-            || row.total_budget_units != authority.total_budget_units
-            || row
-                .spent_units
-                .checked_add(row.reserved_units)
-                .and_then(|used| used.checked_add(row.remaining_units))
-                != Some(row.total_budget_units)
-            || row.next_index > MAX_ELIGIBLE_UNITS
-            || row.page_number > row.next_index
-        {
+        if !valid_replayed_seed(&row, authority) {
             return Err("CONFLICT: repository enrichment source budget changed on replay".into());
         }
         return Ok(());
@@ -212,36 +213,48 @@ pub(crate) fn seed_source_budget(
         total_budget_units: authority.total_budget_units,
         last_page_key: String::new(),
     };
-    let bytes = rmp_serde::to_vec_named(&row).map_err(|_| "budget seed encode failed")?;
-    rows.insert(
-        (graph, authority.source_envelope.as_str()),
-        crypto.seal(&bytes).as_ref(),
-    )?;
-    Ok(())
+    put_sealed_row(
+        &mut rows,
+        graph,
+        &authority.source_envelope,
+        &row,
+        crypto,
+        "budget seed encode failed",
+    )
+}
+
+fn valid_seed_authority(authority: &SourceBudgetAuthority) -> bool {
+    !(authority.tenant_id.is_empty()
+        || authority.tenant_id.len() > MAX_ENVELOPE_BYTES
+        || !bounded_envelope(&authority.source_envelope)
+        || !valid_digest(&authority.snapshot_digest)
+        || !bounded_envelope(&authority.repository_id)
+        || !valid_digest(&authority.policy_digest)
+        || authority.total_budget_units == 0
+        || (authority.max_total_units != 0
+            && authority.max_total_units < authority.total_budget_units))
+}
+
+fn bounded_envelope(value: &str) -> bool {
+    !value.is_empty() && value.len() <= MAX_ENVELOPE_BYTES && !value.chars().any(char::is_control)
+}
+
+fn valid_replayed_seed(row: &BudgetCheckpoint, authority: &SourceBudgetAuthority) -> bool {
+    row.schema_version == 1
+        && row.tenant_id == authority.tenant_id
+        && row.source_envelope == authority.source_envelope
+        && row.snapshot_digest == authority.snapshot_digest
+        && row.total_budget_units == authority.total_budget_units
+        && budget_balances(row)
+        && row.next_index <= MAX_ELIGIBLE_UNITS
+        && row.page_number <= row.next_index
 }
 
 fn validate_request(
     request: &SubmitWorkItemsRequest,
     debit: &EnrichmentBudgetReservation,
 ) -> Result<(), String> {
-    if debit.schema_version != NativeControlSchemaVersion::V1
-        || !valid_digest(&debit.snapshot_digest)
-        || debit.source_envelope.is_empty()
-        || debit.source_envelope.len() > MAX_ENVELOPE_BYTES
-        || debit.source_envelope.chars().any(char::is_control)
-        || !debit
-            .page_key
-            .strip_prefix("repository-enrichment-page:")
-            .is_some_and(valid_digest)
-        || request.idempotency_key != debit.page_key
-        || debit.end_index <= debit.expected_next_index
-        || debit.end_index > MAX_ELIGIBLE_UNITS
-        || debit.expected_page_number >= MAX_ELIGIBLE_UNITS
-        || debit.total_budget_units == 0
-        || debit.reserve_units == 0
-        || debit.reserve_units > debit.expected_remaining_units
-        || debit.expected_remaining_units > debit.total_budget_units
-    {
+    if !valid_request_identity(request, debit) || !valid_request_budget(debit) {
         return Err("INVALID_ARGUMENT: repository enrichment budget request is invalid".into());
     }
     let cost = request.requests.iter().try_fold(0_u64, |sum, child| {
@@ -259,37 +272,67 @@ fn validate_request(
     Ok(())
 }
 
+fn valid_request_identity(
+    request: &SubmitWorkItemsRequest,
+    debit: &EnrichmentBudgetReservation,
+) -> bool {
+    debit.schema_version == NativeControlSchemaVersion::V1
+        && valid_digest(&debit.snapshot_digest)
+        && bounded_envelope(&debit.source_envelope)
+        && debit
+            .page_key
+            .strip_prefix("repository-enrichment-page:")
+            .is_some_and(valid_digest)
+        && request.idempotency_key == debit.page_key
+}
+
+fn valid_request_budget(debit: &EnrichmentBudgetReservation) -> bool {
+    !(debit.end_index <= debit.expected_next_index
+        || debit.end_index > MAX_ELIGIBLE_UNITS
+        || debit.expected_page_number >= MAX_ELIGIBLE_UNITS
+        || debit.total_budget_units == 0
+        || debit.reserve_units == 0
+        || debit.reserve_units > debit.expected_remaining_units
+        || debit.expected_remaining_units > debit.total_budget_units)
+}
+
 fn validate_checkpoint(
     row: &BudgetCheckpoint,
     tenant: &str,
     debit: &EnrichmentBudgetReservation,
 ) -> Result<(), String> {
-    if row.schema_version != 1
-        || row.tenant_id != tenant
-        || row.snapshot_digest != debit.snapshot_digest
-        || row.source_envelope != debit.source_envelope
-        || row.total_budget_units != debit.total_budget_units
-        || row
-            .spent_units
-            .checked_add(row.reserved_units)
-            .and_then(|used| used.checked_add(row.remaining_units))
-            != Some(row.total_budget_units)
-        || row.next_index > MAX_ELIGIBLE_UNITS
-        || row.page_number > row.next_index
-        || (row.page_number == 0
-            && (row.next_index != 0
-                || row.reserved_units != 0
-                || row.spent_units != 0
-                || !row.last_page_key.is_empty()))
-        || (row.page_number != 0
-            && !row
-                .last_page_key
-                .strip_prefix("repository-enrichment-page:")
-                .is_some_and(valid_digest))
-    {
+    if !checkpoint_identity_matches(row, tenant, debit) || !checkpoint_cursor_is_valid(row) {
         return Err("CONFLICT: repository enrichment budget checkpoint is invalid".into());
     }
     Ok(())
+}
+
+fn checkpoint_identity_matches(
+    row: &BudgetCheckpoint,
+    tenant: &str,
+    debit: &EnrichmentBudgetReservation,
+) -> bool {
+    row.schema_version == 1
+        && row.tenant_id == tenant
+        && row.snapshot_digest == debit.snapshot_digest
+        && row.source_envelope == debit.source_envelope
+        && row.total_budget_units == debit.total_budget_units
+        && budget_balances(row)
+}
+
+fn checkpoint_cursor_is_valid(row: &BudgetCheckpoint) -> bool {
+    if row.next_index > MAX_ELIGIBLE_UNITS || row.page_number > row.next_index {
+        return false;
+    }
+    if row.page_number == 0 {
+        return row.next_index == 0
+            && row.reserved_units == 0
+            && row.spent_units == 0
+            && row.last_page_key.is_empty();
+    }
+    row.last_page_key
+        .strip_prefix("repository-enrichment-page:")
+        .is_some_and(valid_digest)
 }
 
 /// Return `None` only for an exact page replay. Every other stale state fails
@@ -299,22 +342,12 @@ fn advance_checkpoint(
     tenant: &str,
     debit: &EnrichmentBudgetReservation,
 ) -> Result<Option<BudgetCheckpoint>, String> {
-    if debit.reserve_units == 0
-        || debit.reserve_units > debit.expected_remaining_units
-        || debit.expected_remaining_units > debit.total_budget_units
-        || debit.end_index <= debit.expected_next_index
-        || debit.end_index > MAX_ELIGIBLE_UNITS
-        || debit.expected_page_number >= MAX_ELIGIBLE_UNITS
-    {
+    if !valid_request_budget(debit) {
         return Err("CONFLICT: repository enrichment budget admission is invalid".into());
     }
     let row = if let Some(mut prior) = prior {
         validate_checkpoint(&prior, tenant, debit)?;
-        if prior.last_page_key == debit.page_key
-            && prior.next_index == debit.end_index
-            && prior.page_number == debit.expected_page_number + 1
-            && prior.remaining_units == debit.expected_remaining_units - debit.reserve_units
-        {
+        if same_page_replay(&prior, debit) {
             return Ok(None);
         }
         if prior.next_index != debit.expected_next_index
@@ -342,6 +375,13 @@ fn advance_checkpoint(
     Ok(Some(row))
 }
 
+fn same_page_replay(row: &BudgetCheckpoint, debit: &EnrichmentBudgetReservation) -> bool {
+    row.last_page_key == debit.page_key
+        && row.next_index == debit.end_index
+        && row.page_number == debit.expected_page_number + 1
+        && row.remaining_units == debit.expected_remaining_units - debit.reserve_units
+}
+
 /// Debit global budget atomically with the caller's native WorkItem writes.
 /// Existing exact page identity is replay-safe; stale CAS and over-budget
 /// requests abort the enclosing redb transaction.
@@ -365,12 +405,14 @@ pub(crate) fn reserve_submit_page(
     let Some(row) = advance_checkpoint(prior, &request.context.tenant_id, debit)? else {
         return Ok(());
     };
-    let bytes = rmp_serde::to_vec_named(&row).map_err(|_| "budget checkpoint encode failed")?;
-    rows.insert(
-        (graph, debit.source_envelope.as_str()),
-        crypto.seal(&bytes).as_ref(),
-    )?;
-    Ok(())
+    put_sealed_row(
+        &mut rows,
+        graph,
+        &debit.source_envelope,
+        &row,
+        crypto,
+        "budget checkpoint encode failed",
+    )
 }
 
 fn ensure_active_source(
@@ -406,29 +448,31 @@ pub(crate) fn read(
 }
 
 fn validate_park(park: &EnrichmentBudgetPark, budget: &BudgetCheckpoint) -> Result<(), String> {
-    if budget.schema_version != 1
-        || budget
-            .spent_units
-            .checked_add(budget.reserved_units)
-            .and_then(|used| used.checked_add(budget.remaining_units))
-            != Some(budget.total_budget_units)
-        || budget.page_number > budget.next_index
-        || park.schema_version != 1
-        || park.source_envelope != budget.source_envelope
-        || park.snapshot_digest != budget.snapshot_digest
-        || park.next_index != budget.next_index
-        || park.page_number != budget.page_number
-        || park.remaining_units != budget.remaining_units
-        || park.required_units <= budget.remaining_units
-        || park.required_units == 0
-        || !valid_digest(&park.policy_digest)
-        || park.parked_at_ms == 0
-    {
+    if !park_identity_matches(park, budget) || !park_requires_more_budget(park, budget) {
         return Err(
             "CONFLICT: repository enrichment park does not match underfunded authority".into(),
         );
     }
     Ok(())
+}
+
+fn park_identity_matches(park: &EnrichmentBudgetPark, budget: &BudgetCheckpoint) -> bool {
+    budget.schema_version == 1
+        && budget_balances(budget)
+        && budget.page_number <= budget.next_index
+        && park.schema_version == 1
+        && park.source_envelope == budget.source_envelope
+        && park.snapshot_digest == budget.snapshot_digest
+        && park.next_index == budget.next_index
+        && park.page_number == budget.page_number
+        && park.remaining_units == budget.remaining_units
+}
+
+fn park_requires_more_budget(park: &EnrichmentBudgetPark, budget: &BudgetCheckpoint) -> bool {
+    park.required_units > budget.remaining_units
+        && park.required_units != 0
+        && valid_digest(&park.policy_digest)
+        && park.parked_at_ms != 0
 }
 
 /// Park before releasing a held outbox lease. A later claim loop must read
@@ -472,6 +516,7 @@ pub(crate) fn park_underfunded(
 mod reactivation;
 pub(crate) use reactivation::is_superseded;
 pub(crate) use reactivation::read_policy_revision;
+#[cfg(feature = "raft")]
 pub(crate) use reactivation::stage_parked_reactivation;
 #[cfg(feature = "raft")]
 pub(crate) use reactivation::verify_reactivation_replay;

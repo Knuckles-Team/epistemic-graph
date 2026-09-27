@@ -124,7 +124,8 @@ pub enum ConnectorPackOp {
         request: ConnectorPackReconcileRequest,
     },
     ReconcileCatalog {
-        request: McpCatalogReconcileRequest,
+        /// Keep catalog reconciliation from setting the size of every pack operation.
+        request: Box<McpCatalogReconcileRequest>,
     },
     CatalogAuthorityStatus {
         request: McpCatalogAuthorityStatusRequest,

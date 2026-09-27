@@ -127,16 +127,6 @@ reviewed_on = "2026-09-25"
 reason = """Both use read_snapshot and the development-lane store, but one returns the full DevelopmentLaneQueryResult and the other returns the bounded DevelopmentLaneStatusResult. Each delegates to its matching store reader and serves a distinct client request. Re-reviewed after the read_snapshot conversion."""
 
 [[pair]]
-left_file = "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs"
-left_name = "verify"
-left_digest = "sha256:c86c2865c5e0d877ccf69658735571003630a612b73f86614536eccb9089071c"
-right_file = "crates/eg-statechart/src/store.rs"
-right_name = "verify"
-right_digest = "sha256:27358414c8dccf022883c8c7ff66adda39924c2d65a4ba61c7c0244e2ab18ea5"
-reviewed_on = "2026-09-10"
-reason = """Two implementations of the SAME trait method, ScopeGrantVerifier::verify, whose signature is therefore fixed by the trait rather than copied. Each body checks the OwnerLayout, tenant and principal constants of a different store domain -- the semantic index and the statechart store. The per-domain policy IS the implementation; there is nothing to share without erasing the distinction the trait exists to express."""
-
-[[pair]]
 left_file = "crates/eg-shacl/src/sparql/pattern.rs"
 left_name = "merge"
 left_digest = "sha256:cc1fba389be8b652e3bb381625a8f0a9db8e4469521f1ebabaab1a2ec22aba0a"
@@ -500,12 +490,12 @@ reason = """IndexKind labels identify index implementations in a manifest; Index
 [[pair]]
 left_file = "src/server/handlers/decide/stat_jobs.rs"
 left_name = "serve_eval"
-left_digest = "sha256:682e38511d45a6a45ba907af317b8067b249d2264cfa102cc623c968e286cab5"
+left_digest = "sha256:25dea6686927585782e5bbec3ca54c12eabab6536aa41b7ca4919872a6ff9376"
 right_file = "src/server/handlers/decide/stat_jobs.rs"
 right_name = "serve_fit"
 right_digest = "sha256:93b7831ec80c1dcffff25609536897d8c7578224a18fc9f008dcf5f6aaba3325"
-reviewed_on = "2026-09-25"
-reason = """DecisionEval submits evaluation work and reads status, signed receipts and timelines. DecisionFit submits training and reads fit status. Their request types, kernels, persisted job kinds, and result contracts differ. The shared submit/status scaffold preserves typed dispatch rather than duplicating one implementation."""
+reviewed_on = "2026-09-27"
+reason = """DecisionEval submits evaluation work, reads status, and delegates receipt lookup, bounded receipt listing, and timeline listing to dedicated helpers with validation and stored-artifact integrity checks. DecisionFit submits training and reads fit status only. Their request types, kernels, persisted job kinds, and result contracts differ; both already share the typed submit/status helpers. The remaining matching dispatch shape expresses that sibling API contract rather than duplicated behavior."""
 
 [[pair]]
 left_file = "src/server/mutation/plan.rs"
@@ -516,3 +506,23 @@ right_name = "memory_method_name"
 right_digest = "sha256:defaa4b958f6a8b46a9cd179b182e16bddd5b3ebbf75f91bd7ce7942114ed828"
 reviewed_on = "2026-09-25"
 reason = """This list marks decision methods forbidden from a nonlocal mutation path. The other list names memory methods for different routing. They classify disjoint Method variants for different control-flow decisions, despite the Option<&str> match scaffold."""
+
+[[pair]]
+left_file = "crates/eg-compute/src/parser/enrichment_reactivation.rs"
+left_name = "proposal_matches_source"
+left_digest = "sha256:78a4a372458d384570b90851316170bceb68d354bd49ed05ceb763ff9ca94582"
+right_file = "src/redb_store/development_lane/identity.rs"
+right_name = "lane_intent_quota_matches"
+right_digest = "sha256:842e3d6619b0dc6697df0ab3774434ca290aa94af361e4bf90cadb0c82c8f2d0"
+reviewed_on = "2026-09-27"
+reason = """The reactivation predicate binds a proposed enrichment revision to its old source authority: tenant, graph, repository, source envelope, snapshot digest, prior policy, and verified top-up action. The development-lane predicate checks whether a durable resource hold still matches the intent's owner, session, fairness and quota policy, disk estimate, TTL, input fingerprint, and reservation. They compare different domain types and failure conditions; their common structure is a sequence of field equality checks, with no shared policy or useful abstraction."""
+
+[[pair]]
+left_file = "src/server/repository_enrichment_worker/grant.rs"
+left_name = "retained_source_matches"
+left_digest = "sha256:3a1973570415b455bb7bae0156f56a650f23bd34eb1ec1b62a866a41e19d58c0"
+right_file = "src/redb_store/resource/fingerprint.rs"
+right_name = "resource_request_matches_accounting"
+right_digest = "sha256:fc2764dd9d3d5d979aada8df2758028b5cb016cc108dab09c5d0017bb45da8a9"
+reviewed_on = "2026-09-27"
+reason = """The enrichment predicate binds a proposed top-up to the persisted policy revision, including source identity, snapshot and policy digests, schema version, and sequence before Raft submission. The resource predicate checks reservation replay accounting: fairness cost, disk policy and watermarks, reservation times, and host revision. Their types, authorities, and refusal conditions differ. A common Boolean field-comparison shape does not define a reusable cross-domain policy."""

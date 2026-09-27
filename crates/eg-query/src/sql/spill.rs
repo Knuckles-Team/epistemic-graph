@@ -442,14 +442,7 @@ fn create_spill_writer(
 }
 
 fn open_new_spill_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)
+    eg_core::fs::create_private_new_file(path)
 }
 
 fn preserve_created_file_error(error: String, path: &std::path::Path) -> String {
@@ -939,10 +932,10 @@ mod streaming_tests {
         assert_eq!(outcome.rows, 0);
     }
 
-    /// Atomic exclusive creation rejects an occupied path without truncating it;
-    /// on Unix, newly created spill files are private regardless of ambient umask.
+    /// Spill creation does not truncate an occupied path. The shared eg-core
+    /// primitive separately proves private mode at creation on Unix.
     #[test]
-    fn spill_file_creation_is_exclusive_and_private() {
+    fn spill_file_creation_does_not_clobber_existing_contents() {
         let occupied = spill_path();
         let mut occupied_file = open_new_spill_file(&occupied).unwrap();
         std::io::Write::write_all(&mut occupied_file, b"sentinel").unwrap();
@@ -951,16 +944,6 @@ mod streaming_tests {
         assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&occupied).unwrap(), b"sentinel");
         std::fs::remove_file(&occupied).unwrap();
-
-        let private = spill_path();
-        let file = open_new_spill_file(&private).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
-        }
-        drop(file);
-        std::fs::remove_file(private).unwrap();
     }
 
     /// Explicit completion does not hide a failed removal. The query returns the

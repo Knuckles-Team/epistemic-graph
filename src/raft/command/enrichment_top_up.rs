@@ -55,6 +55,156 @@ fn snapshot(payload: &[u8]) -> Result<EligibleSnapshot, String> {
     Ok(pending.snapshot)
 }
 
+fn bounded(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
+}
+
+fn valid_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+struct BudgetValidation<'a>(&'a EnrichmentTopUpTransition);
+
+impl std::ops::Deref for BudgetValidation<'_> {
+    type Target = EnrichmentTopUpTransition;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl BudgetValidation<'_> {
+    fn revision_is_invalid(&self) -> bool {
+        self.expected_budget.schema_version != 1
+            || self.expected_park.schema_version != 1
+            || self.replacement_budget.schema_version != 1
+            || self.revision.schema_version != 1
+            || self.revision.sequence == 0
+            || self.revision.max_total_units < self.revision.total_budget_units
+    }
+
+    fn revision_identity_is_invalid(&self) -> bool {
+        !bounded(&self.revision.caller_subject.as_deref().unwrap_or_default())
+            || !bounded(&self.revision.idempotency_key.as_deref().unwrap_or_default())
+            || self.revision.verified_action.as_deref()
+                != Some("repository:enrichment:budget:top_up")
+            || !valid_digest(&self.revision.policy_digest)
+            || self.revision.policy_digest == self.expected_park.policy_digest
+    }
+
+    fn budget_position_changed(&self) -> bool {
+        self.expected_budget.next_index != self.replacement_budget.next_index
+            || self.expected_budget.page_number != self.replacement_budget.page_number
+            || self.expected_budget.reserved_units != self.replacement_budget.reserved_units
+            || self.expected_budget.spent_units != self.replacement_budget.spent_units
+            || self.expected_budget.last_page_key != self.replacement_budget.last_page_key
+    }
+
+    fn budget_accounting_is_invalid(&self, added: u64) -> bool {
+        self.expected_budget.remaining_units.checked_add(added)
+            != Some(self.replacement_budget.remaining_units)
+            || self
+                .expected_budget
+                .spent_units
+                .checked_add(self.expected_budget.reserved_units)
+                .and_then(|spent| spent.checked_add(self.expected_budget.remaining_units))
+                != Some(self.expected_budget.total_budget_units)
+            || self
+                .replacement_budget
+                .spent_units
+                .checked_add(self.replacement_budget.reserved_units)
+                .and_then(|spent| spent.checked_add(self.replacement_budget.remaining_units))
+                != Some(self.replacement_budget.total_budget_units)
+    }
+
+    fn validate_budget(&self) -> Result<(), String> {
+        let added = self
+            .replacement_budget
+            .total_budget_units
+            .checked_sub(self.expected_budget.total_budget_units)
+            .filter(|delta| *delta > 0)
+            .ok_or("CONFLICT: enrichment top-up must increase total budget")?;
+        if self.revision_is_invalid()
+            || self.revision_identity_is_invalid()
+            || self.budget_position_changed()
+            || self.budget_accounting_is_invalid(added)
+        {
+            return Err("CONFLICT: enrichment top-up budget or revision is invalid".into());
+        }
+        Ok(())
+    }
+}
+
+struct AuthorityValidation<'a>(&'a EnrichmentTopUpTransition);
+
+impl std::ops::Deref for AuthorityValidation<'_> {
+    type Target = EnrichmentTopUpTransition;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl AuthorityValidation<'_> {
+    fn delivery_is_invalid(&self, committed_at_ms: u64) -> bool {
+        self.consumer != CONSUMER
+            || self.old_delivery.intent.topic != TOPIC
+            || self.old_delivery.intent.key != self.expected_budget.source_envelope
+            || self
+                .old_delivery
+                .commit_sequence
+                .is_none_or(|sequence| sequence == 0)
+            || self.old_delivery.created_at_ms > committed_at_ms
+            || !self.old_delivery.intent.headers.is_empty()
+    }
+
+    fn park_is_invalid(&self) -> bool {
+        self.expected_park.source_envelope != self.expected_budget.source_envelope
+            || self.expected_park.snapshot_digest != self.expected_budget.snapshot_digest
+            || self.expected_park.next_index != self.expected_budget.next_index
+            || self.expected_park.page_number != self.expected_budget.page_number
+            || self.expected_park.remaining_units != self.expected_budget.remaining_units
+            || self.expected_park.required_units <= self.expected_budget.remaining_units
+    }
+
+    fn prior_revision_is_invalid(&self, graph: &str) -> bool {
+        self.expected_park.policy_digest
+            != self
+                .revision
+                .prior_policy_digest
+                .as_deref()
+                .unwrap_or_default()
+            || self.revision.graph != graph
+            || self.revision.tenant_id != self.expected_budget.tenant_id
+            || self.revision.prior_source_envelope.as_deref()
+                != Some(self.expected_budget.source_envelope.as_str())
+            || self.revision.prior_snapshot_digest.as_deref()
+                != Some(self.expected_budget.snapshot_digest.as_str())
+    }
+
+    fn replacement_revision_is_invalid(&self) -> bool {
+        self.replacement_budget.source_envelope != self.revision.source_envelope
+            || self.replacement_budget.snapshot_digest != self.revision.snapshot_digest
+            || self.replacement_budget.total_budget_units != self.revision.total_budget_units
+    }
+
+    fn validate_authority(&self, graph: &str, committed_at_ms: u64) -> Result<(), String> {
+        if self.delivery_is_invalid(committed_at_ms)
+            || self.park_is_invalid()
+            || self.prior_revision_is_invalid(graph)
+            || self.replacement_revision_is_invalid()
+            || self.expected_park.parked_at_ms == 0
+            || self.expected_park.parked_at_ms > committed_at_ms
+        {
+            return Err("CONFLICT: enrichment top-up authority does not match source".into());
+        }
+        Ok(())
+    }
+}
+
 impl EnrichmentTopUpTransition {
     /// A retry may carry a newer Raft route fence only when the original
     /// parent and full transition receipt are already committed on this
@@ -91,98 +241,17 @@ impl EnrichmentTopUpTransition {
         Ok(())
     }
 
-    pub(crate) fn validate(&self, graph: &str, committed_at_ms: u64) -> Result<(), String> {
-        let bounded = |value: &str| {
-            !value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
-        };
-        let valid_digest = |value: &str| {
-            value.len() == 64
-                && value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        };
-        let added = self
-            .replacement_budget
-            .total_budget_units
-            .checked_sub(self.expected_budget.total_budget_units)
-            .filter(|delta| *delta > 0)
-            .ok_or("CONFLICT: enrichment top-up must increase total budget")?;
-        if self.expected_budget.schema_version != 1
-            || self.expected_park.schema_version != 1
-            || self.replacement_budget.schema_version != 1
-            || self.revision.schema_version != 1
-            || self.revision.sequence == 0
-            || self.revision.max_total_units < self.revision.total_budget_units
-            || !bounded(&self.revision.caller_subject.as_deref().unwrap_or_default())
-            || !bounded(&self.revision.idempotency_key.as_deref().unwrap_or_default())
-            || self.revision.verified_action.as_deref()
-                != Some("repository:enrichment:budget:top_up")
-            || !valid_digest(&self.revision.policy_digest)
-            || self.revision.policy_digest == self.expected_park.policy_digest
-            || self.expected_budget.next_index != self.replacement_budget.next_index
-            || self.expected_budget.page_number != self.replacement_budget.page_number
-            || self.expected_budget.reserved_units != self.replacement_budget.reserved_units
-            || self.expected_budget.spent_units != self.replacement_budget.spent_units
-            || self.expected_budget.last_page_key != self.replacement_budget.last_page_key
-            || self.expected_budget.remaining_units.checked_add(added)
-                != Some(self.replacement_budget.remaining_units)
-            || self
-                .expected_budget
-                .spent_units
-                .checked_add(self.expected_budget.reserved_units)
-                .and_then(|spent| spent.checked_add(self.expected_budget.remaining_units))
-                != Some(self.expected_budget.total_budget_units)
-            || self
-                .replacement_budget
-                .spent_units
-                .checked_add(self.replacement_budget.reserved_units)
-                .and_then(|spent| spent.checked_add(self.replacement_budget.remaining_units))
-                != Some(self.replacement_budget.total_budget_units)
-        {
-            return Err("CONFLICT: enrichment top-up budget or revision is invalid".into());
-        }
-        if self.consumer != CONSUMER
-            || self.old_delivery.intent.topic != TOPIC
-            || self.old_delivery.intent.key != self.expected_budget.source_envelope
-            || self
-                .old_delivery
-                .commit_sequence
-                .is_none_or(|sequence| sequence == 0)
-            || self.old_delivery.created_at_ms > committed_at_ms
-            || !self.old_delivery.intent.headers.is_empty()
-            || self.expected_park.source_envelope != self.expected_budget.source_envelope
-            || self.expected_park.snapshot_digest != self.expected_budget.snapshot_digest
-            || self.expected_park.next_index != self.expected_budget.next_index
-            || self.expected_park.page_number != self.expected_budget.page_number
-            || self.expected_park.remaining_units != self.expected_budget.remaining_units
-            || self.expected_park.required_units <= self.expected_budget.remaining_units
-            || self.expected_park.policy_digest
-                != self
-                    .revision
-                    .prior_policy_digest
-                    .as_deref()
-                    .unwrap_or_default()
-            || self.revision.graph != graph
-            || self.revision.tenant_id != self.expected_budget.tenant_id
-            || self.revision.prior_source_envelope.as_deref()
-                != Some(self.expected_budget.source_envelope.as_str())
-            || self.revision.prior_snapshot_digest.as_deref()
-                != Some(self.expected_budget.snapshot_digest.as_str())
-            || self.replacement_budget.source_envelope != self.revision.source_envelope
-            || self.replacement_budget.snapshot_digest != self.revision.snapshot_digest
-            || self.replacement_budget.total_budget_units != self.revision.total_budget_units
-            || self.expected_park.parked_at_ms == 0
-            || self.expected_park.parked_at_ms > committed_at_ms
-        {
-            return Err("CONFLICT: enrichment top-up authority does not match source".into());
-        }
-        if !self.replacement_batch.is_repository_enrichment_top_up()
+    fn parent_batch_is_invalid(&self, committed_at_ms: u64) -> bool {
+        !self.replacement_batch.is_repository_enrichment_top_up()
             || self.replacement_batch.identity != self.old_delivery.identity
             || self.replacement_batch.batch_id != self.revision.source_envelope
             || self.replacement_batch.idempotency_key()
                 != self.revision.idempotency_key.as_deref().unwrap_or_default()
             || self.replacement_batch.created_at_ms != committed_at_ms
-        {
+    }
+
+    fn validate_parent_batch(&self, committed_at_ms: u64) -> Result<(), String> {
+        if self.parent_batch_is_invalid(committed_at_ms) {
             return Err("CONFLICT: enrichment top-up parent batch differs".into());
         }
         let VersionExpectation::Graph(graph_version) = self.replacement_batch.version_expectation
@@ -216,6 +285,36 @@ impl EnrichmentTopUpTransition {
         if encoded_parent != encoded_expected {
             return Err("CONFLICT: enrichment top-up parent authority changed".into());
         }
+        Ok(())
+    }
+
+    fn old_snapshot_identity_is_invalid(&self, old: &EligibleSnapshot, graph: &str) -> bool {
+        old.units
+            .get(self.expected_budget.next_index as usize)
+            .is_none_or(|unit| unit.compute_units != self.expected_park.required_units)
+            || old.tenant_id != self.revision.tenant_id
+            || old.graph != graph
+            || old.repository_id != self.revision.repository_id
+    }
+
+    fn old_snapshot_budget_is_invalid(&self, old: &EligibleSnapshot) -> bool {
+        old.source_envelope != self.expected_budget.source_envelope
+            || old.policy_digest != self.expected_park.policy_digest
+            || old.budget_units != self.expected_budget.total_budget_units
+            || old.digest().ok().as_deref() != Some(self.expected_budget.snapshot_digest.as_str())
+    }
+
+    fn next_snapshot_is_invalid(&self, next: &EligibleSnapshot) -> bool {
+        next.source_envelope != self.revision.source_envelope
+            || next.policy_digest != self.revision.policy_digest
+            || next.budget_units != self.revision.total_budget_units
+            || next.digest().ok().as_deref() != Some(self.revision.snapshot_digest.as_str())
+    }
+
+    pub(crate) fn validate(&self, graph: &str, committed_at_ms: u64) -> Result<(), String> {
+        BudgetValidation(self).validate_budget()?;
+        AuthorityValidation(self).validate_authority(graph, committed_at_ms)?;
+        self.validate_parent_batch(committed_at_ms)?;
         let replacement_intent = &self.replacement_batch.outbox[0];
         if self
             .old_delivery
@@ -230,21 +329,9 @@ impl EnrichmentTopUpTransition {
         }
         let old = snapshot(&self.old_delivery.intent.payload)?;
         let next = snapshot(&replacement_intent.payload)?;
-        if old
-            .units
-            .get(self.expected_budget.next_index as usize)
-            .is_none_or(|unit| unit.compute_units != self.expected_park.required_units)
-            || old.tenant_id != self.revision.tenant_id
-            || old.graph != graph
-            || old.repository_id != self.revision.repository_id
-            || old.source_envelope != self.expected_budget.source_envelope
-            || old.policy_digest != self.expected_park.policy_digest
-            || old.budget_units != self.expected_budget.total_budget_units
-            || old.digest().ok().as_deref() != Some(self.expected_budget.snapshot_digest.as_str())
-            || next.source_envelope != self.revision.source_envelope
-            || next.policy_digest != self.revision.policy_digest
-            || next.budget_units != self.revision.total_budget_units
-            || next.digest().ok().as_deref() != Some(self.revision.snapshot_digest.as_str())
+        if self.old_snapshot_identity_is_invalid(&old, graph)
+            || self.old_snapshot_budget_is_invalid(&old)
+            || self.next_snapshot_is_invalid(&next)
         {
             return Err("CONFLICT: enrichment top-up snapshot authority changed".into());
         }
@@ -264,34 +351,14 @@ mod tests {
     use super::*;
     use crate::parser::enrichment_snapshot::{EligibleUnit, EnrichmentWorkStage};
     use eg_types::mutation_batch::{CommittedVersion, COMPILED_BATCH_INCARNATION};
-    use eg_types::{MutationOutboxIntent, MutationScopeIdentity};
-
-    fn intent(snapshot: EligibleSnapshot) -> MutationOutboxIntent {
-        MutationOutboxIntent {
-            topic: TOPIC.into(),
-            key: snapshot.source_envelope.clone(),
-            payload: rmp_serde::to_vec_named(&serde_json::json!({
-                "budget_status": "unreserved",
-                "snapshot": snapshot,
-            }))
-            .unwrap(),
-            headers: Default::default(),
-        }
-    }
+    use eg_types::MutationScopeIdentity;
 
     fn transition() -> EnrichmentTopUpTransition {
-        let old = EligibleSnapshot {
-            schema_version: 1,
-            tenant_id: "tenant-a".into(),
-            graph: "graph-a".into(),
-            repository_id: "repo".into(),
-            source_envelope: "source-one".into(),
-            source_commit_ref: "source-one".into(),
-            policy_digest: "a".repeat(64),
-            catalog_digest: "b".repeat(64),
-            model_digest: "c".repeat(64),
-            budget_units: 10,
-            units: vec![EligibleUnit {
+        let old = eg_compute::test_support::repository_enrichment_snapshot(
+            "tenant-a",
+            "graph-a",
+            10,
+            vec![EligibleUnit {
                 content_digest: format!("sha256:{}", "d".repeat(64)),
                 parser_capability_digest: "parser:v1".into(),
                 stage: EnrichmentWorkStage::Classical,
@@ -300,7 +367,7 @@ mod tests {
                 compute_units: 11,
                 demanded: false,
             }],
-        };
+        );
         let old_digest = old.digest().unwrap();
         let mut next = old.clone();
         next.source_envelope = "source-two".into();
@@ -320,7 +387,7 @@ mod tests {
                 target: 1,
             },
             commit_sequence: Some(1),
-            intent: intent(old),
+            intent: super::super::pending_repository_intent(old, TOPIC),
             created_at_ms: 1,
         };
         let replacement_batch =
@@ -328,7 +395,7 @@ mod tests {
                 old_delivery: &old_delivery,
                 policy_sequence: 1,
                 revision_idempotency_key: "topup-1",
-                replacement_intent: intent(next),
+                replacement_intent: super::super::pending_repository_intent(next, TOPIC),
                 replacement_batch_id: "source-two",
                 serving_principal: &format!("principal:sha256:{}", "a".repeat(64)),
                 graph_version: 1,

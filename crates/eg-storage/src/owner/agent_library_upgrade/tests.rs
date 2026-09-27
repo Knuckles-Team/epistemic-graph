@@ -24,6 +24,17 @@ fn options(path: &Path) -> AgentLibraryInspectionOptions {
     .unwrap()
 }
 
+fn write_agent_revision(path: &Path, bytes: &[u8]) {
+    let database = Database::open(path).unwrap();
+    let write = database.begin_write().unwrap();
+    write
+        .open_table(AGENT_LIBRARY_REVISIONS)
+        .unwrap()
+        .insert(("tenant-a", "agent-a", 1), bytes)
+        .unwrap();
+    write.commit().unwrap();
+}
+
 #[test]
 fn frozen_predecessor_contract_matches_historical_digest() {
     let contracts: Vec<_> =
@@ -47,18 +58,7 @@ fn explicit_upgrade_preserves_existing_agent_rows_and_runs_once() {
     let directory = private_tempdir();
     let path = directory.path().join("agent_library.redb");
     create_predecessor_owner_file(&path, identity(), &AGENT_LIBRARY_BEFORE_MCP_CATALOG).unwrap();
-    let database = Database::open(&path).unwrap();
-    let write = database.begin_write().unwrap();
-    write
-        .open_table(AGENT_LIBRARY_REVISIONS)
-        .unwrap()
-        .insert(
-            ("tenant-a", "agent-a", 1),
-            b"preserved agent revision".as_slice(),
-        )
-        .unwrap();
-    write.commit().unwrap();
-    drop(database);
+    write_agent_revision(&path, b"preserved agent revision");
     assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&path, identity(), None).is_err());
     let token =
         inspect_agent_library_mcp_catalog_upgrade(&path, identity(), None, options(&path)).unwrap();
@@ -103,18 +103,7 @@ fn inspected_bytes_are_rechecked_before_any_upgrade_write() {
     create_predecessor_owner_file(&path, identity(), &AGENT_LIBRARY_BEFORE_MCP_CATALOG).unwrap();
     let token =
         inspect_agent_library_mcp_catalog_upgrade(&path, identity(), None, options(&path)).unwrap();
-    let database = Database::open(&path).unwrap();
-    let write = database.begin_write().unwrap();
-    write
-        .open_table(AGENT_LIBRARY_REVISIONS)
-        .unwrap()
-        .insert(
-            ("tenant-a", "agent-a", 1),
-            b"changed after inspection".as_slice(),
-        )
-        .unwrap();
-    write.commit().unwrap();
-    drop(database);
+    write_agent_revision(&path, b"changed after inspection");
     assert!(upgrade_agent_library_mcp_catalog(token).is_err());
     assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&path, identity(), None).is_err());
 }

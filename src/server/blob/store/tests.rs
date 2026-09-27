@@ -17,7 +17,7 @@ fn repository_source_batch_is_one_owner_commit_and_tenant_bound() {
         body: bytes.clone(),
     };
     let first = store
-        .put_repository_bodies("tenant-a", "repo-one", &[source.clone()], 1)
+        .put_repository_bodies("tenant-a", "repo-one", std::slice::from_ref(&source), 1)
         .unwrap();
     let replay = store
         .put_repository_bodies("tenant-a", "repo-one", &[source], 2)
