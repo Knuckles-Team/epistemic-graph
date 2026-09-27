@@ -212,6 +212,7 @@ See [Atomic Batch Updates](interfaces/batch_update.md) for the complete operatio
 | Parallel + SIMD brute-force fallback (rayon, contiguous arena, cached L2 norms) | ✅ | `semantic_store_ann.rs` |
 | Warm-on-start (index built off the query path) | ✅ | `warm()` / `ensure_index` |
 | Hybrid metadata pre-filter (kNN with an `allow(id)` predicate) | ✅ | `ivfpq.rs` `search_filtered` (EG-070); tested DURING the ADC probe, not post-filter |
+| Temporal semantic ID encoder (recency token plus residual content codes) | ✅ Python-local | `epistemic_graph.temporal_semantic_id.TemporalSemanticIdEncoder`; uses the bundled native numeric kernel for matrix operations and seeded k-means; no served or durable index endpoint |
 | Exact/flat kNN index (ground-truth) + ANN-candidate re-rank + recall@k/precision self-eval harness | ✅ | brute-force exact + hybrid refinement (CONCEPT:EG-KG.query.concept-5) |
 | Cross-shard kNN scatter-gather (fan a kNN query across per-shard eg-ann indexes → deterministic global top-k) | ✅ | server-layer scatter over per-shard indexes merged via the `merge_topk` leaf (CONCEPT:EG-KG.query.scatter-knn-merge, completing EG-KG.retrieval.scatter-gather) |
 | GPU-accelerated batch distance (`DistanceBackend` seam + real CUDA backend; CPU fallback) | ✅ | `crates/eg-ann/src/distance.rs` — `FlatIndex::search` routes through `batch_distances`; pure-Rust CPU backend always compiled-in, `cudarc` NVRTC kernel behind `gpu-cuda` (dynamic-loading, `full-extras`-only) (CONCEPT:EG-KG.compute.gpu-distance-seam/3.6) |

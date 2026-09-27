@@ -11028,6 +11028,49 @@ class QueryClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
+    async def retrieve_document_sections(
+        self,
+        document_id: str,
+        query: str,
+        *,
+        top_k: int = 5,
+        beam_width: int = 16,
+    ) -> dict[str, Any]:
+        """Retrieve cited ranges from the verified tenant's current section tree.
+
+        The native server derives tenant and read policy from the signed carrier;
+        neither is accepted from this request.  A missing generated method is a
+        deployment version mismatch and must never fall back to legacy rows.
+        """
+        if not document_id or len(document_id) > 256:
+            raise ValueError("document_id must contain 1..256 characters")
+        if not query or len(query) > 4096:
+            raise ValueError("query must contain 1..4096 characters")
+        if not 1 <= top_k <= 100 or not 1 <= beam_width <= 64:
+            raise ValueError("document retrieval bounds exceeded")
+        sender = getattr(_gen.query, "send_retrieve_document_sections", None)
+        if sender is None:
+            raise RuntimeError(
+                "installed engine contract lacks RetrieveDocumentSections"
+            )
+        result = await sender(
+            self._client,
+            {
+                "document_id": document_id,
+                "query": query,
+                "top_k": top_k,
+                "beam_width": beam_width,
+            },
+        )
+        payload = result.payload
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("citations"), list)
+            or payload.get("document_id") != document_id
+        ):
+            raise ValueError("invalid RetrieveDocumentSections response")
+        return payload
+
     @staticmethod
     def canonical_sql_source_json(value: Any, *, raw_json: bool = False) -> bytes:
         """Canonical native JSON bin for metadata or a JSON cell.

@@ -35,6 +35,8 @@ method_results! {
     UnifiedQuery(UnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;
     UnifiedQueryText(UnifiedQueryText) => Raw<Vec<(String, Option<f32>)>>;
     #[cfg(feature = "query")]
+    RetrieveDocumentSections(RetrieveDocumentSections) => Raw<crate::protocol::DocumentSectionRetrieval>;
+    #[cfg(feature = "query")]
     ExplainPlan(ExplainPlan) => Raw<ExplainPlanResult>;
     ExplainProvenance(ExplainProvenance) => Raw<EvidenceBundle>;
     ExplainProvenanceByIds(ExplainProvenanceByIds) => Raw<EvidenceBundle>;
