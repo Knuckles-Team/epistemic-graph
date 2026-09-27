@@ -170,6 +170,103 @@ fn digest_file(path: &Path, max_bytes: u64) -> Result<([u8; 32], u64, u64, u64),
     }
 }
 
+#[cfg(unix)]
+const MAX_AUTHORITY_BYTES: u64 = 4096;
+
+#[cfg(unix)]
+fn owned_private_authority_file(metadata: &fs::Metadata, owner_uid: u32) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    metadata.is_file()
+        && metadata.uid() == owner_uid
+        && metadata.permissions().mode() & 0o777 == 0o600
+        && metadata.nlink() == 1
+}
+
+#[cfg(unix)]
+fn initial_authority_identity(named: &fs::Metadata, opened: &fs::Metadata, owner_uid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    owned_private_authority_file(named, owner_uid)
+        && owned_private_authority_file(opened, owner_uid)
+        && (named.dev(), named.ino()) == (opened.dev(), opened.ino())
+        && opened.len() <= MAX_AUTHORITY_BYTES
+}
+
+#[cfg(unix)]
+fn authority_observation_unchanged(
+    before: &fs::Metadata,
+    after: &fs::Metadata,
+    named_after: &fs::Metadata,
+    read_len: usize,
+) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let opened_unchanged = (
+        before.dev(),
+        before.ino(),
+        before.len(),
+        before.mtime(),
+        before.mtime_nsec(),
+        before.ctime(),
+        before.ctime_nsec(),
+    ) == (
+        after.dev(),
+        after.ino(),
+        after.len(),
+        after.mtime(),
+        after.mtime_nsec(),
+        after.ctime(),
+        after.ctime_nsec(),
+    );
+    let name_still_refers_to_open_file = (after.dev(), after.ino(), after.len(), after.nlink())
+        == (
+            named_after.dev(),
+            named_after.ino(),
+            named_after.len(),
+            named_after.nlink(),
+        );
+    read_len as u64 == before.len()
+        && read_len as u64 <= MAX_AUTHORITY_BYTES
+        && opened_unchanged
+        && after.nlink() == 1
+        && named_after.file_type().is_file()
+        && name_still_refers_to_open_file
+}
+
+#[cfg(unix)]
+fn read_fixed_authority_file(
+    path: &Path,
+    owner_uid: u32,
+    after_open: impl FnOnce(),
+) -> Result<Vec<u8>, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    const O_NOFOLLOW: i32 = 0o400000;
+    let named = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    let before = file.metadata().map_err(|error| error.to_string())?;
+    if !initial_authority_identity(&named, &before, owner_uid) {
+        return Err("RF-019 fixed preflight authority identity refused".to_string());
+    }
+    after_open();
+    let mut raw = Vec::new();
+    (&mut file)
+        .take(MAX_AUTHORITY_BYTES + 1)
+        .read_to_end(&mut raw)
+        .map_err(|error| error.to_string())?;
+    let after = file.metadata().map_err(|error| error.to_string())?;
+    let named_after = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if !authority_observation_unchanged(&before, &after, &named_after, raw.len()) {
+        return Err("RF-019 fixed preflight authority changed during read".to_string());
+    }
+    Ok(raw)
+}
+
 fn fixed_authority(persist_dir: &Path) -> Result<[u8; 32], String> {
     #[cfg(unix)]
     {
@@ -219,20 +316,7 @@ fn fixed_authority(persist_dir: &Path) -> Result<[u8; 32], String> {
         {
             return Err("RF-019 fixed preflight authority ownership refused".to_string());
         }
-        use std::os::unix::fs::OpenOptionsExt;
-        const O_NOFOLLOW: i32 = 0o400000;
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(O_NOFOLLOW)
-            .open(AUTHORITY)
-            .map_err(|error| error.to_string())?;
-        let mut raw = Vec::new();
-        file.take(4097)
-            .read_to_end(&mut raw)
-            .map_err(|error| error.to_string())?;
-        if raw.len() > 4096 {
-            return Err("RF-019 fixed preflight authority exceeds bound".to_string());
-        }
+        let raw = read_fixed_authority_file(Path::new(AUTHORITY), 0, || {})?;
         let authority: HelperAuthority = serde_json::from_slice(&raw)
             .map_err(|_| "RF-019 fixed preflight authority is invalid".to_string())?;
         if authority.schema != "rf019-server-preflight-authority/v1"
@@ -622,4 +706,68 @@ pub(super) fn open_service(
         .map_err(|_| "RF-019 activation registry unavailable")?
         .insert(key);
     Ok(service)
+}
+
+#[cfg(all(test, unix))]
+mod authority_read_tests {
+    use super::read_fixed_authority_file;
+    use std::fs;
+    use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+    use std::path::Path;
+
+    fn write_owner_only(path: &Path, bytes: &[u8]) {
+        fs::write(path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn fixed_authority_read_accepts_stable_owner_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("authority.json");
+        write_owner_only(&path, b"fixed bytes");
+        let uid = fs::symlink_metadata(&path).unwrap().uid();
+        assert_eq!(
+            read_fixed_authority_file(&path, uid, || {}).unwrap(),
+            b"fixed bytes"
+        );
+    }
+
+    #[test]
+    fn fixed_authority_read_refuses_replacement_after_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("authority.json");
+        let replacement = dir.path().join("replacement.json");
+        write_owner_only(&path, b"original");
+        write_owner_only(&replacement, b"replaced");
+        let uid = fs::symlink_metadata(&path).unwrap().uid();
+        let result = read_fixed_authority_file(&path, uid, || {
+            fs::rename(&replacement, &path).unwrap();
+        });
+        assert!(result.unwrap_err().contains("changed during read"));
+    }
+
+    #[test]
+    fn fixed_authority_read_refuses_in_place_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("authority.json");
+        write_owner_only(&path, b"original");
+        let uid = fs::symlink_metadata(&path).unwrap().uid();
+        let result = read_fixed_authority_file(&path, uid, || {
+            fs::write(&path, b"new bytes with another length").unwrap();
+        });
+        assert!(result.unwrap_err().contains("changed during read"));
+    }
+
+    #[test]
+    fn fixed_authority_read_refuses_oversize_and_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("authority.json");
+        write_owner_only(&path, &[b'x'; 4097]);
+        let uid = fs::symlink_metadata(&path).unwrap().uid();
+        assert!(read_fixed_authority_file(&path, uid, || {}).is_err());
+
+        let alias = dir.path().join("alias.json");
+        symlink(&path, &alias).unwrap();
+        assert!(read_fixed_authority_file(&alias, uid, || {}).is_err());
+    }
 }

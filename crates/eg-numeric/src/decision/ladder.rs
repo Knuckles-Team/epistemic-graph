@@ -2,7 +2,7 @@
 //!
 //! A head may make the engine ACT only when all of this holds: it is a
 //! full-label listwise head (linear or the resident scorer), it carries a
-//! calibration with a certified act threshold and risk statement, its
+//! non-synthetic calibration with a certified act threshold and risk statement, its
 //! calibration sample reaches the policy's `n_min`, its alpha, epsilon and
 //! delta are no looser than the policy's, and -- for the state at hand -- the
 //! act rule holds ([`act_rule`]: a conformal claim, the top probability at the
@@ -64,22 +64,34 @@ fn no_looser(candidate: UnitRationalWire, bound: UnitRationalWire) -> bool {
         <= u128::from(bound.numerator()) * u128::from(candidate.denominator())
 }
 
+fn acting_head_eligible(head: &DecisionHeadBody) -> bool {
+    head.kind.is_listwise() && head.regime == FittedRegime::FullLabel && !head.synthetic
+}
+
+fn calibration_permits_acting(
+    calibration: &HeadCalibration,
+    risk: RiskStatement,
+    policy: &StatisticalPolicy,
+) -> bool {
+    !calibration.synthetic
+        && calibration.n_calibration >= policy.n_min
+        && no_looser(calibration.alpha, policy.alpha)
+        && no_looser(risk.epsilon, policy.epsilon)
+        && no_looser(risk.delta, policy.delta)
+}
+
 /// The calibration that licenses acting, if the head has one the policy accepts.
 fn acting_calibration<'a>(
     head: &'a DecisionHeadBody,
     policy: &StatisticalPolicy,
 ) -> Option<(&'a HeadCalibration, RiskStatement)> {
-    if !head.kind.is_listwise() || head.regime != FittedRegime::FullLabel {
+    if !acting_head_eligible(head) {
         return None;
     }
     let calibration = head.calibration.as_ref()?;
     let risk = calibration.risk?;
     calibration.act_threshold?;
-    let admissible = calibration.n_calibration >= policy.n_min
-        && no_looser(calibration.alpha, policy.alpha)
-        && no_looser(risk.epsilon, policy.epsilon)
-        && no_looser(risk.delta, policy.delta);
-    admissible.then_some((calibration, risk))
+    calibration_permits_acting(calibration, risk, policy).then_some((calibration, risk))
 }
 
 fn abstained() -> StatisticalOutcome {

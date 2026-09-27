@@ -566,15 +566,15 @@ pub(crate) async fn propose_native_mutation(
     .await
 }
 
+#[cfg(feature = "redb")]
+pub(crate) use consensus::verified_served_registration;
 #[cfg(feature = "raft")]
 pub(crate) use consensus::{
     apply_replicated_native, apply_replicated_transaction_decision,
     apply_replicated_transaction_finalize, apply_replicated_transaction_participant,
     apply_replicated_transaction_prepare, ReplicatedParticipantRef,
 };
-pub(crate) use consensus::{
-    authoritative_now_ms, authoritative_now_secs, verified_served_registration,
-};
+pub(crate) use consensus::{authoritative_now_ms, authoritative_now_secs};
 #[cfg(feature = "raft")]
 pub(crate) use consensus::{is_replicated_apply, replicated_placement_authority};
 pub use request_boundary::dispatch;

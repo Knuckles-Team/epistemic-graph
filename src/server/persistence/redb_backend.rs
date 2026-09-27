@@ -3407,7 +3407,7 @@ mod tests {
         async fn commit_mutation_batch_crossmodal(
             &self,
             _args: crate::server::persistence::CrossModalCommitArgs<'_>,
-        ) -> Result<crate::server::persistence::MutationBatchCommit, String> {
+        ) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
             // The seam the cross-modal Commit handler actually calls.
             Err("injected durable commit failure".to_string())
         }

@@ -290,11 +290,11 @@ def _read_source_lines(file_path: Path) -> list[str] | None:
     # MAX_SCAN_BYTES of expanded content so a small gzip bomb cannot turn
     # this hook into an unbounded allocation. Reading through EOF also
     # verifies the gzip trailer/CRC for in-boundary reports.
-    if file_path.suffix.lower() == ".gz":
-        source = gzip.open(file_path, "rb")
-    else:
-        source = file_path.open("rb")
-    with source:
+    with (
+        gzip.open(file_path, "rb")
+        if file_path.suffix.lower() == ".gz"
+        else file_path.open("rb")
+    ) as source:
         content = source.read(MAX_SCAN_BYTES + 1)
     if len(content) > MAX_SCAN_BYTES:
         return None

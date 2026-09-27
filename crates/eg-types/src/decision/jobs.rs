@@ -73,7 +73,9 @@ pub struct DecisionFitRequest {
 #[serde(tag = "source", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DatasetSource {
-    /// A submitted dataset, pinned by digest (gold sets, exported suites).
+    /// A submitted dataset pinned by digest. The digest proves byte identity,
+    /// not independent labels: served inline fit/eval results are synthetic
+    /// until a separately verified gold-set authority is implemented.
     Inline { dataset: Box<LabelledDataset> },
     /// The engine's own decision log: every committed, executed record of
     /// `question_id` the caller may read, with its independent evaluations.

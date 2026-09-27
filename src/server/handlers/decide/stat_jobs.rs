@@ -176,6 +176,17 @@ fn is_inline(source: &DatasetSource) -> bool {
     matches!(source, DatasetSource::Inline { .. })
 }
 
+/// Inline labels and the `synthetic` flag arrive in the same caller-authored
+/// request. A content digest pins those bytes but cannot attest independent
+/// gold-set provenance. Until a separately verified gold-set source exists,
+/// inline fit/eval results remain synthetic and cannot feed the real-world
+/// coverage, risk or threshold timeline.
+fn mark_unverified_inline(dataset: &mut LabelledDataset, source: &DatasetSource) {
+    if is_inline(source) {
+        dataset.synthetic = true;
+    }
+}
+
 /// The labelled items a job reads: the submitted dataset, or the decision
 /// log's executed and evaluated records of one question the caller may read.
 fn resolve_dataset(
@@ -201,10 +212,11 @@ fn run_fit(store: &AgentLibraryStore, reader: &LogReader, request: &DecisionFitR
         AgentComponentKind::FeatureSchema,
         StatisticalErrorCode::FeatureSchemaInvalid,
     )?;
-    let dataset = resolve_dataset(store, reader, &request.source, &schema_digest)?;
+    let mut dataset = resolve_dataset(store, reader, &request.source, &schema_digest)?;
     checked_dataset(&dataset, &schema_digest, &schema)?;
     let policy = resolve_policy(store, &request.tenant_id, &request.policy)?;
     let regime = fit_regime(request, &dataset)?;
+    mark_unverified_inline(&mut dataset, &request.source);
     let approved = policy.statistical.approved_commit_principals.as_slice();
     let admitted = admit(&dataset, &rules(regime, request.window, &policy, approved));
     let spec = FitSpec {
@@ -314,7 +326,7 @@ fn eval_inputs(
     request: &DecisionEvalRequest,
 ) -> Result<EvalInputs, String> {
     let head = candidate_head(store, &request.tenant_id, &request.candidate)?;
-    let dataset = resolve_dataset(store, reader, &request.source, &head.feature_schema_digest)?;
+    let mut dataset = resolve_dataset(store, reader, &request.source, &head.feature_schema_digest)?;
     if dataset.feature_schema_digest != head.feature_schema_digest {
         return Err(refusal(
             StatisticalErrorCode::DatasetInvalid,
@@ -327,6 +339,7 @@ fn eval_inputs(
         .map_err(|detail| refusal(StatisticalErrorCode::DatasetInvalid, detail))?;
     let policy = resolve_policy(store, &request.tenant_id, &request.policy)?;
     let regime = eval_regime(request, &dataset)?;
+    mark_unverified_inline(&mut dataset, &request.source);
     Ok(EvalInputs {
         head,
         dataset,

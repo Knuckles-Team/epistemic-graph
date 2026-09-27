@@ -1,7 +1,8 @@
 //! Served acceptance of the statistical release (§11.2), end to end through
 //! the handlers: publish a feature schema, decide without a head (abstain),
 //! fit a head, refuse its publish without a passed receipt, evaluate it,
-//! publish it with the receipt, and decide again (act). Plus the negative
+//! publish it with the receipt, and decide again (abstain on synthetic
+//! calibration). Plus the negative
 //! fixtures that need the served path: exploration on a security question,
 //! a foreign tenant, an idempotency conflict, graph candidates.
 
@@ -313,9 +314,10 @@ fn succeeded(job: &DecisionJobRecord) -> &DecisionJobOutput {
     }
 }
 
-/// Exercise the served positive path with disjoint fit/eval fixture item ids.
-/// `LabelSource::Human` in this test is a test label, not live label evidence.
-async fn prove_human_source_threshold_path(
+/// A caller can mark its inline labels Human and non-synthetic, but the
+/// server has no independent gold-set authority for those bytes. Even with
+/// disjoint fit/eval items, this path cannot publish a threshold claim.
+async fn inline_human_labels_cannot_publish_threshold(
     h: &Harness,
     schema_pin: &ComponentDependency,
     heldout: LabelledDataset,
@@ -369,11 +371,14 @@ async fn prove_human_source_threshold_path(
     let DecisionJobOutput::Fit {
         draft_sha256,
         draft_length,
+        draft,
         ..
     } = succeeded(&fit)
     else {
-        panic!("real fit output")
+        panic!("inline fit output")
     };
+    assert!(draft.synthetic);
+    assert!(draft.calibration.as_ref().is_some_and(|cal| cal.synthetic));
     let heldout_gold = super::stat_jobs::dataset_digest(&heldout).unwrap();
     let evaluated: DecisionJobRecord = decode(
         super::jobs::handle_decision_eval(
@@ -403,11 +408,11 @@ async fn prove_human_source_threshold_path(
     )
     .unwrap();
     let DecisionJobOutput::Eval { receipt } = succeeded(&evaluated) else {
-        panic!("real evaluation output")
+        panic!("inline evaluation output")
     };
-    assert!(!receipt.synthetic);
+    assert!(receipt.synthetic);
     assert!(receipt.calibration.as_ref().is_some_and(|cal| {
-        !cal.synthetic && cal.method == eg_types::decision::CalibrationMethod::Conformal
+        cal.synthetic && cal.method == eg_types::decision::CalibrationMethod::Conformal
     }));
     let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
         super::jobs::handle_decision_eval(
@@ -425,17 +430,8 @@ async fn prove_human_source_threshold_path(
         .await,
     )
     .unwrap();
-    let entry = timeline
-        .entries
-        .iter()
-        .find(|entry| entry.receipt.receipt_digest == receipt.receipt_digest)
-        .expect("real held-out receipt appears in timeline");
-    let assessment = entry
-        .threshold_alert
-        .as_ref()
-        .expect("real conformal fit and held-out labels have a policy assessment");
-    assert_eq!(assessment.policy_digest, receipt.policy_digest);
-    assert_eq!(assessment.n_min, 100);
+    assert!(timeline.entries.is_empty());
+    assert_eq!(timeline.next_after, None);
     assert!(h
         .store
         .decision_artifact(
@@ -445,7 +441,7 @@ async fn prove_human_source_threshold_path(
             ),
         )
         .unwrap()
-        .is_some());
+        .is_none());
 }
 
 /// What the route fixture publishes and reads back.
@@ -690,8 +686,8 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     assert!(receipt.synthetic);
     assert!(timeline.entries.is_empty());
     assert_eq!(timeline.next_after, None);
-    // A separately submitted human-label fixture has its own evaluation
-    // receipt and authoritative job time. It is eligible for the timeline.
+    // A caller-authored Human label and synthetic=false flag do not prove
+    // independent gold-set provenance or unlock the real-world timeline.
     let mut human_data = dataset(&schema_digest, &ids, &values, 400);
     human_data.synthetic = false;
     human_data.items = BoundedVec::new(
@@ -745,7 +741,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     else {
         panic!("human eval output")
     };
-    assert!(!human_receipt.synthetic);
+    assert!(human_receipt.synthetic);
     assert!(human_receipt.metrics.is_some());
     let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
         super::jobs::handle_decision_eval(
@@ -763,16 +759,19 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         .await,
     )
     .unwrap();
-    assert_eq!(timeline.entries.len(), 1);
-    assert_eq!(timeline.entries.as_slice()[0].receipt, *human_receipt);
-    // The evaluation labels are human, but this head was fitted/calibrated
-    // on the synthetic fixture above. A real evaluation must not promote
-    // that synthetic fitted calibration into a production threshold signal.
+    assert!(timeline.entries.is_empty());
+    assert_eq!(timeline.next_after, None);
+    // The fitted calibration and caller-authored evaluation labels both lack
+    // independently verified provenance.
     assert!(human_receipt
         .calibration
         .as_ref()
         .is_some_and(|c| c.synthetic));
-    assert!(timeline.entries.as_slice()[0].threshold_alert.is_none());
+    assert!(super::stat_jobs::threshold_assessment(
+        &human_receipt,
+        &super::stat_support::default_statistical_policy(),
+    )
+    .is_none());
     assert!(h
         .store
         .decision_artifact(
@@ -783,12 +782,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         )
         .unwrap()
         .is_none());
-    assert_eq!(
-        timeline.entries.as_slice()[0].submitted_at_ms,
-        human_job.submitted_at_ms
-    );
-    assert_eq!(timeline.next_after, None);
-    prove_human_source_threshold_path(&h, &schema_pin, heldout_data).await;
+    inline_human_labels_cannot_publish_threshold(&h, &schema_pin, heldout_data).await;
     let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
         super::jobs::handle_decision_eval(
             &h.state,
@@ -814,13 +808,13 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         )
         .unwrap();
 
-    // With the calibrated head the engine acts, with the executed policy's
-    // propensity (1: deterministic) and a risk statement.
+    // An inline-fitted head is synthetic even when its caller claims Human
+    // labels. Its apparent calibration cannot authorize an ordinary Act.
     let batch = decide(
         &h,
         request(
             &schema_pin,
-            Some(head_pin),
+            Some(head_pin.clone()),
             DecisionPolicyRef::Default,
             QuestionSafety::Ordinary,
         ),
@@ -828,26 +822,49 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     .await
     .unwrap();
     let record = &batch.records.as_slice()[0];
-    let StatisticalOutcome::Acted {
-        option_id,
-        propensity,
-        ..
-    } = &record.outcome
-    else {
-        panic!("expected to act: {:?}", record.outcome)
-    };
-    assert_eq!(option_id, "tool-a-search");
-    assert_eq!((propensity.numerator(), propensity.denominator()), (1, 1));
-    assert!(record.calibration.is_some() && record.explanation.is_some() && record.audit.is_some());
+    assert!(matches!(
+        record.outcome,
+        StatisticalOutcome::Abstained { .. }
+    ));
+    assert!(record.calibration.is_none());
+    assert!(record.audit.is_none());
+    assert!(record.logging_propensities.is_empty());
     assert!(
         record.synthetic_evidence,
         "a head fitted on synthetic data says so"
     );
-    assert_eq!(
-        record.logging_propensities.len(),
-        3,
-        "the executed policy is logged in full"
-    );
+
+    // The log and retention tests still need an executed decision. Explicit
+    // ordinary-question exploration supplies one without claiming risk-bound
+    // Act from the synthetic calibration.
+    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
+    policy.cold_start = ColdStart::Explore {
+        budget: ExplorationBudget {
+            fraction: rational(1, 1),
+            spend_at_risk_micros: 1,
+            questions: BoundedVec::new(vec!["route.tools".to_string()]).unwrap(),
+        },
+    };
+    let policy_pin = h.publish_policy("policy-inline-explore", &policy);
+    let explored = decide(
+        &h,
+        request(
+            &schema_pin,
+            Some(head_pin),
+            DecisionPolicyRef::Pinned {
+                component: policy_pin,
+            },
+            QuestionSafety::Ordinary,
+        ),
+    )
+    .await
+    .unwrap();
+    let record = &explored.records.as_slice()[0];
+    assert!(matches!(
+        record.outcome,
+        StatisticalOutcome::Explored { .. }
+    ));
+    assert_eq!(record.logging_propensities.len(), 3);
 
     decision_log_round_trip(&h, record.clone()).await;
     #[cfg(feature = "blob")]
