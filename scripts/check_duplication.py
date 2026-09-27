@@ -633,6 +633,74 @@ def clone_identity(
 CloneKey = tuple[str, str, int]
 
 
+_RUST_IMPORT_BLOCK = re.compile(r"(?:\s*(?:pub\s+)?use\s+[A-Za-z0-9_:{}*,\s]+;)+\s*\Z")
+
+# The shared DataFusion pushdown classifier was extracted in T6. These three
+# remaining 10-line windows cross from its one-line call into the mandatory
+# TableProvider::scan method signature. The signature accounts for almost the
+# whole match; no repeated classifier body remains. Pin BOTH the full fragment
+# digest and the reviewed path pair so any changed glue or new occurrence is
+# still checked. A broad trait- or file-level exemption would hide real clones.
+_REVIEWED_TRAIT_BOUNDARY_WINDOWS = {
+    (
+        "d9cadfb90d9e679dd950ffc19d8c1898b3fa52142590ce8754ecbeae6f57b143",
+        (
+            ("crates/eg-query/src/sql/iceberg_federation.rs", 474),
+            ("crates/eg-query/src/sql/providers.rs", 484),
+        ),
+    ),
+    (
+        "42fe218f8147f02aa190924b75ebc28860b83b76f4afcd5a6e5de513343899c7",
+        (
+            ("crates/eg-query/src/sql/iceberg_federation.rs", 475),
+            ("crates/eg-query/src/tables/provider.rs", 725),
+        ),
+    ),
+    (
+        "b25a1af5e03f05a33e7a78458da1743d0750631072b5bc89ddb18786175245e4",
+        (
+            ("crates/eg-query/src/sql/providers.rs", 484),
+            ("crates/eg-query/src/sql/providers.rs", 858),
+        ),
+    ),
+}
+
+
+def _is_non_executable_import_block(clone: dict[str, Any]) -> bool:
+    """Ignore Rust import-only matches; they share no executable behavior.
+
+    Match the entire captured fragment and accept only the token shapes used by
+    Rust `use` trees. A fragment containing a call, binding, or function body
+    remains in the gate even when it starts with imports.
+    """
+    return clone.get("format") == "rust" and bool(
+        _RUST_IMPORT_BLOCK.fullmatch(clone["fragment"])
+    )
+
+
+def _actionable_clones(duplicates: list[object], root: Path):
+    for clone in duplicates:
+        if not isinstance(clone, dict):
+            fail("jscpd report contains a non-object duplicate")
+        if _is_non_executable_import_block(clone):
+            continue
+        base_key, actual = clone_identity(clone, root)
+        positions = tuple(
+            sorted(
+                (
+                    actual[index],
+                    clone[side]["startLoc"]["line"],
+                )
+                for index, side in enumerate(("firstFile", "secondFile"))
+            )
+        )
+        if base_key[0] == "rust" and (base_key[1], positions) in (
+            _REVIEWED_TRAIT_BOUNDARY_WINDOWS
+        ):
+            continue
+        yield base_key, actual
+
+
 def keyed_originals(
     document: dict[str, Any], root: Path
 ) -> dict[CloneKey, tuple[str, str]]:
@@ -651,10 +719,7 @@ def keyed_originals(
     if not isinstance(duplicates, list):
         fail("jscpd report has no duplicates array")
     grouped: dict[tuple[str, str], list[tuple[str, str]]] = {}
-    for clone in duplicates:
-        if not isinstance(clone, dict):
-            fail("jscpd report contains a non-object duplicate")
-        base_key, actual = clone_identity(clone, root)
+    for base_key, actual in _actionable_clones(duplicates, root):
         grouped.setdefault(base_key, []).append(actual)
     result: dict[CloneKey, tuple[str, str]] = {}
     for base_key, occurrences in grouped.items():

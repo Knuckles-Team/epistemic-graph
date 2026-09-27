@@ -9,6 +9,7 @@
 //! the data lives at the bottom of the DAG, the logic stays where it belongs.
 
 pub mod acl;
+pub mod calendar;
 // RF-020 — durable Agent Library identity and mutation-context contracts. The
 // physical table and transaction adapter live above this pure-data crate.
 pub mod agent_component;

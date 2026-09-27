@@ -139,15 +139,23 @@ fn handle_get_nodes_by_label(
     if let Some(msg) = bounded_page_error(limit, max_response_nodes()) {
         return Response::err(req_id, msg);
     }
-    let nodes: Vec<(String, serde_json::Value)> = core
-        .get_nodes_by_label_page(label, after, limit)
+    Response::ok(
+        req_id,
+        node_list_payload(core.get_nodes_by_label_page(label, after, limit)),
+    )
+}
+
+/// Decode the core's property blobs for either a bounded label page or a
+/// guarded full scan, preserving the wire's empty-object fallback.
+fn node_list_payload(nodes: Vec<(String, Vec<u8>)>) -> ResultPayload {
+    let nodes: Vec<(String, serde_json::Value)> = nodes
         .into_iter()
         .map(|(k, p)| {
             let val = eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}));
             (k, val)
         })
         .collect();
-    Response::ok(req_id, ResultPayload::NodeList(nodes))
+    ResultPayload::NodeList(nodes)
 }
 
 /// Route gateway-owned node creation and removal operations.
@@ -203,16 +211,7 @@ pub(super) async fn try_handle_node_reads(
             if let Some(msg) = oversize_dump_error(g.node_count(), max_response_nodes()) {
                 return ControlFlow::Break(Response::err(req_id, msg));
             }
-            let nodes: Vec<(String, serde_json::Value)> = g
-                .get_nodes()
-                .into_iter()
-                .map(|(k, p)| {
-                    let val = eg_types::msgpack::decode_property_value(&p)
-                        .unwrap_or(serde_json::json!({}));
-                    (k, val)
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::NodeList(nodes))
+            Response::ok(req_id, node_list_payload(g.get_nodes()))
         }
         Method::GetNodesByLabel {
             label,

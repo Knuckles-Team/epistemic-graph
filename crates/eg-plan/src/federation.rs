@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::federation_ssrf::validate_http_json_target;
+use crate::federation_ssrf::{validate_http_json_target, ValidatedHttpJsonTarget};
 use crate::rowset::RowSet;
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
@@ -59,6 +59,40 @@ const MAX_HTTP_JSON_ID_BYTES: usize = 64 * 1024;
 const HTTP_JSON_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const HTTP_JSON_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const HTTP_JSON_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Per-call bounds for an outbound, DNS-pinned federation HTTP client.
+pub struct PinnedHttpTimeouts {
+    pub connect: std::time::Duration,
+    pub read: std::time::Duration,
+    pub write: Option<std::time::Duration>,
+    pub total: Option<std::time::Duration>,
+}
+
+/// Construct the transport only after the shared destination gate has vetted every
+/// resolved address. Federation callers use this same resolver and disable ambient
+/// proxies and redirects, while retaining their individual timeout policies.
+pub fn pinned_http_agent(
+    target: ValidatedHttpJsonTarget,
+    timeouts: PinnedHttpTimeouts,
+) -> ureq::Agent {
+    let addresses = target.addresses;
+    let mut builder = ureq::AgentBuilder::new()
+        .try_proxy_from_env(false)
+        .resolver(
+            move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> { Ok(addresses.clone()) },
+        )
+        .https_only(target.https_only)
+        .redirects(0)
+        .timeout_connect(timeouts.connect)
+        .timeout_read(timeouts.read);
+    if let Some(write) = timeouts.write {
+        builder = builder.timeout_write(write);
+    }
+    if let Some(total) = timeouts.total {
+        builder = builder.timeout(total);
+    }
+    builder.build()
+}
 
 /// The federation seam: turn an EXTERNAL source into the cross-modal [`RowSet`]
 /// currency, so a `ForeignScan` composes with every local op. One method, one shape —
@@ -234,21 +268,15 @@ impl HttpJsonSource<'_> {
         // rebinding gap. Environment proxies are disabled because routing a pinned
         // request through an unvalidated implicit proxy would invalidate that guarantee.
         let target = validate_http_json_target(self.url)?;
-        let pinned_addresses = target.addresses.clone();
-        let agent = ureq::AgentBuilder::new()
-            .try_proxy_from_env(false)
-            .resolver(
-                move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
-                    Ok(pinned_addresses.clone())
-                },
-            )
-            .https_only(target.https_only)
-            .redirects(0)
-            .timeout_connect(HTTP_JSON_CONNECT_TIMEOUT)
-            .timeout_read(HTTP_JSON_IO_TIMEOUT)
-            .timeout_write(HTTP_JSON_IO_TIMEOUT)
-            .timeout(HTTP_JSON_TOTAL_TIMEOUT)
-            .build();
+        let agent = pinned_http_agent(
+            target,
+            PinnedHttpTimeouts {
+                connect: HTTP_JSON_CONNECT_TIMEOUT,
+                read: HTTP_JSON_IO_TIMEOUT,
+                write: Some(HTTP_JSON_IO_TIMEOUT),
+                total: Some(HTTP_JSON_TOTAL_TIMEOUT),
+            },
+        );
 
         let response = agent
             .get(self.url)

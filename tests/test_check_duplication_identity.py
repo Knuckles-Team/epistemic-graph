@@ -142,3 +142,90 @@ def test_genuinely_different_fragments_never_collide(tmp_path):
 
     keys = jscpd.keys(_report(one, other), root)
     assert len(keys) == 2
+
+
+def test_rust_import_only_fragments_do_not_count_as_behavior_clones(tmp_path):
+    jscpd = load_script("check_duplication")
+    root = tmp_path / "repo"
+    imports = _clone(
+        root,
+        "src/server/federation/mod.rs",
+        "src/server/kvcache_http/mod.rs",
+        fragment=(
+            "use std::time::Duration;\n\n"
+            "use tokio::io::AsyncWriteExt;\n"
+            "use tokio::net::TcpListener;\n"
+            "use tokio::sync::RwLock;\n\n"
+            "use crate::server::http1::{self, HttpMessage, RequestLimits};\n"
+            "use crate::server::ServerState;\n"
+            "use eg_plan::federation::{pinned_http_agent, PinnedHttpTimeouts};"
+        ),
+    )
+    imports["format"] = "rust"
+
+    assert jscpd.keys(_report(imports), root) == set()
+
+
+def test_import_rule_keeps_executable_rust_and_other_formats(tmp_path):
+    jscpd = load_script("check_duplication")
+    root = tmp_path / "repo"
+    executable = _clone(
+        root,
+        "src/a.rs",
+        "src/b.rs",
+        fragment="use crate::State;\nfn request() { dispatch(); }",
+    )
+    executable["format"] = "rust"
+    partial = _clone(
+        root,
+        "src/c.rs",
+        "src/d.rs",
+        fragment="use crate::State;\nlet state = State::new();",
+    )
+    partial["format"] = "rust"
+    python_import = _clone(
+        root,
+        "src/e.py",
+        "src/f.py",
+        fragment="use crate::State;",
+    )
+
+    assert len(jscpd.keys(_report(executable, partial, python_import), root)) == 3
+
+
+def test_reviewed_trait_boundary_pin_requires_exact_fragment_paths_and_lines(tmp_path):
+    jscpd = load_script("check_duplication")
+    root = tmp_path / "repo"
+    fragment = (
+        "            iceberg_predicate_for(filter, &self.schema).is_some()\n"
+        "        })\n"
+        "    }\n\n"
+        "    async fn scan(\n"
+        "        &self,\n"
+        "        state: &dyn Session,\n"
+        "        projection: Option<&Vec<usize>>,\n"
+        "        filters: &[Expr],\n"
+        "        limit: Option<usize>,\n"
+        "    ) -> DfResult<Arc<dyn ExecutionPlan>> {\n"
+        "        let request = IcebergScanRequest::new("
+        "&self.schema, projection, filters, limit)?;"
+    )
+    clone = _clone(
+        root,
+        "crates/eg-query/src/sql/iceberg_federation.rs",
+        "crates/eg-query/src/sql/providers.rs",
+        fragment=fragment,
+    )
+    clone["format"] = "rust"
+    clone["firstFile"]["startLoc"]["line"] = 474
+    clone["secondFile"]["startLoc"]["line"] = 484
+
+    assert jscpd.keys(_report(clone), root) == set()
+    clone["secondFile"]["startLoc"]["line"] = 485
+    assert len(jscpd.keys(_report(clone), root)) == 1
+    clone["secondFile"]["startLoc"]["line"] = 484
+    clone["fragment"] += "\n    execute_more();"
+    assert len(jscpd.keys(_report(clone), root)) == 1
+    clone["fragment"] = fragment
+    clone["secondFile"]["name"] = str(root / "src/other.rs")
+    assert len(jscpd.keys(_report(clone), root)) == 1

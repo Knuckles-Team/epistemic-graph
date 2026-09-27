@@ -63,6 +63,7 @@ mod classify;
 /// psql/ORM caller never pre-embeds client-side. Fail-closed when unbound.
 mod embed_udf;
 mod exec;
+mod filter_pushdown;
 /// SQL stored-function (`CREATE FUNCTION … LANGUAGE sql`) expansion (CONCEPT:EG-KG.query.create-drop-function) —
 /// inline a scalar function body as a scalar subquery, expand a table function as a
 /// parameterized-view subquery in `FROM`; reuses the SQL exec path (no new evaluator).

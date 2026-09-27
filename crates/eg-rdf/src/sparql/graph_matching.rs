@@ -149,32 +149,30 @@ pub(super) fn negated_edge_pairs(
     ctx: &Ctx,
     negated: &std::collections::HashSet<String>,
 ) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for ((s, o), blobs) in &ctx.active.edge_properties {
-        for blob in blobs {
-            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
-                if let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) {
-                    if !negated.contains(&ctx.proj.pred_iri(rel)) {
-                        out.push((ctx.proj.node_iri(s), ctx.proj.node_iri(o)));
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    dedup_pairs(out)
+    dedup_pairs(resource_edge_pairs_matching(ctx, |predicate| {
+        !negated.contains(predicate)
+    }))
 }
 
 /// Every `(subject, object)` resource pair carrying a typed edge whose projected
 /// predicate IRI equals `pred` (the path predicate, already a full IRI from spargebra).
 /// Subject/object are projected node IRIs so pairs match query terms + bind consistently.
 pub(super) fn edge_pairs(ctx: &Ctx, pred: &str) -> Vec<(String, String)> {
+    resource_edge_pairs_matching(ctx, |predicate| predicate == pred)
+}
+
+/// Project resource edges whose typed relationship satisfies the path predicate.
+/// Stop at the first matching relationship per edge, matching both path arms.
+fn resource_edge_pairs_matching(
+    ctx: &Ctx,
+    mut matches: impl FnMut(&str) -> bool,
+) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for ((s, o), blobs) in &ctx.active.edge_properties {
         for blob in blobs {
             if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
                 if let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) {
-                    if ctx.proj.pred_iri(rel) == pred {
+                    if matches(&ctx.proj.pred_iri(rel)) {
                         out.push((ctx.proj.node_iri(s), ctx.proj.node_iri(o)));
                         break;
                     }

@@ -428,7 +428,7 @@ async fn collect_scan_batches(
 }
 
 async fn materialize_iceberg_scan(
-    table: iceberg::Table,
+    table: iceberg::table::Table,
     snapshot_id: Option<i64>,
     request: IcebergScanRequest,
 ) -> iceberg::Result<(Vec<RecordBatch>, u64)> {
@@ -470,16 +470,9 @@ impl TableProvider for IcebergTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(filters
-            .iter()
-            .map(|f| {
-                if iceberg_predicate_for(f, &self.schema).is_some() {
-                    TableProviderFilterPushDown::Inexact
-                } else {
-                    TableProviderFilterPushDown::Unsupported
-                }
-            })
-            .collect())
+        super::filter_pushdown::inexact_filter_pushdown(filters, |filter| {
+            iceberg_predicate_for(filter, &self.schema).is_some()
+        })
     }
 
     async fn scan(
@@ -640,7 +633,11 @@ mod tests {
         fs::metadata(path).expect("partition file size").len()
     }
 
-    async fn write_partition_manifest(table: &iceberg::Table, location: &str, manifest_list: &str) {
+    async fn write_partition_manifest(
+        table: &iceberg::table::Table,
+        location: &str,
+        manifest_list: &str,
+    ) {
         let snapshot = table.metadata().current_snapshot().expect("snapshot");
         let mut writer = ManifestWriterBuilder::new(
             table
@@ -695,7 +692,7 @@ mod tests {
         let fixture = FixtureDir(root);
         let location = fixture.0.to_str().expect("utf8 fixture path");
         let manifest_list = format!("{location}/metadata/list.avro");
-        let table = iceberg::Table::builder()
+        let table = iceberg::table::Table::builder()
             .metadata(fixture_metadata(location, &manifest_list))
             .identifier(TableIdent::from_strs(["fixture", "partitioned"]).expect("table id"))
             .file_io(FileIO::new_with_fs())

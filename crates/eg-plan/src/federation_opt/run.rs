@@ -484,12 +484,13 @@ mod cache_tests {
 
     struct Counted {
         identity: Identity,
+        caps: SourceCapabilities,
         calls: AtomicUsize,
     }
 
     impl RemoteFetch for Counted {
         fn capabilities(&self) -> SourceCapabilities {
-            SourceCapabilities::fetch_only()
+            self.caps
         }
 
         fn identity(&self) -> &Identity {
@@ -510,6 +511,7 @@ mod cache_tests {
                 fingerprint: [19; 32],
                 cache_name: Some("crm".into()),
             },
+            caps: SourceCapabilities::fetch_only(),
             calls: AtomicUsize::new(0),
         };
         let scope = |owner: &str, watermark: &str, expiry| {

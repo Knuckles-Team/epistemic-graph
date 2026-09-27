@@ -54,6 +54,7 @@ use tokio::sync::RwLock;
 
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
+use eg_plan::federation::{pinned_http_agent, PinnedHttpTimeouts};
 use eg_plan::federation_ssrf::{
     validate_outbound_http_target, OutboundAllowPolicy, ValidatedHttpJsonTarget,
 };
@@ -259,17 +260,15 @@ fn fetch_one_peer(
     let target = allow.check_target(peer)?;
     let endpoint = format!("{peer}/federated?local=1");
     let body = serde_json::json!({ "query": query, "lang": lang }).to_string();
-    let addresses = target.addresses;
-    let agent = ureq::AgentBuilder::new()
-        .try_proxy_from_env(false)
-        .resolver(
-            move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> { Ok(addresses.clone()) },
-        )
-        .https_only(target.https_only)
-        .redirects(0)
-        .timeout_connect(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-        .timeout_read(Duration::from_secs(READ_TIMEOUT_SECS))
-        .build();
+    let agent = pinned_http_agent(
+        target,
+        PinnedHttpTimeouts {
+            connect: Duration::from_secs(CONNECT_TIMEOUT_SECS),
+            read: Duration::from_secs(READ_TIMEOUT_SECS),
+            write: None,
+            total: None,
+        },
+    );
     let resp = agent
         .post(&endpoint)
         .set("Content-Type", "application/json")
