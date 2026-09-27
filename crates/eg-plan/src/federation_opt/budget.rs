@@ -99,6 +99,10 @@ impl BudgetMeter {
         self.budget
     }
 
+    pub(crate) fn narrow(&mut self, requested: FederationBudget) {
+        self.budget = self.budget.narrowed(requested);
+    }
+
     /// Account one round trip before it is sent.
     pub(crate) fn charge_request(&mut self) -> Result<(), String> {
         if self.requests >= self.budget.max_requests {

@@ -31,6 +31,7 @@ macro_rules! spatial_predicate {
             | Pred::SpatialDisjoint { .. }
     };
 }
+#[cfg(feature = "query")]
 pub(crate) use spatial_predicate;
 
 /// Spatial predicates are handled by the geometry evaluator, never by SQL rows.

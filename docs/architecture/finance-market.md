@@ -194,6 +194,16 @@ The engine's existing kernels compute the mandatory validation outputs:
 purged combinatorial CV, the deflated Sharpe ratio, and the probability of
 backtest overfitting. The caller never supplies these values.
 
+The draft supplies one finite performance row per return period, with one
+column per strategy variant. For each purged CPCV split, the engine averages
+each variant over that split's train and test indices, selects the train-best
+variant, and asks whether its test rank is strictly below the median rank.
+Ranks count strictly lower test scores, so ties share the lower rank; an exact
+median rank is not counted as overfit. PBO is the fraction of the record's
+own CPCV splits that meet that condition. The performance row count must
+match the returns count; a caller cannot supply unrelated pre-aggregated
+train and test scores.
+
 `backtest_run::verify` re-derives a record from its own draft. A revised run is
 a new record whose `supersedes` names the old digest.
 

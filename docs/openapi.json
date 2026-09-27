@@ -6508,7 +6508,8 @@
                 "type": "string"
               },
               "request": {
-                "$ref": "#/components/schemas/ReqDef_McpCatalogReconcileRequest"
+                "$ref": "#/components/schemas/ReqDef_McpCatalogReconcileRequest",
+                "description": "Keep catalog reconciliation from setting the size of every pack operation."
               }
             },
             "required": [
@@ -7294,7 +7295,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "A submitted dataset, pinned by digest (gold sets, exported suites).",
+            "description": "A submitted dataset pinned by digest. The digest proves byte identity,\nnot independent labels: served inline fit/eval results are synthetic\nuntil a separately verified gold-set authority is implemented.",
             "properties": {
               "dataset": {
                 "$ref": "#/components/schemas/ReqDef_LabelledDataset"
@@ -12275,8 +12276,17 @@
         ],
         "type": "string"
       },
+      "ReqDef_ForeignCypherBackend": {
+        "description": "External Cypher dialect and transport are a single explicit choice.",
+        "enum": [
+          "Neo4j",
+          "Age",
+          "FalkorDb"
+        ],
+        "type": "string"
+      },
       "ReqDef_ForeignSourceSpec": {
-        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`. Two\nkinds, behind one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
+        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`.\nSource kinds share one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -12413,7 +12423,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike the self-describing variants\nabove (which carry the full connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
+            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike self-describing variants\n(which carry their connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
             "properties": {
               "Named": {
                 "properties": {
@@ -12430,6 +12440,126 @@
             },
             "required": [
               "Named"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Trino/Starburst coordinator. This is a query-time source, not an ingest\ncursor. Registration must bind a verified service identity and probe the\ncatalog before a driver may advertise any pushdown capability. No credential\nis serialized into this spec.",
+            "properties": {
+              "Trino": {
+                "properties": {
+                  "catalog": {
+                    "type": "string"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "schema": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "endpoint",
+                  "catalog",
+                  "schema",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Trino"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Cypher-capable external graph. AGE uses a PostgreSQL transport; Neo4j\nuses Bolt; FalkorDB uses its own protocol. The dialect is explicit so a\ngeneric Cypher claim cannot accidentally select the wrong driver.",
+            "properties": {
+              "Cypher": {
+                "properties": {
+                  "backend": {
+                    "$ref": "#/components/schemas/ReqDef_ForeignCypherBackend"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "graph": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "backend",
+                  "endpoint",
+                  "graph",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Cypher"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Spark output is a sealed batch artifact reference. Interactive Spark SQL\npushdown is deliberately absent: a query may read only a completed,\nregistered artifact, never launch a job or trust a caller-provided path.",
+            "properties": {
+              "SparkBatch": {
+                "properties": {
+                  "artifact_ref": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "artifact_ref",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "SparkBatch"
             ],
             "type": "object"
           }
@@ -16012,7 +16142,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
             "properties": {
               "method": {
                 "const": "GetNodesByLabel",
@@ -19662,7 +19792,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 \u21d2 no cap).",
+            "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
             "properties": {
               "method": {
                 "const": "UnionGetNodesByLabel",
@@ -47759,17 +47889,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "insample": {
-            "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
-            "items": {
-              "items": {
-                "format": "double",
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "type": "array"
-          },
           "n_groups": {
             "format": "uint32",
             "minimum": 0,
@@ -47786,7 +47905,8 @@
             "minimum": 0,
             "type": "integer"
           },
-          "oos": {
+          "performance": {
+            "description": "Per-period performance, rows aligned with `BacktestRunDraft::returns`,\ncolumns = strategy variants. The engine derives both sides of every\npurged CPCV split from these same observations.",
             "items": {
               "items": {
                 "format": "double",
@@ -47808,8 +47928,7 @@
           "purge_window",
           "embargo",
           "n_trials",
-          "insample",
-          "oos"
+          "performance"
         ],
         "type": "object"
       },
@@ -57375,7 +57494,7 @@
       },
       "Req_GetNodesByLabel": {
         "additionalProperties": false,
-        "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+        "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
         "properties": {
           "method": {
             "const": "GetNodesByLabel",
@@ -65505,7 +65624,7 @@
       },
       "Req_UnionGetNodesByLabel": {
         "additionalProperties": false,
-        "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 \u21d2 no cap).",
+        "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
         "properties": {
           "method": {
             "const": "UnionGetNodesByLabel",
@@ -74013,17 +74132,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "insample": {
-            "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
-            "items": {
-              "items": {
-                "format": "double",
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "type": "array"
-          },
           "n_groups": {
             "format": "uint32",
             "minimum": 0,
@@ -74040,7 +74148,8 @@
             "minimum": 0,
             "type": "integer"
           },
-          "oos": {
+          "performance": {
+            "description": "Per-period performance, rows aligned with `BacktestRunDraft::returns`,\ncolumns = strategy variants. The engine derives both sides of every\npurged CPCV split from these same observations.",
             "items": {
               "items": {
                 "format": "double",
@@ -74062,8 +74171,7 @@
           "purge_window",
           "embargo",
           "n_trials",
-          "insample",
-          "oos"
+          "performance"
         ],
         "type": "object"
       },
@@ -98751,7 +98859,8 @@
                 "type": "string"
               },
               "request": {
-                "$ref": "#/components/schemas/ResDef_Query_McpCatalogReconcileRequest"
+                "$ref": "#/components/schemas/ResDef_Query_McpCatalogReconcileRequest",
+                "description": "Keep catalog reconciliation from setting the size of every pack operation."
               }
             },
             "required": [
@@ -99594,7 +99703,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "A submitted dataset, pinned by digest (gold sets, exported suites).",
+            "description": "A submitted dataset pinned by digest. The digest proves byte identity,\nnot independent labels: served inline fit/eval results are synthetic\nuntil a separately verified gold-set authority is implemented.",
             "properties": {
               "dataset": {
                 "$ref": "#/components/schemas/ResDef_Query_LabelledDataset"
@@ -105632,8 +105741,17 @@
         ],
         "type": "string"
       },
+      "ResDef_Query_ForeignCypherBackend": {
+        "description": "External Cypher dialect and transport are a single explicit choice.",
+        "enum": [
+          "Neo4j",
+          "Age",
+          "FalkorDb"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_ForeignSourceSpec": {
-        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`. Two\nkinds, behind one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
+        "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops \u2014 so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`.\nSource kinds share one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
         "oneOf": [
           {
             "additionalProperties": false,
@@ -105770,7 +105888,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike the self-describing variants\nabove (which carry the full connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
+            "description": "A NAMED reference to a foreign source registered in the executor's\n`ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike self-describing variants\n(which carry their connection spec inline), this carries ONLY a `name`\n\u2014 the executor resolves it to a concrete, pre-registered [`ForeignSource`] at\nplan time. This is the resolution seam the UQL `FOREIGN \"<name>\"` clause needs:\nthe parser only ever sees a name, and binding that name to a live source lives\nwith the server/facade (which owns the registry), not in the wire DTO. A `Named`\nspec handed to a source builder WITHOUT a registry is a clean typed error, never\na silent empty set.",
             "properties": {
               "Named": {
                 "properties": {
@@ -105787,6 +105905,126 @@
             },
             "required": [
               "Named"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Trino/Starburst coordinator. This is a query-time source, not an ingest\ncursor. Registration must bind a verified service identity and probe the\ncatalog before a driver may advertise any pushdown capability. No credential\nis serialized into this spec.",
+            "properties": {
+              "Trino": {
+                "properties": {
+                  "catalog": {
+                    "type": "string"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "schema": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "endpoint",
+                  "catalog",
+                  "schema",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Trino"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Cypher-capable external graph. AGE uses a PostgreSQL transport; Neo4j\nuses Bolt; FalkorDB uses its own protocol. The dialect is explicit so a\ngeneric Cypher claim cannot accidentally select the wrong driver.",
+            "properties": {
+              "Cypher": {
+                "properties": {
+                  "backend": {
+                    "$ref": "#/components/schemas/ResDef_Query_ForeignCypherBackend"
+                  },
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "graph": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "backend",
+                  "endpoint",
+                  "graph",
+                  "query",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "Cypher"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Spark output is a sealed batch artifact reference. Interactive Spark SQL\npushdown is deliberately absent: a query may read only a completed,\nregistered artifact, never launch a job or trust a caller-provided path.",
+            "properties": {
+              "SparkBatch": {
+                "properties": {
+                  "artifact_ref": {
+                    "type": "string"
+                  },
+                  "id_field": {
+                    "type": "string"
+                  },
+                  "score_field": {
+                    "default": null,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "artifact_ref",
+                  "id_field"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "SparkBatch"
             ],
             "type": "object"
           }
@@ -109645,7 +109883,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+            "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) \u2026 LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" \u2014 a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) \u2026 LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
             "properties": {
               "method": {
                 "const": "GetNodesByLabel",
@@ -113295,7 +113533,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 \u21d2 no cap).",
+            "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
             "properties": {
               "method": {
                 "const": "UnionGetNodesByLabel",
@@ -142207,17 +142445,6 @@
             "minimum": 0,
             "type": "integer"
           },
-          "insample": {
-            "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
-            "items": {
-              "items": {
-                "format": "double",
-                "type": "number"
-              },
-              "type": "array"
-            },
-            "type": "array"
-          },
           "n_groups": {
             "format": "uint32",
             "minimum": 0,
@@ -142234,7 +142461,8 @@
             "minimum": 0,
             "type": "integer"
           },
-          "oos": {
+          "performance": {
+            "description": "Per-period performance, rows aligned with `BacktestRunDraft::returns`,\ncolumns = strategy variants. The engine derives both sides of every\npurged CPCV split from these same observations.",
             "items": {
               "items": {
                 "format": "double",
@@ -142256,8 +142484,7 @@
           "purge_window",
           "embargo",
           "n_trials",
-          "insample",
-          "oos"
+          "performance"
         ],
         "type": "object"
       },

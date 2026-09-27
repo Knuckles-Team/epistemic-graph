@@ -72,6 +72,9 @@ impl Annotations {
 pub struct Statement {
     pub version: u32,
     pub mode: Mode,
+    /// Caller-requested remote work cap; execution narrows the server's cap with it.
+    #[cfg(feature = "federation")]
+    pub federation_budget: Option<crate::federation_opt::FederationBudget>,
     pub body: Body,
     pub annotations: Annotations,
     pub warnings: Vec<UqlWarning>,
@@ -95,43 +98,21 @@ pub(in crate::uql) struct Chain {
     pub ops: Vec<Op>,
 }
 
-impl<'a> Parser<'a> {
-    /// `statement = [ UQL int ; ] [ EXPLAIN | PROFILE ] { binding } pipeline [ annotations ]`.
-    pub(in crate::uql) fn statement(&mut self) -> Result<Statement, UqlError> {
-        let version = self.version_pragma()?;
-        let mode = self.mode();
-        while self.eat_kw("LET") {
-            self.binding()?;
-        }
-        let main = self.chain()?;
-        let annotations = self.annotations()?;
-        if !self.at_end() {
-            return Err(self
-                .error(
-                    UqlCode::TrailingTokens,
-                    "unexpected trailing tokens after the query",
-                )
-                .with_help("separate pipeline stages with `|>`"));
-        }
-        let body = self.materialize(main)?;
-        self.check_params_used()?;
-        Ok(Statement {
-            version,
-            mode,
-            body,
-            annotations,
-            warnings: self.take_warnings(),
-        })
-    }
+/// The statement annotation subgrammar shares the cursor and diagnostics with
+/// the program parser, while keeping annotation parsing in one focused owner.
+struct AnnotationParser<'p, 'a> {
+    parser: &'p mut Parser<'a>,
+}
 
+impl AnnotationParser<'_, '_> {
     /// `annotations = WITH annotation { , annotation }`; none without `WITH`.
-    fn annotations(&mut self) -> Result<Annotations, UqlError> {
+    fn parse(&mut self) -> Result<Annotations, UqlError> {
         let mut out = Annotations::default();
-        if !self.eat_kw("WITH") {
+        if !self.parser.eat_kw("WITH") {
             return Ok(out);
         }
         self.annotation(&mut out)?;
-        while self.eat(&Tok::Comma) {
+        while self.parser.eat(&Tok::Comma) {
             self.annotation(&mut out)?;
         }
         Ok(out)
@@ -139,14 +120,15 @@ impl<'a> Parser<'a> {
 
     /// `annotation = PROOF | KNOWLEDGE [ ( name { , name } ) ]`; each at most once.
     fn annotation(&mut self, out: &mut Annotations) -> Result<(), UqlError> {
-        let span = self.cur_span();
-        let repeated = if self.eat_kw("PROOF") {
+        let span = self.parser.cur_span();
+        let repeated = if self.parser.eat_kw("PROOF") {
             std::mem::replace(&mut out.proof, true)
-        } else if self.eat_kw("KNOWLEDGE") {
+        } else if self.parser.eat_kw("KNOWLEDGE") {
             let columns = self.knowledge_columns()?;
             out.knowledge.replace(columns).is_some()
         } else {
             return Err(self
+                .parser
                 .err_here("expected `PROOF` or `KNOWLEDGE` after `WITH`")
                 .expecting(vec!["`PROOF`".into(), "`KNOWLEDGE`".into()]));
         };
@@ -162,15 +144,112 @@ impl<'a> Parser<'a> {
 
     /// The optional `( name { , name } )` column list of `WITH KNOWLEDGE`.
     fn knowledge_columns(&mut self) -> Result<Vec<String>, UqlError> {
-        if !self.eat(&Tok::LParen) {
+        if !self.parser.eat(&Tok::LParen) {
             return Ok(Vec::new());
         }
-        let mut columns = vec![self.name("a column name")?];
-        while self.eat(&Tok::Comma) {
-            columns.push(self.name("a column name")?);
+        let mut columns = vec![self.parser.name("a column name")?];
+        while self.parser.eat(&Tok::Comma) {
+            columns.push(self.parser.name("a column name")?);
         }
-        self.expect(&Tok::RParen, "`)` to close the KNOWLEDGE columns")?;
+        self.parser
+            .expect(&Tok::RParen, "`)` to close the KNOWLEDGE columns")?;
         Ok(columns)
+    }
+}
+
+impl<'a> Parser<'a> {
+    /// `statement = [ UQL int ; ] [ EXPLAIN | PROFILE ] [ FEDERATION BUDGET (...) ] { binding } pipeline [ annotations ]`.
+    pub(in crate::uql) fn statement(&mut self) -> Result<Statement, UqlError> {
+        let version = self.version_pragma()?;
+        let mode = self.mode();
+        #[cfg(feature = "federation")]
+        let federation_budget = self.federation_budget()?;
+        #[cfg(not(feature = "federation"))]
+        self.reject_unbuilt_federation_budget()?;
+        while self.eat_kw("LET") {
+            self.binding()?;
+        }
+        let main = self.chain()?;
+        let annotations = AnnotationParser { parser: self }.parse()?;
+        if !self.at_end() {
+            return Err(self
+                .error(
+                    UqlCode::TrailingTokens,
+                    "unexpected trailing tokens after the query",
+                )
+                .with_help("separate pipeline stages with `|>`"));
+        }
+        let body = self.materialize(main)?;
+        self.check_params_used()?;
+        Ok(Statement {
+            version,
+            mode,
+            #[cfg(feature = "federation")]
+            federation_budget,
+            body,
+            annotations,
+            warnings: self.take_warnings(),
+        })
+    }
+
+    #[cfg(not(feature = "federation"))]
+    fn reject_unbuilt_federation_budget(&self) -> Result<(), UqlError> {
+        if self.peek_kw("FEDERATION") {
+            return Err(self.not_built("federation"));
+        }
+        Ok(())
+    }
+
+    /// A bounded per-request hint, accepting each dimension at most once. Missing
+    /// dimensions use MAX so they cannot accidentally tighten unrelated limits.
+    #[cfg(feature = "federation")]
+    fn federation_budget(
+        &mut self,
+    ) -> Result<Option<crate::federation_opt::FederationBudget>, UqlError> {
+        if !self.eat_kw("FEDERATION") {
+            return Ok(None);
+        }
+        self.expect_kw("BUDGET")?;
+        self.expect(&Tok::LParen, "`(` after FEDERATION BUDGET")?;
+        let mut budget = crate::federation_opt::FederationBudget {
+            max_requests: u32::MAX,
+            max_rows: usize::MAX,
+            max_bind_keys: usize::MAX,
+            max_wall_ms: u64::MAX,
+        };
+        let mut seen = BTreeSet::new();
+        loop {
+            let span = self.cur_span();
+            let key = self
+                .name("a federation budget dimension")?
+                .to_ascii_uppercase();
+            if !seen.insert(key.clone()) {
+                return Err(UqlError::new(
+                    UqlCode::UnexpectedToken,
+                    format!("federation budget dimension `{key}` is repeated"),
+                    span,
+                ));
+            }
+            self.expect(&Tok::Eq, "`=` after federation budget dimension")?;
+            match key.as_str() {
+                "REQUESTS" => budget.max_requests = self.parse_number("request limit")?,
+                "ROWS" => budget.max_rows = self.parse_number("row limit")?,
+                "BIND_KEYS" => budget.max_bind_keys = self.parse_number("bind-key limit")?,
+                "WALL_MS" => budget.max_wall_ms = self.parse_number("wall-time limit")?,
+                _ => {
+                    return Err(UqlError::new(
+                        UqlCode::UnexpectedToken,
+                        format!("unknown federation budget dimension `{key}`"),
+                        span,
+                    ))
+                }
+            }
+            if !self.eat(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RParen, "`)` after federation budget")?;
+        Ok(Some(budget))
     }
 
     fn version_pragma(&mut self) -> Result<u32, UqlError> {

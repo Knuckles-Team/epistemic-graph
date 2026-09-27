@@ -67,6 +67,8 @@ pub fn parse_statement(src: &str, params: &Params) -> Result<Statement, UqlError
 /// (`UQL_STATEMENT_NOT_PIPELINE`) — use [`parse_statement`] for those.
 pub fn parse_with(src: &str, params: &Params) -> Result<Plan, UqlError> {
     let stmt = parse_statement(src, params)?;
+    #[cfg(feature = "federation")]
+    reject_pipeline_federation_budget(&stmt, src)?;
     match (stmt.mode, stmt.body, stmt.annotations.any()) {
         (Mode::Run, Body::Pipeline(plan), false) => Ok(plan),
         _ => Err(UqlError::new(
@@ -77,6 +79,19 @@ pub fn parse_with(src: &str, params: &Params) -> Result<Plan, UqlError> {
         )
         .with_help("use `eg_plan::uql::parse_statement`")),
     }
+}
+
+#[cfg(feature = "federation")]
+fn reject_pipeline_federation_budget(stmt: &Statement, src: &str) -> Result<(), UqlError> {
+    if stmt.federation_budget.is_some() {
+        return Err(UqlError::new(
+            UqlCode::StatementNotPipeline,
+            "a federation budget hint requires statement execution",
+            (0, src.len().min(1)),
+        )
+        .with_help("use `eg_plan::uql::parse_statement`"));
+    }
+    Ok(())
 }
 
 /// Parse one series expression (the `DERIVE` sub-grammar, EH-522) whose channel names are

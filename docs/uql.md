@@ -47,7 +47,8 @@ regenerate it in place with `cargo run -q -p eg-plan --example uql_grammar -- wr
 
 <!-- BEGIN GENERATED: uql-grammar -->
 ```text
-statement          = [ "UQL" int ";" ] [ "EXPLAIN" | "PROFILE" ] { binding } pipeline [ annotations ] ;
+statement          = [ "UQL" int ";" ] [ "EXPLAIN" | "PROFILE" ] [ federation_budget ] { binding } pipeline [ annotations ] ;
+federation_budget  = "FEDERATION" "BUDGET" "(" dimension "=" int { "," dimension "=" int } ")" ;   (* feature `federation` *)
 annotations        = "WITH" annotation { "," annotation } ;
 annotation         = "PROOF" | "KNOWLEDGE" [ "(" name { "," name } ")" ] ;
 binding            = "LET" name "=" pipeline ";" ;

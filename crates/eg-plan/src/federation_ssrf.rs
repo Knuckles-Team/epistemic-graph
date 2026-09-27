@@ -385,7 +385,10 @@ mod http_json_security_tests {
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
             IpAddr::V4(Ipv4Addr::new(100, 64, 0, 1)),
+            IpAddr::V4(Ipv4Addr::new(100, 127, 255, 254)),
             IpAddr::V6(Ipv6Addr::LOCALHOST),
+            "2002:c000:0201::1".parse().unwrap(),
+            "2001:0:c000:201::1".parse().unwrap(),
             "2001:db8::1".parse().unwrap(),
             "64:ff9b::1".parse().unwrap(),
         ] {
@@ -434,6 +437,26 @@ mod http_json_security_tests {
                     .is_err(),
                 "{endpoint}"
             );
+        }
+    }
+
+    #[test]
+    fn service_and_peer_policies_refuse_transition_ranges_without_a_grant() {
+        for endpoint in [
+            "https://100.64.0.1:7900/sparql",           // CGNAT lower boundary
+            "https://100.127.255.254:7900/sparql",      // CGNAT upper boundary
+            "https://[2002:c000:0201::1]:7900/sparql",  // 6to4
+            "https://[2001:0:c000:201::1]:7900/sparql", // Teredo
+        ] {
+            for policy in [
+                OutboundAllowPolicy::ExplicitOnly,
+                OutboundAllowPolicy::PublicHttps,
+            ] {
+                assert!(
+                    validate_outbound_http_target(endpoint, &[], policy).is_err(),
+                    "{policy:?} admitted {endpoint} without an exact grant"
+                );
+            }
         }
     }
 

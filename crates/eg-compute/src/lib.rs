@@ -78,7 +78,7 @@ pub mod parser;
 pub mod screen;
 /// Shared parser fixtures for this crate's unit tests and downstream test
 /// consumers. The feature is dev-only in the facade and absent from releases.
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(all(any(test, feature = "test-support"), feature = "ast"))]
 pub mod test_support;
 // CONCEPT:EG-KG.compute.approximate-sketches (W4.5/N5) — HyperLogLog / Count-Min Sketch /
 // MinHash. Pure-Rust (only `std`), deterministic given the same inserted items — the lowest

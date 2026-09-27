@@ -1,5 +1,6 @@
 //! Term formatting, identifiers, hashes, and dates.
 
+#[cfg(feature = "sparql-star")]
 use super::*;
 
 // ── EG-127 helpers: hashing, non-deterministic sources, date-time, URI encoding ──

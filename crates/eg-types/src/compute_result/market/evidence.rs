@@ -160,9 +160,10 @@ pub struct ValidationInputs {
     pub embargo: u32,
     /// Strategy variants tried (the deflated Sharpe's trial count).
     pub n_trials: u32,
-    /// In-sample and out-of-sample performance, rows = CV splits, columns = variants.
-    pub insample: Vec<Vec<f64>>,
-    pub oos: Vec<Vec<f64>>,
+    /// Per-period performance, rows aligned with `BacktestRunDraft::returns`,
+    /// columns = strategy variants. The engine derives both sides of every
+    /// purged CPCV split from these same observations.
+    pub performance: Vec<Vec<f64>>,
 }
 
 /// A backtest run as submitted, before its validation outputs are computed.

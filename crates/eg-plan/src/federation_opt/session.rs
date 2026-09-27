@@ -65,6 +65,12 @@ impl FederationSession {
         self.lock().meter.budget()
     }
 
+    /// Apply an untrusted request hint only as a field-wise reduction of the server cap.
+    /// UQL calls this before its first fragment; no hint can grant extra network work.
+    pub fn narrow_budget(&self, requested: FederationBudget) {
+        self.lock().meter.narrow(requested);
+    }
+
     /// Attach the verified caller's fresh source checkpoints. Standalone plans
     /// retain no cache authority, even when they register a source by name.
     pub fn set_cache_scope(&self, scope: Option<Arc<FragmentCacheScope>>) {
