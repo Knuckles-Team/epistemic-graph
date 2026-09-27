@@ -2074,7 +2074,8 @@ fn validate_source_access(
             else {
                 return Err("SOURCE_ACCESS_UNENFORCED: public access must be explicit".into());
             };
-            if access.get("is_public") != Some(&serde_json::Value::Bool(true))
+            if access.len() != 5
+                || access.get("is_public") != Some(&serde_json::Value::Bool(true))
                 || access.iter().any(|(key, value)| {
                     key != "is_public"
                         && (!matches!(
@@ -2448,7 +2449,10 @@ mod tests {
         ]);
         let mut public = record();
         public.payload = SourceJson::new(serde_json::json!({
-            "name": "seven", "external_access": {"is_public": true}
+            "name": "seven", "external_access": {
+                "is_public": true, "user_emails": [], "group_ids": [],
+                "read_roles": [], "markings": []
+            }
         }))
         .unwrap();
         let mapped = mapped_properties(
@@ -2468,6 +2472,7 @@ mod tests {
             serde_json::json!({"is_public": true, "markings": ["restricted"]}),
             serde_json::json!({"is_public": true, "user_emails": ["one@example.com"]}),
             serde_json::json!({"is_public": true, "unexpected": "ignored"}),
+            serde_json::json!({"is_public": true}),
             serde_json::json!({"group_ids": ["finance"]}),
             serde_json::json!(null),
         ] {

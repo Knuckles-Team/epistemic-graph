@@ -25,7 +25,86 @@ pub fn decode_schema_mappings(
     else {
         return Ok(BTreeMap::new());
     };
-    parse_mapping_block(&lines[start + 1..])
+    let mappings = parse_mapping_block(&lines[start + 1..])?;
+    validate_ingestion_permissions(&lines, &mappings)?;
+    Ok(mappings)
+}
+
+/// The imported mapping projection has no per-record ACL read policy. Require
+/// the only currently safe external ACL declaration to be an explicit public
+/// `external_access` value on every mapped record. Reject manifest permissions
+/// that would otherwise be silently discarded by the projection.
+fn validate_ingestion_permissions(
+    lines: &[&str],
+    mappings: &BTreeMap<String, ConnectorSchemaMapping>,
+) -> Result<(), String> {
+    let mut permissions_seen = false;
+    let mut acl_fields = Vec::new();
+    let mut in_permissions = false;
+    let mut in_acl_fields = false;
+    for raw in lines {
+        let line = strip_comment(raw).trim_end();
+        if line.trim().is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 {
+            if line.starts_with("permissions:") && line != "permissions:" {
+                return Err("SOURCE_ACCESS_UNENFORCED: unsupported permissions YAML".into());
+            }
+            in_permissions = line == "permissions:";
+            in_acl_fields = false;
+            if in_permissions {
+                if permissions_seen {
+                    return Err("connector manifest repeats permissions".into());
+                }
+                permissions_seen = true;
+            }
+            continue;
+        }
+        if !in_permissions {
+            continue;
+        }
+        match indent {
+            2 if in_acl_fields && line.trim().starts_with("- ") => {
+                acl_fields.push(yaml_scalar(line.trim().trim_start_matches("- ").trim())?);
+            }
+            2 => {
+                in_acl_fields = false;
+                let (key, value) = split_yaml_pair(line.trim())?;
+                match (key, value) {
+                    ("acl_fields", "") => in_acl_fields = true,
+                    ("acl_fields", "[]") => {}
+                    ("tenant_field", "null" | "Null" | "NULL" | "~") => {}
+                    ("read_roles", "[]") => {}
+                    _ => {
+                        return Err(
+                            "SOURCE_ACCESS_UNENFORCED: unsupported manifest permissions".into()
+                        )
+                    }
+                }
+            }
+            4 if in_acl_fields => {
+                let Some(value) = line.trim().strip_prefix("- ") else {
+                    return Err("SOURCE_ACCESS_UNENFORCED: unsupported ACL field list".into());
+                };
+                acl_fields.push(yaml_scalar(value)?);
+            }
+            _ => return Err("SOURCE_ACCESS_UNENFORCED: unsupported permissions YAML".into()),
+        }
+    }
+    let declared_access = acl_fields.len() == 1 && acl_fields[0] == "external_access";
+    if !acl_fields.is_empty() && !declared_access {
+        return Err("SOURCE_ACCESS_UNENFORCED: unsupported manifest ACL fields".into());
+    }
+    for mapping in mappings.values() {
+        let mapped_access =
+            mapping.fields.get("external_access").map(String::as_str) == Some("external_access");
+        if mapped_access != declared_access {
+            return Err("SOURCE_ACCESS_UNENFORCED: manifest ACL and mapping disagree".into());
+        }
+    }
+    Ok(())
 }
 
 /// Extract the closed `resources[*].relations[*]` projection used by native
@@ -356,6 +435,39 @@ mod tests {
             b"schema_mappings:\n  DemoItem:\n    ontology_class: *class\n"
         )
         .is_err());
+    }
+
+    #[test]
+    fn imported_public_document_mapping_binds_declared_acl_field() {
+        let mappings = decode_schema_mappings(
+            b"connector: demo\npermissions:\n  acl_fields:\n  - external_access\n  tenant_field: null\n  read_roles: []\nschema_mappings:\n  Document:\n    ontology_class: Document\n    fields:\n      text: text\n      external_access: external_access\n",
+        )
+        .unwrap();
+        assert_eq!(
+            mappings["Document"].fields["external_access"],
+            "external_access"
+        );
+    }
+
+    #[test]
+    fn imported_manifest_refuses_permissions_without_a_native_read_gate() {
+        for permissions in [
+            "  acl_fields:\n    - acl_groups\n  tenant_field: null\n  read_roles: []\n",
+            "  acl_fields: []\n  tenant_field: source_tenant\n  read_roles: []\n",
+            "  acl_fields: []\n  tenant_field: null\n  read_roles:\n    - finance\n",
+            "  acl_fields: []\n  tenant_field: null\n  read_roles: []\n",
+        ] {
+            let manifest = format!(
+                "permissions:\n{permissions}schema_mappings:\n  Document:\n    ontology_class: Document\n    fields:\n      external_access: external_access\n"
+            );
+            assert!(decode_schema_mappings(manifest.as_bytes())
+                .unwrap_err()
+                .contains("SOURCE_ACCESS_UNENFORCED"));
+        }
+        let dropped = b"permissions:\n  acl_fields:\n    - external_access\n  tenant_field: null\n  read_roles: []\nschema_mappings:\n  Document:\n    ontology_class: Document\n    fields:\n      text: text\n";
+        assert!(decode_schema_mappings(dropped)
+            .unwrap_err()
+            .contains("SOURCE_ACCESS_UNENFORCED"));
     }
 
     #[test]
