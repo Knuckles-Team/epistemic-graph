@@ -15,7 +15,7 @@ name = "eg_query"
 default = []
 # `eg-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
 # the Postgres/Mongo JSON operators onto (CONCEPT:EG-084) — additive, always on with `sql`.
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-storage", "dep:eg-transaction", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "eg-types/query", "iceberg-federation"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-storage", "dep:eg-transaction", "dep:eg-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "eg-types/query", "iceberg-federation"]
 # The development/test composition root for the SQL store's scope grants
 # (`tables::store::dev_scope_grant`, and the `TableStore::open_temp` that uses
 # it). OFF by default and folded into NO tier aggregate: RF-RULING-004 puts the
@@ -91,11 +91,10 @@ iceberg-federation = ["dep:iceberg", "dep:iceberg-catalog-rest", "dep:iceberg-st
 eg-types = { path = "../eg-types" }
 eg-core = { path = "../eg-core" }
 eg-compute = { path = "../eg-compute" }
-# CONCEPT:EG-311 — the real (dep-free) BM25 scorer/snippeter behind the `bm25_score`/
-# `bm25_snippet` UDFs. OPTIONAL, only under `sql` (the sole place the UDFs compile);
-# eg-text's DEFAULT build is Tantivy-free, so this adds nothing heavy to the tree and
-# stays out of a Pi/`cypher`-only eg-query build.
-eg-text = { path = "../eg-text", optional = true }
+# CONCEPT:EG-311 / EH-509 — the dep-free BM25 scorer and shared Unicode
+# tokenizer used by always-on document retrieval. eg-text's default build
+# remains Tantivy-free, including in a Pi/`cypher`-only eg-query build.
+eg-text = { path = "../eg-text" }
 # CONCEPT:EG-313 — the real HNSW/IVF-PQ + exact-rerank ANN indices behind the
 # pgvector `ORDER BY col <-> $1 LIMIT k` pushdown. OPTIONAL, only under `sql` (the
 # sole place the exec pushdown compiles). eg-ann's DEFAULT build links no heavy/GPU
@@ -200,6 +199,10 @@ base64 = { version = "0.22", optional = true }
 ipnet = { version = "2.12", optional = true }
 
 [dev-dependencies]
+# Iceberg federation fixture writes two partitioned Parquet files in tests only.
+# Use the already-locked crate directly; DataFusion's Parquet feature pulls an
+# offline-unavailable package that the production SQL feature does not use.
+parquet = { version = "58.3", features = ["arrow"] }
 # The spike's OUTER reactor mimics the server's multi-thread runtime; the inner
 # DataFusion driver uses only the current-thread runtime from the `sql` dep.
 tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"] }

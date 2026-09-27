@@ -36,14 +36,18 @@ use crate::federation_ssrf::validate_http_json_target;
 use crate::rowset::RowSet;
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
+mod remote_engine;
+#[cfg(feature = "federation-sql")]
+mod sql;
+
+pub use remote_engine::RemoteEngineSource;
+#[cfg(feature = "federation-sql")]
+pub use sql::{fetch_sql_columns, SqlSource};
+#[cfg(feature = "federation-sql")]
+pub(crate) use sql::{validate_federated_sql, SqlDialect};
+
 /// The federation SSRF opt-in (owned by the crate's one outbound-destination gate).
 pub use crate::federation_ssrf::HTTP_JSON_FEDERATION_ALLOW_ENV;
-
-const MAX_REMOTE_ENGINE_ENDPOINT_BYTES: usize = 1_024;
-const MAX_REMOTE_ENGINE_FRAME_BYTES: usize = 64 * 1024 * 1024;
-const MAX_REMOTE_ENGINE_ITEMS: usize = 1_000_000;
-const REMOTE_ENGINE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const REMOTE_ENGINE_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 const MAX_HTTP_JSON_BODY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_HTTP_JSON_DEPTH: usize = 64;
@@ -55,21 +59,6 @@ const MAX_HTTP_JSON_ID_BYTES: usize = 64 * 1024;
 const HTTP_JSON_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const HTTP_JSON_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const HTTP_JSON_TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
-
-#[cfg(feature = "federation-sql")]
-const MAX_FEDERATED_SQL_BYTES: usize = 1024 * 1024;
-#[cfg(feature = "federation-sql")]
-const MAX_FEDERATED_SQL_DSN_BYTES: usize = 8 * 1024;
-#[cfg(feature = "federation-sql")]
-const MAX_FEDERATED_SQL_ROWS: usize = 250_000;
-#[cfg(feature = "federation-sql")]
-const MAX_FEDERATED_SQL_FIELD_BYTES: usize = 1024;
-#[cfg(feature = "federation-sql")]
-const MAX_FEDERATED_SQL_ID_BYTES: usize = 64 * 1024;
-#[cfg(feature = "federation-sql")]
-const FEDERATED_SQL_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-#[cfg(feature = "federation-sql")]
-const FEDERATED_SQL_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The federation seam: turn an EXTERNAL source into the cross-modal [`RowSet`]
 /// currency, so a `ForeignScan` composes with every local op. One method, one shape —
@@ -127,7 +116,35 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
         // (a pure spec→source builder with no registry) cannot reach. Hand-off is via
         // the executor / `ForeignSourceRegistry::resolve`; calling `source_for` on a
         // `Named` yields a clean error rather than a silent empty set.
+        ForeignSourceSpec::Named { .. }
+        | ForeignSourceSpec::Trino { .. }
+        | ForeignSourceSpec::Cypher { .. }
+        | ForeignSourceSpec::SparkBatch { .. } => unresolved_source(spec),
+    }
+}
+
+/// Registry references and OQ-2 specs both require a separately bound source.
+fn unresolved_source(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
+    match spec {
         ForeignSourceSpec::Named { name } => Box::new(NamedUnresolved { name }),
+        other => Box::new(Oq2Unbound {
+            kind: crate::federation_opt::oq2::kind(other).unwrap_or("unknown"),
+        }),
+    }
+}
+
+/// An OQ-2 spec alone has no verified credential lease, catalog probe, or
+/// bound driver. Never silently use a generic SQL/Cypher transport for it.
+struct Oq2Unbound {
+    kind: &'static str,
+}
+
+impl ForeignSource for Oq2Unbound {
+    fn fetch(&self) -> Result<RowSet, String> {
+        Err(format!(
+            "federation: {} source requires a verified registration and bound driver",
+            self.kind
+        ))
     }
 }
 
@@ -175,361 +192,6 @@ impl ForeignSource for SqlUnavailable {
     }
 }
 
-// ── kind (a): a remote epistemic-graph engine ──────────────────────────────────
-
-/// Reads rows from a REMOTE epistemic-graph engine over the engine's own transport
-/// (length-prefixed MessagePack + HMAC-SHA256). Borrows the spec fields (no clones).
-pub struct RemoteEngineSource<'a> {
-    endpoint: &'a str,
-    graph: &'a str,
-    secret: &'a str,
-    context: &'a eg_types::acl::RequestContextClaims,
-    uql: &'a str,
-    cypher: &'a str,
-    id_field: &'a str,
-}
-
-impl ForeignSource for RemoteEngineSource<'_> {
-    fn fetch(&self) -> Result<RowSet, String> {
-        if self.uql.trim().is_empty() {
-            self.fetch_cypher()
-        } else {
-            self.fetch_uql()
-        }
-    }
-}
-
-/// None of `principal`/`tenant`/`audience`/`agent_id`/`policy_version` may be
-/// empty (after trimming).
-fn check_context_fields_nonempty(
-    context: &eg_types::acl::RequestContextClaims,
-) -> Result<(), String> {
-    for (name, value) in [
-        ("principal", context.principal.as_str()),
-        ("tenant", context.tenant.as_str()),
-        ("audience", context.audience.as_str()),
-        ("agent_id", context.agent_id.as_str()),
-        ("policy_version", context.policy_version.as_str()),
-    ] {
-        if value.trim().is_empty() {
-            return Err(format!(
-                "federation: remote engine v2 context {name} must not be empty"
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// None of `roles`/`scopes`/`delegation` may contain an empty or duplicated
-/// entry.
-fn check_context_lists_valid(context: &eg_types::acl::RequestContextClaims) -> Result<(), String> {
-    for (name, values) in [
-        ("role", context.roles.as_slice()),
-        ("scope", context.scopes.as_slice()),
-        ("delegation subject", context.delegation.as_slice()),
-    ] {
-        let mut seen = std::collections::HashSet::new();
-        if values
-            .iter()
-            .any(|value| value.trim().is_empty() || !seen.insert(value.as_str()))
-        {
-            return Err(format!(
-                "federation: remote engine v2 context contains an invalid {name}"
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// A non-delegated context (`principal == agent_id`) must carry an empty
-/// delegation path; a delegated one must bind `principal` → … → `agent_id`
-/// through at least two hops.
-fn check_delegation_chain(context: &eg_types::acl::RequestContextClaims) -> Result<(), String> {
-    if context.principal == context.agent_id {
-        if !context.delegation.is_empty() {
-            return Err(
-                "federation: non-delegated remote context must have an empty delegation path"
-                    .to_string(),
-            );
-        }
-    } else if context.delegation.first() != Some(&context.principal)
-        || context.delegation.last() != Some(&context.agent_id)
-        || context.delegation.len() < 2
-    {
-        return Err(
-            "federation: remote context delegation must bind principal to effective agent"
-                .to_string(),
-        );
-    }
-    Ok(())
-}
-
-/// Resolve, connect (loopback-only — native remote-engine TCP requires a
-/// local verified-TLS tunnel), and configure I/O timeouts for a remote-engine
-/// endpoint.
-fn connect_remote_engine(endpoint: &str) -> Result<std::net::TcpStream, String> {
-    use std::net::{TcpStream, ToSocketAddrs};
-
-    if endpoint.is_empty() || endpoint.len() > MAX_REMOTE_ENGINE_ENDPOINT_BYTES {
-        return Err("federation: invalid remote engine endpoint".to_string());
-    }
-    let addresses: Vec<_> = endpoint
-        .to_socket_addrs()
-        .map_err(|_| "federation: unable to resolve remote engine endpoint".to_string())?
-        .take(8)
-        .collect();
-    if addresses.is_empty() || addresses.iter().any(|address| !address.ip().is_loopback()) {
-        return Err(
-            "federation: native remote-engine TCP requires a local verified-TLS tunnel".to_string(),
-        );
-    }
-    let mut stream = None;
-    for address in addresses {
-        if let Ok(candidate) = TcpStream::connect_timeout(&address, REMOTE_ENGINE_CONNECT_TIMEOUT) {
-            stream = Some(candidate);
-            break;
-        }
-    }
-    let stream =
-        stream.ok_or_else(|| "federation: unable to connect to remote engine".to_string())?;
-    stream
-        .set_read_timeout(Some(REMOTE_ENGINE_IO_TIMEOUT))
-        .and_then(|()| stream.set_write_timeout(Some(REMOTE_ENGINE_IO_TIMEOUT)))
-        .map_err(|_| "federation: unable to configure remote engine transport".to_string())?;
-    Ok(stream)
-}
-
-/// Encode and write one length-prefixed request frame.
-fn write_remote_request(
-    stream: &mut std::net::TcpStream,
-    request: &eg_types::protocol::Request,
-) -> Result<(), String> {
-    use std::io::Write;
-    let body = rmp_serde::to_vec_named(request)
-        .map_err(|_| "federation: encode request failed".to_string())?;
-    if body.is_empty() || body.len() > MAX_REMOTE_ENGINE_FRAME_BYTES {
-        return Err("federation: remote engine request exceeds limit".to_string());
-    }
-    let len = u32::try_from(body.len())
-        .map_err(|_| "federation: remote engine request exceeds limit".to_string())?
-        .to_be_bytes();
-    stream
-        .write_all(&len)
-        .and_then(|()| stream.write_all(&body))
-        .map_err(|_| "federation: remote engine write failed".to_string())
-}
-
-/// Read one length-prefixed response frame, bounded-decode it, and extract
-/// its result bytes.
-fn read_remote_response(stream: &mut std::net::TcpStream) -> Result<Vec<u8>, String> {
-    use std::io::Read;
-    let mut len_buf = [0u8; 4];
-    stream
-        .read_exact(&mut len_buf)
-        .map_err(|_| "federation: remote engine response header failed".to_string())?;
-    let resp_len = u32::from_be_bytes(len_buf) as usize;
-    if resp_len == 0 || resp_len > MAX_REMOTE_ENGINE_FRAME_BYTES {
-        return Err("federation: remote engine response exceeds limit".to_string());
-    }
-    let mut resp_buf = vec![0u8; resp_len];
-    stream
-        .read_exact(&mut resp_buf)
-        .map_err(|_| "federation: remote engine response body failed".to_string())?;
-    let resp: eg_types::protocol::Response = eg_types::msgpack::decode_bounded(
-        &resp_buf,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_REMOTE_ENGINE_FRAME_BYTES,
-            MAX_REMOTE_ENGINE_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "federation: invalid remote engine response".to_string())?;
-    if resp.error.is_some() {
-        return Err("federation: remote engine returned an error".to_string());
-    }
-    // `ResultPayload::raw()` is the one MessagePack-bin result representation.
-    match resp.result {
-        Some(eg_types::protocol::ResultPayload::Raw(bytes)) => Ok(bytes),
-        _ => Err("federation: remote engine returned an unexpected result".to_string()),
-    }
-}
-
-impl RemoteEngineSource<'_> {
-    fn validate_request_context(&self) -> Result<(), String> {
-        if self.secret.is_empty() || self.secret.len() > 64 * 1024 {
-            return Err(
-                "federation: remote engine requires a bounded non-empty v2 signing secret"
-                    .to_string(),
-            );
-        }
-        check_context_fields_nonempty(self.context)?;
-        check_context_lists_valid(self.context)?;
-        check_delegation_chain(self.context)
-    }
-
-    /// Build the fail-secure `eg2.` token accepted by the remote engine. This is
-    /// the same canonical v2 byte layout as `src/server/auth.rs`; v0/v1 and an
-    /// empty-secret fallback are deliberately absent from native federation.
-    fn auth_token(
-        &self,
-        request: &eg_types::protocol::Request,
-        timestamp: u64,
-        nonce: &str,
-        idempotency_key: &str,
-    ) -> Result<String, String> {
-        use hmac::{Hmac, Mac};
-        use sha2::{Digest, Sha256};
-        self.validate_request_context()?;
-        let method_name = request.method.tag_name();
-        let body_hash = hex::encode(Sha256::digest(request.method.canonical_body_bytes()));
-        let bytes = eg_types::protocol::build_envelope_v2_bytes(
-            request.id,
-            &request.graph,
-            &method_name,
-            &body_hash,
-            self.context,
-            timestamp,
-            nonce,
-            idempotency_key,
-        );
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.secret.as_bytes())
-            .map_err(|_| "federation: invalid remote engine signing secret".to_string())?;
-        mac.update(&bytes);
-        let envelope = serde_json::json!({
-            "context": self.context,
-            "timestamp": timestamp,
-            "nonce": nonce,
-            "idempotency_key": idempotency_key,
-            "mac": hex::encode(mac.finalize().into_bytes()),
-        });
-        let json = serde_json::to_vec(&envelope)
-            .map_err(|_| "federation: encode remote engine v2 context failed".to_string())?;
-        Ok(format!("eg2.{}", hex::encode(json)))
-    }
-
-    fn signed_request(
-        &self,
-        method: eg_types::protocol::Method,
-    ) -> Result<eg_types::protocol::Request, String> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        static NEXT_REQUEST: AtomicU64 = AtomicU64::new(1);
-        self.validate_request_context()?;
-        let elapsed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "federation: system clock is before the Unix epoch".to_string())?;
-        let counter = NEXT_REQUEST.fetch_add(1, Ordering::Relaxed);
-        let request_id = (elapsed.as_nanos() as u64).wrapping_add(counter).max(1);
-        let nonce = format!("federation:{:032x}:{counter:016x}", elapsed.as_nanos());
-        let idempotency_key = format!("federation:{request_id:016x}:{counter:016x}");
-        let mut request = eg_types::protocol::Request {
-            id: request_id,
-            graph: self.graph.to_string(),
-            auth_token: String::new(),
-            agent_id: Some(self.context.agent_id.clone()),
-            method,
-        };
-        request.auth_token =
-            self.auth_token(&request, elapsed.as_secs(), &nonce, &idempotency_key)?;
-        Ok(request)
-    }
-
-    /// One framed round-trip to the remote: connect TCP, write `[u32 len][msgpack
-    /// Request]`, read `[u32 len][msgpack Response]`, return the response's `Raw`
-    /// payload bytes (or the remote's error). Blocking — the executor runs it on the
-    /// blocking pool, exactly like the local SQL leg.
-    fn round_trip(&self, request: &eg_types::protocol::Request) -> Result<Vec<u8>, String> {
-        let mut stream = connect_remote_engine(self.endpoint)?;
-        write_remote_request(&mut stream, request)?;
-        read_remote_response(&mut stream)
-    }
-
-    /// UQL path: the remote runs the statement through its own `Method::Uql` (the one
-    /// query-text surface, EH-434) and returns its rows; each row's `(id, score)` is the
-    /// SAME currency this engine's plans speak, so the projection is the identity. A
-    /// statement that answers no rows (`EXPLAIN`) is refused — a foreign source is rows.
-    fn fetch_uql(&self) -> Result<RowSet, String> {
-        let request = self.signed_request(eg_types::protocol::Method::Uql {
-            text: self.uql.to_string(),
-            params: std::collections::BTreeMap::new(),
-        })?;
-        let raw = self.round_trip(&request)?;
-        let result: eg_types::wire::UqlResult = eg_types::msgpack::decode_bounded(
-            &raw,
-            eg_types::msgpack::MsgpackLimits::new(
-                MAX_REMOTE_ENGINE_FRAME_BYTES,
-                MAX_REMOTE_ENGINE_ITEMS,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
-            ),
-        )
-        .map_err(|_| "federation: invalid UQL result".to_string())?;
-        let rows = match result {
-            eg_types::wire::UqlResult::Rows { rows, .. }
-            | eg_types::wire::UqlResult::Profile { rows, .. } => rows,
-            eg_types::wire::UqlResult::Explain { .. } => {
-                return Err(
-                    "federation: the remote UQL statement answered no rows (EXPLAIN)".into(),
-                )
-            }
-        };
-        Ok(RowSet::from_rows(
-            rows.into_iter().map(|row| (row.id, row.score)),
-        ))
-    }
-
-    /// Cypher path: the remote returns a `QueryResult { columns, rows }`; pick the
-    /// `id_field` column out of each row (each row is msgpack `Vec<Value>` aligned to
-    /// `columns`) and build an unscored RowSet.
-    fn fetch_cypher(&self) -> Result<RowSet, String> {
-        let request = self.signed_request(eg_types::protocol::Method::CypherQuery {
-            query: self.cypher.to_string(),
-            mode: eg_types::protocol::CypherMode::Read,
-        })?;
-        let raw = self.round_trip(&request)?;
-        let result: eg_types::protocol::QueryResult = eg_types::msgpack::decode_bounded(
-            &raw,
-            eg_types::msgpack::MsgpackLimits::new(
-                MAX_REMOTE_ENGINE_FRAME_BYTES,
-                MAX_REMOTE_ENGINE_ITEMS,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
-            ),
-        )
-        .map_err(|_| "federation: invalid cypher result".to_string())?;
-        let id_field = if self.id_field.is_empty() {
-            "id"
-        } else {
-            self.id_field
-        };
-        let col = result
-            .columns
-            .iter()
-            .position(|c| c == id_field)
-            .ok_or_else(|| {
-                format!(
-                    "federation: cypher result has no '{id_field}' column (have {:?})",
-                    result.columns
-                )
-            })?;
-        let mut ids = Vec::with_capacity(result.rows.len());
-        for row in &result.rows {
-            let cells: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
-                row,
-                eg_types::msgpack::MsgpackLimits::new(
-                    MAX_REMOTE_ENGINE_FRAME_BYTES,
-                    MAX_REMOTE_ENGINE_ITEMS,
-                    eg_types::msgpack::DEFAULT_MAX_DEPTH,
-                ),
-            )
-            .map_err(|_| "federation: invalid cypher row".to_string())?;
-            if let Some(v) = cells.get(col) {
-                ids.push(json_to_id(v));
-            }
-        }
-        Ok(RowSet::from_ids(ids))
-    }
-}
-
 // ── kind (b): a generic HTTP/JSON source ───────────────────────────────────────
 
 /// Reads rows from a generic HTTP/JSON API. Borrows the spec fields (no clones).
@@ -541,8 +203,14 @@ pub struct HttpJsonSource<'a> {
 
 impl ForeignSource for HttpJsonSource<'_> {
     fn fetch(&self) -> Result<RowSet, String> {
-        use std::io::Read;
+        self.validate_projection()?;
+        let body = self.fetch_body()?;
+        self.project_body(&body)
+    }
+}
 
+impl HttpJsonSource<'_> {
+    fn validate_projection(&self) -> Result<(), String> {
         if self.json_path.len() > MAX_HTTP_JSON_PATH_BYTES
             || self.field_map.id.is_empty()
             || self.field_map.id.len() > MAX_HTTP_JSON_FIELD_BYTES
@@ -554,6 +222,12 @@ impl ForeignSource for HttpJsonSource<'_> {
         {
             return Err("federation: invalid HTTP JSON projection".to_string());
         }
+
+        Ok(())
+    }
+
+    fn fetch_body(&self) -> Result<Vec<u8>, String> {
+        use std::io::Read;
 
         // Resolve exactly once, vet every answer, then pin the resulting socket list in
         // ureq's per-call resolver. This closes the usual validate-then-resolve DNS
@@ -603,8 +277,12 @@ impl ForeignSource for HttpJsonSource<'_> {
         if body.len() > MAX_HTTP_JSON_BODY_BYTES {
             return Err("federation: HTTP JSON response exceeds limit".to_string());
         }
-        validate_json_shape(&body)?;
-        let json: serde_json::Value = serde_json::from_slice(&body)
+        Ok(body)
+    }
+
+    fn project_body(&self, body: &[u8]) -> Result<RowSet, String> {
+        validate_json_shape(body)?;
+        let json: serde_json::Value = serde_json::from_slice(body)
             .map_err(|_| "federation: invalid HTTP JSON response".to_string())?;
         let array = walk_json_path(&json, self.json_path)
             .ok_or_else(|| "federation: HTTP JSON projection did not resolve".to_string())?;
@@ -745,472 +423,6 @@ mod json_preflight_tests {
     }
 }
 
-// ── kind (c) impl: external relational-SQL (CONCEPT:EG-KG.query.feature, feature `federation-sql`) ─
-
-#[cfg(feature = "federation-sql")]
-#[derive(Clone, Copy)]
-enum SqlDialect {
-    Postgres,
-    MySql,
-}
-
-/// SQLx 0.9 deliberately requires an explicit audit marker for runtime SQL. This
-/// parser is that audit boundary: exactly one query is accepted, including every
-/// nested statement, and locking/`SELECT INTO` write-shaped queries are rejected.
-/// The database read-only transaction below remains the authoritative second layer.
-#[cfg(feature = "federation-sql")]
-fn validate_federated_sql(query: &str, dialect: SqlDialect) -> Result<(), String> {
-    use core::ops::ControlFlow;
-    use sqlparser::ast::{Query, Select, Statement, Visit, Visitor};
-    use sqlparser::dialect::{MySqlDialect, PostgreSqlDialect};
-    use sqlparser::parser::Parser;
-
-    if query.is_empty() || query.len() > MAX_FEDERATED_SQL_BYTES || query.contains('\0') {
-        return Err("federation: invalid SQL query size or encoding".to_string());
-    }
-    let statements = match dialect {
-        SqlDialect::Postgres => Parser::parse_sql(&PostgreSqlDialect {}, query),
-        SqlDialect::MySql => Parser::parse_sql(&MySqlDialect {}, query),
-    }
-    .map_err(|_| "federation: SQL query did not parse".to_string())?;
-    if statements.len() != 1 || !matches!(statements.first(), Some(Statement::Query(_))) {
-        return Err("federation: SQL source requires exactly one read query".to_string());
-    }
-
-    struct ReadOnlyVisitor;
-    impl Visitor for ReadOnlyVisitor {
-        type Break = ();
-
-        fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<Self::Break> {
-            if matches!(statement, Statement::Query(_)) {
-                ControlFlow::Continue(())
-            } else {
-                ControlFlow::Break(())
-            }
-        }
-
-        fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Self::Break> {
-            if query.locks.is_empty() {
-                ControlFlow::Continue(())
-            } else {
-                ControlFlow::Break(())
-            }
-        }
-
-        fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Self::Break> {
-            if select.into.is_none() {
-                ControlFlow::Continue(())
-            } else {
-                ControlFlow::Break(())
-            }
-        }
-    }
-
-    let mut visitor = ReadOnlyVisitor;
-    if statements[0].visit(&mut visitor).is_break() {
-        return Err("federation: SQL query is not read-only".to_string());
-    }
-    Ok(())
-}
-
-/// Reads rows from an EXTERNAL relational DB (Postgres/MySQL) over a pure-Rust/rustls
-/// `sqlx` client. The statement must parse as one read query, then executes inside a
-/// database-enforced read-only transaction with time and cardinality bounds. The DSN scheme picks the dialect
-/// (`postgres://`/`postgresql://` ⇒ Postgres, `mysql://` ⇒ MySQL); each row's `id_field`
-/// column becomes the row id and the optional `score_field` becomes the row score.
-///
-/// `fetch()` is SYNC (the executor runs it on the blocking pool, exactly like the SQL /
-/// vector legs) but `sqlx` is async, so it spins a small current-thread tokio runtime to
-/// drive the connect+query to completion. A per-call connection prevents session state
-/// from crossing requests.
-#[cfg(feature = "federation-sql")]
-pub struct SqlSource<'a> {
-    dsn: &'a str,
-    query: &'a str,
-    id_field: &'a str,
-    score_field: Option<&'a str>,
-}
-
-#[cfg(feature = "federation-sql")]
-impl ForeignSource for SqlSource<'_> {
-    fn fetch(&self) -> Result<RowSet, String> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| format!("federation: build tokio runtime: {e}"))?;
-        rt.block_on(self.fetch_async())
-    }
-}
-
-#[cfg(feature = "federation-sql")]
-impl SqlSource<'_> {
-    async fn fetch_async(&self) -> Result<RowSet, String> {
-        if self.dsn.is_empty()
-            || self.dsn.len() > MAX_FEDERATED_SQL_DSN_BYTES
-            || self.dsn.contains('\0')
-        {
-            return Err("federation: invalid SQL connection configuration".to_string());
-        }
-        // The destination gate runs after the local checks (scheme, statement shape) and
-        // before any connection, so a refused query never reaches the network either way.
-        let scheme = self.dsn.split(':').next().unwrap_or("");
-        match scheme {
-            "postgres" | "postgresql" => {
-                validate_federated_sql(self.query, SqlDialect::Postgres)?;
-                crate::federation_ssrf::check_sql_dsn(self.dsn)?;
-                self.fetch_postgres().await
-            }
-            "mysql" | "mariadb" => {
-                validate_federated_sql(self.query, SqlDialect::MySql)?;
-                crate::federation_ssrf::check_sql_dsn(self.dsn)?;
-                self.fetch_mysql().await
-            }
-            _ => Err(
-                "federation: unsupported SQL connection scheme (expected postgres or mysql)"
-                    .to_string(),
-            ),
-        }
-    }
-
-    async fn fetch_postgres(&self) -> Result<RowSet, String> {
-        use futures_util::TryStreamExt;
-        use sqlx::Connection;
-        self.validate_projection_fields()?;
-        let mut conn = tokio::time::timeout(
-            FEDERATED_SQL_CONNECT_TIMEOUT,
-            sqlx::postgres::PgConnection::connect(self.dsn),
-        )
-        .await
-        .map_err(|_| "federation: postgres connection timed out".to_string())?
-        .map_err(|_| "federation: postgres connection failed".to_string())?;
-        let mut tx = conn
-            .begin()
-            .await
-            .map_err(|_| "federation: postgres transaction failed".to_string())?;
-        sqlx::query("SET TRANSACTION READ ONLY")
-            .execute(&mut *tx)
-            .await
-            .map_err(|_| "federation: postgres read-only transaction unavailable".to_string())?;
-        let out = tokio::time::timeout(FEDERATED_SQL_QUERY_TIMEOUT, async {
-            let mut rows = sqlx::query(sqlx::AssertSqlSafe(self.query.to_owned())).fetch(&mut *tx);
-            let mut out = Vec::new();
-            while let Some(row) = rows
-                .try_next()
-                .await
-                .map_err(|_| "federation: postgres query failed".to_string())?
-            {
-                if out.len() >= MAX_FEDERATED_SQL_ROWS {
-                    return Err("federation: postgres result exceeds row limit".to_string());
-                }
-                out.push(self.project_pg_row(&row)?);
-            }
-            Ok::<_, String>(out)
-        })
-        .await
-        .map_err(|_| "federation: postgres query timed out".to_string())??;
-        tx.rollback()
-            .await
-            .map_err(|_| "federation: postgres read-only transaction cleanup failed".to_string())?;
-        Ok(RowSet::from_rows(out))
-    }
-
-    async fn fetch_mysql(&self) -> Result<RowSet, String> {
-        use futures_util::TryStreamExt;
-        use sqlx::Connection;
-        self.validate_projection_fields()?;
-        let mut conn = tokio::time::timeout(
-            FEDERATED_SQL_CONNECT_TIMEOUT,
-            sqlx::mysql::MySqlConnection::connect(self.dsn),
-        )
-        .await
-        .map_err(|_| "federation: mysql connection timed out".to_string())?
-        .map_err(|_| "federation: mysql connection failed".to_string())?;
-        // MySQL applies this setting to the next transaction; the connection is
-        // request-scoped and discarded immediately afterward.
-        sqlx::query("SET TRANSACTION READ ONLY")
-            .execute(&mut conn)
-            .await
-            .map_err(|_| "federation: mysql read-only transaction unavailable".to_string())?;
-        let mut tx = conn
-            .begin()
-            .await
-            .map_err(|_| "federation: mysql transaction failed".to_string())?;
-        let out = tokio::time::timeout(FEDERATED_SQL_QUERY_TIMEOUT, async {
-            let mut rows = sqlx::query(sqlx::AssertSqlSafe(self.query.to_owned())).fetch(&mut *tx);
-            let mut out = Vec::new();
-            while let Some(row) = rows
-                .try_next()
-                .await
-                .map_err(|_| "federation: mysql query failed".to_string())?
-            {
-                if out.len() >= MAX_FEDERATED_SQL_ROWS {
-                    return Err("federation: mysql result exceeds row limit".to_string());
-                }
-                out.push(self.project_my_row(&row)?);
-            }
-            Ok::<_, String>(out)
-        })
-        .await
-        .map_err(|_| "federation: mysql query timed out".to_string())??;
-        tx.rollback()
-            .await
-            .map_err(|_| "federation: mysql read-only transaction cleanup failed".to_string())?;
-        Ok(RowSet::from_rows(out))
-    }
-
-    fn validate_projection_fields(&self) -> Result<(), String> {
-        for (name, value) in [
-            ("id_field", Some(self.id_field)),
-            ("score_field", self.score_field),
-        ] {
-            if let Some(value) = value {
-                if value.is_empty()
-                    || value.len() > MAX_FEDERATED_SQL_FIELD_BYTES
-                    || value.contains('\0')
-                {
-                    return Err(format!("federation: invalid {name}"));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn project_pg_row(&self, row: &sqlx::postgres::PgRow) -> Result<(String, Option<f32>), String> {
-        use sqlx::Row;
-        let id = pg_col_to_id(row, self.id_field)?;
-        if id.len() > MAX_FEDERATED_SQL_ID_BYTES {
-            return Err("federation: postgres id exceeds size limit".to_string());
-        }
-        // Read the score as f64 (float8/numeric-via-double) or f32 (float4) — a NULL or a
-        // non-numeric column yields no score rather than erroring (the score is optional).
-        let score = self.score_field.and_then(|sf| {
-            row.try_get::<f64, _>(sf)
-                .map(|v| v as f32)
-                .or_else(|_| row.try_get::<f32, _>(sf))
-                .ok()
-        });
-        Ok((id, score))
-    }
-
-    fn project_my_row(&self, row: &sqlx::mysql::MySqlRow) -> Result<(String, Option<f32>), String> {
-        use sqlx::Row;
-        let id = my_col_to_id(row, self.id_field)?;
-        if id.len() > MAX_FEDERATED_SQL_ID_BYTES {
-            return Err("federation: mysql id exceeds size limit".to_string());
-        }
-        let score = self.score_field.and_then(|sf| {
-            row.try_get::<f64, _>(sf)
-                .map(|v| v as f32)
-                .or_else(|_| row.try_get::<f32, _>(sf))
-                .ok()
-        });
-        Ok((id, score))
-    }
-}
-
-/// CONCEPT:EG-KG.query.obda-predicate-pushdown — run a rendered READ-ONLY `SELECT` against an
-/// external Postgres/MySQL database and return each row as `column → lexical-string`. The
-/// COLUMN-carrying sibling of [`SqlSource::fetch`] (which yields the id+score `RowSet`): the
-/// OBDA external-source seam needs full columns to fill R2RML templates. Reuses the SAME
-/// SSRF-validated DSN handling, `validate_federated_sql` statement check, read-only
-/// transaction, connect/query timeouts, and row cap. The caller (`SqlObdaSource`) casts every
-/// selected column to text, so each value decodes as `Option<String>`; a NULL column is omitted
-/// (so an R2RML template/column over it correctly yields no triple). Sync — it spins a small
-/// current-thread tokio runtime, exactly like [`SqlSource::fetch`].
-#[cfg(feature = "federation-sql")]
-pub fn fetch_sql_columns(
-    dsn: &str,
-    sql: &str,
-) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("federation: build tokio runtime: {e}"))?;
-    rt.block_on(fetch_sql_columns_async(dsn, sql))
-}
-
-#[cfg(feature = "federation-sql")]
-async fn fetch_sql_columns_async(
-    dsn: &str,
-    sql: &str,
-) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
-    if dsn.is_empty() || dsn.len() > MAX_FEDERATED_SQL_DSN_BYTES || dsn.contains('\0') {
-        return Err("federation: invalid SQL connection configuration".to_string());
-    }
-    match dsn.split(':').next().unwrap_or("") {
-        "postgres" | "postgresql" => {
-            validate_federated_sql(sql, SqlDialect::Postgres)?;
-            crate::federation_ssrf::check_sql_dsn(dsn)?;
-            fetch_pg_columns(dsn, sql).await
-        }
-        "mysql" | "mariadb" => {
-            validate_federated_sql(sql, SqlDialect::MySql)?;
-            crate::federation_ssrf::check_sql_dsn(dsn)?;
-            fetch_my_columns(dsn, sql).await
-        }
-        _ => Err(
-            "federation: unsupported SQL connection scheme (expected postgres or mysql)"
-                .to_string(),
-        ),
-    }
-}
-
-#[cfg(feature = "federation-sql")]
-async fn fetch_pg_columns(
-    dsn: &str,
-    sql: &str,
-) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
-    use futures_util::TryStreamExt;
-    use sqlx::{Column, Connection, Row};
-    let mut conn = tokio::time::timeout(
-        FEDERATED_SQL_CONNECT_TIMEOUT,
-        sqlx::postgres::PgConnection::connect(dsn),
-    )
-    .await
-    .map_err(|_| "federation: postgres connection timed out".to_string())?
-    .map_err(|_| "federation: postgres connection failed".to_string())?;
-    let mut tx = conn
-        .begin()
-        .await
-        .map_err(|_| "federation: postgres transaction failed".to_string())?;
-    sqlx::query("SET TRANSACTION READ ONLY")
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| "federation: postgres read-only transaction unavailable".to_string())?;
-    let out = tokio::time::timeout(FEDERATED_SQL_QUERY_TIMEOUT, async {
-        let mut rows = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned())).fetch(&mut *tx);
-        let mut out = Vec::new();
-        while let Some(row) = rows
-            .try_next()
-            .await
-            .map_err(|_| "federation: postgres query failed".to_string())?
-        {
-            if out.len() >= MAX_FEDERATED_SQL_ROWS {
-                return Err("federation: postgres result exceeds row limit".to_string());
-            }
-            let map = row
-                .columns()
-                .iter()
-                .enumerate()
-                .filter_map(|(i, col)| {
-                    row.try_get::<Option<String>, _>(i)
-                        .ok()
-                        .flatten()
-                        .map(|v| (col.name().to_string(), v))
-                })
-                .collect::<std::collections::HashMap<String, String>>();
-            out.push(map);
-        }
-        Ok::<_, String>(out)
-    })
-    .await
-    .map_err(|_| "federation: postgres query timed out".to_string())??;
-    tx.rollback()
-        .await
-        .map_err(|_| "federation: postgres read-only transaction cleanup failed".to_string())?;
-    Ok(out)
-}
-
-#[cfg(feature = "federation-sql")]
-async fn fetch_my_columns(
-    dsn: &str,
-    sql: &str,
-) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
-    use futures_util::TryStreamExt;
-    use sqlx::{Column, Connection, Row};
-    let mut conn = tokio::time::timeout(
-        FEDERATED_SQL_CONNECT_TIMEOUT,
-        sqlx::mysql::MySqlConnection::connect(dsn),
-    )
-    .await
-    .map_err(|_| "federation: mysql connection timed out".to_string())?
-    .map_err(|_| "federation: mysql connection failed".to_string())?;
-    sqlx::query("SET TRANSACTION READ ONLY")
-        .execute(&mut conn)
-        .await
-        .map_err(|_| "federation: mysql read-only transaction unavailable".to_string())?;
-    let mut tx = conn
-        .begin()
-        .await
-        .map_err(|_| "federation: mysql transaction failed".to_string())?;
-    let out = tokio::time::timeout(FEDERATED_SQL_QUERY_TIMEOUT, async {
-        let mut rows = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned())).fetch(&mut *tx);
-        let mut out = Vec::new();
-        while let Some(row) = rows
-            .try_next()
-            .await
-            .map_err(|_| "federation: mysql query failed".to_string())?
-        {
-            if out.len() >= MAX_FEDERATED_SQL_ROWS {
-                return Err("federation: mysql result exceeds row limit".to_string());
-            }
-            let map = row
-                .columns()
-                .iter()
-                .enumerate()
-                .filter_map(|(i, col)| {
-                    row.try_get::<Option<String>, _>(i)
-                        .ok()
-                        .flatten()
-                        .map(|v| (col.name().to_string(), v))
-                })
-                .collect::<std::collections::HashMap<String, String>>();
-            out.push(map);
-        }
-        Ok::<_, String>(out)
-    })
-    .await
-    .map_err(|_| "federation: mysql query timed out".to_string())??;
-    tx.rollback()
-        .await
-        .map_err(|_| "federation: mysql read-only transaction cleanup failed".to_string())?;
-    Ok(out)
-}
-
-/// Read the `id_field` column of a Postgres row as a String id, trying the common id
-/// SQL types in order (text, then integer, then float). A column that decodes as none of
-/// these errors clearly (rather than silently dropping the row).
-#[cfg(feature = "federation-sql")]
-fn pg_col_to_id(row: &sqlx::postgres::PgRow, col: &str) -> Result<String, String> {
-    use sqlx::Row;
-    if let Ok(s) = row.try_get::<String, _>(col) {
-        return Ok(s);
-    }
-    if let Ok(n) = row.try_get::<i64, _>(col) {
-        return Ok(n.to_string());
-    }
-    if let Ok(n) = row.try_get::<i32, _>(col) {
-        return Ok(n.to_string());
-    }
-    if let Ok(f) = row.try_get::<f64, _>(col) {
-        return Ok(f.to_string());
-    }
-    Err(format!(
-        "federation: id column '{col}' is not a string/int/float (cast it to text in the query)"
-    ))
-}
-
-/// MySQL counterpart of [`pg_col_to_id`].
-#[cfg(feature = "federation-sql")]
-fn my_col_to_id(row: &sqlx::mysql::MySqlRow, col: &str) -> Result<String, String> {
-    use sqlx::Row;
-    if let Ok(s) = row.try_get::<String, _>(col) {
-        return Ok(s);
-    }
-    if let Ok(n) = row.try_get::<i64, _>(col) {
-        return Ok(n.to_string());
-    }
-    if let Ok(n) = row.try_get::<i32, _>(col) {
-        return Ok(n.to_string());
-    }
-    if let Ok(f) = row.try_get::<f64, _>(col) {
-        return Ok(f.to_string());
-    }
-    Err(format!(
-        "federation: id column '{col}' is not a string/int/float (cast it to text in the query)"
-    ))
-}
-
 // ── shared helpers ─────────────────────────────────────────────────────────────
 
 /// Walk a dotted JSON path (e.g. `data.items`) into `root`. An empty path returns the
@@ -1256,12 +468,23 @@ pub struct ForeignSourceRegistry {
     /// The self-describing spec behind each `register_spec` entry — what lets the federation
     /// optimizer push keys / limits into a named source (EH-563).
     specs: HashMap<String, ForeignSourceSpec>,
+    cache_scope: Option<Arc<crate::federation_opt::FragmentCacheScope>>,
 }
 
 impl ForeignSourceRegistry {
     /// A new, empty registry (no foreign sources bound). CONCEPT:EG-KG.query.closure-backed-source.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bound only by the served, verified owner registry after EH-400 checks the
+    /// queried graph's named-source checkpoints.
+    pub fn set_cache_scope(&mut self, scope: Arc<crate::federation_opt::FragmentCacheScope>) {
+        self.cache_scope = Some(scope);
+    }
+
+    pub fn cache_scope(&self) -> Option<&Arc<crate::federation_opt::FragmentCacheScope>> {
+        self.cache_scope.as_ref()
     }
 
     /// Register (or replace) a source under `name`. CONCEPT:EG-KG.query.closure-backed-source.

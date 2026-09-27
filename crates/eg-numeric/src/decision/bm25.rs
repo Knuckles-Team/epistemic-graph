@@ -17,10 +17,7 @@ pub const B: f64 = 0.75;
 
 /// Lower-cased alphanumeric tokens, in order.
 pub fn tokens(text: &str) -> Vec<String> {
-    text.split(|c: char| !c.is_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .map(str::to_lowercase)
-        .collect()
+    eg_text::unicode_alphanumeric_tokens(text)
 }
 
 fn term_counts(tokens: &[String]) -> BTreeMap<&str, u64> {
@@ -103,5 +100,10 @@ mod tests {
         let first = scores(&visible, "search");
         let again = scores(&visible, "search");
         assert_eq!(first, again);
+    }
+
+    #[test]
+    fn unicode_tokens_preserve_the_decision_contract() {
+        assert_eq!(tokens("ÉTÉ / naïve"), ["été", "naïve"]);
     }
 }

@@ -53,125 +53,13 @@ pub(crate) fn bind_sql_text_embedder() {
     });
 }
 
-/// Compute a SOUND dependency set for a UQL/`UnifiedQuery` plan
-/// (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7 + EH-393), or `None`
-/// when the plan's shape cannot be reduced to one — the caller then uses the coarse
-/// version-keyed result-cache path (unchanged). What each supported op reads:
-///   * `Scan { label }` — a SOURCE: that label (or, unlabeled, the whole node set). Its rows are
-///     label-scoped, so a following `Filter` reads only properties the label dimension covers.
-///   * `ScanAll` (UQL `MATCH ()`) — a SOURCE over every node: `AllNodes`.
-///   * `Project` (UQL `RETURN`) — names score channels; rows pass through unchanged.
-///   * `Filter` / `Limit` — narrow the current rows. A `Filter` over rows that are NOT
-///     label-scoped (reached by a traversal) reads arbitrary nodes' properties: `AllNodes`.
-///   * `Traverse { rel }` — edges of type `rel` ([`Dim::EdgeType`]) through nodes of any label,
-///     which the reader's row-security view may hide ([`Dim::RowVisibility`]); a reached node
-///     cannot appear or vanish without a `rel` edge being written or cascaded.
-///   * `RankNodeDistance` / `RankMentions` — the untyped topology (`AllEdges`) plus visibility.
-///   * `Rank` / `RankEmbed` / `RankMmr` — the embedding store: [`Dim::EmbeddingGeneration`] at
-///     the live stamp `embedding_generation` (no stamp known ⇒ no dependency set).
-///   * `FuseRrf` — every branch's reads, each branch starting from the fused input.
-///
-/// ANY other op — lexical `RankText` (BM25 over the whole corpus), a temporal `AsOf`, a
-/// reasoner/SPARQL/federation/tensor/spatial/tsdb/epistemic leg — reads state the clock does not
-/// model, so the WHOLE plan falls back. A dependency set is only ever returned when it PROVABLY
-/// captures everything the query reads: a stale hit is a correctness bug.
 #[cfg(feature = "result-cache")]
-pub(crate) fn plan_dependency_set(
-    plan: &eg_plan::Plan,
-    embedding_generation: Option<u64>,
-) -> Option<eg_core::dep_scope::DepSet> {
-    let mut walk = DepWalk {
-        dims: Vec::new(),
-        has_source: false,
-        rows_unscoped: false,
-        embedding_generation,
-    };
-    walk.ops(&plan.ops)?;
-    // A plan with no graph SOURCE op (e.g. a pure federation/tsdb seed) is not a bounded graph
-    // read — fall back rather than claim a dependency set.
-    walk.has_source
-        .then(|| eg_core::dep_scope::DepSet::new(walk.dims))
-}
+mod dependency_scope;
+#[cfg(feature = "result-cache")]
+pub(crate) use dependency_scope::plan_dependency_set;
 
 #[cfg(all(test, feature = "result-cache", feature = "query"))]
 mod plan_deps_tests;
-
-/// The accumulator [`plan_dependency_set`] threads through a plan (and each `FuseRrf` branch).
-#[cfg(feature = "result-cache")]
-struct DepWalk {
-    dims: Vec<eg_core::dep_scope::Dim>,
-    has_source: bool,
-    /// The current rows may be nodes of ANY label (a traversal reached them).
-    rows_unscoped: bool,
-    embedding_generation: Option<u64>,
-}
-
-#[cfg(feature = "result-cache")]
-impl DepWalk {
-    fn ops(&mut self, ops: &[eg_plan::Op]) -> Option<()> {
-        ops.iter().try_for_each(|op| self.op(op))
-    }
-
-    fn op(&mut self, op: &eg_plan::Op) -> Option<()> {
-        use eg_core::dep_scope::Dim;
-        match op {
-            eg_plan::Op::Scan { label } => self.source(label),
-            eg_plan::Op::ScanAll {} => self.source(""),
-            eg_plan::Op::Filter { .. } if self.rows_unscoped => self.dims.push(Dim::AllNodes),
-            eg_plan::Op::Filter { .. }
-            | eg_plan::Op::Limit { .. }
-            | eg_plan::Op::Project { .. } => {}
-            eg_plan::Op::Traverse { rel, .. } => {
-                self.dims.push(Dim::EdgeType(rel.clone()));
-                self.dims.push(Dim::RowVisibility);
-                self.rows_unscoped = true;
-            }
-            eg_plan::Op::RankNodeDistance { .. } | eg_plan::Op::RankMentions {} => {
-                self.dims.push(Dim::AllEdges);
-                self.dims.push(Dim::RowVisibility);
-            }
-            eg_plan::Op::Rank { .. }
-            | eg_plan::Op::RankEmbed { .. }
-            | eg_plan::Op::RankMmr { .. } => {
-                self.dims
-                    .push(Dim::EmbeddingGeneration(self.embedding_generation?));
-            }
-            #[cfg(feature = "text")]
-            eg_plan::Op::FuseRrf { branches, .. } => self.fuse(branches)?,
-            // Any op reading state outside the dependency clock's model ⇒ coarse fallback.
-            _ => return None,
-        }
-        Some(())
-    }
-
-    fn source(&mut self, label: &str) {
-        use eg_core::dep_scope::Dim;
-        self.has_source = true;
-        self.rows_unscoped = false;
-        self.dims.push(if label.is_empty() {
-            Dim::AllNodes
-        } else {
-            Dim::Label(label.to_string())
-        });
-    }
-
-    /// Each branch runs over the SAME input rows; the fused rows are unscoped when any branch's
-    /// are. A branch's own `Scan` does not make the plan sourced (the fused input is).
-    #[cfg(feature = "text")]
-    fn fuse(&mut self, branches: &[Vec<eg_plan::Op>]) -> Option<()> {
-        let input_unscoped = self.rows_unscoped;
-        let has_source = self.has_source;
-        let mut fused_unscoped = input_unscoped;
-        for branch in branches {
-            self.rows_unscoped = input_unscoped;
-            self.ops(branch)?;
-            fused_unscoped |= self.rows_unscoped;
-        }
-        self.rows_unscoped = fused_unscoped;
-        self.has_source = has_source;
-        Some(())
-    }
-}
 
 /// Does `ops` reference a lexical text op — an `Op::RankText` at the top level or nested
 /// inside an `Op::FuseRrf` branch (CONCEPT:EG-KG.query.served-text-index-binding)? Drives whether
@@ -589,6 +477,7 @@ pub(crate) fn run_unified_bind_foreign<'a>(
     foreign_registry: Option<&'a eg_plan::federation::ForeignSourceRegistry>,
     federation: Option<&'a eg_plan::federation_opt::FederationSession>,
 ) -> eg_plan::PlanCtx<'a> {
+    bind_federation_cache_scope(federation, foreign_registry);
     let ctx = match foreign_registry {
         Some(registry) => ctx.with_foreign(registry),
         None => ctx,
@@ -596,6 +485,18 @@ pub(crate) fn run_unified_bind_foreign<'a>(
     match federation {
         Some(session) => ctx.with_federation(session),
         None => ctx,
+    }
+}
+
+/// Scope optimizer fragments to the same owner-scoped registry as foreign name resolution.
+#[cfg(feature = "federation")]
+fn bind_federation_cache_scope(
+    federation: Option<&eg_plan::federation_opt::FederationSession>,
+    foreign_registry: Option<&eg_plan::federation::ForeignSourceRegistry>,
+) {
+    if let Some(session) = federation {
+        session
+            .set_cache_scope(foreign_registry.and_then(|registry| registry.cache_scope().cloned()));
     }
 }
 
@@ -747,11 +648,11 @@ impl ServedPlanLegs {
 
     /// Decide the watermark leg for `plan` against the queried graph's watermark nodes.
     #[cfg(feature = "result-cache")]
-    fn with_watermarks(self, core: &GraphCore, plan: &eg_plan::Plan) -> Self {
-        Self {
-            watermarks: ForeignWatermarks::for_ops(core, &plan.ops),
-            ..self
-        }
+    fn with_watermarks(mut self, core: &GraphCore, plan: &eg_plan::Plan) -> Self {
+        self.watermarks = ForeignWatermarks::for_ops(core, &plan.ops);
+        #[cfg(feature = "federation")]
+        install_fresh_fragment_cache(self.foreign.as_mut(), core, &plan.ops);
+        self
     }
 
     #[cfg(not(feature = "result-cache"))]
@@ -779,6 +680,20 @@ impl ServedPlanLegs {
         crate::server::handlers::decide::served_adapter::salt(self.adapter.as_deref(), payload);
         #[cfg(not(any(feature = "tsdb", feature = "federation", feature = "decide")))]
         let _ = payload;
+    }
+}
+
+/// Install fragment caching only when this graph has fresh watermarks for every source.
+#[cfg(all(feature = "result-cache", feature = "federation"))]
+fn install_fresh_fragment_cache(
+    foreign: Option<&mut crate::server::foreign_catalog::OwnedForeignRegistry>,
+    core: &GraphCore,
+    ops: &[eg_plan::Op],
+) {
+    if let (Some(foreign), Some(sources)) =
+        (foreign, ForeignWatermarks::fragment_sources(core, ops))
+    {
+        foreign.install_fragment_cache(sources);
     }
 }
 
@@ -954,108 +869,4 @@ mod federation_served_tests;
 /// deterministically returned before the `.with_tensor_store(...)` binding was
 /// added.
 #[cfg(all(test, feature = "tensor"))]
-mod tensor_served_round_trip_tests {
-    use super::*;
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
-    use eg_tensor::{Buffer, Tensor};
-    use eg_types::wire::{TensorOpKind, TensorReduceKind};
-
-    fn blob(v: serde_json::Value) -> Vec<u8> {
-        rmp_serde::to_vec_named(&v).unwrap()
-    }
-
-    /// A `Frame` layer of three nodes each holding the same dense 2×3 tensor in
-    /// their conventional `tensor` property, mirroring
-    /// `eg_plan::tensor_tests::frames()`.
-    fn frames_view() -> crate::graph::GraphView {
-        let core = GraphCore::new();
-        let t = Tensor::new(vec![2, 3], Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])).unwrap();
-        let tv = serde_json::to_value(&t).unwrap();
-        for id in ["F1", "F2", "F3"] {
-            core.add_node(
-                id.into(),
-                blob(serde_json::json!({ "type": "Frame", "tensor": tv })),
-            );
-        }
-        core.analysis_snapshot()
-    }
-
-    fn served_indexes() -> ServedIndexes<'static> {
-        ServedIndexes {
-            #[cfg(feature = "text")]
-            text: None,
-            #[cfg(feature = "geo")]
-            spatial: None,
-            #[cfg(feature = "federation")]
-            foreign: None,
-            #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-            shapes: None,
-            #[cfg(not(any(feature = "text", feature = "geo")))]
-            _marker: std::marker::PhantomData,
-        }
-    }
-
-    fn call_run_unified(plan: eg_plan::Plan) -> Result<Vec<(String, Option<f32>)>, String> {
-        let view = frames_view();
-        let semantic = SemanticStore::new();
-        run_unified_with(
-            plan,
-            &view,
-            &semantic,
-            served_indexes(),
-            #[cfg(feature = "tsdb")]
-            TsdbLegBind {
-                tsdb: None,
-                tsdb_tenant: None,
-                tsdb_graph: None,
-                staged_series: None,
-            },
-            execute_rows,
-        )
-    }
-
-    #[test]
-    fn served_tensor_scan_and_op_executes_instead_of_erroring() {
-        let plan = eg_plan::Plan::new(vec![
-            eg_plan::Op::TensorScan {
-                layer: "Frame".into(),
-            },
-            eg_plan::Op::TensorOp {
-                kind: TensorOpKind::Reduce {
-                    axis: 1,
-                    kind: TensorReduceKind::Mean,
-                },
-            },
-        ]);
-        let rows = call_run_unified(plan).expect(
-            "served TensorOp must execute now that run_unified binds a tensor store, \
-             not error with 'TensorOp requires a bound tensor store'",
-        );
-        let mut ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
-        ids.sort();
-        assert_eq!(ids, vec!["F1", "F2", "F3"]);
-    }
-
-    /// Before the fix, `run_unified` had no `tensor_store` binding at all, so this
-    /// exact plan deterministically failed with "TensorOp requires a bound tensor
-    /// store" regardless of input — the gap this test closes.
-    #[test]
-    fn served_tensor_op_without_the_fix_would_have_errored() {
-        let plan = eg_plan::Plan::new(vec![
-            eg_plan::Op::TensorScan {
-                layer: "Frame".into(),
-            },
-            eg_plan::Op::TensorOp {
-                kind: TensorOpKind::Elementwise {
-                    op: eg_types::wire::TensorElementwiseOp::Mul,
-                    scalar: 2.0,
-                },
-            },
-        ]);
-        assert!(
-            call_run_unified(plan).is_ok(),
-            "TensorOp over the served path must not deterministically error"
-        );
-    }
-}
+mod tensor_served_round_trip_tests;

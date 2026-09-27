@@ -130,11 +130,11 @@ reason = """Both use read_snapshot and the development-lane store, but one retur
 left_file = "crates/eg-shacl/src/sparql/pattern.rs"
 left_name = "merge"
 left_digest = "sha256:cc1fba389be8b652e3bb381625a8f0a9db8e4469521f1ebabaab1a2ec22aba0a"
-right_file = "crates/eg-rdf/src/sparql.rs"
+right_file = "crates/eg-rdf/src/sparql/graph_matching.rs"
 right_name = "merge"
-right_digest = "sha256:8c31fcea53b7f233065e8aa5e840057924e37d0ccc94333cbb82470b9c17c8b5"
-reviewed_on = "2026-09-10"
-reason = """The same join-compatibility algorithm over DIFFERENT solution types: eg-shacl binds oxrdf::Term (full RDF terms with datatype and language), eg-rdf binds its own two-variant Binding enum tied to the GraphView scan engine, which cannot carry that fidelity. Sharing would force the lossier type on eg-shacl, and eg-shacl deliberately does not enable eg-rdf's sparql feature so a shacl-only build stays within the Pi tier."""
+right_digest = "sha256:31de91c7a2db9b80808141c44c72745599967fd0d55c18c864677dc66df4f77b"
+reviewed_on = "2026-09-27"
+reason = """The same join-compatibility algorithm over DIFFERENT solution types: eg-shacl binds oxrdf::Term (full RDF terms with datatype and language), eg-rdf binds its own two-variant Binding enum tied to the GraphView scan engine, which cannot carry that fidelity. Sharing would force the lossier type on eg-shacl, and eg-shacl deliberately does not enable eg-rdf's sparql feature so a shacl-only build stays within the Pi tier. Re-reviewed after moving the eg-rdf function into the graph_matching responsibility module; the join semantics and type boundary are unchanged."""
 
 [[pair]]
 left_file = "crates/eg-types/src/agent_component.rs"

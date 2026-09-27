@@ -39,6 +39,19 @@ async fn resolve_union_cores(
         .collect())
 }
 
+/// Keep the page bound ahead of both access checks and core reads.
+async fn resolve_bounded_union_cores(
+    state: &Arc<RwLock<ServerState>>,
+    read_authority: &GraphReadAuthority,
+    graphs: &[String],
+    limit: usize,
+) -> Result<Vec<Arc<GraphCore>>, String> {
+    if let Some(msg) = super::nodes::bounded_page_error(limit, max_response_nodes()) {
+        return Err(msg);
+    }
+    resolve_union_cores(state, read_authority, graphs).await
+}
+
 /// `UnionGetNodeProperties`: pure extract-method from `try_handle`'s match arm,
 /// byte-identical behaviour, no signature change.
 async fn handle_union_get_node_properties(
@@ -119,7 +132,7 @@ async fn handle_union_get_nodes_by_label(
     label: String,
     limit: usize,
 ) -> Response {
-    let cores = match resolve_union_cores(state, read_authority, &graphs).await {
+    let cores = match resolve_bounded_union_cores(state, read_authority, &graphs, limit).await {
         Ok(c) => c,
         Err(denied) => return Response::err(req_id, denied),
     };

@@ -70,6 +70,7 @@ decision = ["dep:eg-types"]
 motif = ["dep:rustfft"]
 
 [dependencies]
+eg-text = { path = "../eg-text" }
 # arrays / reductions / element-wise / broadcasting — mature ndarray primitives.
 ndarray = "0.17"
 # Percentile/quantile are implemented in this crate so the Python boundary and

@@ -21,8 +21,12 @@
 //! oracle).
 
 mod budget;
+mod cache;
 mod capability;
+mod engine;
 mod http;
+mod limiter;
+pub(crate) mod oq2;
 mod remote;
 mod run;
 mod session;
@@ -35,9 +39,12 @@ mod trace;
 mod tests;
 
 pub use budget::{FederationBudget, BUDGET_EXCEEDED, REQUIRES_KEYS, RESULT_INCOMPLETE};
+pub use cache::{FragmentCacheScope, SourceWatermark};
 pub use capability::{
     FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
+    SourceRate,
 };
+pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
 pub use session::FederationSession;
 pub use stats::{stats_snapshot, SourceStats};
 pub use trace::{render_trace, EstimateProvenance, FetchStrategy, FragmentTrace};

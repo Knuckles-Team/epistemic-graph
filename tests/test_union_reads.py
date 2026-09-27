@@ -66,6 +66,18 @@ async def test_list_by_label_union_sends_rpc() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_by_label_union_default_is_bounded() -> None:
+    fake = _FakeClient(ret=[])
+    nc = NodeClient(fake)
+    await nc.list_by_label_union("Doc", GRAPHS)
+    await nc.list_by_label_union("Doc", GRAPHS, 0)
+    assert fake.sent == [
+        ("UnionGetNodesByLabel", {"graphs": GRAPHS, "label": "Doc", "limit": 500}),
+        ("UnionGetNodesByLabel", {"graphs": GRAPHS, "label": "Doc", "limit": 500}),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_neighbors_union_sends_rpc() -> None:
     fake = _FakeClient(ret=["x", "y"])
     nc = NodeClient(fake)

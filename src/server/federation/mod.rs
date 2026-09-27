@@ -54,6 +54,9 @@ use tokio::sync::RwLock;
 
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
+use eg_plan::federation_ssrf::{
+    validate_outbound_http_target, OutboundAllowPolicy, ValidatedHttpJsonTarget,
+};
 
 /// Comma-separated peer engine base-URLs, e.g.
 /// `https://eg-eu.example:7900,https://eg-us.example:7900` (CONCEPT:EG-KG.ontology.federation-client).
@@ -229,77 +232,14 @@ impl PeerAllowlist {
         }
     }
 
-    /// SSRF guard (CONCEPT:EG-KG.ontology.federation-client, mirrors EG-052): the peer URL must be http(s), and if
-    /// its host resolves to a loopback / link-local / RFC-1918 / unspecified address it
-    /// is REFUSED unless (a) the bare host string is in the allowlist, or (b) the host is
-    /// itself an allowlisted IP literal. A public host passes without an allowlist entry.
+    /// Apply the shared outbound gate. Public HTTPS peers need no explicit grant;
+    /// internal peers require an exact allowlist entry.
     pub fn check(&self, peer_url: &str) -> Result<(), String> {
-        let is_https = peer_url.starts_with("https://");
-        let rest = peer_url
-            .strip_prefix("https://")
-            .or_else(|| peer_url.strip_prefix("http://"))
-            .ok_or_else(|| format!("peer must be http(s): '{peer_url}'"))?;
-        let authority = rest
-            .split(['/', '?', '#'])
-            .next()
-            .unwrap_or("")
-            .rsplit('@') // drop any userinfo
-            .next()
-            .unwrap_or("");
-        let (host, port): (&str, u16) = match authority.rsplit_once(':') {
-            Some((h, p)) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => {
-                (h, p.parse().unwrap_or(0))
-            }
-            _ => (authority, if is_https { 443 } else { 80 }),
-        };
-        let host = host.trim_start_matches('[').trim_end_matches(']');
-        if host.is_empty() {
-            return Err(format!("peer has no host: '{peer_url}'"));
-        }
-        let host_lc = host.to_ascii_lowercase();
-        let host_allowlisted = self.allow.iter().any(|a| {
-            *a == host_lc
-                || *a == format!("{host_lc}:{port}")
-                || *a == format!("http://{host_lc}")
-                || *a == format!("https://{host_lc}")
-                || *a == format!("http://{host_lc}:{port}")
-                || *a == format!("https://{host_lc}:{port}")
-        });
-        // Resolve + reject internal ranges unless the host was explicitly allowlisted
-        // (an allowlisted IP literal like `127.0.0.1` is thereby the operator's opt-in).
-        use std::net::ToSocketAddrs;
-        let addrs = (host, port)
-            .to_socket_addrs()
-            .map_err(|e| format!("SSRF guard: cannot resolve peer '{host}': {e}"))?;
-        for sa in addrs {
-            if is_blocked_ip(&sa.ip()) && !host_allowlisted {
-                return Err(format!(
-                    "SSRF guard: peer '{host}' resolves to internal address {} and is not allowlisted",
-                    sa.ip()
-                ));
-            }
-        }
-        Ok(())
+        self.check_target(peer_url).map(|_| ())
     }
-}
 
-/// An internal (SSRF-sensitive) IP: loopback, unspecified, link-local, or RFC-1918 /
-/// unique-local private space (CONCEPT:EG-KG.ontology.federation-client, mirrors EG-052).
-fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_unspecified()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.octets()[0] == 0
-        }
-        std::net::IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || (v6.segments()[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
-                || (v6.segments()[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7
-        }
+    fn check_target(&self, peer_url: &str) -> Result<ValidatedHttpJsonTarget, String> {
+        validate_outbound_http_target(peer_url, &self.allow, OutboundAllowPolicy::PublicHttps)
     }
 }
 
@@ -316,10 +256,17 @@ fn fetch_one_peer(
     lang: &str,
 ) -> Result<Vec<FedRow>, String> {
     use std::io::Read;
-    allow.check(peer)?;
+    let target = allow.check_target(peer)?;
     let endpoint = format!("{peer}/federated?local=1");
     let body = serde_json::json!({ "query": query, "lang": lang }).to_string();
+    let addresses = target.addresses;
     let agent = ureq::AgentBuilder::new()
+        .try_proxy_from_env(false)
+        .resolver(
+            move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> { Ok(addresses.clone()) },
+        )
+        .https_only(target.https_only)
+        .redirects(0)
         .timeout_connect(Duration::from_secs(CONNECT_TIMEOUT_SECS))
         .timeout_read(Duration::from_secs(READ_TIMEOUT_SECS))
         .build();
@@ -328,12 +275,12 @@ fn fetch_one_peer(
         .set("Content-Type", "application/json")
         .set("Accept", "application/json")
         .send_string(&body)
-        .map_err(|e| format!("POST {endpoint} failed: {e}"))?;
+        .map_err(|_| "peer POST failed".to_string())?;
     let mut text = String::new();
     resp.into_reader()
         .take(MAX_RESPONSE_BYTES)
         .read_to_string(&mut text)
-        .map_err(|e| format!("reading {endpoint} response: {e}"))?;
+        .map_err(|e| format!("reading peer response: {e}"))?;
     parse_peer_rows(&text)
 }
 
@@ -754,6 +701,21 @@ mod tests {
         let allow = PeerAllowlist::from_list(&["127.0.0.1", "localhost"]);
         assert!(allow.check("http://127.0.0.1:7900").is_ok());
         assert!(allow.check("http://localhost:7900/federated").is_ok());
+    }
+
+    #[test]
+    fn fo16_peer_gate_rejects_transition_ranges_and_ambiguous_authorities() {
+        let allow = PeerAllowlist::default();
+        for peer in [
+            "https://100.64.0.1:7900",
+            "https://[2002::1]:7900",
+            "https://[2001::1]:7900",
+            "http://93.184.216.34:7900",
+            "https://user@127.0.0.1:7900",
+            "https://127.0.0.1:7900#fragment",
+        ] {
+            assert!(allow.check(peer).is_err(), "{peer}");
+        }
     }
 
     #[test]

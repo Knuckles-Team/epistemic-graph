@@ -22,6 +22,11 @@ pub(crate) trait RemoteFetch {
         self.identity().fingerprint
     }
     fn fetch(&self, request: &RemoteRequest) -> Result<RowSet, String>;
+    /// A source safe to call on several threads. Opaque registered closures remain
+    /// sequential because the registry's trait does not promise thread safety.
+    fn parallel_safe(&self) -> Option<&(dyn RemoteFetch + Sync)> {
+        None
+    }
     /// How many of `keys` (a prefix) fit in one request; at least 1 when `keys` is non-empty.
     fn fit_keys(&self, keys: &[String]) -> usize {
         keys.len()
@@ -36,6 +41,7 @@ pub(crate) trait RemoteFetch {
 pub(crate) struct Identity {
     pub(crate) label: String,
     pub(crate) fingerprint: Fingerprint,
+    pub(crate) cache_name: Option<String>,
 }
 
 impl Identity {
@@ -43,13 +49,7 @@ impl Identity {
     pub(crate) fn of_spec(spec: &ForeignSourceSpec, name: Option<&str>) -> Self {
         let bytes = rmp_serde::to_vec_named(spec).unwrap_or_default();
         let fp = fingerprint(&bytes);
-        let kind = match spec {
-            ForeignSourceSpec::RemoteEngine { .. } => "remote-engine",
-            ForeignSourceSpec::HttpJson { .. } => "http-json",
-            ForeignSourceSpec::Sql { .. } => "sql",
-            ForeignSourceSpec::Named { .. } => "named",
-        };
-        Self::labelled(kind, name, fp)
+        Self::labelled(source_kind(spec), name, fp)
     }
 
     /// Identity of a registry-only source (a table/closure registered by name).
@@ -63,7 +63,23 @@ impl Identity {
             Some(name) => format!("{kind}:{name}#{}", short(&fingerprint)),
             None => format!("{kind}#{}", short(&fingerprint)),
         };
-        Self { label, fingerprint }
+        Self {
+            label,
+            fingerprint,
+            cache_name: name.map(str::to_owned),
+        }
+    }
+}
+
+fn source_kind(spec: &ForeignSourceSpec) -> &'static str {
+    match spec {
+        ForeignSourceSpec::RemoteEngine { .. } => "remote-engine",
+        ForeignSourceSpec::HttpJson { .. } => "http-json",
+        ForeignSourceSpec::Sql { .. } => "sql",
+        ForeignSourceSpec::Trino { .. }
+        | ForeignSourceSpec::Cypher { .. }
+        | ForeignSourceSpec::SparkBatch { .. } => super::oq2::kind(spec).unwrap(),
+        ForeignSourceSpec::Named { .. } => "named",
     }
 }
 
@@ -148,6 +164,18 @@ fn from_spec<'a>(spec: &'a ForeignSourceSpec, name: Option<&'a str>) -> Box<dyn 
         } => Box::new(super::http::HttpRemote::new(
             url, json_path, field_map, identity,
         )),
+        other => engine_or_opaque(other, identity),
+    }
+}
+
+fn engine_or_opaque<'a>(
+    spec: &'a ForeignSourceSpec,
+    identity: Identity,
+) -> Box<dyn RemoteFetch + 'a> {
+    match spec {
+        ForeignSourceSpec::RemoteEngine { .. } => {
+            Box::new(super::engine::EngineRemote::new(spec, identity))
+        }
         other => Box::new(Opaque {
             source: OpaqueSource::Spec(crate::federation::source_for(other)),
             identity,

@@ -2964,6 +2964,7 @@ name = "eg-numeric"
 version = "0.1.0"
 dependencies = [
  "eg-modality",
+ "eg-text",
  "eg-types",
  "libm",
  "nalgebra",
@@ -3160,6 +3161,7 @@ dependencies = [
  "ipnet",
  "md-5 0.10.6",
  "ndarray 0.17.2",
+ "parquet",
  "petgraph 0.6.5",
  "redb",
  "rmp-serde",

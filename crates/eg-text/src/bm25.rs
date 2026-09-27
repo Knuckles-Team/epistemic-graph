@@ -258,9 +258,21 @@ fn render_snippet(
 /// postings (the edge-native text index, EH-351) splits text exactly as this
 /// scorer does.
 pub fn tokenize(text: &str) -> Vec<String> {
+    alphanumeric_tokens(text, str::to_ascii_lowercase)
+}
+
+/// Unicode-aware alphanumeric terms for metadata retrieval and decision BM25.
+///
+/// Unlike [`tokenize`], this preserves full Unicode case folding behavior for
+/// callers whose existing scoring contract lowercases every scalar value.
+pub fn unicode_alphanumeric_tokens(text: &str) -> Vec<String> {
+    alphanumeric_tokens(text, str::to_lowercase)
+}
+
+fn alphanumeric_tokens(text: &str, lowercase: impl Fn(&str) -> String) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
-        .filter(|t| !t.is_empty())
-        .map(|t| t.to_ascii_lowercase())
+        .filter(|token| !token.is_empty())
+        .map(lowercase)
         .collect()
 }
 
@@ -287,6 +299,12 @@ fn token_spans(text: &str) -> Vec<(usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unicode_tokenizer_keeps_original_bm25_ascii_contract_distinct() {
+        assert_eq!(unicode_alphanumeric_tokens("ÉTÉ / naïve"), ["été", "naïve"]);
+        assert_eq!(tokenize("ÉTÉ / naïve"), ["ÉtÉ", "naïve"]);
+    }
 
     /// CONCEPT:EG-KG.query.bm25-ranking-snippets — real BM25 ranking: a document that mentions the query terms
     /// more often out-ranks one that mentions them once, and a document with none of

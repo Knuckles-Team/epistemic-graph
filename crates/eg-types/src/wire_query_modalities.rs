@@ -282,8 +282,8 @@ pub struct CepPatternSpec {
 /// A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`
 /// (CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE
 /// the local engine and composes them with the local graph/vector/SQL ops — so a
-/// `ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`. Two
-/// kinds, behind one wire enum; the `ForeignSource` trait in eg-plan turns each into
+/// `ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`.
+/// Source kinds share one wire enum; the `ForeignSource` trait in eg-plan turns each into
 /// a [`crate::RowSet`].
 #[cfg(feature = "federation")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -369,8 +369,8 @@ pub enum ForeignSourceSpec {
         score_field: Option<String>,
     },
     /// A NAMED reference to a foreign source registered in the executor's
-    /// `ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike the self-describing variants
-    /// above (which carry the full connection spec inline), this carries ONLY a `name`
+    /// `ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike self-describing variants
+    /// (which carry their connection spec inline), this carries ONLY a `name`
     /// — the executor resolves it to a concrete, pre-registered [`ForeignSource`] at
     /// plan time. This is the resolution seam the UQL `FOREIGN "<name>"` clause needs:
     /// the parser only ever sees a name, and binding that name to a live source lives
@@ -381,6 +381,50 @@ pub enum ForeignSourceSpec {
         /// The registry key naming a pre-registered foreign source.
         name: String,
     },
+    /// A Trino/Starburst coordinator. This is a query-time source, not an ingest
+    /// cursor. Registration must bind a verified service identity and probe the
+    /// catalog before a driver may advertise any pushdown capability. No credential
+    /// is serialized into this spec.
+    Trino {
+        endpoint: String,
+        catalog: String,
+        schema: String,
+        query: String,
+        id_field: String,
+        #[serde(default)]
+        score_field: Option<String>,
+    },
+    /// A Cypher-capable external graph. AGE uses a PostgreSQL transport; Neo4j
+    /// uses Bolt; FalkorDB uses its own protocol. The dialect is explicit so a
+    /// generic Cypher claim cannot accidentally select the wrong driver.
+    Cypher {
+        backend: ForeignCypherBackend,
+        endpoint: String,
+        graph: String,
+        query: String,
+        id_field: String,
+        #[serde(default)]
+        score_field: Option<String>,
+    },
+    /// Spark output is a sealed batch artifact reference. Interactive Spark SQL
+    /// pushdown is deliberately absent: a query may read only a completed,
+    /// registered artifact, never launch a job or trust a caller-provided path.
+    SparkBatch {
+        artifact_ref: String,
+        id_field: String,
+        #[serde(default)]
+        score_field: Option<String>,
+    },
+}
+
+/// External Cypher dialect and transport are a single explicit choice.
+#[cfg(feature = "federation")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ForeignCypherBackend {
+    Neo4j,
+    Age,
+    FalkorDb,
 }
 
 /// Which JSON element fields become a RowSet row's id / score (for

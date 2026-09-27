@@ -23,6 +23,20 @@ fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
     }
 }
 
+/// The wire method is also used by Atlas/ObjectSet reads. Core's `limit=0`
+/// convention means "unbounded", so reject it at the served boundary before
+/// allocating or decoding a response. The response cap applies to both labeled
+/// and unlabeled scans; callers can advance the exclusive `after` cursor.
+pub(super) fn bounded_page_error(limit: usize, cap: usize) -> Option<String> {
+    if limit == 0 || limit > cap {
+        Some(format!(
+            "RESULT_TOO_LARGE: node label read requires a positive page limit at most {cap}"
+        ))
+    } else {
+        None
+    }
+}
+
 /// `GetNodePropertiesBatch`: pure extract-method from `try_handle`'s match arm,
 /// byte-identical behaviour, no signature change.
 fn handle_get_node_properties_batch(
@@ -114,6 +128,28 @@ fn handle_get_node_properties(
     )
 }
 
+/// Bound a served label scan before the core allocates its result page.
+fn handle_get_nodes_by_label(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    label: &str,
+    after: Option<&str>,
+    limit: usize,
+) -> Response {
+    if let Some(msg) = bounded_page_error(limit, max_response_nodes()) {
+        return Response::err(req_id, msg);
+    }
+    let nodes: Vec<(String, serde_json::Value)> = core
+        .get_nodes_by_label_page(label, after, limit)
+        .into_iter()
+        .map(|(k, p)| {
+            let val = eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}));
+            (k, val)
+        })
+        .collect();
+    Response::ok(req_id, ResultPayload::NodeList(nodes))
+}
+
 /// Route gateway-owned node creation and removal operations.
 pub(super) async fn try_handle_node_gateway_writes(
     ctx: GraphOpsContext<'_>,
@@ -182,19 +218,7 @@ pub(super) async fn try_handle_node_reads(
             label,
             after,
             limit,
-        } => {
-            let g = core;
-            let nodes: Vec<(String, serde_json::Value)> = g
-                .get_nodes_by_label_page(&label, after.as_deref(), limit)
-                .into_iter()
-                .map(|(k, p)| {
-                    let val = eg_types::msgpack::decode_property_value(&p)
-                        .unwrap_or(serde_json::json!({}));
-                    (k, val)
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::NodeList(nodes))
-        }
+        } => handle_get_nodes_by_label(req_id, core, &label, after.as_deref(), limit),
         Method::GetNodeProperties { node_id } => {
             handle_get_node_properties(req_id, core, raw_core, read_authority, &node_id)
         }
@@ -202,6 +226,19 @@ pub(super) async fn try_handle_node_reads(
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         other => return ControlFlow::Continue(other),
     })
+}
+
+#[cfg(test)]
+mod atlas_page_tests {
+    use super::bounded_page_error;
+
+    #[test]
+    fn served_page_requires_a_positive_bounded_limit() {
+        assert!(bounded_page_error(0, 500).is_some());
+        assert!(bounded_page_error(501, 500).is_some());
+        assert!(bounded_page_error(1, 500).is_none());
+        assert!(bounded_page_error(500, 500).is_none());
+    }
 }
 
 /// Route gateway-owned node coordination operations.
