@@ -626,7 +626,6 @@ async fn process_held_lease<C: PageActions>(
                         checkpoint: &checkpoint,
                         plan: &page,
                     },
-                    now_ms,
                     callbacks,
                 )
                 .await?;
@@ -678,7 +677,6 @@ async fn submit_ready_page<C: PageActions>(
     graph_fname: &str,
     store: &Arc<dyn crate::server::blob::store::ChunkStore>,
     ready: ReadyPage<'_>,
-    now_ms: u64,
     callbacks: &mut C,
 ) -> Result<EnrichmentBudgetCheckpoint, String> {
     let ReadyPage {
@@ -701,7 +699,15 @@ async fn submit_ready_page<C: PageActions>(
             page.page_key.clone(),
         )
         .await?;
-    verify_page_service_authority(&verified, &wire, &page.page_key, now_ms)?;
+    // The authority callback mints its context after CAS verification, which
+    // can take longer than a clock tick. Validate against the current clock,
+    // not the timestamp sampled before that work began.
+    verify_page_service_authority(
+        &verified,
+        &wire,
+        &page.page_key,
+        crate::server::dispatch::authoritative_now_ms(),
+    )?;
     let request = lower_native_page(snapshot, checkpoint, page, wire)?;
     callbacks.submit(verified, request).await?;
     let advanced = read_checkpoint(persistence, graph_fname, snapshot).await?;
@@ -871,6 +877,33 @@ mod tests {
             PageDecision::Ready(page) => page,
             other => panic!("expected a funded page, got {other:?}"),
         }
+    }
+
+    #[cfg(feature = "blob")]
+    #[test]
+    fn service_authority_minted_after_cas_uses_current_validation_clock() {
+        let page_key = "repository-index:page-one";
+        let fixture = crate::server::auth::VerifiedRequestContext::verified_for_test_with_scopes(
+            "repository-enrichment",
+            "tenant",
+            &["work:submit", "repository:enrichment:submit"],
+        );
+        let verified = crate::server::auth::VerifiedRequestContext::from_verified_claims_with_nonce(
+            fixture.claims().clone(),
+            page_key.to_string(),
+            Some(eg_types::contract::Nonce::minted()),
+        );
+        let mut wire = service_context("tenant", "code", page_key);
+        wire.agent_id = verified.agent_id().to_string();
+        wire.audience = verified.claims().audience.clone();
+        wire.policy_version = verified.claims().policy_version.clone();
+        wire.issued_at_ms = 101;
+        wire.expires_at_ms = 201;
+
+        // The old caller supplied 100, sampled before CAS and minting.
+        assert!(verify_page_service_authority(&verified, &wire, page_key, 100).is_err());
+        assert!(verify_page_service_authority(&verified, &wire, page_key, 102).is_ok());
+        assert!(verify_page_service_authority(&verified, &wire, page_key, 201).is_err());
     }
 
     #[test]
