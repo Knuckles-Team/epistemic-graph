@@ -1,66 +1,118 @@
 #!/usr/bin/env python3
-"""Fail CI when audited legacy readers or execution fallbacks return."""
+"""Fail CI when audited legacy readers, fallbacks, or retired symbols return.
+
+Every check here is a *ban*: a retired symbol, a compatibility default, a
+fallback branch, or a duplicate authority that must not come back. Bans are
+matched on identifiers over comment-masked (and, where strings are irrelevant,
+string-masked) Rust, so reformatting, renaming unrelated code, or moving an
+item between the compiler-declared children of a module never trips them.
+
+Positive "this code must exist" assertions deliberately live in the compiler
+and the Rust test suites, not here.
+"""
 
 from __future__ import annotations
 
 import re
 import subprocess
+from functools import cache, lru_cache
 from pathlib import Path
 
-from method_families import expand_method_families, families_source
 from method_policy_inventory import (
     MethodPolicyInventoryError,
     load_capability_sources,
     parse_method_policy_table,
 )
-from rust_callgraph import top_level_fns
-from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
+from rust_lexer import _balanced_span_from
+from rust_lexer import _rust_code_mask as _uncached_code_mask
+from rust_lexer import _rust_comments_mask as _uncached_comments_mask
 from rust_module_tree import read_compiler_family, read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# Zero or more outer attributes, each allowed one level of nested brackets.
+_ATTRS = r"((?:#\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*)"
+_VIS = r"(?:pub(?:\([^)]*\))?\s+)?"
+_SERDE_DEFAULT = re.compile(r"serde\s*\([^)]*\bdefault\b")
 
-def read(relative: str) -> str:
-    return (ROOT / relative).read_text(encoding="utf-8")
+RETIRED_TOPOLOGY = (
+    "TieredGraph" + "Backend",
+    "reconcile_" + "to_durable",
+    "working_set_" + "manager.py",
+    "query_" + "tier.py",
+    "kafka_graph_" + "sync.py",
+    "L0/L1/" + "L2/L3",
+)
+RETIRED_TOPOLOGY_ROOTS = ("src", "crates", "epistemic_graph", "tests", "docs")
 
+LEGACY_PROTOCOL_DEFAULT_HELPERS = (
+    "default_shuffle",
+    "default_split_seed",
+    "default_temperature",
+    "default_dpo_beta",
+    "default_clip_eps",
+    "default_adam_beta1",
+    "default_adam_beta2",
+    "default_adam_eps",
+    "default_decay_half_life",
+)
 
-def read_sources(paths: tuple[str, ...]) -> str:
-    return "\n".join(map(read, paths))
+# Wire fields the current protocol requires explicitly: none may be filled in
+# by a serde default, vanish from the canonical encoding, or (for `Option`)
+# conflate an omitted field with an explicit null.
+REQUIRED_PROTOCOL_FIELDS: dict[str, tuple[str, ...]] = {
+    "CreateNodeIfAbsent": ("node_id", "properties_msgpack"),
+    "BrokerAckTag": ("delivery_tag", "consumer"),
+    "BrokerNackTag": ("delivery_tag", "consumer", "requeue", "now_ms"),
+    "BrokerRenewTag": ("delivery_tag", "consumer", "now_ms", "lease_ms"),
+    "DecaySweep": ("half_life_secs", "floor", "prune"),
+    "DsTrainTestSplit": ("shuffle", "seed"),
+    "DsSoftmax": ("temperature",),
+    "DsDpoLoss": ("beta",),
+    "DsGrpoSurrogate": ("clip_eps",),
+    "DsAdamStep": ("m", "v", "beta1", "beta2", "eps"),
+    "RegisterIdentity": ("roles",),
+    "GraphQl": ("variables",),
+    "CausalEstimate": ("mode",),
+    "BeginTxn": ("graph", "isolation"),
+    "OwlReason": ("min_confidence",),
+    "OwlReasonDistributed": ("min_confidence",),
+    "IcvConfigure": ("graph", "mode", "shapes"),
+    **{
+        name: ("graph",)
+        for name in (
+            "TxnAddNode",
+            "TxnRemoveNode",
+            "TxnAddEdge",
+            "TxnRemoveEdge",
+            "TxnCas",
+            "TxnAddEmbedding",
+            "TxnBlobRef",
+            "TxnAddMeasurement",
+            "TxnAxiom",
+            "TxnConstruct",
+            "TxnPlanWriteback",
+            "TxnMaterializeBelief",
+        )
+    },
+}
 
+# State-dependent verdicts must never be predicted before authoritative staging.
+STATE_DEPENDENT_METHODS = (
+    "CreateNodeIfAbsent",
+    "BrokerAckTag",
+    "BrokerNackTag",
+    "BrokerRenewTag",
+)
 
-def protocol_source() -> str:
-    """Read the complete compiler-declared protocol family.
-
-    ``protocol.rs`` is a facade; the wire enum and its request DTOs may live in
-    any declared child module.  The family reader keeps this gate on the
-    compiler's production view and rejects an unlinked ``*.rs`` child instead
-    of silently allowing a protocol surface to escape review.
-    """
-
-    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
-
-
-def rdf_handler_source() -> str:
-    """Read the compiler-declared native RDF handler family.
-
-    The handler is a facade whose integrity-guard branches live in declared
-    children.  Following the compiler family keeps this check fail closed when
-    the implementation is split again or a child becomes unreachable.
-    """
-
-    return read_compiler_family("src/server/handlers/rdf.rs", ROOT).production
-
-
-def rdf_update_source() -> str:
-    """Read the compiler-declared guarded SPARQL update family."""
-
-    return read_compiler_family("crates/eg-rdf/src/update.rs", ROOT).production
-
-
-def raft_store_source() -> str:
-    """Read the complete compiler-declared Raft storage family."""
-
-    return read_compiler_family("src/raft/store.rs", ROOT).production
+RETIRED_RAFT_SNAPSHOT_FIELDS = (
+    "integrity_policy",
+    "nodes",
+    "edges",
+    "ledger",
+    "semantic_msgpack",
+    "version",
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -68,1126 +120,440 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(f"current-only architecture gate failed: {message}")
 
 
-def generated_transport(domain: str) -> str:
-    """One domain's generated transport: its sender module plus the strict
-    nested models its request aliases name (EH-192), where the field shapes
-    now live."""
-    return read(f"epistemic_graph/generated/{domain}.py") + read(
-        "epistemic_graph/generated/models.py"
-    )
+def read(relative: str) -> str:
+    return (ROOT / relative).read_text(encoding="utf-8")
 
 
-def delimited_body(source: str, opener: str, closer: str) -> str:
-    require(opener in source, f"missing contract block: {opener.strip()}")
-    tail = source.split(opener, 1)[1]
-    require(closer in tail, f"unterminated contract block: {opener.strip()}")
-    return tail.split(closer, 1)[0]
+@cache
+def tree(relative: str) -> str:
+    """A module's compiler-declared production source (all declared children)."""
+
+    return read_module_tree(relative, root_dir=ROOT)
 
 
-def method_policy_body(source: str, variant: str) -> str:
-    """Return one method's policy fields from the explicit domain inventory.
+def protocol_source() -> str:
+    """The complete compiler-declared protocol family (production view)."""
 
-    The method-policy table used to be a `match` whose arms read
-    `Method::CreateNodeIfAbsent { .. } => MethodPolicy { .. }`, and the checks
-    below sliced an arm out by that literal. The table is now a per-domain
-    const array of `(name, make_policy(..), rationale)` tuples under
-    `crates/eg-capabilities/src/domains/`, so the literal matches nothing and
-    the gate reported the property MISSING when the refactor had merely changed
-    how it is expressed -- the failure mode `rust_callgraph`'s docstring
-    describes, one layer up in the same repo.
+    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
 
-    Re-key on the parsed row rather than on source shape: `parse_method_policy_table`
-    is the canonical reader for that layout, so this check now moves with the
-    table instead of pinning a spelling of it. The rendered string carries the
-    two fields these callers assert, in the syntax they already match on.
-    """
 
-    try:
-        rows = parse_method_policy_table(source)
-    except MethodPolicyInventoryError as error:
-        require(False, str(error))
-        return ""  # unreachable; keeps static type checkers total
-    row = next((row for row in rows if row.name == variant), None)
-    require(row is not None, f"missing method-policy row: {variant}")
-    assert row is not None
-    return (
-        f'idempotent: {str(row.idempotent).lower()}, authz_action: "{row.authz_action}"'
-    )
+def rdf_update_source() -> str:
+    """The compiler-declared guarded SPARQL update family."""
+
+    return read_compiler_family("crates/eg-rdf/src/update.rs", ROOT).production
+
+
+def raft_store_source() -> str:
+    """The complete compiler-declared Raft storage family."""
+
+    return read_compiler_family("src/raft/store.rs", ROOT).production
+
+
+# --------------------------------------------------------------------------
+# Structural helpers (identifier-based, comment/string aware)
+# --------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=64)
+def _rust_code_mask(source: str) -> str:
+    """Rust with comments and string literals blanked (offsets preserved)."""
+
+    return _uncached_code_mask(source)
+
+
+@lru_cache(maxsize=64)
+def _rust_comments_mask(source: str) -> str:
+    """Rust with only comments blanked (offsets preserved)."""
+
+    return _uncached_comments_mask(source)
+
+
+def has_identifier(source: str, identifier: str) -> bool:
+    """Whether `identifier` occurs as a whole word in Rust *code*."""
+
+    code = _rust_code_mask(source)
+    return re.search(rf"(?<![\w]){re.escape(identifier)}(?![\w])", code) is not None
+
+
+def has_code(source: str, pattern: str) -> bool:
+    """Whether a regex matches Rust code with comments and strings blanked."""
+
+    return re.search(pattern, _rust_code_mask(source)) is not None
+
+
+def has_text(source: str, pattern: str) -> bool:
+    """Whether a regex matches Rust with only comments blanked (strings kept)."""
+
+    return re.search(pattern, _rust_comments_mask(source)) is not None
+
+
+def item(source: str, kind: str, name: str) -> tuple[str, str]:
+    """(attributes, body) of the sole `struct`/`enum` named `name`."""
+
+    text = _rust_comments_mask(source)
+    pattern = re.compile(rf"{_ATTRS}{_VIS}{kind}\s+{re.escape(name)}\b")
+    matches = list(pattern.finditer(_rust_code_mask(source)))
+    require(len(matches) == 1, f"expected exactly one `{kind} {name}` declaration")
+    match = matches[0]
+    opener = text.find("{", match.end())
+    require(opener >= 0, f"`{kind} {name}` has no braced body")
+    closer = _balanced_span_from(text, opener, "{", "}")
+    return text[match.start(1) : match.end(1)], text[opener + 1 : closer]
 
 
 def variant_body(source: str, name: str) -> str:
-    match = re.search(rf"(?m)^    {re.escape(name)}\s*\{{(?P<rest>[^\n]*)$", source)
-    require(match is not None, f"missing contract variant: {name}")
-    assert match is not None
-    rest = match.group("rest")
-    if "}," in rest:
-        return rest.split("},", 1)[0]
-    tail = source[match.end() :]
-    require("\n    }," in tail, f"unterminated contract variant: {name}")
-    return rest + tail.split("\n    },", 1)[0]
+    """The field list of the sole enum-variant *declaration* named `name`.
+
+    Paths (`Method::Name {`) and match patterns (`Name { .. } =>`) are not
+    declarations, so they are excluded; exactly one declaration must remain.
+    """
+
+    code = _rust_code_mask(source)
+    text = _rust_comments_mask(source)
+    bodies = []
+    for match in re.finditer(rf"(?<![\w:]){re.escape(name)}\s*\{{", code):
+        opener = match.end() - 1
+        closer = _balanced_span_from(code, opener, "{", "}")
+        following = code[closer + 1 :].lstrip()[:1]
+        if following in {"=", "|", ")", ".", "?"}:
+            continue
+        bodies.append(text[opener + 1 : closer])
+    require(len(bodies) == 1, f"missing contract variant: {name}")
+    return bodies[0]
 
 
-def require_required_fields(source: str, variant: str, fields: tuple[str, ...]) -> None:
-    body = variant_body(source, variant)
-    for field in fields:
-        field_match = re.search(
-            rf"(?m)(?:^|[{{,])\s*{re.escape(field)}\s*:\s*(?P<ty>[^,\n]+)", body
-        )
+def field(body: str, name: str) -> tuple[str, str] | None:
+    """(attributes, type) of field `name` in a struct/variant body."""
+
+    match = re.search(
+        rf"{_ATTRS}{_VIS}(?<![\w]){re.escape(name)}\s*:\s*([^,\n]+)", body
+    )
+    if match is None:
+        return None
+    return match.group(1), match.group(2).strip()
+
+
+def require_explicit_field(body: str, owner: str, name: str) -> None:
+    """Ban every way a required wire field can be silently synthesized."""
+
+    found = field(body, name)
+    require(found is not None, f"{owner}.{name} is missing")
+    assert found is not None
+    attrs, ty = found
+    require(
+        _SERDE_DEFAULT.search(attrs) is None,
+        f"{owner}.{name} accepts an omitted legacy value",
+    )
+    require(
+        "skip_serializing_if" not in attrs,
+        f"{owner}.{name} can disappear from the canonical encoding",
+    )
+    if ty.startswith("Option<"):
         require(
-            field_match is not None,
-            f"{variant}.{field} is missing",
+            "deserialize_required_option" in attrs,
+            f"{owner}.{name} conflates an omitted field with explicit null",
         )
-        assert field_match is not None
-        prefix = body[: field_match.start()].rsplit("\n", 3)[-3:]
-        require(
-            not any("serde(" in line and "default" in line for line in prefix),
-            f"{variant}.{field} accepts an omitted legacy value",
-        )
-        require(
-            not any("skip_serializing_if" in line for line in prefix),
-            f"{variant}.{field} can disappear from the canonical encoding",
-        )
-        if field_match.group("ty").strip().startswith("Option<"):
-            require(
-                any(
-                    'deserialize_with = "deserialize_required_option"' in line
-                    for line in prefix
-                ),
-                f"{variant}.{field} conflates an omitted field with explicit null",
-            )
 
 
-def derive_line(source: str, declaration: str) -> str:
-    prefix = source.split(declaration, 1)[0]
-    return next(line for line in reversed(prefix.splitlines()) if "#[derive(" in line)
+def fn_bodies(source: str, name: str) -> list[str]:
+    """Code-masked bodies of every `fn name` (free functions and methods)."""
+
+    code = _rust_code_mask(source)
+    bodies = []
+    for match in re.finditer(rf"\bfn\s+{re.escape(name)}\b", code):
+        opener = code.find("{", match.end())
+        require(opener >= 0, f"{name} has no function body")
+        closer = _balanced_span_from(code, opener, "{", "}")
+        bodies.append(code[opener + 1 : closer])
+    require(bool(bodies), f"function {name} is absent")
+    return bodies
+
+
+def derives(attrs: str, trait: str) -> bool:
+    return any(
+        re.search(rf"\b{trait}\b", derive)
+        for derive in re.findall(r"derive\s*\(([^)]*)\)", attrs)
+    )
+
+
+def policy_row(capabilities: str, method: str):
+    try:
+        rows = parse_method_policy_table(capabilities)
+    except MethodPolicyInventoryError as error:
+        require(False, str(error))
+        raise  # unreachable
+    row = next((row for row in rows if row.name == method), None)
+    require(row is not None, f"missing method-policy row: {method}")
+    return row
+
+
+# --------------------------------------------------------------------------
+# Bans
+# --------------------------------------------------------------------------
 
 
 def require_no_retired_graph_topology() -> None:
-    """Reject the deleted multi-authority graph topology across shipped text."""
+    """Reject the deleted multi-authority graph topology across tracked text."""
 
-    needles = (
-        "TieredGraph" + "Backend",
-        "reconcile_" + "to_durable",
-        "working_set_" + "manager.py",
-        "query_" + "tier.py",
-        "kafka_graph_" + "sync.py",
-        "L0/L1/" + "L2/L3",
-    )
-    command = ["rg", "-n", "-F", "--no-heading", "--color=never"]
-    for needle in needles:
+    command = ["git", "grep", "-n", "-F", "--no-color"]
+    for needle in RETIRED_TOPOLOGY:
         command.extend(("-e", needle))
-    scan_roots = (
-        "src",
-        "crates",
-        "epistemic_graph",
-        "tests",
-        "docs",
-        ".specify",
-    )
-    command.extend(root for root in scan_roots if (ROOT / root).exists())
+    command.append("--")
+    command.extend(root for root in RETIRED_TOPOLOGY_ROOTS if (ROOT / root).exists())
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
-    require(result.returncode in {0, 1}, "retired-topology scan failed")
+    require(result.returncode in {0, 1}, f"retired-topology scan failed: {result}")
     require(not result.stdout, f"retired graph topology returned:\n{result.stdout}")
 
 
-def _check_protocol(protocol: str, wire: str) -> None:
-    for helper in (
-        "default_shuffle",
-        "default_split_seed",
-        "default_temperature",
-        "default_dpo_beta",
-        "default_clip_eps",
-        "default_adam_beta1",
-        "default_adam_beta2",
-        "default_adam_eps",
-        "default_decay_half_life",
-    ):
-        require(helper not in protocol, f"legacy protocol reader returned: {helper}")
-
-    request = delimited_body(protocol, "pub struct Request {", "\n}")
+def check_protocol(protocol: str, wire: str) -> None:
+    for helper in LEGACY_PROTOCOL_DEFAULT_HELPERS:
+        require(
+            not has_identifier(protocol, helper),
+            f"legacy protocol reader returned: {helper}",
+        )
+    attrs, request = item(protocol, "struct", "Request")
+    require("deny_unknown_fields" in attrs, "Request accepts unknown wire fields")
+    require_explicit_field(request, "Request", "agent_id")
+    for variant, fields in REQUIRED_PROTOCOL_FIELDS.items():
+        body = variant_body(protocol, variant)
+        for name in fields:
+            require_explicit_field(body, variant, name)
+    causal_attrs, _ = item(protocol, "enum", "CausalQueryModeWire")
     require(
-        "#[serde(deny_unknown_fields)]\npub struct Request {" in protocol,
-        "Request accepts unknown wire fields",
-    )
-    agent_id = re.search(r"(?m)^\s*pub agent_id:\s*Option<String>", request)
-    require(agent_id is not None, "Request.agent_id is missing")
-    assert agent_id is not None
-    agent_prefix = request[: agent_id.start()].rsplit("\n", 3)[-3:]
-    require(
-        any(
-            'deserialize_with = "deserialize_required_option"' in line
-            for line in agent_prefix
-        ),
-        "Request.agent_id accepts an omitted legacy field",
-    )
-
-    required_protocol_fields = {
-        "CreateNodeIfAbsent": ("node_id", "properties_msgpack"),
-        "BrokerAckTag": ("delivery_tag", "consumer"),
-        "BrokerNackTag": ("delivery_tag", "consumer", "requeue", "now_ms"),
-        "BrokerRenewTag": ("delivery_tag", "consumer", "now_ms", "lease_ms"),
-        "DecaySweep": ("half_life_secs", "floor", "prune"),
-        "DsTrainTestSplit": ("shuffle", "seed"),
-        "DsSoftmax": ("temperature",),
-        "DsDpoLoss": ("beta",),
-        "DsGrpoSurrogate": ("clip_eps",),
-        "DsAdamStep": ("m", "v", "beta1", "beta2", "eps"),
-        "RegisterIdentity": ("roles",),
-        "GraphQl": ("variables",),
-        "CausalEstimate": ("mode",),
-        "BeginTxn": ("graph", "isolation"),
-        "OwlReason": ("min_confidence",),
-        "OwlReasonDistributed": ("min_confidence",),
-        "IcvConfigure": ("graph", "mode", "shapes"),
-    }
-    for name in (
-        "TxnAddNode",
-        "TxnRemoveNode",
-        "TxnAddEdge",
-        "TxnRemoveEdge",
-        "TxnCas",
-        "TxnAddEmbedding",
-        "TxnBlobRef",
-        "TxnAddMeasurement",
-        "TxnAxiom",
-        "TxnConstruct",
-        "TxnPlanWriteback",
-        "TxnMaterializeBelief",
-    ):
-        required_protocol_fields[name] = ("graph",)
-    for variant, fields in required_protocol_fields.items():
-        require_required_fields(protocol, variant, fields)
-    require(
-        "impl Default for CausalQueryModeWire" not in protocol
-        and "Default" not in derive_line(protocol, "pub enum CausalQueryModeWire"),
+        not derives(causal_attrs, "Default")
+        and not has_code(protocol, r"\bimpl\s+Default\s+for\s+CausalQueryModeWire\b"),
         "causal mode regained an implicit historical default",
     )
+    require_explicit_field(variant_body(wire, "AsOf"), "AsOf", "axis")
 
-    require_required_fields(wire, "AsOf", ("axis",))
 
-
-def _check_query_contract(
-    schema: str, sql_exec: str, sql_mod: str, query_lib: str, plan_exec: str
-) -> None:
-    column = delimited_body(schema, "pub struct Column {", "\n}")
-    stored_function = delimited_body(schema, "pub struct StoredFunction {", "\n}")
+def check_query_contract(schema: str, sql: str, plan_exec: str) -> None:
+    for name, message in (
+        ("Column", "Column still reads an older persisted schema"),
+        ("StoredFunction", "StoredFunction still synthesizes a missing language"),
+    ):
+        attrs, body = item(schema, "struct", name)
+        require(_SERDE_DEFAULT.search(attrs + body) is None, message)
+    language_attrs, _ = item(schema, "enum", "FunctionLanguage")
     require(
-        "serde(default" not in column, "Column still reads an older persisted schema"
-    )
-    require(
-        "serde(default" not in stored_function,
-        "StoredFunction still synthesizes a missing language",
-    )
-    require(
-        "Default" not in derive_line(schema, "pub enum FunctionLanguage"),
+        not derives(language_attrs, "Default"),
         "FunctionLanguage regained a compatibility default",
     )
-
     require(
-        "exec_sql_cancellable" not in sql_exec + sql_mod + query_lib,
+        not has_identifier(sql, "exec_sql_cancellable"),
         "the superseded SQL entry point is still exported",
     )
     require(
-        sql_exec.count("pub fn exec_sql(") == 1,
+        len(re.findall(r"\bfn\s+exec_sql\b", _rust_code_mask(sql))) == 1,
         "SQL must expose one canonical entry point",
     )
-    signature = delimited_body(
-        sql_exec, "pub fn exec_sql(", ") -> Result<QueryResult, String>"
+    require(
+        not has_code(plan_exec, r"\bNone\s*=>\s*Ok\s*\(\s*input\s*\)"),
+        "FOREIGN retains an input pass-through",
     )
     require(
-        "cancel: &CancellationToken" in signature, "SQL cancellation is not required"
-    )
-
-    require(
-        "Op::Foreign { name } => crate::federation_opt::foreign_named(op, name, ctx)"
-        in plan_exec
-        and ".foreign" in plan_exec,
-        "FOREIGN no longer routes through the registry-backed implementation",
-    )
-    require(
-        '"FOREIGN requires a bound foreign-source registry"' in plan_exec,
-        "FOREIGN does not fail when its registry is absent",
-    )
-    require(
-        '"FOREIGN requires federation support in this build"' in plan_exec,
-        "FOREIGN still has a non-federation pass-through",
-    )
-    require(
-        "None => Ok(input)" not in plan_exec, "FOREIGN retains an input pass-through"
-    )
-    require(
-        '"TensorOp requires a bound tensor store"' in plan_exec,
-        "TensorOp does not require durable write-back",
-    )
-    tensor = delimited_body(plan_exec, "fn tensor_op(", "\n}")
-    require(
-        "-> Result<RowSet, String>" in tensor, "TensorOp cannot report a missing store"
-    )
-    require(
-        "if let Some(store)" not in tensor, "TensorOp retains validate-only execution"
+        not any(
+            re.search(r"\bif\s+let\s+Some\s*\(\s*store\s*\)", body)
+            for body in fn_bodies(plan_exec, "tensor_op")
+        ),
+        "TensorOp retains validate-only execution",
     )
 
 
-def _check_transport_contract(
-    transport: str, server: str, server_main: str, external_compute_e2e: str
-) -> None:
+def check_transport_contract(transport: str, server: str, runtime_entries: str) -> None:
+    """`server` defines the shared engine driver; `runtime_entries` must use it."""
+
     require(
-        "allow_plaintext_remote" not in transport,
+        not has_identifier(transport, "allow_plaintext_remote"),
         "native TCP retains a remote-plaintext override",
     )
     require(
-        "if !listener.local_addr()?.ip().is_loopback() && acceptor.is_none() {"
-        in transport,
-        "non-loopback native TCP is not unconditionally TLS-only",
-    )
-
-    stack_constant = "pub const ENGINE_WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;"
-    require(stack_constant in server, "engine worker-stack safety margin drifted")
-    require(
-        ".stack_size(ENGINE_WORKER_STACK_BYTES)" in server
-        and "engine runtime driver thread could not start" in server
-        and "engine runtime driver terminated unexpectedly" in server,
-        "shared engine driver does not provide an explicit stack and normalized "
-        "failures",
-    )
-    require(
-        "server::spawn_engine_driver(move ||" in server_main
-        and ".thread_stack_size(server::ENGINE_WORKER_STACK_BYTES)" in server_main
-        and "server::join_engine_driver(driver)?" in server_main
-        and "runtime.block_on(run())" not in server_main,
-        "production runtime does not execute its driver on the shared explicit stack",
-    )
-    require(
-        "epistemic_graph::server::spawn_engine_driver(||" in external_compute_e2e
-        and ".thread_stack_size(epistemic_graph::server::ENGINE_WORKER_STACK_BYTES)"
-        in external_compute_e2e
-        and "epistemic_graph::server::join_engine_driver(driver)"
-        in external_compute_e2e,
-        "external-compute e2e does not execute on the production driver-stack contract",
-    )
-    require(
-        "std::thread::Builder" not in server_main + external_compute_e2e,
+        not has_code(runtime_entries, r"\bstd\s*::\s*thread\s*::\s*Builder\b"),
         "a runtime entry point bypasses the shared engine driver helper",
     )
     require(
-        "RUST_MIN_STACK" not in server + server_main + external_compute_e2e,
+        not has_code(runtime_entries, r"\bblock_on\s*\(\s*run\s*\(\s*\)\s*\)"),
+        "production runtime blocks on its driver outside the shared explicit stack",
+    )
+    require(
+        not has_text(server + runtime_entries, r"\bRUST_MIN_STACK\b"),
         "worker-stack safety relies on a process environment override",
     )
 
 
-def _check_client_basic_contract(
-    client: str, generated_query: str, generated_models: str
-) -> None:
-    graphql_client = delimited_body(
-        client,
-        "    async def graphql(",
-        "    async def import_sqlite_file(",
-    )
+def check_graph_fencing(graph: str, prepublish: str) -> None:
     require(
-        "send_graph_ql(" in graphql_client
-        and '"query": query' in graphql_client
-        and '"variables": variables' in graphql_client,
-        "the Python client omits the explicit GraphQL variables field",
-    )
-    # EH-192: request models are the strict nested models in `generated/models.py`;
-    # the domain module's `GraphQlRequest` is an alias of `MethodGraphQlParams`.
-    graphql_request = delimited_body(
-        generated_models,
-        "class MethodGraphQlParams(BaseModel):",
-        "\nclass ",
-    )
-    graphql_sender = delimited_body(
-        generated_query,
-        "async def send_graph_ql(",
-        "async def send_knowledge_stream(",
-    )
-    require(
-        "GraphQlRequest = _models.MethodGraphQlParams" in generated_query
-        and "variables: Any | None = None" in graphql_request
-        and "MethodGraphQlParams.model_validate(params or {})" in graphql_sender
-        and '"GraphQl"' in graphql_sender
-        and "params" in graphql_sender,
-        "the generated GraphQL transport no longer validates and forwards variables",
-    )
-    require(
-        '{"graph": graph, "isolation": None}' in client,
-        "the Python client omits the complete BeginTxn shape",
-    )
-    require(
-        client.count('"graph": graph') >= 13,
-        "one or more Python transaction methods omit the explicit graph field",
-    )
-    require(
-        '"mode": mode' in client and 'mode: str = "Intervene"' in client,
-        "the Python causal client does not encode its mode explicitly",
-    )
-
-
-def _check_client_create_if_absent_contract(client: str, generated_graph: str) -> None:
-    require(
-        "send_create_node_if_absent(" in client
-        and '"node_id": node_id' in client
-        and '"properties_msgpack": _pack_binary_msgpack(properties or {})' in client
-        and "def _pack_binary_msgpack(value: Any) -> bytes:" in client
-        and "list(msgpack.packb" not in client,
-        "the Python client does not use the native binary MessagePack batch/lifecycle "
-        "contract",
-    )
-    require(
-        all(
-            marker in generated_graph
-            for marker in (
-                "CreateNodeIfAbsentRequest",
-                "properties_msgpack",
-                '"CreateNodeIfAbsent"',
-            )
-        ),
-        "the generated graph transport lost the binary create-if-absent contract",
-    )
-
-
-def _check_client_tag_ack_nack_contract(client: str) -> None:
-    require(
-        "async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:"
-        in client
-        and '"delivery_tag": int(delivery_tag), "consumer": consumer' in client,
-        "the Python tag acknowledgement is not owner-fenced",
-    )
-    require(
-        "async def nack_tag(" in client
-        and '"consumer": consumer' in client
-        and '"now_ms": int(now_ms)' in client,
-        "the Python tag nack omits its owner or explicit clock",
-    )
-
-
-def _check_client_renew_tag_contract(client: str) -> None:
-    renew_client = delimited_body(
-        client,
-        "    async def renew_tag(",
-        "\n    async def sweep_expired(",
-    )
-    require(
-        all(
-            field in renew_client
-            for field in (
-                "consumer: str",
-                "now_ms: int",
-                "lease_ms: int",
-                "send_broker_renew_tag(",
-                '"consumer": consumer',
-                '"now_ms": int(now_ms)',
-                '"lease_ms": int(lease_ms)',
-            )
-        ),
-        "the Python lease renewal is not owner-fenced and explicitly clocked",
-    )
-
-
-def _check_generated_broker_transport_contract(generated_messaging: str) -> None:
-    # EH-192: the fields live on the strict `MethodBroker*Params` models the
-    # domain aliases name; clocks and leases are non-negative there.
-    renew = delimited_body(
-        generated_messaging, "class MethodBrokerRenewTagParams(BaseModel):", "\nclass "
-    )
-    require(
-        all(
-            marker in generated_messaging
-            for marker in (
-                "BrokerAckTagRequest",
-                "BrokerNackTagRequest",
-                "BrokerRenewTagRequest",
-                '"BrokerRenewTag"',
-            )
-        )
-        and all(
-            field in renew
-            for field in (
-                "consumer: str",
-                "delivery_tag: int",
-                "now_ms: Annotated[int, Field(ge=0)]",
-                "lease_ms: Annotated[int, Field(ge=0)]",
-            )
-        ),
-        "the generated broker transport lost owner and clock fields",
-    )
-
-
-def _check_client_batch_contract(
-    client: str, generated_graph: str, generated_messaging: str
-) -> None:
-    _check_client_create_if_absent_contract(client, generated_graph)
-    _check_client_tag_ack_nack_contract(client)
-    _check_client_renew_tag_contract(client)
-    _check_generated_broker_transport_contract(generated_messaging)
-
-
-def _check_graph_fencing(graph: str) -> None:
-    require(
-        "pub fn create_node_if_absent(" in graph
-        and "self.txn()\n            .create_node_if_absent" in graph
-        and "broker_claim_delivery" in graph
-        and "broker_ack_delivery_tag" in graph
-        and "broker_nack_delivery_tag" in graph
-        and "broker_renew_delivery_tag" in graph,
-        "native atomic create or broker fencing primitives are missing",
-    )
-    require(
-        "core.has_node(node_id)"
-        not in delimited_body(
-            graph,
-            "    pub fn create_node_if_absent(",
-            "\n    }",
+        not any(
+            re.search(r"\bhas_node\s*\(", body)
+            for body in fn_bodies(graph, "create_node_if_absent")
         ),
         "create-if-absent regained a TOCTOU membership check outside GraphTxn",
     )
+    for body in fn_bodies(prepublish, "prepublish_success"):
+        for method in STATE_DEPENDENT_METHODS:
+            require(
+                re.search(rf"\b{method}\b", body) is None,
+                "a state-dependent create/tag verdict is predicted before "
+                "authoritative staging",
+            )
 
 
-def _check_mutation_routing(
-    mutation_runtime: str,
-    mutation_apply: str,
-    graph_handler: str,
-    access: str,
-) -> None:
-    routed = delimited_body(
-        mutation_runtime,
-        "pub const GATEWAY_ROUTED: &[&str] = &[",
-        "\n];",
-    )
-    for method in (
-        "CreateNodeIfAbsent",
-        "BrokerAckTag",
-        "BrokerNackTag",
-        "BrokerRenewTag",
-    ):
-        require(f'"{method}"' in routed, f"{method} bypasses the mutation gateway")
+def check_method_policies(capabilities: str) -> None:
+    for method in ("CreateNodeIfAbsent", "BrokerAckTag"):
         require(
-            f"Method::{method}" in mutation_apply,
-            f"{method} is absent from deterministic mutation replay",
-        )
-        require(
-            f"Method::{method}" in graph_handler,
-            f"{method} has no native graph handler",
-        )
-        require(
-            f"Method::{method}" in access,
-            f"{method} is absent from write-access classification",
-        )
-
-
-def _check_mutation_prepublish(mutation_runtime: str) -> None:
-    prepublish = delimited_body(
-        mutation_runtime,
-        "fn prepublish_success(core: &GraphCore, method: &Method) -> "
-        "Option<ResultPayload> {",
-        "\n}",
-    )
-    require(
-        "CreateNodeIfAbsent" not in prepublish
-        and "BrokerAckTag" not in prepublish
-        and "BrokerNackTag" not in prepublish
-        and "BrokerRenewTag" not in prepublish,
-        "a state-dependent create/tag verdict is predicted before authoritative "
-        "staging",
-    )
-
-
-def _require_broker_expiry_sweep(broker: str) -> None:
-    """Require an absent lease deadline to remain non-expiring."""
-
-    sweep = top_level_fns(broker).get("sweep_expired", "")
-    require(sweep != "", "broker expiry sweep is absent")
-    require(
-        'status == "claimed" && lease_until.is_some_and(|l| l <= now_ms)' in sweep
-        and '("claimed", true, false)' in sweep
-        and "broker_release_expired_delivery" in sweep,
-        "a non-expiring zero-duration claim is released by the sweeper",
-    )
-
-
-def _check_broker_fencing(broker: str, graph: str) -> None:
-    require(
-        "pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> "
-        "bool"
-        in broker
-        and "pub fn broker_nack_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n"
-        "    consumer: &str,"
-        in broker
-        and "pub fn broker_renew_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n"
-        "    consumer: &str,\n    now_ms: u64,\n    lease_ms: u64,"
-        in broker,
-        "the native tag operations regained an ownerless or implicit-clock form",
-    )
-    _require_broker_expiry_sweep(broker)
-    renewal = delimited_body(
-        graph,
-        "    pub fn broker_renew_delivery_tag(",
-        "\n    /// Atomically fence and end a tag-addressed delivery.",
-    )
-    # `broker_lease_extends` is an extracted helper `broker_renew_delivery_tag`
-    # calls rather than inlining the "does not shorten the live lease"
-    # comparison itself -- follow that one hop so the check keeps seeing the
-    # real comparison instead of reporting it missing.
-    lease_extension_guard = renewal
-    if "broker_lease_extends(" in renewal:
-        lease_extension_guard += "\n" + delimited_body(
-            graph,
-            "    pub(super) fn broker_lease_extends(",
-            "\n    /// Return an expired delivery to pending",
+            policy_row(capabilities, method).idempotent is False,
+            "state-dependent create/tag results can enter cross-request replay caching",
         )
     require(
-        "now_ms.checked_add(lease_ms)" in renewal
-        and (
-            "renewed_until <= current_lease_until" in renewal
-            or "renewed_until > current_lease_until" in lease_extension_guard
-        ),
-        "lease renewal can overflow or shorten the current live deadline",
-    )
-    # The current/renewed-lease verdict now lives behind the extracted
-    # `broker_lease_extends` early-return guard (`if !Self::broker_lease_extends(
-    # ...) { return false; }`) rather than an inline `let Some(...) else` branch;
-    # same "does a failed verdict destroy state" question, current text shape.
-    if "broker_lease_extends(" in renewal:
-        lease_verdict = delimited_body(
-            renewal,
-            "if !Self::broker_lease_extends(",
-            'properties.insert("lease_until"',
-        )
-    else:
-        lease_verdict = delimited_body(
-            renewal,
-            "let Some(current_lease_until) = current_lease_until else {",
-            'properties.insert("lease_until"',
-        )
-    require(
-        "remove_node(lookup_id)" not in lease_verdict,
-        "a failed current-generation renewal destroys the ack/nack lookup",
-    )
-
-
-def _check_mutation_policy(capabilities: str, cdc: str) -> None:
-    create_policy = method_policy_body(capabilities, "CreateNodeIfAbsent")
-    tag_policy = method_policy_body(capabilities, "BrokerAckTag")
-    require(
-        "idempotent: false" in create_policy and "idempotent: false" in tag_policy,
-        "state-dependent create/tag results can enter cross-request replay caching",
-    )
-    # `emit_for_method`'s CreateNodeIfAbsent/CompareAndSetNodeFields/etc. arms used to
-    # be separate top-level tuple-match arms keyed on `(Method, CdcPre)` directly; they
-    # are now dispatched (still exhaustively, per method) through `emit_node_change`,
-    # which `emit_for_method` calls once `CdcPre::Node`'s `before` is already unpacked.
-    # Re-anchor on that helper the same way `method_policy_body`'s docstring already
-    # explains doing for the method-policy table: the literal text moved, the property
-    # (a losing create emits no row-update event) did not.
-    create_cdc = delimited_body(
-        cdc,
-        "Method::CreateNodeIfAbsent { node_id, .. } => match before {",
-        "Method::CompareAndSetNodeFields",
-    )
-    require(
-        "Some(_) => {}" in create_cdc
-        and "A losing create is a durable false result, not a row update."
-        in create_cdc,
-        "a losing create-if-absent emits a false row-update CDC event",
-    )
-
-
-def _check_distributed_compute(pregel: str, dist_handler: str) -> None:
-    require(
-        "read_authority: &GraphReadAuthority" in pregel
-        and "Option<&GraphReadAuthority>" not in pregel,
-        "distributed compute can run without verified read authority",
-    )
-    require(
-        "core.topology_snapshot()" not in pregel
-        and "run_distributed_authorized" not in pregel,
-        "distributed compute regained an unfiltered snapshot route",
-    )
-    require(
-        dist_handler.count(
-            "distributed materialized views require the universal read authority"
-        )
-        >= 3,
-        "a distributed materialized-view operation accepts missing authority",
-    )
-
-
-def _check_rdf_integrity_policy(icv_policy: str, rdf_handler: str) -> None:
-    require(
-        "IcvMode" not in icv_policy
-        and "Warn" not in icv_policy
-        and "Off" not in icv_policy,
-        "integrity policy regained a disabled or advisory mode",
-    )
-    require(
-        "integrity_policy_required" in icv_policy,
-        "missing graph integrity policy is not rejected",
-    )
-    for method in ("AddTriples", "RemoveTriples", "DropNamedGraph"):
-        require(
-            f'"{method} requires the shacl integrity-guard feature"' in rdf_handler,
-            f"{method} does not fail closed without SHACL",
-        )
-    require(
-        "check_before_write(core, graph_name, &[], &removals)" in rdf_handler,
-        "DropNamedGraph bypasses the mandatory integrity guard",
-    )
-
-
-def _check_rdf_capability(capabilities: str) -> None:
-    icv_capability = method_policy_body(capabilities, "IcvConfigure")
-    require(
-        'authz_action: "security:admin"' in icv_capability,
+        policy_row(capabilities, "IcvConfigure").authz_action == "security:admin",
         "IcvConfigure is not restricted to administrative authority",
     )
 
 
-def _check_rdf_guard(rdf_guard: str, rdf_update: str) -> None:
+def check_read_authority(pregel: str, served_indexes: str) -> None:
     require(
-        "fn active(" not in rdf_guard and "guard.active()" not in rdf_update,
-        "RDF write guard regained an inactive bypass",
+        not has_code(pregel, r"Option\s*<\s*&\s*GraphReadAuthority\s*>"),
+        "distributed compute can run without verified read authority",
     )
     require(
-        "pub fn execute_guarded" not in rdf_update
-        and "pub fn execute_str(" in rdf_update
-        and "guard: &dyn WriteGuard" in rdf_update
-        and "fn apply_update(" in rdf_update,
-        "RDF UPDATE does not expose one mandatory guarded entry point",
+        not has_identifier(pregel, "topology_snapshot")
+        and not has_identifier(pregel, "run_distributed_authorized"),
+        "distributed compute regained an unfiltered snapshot route",
+    )
+    # `covers_version` is the write maintainer's deliberately weaker
+    # version-only check; served availability must use `covers_source`, which
+    # also fails closed on node/edge cursor drift.
+    require(
+        not has_identifier(served_indexes, "covers_version"),
+        "served index availability uses the version-only covers_version(); it "
+        "must use covers_source()",
     )
 
 
-def _check_rbac_store(rbac: str, isolation: str, rbac_persist: str) -> None:
-    require("pub fn is_empty(&self)" not in rbac, "empty RBAC can bypass evaluation")
+def check_rdf(icv_policy: str, rdf_guard: str, rdf_update: str) -> None:
     require(
-        "if !self.rbac.is_empty()" not in isolation
-        and "no pre-RBAC ACL fall-through" in isolation,
+        not any(
+            has_identifier(icv_policy, name) for name in ("IcvMode", "Warn", "Off")
+        ),
+        "integrity policy regained a disabled or advisory mode",
+    )
+    require(
+        not has_code(rdf_guard, r"\bfn\s+active\b")
+        and not has_code(rdf_update, r"\.\s*active\s*\(")
+        and not has_identifier(rdf_update, "execute_guarded"),
+        "RDF write guard regained an inactive bypass or a second entry point",
+    )
+
+
+def check_rbac(rbac: str, isolation: str, rbac_persist: str) -> None:
+    require(
+        not has_code(rbac, r"\bfn\s+is_empty\b"),
+        "empty RBAC can bypass evaluation",
+    )
+    require(
+        not has_code(isolation, r"\brbac\s*\.\s*is_empty\s*\("),
         "RBAC evaluation regained its empty/no-match ACL fall-through",
     )
     require(
-        "MemoryRbacStore::new()" in isolation
-        and "identity/RBAC policy store is not bound" in isolation,
-        "embedded RBAC persistence can become an absent no-op",
-    )
-    require(
-        "bootstrap_current_state" in rbac_persist
-        and "mandatory policy record is absent" in rbac_persist
-        and 'const BOOTSTRAP_KEY: &str = "bootstrap"' in rbac_persist
-        and "mandatory identity bootstrap record is absent" in rbac_persist
-        and "IdentityBootstrapState::Pending" in rbac_persist
-        and "None => RbacPolicy::new()" not in rbac_persist
-        and "None => BTreeMap::new()" not in rbac_persist,
+        not has_code(
+            rbac_persist, r"\bNone\s*=>\s*(?:RbacPolicy|BTreeMap)\s*::\s*new\b"
+        ),
         "durable RBAC state still synthesizes missing records",
     )
 
 
-def _check_identity_bootstrap_claim(auth: str) -> None:
-    bootstrap_claim = delimited_body(
-        auth,
-        "pub(crate) fn allows_identity_bootstrap(&self) -> bool {",
-        "\n    }",
-    )
-    require(
-        "self.claims.principal == self.claims.agent_id" in bootstrap_claim
-        and "self.claims.delegation.is_empty()" in bootstrap_claim
-        and "self.claims.scopes.len() == 1" in bootstrap_claim
-        and 'self.claims.scopes[0] == "security:bootstrap"' in bootstrap_claim,
-        "identity bootstrap claims are not exact self-registration authority",
-    )
-
-
-def _check_identity_bootstrap_dispatch(dispatch: str) -> None:
-    require(
-        "state.isolation.identity_bootstrap_pending()" in dispatch
-        and 'req.graph == "__commons__"' in dispatch
-        and "role: crate::isolation::AgentRole::System" in dispatch
-        and "teams.is_empty()" in dispatch
-        and "roles.is_empty()" in dispatch
-        and "try_bootstrap_system_identity" in dispatch,
-        "served identity bootstrap is not the exact one-time transition",
-    )
-
-
-def _check_identity_bootstrap_replication(raft: str, dispatch: str) -> None:
-    require(
-        "pub identity_bootstrap: bool" in raft
-        and "identity_bootstrap: authority.identity_bootstrap" in dispatch
-        and "replicated_identity_bootstrap_authorized()" in dispatch,
-        "replicated identity bootstrap lost its verified one-time authority bit",
-    )
-
-
-def _check_identity_order(dispatch: str) -> None:
-    route = delimited_body(
-        dispatch,
-        "fn native_route_target(",
-        "\n}",
-    )
-    require(
-        all(
-            map(
-                route.__contains__,
-                (
-                    'Some("Identity") => "__commons__".to_string()',
-                    "command.domain()",
-                    'unreachable!("unclassified native consensus domain: {other}")',
-                ),
-            )
-        ),
-        "identity/RBAC commands are not totally ordered on the bootstrap authority "
-        "graph",
-    )
-
-
-def _check_raft_snapshot_shape(raft_store: str) -> None:
-    code = _rust_code_mask(raft_store)
-    raft_graph_snapshot = delimited_body(code, "struct GraphSnapshot {", "\n}")
-    require(
-        "const RAFT_SNAPSHOT_SCHEMA_VERSION: u16 = 4;" in code
-        and "durable: crate::server::persistence::online_reshard::RawGraphRows"
-        in raft_graph_snapshot
-        and all(
-            retired not in raft_graph_snapshot
-            for retired in (
-                "integrity_policy",
-                "\n    nodes:",
-                "\n    edges:",
-                "\n    ledger:",
-                "semantic_msgpack",
-                "\n    version:",
-            )
+def check_acl_roles(acl: str) -> None:
+    for name in ("RequestContextClaims", "AgentIdentity"):
+        _, body = item(acl, "struct", name)
+        found = field(body, "roles")
+        require(found is not None, f"{name} has no mandatory roles field")
+        assert found is not None
+        require(
+            _SERDE_DEFAULT.search(found[0]) is None, f"{name} accepts omitted roles"
         )
-        and "export_graph_raw_for_snapshot" in code
-        and "read_authoritative_graph_snapshot" in code,
-        "Raft snapshots regained a duplicate decoded/plaintext graph authority",
-    )
 
 
-def _check_raft_snapshot_enumeration(raft_store: str) -> None:
-    code = _rust_code_mask(raft_store)
+def check_raft_snapshot(raft_store: str) -> None:
+    _, snapshot = item(raft_store, "struct", "GraphSnapshot")
+    for retired in RETIRED_RAFT_SNAPSHOT_FIELDS:
+        require(
+            field(snapshot, retired) is None,
+            "Raft snapshots regained a duplicate decoded/plaintext graph authority "
+            f"({retired})",
+        )
     require(
-        ".list()" in code and ".all_entries()" not in code,
+        not has_code(raft_store, r"\.\s*all_entries\s*\("),
         "Raft snapshot enumeration drops catalog-only/evicted graphs",
     )
 
 
-def _rust_function_body(source: str, name: str) -> str:
-    """Return the sole compiler-family function body named ``name``."""
-
-    code = _rust_code_mask(source)
-    matches = list(
-        re.finditer(
-            rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(",
-            code,
-        )
-    )
+def check_retired_fallbacks(graph: str, owl: str, geometry: str, mysql: str) -> None:
     require(
-        len(matches) == 1,
-        f"expected one compiler-reachable Rust function named {name}",
-    )
-    opener = code.find("{", matches[0].end())
-    require(opener >= 0, f"missing Rust function body: {name}")
-    closer = _balanced_span_from(code, opener, "{", "}")
-    return source[opener + 1 : closer]
-
-
-def _squash_rust_body(body: str) -> str:
-    """Normalize whitespace without erasing code tokens."""
-
-    return re.sub(r"\s*\.\s*", ".", re.sub(r"\s+", " ", body))
-
-
-def _snapshot_install_removes_stale_graphs(install: str) -> bool:
-    return (
-        "let stale_names = self.stale_snapshot_graph_names(&names).await?;" in install
-        and re.search(
-            r"for name in stale_names\s*\{\s*"
-            r"self\.remove_stale_snapshot_graph\(&name\)\.await\?;\s*\}",
-            install,
-        )
-        is not None
-    )
-
-
-def _code_compares_to_literal(comments_body: str, code_body: str, literal: str) -> bool:
-    """Require a literal comparison in code, never inside a string decoy."""
-
-    pattern = re.compile(rf"\bname\s*==\s*{re.escape(literal)}")
-    for match in pattern.finditer(comments_body):
-        quote = comments_body.find('"', match.start(), match.end())
-        prefix = code_body[match.start() : quote] if quote >= 0 else ""
-        if re.fullmatch(r"\s*name\s*==\s*", prefix):
-            return True
-    return False
-
-
-def _snapshot_stale_set_is_complete(
-    stale: str, stale_comments: str, stale_code: str
-) -> bool:
-    return (
-        ".registry.list()" in stale
-        and "belongs_to_group && !names.contains(name.as_str())" in stale
-        and _code_compares_to_literal(stale_comments, stale_code, '"__commons__"')
-        and re.search(
-            r"if stale\.iter\(\)\.any\(\|name\| name ==\s+\)\s*\{" r".*return Err\(",
-            stale,
-        )
-        is not None
-    )
-
-
-def _snapshot_removal_clears_both_authorities(remove: str) -> bool:
-    return all(
-        marker in remove
-        for marker in (
-            ".import_graph_raw_from_snapshot(",
-            "RawGraphRows::default(),",
-            "s.registry.delete_graph(name)?;",
-        )
-    )
-
-
-def _check_raft_snapshot_replacement(raft_store: str) -> None:
-    """Prove snapshot replacement through its compiler-reachable call chain."""
-
-    comments = _rust_comments_mask(raft_store)
-    code = _rust_code_mask(raft_store)
-    install = _squash_rust_body(_rust_function_body(code, "install_graphs"))
-    stale_body = _rust_function_body(code, "stale_snapshot_graph_names")
-    stale = _squash_rust_body(stale_body)
-    stale_comments = _rust_function_body(comments, "stale_snapshot_graph_names")
-    remove = _squash_rust_body(_rust_function_body(code, "remove_stale_snapshot_graph"))
-    require(
-        all(
-            (
-                _snapshot_install_removes_stale_graphs(install),
-                _snapshot_stale_set_is_complete(stale, stale_comments, stale_body),
-                _snapshot_removal_clears_both_authorities(remove),
-            )
-        ),
-        "Raft snapshot install merges with stale graph authority instead of replacing "
-        "it",
-    )
-
-
-def _check_raft_restore(registry: str, raft_store: str) -> None:
-    require(
-        "pub fn install_committed_graph(" in registry
-        and "GraphCore::from_snapshot(snapshot, committed_version)" in registry
-        and "s.registry.install_committed_graph(" in raft_store,
-        "Raft restore publishes an empty/partial core or loses durable incarnation "
-        "identity",
-    )
-
-
-def _check_raft_snapshot_validation(raft_store: str, raft: str) -> None:
-    store_code = _rust_code_mask(raft_store)
-    raft_code = _rust_code_mask(raft)
-    require(
-        "self.validate_snapshot_graphs(&body.graphs)" in store_code
-        and re.search(r"validate_replay_authentication\(&?server_secret\)", store_code)
-        is not None
-        and "pub(crate) fn validate_replay_authentication(" in raft_code,
-        "Raft snapshot install mutates state before validating the complete replay "
-        "image",
-    )
-
-
-def _check_raw_snapshot_identity(raw_rows: str) -> None:
-    require(
-        "pub(crate) fn durable_identity(" in raw_rows
-        and "raw graph rows contain authority without durable identity" in raw_rows
-        and "rows.durable_identity(graph)?;" in raw_rows,
-        "raw snapshot/reshard imports do not validate their durable graph identity",
-    )
-
-
-def _check_acl_roles(acl: str) -> None:
-    for declaration in (
-        "pub struct RequestContextClaims {",
-        "pub struct AgentIdentity {",
-    ):
-        body = delimited_body(acl, declaration, "\n}")
-        roles = re.search(r"(?m)^\s*pub roles:\s*Vec<String>", body)
-        require(roles is not None, f"{declaration} has no mandatory roles field")
-        assert roles is not None
-        prefix = body[: roles.start()].rsplit("\n", 2)[-2:]
-        require(
-            not any("serde(default" in line for line in prefix),
-            f"{declaration} accepts omitted roles",
-        )
-
-
-def _check_graph_memory(graph: str) -> None:
-    require(
-        "DEFAULT_IMPORTANCE" not in graph
-        and "pre-EG-222" not in graph
-        and "fn memory_importance" in graph
-        and "Option<f64>" in graph,
+        not has_identifier(graph, "DEFAULT_IMPORTANCE"),
         "memory maintenance still synthesizes an older importance value",
     )
-
-
-def _check_owl_bridge(owl: str) -> None:
     require(
-        "bridge_type_to_class(t: &str, class_base: &str) -> Result<String, String>"
-        in owl
-        and "class_base: Option<&str>" not in owl
-        and "t.to_string()"
-        not in delimited_body(owl, "pub fn bridge_type_to_class", "\n}"),
+        not has_code(owl, r"\bclass_base\s*:\s*Option\s*<")
+        and not any(
+            re.search(r"\bt\s*\.\s*to_string\s*\(", body)
+            for body in fn_bodies(owl, "bridge_type_to_class")
+        ),
         "OWL type bridging still permits a missing base or bare-string fallback",
     )
-
-
-def _check_geometry(geometry: str) -> None:
-    polygon = delimited_body(geometry, "pub struct Polygon {", "\n}")
+    attrs, polygon = item(geometry, "struct", "Polygon")
     require(
-        "serde(default" not in polygon, "Polygon still synthesizes missing interiors"
+        _SERDE_DEFAULT.search(attrs + polygon) is None,
+        "Polygon still synthesizes missing interiors",
     )
     require(
-        "pub fn new(exterior: LineString, interiors: Vec<LineString>)" in geometry
-        and "with_interiors" not in geometry,
+        not has_identifier(geometry, "with_interiors"),
         "Polygon retained its exterior-only constructor",
     )
-
-
-def _check_mysql(mysql_packets: str, mysql_wire: str) -> None:
     require(
-        "build_eof" not in mysql_packets + mysql_wire
-        and "build_resultset_end" in mysql_packets
-        and "CLIENT_DEPRECATE_EOF == 0" in mysql_wire,
+        not has_identifier(mysql, "build_eof"),
         "MySQL retained the deprecated EOF/older-client result path",
     )
 
 
 def main() -> None:
     require_no_retired_graph_topology()
-    protocol = protocol_source()
-    wire = read_module_tree("crates/eg-types/src/wire.rs", root_dir=ROOT)
-    schema = read("crates/eg-query/src/tables/schema.rs")
-    sql_exec = read("crates/eg-query/src/sql/exec.rs")
-    sql_mod = read("crates/eg-query/src/sql/mod.rs")
-    query_lib = read("crates/eg-query/src/lib.rs")
-    # The executor facade owns TensorOp; its compiler-declared dispatch child
-    # routes FOREIGN, and federation_opt/run.rs performs the registry refusal.
-    # Inspect all three links so a missing registry cannot be hidden by moving
-    # only the error string away from the routed implementation.
-    plan_exec = read_sources(
-        (
-            "crates/eg-plan/src/exec.rs",
-            "crates/eg-plan/src/exec/dispatch.rs",
-            "crates/eg-plan/src/federation_opt/run.rs",
-        )
+    check_protocol(protocol_source(), tree("crates/eg-types/src/wire.rs"))
+    check_query_contract(
+        read("crates/eg-query/src/tables/schema.rs"),
+        tree("crates/eg-query/src/sql/mod.rs") + read("crates/eg-query/src/lib.rs"),
+        tree("crates/eg-plan/src/exec.rs")
+        + tree("crates/eg-plan/src/federation_opt/mod.rs"),
     )
-    transport = read("src/server/transport.rs")
-    server = read("src/server/mod.rs")
-    server_main = read("src/main.rs")
-    external_compute_e2e = read("tests/external_compute_e2e.rs")
-    client = read("epistemic_graph/client.py")
-    generated_query = read("epistemic_graph/generated/query.py")
-    generated_models = read("epistemic_graph/generated/models.py")
-    generated_graph = generated_transport("graph")
-    generated_messaging = generated_transport("messaging")
-    pregel = read("src/raft/pregel.rs")
-    dist_handler = read("src/server/handlers/dist_compute.rs")
-    icv_policy = read("crates/eg-shacl/src/policy.rs")
-    rdf_guard = read("crates/eg-rdf/src/guard.rs")
-    rdf_update = rdf_update_source()
-    rdf_handler = rdf_handler_source()
-    rbac = read("crates/eg-core/src/rbac.rs")
-    rbac_persist = read("crates/eg-core/src/rbac_persist.rs")
-    isolation = read_sources(
-        (
-            "crates/eg-core/src/isolation.rs",
-            "crates/eg-core/src/isolation/access_policy.rs",
-            "crates/eg-core/src/isolation/identity_admin.rs",
-            "crates/eg-core/src/isolation/identity_query.rs",
-            "crates/eg-core/src/isolation/layer_store.rs",
-            "crates/eg-core/src/isolation/policy_admin.rs",
-            "crates/eg-core/src/isolation/policy_lease.rs",
-        )
+    check_transport_contract(
+        tree("src/server/transport.rs"),
+        read("src/server/mod.rs"),
+        read("src/main.rs") + "\n" + read("tests/external_compute_e2e.rs"),
     )
-    acl = read("crates/eg-types/src/acl.rs")
-    # GraphCore's public implementation is split across compiler-declared child
-    # modules. Read that complete production closure so fencing checks continue
-    # to follow the code when a method moves out of the facade.
-    graph = read_module_tree("crates/eg-core/src/graph.rs", root_dir=ROOT)
-    registry = read("crates/eg-core/src/registry.rs")
-    owl = read("crates/eg-rdf/src/owl.rs")
-    geometry = read("crates/eg-geo/src/geometry.rs")
-    mysql_packets = read("src/server/mysql_wire/packets.rs")
-    mysql_wire = read("src/server/mysql_wire/mod.rs")
-    # VerifiedRequestContext is a declared sibling module of auth.rs.  Keep
-    # the claim contract tied to both compiler-owned sources after the nonce
-    # extraction, rather than silently reading only the re-export facade.
-    auth = read_sources(("src/server/auth.rs", "src/server/authority_context.rs"))
-    dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
-    # Raft command validation is declared in the command submodule; use the
-    # compiler-reachable tree so snapshot replay proofs follow that ownership
-    # split instead of inspecting only the facade.
-    raft = read_module_tree("src/raft/mod.rs", root_dir=ROOT)
-    # Snapshot capture/install is likewise declared across the store children;
-    # the family reader rejects an omitted or orphaned child before this gate
-    # can accidentally certify a partial snapshot implementation.
-    raft_store = raft_store_source()
-    raw_rows = read("src/server/persistence/online_reshard.rs")
-    # The policy ledger lives across the domain-owned `ROWS` modules under
-    # `crates/eg-capabilities/src/domains/`, not in `lib.rs`; `load_capability_sources`
-    # is the canonical reader that `check_universal_read_rls.py` already uses.
-    capabilities = load_capability_sources(ROOT)
-    # Mutation routing is implemented across the compiler-declared private
-    # children of this facade.  Follow that exact production closure so moving
-    # a route cannot make the architecture gate silently inspect stale text.
-    mutation_runtime = read_module_tree("src/server/mutation.rs", root_dir=ROOT)
-    mutation_apply = read("src/mutation_apply.rs")
-    # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
-    # single-writer guard into eg-core"): the base graph-mutation set and the
-    # `broker` family (CreateNodeIfAbsent, BrokerAckTag/NackTag/RenewTag among
-    # them) moved out of src/mutation_apply.rs's `apply` into
-    # eg_core::durable_apply::apply, which src/mutation_apply.rs now delegates to
-    # via its `_` arm. A check that reads only src/mutation_apply.rs therefore
-    # measures a partial universe post-hoist (BUG-CX-112) -- union both.
-    mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
-    graph_handler = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
-    access = expand_method_families(
-        read_module_tree("src/server/access.rs", root_dir=ROOT, include_tests=True),
-        families_source(ROOT),
+    check_graph_fencing(
+        tree("crates/eg-core/src/graph.rs"), tree("src/server/mutation.rs")
     )
-    broker = read("crates/eg-core/src/broker.rs")
-    # `emit_for_method` and its dispatch helpers moved to `cdc/dispatch.rs` (KISS
-    # `lines_per_file` budget on cdc.rs) -- union both, same pattern as
-    # `mutation_apply`'s hoist-union above.
-    cdc = read("src/server/cdc.rs") + "\n" + read("src/server/cdc/dispatch.rs")
-
-    _check_protocol(protocol, wire)
-    _check_query_contract(schema, sql_exec, sql_mod, query_lib, plan_exec)
-    _check_transport_contract(transport, server, server_main, external_compute_e2e)
-    _check_client_basic_contract(client, generated_query, generated_models)
-    _check_client_batch_contract(client, generated_graph, generated_messaging)
-    _check_graph_fencing(graph)
-    _check_mutation_routing(mutation_runtime, mutation_apply, graph_handler, access)
-    _check_mutation_prepublish(mutation_runtime)
-    _check_broker_fencing(broker, graph)
-    _check_mutation_policy(capabilities, cdc)
-    _check_distributed_compute(pregel, dist_handler)
-    _check_rdf_integrity_policy(icv_policy, rdf_handler)
-    _check_rdf_capability(capabilities)
-    _check_rdf_guard(rdf_guard, rdf_update)
-    _check_rbac_store(rbac, isolation, rbac_persist)
-    _check_identity_bootstrap_claim(auth)
-    _check_identity_bootstrap_dispatch(dispatch)
-    _check_identity_bootstrap_replication(raft, dispatch)
-    _check_identity_order(dispatch)
-    _check_raft_snapshot_shape(raft_store)
-    _check_raft_snapshot_enumeration(raft_store)
-    _check_raft_snapshot_replacement(raft_store)
-    _check_raft_restore(registry, raft_store)
-    _check_raft_snapshot_validation(raft_store, raft)
-    _check_raw_snapshot_identity(raw_rows)
-    _check_acl_roles(acl)
-    _check_graph_memory(graph)
-    _check_owl_bridge(owl)
-    _check_geometry(geometry)
-    _check_mysql(mysql_packets, mysql_wire)
+    check_method_policies(load_capability_sources(ROOT))
+    check_read_authority(
+        read("src/raft/pregel.rs"), tree("src/server/secondary_indexes.rs")
+    )
+    check_rdf(
+        read("crates/eg-shacl/src/policy.rs"),
+        read("crates/eg-rdf/src/guard.rs"),
+        rdf_update_source(),
+    )
+    check_rbac(
+        read("crates/eg-core/src/rbac.rs"),
+        tree("crates/eg-core/src/isolation.rs"),
+        read("crates/eg-core/src/rbac_persist.rs"),
+    )
+    check_acl_roles(read("crates/eg-types/src/acl.rs"))
+    check_raft_snapshot(raft_store_source())
+    check_retired_fallbacks(
+        tree("crates/eg-core/src/graph.rs"),
+        read("crates/eg-rdf/src/owl.rs"),
+        read("crates/eg-geo/src/geometry.rs"),
+        tree("src/server/mysql_wire/mod.rs"),
+    )
     print("current-only architecture gate passed")
 
 

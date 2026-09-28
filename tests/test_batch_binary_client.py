@@ -310,16 +310,12 @@ def test_binary_codec_has_no_numpy_or_pandas_runtime_dependency() -> None:
     assert Path(client_module.__file__).name == "client.py"
 
 
-def test_architecture_and_soak_guards_reject_integer_array_transport() -> None:
+def test_client_and_soak_reject_integer_array_transport() -> None:
     repo_root = Path(client_module.__file__).resolve().parents[1]
-    architecture_source = (
-        repo_root / "scripts" / "check_current_only_architecture.py"
-    ).read_text(encoding="utf-8")
     soak_source = (repo_root / "scripts" / "soak_scale.py").read_text(encoding="utf-8")
 
     client_source = Path(client_module.__file__).read_text(encoding="utf-8")
     assert "list(msgpack.packb" not in client_source
-    assert "def _pack_binary_msgpack(value: Any) -> bytes:" in architecture_source
     assert "list(msgpack.packb" not in soak_source
     assert "_pack_binary_msgpack(props)" in soak_source
     assert "_pack_binary_msgpack(updates)" in soak_source

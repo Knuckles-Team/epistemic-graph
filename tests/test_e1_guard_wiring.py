@@ -440,19 +440,6 @@ def test_mint_guard_rejects_a_call_site_without_verified_mac_binding(tmp_path) -
         module.require_self_constructed_authorization(tmp_path, only_path, only_line)
 
 
-def test_current_only_guard_rejects_generated_graphql_without_variables() -> None:
-    module = _load_gate("check_current_only_architecture.py", "e1_current_only_guard")
-    client = module.read("epistemic_graph/client.py")
-    generated = module.read("epistemic_graph/generated/query.py")
-    models = module.read("epistemic_graph/generated/models.py")
-    module._check_client_basic_contract(client, generated, models)
-
-    # The GraphQL field shapes live in the strict params model (EH-192).
-    broken = models.replace("variables: Any | None = None", "variables: Any", 1)
-    with pytest.raises(SystemExit, match="generated GraphQL transport"):
-        module._check_client_basic_contract(client, generated, broken)
-
-
 def test_universal_read_guard_rejects_an_unprojected_sql_snapshot() -> None:
     module = _load_gate("check_universal_read_rls.py", "e1_universal_rls_guard")
     wire = module.read("src/server/wire/mod.rs")
