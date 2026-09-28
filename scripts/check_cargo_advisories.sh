@@ -30,6 +30,13 @@ EXPECTED_CARGO_DENY_VERSION="$(
 )"
 CARGO_DENY_BIN="$(command -v cargo-deny || true)"
 
+if [[ -z "$CARGO_DENY_BIN" && -z "${CI:-}" ]]; then
+  # Local commits must not need a separately installed scanner; CI's security
+  # job installs the pinned cargo-deny and runs this gate fail-closed.
+  echo "SKIPPED (cargo-deny-advisories): cargo-deny is not installed; run scripts/bootstrap.sh --scanners or: cargo install --locked --version $EXPECTED_CARGO_DENY_VERSION cargo-deny"
+  exit 0
+fi
+
 if [[ -z "$CARGO_DENY_BIN" ]]; then
   cat >&2 <<EOF
 FAIL: cargo-deny is not installed -- Rust dependency advisory validation cannot run.
@@ -41,7 +48,7 @@ Then re-run:
   scripts/check_cargo_advisories.sh
   # or directly:  cargo deny check advisories
 
-This is a hard failure, not a skip -- we never report a pass we didn't verify.
+In CI this is a hard failure, not a skip -- we never report a pass we didn't verify.
 EOF
   exit 2
 fi
