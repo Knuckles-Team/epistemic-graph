@@ -1,4 +1,4 @@
-# Finance primitives: accounts, strategies, risk and evidence
+# EG-FINANCE-PRIMITIVES — Finance primitives: accounts, strategies, risk and evidence
 
 **Owner:** epistemic-graph (EG) · **Program:** finance asset manager · **State:** proposed
 
@@ -8,12 +8,15 @@ EG is the authority for typed finance facts, deterministic portfolio calculation
 
 Existing `finance-v1` already models `FinancialInstrument`, `Listing`, `Venue`, `BarSeries`, `IndicatorSpec`, `SignalState`, `TrendFlip`, `BacktestRun` and `AnalysisSnapshot`. Existing `FinanceMarket` operations resolve revisions, compute indicators, seal backtests and snapshots, and publish `finance.flip` events. Extend these types and operations; keep bars in the time-series store rather than copying bars into graph nodes. Reuse the engine's sealed-record guard and graph authorization for persisted account and strategy records.
 
+The `BacktestRun` content digest must be canonical across supported hosts: normalize serialization, floating-point and timestamp inputs before hashing, and compare independent builds on two architectures. The SuperTrend/ATR reference companion in Pine must produce the same signal transitions as EG from the same checked-in bar fixture and parameter version. Fold finance-specific classes into the one `finance-v1` ontology and remove duplicate class definitions; this obligation is tracked as EH-517.
+
 ## State legend and evidence rule
 
 Delivery and acceptance are independent. `WAITING` means no reviewed implementation is linked; `IN_PROGRESS` means a branch is under review; `SOURCE_LANDED` means the exact change is reachable from published `main`; `RETIRED` requires a recorded superseding decision. `NOT_RUN`, `FAILED`, `PARTIAL`, and `ACCEPTED` describe validation. A green branch check never implies source landing; a merged source never implies acceptance. Record an exact commit SHA, hosted run URL or reproducible local command, result, and date per ID before changing its state. The statuses below describe only this new extension; existing market core is a reuse dependency, not a claim that these extension IDs are complete.
 
 | ID | Delivery | Acceptance | EG obligation |
 |---|---|---|---|
+| EH-517 | IN_PROGRESS | NOT_RUN | Cross-host deterministic `BacktestRun` digest, Pine companion parity for SuperTrend/ATR, and one canonical `finance-v1` class authority. |
 | EH-698 | WAITING | NOT_RUN | Extend ontology and validated portfolio record types. |
 | EH-699 | WAITING | NOT_RUN | Fixed-point lot accounting and performance kernels. |
 | EH-700 | WAITING | NOT_RUN | Point-in-time corporate actions and market sessions. |

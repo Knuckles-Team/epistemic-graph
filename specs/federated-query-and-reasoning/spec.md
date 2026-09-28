@@ -1,4 +1,4 @@
-# Federated query, search, and reasoning
+# EG-FEDERATED-QUERY — Federated query, search, and reasoning
 
 | Field | Value |
 |---|---|

@@ -29,6 +29,7 @@ The current repository includes a generated method catalog, error catalog, Pytho
 | EG-C-07 | A released artifact carries an exact source revision and catalog digest; the installed clients prove the same method/error behavior as source tests. | Rebuild, wheel completeness/privacy, consumer and package smoke evidence all identify the same commit. |
 | EG-C-08 | A public PR gate uses vendored fixtures, temporary directories and provisioned local services where needed; no test requires a preexisting private deployment or a live operator host. Expensive soak and deployment tests run separately with documented provisioning. | A fresh checkout can run the blocking gate in CI, while skipped external integrations are reported as separate nonacceptance evidence. |
 | EG-C-09 | CCCC, KISS, jscpd and Dupehound checks examine only relevant source and fixtures with committed configurations. A changed source tree introduces no new unsanctioned duplicate implementations or complexity regressions. | Differential scanner results and normal hosted checks pass on the exact release tree. |
+| EG-C-10 | The installed Python client has a served Agent Library journey that publishes, reads and imports a pack, then runs a Decide request through the actual server and authorization boundary. | The hosted job starts a disposable engine and runs both authorized and denied cases against the installed wheel, with no source-tree imports or live service dependency. |
 
 ## Architecture and ownership
 
@@ -43,7 +44,7 @@ External applications consume only the published public catalog and clients. The
 | Train | IDs and disposition in this spec |
 |---|---|
 | T3 | EH-192 strict models; EH-372 signed Go/JS vectors. Verify exact default-branch source and package evidence. |
-| T4 | EH-377 generated Python convergence; EH-383 codec WASM; EH-430 dispatch gate; EH-433 correct tree selection; EH-468 root Python CI suite; EH-592 error catalog; EH-643 generated client parity; EH-644 compiler dispatch census; EH-645 feature matrix; EH-646 current dispatch reachability; EH-647 component naming; EH-650 client lifecycle; EH-655 duplicate scan; EH-656 full tree hygiene. |
+| T4 | EH-249 Agent Library served-Python substrate; EH-377 generated Python convergence; EH-383 codec WASM; EH-430 dispatch gate; EH-433 correct tree selection; EH-468 root Python CI suite; EH-592 error catalog; EH-643 generated client parity; EH-644 compiler dispatch census; EH-645 feature matrix; EH-646 current dispatch reachability; EH-647 component naming; EH-650 client lifecycle; EH-655 duplicate scan; EH-656 full tree hygiene. |
 | T5 | EH-593 contract packaging and `is_wire_callable`; EH-519 bounded CI fanout; EH-520 and EH-561 KISS parser/config compatibility. |
 | Cross-cutting | EH-366 wheel privacy; EH-469 complexity scoring. |
 

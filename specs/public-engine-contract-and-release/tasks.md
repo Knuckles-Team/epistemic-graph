@@ -11,6 +11,7 @@
 | C-05 | EH-468, EH-645, EH-650 | Run root Python suite, lifecycle cases and supported feature matrix in hosted CI; run EG-T-07/10. | TODO | PENDING |
 | C-06 | EH-366, EH-469, EH-519, EH-520, EH-561, EH-655, EH-656 | Prove wheel/privacy and exact-tree quality gates without new clones or live-host dependencies; run EG-T-08. | TODO | PENDING |
 | C-07 | All | Build twice, install published candidate, run every consumer on one commit/digest and publish receipt; set ACCEPTED only after exact release result. | TODO | PENDING |
+| C-08 | EH-249 | Add served Python Agent Library and Decide journey in hosted CI using a disposable engine and installed wheel; run EG-T-11. | TODO | PENDING |
 
 ## Evidence record to fill for each task
 

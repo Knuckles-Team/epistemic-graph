@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "spec_id": "EG-FINANCE-PRIMITIVES",
+  "owner_repo": "epistemic-graph",
+  "requirement_ids": [
+    "EH-517",
+    "EH-698",
+    "EH-699",
+    "EH-700",
+    "EH-702",
+    "EH-703",
+    "EH-704",
+    "EH-706",
+    "EH-712",
+    "EH-714",
+    "EH-715"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

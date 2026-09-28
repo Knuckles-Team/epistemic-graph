@@ -2,6 +2,7 @@
 
 Tasks are ordered by dependency. Check a task only when its code, tests and exact-head evidence are linked in this directory.
 
+- [ ] **F-00 · EH-517:** Stabilize `BacktestRun` canonical serialization and digest across two supported hosts; check Pine SuperTrend/ATR parity against checked-in bars and consolidate finance ontology classes under `finance-v1`.
 - [ ] **F-01 · EH-698:** Define v2 asset classes and migration aliases; `Account`, `Activity`, `Lot`, `Position`, `PortfolioGroup`, `StrategySpec`, `StrategyRun`, `LeverageTerms` types and SHACL shapes; reject unknown versions and direct writes to derived projections.
 - [ ] **F-02 · EH-700:** Implement point-in-time action and exchange-calendar revision resolver; return session/source/as-of for all price paths; add DST, early-close and ticker reuse vectors.
 - [ ] **F-03 · EH-699:** Implement canonical activity ordering and checked decimal lot engine for FIFO/LIFO/specific/average basis; add correction replay, transfer and split invariants.
@@ -19,6 +20,7 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 
 | ID | Main SHA | Hosted run / command | Result/date |
 |---|---|---|---|
+| EH-517 | — | — | NOT_RUN |
 | EH-698 | — | — | NOT_RUN |
 | EH-699 | — | — | NOT_RUN |
 | EH-700 | — | — | NOT_RUN |

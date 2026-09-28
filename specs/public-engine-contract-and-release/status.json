@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "spec_id": "EG-CONTRACT-001",
+  "owner_repo": "epistemic-graph",
+  "requirement_ids": [
+    "EH-192",
+    "EH-249",
+    "EH-366",
+    "EH-372",
+    "EH-377",
+    "EH-383",
+    "EH-430",
+    "EH-433",
+    "EH-468",
+    "EH-469",
+    "EH-519",
+    "EH-520",
+    "EH-561",
+    "EH-592",
+    "EH-593",
+    "EH-643",
+    "EH-644",
+    "EH-645",
+    "EH-646",
+    "EH-647",
+    "EH-650",
+    "EH-655",
+    "EH-656"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "spec_id": "EG-IDENTITY-001",
+  "owner_repo": "epistemic-graph",
+  "requirement_ids": ["EH-538", "EH-539", "EH-540", "EH-541"],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

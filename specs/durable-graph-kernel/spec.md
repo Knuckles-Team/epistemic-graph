@@ -1,4 +1,4 @@
-# Durable graph kernel
+# EG-DURABLE-KERNEL — Durable graph kernel
 
 **Owner:** epistemic-graph · **ID:** `durable-graph-kernel` · **Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED
 

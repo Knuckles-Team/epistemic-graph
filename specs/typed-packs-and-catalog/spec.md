@@ -1,4 +1,4 @@
-# Typed packs and catalog authority
+# EG-TYPED-PACKS — Typed packs and catalog authority
 
 | Field | Value |
 |---|---|

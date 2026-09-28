@@ -14,6 +14,7 @@
 | EG-T-08 | EG-C-08/09 | Static and quality | Run CCCC, KISS, jscpd, Dupehound and source privacy/secret scanners on exact PR and release trees. | No new duplicate/complexity/privacy violation; a scanner failure names owned source rather than a missing live service. |
 | EG-T-09 | EG-C-01/09 | Mutation checks | Add an undeclared error, a duplicate method ID, a stale dispatch target and a new copied encoder in isolated test fixtures. | Contract/dispatch/duplication gates each reject the corresponding defect. |
 | EG-T-10 | EG-C-07 | Release matrix | Validate default, full and supported optional Cargo feature sets and wheel architecture/profile matrix. | Every supported feature is exercised; a new feature cannot silently drop from the matrix. |
+| EG-T-11 | EG-C-10 | Served Python | Build and install wheel outside checkout, start a disposable server with two tenants and policy fixtures, publish/read/import an Agent Library pack, then invoke Decide. | Authorized round trip succeeds through the wire; denied tenant/import cases return declared codes and leave no durable side effect; replay after restart preserves the result. |
 
 ## Exact gates and evidence format
 

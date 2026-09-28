@@ -4,6 +4,7 @@ Every test below runs with generated or checked-in synthetic fixtures. No existi
 
 | ID | Positive proof | Negative / boundary proof |
 |---|---|---|
+| EH-517 | Two independent supported hosts compute identical sealed `BacktestRun` digest from one checked-in fixture; Pine and Rust SuperTrend/ATR agree on every transition, warmup and session boundary; ontology class census has one canonical IRI per finance concept | different source/input version changes digest; host locale, timezone or iteration order does not; stale Pine parameters and duplicate class authority fail |
 | EH-698 | OWL/SHACL class and shape validation; account/activity revision round trip; multi-venue listing identity | unknown asset class/schema version; cross-tenant read/write; same source revision with different payload; direct write to derived `Position` |
 | EH-699 | FIFO, LIFO, specific and average cost reconciled to independent statement vectors; realized/unrealized P&L, TWR, XIRR, trade/valuation FX, dividends | insufficient lots, zero/multiple XIRR roots, stale price, missing FX, checked overflow, binary-float ingress, unequal replay bytes |
 | EH-700 | split/dividend/symbol-change/delist replay before and after `known_at`; exchange pre/regular/post, early close and DST offset span | impossible action chronology, duplicate revision conflict, host time-zone changes replay result, ticker reuse conflated with identity |
