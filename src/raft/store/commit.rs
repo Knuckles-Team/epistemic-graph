@@ -147,7 +147,7 @@ impl EgStore {
         let state_msgpack = staged_snapshot.to_msgpack()?;
         let result = match graph_result.as_ref() {
             Some(result) => rmp_serde::to_vec_named(result).map_err(|error| {
-                format!("replicated graph result serialization failed: {error}")
+                format!("INTERNAL: replicated graph result serialization failed: {error}")
             })?,
             None => Self::modality_or_default_bool_result(
                 #[cfg(feature = "modality-serving")]

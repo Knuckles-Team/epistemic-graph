@@ -80,7 +80,7 @@ impl ResultPayload {
     pub(crate) fn raw<T: Serialize + ?Sized>(value: &T) -> Result<Self, String> {
         rmp_serde::to_vec_named(value)
             .map(ResultPayload::Raw)
-            .map_err(|error| format!("result serialization failed: {error}"))
+            .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
     }
 }
 

@@ -269,7 +269,7 @@ fn encode_sanitized_modality_payload<T: Serialize + ?Sized>(
 ) -> Result<crate::protocol::ResultPayload, String> {
     rmp_serde::to_vec_named(value)
         .map(crate::protocol::ResultPayload::Raw)
-        .map_err(|error| format!("result serialization failed: {error}"))
+        .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
 }
 
 /// Decode the only result representation accepted for a sanitized modality

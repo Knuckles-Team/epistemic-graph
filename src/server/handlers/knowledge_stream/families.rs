@@ -353,7 +353,7 @@ fn encode_job_source_result<T: serde::Serialize + ?Sized>(
 ) -> Result<ResultPayload, String> {
     rmp_serde::to_vec_named(result)
         .map(ResultPayload::Raw)
-        .map_err(|error| format!("result serialization failed: {error}"))
+        .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
 }
 
 async fn execute_job(

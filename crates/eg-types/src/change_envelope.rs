@@ -555,9 +555,20 @@ mod validation {
         let rule = envelope.material_class.value_rule();
         for operation in &envelope.mutation.operations {
             validate_operation(&operation.method, rule)
-                .map_err(|error| format!("operation {}: {error}", operation.ordinal))?;
+                .map_err(|error| at_operation(operation.ordinal, &error))?;
         }
         Ok(())
+    }
+
+    /// Name the refusing operation without hiding a declared error code: the
+    /// code must stay first so `Response::err` keeps it on the wire.
+    fn at_operation(ordinal: impl std::fmt::Display, error: &str) -> String {
+        match error.split_once(": ") {
+            Some((code, detail)) if crate::contract::declared_error_code(code) => {
+                format!("{code}: operation {ordinal}: {detail}")
+            }
+            _ => format!("operation {ordinal}: {error}"),
+        }
     }
 
     fn validate_operation(method: &crate::protocol::Method, rule: TextRule) -> Result<(), String> {
@@ -802,12 +813,12 @@ mod tests {
         use crate::protocol::method_carrier_fixtures::{control_lease_issue, policy_store};
         let refused = carrying(policy_store()).validate().unwrap_err();
         assert!(
-            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: PolicyEvolutionStore"),
+            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: PolicyEvolutionStore"),
             "{refused}"
         );
         let refused = carrying(control_lease_issue()).validate().unwrap_err();
         assert!(
-            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: IssueControlLease"),
+            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: IssueControlLease"),
             "{refused}"
         );
         // A normal wire graph write still rides the carrier.

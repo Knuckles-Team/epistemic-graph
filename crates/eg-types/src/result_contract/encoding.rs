@@ -73,7 +73,7 @@ pub enum Json {}
 fn json_value<T: Serialize + ?Sized>(body: &T) -> Result<ResultPayload, String> {
     serde_json::to_value(body)
         .map(ResultPayload::Json)
-        .map_err(|error| format!("result serialization failed: {error}"))
+        .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
 }
 
 impl<T: Serialize> Encoding<T> for Json {
