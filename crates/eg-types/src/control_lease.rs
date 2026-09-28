@@ -252,7 +252,7 @@ impl IssueControlLeaseRequest {
         }
         if self.kind == DECISION_EVALUATION_LEASE_KIND {
             return Err(format!(
-                "control lease kind '{DECISION_EVALUATION_LEASE_KIND}' is issued by DecisionLog.commit only"
+                "ACCESS_DENIED: control lease kind '{DECISION_EVALUATION_LEASE_KIND}' is issued by DecisionLog.commit only"
             ));
         }
         if self.kind == RBAC_ELEVATION_KIND {
@@ -260,7 +260,8 @@ impl IssueControlLeaseRequest {
             // `RbacElevation` flow; a generic lease of that kind would be an
             // unapproved grant body the access chokepoint must never meet.
             return Err(
-                "control lease kind 'rbac.elevation' is reserved for RbacElevation".to_string(),
+                "ACCESS_DENIED: control lease kind 'rbac.elevation' is reserved for RbacElevation"
+                    .to_string(),
             );
         }
         self.validate_body()

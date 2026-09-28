@@ -137,7 +137,11 @@ async fn commit_prepublish_durable_batch(
         .map_err(|error| {
             Response::err(
                 ctx.req_id,
-                format!("MutationBatch durable commit failed: {error}"),
+                eg_types::contract::classify_refusal(
+                    "INTERNAL",
+                    "MutationBatch durable commit failed: ",
+                    &error,
+                ),
             )
         })
 }

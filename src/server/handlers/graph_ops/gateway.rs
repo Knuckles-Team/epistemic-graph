@@ -46,13 +46,13 @@ where
 /// `apply: FnOnce(&GraphCore) -> Result<ResultPayload, String>` shape `commit_conditional_mutation`
 /// expects is identical work at every one of the 17 `Mine*` call sites, plus the
 /// GraphLearn*/MiningPipeline* families (same `commit_conditional_mutation` shape,
-/// gated on different features). Pure extract-method, no behaviour change:
-/// byte-identical to what each closure did inline before this extraction. Not
-/// itself `mining`-gated since GraphLearn*/MiningPipeline* need it under their
-/// own, different features.
+/// gated on different features). Not itself `mining`-gated since
+/// GraphLearn*/MiningPipeline* need it under their own, different features.
 pub(super) fn mining_response_to_gateway_result(resp: Response) -> Result<ResultPayload, String> {
-    match resp.error {
-        Some(e) => Err(e),
+    // Keep the detail with the code: the gateway re-wraps this text through
+    // `Response::err`, which would otherwise answer with a bare code.
+    match resp.refusal_text() {
+        Some(refusal) => Err(refusal),
         None => Ok(resp
             .result
             .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),

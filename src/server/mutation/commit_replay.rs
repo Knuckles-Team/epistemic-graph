@@ -69,7 +69,11 @@ pub(super) async fn commit_staged_replay_probe(
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
-            format!("MutationBatch status lookup failed: {error}"),
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "MutationBatch status lookup failed: ",
+                &error,
+            ),
         )),
     }
 }
@@ -251,7 +255,11 @@ pub(super) async fn commit_row_replay_probe(
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
-            format!("MutationBatch status lookup failed: {error}"),
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "MutationBatch status lookup failed: ",
+                &error,
+            ),
         )),
         Ok(Some(_)) => {
             commit_row_replay_found(

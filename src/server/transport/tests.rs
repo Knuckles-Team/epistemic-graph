@@ -476,7 +476,7 @@ async fn a_closed_peer_cancels_its_in_flight_dispatch() {
     let peer_gone = RequestCancel::new();
     let dispatch = async {
         request_scope::current().cancelled().await;
-        Response::err(5, "observed the cancellation")
+        Response::err(5, "INTERNAL: observed the cancellation")
     };
     let pending =
         dispatch_within_deadline(dispatch, std::time::Duration::from_secs(30), 5, &peer_gone);

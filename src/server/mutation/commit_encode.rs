@@ -137,7 +137,11 @@ pub(super) async fn commit_mutation_body_commit_staged(
         Err(error) => {
             return Response::err(
                 ctx.req_id,
-                format!("staged MutationBatch durable commit failed: {error}"),
+                eg_types::contract::classify_refusal(
+                    "INTERNAL",
+                    "staged MutationBatch durable commit failed: ",
+                    &error,
+                ),
             );
         }
     };

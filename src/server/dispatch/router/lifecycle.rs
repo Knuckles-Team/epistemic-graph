@@ -24,10 +24,17 @@ async fn reconcile_existing_graph_create(
     .await
     {
         Ok(true) => Response::ok(req_id, created_result),
-        Ok(false) => Response::err(req_id, format!("Graph '{graph_name}' already exists")),
+        Ok(false) => Response::err(
+            req_id,
+            format!("INVALID_ARGUMENT: Graph '{graph_name}' already exists"),
+        ),
         Err(e) => Response::err(
             req_id,
-            format!("durable graph-create reconciliation failed: {e}"),
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "durable graph-create reconciliation failed: ",
+                &e,
+            ),
         ),
     }
 }
@@ -44,15 +51,15 @@ async fn read_committed_graph_version(
         Ok(Some(version)) if version > 0 => Ok(version),
         Ok(Some(_)) => Err(Response::err(
             req_id,
-            "durable graph registration published an invalid zero version",
+            "INTERNAL: durable graph registration published an invalid zero version",
         )),
         Ok(None) => Err(Response::err(
             req_id,
-            "durable graph registration published no authoritative version",
+            "INTERNAL: durable graph registration published no authoritative version",
         )),
         Err(error) => Err(Response::err(
             req_id,
-            format!("durable graph version read failed: {error}"),
+            format!("INTERNAL: durable graph version read failed: {error}"),
         )),
     }
 }
@@ -137,7 +144,7 @@ async fn create_declared_graph(
         (s.persistence.clone(), s.registry.exists(&graph_name))
     };
     let Some(backend) = backend else {
-        return Response::err(req_id, "graph creation requires durable persistence");
+        return Response::err(req_id, "ENGINE_UNAVAILABLE: graph creation requires durable persistence");
     };
     let incarnation_id = crate::server::mutation_batch::lifecycle_batch_id(
         "create",
@@ -184,7 +191,14 @@ async fn create_declared_graph(
     )
     .await
     {
-        return Response::err(req_id, format!("durable graph registration failed: {e}"));
+        return Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "durable graph registration failed: ",
+                &e,
+            ),
+        );
     }
     let graph_fname = crate::persist::sanitize(&graph_name);
     let committed_version = match read_committed_graph_version(&backend, &graph_fname, req_id).await
@@ -271,10 +285,17 @@ async fn reconcile_missing_graph_delete(
     .await
     {
         Ok(true) => Response::ok(req_id, deleted_result),
-        Ok(false) => Response::err(req_id, format!("Graph '{graph_name}' not found")),
+        Ok(false) => Response::err(
+            req_id,
+            format!("INVALID_ARGUMENT: Graph '{graph_name}' not found"),
+        ),
         Err(e) => Response::err(
             req_id,
-            format!("durable graph-delete reconciliation failed: {e}"),
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "durable graph-delete reconciliation failed: ",
+                &e,
+            ),
         ),
     }
 }
@@ -351,7 +372,7 @@ async fn delete_declared_graph(
         return Response::err(req_id, denied);
     }
     let Some(backend) = backend else {
-        return Response::err(req_id, "graph deletion requires durable persistence");
+        return Response::err(req_id, "ENGINE_UNAVAILABLE: graph deletion requires durable persistence");
     };
     if !exists {
         return reconcile_missing_graph_delete(
@@ -389,7 +410,14 @@ async fn delete_declared_graph(
     )
     .await
     {
-        return Response::err(req_id, format!("durable graph purge failed: {e}"));
+        return Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "durable graph purge failed: ",
+                &e,
+            ),
+        );
     }
 
     teardown_deleted_graph_in_memory(
