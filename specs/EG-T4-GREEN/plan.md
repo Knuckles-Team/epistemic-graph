@@ -18,7 +18,7 @@ The wire response keeps its declared `error` field and human detail; tests must 
 
 ## Quality and release gates
 
-Run `cargo fmt --check`, the feature-set Cargo checks/tests in CI, Python client tests, Go/JavaScript client tests, `scripts/check_dispatch_decomposition.py`, and the repository's CCCC, KISS, dupehound, jscpd and release workflow gates. Record exact commit and check URL. Do not suppress scanner findings to make a green badge. Review all required and advisory failures against `plans/refactor/QUALITY.md`.
+Run `cargo fmt --check`, the feature-set Cargo checks/tests in CI, Python client tests, Go/JavaScript client tests, `scripts/check_dispatch_decomposition.py`, and the repository's CCCC, KISS, dupehound, jscpd and release workflow gates. Record exact commit and check URL. Do not suppress scanner findings to make a green badge. Review all required and advisory failures against [quality gate terms](../../docs/quality-gate-terms.md); record each disposition in `evidence.md`.
 
 ## Open decision
 

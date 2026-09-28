@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "spec_id": "EG-T4-GREEN",
+  "owner_repo": "epistemic-graph",
+  "requirement_ids": [
+    "EH-592",
+    "EH-655",
+    "EH-656"
+  ],
+  "delivery_state": "UNKNOWN",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "spec_id": "REPLACE_WITH_STABLE_ID",
+  "owner_repo": "REPLACE_WITH_REPOSITORY",
+  "requirement_ids": [
+    "REPLACE_WITH_REAL_ID"
+  ],
+  "delivery_state": "SPECIFIED",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": []
+}

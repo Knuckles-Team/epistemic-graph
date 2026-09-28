@@ -13,6 +13,6 @@ Status: IN REVIEW. Governing [spec](spec.md). Evidence: [evidence.md](evidence.m
 | T-007 | FR-004 | Static/unit | Registry census, candidate file, ConnectorPack, nonce, metrics, dispatch fixtures | Each matches the live owner/contract |
 | T-008 | FR-005 | Package/client | Exact EG wheel plus Python, Go and JS client suites | All pass against same protocol revision |
 | T-009 | FR-005 | Scanner | CCCC, KISS, dupehound, jscpd, decomposition | Zero actionable findings under accepted gate terms |
-| T-010 | SC-001 | Release | Complete hosted check rollup and ledger review | Required checks pass; unresolved advisory failures dispositioned; ledger updated with exact receipts |
+| T-010 | SC-001 | Release | Complete hosted check rollup and evidence review | Required checks pass; unresolved advisory failures dispositioned; exact receipts and merged revision recorded in `evidence.md` |
 
 A local unit pass is not a package, served, or hosted acceptance claim. Attach exact command, revision, environment and result to `evidence.md` before marking any test passed.

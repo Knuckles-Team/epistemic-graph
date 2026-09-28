@@ -952,3 +952,11 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+- repo: local
+  hooks:
+  - id: check-public-specs
+    name: Public specs are self-contained and locally linked
+    entry: python3 scripts/check_public_specs.py
+    language: system
+    pass_filenames: false
+    files: ^(specs/|scripts/check_public_specs\.py$|\.specify/memory/constitution\.md$)

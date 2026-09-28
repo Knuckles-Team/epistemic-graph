@@ -1,7 +1,7 @@
 # [ID] — [Feature name]
 
 Status: PROPOSED. Owner: [repository name]. Cross-repo IDs: [IDs or none].
-Source draft: [plans path, issue, or decision].
+Public provenance: [GitHub issue, PR, or decision URL if available. Keep all required detail below].
 
 ## Purpose and user stories
 

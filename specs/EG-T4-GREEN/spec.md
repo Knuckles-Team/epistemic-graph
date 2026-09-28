@@ -1,6 +1,6 @@
 # EG-T4-GREEN — Restore green Train 4 integration
 
-Status: IN REVIEW (PR #3 open; acceptance pending). Owner: `epistemic-graph`. Cross-repo obligations: EH-592 (wheel/package), EH-655 (jscpd), EH-656 (quality hooks). Source draft: workspace `plans/refactor/LEDGER.md` Train 4 and [PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3).
+Status: IN REVIEW (PR #3 open at the evidence snapshot; acceptance pending). Owner: `epistemic-graph`. Related obligation IDs: EH-592 (wheel/package), EH-655 (jscpd), EH-656 (quality hooks). Public implementation and review: [PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3). This spec contains the required behavior and acceptance contract.
 
 ## Purpose
 
@@ -13,11 +13,11 @@ As an EG contributor, I need Train 4's merged engine to compile and preserve dec
 - FR-003: Request verification preserves the documented node and tenant/audience/policy mismatch codes, redacts node identity, and rejects all other unclassified auth failures.
 - FR-004: Tests and static gates reflect actual Train 4 table registry, candidate file role, served ConnectorPack operations, nonce rules, metrics label ordering, and dispatch ownership.
 - FR-005: Quality gates for EH-655/EH-656 and the EH-592 wheel/package consumer proof pass on the same reviewed source lineage; status is not advanced based on source-only tests.
-- SC-001: All required hosted checks pass on the final PR head and no critical/high scanner or release blocker remains. A failed advisory quality check still requires review against the program's acceptance rules.
+- SC-001: All required hosted checks pass on the final PR head and no critical/high scanner or release blocker remains. A failed advisory quality check requires a documented disposition in `evidence.md` against this repository's [quality gate terms](../../docs/quality-gate-terms.md).
 
 ## Scope and boundaries
 
-This spec covers the focused PR #3 green repair and its direct release evidence. It does not close all Train 4 ledger rows, implement later trains, or silently widen the TxnUql/TxnUnifiedQuery error contracts. Those lifecycle refusals remain an explicit open contract decision in PR #3.
+This spec covers the focused PR #3 green repair and its direct release evidence. Other Train 4 obligations require separate owner specs and evidence. TxnUql/TxnUnifiedQuery lifecycle refusals remain an explicit open contract decision in PR #3.
 
 ## Traceability
 

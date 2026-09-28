@@ -6,4 +6,4 @@ The PR description reports `cargo test -p epistemic-graph --features full --lib`
 
 Hosted [Release run](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/36441906233) at capture time had Go and JavaScript clients **FAILED** and Scanner + architecture quality **FAILED**; several gates, Python suite and Clippy remained running. Security, runtime contracts and selected Clippy jobs had passed. Check the live rollup before any merge decision.
 
-No EH-592 wheel/consumer proof, EH-655 jscpd acceptance, EH-656 hook acceptance, or Train 4 ledger landing is claimed by this snapshot. Record the final check URLs, exact head and accepted ledger rows here after qualification.
+No EH-592 wheel/consumer proof, EH-655 jscpd acceptance, EH-656 hook acceptance, or landing of this spec is claimed by this snapshot. Record the final check URLs, exact merged head, and acceptance disposition here after qualification.

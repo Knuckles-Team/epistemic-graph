@@ -20,4 +20,4 @@ Apply this repository's CCCC, jscpd, dupehound, KISS, language-native, contract,
 
 ## V. Amendment and status
 
-Amend this constitution in a reviewed change that states the reason and impact. Mark a spec `LANDED` only when its source is merged at an exact owning-repository revision. Mark it `ACCEPTED` only after the required consumer, runtime, quality and release receipts meet the program ledger gates. Record both states separately.
+Amend this constitution in a reviewed change that states the reason and impact. Mark a spec `LANDED` only when its source is merged at an exact owning-repository revision. Mark it `ACCEPTED` only after the required consumer, runtime, quality and release receipts meet the checked-in spec's acceptance gates. Record both states separately.

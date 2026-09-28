@@ -7,4 +7,4 @@ Status: IN REVIEW. Governing [spec](spec.md).
 - [ ] Resolve failing Go/JavaScript client check and scanner/architecture quality check on the current PR head.
 - [ ] Complete all running hosted checks and rerun affected checks after any new commit.
 - [ ] Prove EH-592 package/wheel and consumer path, EH-655 jscpd, and EH-656 hooks on exact accepted revision.
-- [ ] Review merge decision and record landed/accepted state per ledger row with receipts; leave other Train 4 rows unchanged unless separately proven.
+- [ ] Review merge decision and record landed/accepted state for this spec with exact receipts in `evidence.md`; leave other Train 4 obligations to their own owner specs.
