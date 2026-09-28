@@ -53,7 +53,8 @@ pub(crate) type UqlParams = std::collections::BTreeMap<String, eg_types::wire::U
 /// row of a SQL result.
 #[cfg(feature = "query")]
 fn msgpack_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, String> {
-    rmp_serde::to_vec_named(value).map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
+    rmp_serde::to_vec_named(value)
+        .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
 }
 
 #[cfg(feature = "query")]
