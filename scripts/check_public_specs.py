@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 REQUIRED = ("spec.md", "plan.md", "test-spec.md", "tasks.md", "status.json")
+SPEC_DIRECTORY = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 DELIVERY_STATES = frozenset(
     {
         "UNKNOWN",
@@ -46,7 +47,8 @@ LOCAL_HOST = re.compile(
     re.IGNORECASE,
 )
 PLACEHOLDER = re.compile(
-    r"\[(?:Describe|Exact|Record|ID|Feature name|repository name|Observable behavior|Measurable)",
+    r"\[(?:Describe|Exact|Record|ID|Feature name|repository name|"
+    r"Observable behavior|Measurable)",
     re.IGNORECASE,
 )
 CONTENT_MARKERS = {
@@ -211,6 +213,46 @@ def _contract_errors(root: Path, paths: set[Path]) -> list[str]:
     return errors
 
 
+def _inventory_errors(root: Path, paths: set[Path]) -> list[str]:
+    """Keep one indexed, stable owner for each public requirement ID."""
+    names = sorted(
+        {
+            path.parts[1]
+            for path in paths
+            if len(path.parts) > 2 and path.parts[1] != "_template"
+        }
+    )
+    index = (root / "specs/README.md").read_text(encoding="utf-8")
+    links = {target for target in LINK.findall(index)}
+    owners: dict[str, str] = {}
+    errors: list[str] = []
+    for name in names:
+        if not SPEC_DIRECTORY.fullmatch(name):
+            errors.append(f"specs/{name}: use a lower-case kebab-case directory")
+        if f"{name}/spec.md" not in links:
+            errors.append(f"specs/{name}: add a spec.md link to specs/README.md")
+        status = root / "specs" / name / "status.json"
+        if not status.is_file():
+            continue  # _contract_errors reports the missing contract.
+        try:
+            data = json.loads(status.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue  # _status_errors reports invalid JSON.
+        if not isinstance(data, dict) or not isinstance(
+            data.get("requirement_ids"), list
+        ):
+            continue
+        for requirement_id in data["requirement_ids"]:
+            if not isinstance(requirement_id, str):
+                continue
+            previous = owners.setdefault(requirement_id, name)
+            if previous != name:
+                errors.append(
+                    f"{requirement_id}: owned by both specs/{previous} and specs/{name}"
+                )
+    return errors
+
+
 def _link_error(root: Path, path: Path, target: str) -> str | None:
     target = target.strip().split(" ", 1)[0].strip("<>")
     if target.startswith("#"):
@@ -248,7 +290,7 @@ def _reference_errors(root: Path, path: Path) -> list[str]:
 
 def problems(root: Path) -> list[str]:
     paths = set(tracked_specs(root))
-    errors = _contract_errors(root, paths)
+    errors = _contract_errors(root, paths) + _inventory_errors(root, paths)
     for path in sorted(paths):
         if path.suffix == ".md":
             errors.extend(_reference_errors(root, path))
