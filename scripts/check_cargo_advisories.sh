@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 # Fail-closed Rust dependency CVE gate (W0.12 / CONCEPT:EG-KG.storage.cargo-dependency-cve-gate).
 #
-# Mirrors, on the Rust side, the exact fail-closed convention
-# `scripts/audit_dependencies.py` (agent-utilities) runs on the Python side:
-# every dependency advisory is a hard failure unless it has a justified,
-# <=90-day-expiring risk acceptance recorded in a ledger file — here
-# `.config/cargo-audit-allow.txt`, the Rust twin of the Python side's
-# `.config/security-audit-allow.txt`.
+# Every dependency advisory is a hard failure unless it has a justified,
+# <=90-day-expiring risk acceptance recorded in `.config/cargo-audit-allow.txt`.
 #
 # `.config/deny.toml`'s `[advisories].ignore` list is the thing cargo-deny actually
 # reads. `.config/cargo-audit-allow.txt` is the auditable paperwork trail: this script

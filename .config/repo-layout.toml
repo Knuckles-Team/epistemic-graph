@@ -45,7 +45,7 @@ protocols = "versioned wire-protocol schemas (epistemic-operations, performance)
 scripts = "gate scripts (check_*.py) and release/bench tooling invoked by pre-commit/CI"
 tests = "the Rust integration test suite (adopt_*, characterization_*, advanced_*, ...)"
 ".cargo" = "cargo config (cargo discovers config.toml only under .cargo/): the opt-in x86-64-v3/AVX2 target-cpu flag (EG-014/EG-015/EG-016) and the isolated target-dir default this repo's worktree-per-lane convention depends on"
-".config" = "explicit-path tool configuration: pre-commit (pre-commit -c), bump2version (--config-file), cargo-deny deny.toml (--config) + cargo-audit-allow.txt ledger, the Python security-audit-allow.txt ledger, import-linter (--config), arch-lint (--config), KISS thresholds (--config), the dupehound-distinct register, nextest, codespell ignore words, the security-gate contract + harnesses, env.example, MkDocs theme overrides (custom_dir), and this manifest"
+".config" = "explicit-path tool configuration: pre-commit (pre-commit -c), bump2version (--config-file), cargo-deny deny.toml (--config) + cargo-audit-allow.txt ledger, import-linter (--config), arch-lint (--config), KISS thresholds (--config), the dupehound-distinct register, nextest, codespell ignore words, the security-gate contract + harnesses, env.example, MkDocs theme overrides (custom_dir), and this manifest"
 ".github" = "GitHub Actions workflow definitions (GitHub discovers only .github/)"
 ".claude" = "Claude Code project settings and the SessionStart hook that bootstraps cloud sessions (Claude Code discovers only .claude/)"
 

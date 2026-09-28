@@ -819,7 +819,10 @@ jobs:
       # job instead of being trusted.
       - name: Restore pinned scanner toolchain
         id: scanner-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # restore + an explicit save (below) rather than actions/cache: its
+        # post-job save only runs when the whole job succeeds, and an advisory
+        # census failure would otherwise force a ~10 min rebuild every run.
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/epistemic-graph-scanners
           key: eg-scanners-${{ runner.os }}-${{ hashFiles('scripts/install_scanners.sh') }}
@@ -830,6 +833,13 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/install_scanners.sh "$RUNNER_TEMP/epistemic-graph-scanners"
+
+      - name: Save pinned scanner toolchain
+        if: ${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-scanners
+          key: ${{ steps.scanner-cache.outputs.cache-primary-key }}
 
       - name: Put pinned scanner toolchain on PATH
         if: ${{ !cancelled() }}
