@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import copy
-import importlib.util
+import importlib.machinery
+import types
 from pathlib import Path
 
 import pytest
@@ -12,17 +13,14 @@ pytestmark = pytest.mark.no_engine
 
 
 def _gate_module():
-    gate_path = (
-        Path(__file__).resolve().parents[1]
-        / "scripts"
-        / "check_dispatch_decomposition.py"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "dispatch_decomposition_gate", gate_path
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    """Import the gate script fresh, as its own module (tests patch ROOT)."""
+
+    name = "check_dispatch_decomposition"
+    location = Path(__file__).resolve().parents[1] / "scripts" / f"{name}.py"
+    loader = importlib.machinery.SourceFileLoader(f"{name}_under_test", str(location))
+    module = types.ModuleType(loader.name)
+    module.__file__ = str(location)
+    loader.exec_module(module)
     return module
 
 
