@@ -710,7 +710,11 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: stable
+          # KISS runs cargo metadata for package roots concurrently. Install the
+          # repository's pinned channel before the census so its child cargo
+          # processes cannot race rustup's first-use toolchain installation.
+          toolchain: '1.96.0'
+          components: clippy, rustfmt
 
       # Pull-request base SHA is authoritative for the differential clone
       # gate. On a push, github.event.before is the previous commit. A
