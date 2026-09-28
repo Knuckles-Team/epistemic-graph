@@ -4,6 +4,8 @@
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
     "EH-517",
+    "EH-530",
+    "EH-632",
     "EH-698",
     "EH-699",
     "EH-700",

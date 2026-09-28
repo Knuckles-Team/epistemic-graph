@@ -15,6 +15,8 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 - [ ] **F-10 · EH-714:** Implement optional read-only attached-source mapping with dedupe, corrections and schema-drift quarantine using disposable fixtures.
 - [ ] **F-11 · EH-715:** Add independent statement, corporate-action, DST/session, daily-reset and futures-roll goldens plus property tests; record provenance for each vector.
 - [ ] **F-12 · all IDs:** Regenerate clients; run affected Rust/Python, ontology, authorization, replay and quality gates. Review CCCC, jscpd, Dupehound and KISS results and remove duplicate authority. Update each delivery/acceptance row only with exact published-main evidence.
+- [ ] **F-13 · EH-530:** Audit and consolidate shared evaluation/calibration kernels in `eg-numeric`, convert finance methods to thin aliases or migrate callers, qualify UQL and regenerate method/client counts.
+- [ ] **F-14 · EH-632:** Bind PBO to the sealed CSCV split matrix with deterministic median/tie behavior, verify skilled/overfit fixtures and reject mismatched caller summaries.
 
 ## Evidence register
 
@@ -31,3 +33,5 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 | EH-712 | — | — | NOT_RUN |
 | EH-714 | — | — | NOT_RUN |
 | EH-715 | — | — | NOT_RUN |
+| EH-530 | — | — | NOT_RUN |
+| EH-632 | — | — | NOT_RUN |

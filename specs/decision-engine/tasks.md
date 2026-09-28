@@ -11,6 +11,8 @@
 - [ ] D07 Add typed question adapters and per-question negative side-effect tests. Test D.
 - [ ] D08 Run focused tests and quality gates on exact head, then hosted baseline CI with disposable fixtures. Test H.
 - [ ] D09 Record each covered ID's `SOURCE_LANDED` main commit and `ACCEPTED` evidence independently; leave unverified IDs open.
+- [ ] D10 **EH-525:** Bind posterior/reliability kernels to one independently labeled, RLS-filtered materialization; make policy, ranking and UQL read it, and prove sparse/self-label refusals.
+- [ ] D11 **EH-528:** Finish shared sealed replay, fold checkpoints, bitemporal no-look-ahead, trial-count and incumbent statistics; exercise typed text and served job routes.
 
 ## Evidence format
 

@@ -14,10 +14,11 @@ Check boxes describe work remaining for this combined contract. They do not cert
 
 - [ ] Qualify capability model, shared renderer, typed budgets and optimized/full-fetch oracle on the exact public head. **EH-563, EH-566–EH-570**
 - [ ] Expose redacted trace and caller-lowered budget in served UQL `EXPLAIN`/`PROFILE`; verify no URL/DSN leakage. **EH-571**
-- [ ] Add column-carrying foreign rows and exact/inexact/unsupported residual handling. **EH-572**
+- [ ] Add typed column-carrying foreign rows and exact/inexact/unsupported residual handling; validate foreign-only predicates, projection dependencies and schema drift against a full-fetch oracle. **EH-572**
 - [ ] Execute approved OBDA virtual-graph solutions with typed ORDER/LIMIT/aggregate/join pushdown and sound fallback. **EH-573, EH-583**
 - [ ] Bound source concurrency, learn/persist provenance-tagged stats, and cache only with fresh owner-bound watermarks. **EH-400, EH-574–EH-576**
 - [ ] Qualify SPARQL SERVICE bind join, Iceberg pruning, RemoteEngine pushdown and extra source kinds under the one outbound gate. **EH-577–EH-581**
+- [ ] Prove RemoteEngine key/LIMIT UQL pushdown against a recording second engine, including signed owner context, exact residual, pagination and bounded fallback. **EH-579**
 - [ ] Integrate the local [unified-data-plane](../unified-data-plane/spec.md) source identity and approved mapping contract without duplicating its registry or dialect work. **EH-661, EH-664–EH-666 interface only**
 
 ## Search, reasoning and numerics

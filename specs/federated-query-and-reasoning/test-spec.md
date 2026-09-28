@@ -26,6 +26,14 @@ All tests run from the repository root with local fixtures, mock servers, or iso
 
 ## Quality and release gates
 
+### EH-572 / EH-579 focused differential tests
+
+| ID | Positive proof | Negative and boundary proof |
+|---|---|---|
+| EH-572 | Mock SQL/HTTP/RemoteEngine rows include duplicate names, nulls, numeric/date values and a foreign-only filter. Exact push and inexact push plus local residual equal full-fetch ordered/multiset oracles; projection retains hidden residual columns until evaluated. | Unsupported filter, ambiguous schema, changed type, inexact push missing a matching row and projection dropping an authorization/order column refuse or fall back; never silently return partial rows. |
+| EH-579 | A recording second EG instance receives canonical `Method::Uql` with only authorized keys and a sound LIMIT, returns the same ordered result as no push, and reports lower transferred row count. | Residual filter/top-N interaction, pagination, missing UQL capability, invalid signature, ungranted key, redirect/private target and exhausted request/row budget refuse or use a safe bounded fallback; no secret appears in trace. |
+
+
 Run changed-file CCCC, Dupehound, KISS and differential jscpd from `.config/pre-commit.yaml`; the configured CCCC threshold is no new function above cyclomatic 10 or cognitive 15 and no regression. Differential jscpd must show zero newly introduced clone pairs. KISS and Dupehound use their checked-in configuration, with zero attributable violations. Run `cargo fmt --all -- --check`, targeted `cargo test --locked` for each changed crate, full-feature Clippy with `-D warnings`, generated-contract checks, and the repository's hosted CI matrix for the final PR head. `bash scripts/ci_parity.sh` is a local CI preview. Record any unavailable live-service profile separately; it cannot be replaced by a fabricated pass. Every new public source kind needs a mock conformance suite before a live environment is considered.
 
 ## Evidence record format

@@ -15,8 +15,18 @@ Every test below runs with generated or checked-in synthetic fixtures. No existi
 | EH-712 | event replay yields one stable ID and one outbox fact; existing `finance.flip` remains compatible | duplicate source revision, unauthorized tenant, event replay cannot trigger order |
 | EH-714 | disposable attached-source fixture imports an activity once and reconciles; corrected and deleted rows become revision/tombstone | schema drift quarantined, no writes to source, source scope denied, repeated import no duplicate balance |
 | EH-715 | independent broker-statement, corporate action, DST/session, fund decay and futures-roll golden vectors | corrupt fixture provenance, absent as-of/session/currency, second accounting authority or cloned helper detected |
+| EH-530 | generic and finance aliases agree on shared numerical golden vectors and generated method/client counts | duplicate kernel, stale binding or unbounded regime derivation fails |
+| EH-632 | skilled and overfit 15-split PBO fixtures derive from sealed split matrix | three-row headline mismatch, bad matrix or tampered split evidence refuses |
 
 ## Cross-cutting property tests
+
+### EH-530 / EH-632 focused acceptance
+
+| ID | Positive proof | Negative and boundary proof |
+|---|---|---|
+| EH-530 | Golden vectors for every moved kernel match finance alias, generic API and UQL where exposed; generated method schema/count and Python bindings agree; bounded regime derivation reports exact state/work. | Changed precision, duplicated implementation, unknown method alias, nonfinite/short series, insufficient regime state budget and stale generated bindings refuse or fail the build. |
+| EH-632 | Skilled and overfit fixtures use all 15 sealed CSCV splits; skilled produces 0/15 and deliberately overfit 15/15; a tie exactly at median is not counted. Re-sealing identical input yields identical digest and verify result. | Caller supplies three attractive performance rows against 15 contradictory splits, unequal candidate rows, zero splits, nonfinite score or tampered split evidence: seal/verify refuses or recomputes from the true matrix, never reports the supplied headline. |
+
 
 For any valid activity sequence: activity permutation with the same canonical ordering yields one digest; a higher known-at correction cannot alter an earlier as-of query; a split preserves aggregate basis; a transfer conserves quantity/cash across included accounts after explicit fees; a buy followed by a complete sell has zero remaining units; a valuation currency conversion round trip is bounded by the declared rounding unit. Property generators must shrink to a minimal counterexample and persist a regression vector for failures.
 

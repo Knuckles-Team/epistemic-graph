@@ -27,6 +27,8 @@ Delivery and acceptance are independent. `WAITING` means no reviewed implementat
 | EH-712 | WAITING | NOT_RUN | Finance event facts for downstream delivery. |
 | EH-714 | WAITING | NOT_RUN | Optional one-way portfolio import from an attached source. |
 | EH-715 | WAITING | NOT_RUN | Golden accounting/risk fixtures and provenance invariants. |
+| EH-530 | WAITING | NOT_RUN | Shared numeric kernel ownership, thin compatibility aliases, UQL and method-count reconciliation. |
+| EH-632 | WAITING | NOT_RUN | Split-derived PBO and exact-median convention in sealed backtests. |
 
 ## Normative requirements
 
@@ -71,5 +73,11 @@ An optional external portfolio source can attach read-only through EG's typed so
 Every externally displayed monetary, price, return, risk or recommendation field carries source ID/digest, economic as-of, known-at, session where market-derived, currency and precision. The engine must pass broker-statement, corporate-action, DST/session, futures-roll and daily-reset-fund golden cases. A trace can reconstruct each number from input revisions and formula version. CCCC, jscpd, Dupehound and KISS checks apply to changed code; no duplicate accounting or finance decision authority is introduced in another layer.
 
 ## Completion contract
+
+### Shared evaluation kernels and split-derived overfit probability (EH-530, EH-632)
+
+**EH-530.** Generic rolling z-score, EWMA, information coefficient/ratio, effective sample size, Diebold–Mariano, deflated Sharpe, purged combinatorial cross-validation, probability of backtest overfitting, Brier, Kalman, Ornstein–Uhlenbeck, ADF and regime HMM calculations have one domain-neutral owner in `eg-numeric` evaluation/calibration. Time-series UQL operators call those kernels through the existing series execution path. Finance methods may remain only as thin, documented compatibility aliases while public callers migrate to the typed generic surface; no copied implementation, silent shim or second precision/rounding convention is allowed. Reconcile generated method counts and client bindings from the canonical method inventory in one change. A regime derivation requiring an unbounded prefix refit must declare a budget or refuse with typed state-budget failure; it cannot report a bounded success it did not compute.
+
+**EH-632.** A `BacktestRun` computes PBO from its own combinatorial symmetric cross-validation split matrix, not a separate caller-provided summary row array. For each split, select the highest in-sample candidate by a deterministic tie rule, rank its out-of-sample performance against all candidates, and count it as overfit only when strictly below the exact median; equality to median is not overfit. Record split count, selected candidate, rank and convention in verifiable evidence. A missing/degenerate matrix, unequal candidate dimensions, nonfinite values or mismatched reported split count refuses sealing. The same split matrix supplies related validation outputs so a headline PBO cannot contradict the sealed record.
 
 An ID becomes `SOURCE_LANDED` only at a published-main commit containing its contract, implementation and tests. It becomes `ACCEPTED` only when exact-head hosted CI, deterministic positive/negative fixtures, schema/contract generation, authorization and replay checks, and the quality gates in `test-spec.md` pass. Baseline PR checks must provision disposable data and run without a live deployment or private credentials. Optional external-source integration is tested against a disposable fixture. Record deployment qualification separately from source acceptance.
