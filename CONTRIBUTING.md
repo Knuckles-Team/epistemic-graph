@@ -54,3 +54,18 @@ boundary (serialize → socket → deserialize), not a function call. See
 Performance claims are measured, not asserted: `scripts/bench_transport.py`
 (latency) and `scripts/bench_scale.py` (multi-shard scaling + per-agent footprint)
 — results in `docs/benchmarks.md`.
+
+## Spec-driven contributions
+
+Start in [`specs/`](specs/README.md) with a stable ID and the repository-owned `spec.md`, `plan.md`,
+`test-spec.md`, and `tasks.md`. Use the [universal-skills SDD
+workflow](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development-workflows/sdd-full-lifecycle)
+and its
+[spec-generator](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-generator),
+[spec-verifier](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-verifier),
+and
+[task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
+skills. The file sequence aligns with [GitHub Spec Kit
+v1.0.12](https://github.com/github/spec-kit/releases/tag/v1.0.12); `test-spec.md` makes our test and
+quality contract explicit. Link the PR to its spec IDs and include exact test, wiring, CCCC, jscpd,
+dupehound, and KISS evidence before proposing a landed status.

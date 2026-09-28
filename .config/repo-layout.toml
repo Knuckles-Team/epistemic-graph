@@ -29,6 +29,7 @@
 # conventions (scripts/, .github, and .config).
 
 [dirs]
+specs = "tracked repository-owned specifications, templates, and acceptance evidence"
 src = "root epistemic-graph package: server binary (src/bin/main.rs) + PyO3 facade that maturin builds the wheel from"
 crates = "the 48-member cargo workspace; the library surface src/ composes (see Cargo.toml [workspace].members)"
 epistemic_graph = "the pure-Python client package (parser/cli/client/pool/asr_provider/quant/...) shipped alongside the compiled extension; maturin's python-source root"

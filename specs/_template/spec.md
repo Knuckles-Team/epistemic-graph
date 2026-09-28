@@ -1,0 +1,27 @@
+# [ID] — [Feature name]
+
+Status: PROPOSED. Owner: [repository name]. Cross-repo IDs: [IDs or none].
+Source draft: [plans path, issue, or decision].
+
+## Purpose and user stories
+
+[Describe the user, outcome, and reason.]
+
+## Requirements and acceptance
+
+- FR-001: [Observable behavior, including errors, authorization, and boundaries.]
+- SC-001: [Measurable, independently checkable success condition.]
+
+## Scope and interfaces
+
+[Name owned behavior, public contracts, dependencies, and explicit non-goals.]
+
+## Traceability
+
+| Requirement | Design section | Test ID | Evidence |
+|---|---|---|---|
+| FR-001 | [plan.md anchor] | T-001 | PENDING |
+
+## Open questions
+
+- [Record unresolved choices; never silently mark them accepted.]
