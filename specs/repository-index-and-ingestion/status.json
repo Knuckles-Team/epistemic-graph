@@ -4,9 +4,6 @@
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
     "EH-168",
-    "EH-373",
-    "EH-374",
-    "EH-375",
     "EH-498",
     "EH-503",
     "EH-524",
@@ -14,9 +11,6 @@
     "EH-557",
     "EH-636",
     "EH-638",
-    "EH-668",
-    "EH-670",
-    "EH-680",
     "RF-031"
   ],
   "delivery_state": "SPECIFIED",

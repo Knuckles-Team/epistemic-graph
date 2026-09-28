@@ -27,11 +27,11 @@ Actors: application writer, read-only analyst, tenant administrator, replica/mir
 |---|---|---|---|
 | KG-01 | MutationBatch is the sole persistent write envelope; all store members use the owner manifest, one admission decision and one idempotent terminal outcome. | RF-025, EH-256, EH-446 | restart/replay and mixed-member tests on a main revision |
 | KG-02 | Transaction commit is atomic across all participating members, or explicitly refuses an unsupported mixed transaction before effects. Table-only transactions never enter the mixed-store path. A chosen cross-store mechanism has an ADR and fault-point proof. | EH-690 | crash matrix and concurrent anomaly corpus |
-| KG-03 | Owner manifest validation occurs at manifest read and at the write transaction boundary; cache a validated binding only within that transaction. Format changes have versioned lineage and typed upgrade refusal. | EH-140, EH-150, EH-390 | lineage golden fixtures and stale-binding negative tests |
+| KG-03 | Owner manifest validation occurs at manifest read and at the write transaction boundary; cache a validated binding only within that transaction. Format changes have versioned lineage and typed upgrade refusal. | EH-140, EH-390 | lineage golden fixtures and stale-binding negative tests |
 | KG-04 | A bounded, resumable, read-only content scrub reports typed corruption findings without blocking writers or treating per-commit graph unseal as a scrub. | EH-384 | injected corruption/restart/rate-limit tests |
 | KG-05 | The outbox increments an attempt only for the attempted head, supports consumer reject and operator rewind, and never acknowledges a skipped reasoning projection without a rebuild. | EH-138, EH-139, EH-147, EH-159 | failing-head and successor replay tests |
 | KG-06 | CDC and mirrors publish only committed outcomes, use stable per-consumer cursors, replay idempotently after outage, and compare source and target digests before declaring caught up. Mirror reads cannot become an alternate authority. | EH-508, EH-692 | outage, replay, drift and empty-target tests |
-| KG-07 | Every read/write path carries verified tenant and principal scope through RLS, SQL, UQL, TSDB, KV, foreign sources, UDFs and caches. Cross-scope lookup fails closed; sharing requires an explicit grant. | EH-373, EH-374, EH-375, EH-378, EH-640, EH-695 | served cross-principal and cross-tenant denial matrix |
+| KG-07 | Every read/write path carries verified tenant and principal scope through RLS, SQL, UQL, TSDB, KV, foreign sources, UDFs and caches. Cross-scope lookup fails closed; sharing requires an explicit grant. Foreign-source sharing is specified by `federated-query-and-reasoning`; app consolidation policy is specified by `unified-data-plane`. | EH-374, EH-375, EH-640 | served cross-principal and cross-tenant denial matrix |
 | KG-08 | Governed effects reserve a tenant-scoped idempotent audit record before the effect and close it with linked outcome; an unavailable writer or missing audit class blocks the effect, and interrupted outcomes reconcile to a truthful state. | EH-658 | duplicate request, outage, crash and mismatch tests |
 | KG-09 | Temporary elevation and schema repair use separate reserved lease kinds with two distinct verified principals, exact request digest, expiry and audit; generic lease write cannot grant either. | EH-404, EH-560 | proposer=approver, wrong digest, expired and replay refusals |
 | KG-10 | Raft dispatch preserves per-peer and per-group progress. Multi-node tests capture causal traces on failure and repeatedly prove leader failover and multi-group writes without sleep/retry/assertion relaxation. | EH-178, EH-181, EH-286, EH-287, EH-288, EH-290, EH-534 | repeated loaded cluster tests and trace artifact |
@@ -53,15 +53,15 @@ This table makes the historical work identifiers searchable without requiring th
 
 | IDs | Current classification | Normative destination here |
 |---|---|---|
-| RF-025; EH-138, EH-139, EH-140, EH-147, EH-150, EH-159, EH-160, EH-169 | source landed or built; acceptance unverified | KG-01, KG-03, KG-05; owner layout, outbox and local delivery state |
+| RF-025; EH-138, EH-139, EH-140, EH-147, EH-159, EH-160, EH-169 | source landed or built; acceptance unverified | KG-01, KG-03, KG-05; owner layout, outbox and local delivery state |
 | EH-178, EH-181, EH-256, EH-286, EH-287, EH-288, EH-290, EH-534 | source landed or built; loaded repeat proof open | KG-01, KG-10; Raft command, leader forwarding and durability |
-| EH-384, EH-390, EH-352, EH-353 | built; acceptance unverified | KG-03, KG-04, KG-15; scrub, binding, durable index and correctness benchmark |
-| EH-373, EH-374, EH-375, EH-378, EH-404, EH-535, EH-560, EH-639, EH-640, EH-649 | landed, built or queued by item; acceptance unverified | KG-07, KG-09; scope, auth mode, RLS and lease denial |
-| EH-446, EH-658, EH-690, EH-691, EH-692, EH-695 | built or queued; acceptance unverified | KG-02, KG-06, KG-08, KG-15; readonly operation classification, atomicity, audit, mirrors and tooling |
+| EH-384, EH-390, EH-353 | built; acceptance unverified | KG-03, KG-04, KG-15; scrub, binding and correctness benchmark |
+| EH-374, EH-375, EH-404, EH-535, EH-560, EH-639, EH-640, EH-649 | landed, built or queued by item; acceptance unverified | KG-07, KG-09; scope, auth mode, RLS and lease denial |
+| EH-446, EH-658, EH-690, EH-691, EH-692 | built or queued; acceptance unverified | KG-02, KG-06, KG-08, KG-15; readonly operation classification, atomicity, audit, mirrors and tooling |
 | EH-717, EH-718, EH-719, EH-720, EH-721, EH-722 | queued | KG-11–KG-15; native routing, durability, hot state, batch and measurement |
 | EH-185, EH-191 | gate source landed or deferred | Quality proof: differential clones and feature-specific Rust coverage; no runtime feature claimed |
 
-The generic method-codec artifact size item EH-383 belongs to the [public engine contract and release spec](../public-engine-contract-and-release/spec.md); it does not define a second security mechanism here. The accelerated attached-source copy EH-669 belongs to [unified data plane](../unified-data-plane/spec.md), because its source of truth is external. This boundary keeps native storage and attached-source acceleration distinct.
+The method-codec artifact EH-383 belongs to the [public engine contract and release spec](../public-engine-contract-and-release/spec.md); it does not define a second security mechanism here. Pack-specific manifest refusal EH-150 belongs to [typed packs and catalog](../typed-packs-and-catalog/spec.md); user-managed index lifecycle EH-352 and foreign-source grants EH-373/EH-378 belong to [federated query and reasoning](../federated-query-and-reasoning/spec.md). Attached-source acceleration EH-669 and app isolation EH-695 belong to [unified data plane](../unified-data-plane/spec.md). These references are integration boundaries, not duplicate owner claims.
 
 ## Quality and exclusion rules
 

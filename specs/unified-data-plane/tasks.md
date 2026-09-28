@@ -22,7 +22,6 @@
 - [ ] **EH-669 / DB-7.8:** Policy-controlled `eg-lake` accelerated copy; depends on EH-667.
 - [ ] **EH-670 / DB-7.9:** Freshness-aware native/live/accelerated router and EXPLAIN; depends on EH-666/669.
 - [ ] **EH-671 / DB-7.10:** Governed idempotent write-back through SDK/app API and EH-658 audit; depends on EH-661/658/216.
-- [ ] **EH-692 / DB-10.1, DB-4.0–4.1:** Extend EH-508 mirrors with cursor, replay, reconcile and SQL-table Postgres restore; depends on EH-508/661.
 
 ## Dialects and conformance
 
@@ -42,25 +41,16 @@
 - [ ] **EH-682 / DB-7.11, DB-4.5, DB-4.7:** Build shared CloudNativePG and MariaDB platform with per-app roles, PITR and restore drill.
 - [ ] **EH-683 / DB-7.12, DB-6.5:** Admit three apps including MariaDB with rollback and retire each ingest connector only after parity; depends on EH-682/672/673/668.
 - [ ] **EH-696 / Immich I0–I6:** Generated API client, MCP tools, registration, incremental per-user ingest, naming, approved links and operations. Implement I0–I6 as defined in [spec.md](spec.md).
-- [ ] **EH-714 / Ghostfolio:** Attach shared Postgres, map activities to finance-v1 and prove one-way import; depends on EH-672/682/698.
 
-## Native hosting and bursty engine
+## Native hosting and app admission
 
-- [ ] **EH-684 / DB-9.0–9.2:** After EH-290, add point fast path and hot/cold union with compaction.
-- [ ] **EH-685 / DB-9.3:** Benchmark redb/fjall/RocksDB on captured workload and decide by ADR; depends on EH-684.
+Native storage and wire work (EH-684/EH-685/EH-690–EH-692/EH-717–EH-722) is implemented and evidenced by `durable-graph-kernel`; the one-way Ghostfolio import EH-714 is implemented and evidenced by `finance-primitives`. This spec consumes their exact-head test receipts before app admission, without duplicating those work items.
+
 - [ ] **EH-686 / DB-9.4:** Separate pgrx companion spike and go/no-go ADR; depends on EH-660.
 - [ ] **EH-687 / Gramps P0–P5:** Baseline, real-Postgres control, unmodified EG replay, pilot fixes, restores and OBDA understanding; depends on EH-692/689. Implement P0–P5 and their exit artifacts as defined in [spec.md](spec.md) and [test-spec.md](test-spec.md).
 - [ ] **EH-688 / DB-1.1–1.21:** Fix Postgres features only when captured app traffic proves need; include B-tree indexes, collation, regex, bytea, sequences, savepoints, locks, notify, triggers/functions, JSONB, isolation, startup, SQLSTATE, schemas, constraints, types, materialized views, large objects and timezone; depends on EH-687.
 - [ ] **EH-689 / DB-2.1–2.4:** Differential Postgres regression, generated and captured-traffic corpora with reviewed deviations and no ratchet; depends on EH-681.
-- [ ] **EH-690 / DB-3.1–3.4:** Cross-store atomicity ADR, table-only path isolation, crash fault injection and concurrent anomaly proof; depends on EH-687.
-- [ ] **EH-691 / DB-4.2–4.3, DB-4.6:** Stock pg_dump/restore round trip, replication protocol out of EG, stats/locks/EXPLAIN/cancel/pooler operational tooling; depends on EH-687.
 - [ ] **EH-697 / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback; depends on EH-687/690/691 and every P0–P5 acceptance artifact.
-- [ ] **EH-717 / DB-9.5:** Classify every wire before planner; depends on EH-684.
-- [ ] **EH-718 / DB-9.6:** Visible sync/async/ephemeral durability and measured loss; depends on EH-290.
-- [ ] **EH-719 / DB-9.7:** Recoverable hot data structures and atomic primitives; depends on EH-718.
-- [ ] **EH-720 / DB-9.8:** One-admission, one-commit RESP/pgwire batches; depends on EH-717/718.
-- [ ] **EH-721 / DB-9.9:** Schema-versioned SQL plan cache bound to DepClock; depends on EH-717.
-- [ ] **EH-722 / DB-9.10:** Publish same-hardware benchmark matrix and gate every comparative claim; depends on EH-719/720/721.
 
 ## Completion record for each row
 

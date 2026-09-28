@@ -6,9 +6,9 @@
 | Owner | epistemic-graph |
 | Program | refactor train 9 |
 | State | PROPOSED; no implementation or acceptance is claimed by this document |
-| Scope | EH-660–EH-697, EH-714, EH-717–EH-722 (45 T9 rows) |
+| Scope | Attached-source, dialect, app-admission and freshness obligations assigned in [status.json](status.json); native storage and finance import are adjacent owner contracts |
 
-This directory is the public build contract for T9. The EH IDs are stable trace identifiers. The requirements, implementation order, acceptance tests and cross-repository duties needed to contribute are specified here; no internal planning document is needed. [status.json](status.json) is the machine-readable summary: `SPECIFIED` and `NOT_AUDITED` mean the design is ready for contribution, not that its behavior is built or accepted.
+This directory is the public build contract for the attached-source and app-admission part of T9. The EH IDs are stable trace identifiers. [status.json](status.json) assigns normative ownership for this spec; related native storage obligations live in `durable-graph-kernel`, and the optional finance import lives in `finance-primitives`. `SPECIFIED` and `NOT_AUDITED` mean the design is ready for contribution, not that its behavior is built or accepted.
 
 ## Outcome and boundaries
 
@@ -21,7 +21,7 @@ This spec does not authorize a production cutover, direct writes around an appli
 | ID | Requirement | Ledger | Acceptance intent |
 |---|---|---|---|
 | DP-01 | Record the attached-source default, native-hosting gate, router consistency and pgrx boundary as ADRs. | EH-660 | Reviewed ADRs DB-7.0, DB-9.3, DB-9.4. |
-| DP-02 | Register one tenant/owner-scoped attached source with secrets by reference, verified outbound target, capabilities and mirror direction. Replace the separate `ForeignSourceSpec::Sql`, transient OBDA source and EH-508 mirror registration paths. | EH-661, EH-692 | Same source identity serves SQL, OBDA, CDC and mirror; unauthorized cross-owner reads and unverified addresses fail closed. |
+| DP-02 | Register one tenant/owner-scoped attached source with secrets by reference, verified outbound target, capabilities and mirror direction. Replace separate foreign-source and transient OBDA registration paths; consume the kernel-owned mirror cursor/replay contract. | EH-661 | Same source identity serves SQL, OBDA, CDC and mirror; unauthorized cross-owner reads and unverified addresses fail closed. |
 | DP-03 | Read each dialect catalog into a versioned, typed, hashed schema graph; profile under bounded policy; infer dependencies and deterministic Leiden groups. Every artifact has a named OBDA or `schema_context` consumer. | EH-662, EH-663, EH-693 | Stable hash/order on repeated reads; no inert RF-031 style nodes. |
 | DP-04 | Compile deterministic-first, operator-approved ontology mappings to versioned R2RML named virtual graphs. Model output is proposal only. Query by name through SPARQL, UQL and REASON. | EH-664 | Unapproved/broken mapping cannot expose data. |
 | DP-05 | Push typed projection, filter, same-source join, aggregate, order and limit to the source when supported; use DataFusion providers for attached tables; show every fallback in EXPLAIN. | EH-665, EH-666 | Native-source differential equality across dialects and null/type edges. |
@@ -29,11 +29,11 @@ This spec does not authorize a production cutover, direct writes around an appli
 | DP-07 | Route native, live or accelerated reads by policy and freshness. A client asking read-your-writes waits for its committed source position within a bounded timeout; no stale success on timeout. | EH-670 | EXPLAIN states route/position; stale route fails or falls back according to declared policy. |
 | DP-08 | Govern attached-source write-back with approval, idempotency and EH-658 audit reservation. Prefer the app API when it owns business rules. | EH-671 | Missing audit/approval, replayed key, and policy denial fail safely. |
 | DP-09 | Implement five-part adapters (driver, rendering, catalog, change capture where offered, type map) for Postgres, MySQL, MariaDB, SQLite, MSSQL, ClickHouse, Oracle, Db2, MongoDB/DocumentDB, Snowflake, BigQuery, DuckDB and Iceberg; use Debezium bridge where specified. | EH-672–EH-681 | Per engine/version conformance matrix; unsupported capture explicitly declared, never silently simulated. |
-| DP-10 | Admit shared CloudNativePG and MariaDB services and apps one at a time, with separate roles, PITR and restore drills; retire an ingest connector only after attached parity. | EH-682, EH-683, EH-714 | Three attached apps including MariaDB; rollback and one-way Ghostfolio import proven. |
-| DP-11 | Earn native hosting with the Gramps traffic/differential/restore pilot, only then address observed pgwire gaps, cross-store atomicity, tooling and safety. | EH-684–EH-691, EH-695, EH-697 | P0–P5 evidence, reviewed deviations, crash/restore tests; P6 separately approved. |
+| DP-10 | Admit shared CloudNativePG and MariaDB services and apps one at a time, with separate roles, PITR and restore drills; retire an ingest connector only after attached parity. The optional Ghostfolio finance import is governed by `finance-primitives`. | EH-682, EH-683 | Three attached apps including MariaDB; rollback and one-way finance import integration proven. |
+| DP-11 | Earn native hosting with the Gramps traffic/differential/restore pilot, then admit only observed pgwire gaps and app-specific safety controls. Consume the kernel-owned hot-store, cross-store atomicity and operational tooling contracts. | EH-686–EH-689, EH-695, EH-697 | P0–P5 evidence, reviewed deviations, crash/restore tests; P6 separately approved. |
 | DP-12 | Resolve entities across apps through blocking, similarity and Fellegi–Sunter proposals; deliver the Immich API connector and its incremental, private KG ingest. | EH-694, EH-696 | Approved links only; per-user isolation and incremental no-op replay. |
-| DP-13 | Classify point/data-structure workloads before DataFusion, add explicit sync/async/ephemeral durability, RAM hot structures backed by canonical recovery where durable, batch pipelining and a schema-versioned plan cache. | EH-717–EH-721 | Same authz/HMAC keyspace; measured loss window; no second authority. |
-| DP-14 | Publish same-hardware YCSB A–F, redis-benchmark, pgbench, HammerDB TPC-C, LDBC and converged-query results with configs and targets. | EH-722 | Only green per-axis rows permit a “surpass” claim. |
+
+The native fast path, durability classes, RAM hot structures, batch pipelining, plan cache and comparative benchmark gate (EH-684/EH-685/EH-690–EH-692/EH-717–EH-722) are specified by `durable-graph-kernel`. This data-plane spec consumes their tested interfaces and records app-level integration results; it does not assign those IDs a second owner.
 
 ## Source and capability contract
 
