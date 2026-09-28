@@ -83,13 +83,15 @@ async fn commit_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respo
                 )
                 .await
                 {
-                    Ok(r) => match r.error {
-                        Some(e) => Err(e),
+                    Ok(r) => match r.refusal_text() {
+                        Some(refusal) => Err(refusal),
                         None => Ok(r
                             .result
                             .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                     },
-                    Err(_) => Err("query surface not available in this build".to_string()),
+                    Err(_) => Err(
+                        "ENGINE_UNAVAILABLE: query surface not available in this build".to_string(),
+                    ),
                 }
             },
         )
@@ -182,13 +184,15 @@ async fn commit_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respons
                 )
                 .await
                 {
-                    Ok(r) => match r.error {
-                        Some(e) => Err(e),
+                    Ok(r) => match r.refusal_text() {
+                        Some(refusal) => Err(refusal),
                         None => Ok(r
                             .result
                             .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                     },
-                    Err(_) => Err("rdf surface not available in this build".to_string()),
+                    Err(_) => Err(
+                        "ENGINE_UNAVAILABLE: rdf surface not available in this build".to_string(),
+                    ),
                 }
             },
         )

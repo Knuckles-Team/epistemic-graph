@@ -18,13 +18,19 @@ fn to_quality_function(quality: CommunityQualityFunction) -> QualityFunction {
     }
 }
 
+/// A graph-algorithm refusal names the caller's input (an unknown node id, a
+/// cyclic graph); keep any code the inner error already carries.
+fn invalid_argument(error: &str) -> String {
+    eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", error)
+}
+
 /// `InDegree`: pure extract-method from `try_handle`'s match arm, byte-identical
 /// behaviour, no signature change.
 fn handle_in_degree(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
     let g = &**core;
     match g.in_degree(node_id) {
         Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
-        Err(e) => Response::err(req_id, e),
+        Err(e) => Response::err(req_id, invalid_argument(&e)),
     }
 }
 
@@ -34,7 +40,7 @@ fn handle_out_degree(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Respo
     let g = &**core;
     match g.out_degree(node_id) {
         Ok(deg) => Response::ok(req_id, ResultPayload::Count(deg as u64)),
-        Err(e) => Response::err(req_id, e),
+        Err(e) => Response::err(req_id, invalid_argument(&e)),
     }
 }
 
@@ -44,7 +50,7 @@ fn handle_get_predecessors(req_id: u64, core: &Arc<GraphCore>, node_id: &str) ->
     let g = &**core;
     match g.get_predecessors(node_id) {
         Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-        Err(e) => Response::err(req_id, e),
+        Err(e) => Response::err(req_id, invalid_argument(&e)),
     }
 }
 
@@ -54,7 +60,7 @@ fn handle_get_successors(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> R
     let g = &**core;
     match g.get_successors(node_id) {
         Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-        Err(e) => Response::err(req_id, e),
+        Err(e) => Response::err(req_id, invalid_argument(&e)),
     }
 }
 
@@ -64,7 +70,7 @@ fn handle_get_neighbors(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Re
     let g = &**core;
     match g.get_neighbors(node_id) {
         Ok(nodes) => Response::ok(req_id, ResultPayload::Ids(nodes)),
-        Err(e) => Response::err(req_id, e),
+        Err(e) => Response::err(req_id, invalid_argument(&e)),
     }
 }
 
@@ -77,7 +83,7 @@ fn handle_degree_centrality(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -
             req_id,
             ResultPayload::scalar::<results::DegreeCentrality>(val),
         ),
-        Err(e) => Response::err(req_id, e),
+        Err(e) => Response::err(req_id, invalid_argument(&e)),
     }
 }
 
@@ -92,7 +98,7 @@ fn handle_get_neighbors_batch(
         return Response::err(
             req_id,
             format!(
-                "batch too large: {} ids (max {})",
+                "INVALID_ARGUMENT: batch too large: {} ids (max {})",
                 node_ids.len(),
                 MAX_BATCH_IDS
             ),
@@ -251,7 +257,7 @@ fn handle_topological_sort(req_id: u64, core: &Arc<GraphCore>) -> Response {
     let g = core.topology_snapshot();
     match crate::algorithms::topological_sort(&g) {
         Ok(order) => Response::ok(req_id, ResultPayload::of::<results::TopologicalSort>(order)),
-        Err(e) => Response::err(req_id, e.to_string()),
+        Err(e) => Response::err(req_id, format!("INVALID_ARGUMENT: {e}")),
     }
 }
 

@@ -244,8 +244,8 @@ pub(crate) fn respond(request_id: u64, result: IndexResult) -> Response {
 
 /// Answer the commit of a batch: its index result, or the commit's refusal.
 pub(crate) fn finish(result: IndexResult, commit: Response) -> Response {
-    match commit.error {
-        Some(error) => Response::err(commit.id, error),
+    match commit.refusal_text() {
+        Some(refusal) => Response::err(commit.id, refusal),
         None => respond(commit.id, result),
     }
 }

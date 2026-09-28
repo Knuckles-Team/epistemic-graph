@@ -151,7 +151,7 @@ pub(super) fn handle_cancel_op(
         Ok((job, _)) => {
             job_response::<eg_types::result_contract::coordination::JobCancel>(req_id, &job)
         }
-        Err(e) => Response::err(req_id, e.to_string()),
+        Err(e) => Response::err(req_id, job_refusal(&e)),
     }
 }
 

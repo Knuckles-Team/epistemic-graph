@@ -409,8 +409,8 @@ async fn local_execute(
         method,
     };
     let resp = crate::server::dispatch::dispatch_authenticated_local_query(state, request).await;
-    if let Some(err) = resp.error {
-        return Err(err);
+    if let Some(refusal) = resp.refusal_text() {
+        return Err(refusal);
     }
     let bytes = match resp.result {
         Some(crate::protocol::ResultPayload::Raw(b)) => b,

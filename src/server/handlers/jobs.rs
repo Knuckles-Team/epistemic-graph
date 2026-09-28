@@ -122,13 +122,24 @@ use worker_publish::*;
 use worker_requests::*;
 use worker_validation::*;
 
+/// Classify a job-store refusal: a lifecycle transition the job's state forbids
+/// is a conflict, an unknown job is invalid input, and a store fault is internal.
+pub(super) fn job_refusal(error: &eg_jobs::JobError) -> String {
+    let code = match error {
+        eg_jobs::JobError::InvalidTransition { .. } => "CONFLICT",
+        eg_jobs::JobError::NotFound(_) => "INVALID_ARGUMENT",
+        eg_jobs::JobError::Redb(_) | eg_jobs::JobError::Codec(_) => "INTERNAL",
+    };
+    format!("{code}: {error}")
+}
+
 /// The process's job store, for the `MutationOutbox` operator surface (X10).
 pub(crate) async fn outbox_job_store(
     state: &Arc<RwLock<ServerState>>,
 ) -> Result<Arc<JobStore>, String> {
     resolve_job_store(state, 0)
         .await
-        .map_err(|response| response.error.unwrap_or_default())
+        .map_err(|response| response.refusal_text().unwrap_or_default())
 }
 
 /// Handle `Method::AnalyticsJob { op }` (CONCEPT:INT-P2-1). Self-contained: resolves
@@ -665,7 +676,7 @@ fn finish_job_submit(
         Ok((job, _replayed)) => {
             job_response::<eg_types::result_contract::coordination::JobSubmit>(req_id, &job)
         }
-        Err(e) => Response::err(req_id, e.to_string()),
+        Err(e) => Response::err(req_id, job_refusal(&e)),
     }
 }
 
@@ -679,7 +690,7 @@ async fn handle_resume(
 ) -> Response {
     let (job, replayed) = match store.resume_batch(job_id, &batch, committed_at_ms) {
         Ok(value) => value,
-        Err(e) => return Response::err(req_id, e.to_string()),
+        Err(e) => return Response::err(req_id, job_refusal(&e)),
     };
 
     let _ = (state, store);

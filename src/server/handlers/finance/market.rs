@@ -17,7 +17,9 @@ use crate::protocol::{Method, Response, ResultPayload};
 pub(super) fn answer<M: MethodResult>(req_id: u64, result: MarketResult<M::Body>) -> Response {
     match result {
         Ok(body) => Response::ok(req_id, ResultPayload::of::<M>(body)),
-        Err(error) => Response::err(req_id, error.to_string()),
+        // The market domain codes (`UNSOURCED_CLAIM`, ...) are not in the
+        // FinanceMarket error contract; keep them first in the detail.
+        Err(error) => Response::err(req_id, format!("INVALID_ARGUMENT: {error}")),
     }
 }
 

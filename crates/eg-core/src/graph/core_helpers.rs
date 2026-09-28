@@ -20,7 +20,7 @@ use super::*;
 /// exactly the confusion this wording is meant to prevent.
 pub(super) fn edge_endpoint_not_found(role: &str, id: &str) -> String {
     format!(
-        "{role} node '{id}' not found in this graph. Edges cannot span \
+        "INVALID_ARGUMENT: {role} node '{id}' not found in this graph. Edges cannot span \
          graphs — each graph has its own independent node namespace, so \
          `add_edge` only ever looks up '{id}' within the one graph this \
          call is targeting. If '{id}' exists, it is either a typo/stale id \

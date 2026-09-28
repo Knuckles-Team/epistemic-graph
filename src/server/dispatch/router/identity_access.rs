@@ -309,12 +309,10 @@ async fn dispatch_identity_and_access_methods_arm_3(
     }
 }
 fn multisig_mutation_response(response: Response) -> Response {
-    let Response {
-        id, result, error, ..
-    } = response;
-    if let Some(error) = error {
-        return Response::err(id, error);
+    if let Some(refusal) = response.refusal_text() {
+        return Response::err(response.id, refusal);
     }
+    let Response { id, result, .. } = response;
     let report = match result {
         Some(ResultPayload::Json(value)) => serde_json::from_value::<
             eg_types::result_contract::transactions::SparqlUpdateReport,
