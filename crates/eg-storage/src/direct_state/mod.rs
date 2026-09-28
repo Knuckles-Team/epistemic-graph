@@ -65,10 +65,13 @@ pub(crate) fn private_tempdir() -> tempfile::TempDir {
 /// of requiring a pre-provisioned host path.
 #[cfg(test)]
 pub(crate) fn private_local_tempdir() -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt;
+
     let directory = tempfile::Builder::new()
         .prefix("eg-storage-upgrade-")
         .tempdir_in(env!("CARGO_MANIFEST_DIR"))
         .unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     directory
 }
 
