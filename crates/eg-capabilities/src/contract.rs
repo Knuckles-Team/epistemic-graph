@@ -394,7 +394,7 @@ fn catalog_digest_source(digest: &str) -> Vec<u8> {
             "// at run time -- a deployment-editable file cannot be an identity input.\n",
             "\n",
             "/// `contract/receipt.json`'s `contract_digest`.\n",
-            "pub const CONTRACT_CATALOG_DIGEST: &str = \"",
+            "pub const CONTRACT_CATALOG_DIGEST: &str =\n    \"",
         ]
         .concat()
             + digest
