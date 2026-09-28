@@ -29,6 +29,7 @@
 # conventions (scripts/, .github, and .config).
 
 [dirs]
+".specify" = "tracked Spec Kit constitution; generated tooling files remain ignored"
 specs = "tracked repository-owned specifications, templates, and acceptance evidence"
 src = "root epistemic-graph package: server binary (src/bin/main.rs) + PyO3 facade that maturin builds the wheel from"
 crates = "the 48-member cargo workspace; the library surface src/ composes (see Cargo.toml [workspace].members)"

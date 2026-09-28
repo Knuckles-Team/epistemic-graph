@@ -17,7 +17,7 @@ As an EG contributor, I need Train 4's merged engine to compile and preserve dec
 
 ## Scope and boundaries
 
-This spec covers the focused PR #3 green repair and its direct release evidence. It does not close all Train 4 ledger rows, implement Train 5–11, or silently widen the TxnUql/TxnUnifiedQuery error contracts. Those lifecycle refusals remain an explicit open contract decision in PR #3.
+This spec covers the focused PR #3 green repair and its direct release evidence. It does not close all Train 4 ledger rows, implement later trains, or silently widen the TxnUql/TxnUnifiedQuery error contracts. Those lifecycle refusals remain an explicit open contract decision in PR #3.
 
 ## Traceability
 
