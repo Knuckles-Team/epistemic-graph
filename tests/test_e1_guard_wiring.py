@@ -30,29 +30,6 @@ def _replace_once(source: str, old: str, new: str) -> str:
     return broken
 
 
-def test_p2_guard_rejects_a_missing_post_page_fence() -> None:
-    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_modality_guard")
-    handler = module.knowledge_stream_handler_source()
-    module.require_knowledge_stream_authority(handler)
-
-    broken = handler.replace(
-        "authority.validate_after()", "authority.validate_after_removed()"
-    )
-    with pytest.raises(SystemExit, match="strict pre/post page fences"):
-        module.require_knowledge_stream_authority(broken)
-
-
-def test_p2_protocol_child_variant_is_composed_and_required() -> None:
-    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_protocol_family")
-    protocol = module.protocol_source()
-    assert "KnowledgeStream {" in protocol
-    module.require_governed_protocol_method(protocol, "KnowledgeStream")
-
-    omitted = protocol.replace("KnowledgeStream {", "KnowledgeStreamRemoved {", 1)
-    with pytest.raises(SystemExit, match="not a governed served protocol method"):
-        module.require_governed_protocol_method(omitted, "KnowledgeStream")
-
-
 def test_universal_read_protocol_child_variant_is_composed_and_required() -> None:
     module = _load_gate("check_universal_read_rls.py", "e1_universal_protocol_family")
     protocol = module.protocol_source()
@@ -74,6 +51,19 @@ def test_p2_dispatch_ordering_follows_graph_pipeline_children() -> None:
         "capture_graph_dispatch(state, ctx", "capture_without_acl(state, ctx", 1
     )
     with pytest.raises(SystemExit, match="routed before graph ACL"):
+        module.require_graph_dispatch_ordering(broken)
+
+
+def test_p2_dispatch_ordering_rejects_knowledge_stream_before_the_router() -> None:
+    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_dispatch_early")
+    dispatch = module.read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
+    broken = _replace_once(
+        dispatch,
+        "    stamp_resource_and_capacity_timestamps(&mut method);\n",
+        "    stamp_resource_and_capacity_timestamps(&mut method);\n"
+        "    if matches!(&method, Method::KnowledgeStream { .. }) {}\n",
+    )
+    with pytest.raises(SystemExit, match="outside the post-lock router"):
         module.require_graph_dispatch_ordering(broken)
 
 
@@ -119,48 +109,14 @@ def _write_raft_modality_fixture(
 
 _VALID_RAFT_MODALITY_CHILD = """\
 #[cfg(feature = "modality-serving")]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SanitizedModalityRaftCommand {
-    sealed_runtime_state: Vec<u8>,
+    pub(crate) node_id: String,
+    #[serde(with = "serde_bytes")]
+    pub(crate) sealed_runtime_state: Vec<u8>,
 }
-
-const MAX_REPLICATED_MODALITY_STATE_BYTES: usize = 1;
-fn sanitized_modality_tag() {}
-fn is_sealed() {}
-
-impl SanitizedModalityRaftCommand {
-    fn validate_for_request(&self, server_secret: &str) {
-        self.validate(server_secret)?;
-    }
-    fn validate(&self, server_secret: &str) {
-        self.validate_runtime_state(server_secret)?;
-        self.validate_authentication(server_secret)?;
-    }
-    fn validate_runtime_state(&self, _server_secret: &str) {
-        let _ = MAX_REPLICATED_MODALITY_STATE_BYTES;
-        crate::crypto::is_sealed(&self.sealed_runtime_state);
-    }
-    fn validate_authentication(&self, _server_secret: &str) {
-        sanitized_modality_tag();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    fn encrypted_command_round_trips_without_raw_source() { assert!(true); }
-    fn unsealed_or_forged_replica_state_fails_closed() { assert!(true); }
-    fn mutation_batch_audit_and_outbox_retain_only_the_safe_receipt() {
-        let safe_receipt = command.receipt_method();
-        let batch = compile_methods(vec![safe_receipt]);
-        let encoded = encode(&batch);
-        assert!(!encoded.windows(source.len()).any(|window| window == source));
-        assert!(!encoded.windows(sealed.len()).any(|window| window == sealed));
-        assert_eq!(batch.outbox.len(), 1);
-        assert!(crate::audit::audit_line(&batch.operations[0].method)
-            .is_some_and(|line| line.starts_with(__AUDIT_LITERAL__)));
-    }
-}
-""".replace("__AUDIT_LITERAL__", '"AUTHORITATIVE_STATE_MUTATION|sha256:"')
+"""
 
 
 def test_p2_raft_replication_reads_declared_child_and_rejects_orphans(
@@ -195,44 +151,38 @@ def test_p2_raft_replication_rejects_comment_only_modality_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = _load_gate("check_p2_modality_architecture.py", "e1_p2_raft_comment_spoof")
-    _write_raft_modality_fixture(
-        tmp_path,
-        """\
-/*
-#[serde(deny_unknown_fields)]
-pub struct SanitizedModalityRaftCommand {
-    sealed_runtime_state: Vec<u8>,
-}
-const MAX_REPLICATED_MODALITY_STATE_BYTES: usize = 1;
-fn sanitized_modality_tag() {}
-fn is_sealed() {}
-fn encrypted_command_round_trips_without_raw_source() {}
-fn unsealed_or_forged_replica_state_fails_closed() {}
-fn mutation_batch_audit_and_outbox_retain_only_the_safe_receipt() {}
-*/
-""",
-    )
+    _write_raft_modality_fixture(tmp_path, "/*\n" + _VALID_RAFT_MODALITY_CHILD + "*/\n")
     monkeypatch.setattr(module, "ROOT", tmp_path)
 
     with pytest.raises(SystemExit, match="current sanitized modality Raft command"):
         module.require_modality_raft_replication()
 
 
-def test_p2_raft_replication_rejects_dead_integrity_helpers() -> None:
-    module = _load_gate(
-        "check_p2_modality_architecture.py", "e1_p2_raft_dead_integrity_helpers"
-    )
-    family = module.read_compiler_family("src/raft/mod.rs", module.ROOT)
-    raft = module._rust_code_mask(family.production)
-    module._check_sanitized_modality_command(raft)
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (
+            "    pub(crate) node_id: String,\n",
+            "    pub(crate) node_id: String,\n    source_bytes: Vec<u8>,\n",
+        ),
+        ("#[serde(deny_unknown_fields)]\n", ""),
+    ],
+)
+def test_p2_raft_replication_rejects_an_open_or_source_bearing_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, old: str, new: str
+) -> None:
+    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_raft_source_field")
+    broken = _replace_once(_VALID_RAFT_MODALITY_CHILD, old, new)
+    _write_raft_modality_fixture(tmp_path, broken)
+    monkeypatch.setattr(module, "ROOT", tmp_path)
 
-    broken = _replace_once(
-        raft,
-        "self.validate_authentication(server_secret)?;",
-        "let _dead_helper_marker = sanitized_modality_tag;",
-    )
-    with pytest.raises(SystemExit, match="not encrypted, authenticated, bounded"):
-        module._check_sanitized_modality_command(broken)
+    with pytest.raises(SystemExit, match="not closed and source-free"):
+        module.require_modality_raft_replication()
+
+
+def test_p2_raft_replication_passes_on_the_current_tree() -> None:
+    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_raft_current")
+    module.require_modality_raft_replication()
 
 
 def test_universal_read_cache_key_follows_query_children() -> None:
@@ -247,28 +197,22 @@ def test_universal_read_cache_key_follows_query_children() -> None:
         module.require_query_result_cache_rls(broken, rdf, dispatch)
 
 
-def test_modality_guard_reads_probe_child_and_rejects_a_lost_probe_body(
+def test_modality_guard_reads_runtime_children_and_rejects_a_noop(
     tmp_path, monkeypatch
 ) -> None:
     module = _load_gate(
         "check_p2_modality_architecture.py", "e1_p2_modality_module_tree"
     )
     runtime = tmp_path / "crates" / "eg-video" / "src"
-    runtime.mkdir(parents=True)
+    (runtime / "runtime").mkdir(parents=True)
     (runtime / "runtime.rs").write_text(
-        "mod probe;\n"
-        "pub struct NativeVideoRuntime;\n"
-        "pub fn production_probe() -> NativeProductionProbe {\n"
-        "    probe::production_probe()\n"
-        "}\n",
-        encoding="utf-8",
+        "mod probe;\npub struct NativeVideoRuntime;\n", encoding="utf-8"
     )
-    (runtime / "runtime").mkdir()
-    (runtime / "runtime" / "probe.rs").write_text(
-        "pub(super) fn production_probe() -> NativeProductionProbe {\n"
-        "    let malformed_and_resource_bounds = true;\n"
-        "    NativeProductionProbe { malformed_and_resource_bounds }\n"
-        "}\n",
+    probe = runtime / "runtime" / "probe.rs"
+    probe.write_text(
+        "// a NoopRuntime used to live here\n"
+        'const NOTE: &str = "NoopRuntime";\n'
+        "pub(super) fn production_probe() {}\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(module, "ROOT", tmp_path)
@@ -276,52 +220,41 @@ def test_modality_guard_reads_probe_child_and_rejects_a_lost_probe_body(
     source = module.compiler_source("crates/eg-video/src/runtime.rs")
     module.require_native_runtime_contract("video", source)
 
-    broken = source.replace("production_probe", "probe_body_removed", 1)
-    with pytest.raises(SystemExit, match="executed native production probe"):
-        module.require_native_runtime_contract("video", broken)
+    probe.write_text("pub(super) struct NoopRuntime;\n", encoding="utf-8")
+    source = module.compiler_source("crates/eg-video/src/runtime.rs")
+    with pytest.raises(SystemExit, match="video runtime still contains a no-op"):
+        module.require_native_runtime_contract("video", source)
 
 
-def test_modality_guard_rejects_dead_probe_marker_without_contract_call() -> None:
-    module = _load_gate(
-        "check_p2_modality_architecture.py", "e1_p2_native_probe_wiring"
-    )
-    contract = module.compiler_source("crates/eg-video/src/contract.rs")
-    runtime = module.compiler_source("crates/eg-video/src/runtime.rs")
-    module.require_native_probe_wiring("video", contract, runtime)
-
-    broken = _replace_once(
-        contract,
-        "Some(crate::runtime::production_probe())",
-        "None",
-    )
-    broken += '\nconst _DEAD_PROBE_MARKER: &str = "native_production_probe";\n'
-    with pytest.raises(SystemExit, match="does not call its native production probe"):
-        module.require_native_probe_wiring("video", broken, runtime)
+def test_modality_guard_rejects_tck_exemptions_and_noop_features() -> None:
+    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_modality_bans")
+    module.require_modality_crates()
+    with pytest.raises(SystemExit, match="exempts a production TCK"):
+        module.require_no_tck_exemption("audio", "fn tck_not_applicable() {}")
+    with pytest.raises(SystemExit, match="no-op codec/extractor"):
+        module.require_no_noop_features("audio", "[features]\ncodec = []\n")
 
 
-def test_modality_privacy_proof_rejects_dead_string_assignment() -> None:
-    module = _load_gate(
-        "check_p2_modality_architecture.py", "e1_p2_modality_privacy_body"
-    )
-    family = module.read_compiler_family("src/raft/mod.rs", module.ROOT)
-    code = module._rust_code_mask(family.with_tests)
-    text = module._rust_comments_mask(family.with_tests)
-    module._check_sanitized_modality_privacy_tests(code, text)
-
-    old = (
-        "assert!(crate::audit::audit_line(&batch.operations[0].method)\n"
-        "        .is_some_and(|line| line.starts_with("
-        '"AUTHORITATIVE_STATE_MUTATION|sha256:")));'
-    )
-    broken = _replace_once(
-        text,
-        old,
-        'let _dead_privacy_marker = "AUTHORITATIVE_STATE_MUTATION|sha256:";',
-    )
-    with pytest.raises(SystemExit, match="does not cover MutationBatch"):
-        module._check_sanitized_modality_privacy_tests(
-            module._rust_code_mask(broken), broken
+def test_knowledge_stream_wire_rejects_the_retired_projection() -> None:
+    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_wire_projection")
+    wire = module.compiler_source("crates/eg-types/src/knowledge_stream.rs")
+    module.require_no_compatibility_projection(wire)
+    with pytest.raises(SystemExit, match="compatibility projection"):
+        module.require_no_compatibility_projection(
+            wire + "\nenum P { CompatibilityMsgpackV1 }\n"
         )
+
+
+def test_modality_receipt_rejects_a_source_body_digest() -> None:
+    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_receipt")
+    mutation = module.read_module_tree("src/server/mutation.rs", root_dir=ROOT)
+    module.require_source_free_receipt(mutation)
+    broken = mutation + (
+        "\nfn durable_receipt_method(method: &Method) -> Method {\n"
+        "    canonical_body_bytes(method)\n}\n"
+    )
+    with pytest.raises(SystemExit, match="source-bearing wire body"):
+        module.require_source_free_receipt(broken)
 
 
 def test_analytics_gate_reads_consensus_child_and_rejects_a_lost_call_body(
@@ -433,18 +366,6 @@ def test_persisted_blob_guard_rejects_split_refcount_commit() -> None:
         )
 
 
-def test_modality_guard_rejects_lost_child_target_closure() -> None:
-    module = _load_gate(
-        "check_p2_modality_architecture.py", "e1_p2_modality_target_closure"
-    )
-    handler = module.compiler_source("src/server/handlers/modality.rs")
-    module.require_target_bound_ingest(handler)
-
-    broken = handler.replace("ResourceClosure::resolve", "ResourceClosure::removed", 1)
-    with pytest.raises(SystemExit, match="target-bound and certified"):
-        module.require_target_bound_ingest(broken)
-
-
 def test_ingest_stream_client_bound_matches_the_server_constant() -> None:
     """`epistemic_graph/client.py`'s ingest_stream item ceiling must equal the
     server's `MAX_INGEST_STREAM_ITEMS`. Regression coverage for the item limit
@@ -465,24 +386,12 @@ def test_ingest_stream_client_bound_rejects_drift_from_the_server() -> None:
         "check_p2_modality_architecture.py", "e1_p2_ingest_stream_bound_drift"
     )
     python_client = module.read("epistemic_graph/client.py")
-
-    # Only the client's validation literal drifts from its own docstring/error
-    # message: caught as an internal inconsistency before it is ever compared
-    # to the server.
-    internally_inconsistent = _replace_once(
+    drifted = _replace_once(
         python_client, "not 2 <= len(items) <= 49", "not 2 <= len(items) <= 61"
     )
-    with pytest.raises(SystemExit, match="inconsistent between its"):
-        module.require_ingest_stream_item_bound(internally_inconsistent)
-
-    # All three client literals drift together, away from the server's
-    # MAX_INGEST_STREAM_ITEMS: caught as cross-language drift.
-    drifted = python_client
-    for old, new in (
-        ("not 2 <= len(items) <= 49", "not 2 <= len(items) <= 61"),
-        ("stream of two to 49 records", "stream of two to 61 records"),
-        ("between two and 49 ingest records", "between two and 61 ingest records"),
-    ):
-        drifted = _replace_once(drifted, old, new)
     with pytest.raises(SystemExit, match="has drifted from the server's"):
         module.require_ingest_stream_item_bound(drifted)
+
+    missing = drifted.replace("len(items) <= 61", "len(items) < limit", 1)
+    with pytest.raises(SystemExit, match="absent or inconsistent"):
+        module.require_ingest_stream_item_bound(missing)

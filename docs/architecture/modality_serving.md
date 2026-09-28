@@ -342,10 +342,11 @@ while not batch["cursor"]["exhausted"]:
 
 The `knowledge-batch` and `modality-serving` facade features are part of `full`, and
 `full` is the default deployment. `scripts/check_p2_modality_architecture.py`
-prevents removal of a modality identity tier, component TCK assertion, concrete
-runtime, live verified-context handler, encrypted state boundary, resource ceiling,
-served family adapter, wire/cursor/projection contract, post-ACL dispatch point, or
-the default feature wiring.
+bans the retired shapes (no-op runtimes or codec features, TCK exemptions, the
+compatibility projection, a source-bearing receipt digest or Raft command field),
+enforces that graph ACL and placement resolve before KnowledgeStream is routed, and
+keeps the Python client's `ingest_stream` bound equal to the server's. The
+behavioral contracts themselves are proven by the Rust suites below.
 
 ## Verification commands
 
