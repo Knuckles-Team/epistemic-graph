@@ -44,6 +44,16 @@ mod tests {
             Some("method response code is not declared for this operation")
         );
         assert_eq!(denied.id, 2);
+
+        let not_built = enforce(
+            "CypherQuery",
+            Response::err(5, "METHOD_NOT_YET_SERVED: query feature unavailable"),
+        );
+        assert_eq!(not_built.error.as_deref(), Some("METHOD_NOT_YET_SERVED"));
+        assert_eq!(
+            not_built.error_detail.as_deref(),
+            Some("query feature unavailable")
+        );
     }
 
     #[test]

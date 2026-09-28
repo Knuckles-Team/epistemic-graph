@@ -42,6 +42,12 @@ mod subgraph;
 mod terminal;
 mod union;
 
+#[cfg(any(
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "rdf"
+))]
 pub(crate) use gateway::mining_response_to_gateway_result as gateway_response_result;
 pub(crate) use gateway::try_handle_gateway;
 pub(crate) use terminal::try_handle;

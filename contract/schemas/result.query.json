@@ -6683,7 +6683,8 @@
               "type": "string"
             },
             "request": {
-              "$ref": "#/$defs/McpCatalogReconcileRequest"
+              "$ref": "#/$defs/McpCatalogReconcileRequest",
+              "description": "Keep catalog reconciliation from setting the size of every pack operation."
             }
           },
           "required": [
@@ -7526,7 +7527,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "A submitted dataset, pinned by digest (gold sets, exported suites).",
+          "description": "A submitted dataset pinned by digest. The digest proves byte identity,\nnot independent labels: served inline fit/eval results are synthetic\nuntil a separately verified gold-set authority is implemented.",
           "properties": {
             "dataset": {
               "$ref": "#/$defs/LabelledDataset"
