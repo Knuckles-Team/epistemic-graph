@@ -1628,13 +1628,16 @@ mod dispatch_write_tests {
             ),
         )
         .await;
-        assert!(
-            guest_alter
-                .error
-                .as_deref()
-                .is_some_and(|error| error == crate::server::sql_catalog_acl::ACCESS_DENIED),
-            "same-tenant non-owner must remain denied after repair: {:?}",
-            guest_alter.error
+        assert_eq!(
+            (
+                guest_alter.error.as_deref(),
+                guest_alter.error_detail.as_deref()
+            ),
+            crate::server::sql_catalog_acl::ACCESS_DENIED
+                .split_once(": ")
+                .map(|(code, detail)| (Some(code), Some(detail)))
+                .unwrap(),
+            "same-tenant non-owner must remain denied after repair"
         );
     }
 
