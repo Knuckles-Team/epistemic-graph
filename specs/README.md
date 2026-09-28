@@ -45,4 +45,5 @@ with the [SDD full lifecycle](https://github.com/Knuckles-Team/universal-skills/
 
 ## Local specifications
 
+- [`unified-data-plane`](unified-data-plane/spec.md) — Train 9 EG owner contract; PROPOSED.
 - [`EG-T4-GREEN`](EG-T4-GREEN/spec.md) — Train 4 post-merge green repair and PR #3 evidence; IN REVIEW.
