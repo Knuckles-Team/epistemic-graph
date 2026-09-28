@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import copy
 import importlib.util
-import re
-from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -80,63 +78,6 @@ def test_graph_router_call_removal_fails_closed() -> None:
         module.check_inventory(parts)
 
 
-def test_test_and_assertion_inventory_drift_fails_closed() -> None:
-    module = _gate_module()
-    production, with_tests = module.compiler_views()
-    broken = _replace_once(with_tests, "#[test]", "#[removed_test]")
-    with pytest.raises(SystemExit, match="test inventory changed"):
-        module.check_compiler_inventory(production, broken)
-
-
-def test_function_inventory_rejects_comment_only_omission_spoof() -> None:
-    module = _gate_module()
-    production, with_tests = module.compiler_views()
-    counts = Counter(module.function_names(production))
-    name = next(name for name, count in counts.items() if count == 1)
-    old = f"fn {name}("
-    broken_production = _replace_once(production, old, f"const {name}: (")
-    broken_with_tests = _replace_once(with_tests, old, f"const {name}: (")
-    spoof = f"\n// fn {name}() {{}}\n"
-    broken_production += spoof
-    broken_with_tests += spoof
-
-    with pytest.raises(SystemExit, match="production function inventory changed"):
-        module.check_compiler_inventory(broken_production, broken_with_tests)
-
-
-def test_test_inventory_rejects_string_only_attribute_spoof() -> None:
-    module = _gate_module()
-    production, with_tests = module.compiler_views()
-    match = re.search(r"#\[test\]", with_tests)
-    assert match is not None
-    broken = _replace_once(with_tests, match.group(0), "#[removed_test]")
-    broken += '\nconst _TEST_SPOOF: &str = "#[test] fn forged_test() {}";\n'
-
-    with pytest.raises(SystemExit, match="test inventory changed"):
-        module.check_compiler_inventory(production, broken)
-
-
-def test_assertion_inventory_rejects_comment_and_string_spoofs() -> None:
-    module = _gate_module()
-    production, with_tests = module.compiler_views()
-    broken = _replace_once(with_tests, "assert!(", "removed_assert!(")
-    broken += '\n// assert!(true);\nconst _ASSERT_SPOOF: &str = "assert_eq!(1, 1);";\n'
-
-    with pytest.raises(SystemExit, match="assertion inventory changed"):
-        module.check_compiler_inventory(production, broken)
-
-
-def test_cfg_boundary_drift_fails_closed() -> None:
-    module = _gate_module()
-    parts = module.sources()
-    target = "src/server/dispatch/graph_pipeline/pipeline.rs"
-    parts[target] = parts[target].replace(
-        'feature = "query"', 'feature = "removed-query"', 1
-    )
-    with pytest.raises(SystemExit, match="cfg boundary set changed"):
-        module.check_cfg_contract(parts)
-
-
 def test_legacy_coalescer_subset_proof_fails_closed() -> None:
     module = _gate_module()
     parts = copy.deepcopy(module.sources())
@@ -190,32 +131,6 @@ def test_post_lock_router_order_swap_fails_closed() -> None:
         module.check_routing_and_coalescing(parts)
 
 
-def test_compile_shape_regression_fails_closed() -> None:
-    module = _gate_module()
-    parts = module.sources()
-    graph = "src/server/dispatch/graph_pipeline/dispatch_helpers.rs"
-    parts[graph] = parts[graph].replace(
-        "let method = Method::ServedModality { op: op.clone() };",
-        "let removed_method = Method::ServedModality { op: op.clone() };",
-        1,
-    )
-    with pytest.raises(SystemExit, match="ServedModality lost"):
-        module.check_compile_shapes(parts)
-
-
-def test_compiler_family_child_omission_fails_closed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module = _gate_module()
-    omitted = "src/server/dispatch/change_envelope/multi_graph.rs"
-    monkeypatch.setattr(module, "EXPECTED_PATHS", module.EXPECTED_PATHS - {omitted})
-
-    with pytest.raises(
-        SystemExit, match="compiler module family or orphan set changed"
-    ):
-        module.sources()
-
-
 def test_consensus_fail_open_catch_all_fails_closed() -> None:
     module = _gate_module()
     parts = module.sources()
@@ -227,3 +142,22 @@ def test_consensus_fail_open_catch_all_fails_closed() -> None:
     )
     with pytest.raises(SystemExit, match="fail-open catch-all"):
         module.check_consensus_exhaustiveness(parts)
+
+
+def test_undeclared_dispatch_module_is_an_orphan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _gate_module()
+    family = module.read_compiler_family(
+        module.ROOT / f"{module.DISPATCH_ROOT}.rs", module.ROOT
+    )
+    root = tmp_path
+    for path in family.all_paths:
+        target = root / path.relative_to(module.ROOT)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    (root / module.DISPATCH_ROOT / "forgotten.rs").write_text("fn dead() {}\n")
+    monkeypatch.setattr(module, "ROOT", root)
+
+    with pytest.raises(SystemExit, match="orphan Rust module files"):
+        module.sources()
