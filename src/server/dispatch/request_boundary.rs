@@ -375,17 +375,22 @@ async fn dispatch_preamble_checks(
 
 /// The wire refusal for a failed request verification. The published error
 /// sets distinguish a context bound to another node or scope (ADR-3), so
-/// those codes survive; every detail stays redacted so a failed verification
-/// is never an oracle for secrets, nonces or node identity.
+/// those codes survive. The scope mismatches keep their fixed sentences; a
+/// node mismatch drops its detail, which names nodes, and every other failure
+/// stays redacted so verification is never an oracle for secrets or nonces.
 fn authentication_refusal(error: &str) -> &'static str {
-    let code = error.split_once(':').map_or(error, |(code, _)| code);
-    match code {
-        "NODE_MISMATCH" => "NODE_MISMATCH: Authentication failed",
-        "AUTH_TENANT_MISMATCH" => "AUTH_TENANT_MISMATCH: Authentication failed",
-        "AUTH_AUDIENCE_MISMATCH" => "AUTH_AUDIENCE_MISMATCH: Authentication failed",
-        "AUTH_POLICY_VERSION_MISMATCH" => "AUTH_POLICY_VERSION_MISMATCH: Authentication failed",
-        _ => "AUTHENTICATION_REQUIRED: Authentication failed",
+    const SCOPE_MISMATCHES: [&str; 3] = [
+        "AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment",
+        "AUTH_TENANT_MISMATCH: request context tenant does not match graph tenant",
+        "AUTH_POLICY_VERSION_MISMATCH: request context policy version is not active",
+    ];
+    if let Some(fixed) = SCOPE_MISMATCHES.into_iter().find(|fixed| *fixed == error) {
+        return fixed;
     }
+    if error.starts_with("NODE_MISMATCH:") {
+        return "NODE_MISMATCH: Authentication failed";
+    }
+    "AUTHENTICATION_REQUIRED: Authentication failed"
 }
 
 async fn dispatch_inner(
