@@ -41,14 +41,15 @@ where
     .await
 }
 
-/// Shared conversion tail every `Mine*` gateway closure ends with (CONCEPT:EG-KG.mining.tsdb-typed-absent):
-/// a mining `Response` carries its own `error`/`result`, so folding it into the
+/// Shared conversion tail for graph, query, and RDF gateway closures
+/// (CONCEPT:EG-KG.mining.tsdb-typed-absent): a handler `Response` carries its own
+/// refusal/result, so folding it into the
 /// `apply: FnOnce(&GraphCore) -> Result<ResultPayload, String>` shape `commit_conditional_mutation`
 /// expects is identical work at every one of the 17 `Mine*` call sites, plus the
 /// GraphLearn*/MiningPipeline* families (same `commit_conditional_mutation` shape,
 /// gated on different features). Not itself `mining`-gated since
 /// GraphLearn*/MiningPipeline* need it under their own, different features.
-pub(super) fn mining_response_to_gateway_result(resp: Response) -> Result<ResultPayload, String> {
+pub(crate) fn mining_response_to_gateway_result(resp: Response) -> Result<ResultPayload, String> {
     // Keep the detail with the code: the gateway re-wraps this text through
     // `Response::err`, which would otherwise answer with a bare code.
     match resp.refusal_text() {

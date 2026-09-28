@@ -140,8 +140,9 @@ use commit_entry::{
 
 pub(super) use commit_encode::publish_committed_row_delta;
 use commit_encode::{
-    commit_mutation_body_commit_staged, diff_and_serialize_staged_mutation, prepublish_success,
-    preserves_node_derived_indexes, staged_mutation_descriptor, StagedMutation,
+    commit_mutation_body_commit_staged, commit_staged_with_receipt,
+    diff_and_serialize_staged_mutation, prepublish_success, preserves_node_derived_indexes,
+    StagedMutation, StagedReceipt,
 };
 use commit_paths::{
     commit_mutation_body_prepublish_fast_path, commit_mutation_body_staged_path,
@@ -149,7 +150,8 @@ use commit_paths::{
 };
 use commit_replay::{
     commit_mutation_body_replay_response, commit_row_replay_probe, commit_staged_replay_probe,
-    compile_batch_and_encode_result, DurableBatchAttempt, DurableBatchTarget,
+    compile_batch_and_encode_result, compile_batch_context, DurableBatchAttempt,
+    DurableBatchTarget,
 };
 
 // Each conditional-commit entry point is re-exported exactly where its callers

@@ -87,8 +87,8 @@ impl BudgetValidation<'_> {
     }
 
     fn revision_identity_is_invalid(&self) -> bool {
-        !bounded(&self.revision.caller_subject.as_deref().unwrap_or_default())
-            || !bounded(&self.revision.idempotency_key.as_deref().unwrap_or_default())
+        !bounded(self.revision.caller_subject.as_deref().unwrap_or_default())
+            || !bounded(self.revision.idempotency_key.as_deref().unwrap_or_default())
             || self.revision.verified_action.as_deref()
                 != Some("repository:enrichment:budget:top_up")
             || !valid_digest(&self.revision.policy_digest)

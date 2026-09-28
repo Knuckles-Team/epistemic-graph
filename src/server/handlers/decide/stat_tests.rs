@@ -173,6 +173,18 @@ fn rational(n: u64, d: u64) -> UnitRationalWire {
     UnitRationalWire::new(n, d).unwrap()
 }
 
+fn ordinary_exploration_policy() -> eg_types::decision::DecisionPolicy {
+    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
+    policy.cold_start = ColdStart::Explore {
+        budget: ExplorationBudget {
+            fraction: rational(1, 1),
+            spend_at_risk_micros: 1,
+            questions: BoundedVec::new(vec!["route.tools".to_string()]).unwrap(),
+        },
+    };
+    policy
+}
+
 fn fit_optimiser() -> OptimiserSpec {
     OptimiserSpec {
         max_iterations: 60,
@@ -824,14 +836,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     // The log and retention tests still need an executed decision. Explicit
     // ordinary-question exploration supplies one without claiming risk-bound
     // Act from the synthetic calibration.
-    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
-    policy.cold_start = ColdStart::Explore {
-        budget: ExplorationBudget {
-            fraction: rational(1, 1),
-            spend_at_risk_micros: 1,
-            questions: BoundedVec::new(vec!["route.tools".to_string()]).unwrap(),
-        },
-    };
+    let policy = ordinary_exploration_policy();
     let policy_pin = h.publish_policy("policy-inline-explore", &policy);
     let explored = decide(
         &h,

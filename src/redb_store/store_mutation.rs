@@ -556,7 +556,7 @@ fn finish_fresh_batch(
         let transition = top_up.transition;
         if let Err(error) = shard.outbox_supersede_batch_record(
             &group,
-            &handle,
+            handle,
             &transition.consumer,
             &transition.old_delivery,
             rows.committed_at_ms,

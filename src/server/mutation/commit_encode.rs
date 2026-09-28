@@ -6,9 +6,21 @@ use crate::server::persistence::PersistenceBackend;
 
 use super::{
     commit_finalize, commit_mutation_body_replay_response, compile_batch_and_encode_result,
-    durable_receipt_method, CommitFinalizeOptions, CommitPrep, DurableBatchAttempt,
-    DurableBatchTarget, MutationCtx, MutationPlan,
+    compile_batch_context, durable_receipt_method, CommitFinalizeOptions, CommitPrep,
+    DurableBatchAttempt, DurableBatchTarget, MutationCtx, MutationPlan,
 };
+
+/// Preserve a classified refusal when a staged durable commit fails.
+pub(super) fn staged_commit_error(req_id: u64, error: &str) -> Response {
+    Response::err(
+        req_id,
+        eg_types::contract::classify_refusal(
+            "INTERNAL",
+            "staged MutationBatch durable commit failed: ",
+            error,
+        ),
+    )
+}
 
 /// Diff `staged_snapshot` against `base_snapshot_for_delta` into a row delta,
 /// serialize it, and enforce the configured size limit. Shared by
@@ -76,6 +88,36 @@ pub(super) async fn commit_mutation_body_commit_staged(
     prep: CommitPrep,
     staged: StagedMutation,
 ) -> Response {
+    commit_staged_with_receipt(
+        ctx,
+        plan,
+        method,
+        attempt,
+        prep,
+        staged,
+        StagedReceipt {
+            surface: crate::mutation_batch::MutationSurface::Graph,
+            methods: vec![durable_receipt_method(method)],
+        },
+    )
+    .await
+}
+
+pub(super) struct StagedReceipt {
+    pub(super) surface: crate::mutation_batch::MutationSurface,
+    pub(super) methods: Vec<Method>,
+}
+
+/// The common durable commit and projection publish path for graph, query, and RDF gateways.
+pub(super) async fn commit_staged_with_receipt(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    attempt: DurableBatchAttempt<'_>,
+    prep: CommitPrep,
+    staged: StagedMutation,
+    receipt: StagedReceipt,
+) -> Response {
     let DurableBatchAttempt {
         target:
             DurableBatchTarget {
@@ -97,22 +139,15 @@ pub(super) async fn commit_mutation_body_commit_staged(
     };
     let (batch, result) = match compile_batch_and_encode_result(
         ctx,
-        crate::server::mutation_batch::CompileBatch {
+        compile_batch_context(
+            ctx,
             batch_id,
-            request_id: ctx.req_id,
-            attempt_nonce: ctx.attempt_nonce,
-            principal: ctx.caller,
-            tenant: ctx.tenant_scope,
-            graph: ctx.graph_name,
-            placement_epoch: 0,
-            idempotency_key: ctx.idempotency_key,
-            expected_graph_version: Some(source_version),
-            fencing_token: None,
+            source_version,
             created_at_ms,
-            default_surface: crate::mutation_batch::MutationSurface::Graph,
-            authoritative_state: Some(descriptor),
-        },
-        vec![durable_receipt_method(method)],
+            receipt.surface,
+            Some(descriptor),
+        ),
+        receipt.methods,
         &payload,
     ) {
         Ok(pair) => pair,
@@ -134,16 +169,7 @@ pub(super) async fn commit_mutation_body_commit_staged(
         .await
     {
         Ok(committed) => committed,
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                eg_types::contract::classify_refusal(
-                    "INTERNAL",
-                    "staged MutationBatch durable commit failed: ",
-                    &error,
-                ),
-            );
-        }
+        Err(error) => return staged_commit_error(ctx.req_id, &error),
     };
     if committed.replayed {
         return commit_mutation_body_replay_response(

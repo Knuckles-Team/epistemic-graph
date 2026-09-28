@@ -152,14 +152,7 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
     // Belief replay and the log still need an executed decision: explicit
     // ordinary-question exploration supplies one through the scorer head
     // without claiming a risk-bound Act from the synthetic calibration.
-    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
-    policy.cold_start = ColdStart::Explore {
-        budget: ExplorationBudget {
-            fraction: rational(1, 1),
-            spend_at_risk_micros: 1,
-            questions: BoundedVec::new(vec!["route.tools".to_string()]).unwrap(),
-        },
-    };
+    let policy = ordinary_exploration_policy();
     let policy_pin = h.publish_policy("policy-scorer-explore", &policy);
     let mut request = request(
         &fixture.schema_pin,

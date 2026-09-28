@@ -7,9 +7,9 @@ use crate::server::persistence::PersistenceBackend;
 use super::{
     commit_finalize, commit_mutation_body_commit_staged, commit_mutation_body_replay_response,
     commit_row_replay_probe, commit_staged_replay_probe, compile_batch_and_encode_result,
-    diff_and_serialize_staged_mutation, durable_receipt_method, preserves_node_derived_indexes,
-    CommitFinalizeOptions, CommitPrep, DurableBatchAttempt, DurableBatchTarget, MutationCtx,
-    MutationPlan, StagedMutation,
+    compile_batch_context, diff_and_serialize_staged_mutation, durable_receipt_method,
+    preserves_node_derived_indexes, CommitFinalizeOptions, CommitPrep, DurableBatchAttempt,
+    DurableBatchTarget, MutationCtx, MutationPlan, StagedMutation,
 };
 
 /// The row-local fast path of [`commit_mutation_body`]: [`prepublish_success`]
@@ -113,21 +113,14 @@ async fn commit_prepublish_durable_batch(
             })?;
     let (batch, result) = compile_batch_and_encode_result(
         ctx,
-        crate::server::mutation_batch::CompileBatch {
+        compile_batch_context(
+            ctx,
             batch_id,
-            request_id: ctx.req_id,
-            attempt_nonce: ctx.attempt_nonce,
-            principal: ctx.caller,
-            tenant: ctx.tenant_scope,
-            graph: ctx.graph_name,
-            placement_epoch: 0,
-            idempotency_key: ctx.idempotency_key,
-            expected_graph_version: Some(source_version),
-            fencing_token: None,
+            source_version,
             created_at_ms,
-            default_surface: crate::mutation_batch::MutationSurface::Graph,
-            authoritative_state: None,
-        },
+            crate::mutation_batch::MutationSurface::Graph,
+            None,
+        ),
         vec![method.clone()],
         predicted,
     )?;
