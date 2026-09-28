@@ -144,7 +144,10 @@ async fn create_declared_graph(
         (s.persistence.clone(), s.registry.exists(&graph_name))
     };
     let Some(backend) = backend else {
-        return Response::err(req_id, "ENGINE_UNAVAILABLE: graph creation requires durable persistence");
+        return Response::err(
+            req_id,
+            "ENGINE_UNAVAILABLE: graph creation requires durable persistence",
+        );
     };
     let incarnation_id = crate::server::mutation_batch::lifecycle_batch_id(
         "create",
@@ -372,7 +375,10 @@ async fn delete_declared_graph(
         return Response::err(req_id, denied);
     }
     let Some(backend) = backend else {
-        return Response::err(req_id, "ENGINE_UNAVAILABLE: graph deletion requires durable persistence");
+        return Response::err(
+            req_id,
+            "ENGINE_UNAVAILABLE: graph deletion requires durable persistence",
+        );
     };
     if !exists {
         return reconcile_missing_graph_delete(
@@ -412,11 +418,7 @@ async fn delete_declared_graph(
     {
         return Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
-                "INTERNAL",
-                "durable graph purge failed: ",
-                &e,
-            ),
+            eg_types::contract::classify_refusal("INTERNAL", "durable graph purge failed: ", &e),
         );
     }
 

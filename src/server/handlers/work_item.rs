@@ -127,7 +127,8 @@ fn stamp_retired_by(method: Method, caller: Option<&str>) -> Result<Method, Stri
     let Method::RetireSealedRecord { mut request } = method else {
         return Ok(method);
     };
-    let caller = caller.ok_or("ACCESS_DENIED: retiring a sealed record requires a verified caller")?;
+    let caller =
+        caller.ok_or("ACCESS_DENIED: retiring a sealed record requires a verified caller")?;
     request.retired_by = crate::server::mutation_batch::principal_fingerprint(caller)?;
     Ok(Method::RetireSealedRecord { request })
 }

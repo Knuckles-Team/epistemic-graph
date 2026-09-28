@@ -87,7 +87,8 @@ pub(in crate::server::handlers::txn) async fn validate_txn_lifecycle_replay(
             ResultPayload::String(txn_id) => txn_id.as_str(),
             _ => {
                 return Err(
-                    "INTERNAL: transaction lifecycle receipt has the wrong BeginTxn result".to_string(),
+                    "INTERNAL: transaction lifecycle receipt has the wrong BeginTxn result"
+                        .to_string(),
                 );
             }
         }
@@ -105,7 +106,9 @@ pub(in crate::server::handlers::txn) async fn validate_txn_lifecycle_replay(
         );
     };
     if entry.value().lock().agent != owner {
-        return Err("ACCESS_DENIED: transaction lifecycle receipt does not match caller scope".to_string());
+        return Err(
+            "ACCESS_DENIED: transaction lifecycle receipt does not match caller scope".to_string(),
+        );
     }
     Ok(())
 }
@@ -149,9 +152,9 @@ pub(in crate::server::handlers::txn) async fn begin_txn_lifecycle_receipt(
     let backend = state.read().await.persistence.clone().ok_or_else(|| {
         "ENGINE_UNAVAILABLE: transaction lifecycle requires an authoritative MutationBatch backend".to_string()
     })?;
-    let redb = backend
-        .as_redb()
-        .ok_or_else(|| "ENGINE_UNAVAILABLE: transaction lifecycle requires durable redb".to_string())?;
+    let redb = backend.as_redb().ok_or_else(|| {
+        "ENGINE_UNAVAILABLE: transaction lifecycle requires durable redb".to_string()
+    })?;
     let batch_id = txn_lifecycle_batch_id(authority, method);
     // A lifecycle saga is only the replay authority; its effect still lives in
     // the volatile transaction registry.  If a prior attempt prepared that

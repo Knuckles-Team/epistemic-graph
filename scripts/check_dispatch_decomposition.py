@@ -249,14 +249,15 @@ CFG_FINGERPRINT = "607bd0f89cf9d9769edcee94ad7a90153d71dc6debf9a0f593dcc8c2beaad
 # functions, 105 -> 121 tests, 345 -> 408 assertions, led by the two new
 # compiler-declared `repository_index/{consumer,enrichment}.rs` modules
 # (EH-280 enrichment consumer). Measured with read_compiler_family on main
-# after the merge, not from a file glob.
-PRODUCTION_FUNCTION_COUNT = 590
+# after the merge, not from a file glob. 590 -> 591 / 803 -> 804: the
+# request boundary's `authentication_refusal` (declared auth codes survive).
+PRODUCTION_FUNCTION_COUNT = 591
 PRODUCTION_FUNCTION_DIGEST = (
-    "003646efc62fdfe91a9e23d3f68fbd892a782e60bca713b157af8775aacd5c30"
+    "3f07d98931b5c764e3288a6f903b108ec53e5c71dc05a9e77341e051d4952f60"
 )
-COMPILER_FUNCTION_COUNT = 803
+COMPILER_FUNCTION_COUNT = 804
 COMPILER_FUNCTION_DIGEST = (
-    "75c0d854218ba2cb61f44fd66337f1d201925ceaf9e261a3c56e34ff5e8481a3"
+    "9af36b33e81aca19a947230e2472da2f698c57d2f68175415b531f23a3d710ab"
 )
 TEST_FUNCTION_COUNT = 121
 TEST_FUNCTION_DIGEST = (

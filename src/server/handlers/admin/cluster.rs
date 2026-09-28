@@ -269,7 +269,10 @@ async fn handle_backup(
         .as_ref()
         .is_some_and(|value| value.len() > 256 || value.chars().any(char::is_control))
     {
-        return Ok(Response::err(req_id, "INVALID_ARGUMENT: backup label is invalid"));
+        return Ok(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: backup label is invalid",
+        ));
     }
     let (destination, stage) = match resolve_backup_destination(&destination, req_id) {
         Ok(value) => value,

@@ -2513,8 +2513,12 @@ mod tests {
             "an unregistered foreign source must ERROR, never silently degrade to the \
              local candidate set",
         );
-        assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
-        assert_eq!(err, "unclassified engine refusal");
+        assert_eq!(resp.error.as_deref(), Some("INVALID_ARGUMENT"));
+        assert!(
+            err.contains("no foreign source registered under name 'typo_docs'")
+                && err.contains("registered:"),
+            "the refusal must name the missing source and the registry: {err}"
+        );
 
         // The same for the UQL `FOREIGN "<name>"` marker.
         let resp = dispatch_on_heap(
@@ -2534,8 +2538,12 @@ mod tests {
         let err = resp
             .error_detail
             .expect("an unregistered FOREIGN \"<name>\" marker must error");
-        assert_eq!(resp.error.as_deref(), Some("INTERNAL"));
-        assert_eq!(err, "unclassified engine refusal");
+        assert_eq!(resp.error.as_deref(), Some("INVALID_ARGUMENT"));
+        assert!(
+            err.contains("no foreign source registered under name 'typo_docs'")
+                && err.contains("registered:"),
+            "the refusal must name the missing source and the registry: {err}"
+        );
     }
 
     // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
