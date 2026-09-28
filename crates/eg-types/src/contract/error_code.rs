@@ -73,3 +73,44 @@ pub fn declared_error_code(code: &str) -> bool {
     .into_iter()
     .any(|known| known)
 }
+
+/// Classify a refusal for `Response::err` without hiding a code it already
+/// carries. A declared `CODE: detail` keeps its code with `context` placed
+/// before the detail; a bare declared code passes through unchanged; free text
+/// is reported under `default` with `context` kept as its human prefix.
+pub fn classify_refusal(default: &str, context: &str, refusal: &str) -> String {
+    match refusal.split_once(": ") {
+        Some((code, detail)) if declared_error_code(code) => format!("{code}: {context}{detail}"),
+        _ if declared_error_code(refusal) => refusal.to_string(),
+        _ => format!("{default}: {context}{refusal}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_refusal;
+
+    #[test]
+    fn classify_refusal_keeps_declared_codes_and_classifies_free_text() {
+        assert_eq!(
+            classify_refusal(
+                "INVALID_ARGUMENT",
+                "SQL error: ",
+                "ACCESS_DENIED: table hidden"
+            ),
+            "ACCESS_DENIED: SQL error: table hidden"
+        );
+        assert_eq!(
+            classify_refusal("INVALID_ARGUMENT", "SQL error: ", "ACCESS_DENIED"),
+            "ACCESS_DENIED"
+        );
+        assert_eq!(
+            classify_refusal("INVALID_ARGUMENT", "SQL error: ", "table t does not exist"),
+            "INVALID_ARGUMENT: SQL error: table t does not exist"
+        );
+        assert_eq!(
+            classify_refusal("INTERNAL", "", "Not A Code: boom"),
+            "INTERNAL: Not A Code: boom"
+        );
+    }
+}

@@ -53,7 +53,7 @@ pub(crate) async fn sql_persist_dir(
         .clone()
         .map(std::path::PathBuf::from)
         .ok_or_else(|| {
-            "SQL error: tenant SQL catalog requires the configured persistence directory"
+            "ENGINE_UNAVAILABLE: SQL error: tenant SQL catalog requires the configured persistence directory"
                 .to_string()
         })
 }
@@ -65,7 +65,7 @@ fn sql_tenant_store(
     req_id: u64,
 ) -> Result<eg_query::TableStore, Response> {
     crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)
-        .map_err(|error| Response::err(req_id, format!("SQL error: {error}")))
+        .map_err(|error| Response::err(req_id, sql_refusal(error)))
 }
 
 #[cfg(feature = "query")]
@@ -289,7 +289,14 @@ where
             }
             Err(error) => Response::err(req_id, error),
         },
-        Ok(Err(message)) => Response::err(req_id, format!("{label} error: {message}")),
+        Ok(Err(message)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                &format!("{label} error: "),
+                &message,
+            ),
+        ),
         Err(response) => response,
     }
 }
@@ -402,7 +409,7 @@ pub(super) async fn catalog_sql_response(
     .await
     {
         Ok(Ok(typed)) => typed_sql_response(req_id, typed),
-        Ok(Err(message)) => Response::err(req_id, format!("SQL error: {message}")),
+        Ok(Err(message)) => Response::err(req_id, sql_refusal(message)),
         Err(response) => response,
     };
     if let Some(task) = timeout_task {

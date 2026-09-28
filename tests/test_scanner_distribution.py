@@ -144,6 +144,20 @@ def test_goc70_is_manual_only_until_execution_is_bounded():
     assert hooks["constrained-parallelism"]["stages"] == ["manual"]
 
 
+def _assert_scanner_rust_toolchain(steps):
+    """KISS package workers must inherit an already installed pinned channel."""
+    rust_setup = next(
+        step
+        for step in steps
+        if step.get("uses", "").startswith("dtolnay/rust-toolchain@")
+    )
+    pinned = tomllib.loads((REPO / "rust-toolchain.toml").read_text())["toolchain"]
+    assert rust_setup["with"]["toolchain"] == pinned["channel"]
+    assert set(rust_setup["with"]["components"].split(", ")) == set(
+        pinned["components"]
+    )
+
+
 def _assert_scanner_job(jobs, workflow_source):
     scanner = jobs["scanner-quality"]
     checkout = next(
@@ -163,6 +177,7 @@ def _assert_scanner_job(jobs, workflow_source):
     # dependency-cruiser 18 follows the active Node release lines and refuses
     # Node 20 before it can print the pinned version.
     assert node_setup["with"]["node-version"] == "22"
+    _assert_scanner_rust_toolchain(scanner["steps"])
 
     all_runs = "\n".join(str(step["run"]) for step in scanner["steps"] if "run" in step)
     for command in (

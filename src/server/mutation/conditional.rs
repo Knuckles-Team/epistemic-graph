@@ -9,12 +9,11 @@ use crate::server::access::check_graph_access;
 use crate::server::persistence::PersistenceBackend;
 
 use super::{
-    advance_authoritative_manifest, commit_finalize, commit_mutation,
-    commit_mutation_body_replay_response, commit_prepare, commit_staged_replay_probe,
-    compile_batch_and_encode_result, consensus_apply_is_authorized,
-    diff_and_serialize_staged_mutation, method_variant_name, publish_committed_row_delta,
-    resolve_authoritative_base_snapshot, staged_mutation_descriptor, CommitFinalizeOptions,
-    CommitPrep, DurableBatchAttempt, DurableBatchTarget, MutationCtx, MutationPlan, StagedMutation,
+    advance_authoritative_manifest, commit_finalize, commit_mutation, commit_prepare,
+    commit_staged_replay_probe, commit_staged_with_receipt, consensus_apply_is_authorized,
+    diff_and_serialize_staged_mutation, method_variant_name, resolve_authoritative_base_snapshot,
+    CommitFinalizeOptions, CommitPrep, DurableBatchAttempt, DurableBatchTarget, MutationCtx,
+    MutationPlan, StagedMutation, StagedReceipt,
 };
 
 /// The gateway entry point for a RUNTIME-CONDITIONAL method (CONCEPT:EG-P0-2, L11
@@ -326,103 +325,21 @@ pub(super) async fn commit_conditional_commit_staged(
     prep: CommitPrep,
     staged: StagedMutation,
 ) -> Response {
-    let DurableBatchAttempt {
-        target:
-            DurableBatchTarget {
-                persistence,
-                fname,
-                batch_id,
-            },
-        created_at_ms,
-    } = attempt;
-    let StagedMutation {
-        payload,
-        row_delta,
-        state_msgpack,
-        source_version,
-    } = staged;
-    let descriptor = match staged_mutation_descriptor(ctx, source_version, &state_msgpack) {
-        Ok(descriptor) => descriptor,
-        Err(response) => return response,
-    };
-    let default_surface = if is_rdf_gateway_method(method) {
+    let surface = if is_rdf_gateway_method(method) {
         crate::mutation_batch::MutationSurface::Rdf
     } else {
         crate::mutation_batch::MutationSurface::Query
     };
-    let (batch, result) = match compile_batch_and_encode_result(
-        ctx,
-        crate::server::mutation_batch::CompileBatch {
-            batch_id,
-            request_id: ctx.req_id,
-            attempt_nonce: ctx.attempt_nonce,
-            principal: ctx.caller,
-            tenant: ctx.tenant_scope,
-            graph: ctx.graph_name,
-            placement_epoch: 0,
-            idempotency_key: ctx.idempotency_key,
-            expected_graph_version: Some(source_version),
-            fencing_token: None,
-            created_at_ms,
-            default_surface,
-            authoritative_state: Some(descriptor),
-        },
-        vec![method.clone()],
-        &payload,
-    ) {
-        Ok(pair) => pair,
-        Err(response) => return response,
-    };
-    let committed = match persistence
-        .commit_mutation_batch_state(
-            fname,
-            &batch,
-            state_msgpack,
-            Some(&result),
-            created_at_ms,
-            // The ORIGINAL method's policy-audited answer, captured before
-            // `compile_methods` erased its identity into an opaque state receipt
-            // (see `redb_store::commit_mutation_batch_inner`'s doc comment).
-            // `TouchNodes` is the standing durable-but-unaudited example.
-            plan.audited,
-        )
-        .await
-    {
-        Ok(committed) => committed,
-        Err(error) => {
-            return Response::err(
-                ctx.req_id,
-                format!("staged MutationBatch durable commit failed: {error}"),
-            );
-        }
-    };
-    if committed.replayed {
-        return commit_mutation_body_replay_response(
-            ctx,
-            persistence,
-            fname,
-            committed.record,
-            &prep,
-        )
-        .await;
-    }
-    if let Err(error) =
-        publish_committed_row_delta(persistence, fname, ctx.core, &row_delta, source_version).await
-    {
-        return Response::err(
-            ctx.req_id,
-            format!("durable mutation projection publish failed: {error}"),
-        );
-    }
-    commit_finalize(
+    commit_staged_with_receipt(
         ctx,
         plan,
         method,
-        Response::ok(ctx.req_id, payload),
+        attempt,
         prep,
-        CommitFinalizeOptions {
-            durability_already_committed: true,
-            preserve_node_indexes: row_delta.preserves_node_derived_indexes(),
+        staged,
+        StagedReceipt {
+            surface,
+            methods: vec![method.clone()],
         },
     )
     .await

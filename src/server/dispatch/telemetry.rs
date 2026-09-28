@@ -147,8 +147,8 @@ async fn write_facts(
         method,
     )
     .await;
-    match response.error {
-        Some(error) => Err(error),
+    match response.refusal_text() {
+        Some(refusal) => Err(refusal),
         None => Ok(()),
     }
 }

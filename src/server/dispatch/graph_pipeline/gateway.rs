@@ -68,7 +68,7 @@ async fn commit_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respo
             &method,
             mutates_now,
             move |staged_core| async move {
-                match handlers::query::try_handle(
+                handlers::query::try_handle(
                     state,
                     handlers::TryHandleContext {
                         req_id,
@@ -82,15 +82,10 @@ async fn commit_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respo
                     &rls_apply,
                 )
                 .await
-                {
-                    Ok(r) => match r.error {
-                        Some(e) => Err(e),
-                        None => Ok(r
-                            .result
-                            .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                    },
-                    Err(_) => Err("query surface not available in this build".to_string()),
-                }
+                .map_err(|_| {
+                    "ENGINE_UNAVAILABLE: query surface not available in this build".to_string()
+                })
+                .and_then(handlers::graph_ops::gateway_response_result)
             },
         )
         .await;
@@ -167,7 +162,7 @@ async fn commit_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respons
             &method,
             true,
             move |staged_core| async move {
-                match handlers::rdf::try_handle(
+                handlers::rdf::try_handle(
                     state,
                     handlers::TryHandleContext {
                         req_id,
@@ -181,15 +176,10 @@ async fn commit_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respons
                     &rls_apply,
                 )
                 .await
-                {
-                    Ok(r) => match r.error {
-                        Some(e) => Err(e),
-                        None => Ok(r
-                            .result
-                            .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
-                    },
-                    Err(_) => Err("rdf surface not available in this build".to_string()),
-                }
+                .map_err(|_| {
+                    "ENGINE_UNAVAILABLE: rdf surface not available in this build".to_string()
+                })
+                .and_then(handlers::graph_ops::gateway_response_result)
             },
         )
         .await;

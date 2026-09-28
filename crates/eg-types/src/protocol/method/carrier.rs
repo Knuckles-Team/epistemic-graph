@@ -113,6 +113,8 @@ pub(crate) mod tests {
 
     #[test]
     fn carriers_refuse_internal_and_native_kernel_methods_and_pass_graph_writes() {
+        assert!(crate::contract::declared_error_code(ENGINE_INTERNAL_CODE));
+        assert!(crate::contract::declared_error_code(CARRIER_REFUSAL_CODE));
         assert!(!policy_store().is_wire_callable());
         assert_eq!(
             policy_store().carrier_refusal(),

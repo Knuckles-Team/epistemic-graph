@@ -1682,8 +1682,8 @@ pub(crate) fn finish(_prepared: PreparedSourceIngestion, response: Response) -> 
 #[cfg(all(feature = "redb", feature = "blob"))]
 pub(crate) fn finish(prepared: PreparedSourceIngestion, response: Response) -> Response {
     let response_id = response.id;
-    if let Some(error) = response.error {
-        return Response::err(response_id, error);
+    if let Some(refusal) = response.refusal_text() {
+        return Response::err(response_id, refusal);
     }
     let applied = match response.result {
         Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice::<

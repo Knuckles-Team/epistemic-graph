@@ -178,7 +178,7 @@ fn check_creation(write: &NodeWrite<'_>) -> Result<(), String> {
     };
     match row_class(incoming) {
         Some(class) if !class.generic_create => Err(format!(
-            "sealed record row '{}' of class {} is written only by its owning op",
+            "INVALID_ARGUMENT: sealed record row '{}' of class {} is written only by its owning op",
             write.node_id(),
             class.name
         )),
@@ -193,7 +193,7 @@ fn check_overwrite(stored: &[u8], write: &NodeWrite<'_>) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "sealed record row '{}' is create-only: a generic write may not change or remove \
+        "CONFLICT: sealed record row '{}' is create-only: a generic write may not change or remove \
          it; retire it through RetireSealedRecord",
         write.node_id()
     ))

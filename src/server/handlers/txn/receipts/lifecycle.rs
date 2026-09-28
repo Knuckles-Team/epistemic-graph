@@ -43,7 +43,7 @@ pub(in crate::server::handlers::txn) fn validate_txn_lifecycle_result(
         Method::TxnMaterializeBelief { .. } => "BeliefMaterialization",
         _ => {
             return Err(format!(
-                "transaction lifecycle receipt is not valid for {}",
+                "INTERNAL: transaction lifecycle receipt is not valid for {}",
                 method.tag_name()
             ));
         }
@@ -53,7 +53,7 @@ pub(in crate::server::handlers::txn) fn validate_txn_lifecycle_result(
         Ok(())
     } else {
         Err(format!(
-            "transaction lifecycle replay for {} has the wrong payload type; expected {expected}",
+            "INTERNAL: transaction lifecycle replay for {} has the wrong payload type; expected {expected}",
             method.tag_name()
         ))
     }
@@ -87,25 +87,28 @@ pub(in crate::server::handlers::txn) async fn validate_txn_lifecycle_replay(
             ResultPayload::String(txn_id) => txn_id.as_str(),
             _ => {
                 return Err(
-                    "transaction lifecycle receipt has the wrong BeginTxn result".to_string(),
+                    "INTERNAL: transaction lifecycle receipt has the wrong BeginTxn result"
+                        .to_string(),
                 );
             }
         }
     } else {
         method_txn_id(method).ok_or_else(|| {
-            "transaction lifecycle receipt has no volatile transaction handle".to_string()
+            "INTERNAL: transaction lifecycle receipt has no volatile transaction handle".to_string()
         })?
     };
     let s = state.read().await;
     let Some(entry) = s.open_txns.get(txn_id) else {
         return Err(
-            "transaction lifecycle receipt is terminal but volatile staging state is unavailable; \
+            "CONFLICT: transaction lifecycle receipt is terminal but volatile staging state is unavailable; \
              refusing to return a stale success"
                 .to_string(),
         );
     };
     if entry.value().lock().agent != owner {
-        return Err("transaction lifecycle receipt does not match caller scope".to_string());
+        return Err(
+            "ACCESS_DENIED: transaction lifecycle receipt does not match caller scope".to_string(),
+        );
     }
     Ok(())
 }
@@ -147,11 +150,11 @@ pub(in crate::server::handlers::txn) async fn begin_txn_lifecycle_receipt(
     let _ = caller;
     let caller = authority.actor_scope();
     let backend = state.read().await.persistence.clone().ok_or_else(|| {
-        "transaction lifecycle requires an authoritative MutationBatch backend".to_string()
+        "ENGINE_UNAVAILABLE: transaction lifecycle requires an authoritative MutationBatch backend".to_string()
     })?;
-    let redb = backend
-        .as_redb()
-        .ok_or_else(|| "transaction lifecycle requires durable redb".to_string())?;
+    let redb = backend.as_redb().ok_or_else(|| {
+        "ENGINE_UNAVAILABLE: transaction lifecycle requires durable redb".to_string()
+    })?;
     let batch_id = txn_lifecycle_batch_id(authority, method);
     // A lifecycle saga is only the replay authority; its effect still lives in
     // the volatile transaction registry.  If a prior attempt prepared that
@@ -176,7 +179,7 @@ pub(in crate::server::handlers::txn) async fn begin_txn_lifecycle_receipt(
     )?;
     if prepared || saga.prepared {
         return Err(
-            "transaction lifecycle receipt is Prepared but volatile staging state is unavailable; \
+            "CONFLICT: transaction lifecycle receipt is Prepared but volatile staging state is unavailable; \
              refusing to re-execute an ambiguous lifecycle operation"
                 .to_string(),
         );

@@ -33,7 +33,10 @@ async fn hub_of(
     let s = state.read().await;
     match &s.cdc {
         Some(h) => Ok(h.clone()),
-        None => Err(Response::err(req_id, "streaming/CDC not configured")),
+        None => Err(Response::err(
+            req_id,
+            "ENGINE_UNAVAILABLE: streaming/CDC not configured",
+        )),
     }
 }
 

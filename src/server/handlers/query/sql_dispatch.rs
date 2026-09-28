@@ -41,7 +41,7 @@ async fn authorized_sql_read_store(
     .await
     {
         Ok(Ok(store)) => store,
-        Ok(Err(error)) => return Err(Response::err(req_id, format!("SQL error: {error}"))),
+        Ok(Err(error)) => return Err(Response::err(req_id, sql_refusal(error))),
         Err(response) => return Err(response),
     };
     Ok(Some(authorized))
@@ -127,7 +127,10 @@ async fn exec_sql_graph_statement(
         K::DeleteNodesJoin(del) => {
             exec_sql_write_delete_nodes_join(req_id, core, &read_core, read_store, del).await
         }
-        _ => Response::err(req_id, "SQL error: unsupported graph write".to_string()),
+        _ => Response::err(
+            req_id,
+            "INVALID_ARGUMENT: SQL error: unsupported graph write".to_string(),
+        ),
     }
 }
 
@@ -402,10 +405,10 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
                 Ok(None) => {
                     return Response::err(
                         req_id,
-                        format!("SQL error: index `{name}` does not exist"),
+                        format!("INVALID_ARGUMENT: SQL error: index `{name}` does not exist"),
                     )
                 }
-                Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+                Err(error) => return Response::err(req_id, sql_refusal(error)),
             };
             let op = eg_query::TxnOp::IndexCatalog(op);
             commit_catalog_op(req_id, scope, sql_method, store, op, "DROP INDEX").await
@@ -588,12 +591,12 @@ async fn exec_classified_sql_catalog_terminal(
     match classify_sql_catalog_terminal(&kind) {
         SqlCatalogTerminalClass::TransactionControl => Response::err(
             req_id,
-            "SQL error: transaction control requires a stateful SQL wire connection"
+            "INVALID_ARGUMENT: SQL error: transaction control requires a stateful SQL wire connection"
                 .to_string(),
         ),
         SqlCatalogTerminalClass::CopyIn => Response::err(
             req_id,
-            "SQL error: COPY … FROM STDIN is a streaming pgwire operation, not available over Method::Sql"
+            "INVALID_ARGUMENT: SQL error: COPY … FROM STDIN is a streaming pgwire operation, not available over Method::Sql"
                 .to_string(),
         ),
         SqlCatalogTerminalClass::PropertyGraph => {

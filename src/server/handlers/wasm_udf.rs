@@ -42,8 +42,8 @@ async fn register_udf(call: OwnerScopedCall<'_>, id: String, wasm: Vec<u8>) -> R
             req_id,
             ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterUdf>(id),
         ),
-        Ok(Err(e)) => Response::err(req_id, e.to_string()),
-        Err(join) => Response::err(req_id, format!("RegisterUdf task error: {join}")),
+        Ok(Err(e)) => Response::err(req_id, format!("INVALID_ARGUMENT: {e}")),
+        Err(join) => Response::err(req_id, format!("INTERNAL: RegisterUdf task error: {join}")),
     }
 }
 
@@ -63,7 +63,7 @@ async fn run_udf(call: OwnerScopedCall<'_>, id: String, input: Vec<u8>) -> Respo
             req_id,
             ResultPayload::of_encoded::<eg_types::result_contract::compute::RunUdf>(out),
         ),
-        Ok(Err(e)) => Response::err(req_id, e.to_string()),
-        Err(join) => Response::err(req_id, format!("RunUdf task error: {join}")),
+        Ok(Err(e)) => Response::err(req_id, format!("INVALID_ARGUMENT: {e}")),
+        Err(join) => Response::err(req_id, format!("INTERNAL: RunUdf task error: {join}")),
     }
 }

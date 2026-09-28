@@ -278,7 +278,7 @@ async fn flush_batch(graph_name: &str, batch: Vec<RoutedCommitJob>, stats: &Batc
                     tracing::error!(?error, "routed write coalescer job panicked");
                     Response::err(
                         request_id,
-                        "routed write worker crashed before acknowledging the write",
+                        "INTERNAL: routed write worker crashed before acknowledging the write",
                     )
                 }
             };

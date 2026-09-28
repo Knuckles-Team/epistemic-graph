@@ -167,8 +167,8 @@ pub(super) fn normalized_confidence(value: Option<f64>) -> f64 {
 }
 
 pub(super) fn response_result(response: Response) -> Result<ResultPayload, String> {
-    if let Some(error) = response.error {
-        return Err(error);
+    if let Some(refusal) = response.refusal_text() {
+        return Err(refusal);
     }
     response
         .result

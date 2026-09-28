@@ -139,14 +139,12 @@ async fn t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger() {
         first.error
     );
     let second = Box::pin(test_support::dispatch(&state, request.clone())).await;
-    let refusal = second
-        .error_detail
-        .as_deref()
-        .expect("replaying the identical signed envelope must be refused");
-    assert!(
-        refusal.contains("REPLAY_NONCE_CONSUMED"),
+    assert_eq!(
+        second.error.as_deref(),
+        Some("REPLAY_NONCE_CONSUMED"),
         "replaying the identical signed envelope must be refused by the \
-         authoritative scope ledger as a consumed nonce, got: {refusal}"
+         authoritative scope ledger as a consumed nonce, got: {:?}",
+        second.error_detail
     );
 }
 

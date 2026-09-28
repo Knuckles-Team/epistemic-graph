@@ -145,7 +145,7 @@ where
     U: DeserializeOwned,
 {
     let value = serde_json::to_value(value)
-        .map_err(|error| format!("result serialization failed: {error}"))?;
+        .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))?;
     serde_json::from_value(value).map_err(|error| format!("result conversion failed: {error}"))
 }
 

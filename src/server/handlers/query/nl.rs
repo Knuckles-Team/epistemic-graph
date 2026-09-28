@@ -53,7 +53,7 @@ pub(crate) fn handle_nl_query_plan(
     let planner = crate::server::nl::resolve_planner().ok_or_else(|| {
         Response::err(
             req_id,
-            "NlQuery: no NL planner configured — set an OpenAI-compatible \
+            "ENGINE_UNAVAILABLE: NlQuery: no NL planner configured — set an OpenAI-compatible \
                      endpoint in agent-utilities config.json (or \
                      EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
                      server::set_nl_planner"
@@ -61,13 +61,19 @@ pub(crate) fn handle_nl_query_plan(
         )
     })?;
     let hint = nl_schema_hint(core);
-    let uql = planner
-        .plan(text, &hint)
-        .map_err(|e| Response::err(req_id, e))?;
+    let uql = planner.plan(text, &hint).map_err(|e| {
+        Response::err(
+            req_id,
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", &e),
+        )
+    })?;
     eg_plan::uql::parse(&uql).map_err(|e| {
         Response::err(
             req_id,
-            format!("NlQuery produced invalid UQL: {}", e.render(&uql)),
+            format!(
+                "INVALID_ARGUMENT: NlQuery produced invalid UQL: {}",
+                e.render(&uql)
+            ),
         )
     })
 }
@@ -116,7 +122,10 @@ pub(crate) async fn handle_nl_query(
     // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
     let resp = match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
-        Ok(Err(msg)) => Response::err(req_id, msg),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", &msg),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)

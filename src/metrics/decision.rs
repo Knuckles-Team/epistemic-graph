@@ -133,11 +133,18 @@ mod tests {
         let text = crate::metrics::render();
         for signal in ["support", "coverage", "act_risk"] {
             for result in ["ok", "breach", "unavailable"] {
-                let labels = format!("signal=\"{signal}\",result=\"{result}\"");
-                assert!(text.lines().any(|line| {
-                    line.starts_with("epistemic_graph_decision_threshold_assessments_total{")
-                        && line.contains(&labels)
-                }));
+                // The text encoder orders labels by name, so match each label
+                // on its own rather than one fixed `signal,result` substring.
+                let signal_label = format!("signal=\"{signal}\"");
+                let result_label = format!("result=\"{result}\"");
+                assert!(
+                    text.lines().any(|line| {
+                        line.starts_with("epistemic_graph_decision_threshold_assessments_total{")
+                            && line.contains(&signal_label)
+                            && line.contains(&result_label)
+                    }),
+                    "missing zero baseline for {signal_label},{result_label}"
+                );
             }
         }
     }

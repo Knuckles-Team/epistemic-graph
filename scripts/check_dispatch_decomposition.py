@@ -40,6 +40,8 @@ EXPECTED_PATHS = {
     "src/server/dispatch/graph_pipeline/native_routes.rs",
     "src/server/dispatch/graph_pipeline/pipeline.rs",
     "src/server/dispatch/graph_pipeline/repository_index.rs",
+    "src/server/dispatch/graph_pipeline/repository_index/consumer.rs",
+    "src/server/dispatch/graph_pipeline/repository_index/enrichment.rs",
     "src/server/dispatch/graph_pipeline/work_governance.rs",
     "src/server/dispatch/policy_evolution.rs",
     "src/server/dispatch/policy_evolution/blobs.rs",
@@ -199,8 +201,11 @@ LEGACY_COALESCER_METHODS = (
 # listed in EXPECTED_PATHS. The SPARQL HTTP mutation path is constrained by its
 # redb/security/raft combinations, and the compiler-declared module walk is
 # the source universe.
-CFG_PREDICATE_COUNT = 84
-CFG_FINGERPRINT = "d0afb3c3907a87209c510992e3879cd644a5b28b67372f4605411132507e16f8"
+# 84 -> 92 after Train 4 merged to main; the two new repository_index
+# modules add no predicate of their own, the eight come from the merged
+# dispatch-family edits.
+CFG_PREDICATE_COUNT = 92
+CFG_FINGERPRINT = "607bd0f89cf9d9769edcee94ad7a90153d71dc6debf9a0f593dcc8c2beaade0f"
 # 355 -> 358 production / 440 -> 443 compiler functions: `Method::SqlSourceBatch`
 # added the data-plane route group `dispatch_sql_source_methods`, the request
 # preflight resolver `preflight_sql_source_msgpack`, and
@@ -240,20 +245,26 @@ CFG_FINGERPRINT = "d0afb3c3907a87209c510992e3879cd644a5b28b67372f4605411132507e1
 # eight compiler-visible functions, two tests, and eight assertions. These
 # pins were measured from the full compiler-declared family at the Train 4
 # candidate, not from a file glob.
-PRODUCTION_FUNCTION_COUNT = 549
+# Train 4 as merged to main: 549 -> 590 production / 740 -> 803 compiler
+# functions, 105 -> 121 tests, 345 -> 408 assertions, led by the two new
+# compiler-declared `repository_index/{consumer,enrichment}.rs` modules
+# (EH-280 enrichment consumer). Measured with read_compiler_family on main
+# after the merge, not from a file glob. 590 -> 591 / 803 -> 804: the
+# request boundary's `authentication_refusal` (declared auth codes survive).
+PRODUCTION_FUNCTION_COUNT = 591
 PRODUCTION_FUNCTION_DIGEST = (
-    "bad3b1382a2988890b38d18c43da633aae93c90a59b6c1178cfc23136c3937ff"
+    "3f07d98931b5c764e3288a6f903b108ec53e5c71dc05a9e77341e051d4952f60"
 )
-COMPILER_FUNCTION_COUNT = 740
+COMPILER_FUNCTION_COUNT = 804
 COMPILER_FUNCTION_DIGEST = (
-    "b6c489bfcd43faba03be2d5f99ff0f8f71d4bd29f02f3156ad134deb25f3ffe2"
+    "9af36b33e81aca19a947230e2472da2f698c57d2f68175415b531f23a3d710ab"
 )
-TEST_FUNCTION_COUNT = 105
+TEST_FUNCTION_COUNT = 121
 TEST_FUNCTION_DIGEST = (
-    "7812c74eae21a156976f22316d2f828c76e4f13f5bcd06d858ab197a835f16b8"
+    "65657ad52feaf2ff88274cb952e04f0b1846abf18098c5c9de8bf488bd8fd825"
 )
-ASSERTION_COUNT = 345
-ASSERTION_DIGEST = "e03c229920328a26d08a6655ca645b38d989bcc144a73f86fd253f18af7c7540"
+ASSERTION_COUNT = 408
+ASSERTION_DIGEST = "23998ed9f7c41488a7bc8407e2fd6772c76184678e0a77c29d81f0d3499aa614"
 
 
 def require(condition: bool, message: str) -> None:

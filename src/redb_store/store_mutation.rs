@@ -556,7 +556,7 @@ fn finish_fresh_batch(
         let transition = top_up.transition;
         if let Err(error) = shard.outbox_supersede_batch_record(
             &group,
-            &handle,
+            handle,
             &transition.consumer,
             &transition.old_delivery,
             rows.committed_at_ms,
@@ -933,7 +933,10 @@ mod outbox_reactivation_tests {
         );
         assert!(!a.replayed);
         assert!(!b.replayed);
-        let replay = commit_owner_rows(&second, &replacement, &mut |_| {
+        // A retry carries a fresh attempt nonce: re-presenting the consumed
+        // nonce is refused as REPLAY_NONCE_CONSUMED, not replayed.
+        let retry = batch("replacement", "replacement-key", 0, "replacement-node");
+        let replay = commit_owner_rows(&second, &retry, &mut |_| {
             Err("callback must not run on exact replay".into())
         })
         .unwrap();

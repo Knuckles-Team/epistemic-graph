@@ -445,10 +445,7 @@ async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
     )
     .await;
     assert!(
-        changed_stage
-            .error_detail
-            .as_deref()
-            .is_some_and(|error| error.contains("IDEMPOTENCY_CONFLICT")),
+        changed_stage.error.as_deref() == Some("IDEMPOTENCY_CONFLICT"),
         "changed GraphQL stage body must conflict under the same key: {:?}",
         changed_stage.error
     );

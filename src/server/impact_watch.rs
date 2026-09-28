@@ -250,9 +250,9 @@ async fn submit(
     };
     let response =
         crate::server::dispatch::dispatch_verified_request(state, request, context).await;
-    match response.error {
+    match response.refusal_text() {
         None => Ok(()),
-        Some(error) => Err(format!("writeback refused: {error}")),
+        Some(refusal) => Err(format!("writeback refused: {refusal}")),
     }
 }
 

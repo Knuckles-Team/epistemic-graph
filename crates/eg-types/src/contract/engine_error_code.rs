@@ -17,6 +17,8 @@ closed_error_codes! {
         AuthAudienceMismatch => "AUTH_AUDIENCE_MISMATCH",
         AuthPolicyVersionMismatch => "AUTH_POLICY_VERSION_MISMATCH",
         NodeMismatch => "NODE_MISMATCH",
+        EngineInternalMethod => "ENGINE_INTERNAL_METHOD",
+        CarrierInnerMethodRefused => "CARRIER_INNER_METHOD_REFUSED",
         PolicyNativeAuthorityRequired => "POLICY_NATIVE_AUTHORITY_REQUIRED",
         CapacityDenied => "CAPACITY_DENIED",
         UqlBudgetExceeded => "UQL_BUDGET_EXCEEDED",

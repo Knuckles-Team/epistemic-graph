@@ -123,7 +123,7 @@ pub(super) fn handle_worker_claim(
             req_id,
             ResultPayload::of::<eg_types::result_contract::coordination::JobWorkerClaim>(None),
         ),
-        Err(error) => Response::err(req_id, error.to_string()),
+        Err(error) => Response::err(req_id, job_refusal(&error)),
     }
 }
 
@@ -157,7 +157,7 @@ pub(super) fn handle_worker_renew(
                 worker_lease(&lease),
             ),
         ),
-        Err(error) => Response::err(req_id, error.to_string()),
+        Err(error) => Response::err(req_id, job_refusal(&error)),
     }
 }
 
@@ -207,6 +207,6 @@ pub(super) fn handle_worker_checkpoint(
         Ok(job) => job_response::<eg_types::result_contract::coordination::JobWorkerCheckpoint>(
             req_id, &job,
         ),
-        Err(error) => Response::err(req_id, error.to_string()),
+        Err(error) => Response::err(req_id, job_refusal(&error)),
     }
 }

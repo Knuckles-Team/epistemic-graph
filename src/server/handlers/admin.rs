@@ -80,7 +80,7 @@ pub(crate) async fn try_handle(
         | Method::Backup { .. }
         | Method::Restore { .. } => Ok(Response::err(
             req_id,
-            "M3 resharding admin is not available in this build (requires the `redb` feature)",
+            "ENGINE_UNAVAILABLE: M3 resharding admin is not available in this build (requires the `redb` feature)",
         )),
         other => Err(other),
     }

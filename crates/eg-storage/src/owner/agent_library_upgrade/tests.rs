@@ -5,7 +5,7 @@ use crate::owner::graph_shard::{
     REPOSITORY_ENRICHMENT_SUPERSESSIONS,
 };
 use crate::owner::persisted_layout::create_predecessor_owner_file;
-use crate::owner::registry::AGENT_LIBRARY_REVISIONS;
+use crate::owner::registry::{AGENT_LIBRARY_REVISIONS, MCP_CATALOG_CONFIGS, MCP_CATALOG_SCOPES};
 use redb::{ReadableDatabase, ReadableTableMetadata};
 
 fn identity() -> PhysicalStoreIdentity {

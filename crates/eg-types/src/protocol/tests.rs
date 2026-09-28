@@ -397,6 +397,25 @@ fn test_response_err() {
 }
 
 #[test]
+fn refusal_text_round_trips_code_and_detail() {
+    let refused = Response::err(7, "ENGINE_UNAVAILABLE: tsdb store absent");
+    assert_eq!(
+        refused.refusal_text().as_deref(),
+        Some("ENGINE_UNAVAILABLE: tsdb store absent")
+    );
+    let rewrapped = Response::err(8, refused.refusal_text().unwrap());
+    assert_eq!(rewrapped.error, refused.error);
+    assert_eq!(rewrapped.error_detail, refused.error_detail);
+    assert_eq!(
+        Response::err(9, "ACCESS_DENIED").refusal_text().as_deref(),
+        Some("ACCESS_DENIED")
+    );
+    assert!(Response::ok(10, ResultPayload::Json(serde_json::json!({})))
+        .refusal_text()
+        .is_none());
+}
+
+#[test]
 fn declared_response_error_separates_code_and_detail() {
     let response = Response::err(
         3,

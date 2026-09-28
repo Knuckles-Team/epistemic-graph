@@ -53,7 +53,8 @@ pub(crate) type UqlParams = std::collections::BTreeMap<String, eg_types::wire::U
 /// row of a SQL result.
 #[cfg(feature = "query")]
 fn msgpack_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, String> {
-    rmp_serde::to_vec_named(value).map_err(|error| format!("result serialization failed: {error}"))
+    rmp_serde::to_vec_named(value)
+        .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
 }
 
 #[cfg(feature = "query")]
@@ -1627,13 +1628,16 @@ mod dispatch_write_tests {
             ),
         )
         .await;
-        assert!(
-            guest_alter
-                .error
-                .as_deref()
-                .is_some_and(|error| error == crate::server::sql_catalog_acl::ACCESS_DENIED),
-            "same-tenant non-owner must remain denied after repair: {:?}",
-            guest_alter.error
+        assert_eq!(
+            (
+                guest_alter.error.as_deref(),
+                guest_alter.error_detail.as_deref()
+            ),
+            crate::server::sql_catalog_acl::ACCESS_DENIED
+                .split_once(": ")
+                .map(|(code, detail)| (Some(code), Some(detail)))
+                .unwrap(),
+            "same-tenant non-owner must remain denied after repair"
         );
     }
 

@@ -10,7 +10,7 @@ use eg_types::decision::DecisionErrorCode;
 use eg_types::graph_schema::GraphSchemaErrorCode;
 use eg_types::solve::SolveErrorCode;
 
-use crate::{MethodDescriptor, Stability};
+use crate::MethodDescriptor;
 
 pub(crate) fn typed_codes<T: Copy>(
     variants: &[T],
@@ -38,6 +38,7 @@ const SHARED_SERVER_ERRORS: &[&str] = &[
     "BUSY",
     "CANCELLED",
     "INTERNAL",
+    "METHOD_NOT_YET_SERVED",
     "TIMEOUT",
     "STALE_ROUTE",
     "STALE_OUTBOX_LEASE",
@@ -185,9 +186,6 @@ fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     if d.policy.is_durable() {
         codes.insert("CORRUPT_MUTATION_LEDGER");
     }
-    if d.stability == Stability::Internal {
-        codes.insert("METHOD_NOT_YET_SERVED");
-    }
     if d.domain == "security" {
         codes.insert("POLICY_NATIVE_AUTHORITY_REQUIRED");
     }
@@ -272,6 +270,8 @@ mod tests {
     fn runtime_error_routing_is_method_specific_and_closed() {
         assert!(method_allows_error("CreateGraph", "ACCESS_DENIED"));
         assert!(method_allows_error("CreateGraph", "OPERATION_REDIRECTED"));
+        assert!(method_allows_error("CypherQuery", "METHOD_NOT_YET_SERVED"));
+        assert!(method_allows_error("Sql", "METHOD_NOT_YET_SERVED"));
         assert!(!method_allows_error("CreateGraph", "UNSUPPORTED_COALITION"));
         assert!(!method_allows_error("NotADeclaredMethod", "ACCESS_DENIED"));
         assert!(method_allows_error("GetNodes", "RESULT_TOO_LARGE"));

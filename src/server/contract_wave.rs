@@ -75,7 +75,7 @@ macro_rules! contract_wave_stub_test {
 pub(crate) fn assert_refuses_by_name(surface: &'static str) {
     let response = not_yet_served(7, surface);
     let error = response
-        .error
+        .refusal_text()
         .expect("a stub answers an error, never a result");
     assert!(
         error.starts_with(&format!("{METHOD_NOT_YET_SERVED}: {surface} ")),
@@ -157,6 +157,10 @@ mod dispatch_reachability_tests {
         "DecisionLog.aggregate",
         "AgentComponent.content",
         "ConnectorPack.bind",
+        "ConnectorPack.catalog_authority_status",
+        "ConnectorPack.catalog_binding_status",
+        "ConnectorPack.catalog_owner_principal",
+        "ConnectorPack.catalog_request_owner_principal",
         "ConnectorPack.import",
         "ConnectorPack.reconcile_bodies",
         "ConnectorPack.reconcile_catalog",
@@ -176,6 +180,13 @@ mod dispatch_reachability_tests {
         "MutationOutbox.status",
     ];
 
+    fn is_contract_wave_stub(response: &Response) -> bool {
+        response.error.as_deref() == Some(METHOD_NOT_YET_SERVED)
+            && response.error_detail.as_deref().is_some_and(|detail| {
+                detail.contains("is declared by the contract but its handler has not landed")
+            })
+    }
+
     /// Every declared surface is REACHABLE: dispatch routes a pending one to a
     /// handler that refuses by name, rather than answering "unknown method" or
     /// "not available in this build", and a promoted one to its real handler.
@@ -187,10 +198,7 @@ mod dispatch_reachability_tests {
         )));
         for (surface, method) in contract_wave_samples() {
             let response = dispatch_test_on_heap(&state, signed(surface, method)).await;
-            let stubbed = response
-                .error
-                .as_deref()
-                .is_some_and(|error| error.contains(METHOD_NOT_YET_SERVED));
+            let stubbed = is_contract_wave_stub(&response);
             assert_eq!(
                 stubbed,
                 !SERVED.contains(&surface),
@@ -232,7 +240,7 @@ mod pending_method_tests {
             let response = dispatch_test_on_heap(&state, signed(&label, method)).await;
             let refusal = format!("{METHOD_NOT_YET_SERVED}: {whole} ");
             if response
-                .error
+                .refusal_text()
                 .is_some_and(|error| error.starts_with(&refusal))
             {
                 stubbed.push(whole);

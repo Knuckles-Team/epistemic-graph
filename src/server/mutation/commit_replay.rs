@@ -29,6 +29,32 @@ pub(super) struct DurableBatchAttempt<'a> {
     pub(super) created_at_ms: u64,
 }
 
+/// Shared identity and fence fields for every durable MutationBatch compilation.
+pub(super) fn compile_batch_context<'a>(
+    ctx: &'a MutationCtx<'_>,
+    batch_id: &'a str,
+    source_version: u64,
+    created_at_ms: u64,
+    default_surface: crate::mutation_batch::MutationSurface,
+    authoritative_state: Option<crate::mutation_batch::MutationStateDescriptor>,
+) -> crate::server::mutation_batch::CompileBatch<'a> {
+    crate::server::mutation_batch::CompileBatch {
+        batch_id,
+        request_id: ctx.req_id,
+        attempt_nonce: ctx.attempt_nonce,
+        principal: ctx.caller,
+        tenant: ctx.tenant_scope,
+        graph: ctx.graph_name,
+        placement_epoch: 0,
+        idempotency_key: ctx.idempotency_key,
+        expected_graph_version: Some(source_version),
+        fencing_token: None,
+        created_at_ms,
+        default_surface,
+        authoritative_state,
+    }
+}
+
 /// The replay-repair check at the top of [`commit_mutation_body`]'s durable path:
 /// a retry after `fsync` but before RAM publication repairs the serving projection
 /// from authority and returns the exact stored result — no handler is re-executed
@@ -69,7 +95,11 @@ pub(super) async fn commit_staged_replay_probe(
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
-            format!("MutationBatch status lookup failed: {error}"),
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "MutationBatch status lookup failed: ",
+                &error,
+            ),
         )),
     }
 }
@@ -166,21 +196,14 @@ fn compile_replay_batch(
     methods: Vec<Method>,
 ) -> Result<crate::mutation_batch::MutationBatch, Response> {
     crate::server::mutation_batch::compile_methods(
-        crate::server::mutation_batch::CompileBatch {
+        compile_batch_context(
+            ctx,
             batch_id,
-            request_id: ctx.req_id,
-            attempt_nonce: ctx.attempt_nonce,
-            principal: ctx.caller,
-            tenant: ctx.tenant_scope,
-            graph: ctx.graph_name,
-            placement_epoch: 0,
-            idempotency_key: ctx.idempotency_key,
-            expected_graph_version: Some(source_version),
-            fencing_token: None,
+            source_version,
             created_at_ms,
             default_surface,
             authoritative_state,
-        },
+        ),
         methods,
     )
     .map_err(|error| {
@@ -251,7 +274,11 @@ pub(super) async fn commit_row_replay_probe(
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
-            format!("MutationBatch status lookup failed: {error}"),
+            eg_types::contract::classify_refusal(
+                "INTERNAL",
+                "MutationBatch status lookup failed: ",
+                &error,
+            ),
         )),
         Ok(Some(_)) => {
             commit_row_replay_found(

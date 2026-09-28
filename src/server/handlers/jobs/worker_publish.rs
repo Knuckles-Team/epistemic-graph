@@ -26,7 +26,7 @@ pub(super) fn handle_worker_stage(
     }
     let current = match store.get(job_id) {
         Ok(job) => job,
-        Err(error) => return Response::err(req_id, error.to_string()),
+        Err(error) => return Response::err(req_id, job_refusal(&error)),
     };
     #[cfg(feature = "knowledge-batch")]
     if let Err(error) = validate_native_job_result(&current, &result) {
@@ -41,7 +41,7 @@ pub(super) fn handle_worker_stage(
         Ok(job) => {
             job_response::<eg_types::result_contract::coordination::JobWorkerStage>(req_id, &job)
         }
-        Err(error) => Response::err(req_id, error.to_string()),
+        Err(error) => Response::err(req_id, job_refusal(&error)),
     }
 }
 
@@ -79,7 +79,7 @@ pub(super) async fn handle_worker_publish(
     };
     let job = match store.get(job_id) {
         Ok(job) => job,
-        Err(error) => return Response::err(req_id, error.to_string()),
+        Err(error) => return Response::err(req_id, job_refusal(&error)),
     };
     if worker_publish_already_succeeded(&job, &worker_ref, lease_epoch) {
         return job_response::<eg_types::result_contract::coordination::JobWorkerPublish>(
@@ -116,7 +116,7 @@ pub(super) async fn finalize_local_publish(
             Ok(job) => job_response::<eg_types::result_contract::coordination::JobWorkerPublish>(
                 req_id, &job,
             ),
-            Err(error) => Response::err(req_id, error.to_string()),
+            Err(error) => Response::err(req_id, job_refusal(&error)),
         },
         Err(error) => Response::err(req_id, error),
     }
@@ -153,7 +153,7 @@ pub(super) fn require_publishing_lease(
                 job.state.label()
             ),
         )),
-        Err(error) => Err(Response::err(req_id, error.to_string())),
+        Err(error) => Err(Response::err(req_id, job_refusal(&error))),
     }
 }
 
@@ -206,7 +206,7 @@ pub(super) fn handle_worker_cancel(
         Ok(job) => {
             job_response::<eg_types::result_contract::coordination::JobWorkerCancel>(req_id, &job)
         }
-        Err(error) => Response::err(req_id, error.to_string()),
+        Err(error) => Response::err(req_id, job_refusal(&error)),
     }
 }
 
@@ -249,6 +249,6 @@ pub(super) fn handle_worker_fail(
         Ok(job) => {
             job_response::<eg_types::result_contract::coordination::JobWorkerFail>(req_id, &job)
         }
-        Err(error) => Response::err(req_id, error.to_string()),
+        Err(error) => Response::err(req_id, job_refusal(&error)),
     }
 }

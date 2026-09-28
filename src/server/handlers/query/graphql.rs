@@ -182,7 +182,7 @@ async fn begin_graphql_staging_admission(
             ) {
                 return Err(Response::err(
                     req_id,
-                    "GraphQL lifecycle receipt is terminal but volatile staging state is unavailable; refusing to return a stale success",
+                    "CONFLICT: GraphQL lifecycle receipt is terminal but volatile staging state is unavailable; refusing to return a stale success",
                 ));
             }
             Ok(GraphQlStagingAdmission::Replayed(result))

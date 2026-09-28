@@ -77,8 +77,8 @@ pub(super) fn declared_json_response<T: serde::de::DeserializeOwned>(
     invalid: &str,
     absent: &str,
 ) -> Result<T, String> {
-    if let Some(error) = response.error {
-        return Err(error);
+    if let Some(refusal) = response.refusal_text() {
+        return Err(refusal);
     }
     match response.result {
         Some(ResultPayload::Json(value)) => {

@@ -413,8 +413,8 @@ async fn create_missing_sparql_graphs(
             Some(VerifiedRequestContext::clone(coord.verified_context)),
         ))
         .await;
-        if let Some(error) = response.error {
-            return Err(Response::err(coord.req_id, error));
+        if let Some(refusal) = response.refusal_text() {
+            return Err(Response::err(coord.req_id, refusal));
         }
     }
     Ok(())

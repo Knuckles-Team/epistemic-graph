@@ -36,7 +36,7 @@ pub(crate) async fn try_handle(
     let Some(backend) = backend_arc.as_ref().and_then(|p| p.as_redb()) else {
         return Ok(Response::err(
             req_id,
-            "M3 resharding admin requires a durable redb backend (no persist dir / not a \
+            "ENGINE_UNAVAILABLE: M3 resharding admin requires a durable redb backend (no persist dir / not a \
              redb build)",
         ));
     };
@@ -269,7 +269,10 @@ async fn handle_backup(
         .as_ref()
         .is_some_and(|value| value.len() > 256 || value.chars().any(char::is_control))
     {
-        return Ok(Response::err(req_id, "backup label is invalid"));
+        return Ok(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: backup label is invalid",
+        ));
     }
     let (destination, stage) = match resolve_backup_destination(&destination, req_id) {
         Ok(value) => value,
@@ -398,7 +401,7 @@ async fn handle_restore(
     if !(1..=64).contains(&target_shards) {
         return Ok(Response::err(
             req_id,
-            "restore target shard count is outside bounds",
+            "INVALID_ARGUMENT: restore target shard count is outside bounds",
         ));
     }
     let saga = match call.begin_saga(DurabilityDomain::ControlPlane) {
@@ -415,7 +418,7 @@ async fn handle_restore(
     let Some(persist_dir) = backend.persist_dir() else {
         return Ok(Response::err(
             req_id,
-            "cannot resolve the engine persist dir for a staged restore",
+            "ENGINE_UNAVAILABLE: cannot resolve the engine persist dir for a staged restore",
         ));
     };
     let stage_token = opaque_ref(&saga.batch.batch_id);
@@ -441,7 +444,7 @@ async fn handle_restore(
             return Ok(Response::err(
                 req_id,
                 format!(
-                    "Restore retry inspection failed; error_ref={}",
+                    "INTERNAL: Restore retry inspection failed; error_ref={}",
                     opaque_ref(&error.to_string())
                 ),
             ));

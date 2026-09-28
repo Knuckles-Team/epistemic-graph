@@ -80,7 +80,7 @@ impl ResultPayload {
     pub(crate) fn raw<T: Serialize + ?Sized>(value: &T) -> Result<Self, String> {
         rmp_serde::to_vec_named(value)
             .map(ResultPayload::Raw)
-            .map_err(|error| format!("result serialization failed: {error}"))
+            .map_err(|error| format!("INTERNAL: result serialization failed: {error}"))
     }
 }
 
@@ -157,6 +157,17 @@ impl Response {
             error: Some(error),
             error_detail,
         }
+    }
+
+    /// The refusal folded back into the `"CODE: detail"` text `Response::err`
+    /// accepts, so re-wrapping a refused response keeps its detail. `None`
+    /// when the response carries no error.
+    pub fn refusal_text(&self) -> Option<String> {
+        let code = self.error.as_deref()?;
+        Some(match self.error_detail.as_deref() {
+            Some(detail) => format!("{code}: {detail}"),
+            None => code.to_string(),
+        })
     }
 
     /// Schema-generated placement redirect used when this node cannot serve the

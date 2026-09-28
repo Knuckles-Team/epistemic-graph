@@ -171,8 +171,8 @@ pub(crate) async fn commit_pack_projection(
             .and_then(ResultPayload::of::<eg_types::result_contract::reasoning::GraphSchema>)
         })
         .await;
-    if let Some(error) = response.error {
-        return Err(error);
+    if let Some(refusal) = response.refusal_text() {
+        return Err(refusal);
     }
     match response.result {
         Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes)

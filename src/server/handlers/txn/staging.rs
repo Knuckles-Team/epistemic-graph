@@ -18,19 +18,29 @@ pub(super) async fn begin_txn(
     // rejected before any graph/ACL work so the contract is unambiguous.
     let (level, predicate) = match parse_isolation(isolation) {
         Ok(parsed) => parsed,
-        Err(msg) => return Response::err(req_id, msg),
+        Err(msg) => {
+            return Response::err(
+                req_id,
+                eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", &msg),
+            )
+        }
     };
     // The request envelope's graph is the default target; `graph` overrides it.
     let s = state.read().await;
     let graph_name = graph.unwrap_or_default();
     let graph_name = if graph_name.is_empty() {
-        return Response::err(req_id, "BeginTxn requires a target graph");
+        return Response::err(req_id, "INVALID_ARGUMENT: BeginTxn requires a target graph");
     } else {
         graph_name
     };
     let entry = match s.registry.get(&graph_name) {
         Some(e) => e,
-        None => return Response::err(req_id, format!("Graph '{}' not found", graph_name)),
+        None => {
+            return Response::err(
+                req_id,
+                format!("INVALID_ARGUMENT: Graph '{}' not found", graph_name),
+            )
+        }
     };
     // A txn stages writes → require Write access up front (same gate the inline
     // write path applies), so an unauthorized caller cannot even open a txn.
@@ -720,12 +730,10 @@ pub(crate) struct CommitResponseOptions {
 }
 
 pub(crate) fn tag_commit_response(response: Response, options: CommitResponseOptions) -> Response {
-    let Response {
-        id, result, error, ..
-    } = response;
-    if let Some(error) = error {
-        return Response::err(id, error);
+    if let Some(refusal) = response.refusal_text() {
+        return Response::err(response.id, refusal);
     }
+    let Response { id, result, .. } = response;
     Response::ok(
         id,
         commit_outcome(result, options.keyed.then_some(options.replayed)),
