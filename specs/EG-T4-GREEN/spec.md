@@ -1,6 +1,6 @@
 # EG-T4-GREEN — Restore green Train 4 integration
 
-Status: IN REVIEW (PR #3 open at the evidence snapshot; acceptance pending). Owner: `epistemic-graph`. Related obligation IDs: EH-592 (wheel/package), EH-655 (jscpd), EH-656 (quality hooks). Public implementation and review: [PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3). This spec contains the required behavior and acceptance contract.
+Status: LANDED (PR #3 merged at `a7f4dd74e7b2d01832fc9c3359046255d0e606d4`; acceptance pending). Owner: `epistemic-graph`. Related obligation IDs: EH-592 (wheel/package), EH-655 (jscpd), EH-656 (quality hooks). Public implementation and review: [PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3). This spec contains the required behavior and acceptance contract.
 
 ## Purpose
 

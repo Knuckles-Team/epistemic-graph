@@ -51,9 +51,11 @@ PLACEHOLDER = re.compile(
 )
 CONTENT_MARKERS = {
     "spec.md": re.compile(r"requirement|acceptance|\bFR-\d+\b", re.IGNORECASE),
-    "plan.md": re.compile(r"architecture|design|interface", re.IGNORECASE),
+    "plan.md": re.compile(
+        r"architecture|design|interface|implementation plan|sequence", re.IGNORECASE
+    ),
     "test-spec.md": re.compile(r"test|expected|proof", re.IGNORECASE),
-    "tasks.md": re.compile(r"(?m)^- \[[ xX]\]"),
+    "tasks.md": re.compile(r"(?m)(^- \[[ xX]\]|^\|[^\n]*\bTask\b)", re.IGNORECASE),
 }
 
 

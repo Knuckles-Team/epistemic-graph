@@ -7,3 +7,7 @@ The PR description reports `cargo test -p epistemic-graph --features full --lib`
 Hosted [Release run](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/36441906233) at capture time had Go and JavaScript clients **FAILED** and Scanner + architecture quality **FAILED**; several gates, Python suite and Clippy remained running. Security, runtime contracts and selected Clippy jobs had passed. Check the live rollup before any merge decision.
 
 No EH-592 wheel/consumer proof, EH-655 jscpd acceptance, EH-656 hook acceptance, or landing of this spec is claimed by this snapshot. Record the final check URLs, exact merged head, and acceptance disposition here after qualification.
+
+## Merge receipt
+
+[PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3) merged as [a7f4dd74e7b2](https://github.com/Knuckles-Team/epistemic-graph/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This proves source landing only. EH-592 wheel/consumer, EH-655 jscpd, EH-656 hook, and hosted release acceptance remain pending exact-revision receipts.
