@@ -3934,7 +3934,6 @@ components:
       - "tests/test_kvcache_config.py"
       - "tests/test_kvcache_connector.py"
       - "tests/test_lake_iceberg_delta_parity.py"
-      - "tests/test_lazy_lifecycle_architecture.py"
       - "tests/test_match_ontology_terms.py"
       - "tests/test_measurement_lite.py"
       - "tests/test_method_families.py"

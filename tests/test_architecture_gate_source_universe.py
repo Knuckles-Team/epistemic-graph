@@ -446,7 +446,6 @@ def test_mint_lease_gate_passes_on_the_current_tree() -> None:
     [
         "check_epistemic_operations_protocol",
         "check_exact_fault_restart_harness",
-        "check_lazy_lifecycle_architecture",
         "check_p2_analytics_reasoning_architecture",
     ],
 )

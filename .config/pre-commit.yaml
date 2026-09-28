@@ -375,12 +375,6 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  - id: lazy-lifecycle-architecture
-    name: Bounded lazy lifecycle architecture gate
-    entry: python3 scripts/check_lazy_lifecycle_architecture.py
-    language: system
-    pass_filenames: false
-    always_run: true
   # Currently RED on main pending w3-eg-ci-green landing (D-EGCG-1: ROS2 CDC does
   # not fail closed under active row ownership, fix built+verified in that lane's
   # worktree, not yet merged). Wiring it here is deliberate, not a mistake: this

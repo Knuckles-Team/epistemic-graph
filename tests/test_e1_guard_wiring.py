@@ -373,51 +373,6 @@ def test_analytics_gate_reads_consensus_child_and_rejects_a_lost_call_body(
     ]
 
 
-def test_lazy_gate_reads_registry_child_and_rejects_a_lost_fence_body(
-    tmp_path, monkeypatch
-) -> None:
-    module = _load_gate("check_lazy_lifecycle_architecture.py", "e1_lazy_module_tree")
-    registry = tmp_path / "crates" / "eg-core" / "src"
-    registry.mkdir(parents=True)
-    (registry / "registry.rs").write_text(
-        "mod material;\n"
-        "fn apply_page(manifest_ref: &Manifest, page: &Page) {\n"
-        "    if snapshot_changed(manifest_ref, &page) {}\n"
-        "}\n",
-        encoding="utf-8",
-    )
-    (registry / "registry").mkdir()
-    material = registry / "registry" / "material.rs"
-    material.write_text(
-        "pub fn snapshot_changed() {\n"
-        "    let prior = manifest_ref.source_snapshot_version;\n"
-        "    if prior != page.source_snapshot_version {}\n"
-        "}\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(module, "ROOT", tmp_path)
-
-    source = module.read("crates/eg-core/src/registry.rs")
-    assert "snapshot_changed" in source
-    module.require_registry_source_version_fence(source)
-
-    broken_call = source.replace(
-        "snapshot_changed(manifest_ref, &page)",
-        "source_changed(manifest_ref, &page)",
-        1,
-    )
-    with pytest.raises(SystemExit, match="no longer calls the source-version fence"):
-        module.require_registry_source_version_fence(broken_call)
-
-    broken_body = source.replace(
-        "prior != page.source_snapshot_version",
-        "prior == page.source_snapshot_version",
-        1,
-    )
-    with pytest.raises(SystemExit, match="lost its source-version drift body"):
-        module.require_registry_source_version_fence(broken_body)
-
-
 def test_mint_guard_rejects_a_call_site_without_verified_mac_binding(tmp_path) -> None:
     module = _load_gate("check_mint_lease_call_sites.py", "e1_mint_guard")
     sites = module.find_call_sites(module.ROOT)

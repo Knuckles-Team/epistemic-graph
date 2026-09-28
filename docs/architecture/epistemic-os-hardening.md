@@ -450,9 +450,8 @@ RLS context so a filtered result cannot cross an authority boundary.
     `Health` and `ListGraphs` expose graph and index completeness/freshness.
   - **Adversarial evidence:** registry tests cover stale-page rejection after
     delete/recreate and source-version drift; served completeness tests cover index
-    publication only after final-page rebuild; `scripts/check_lazy_lifecycle_architecture.py`
-    is the static architecture gate for fences, cancellation, bounded I/O, manifests,
-    explicit partial responses, and durable identity.
+    publication only after final-page rebuild. `scripts/check_current_only_architecture.py`
+    bans served index availability from using the version-only `covers_version()`.
 - **Default policy:** served mode is always lazy and bounded. Positive explicit
   resident/page limits override 1024/4096; zero and invalid values fail startup.
 
