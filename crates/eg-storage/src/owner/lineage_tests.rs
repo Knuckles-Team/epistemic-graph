@@ -51,6 +51,29 @@ fn every_layout_digest_is_pinned() {
 }
 
 #[test]
+fn graph_shard_before_policy_revisions_matches_the_previous_pin() {
+    let predecessor = &GRAPH_SHARD_BEFORE_POLICY_REVISIONS;
+    let contracts: Vec<_> =
+        crate::owner::contract::expected_table_contracts(OwnerLayout::GraphShard)
+            .into_iter()
+            .filter(|contract| {
+                contract.ownership == crate::physical::manifest::TableOwnership::Ledger
+                    || predecessor
+                        .owner_tables
+                        .contains(&contract.table_id.as_str())
+            })
+            .collect();
+    let digest: String = layout_digest_over(OwnerLayout::GraphShard, &contracts)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    assert_eq!(
+        digest,
+        "95ef6158378d0aaa4df732937cb0f1e08d6d0d104724de10bacbe110f146dcb6"
+    );
+}
+
+#[test]
 fn the_layout_list_is_complete_and_ordered() {
     for (index, layout) in ALL_LAYOUTS.iter().enumerate() {
         assert_eq!(*layout as usize, index, "{layout:?}");

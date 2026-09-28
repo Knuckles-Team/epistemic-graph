@@ -60,6 +60,18 @@ pub(crate) fn private_tempdir() -> tempfile::TempDir {
     directory
 }
 
+/// Offline-upgrade inspection deliberately refuses `/tmp` as a staging root.
+/// Tests keep their disposable source and staging under this checkout instead
+/// of requiring a pre-provisioned host path.
+#[cfg(test)]
+pub(crate) fn private_local_tempdir() -> tempfile::TempDir {
+    let directory = tempfile::Builder::new()
+        .prefix("eg-storage-upgrade-")
+        .tempdir_in(env!("CARGO_MANIFEST_DIR"))
+        .unwrap();
+    directory
+}
+
 #[cfg(test)]
 thread_local! {
     static FAIL_PREPARED_RETIREMENT_AFTER_SYNC: Cell<bool> = const { Cell::new(false) };

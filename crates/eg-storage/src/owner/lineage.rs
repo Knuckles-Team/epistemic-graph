@@ -146,6 +146,16 @@ const SQL_DATA_LOST: &str = "its SQL catalog and rows require an explicit offlin
 const GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT: &[&str] =
     super::graph_shard::graph_shard_table_names!();
 
+/// The formerly pinned `95ef...` GraphShard layout had three enrichment
+/// tables but lacked `repository_enrichment_policy_revisions`. Keep this
+/// exact intermediate table set in lineage so an existing file is refused by
+/// name instead of being misclassified as corrupt.
+const GRAPH_SHARD_TABLES_BEFORE_POLICY_REVISIONS: &[&str] = super::graph_shard::graph_shard_table_names!(
+    "repository_enrichment_budgets",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
+);
+
 /// Earlier graph-shard layout before the node-payload scrub cursor (EH-384).
 const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT
     .split_at(GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT.len() - 1)
@@ -161,6 +171,14 @@ pub const GRAPH_SHARD_BEFORE_ENRICHMENT: LayoutPredecessor = LayoutPredecessor {
     label: "graph shard before repository enrichment budgets and supersession",
     owner_tables: GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT,
     data_lost: "its graph rows require the explicit offline enrichment layout upgrade before normal open, or re-ingestion after moving the file aside",
+    file_name: "graph-*.redb",
+};
+
+pub const GRAPH_SHARD_BEFORE_POLICY_REVISIONS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard before repository enrichment policy revisions",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_POLICY_REVISIONS,
+    data_lost: "its graph rows require re-ingestion after moving the file aside; the offline enrichment upgrade only accepts the exact pre-enrichment layout",
     file_name: "graph-*.redb",
 };
 
@@ -202,6 +220,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
         OwnerLayout::GraphShard => &[
             GRAPH_SHARD_BEFORE_STORAGE_SCRUB,
             GRAPH_SHARD_BEFORE_ENRICHMENT,
+            GRAPH_SHARD_BEFORE_POLICY_REVISIONS,
         ],
     }
 }
@@ -270,7 +289,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "95ef6158378d0aaa4df732937cb0f1e08d6d0d104724de10bacbe110f146dcb6"
+            "01c219acd2bb2f1d523a1bd85eb08442cca03bfc975d60de2eff2b91e3425793"
         }
         OwnerLayout::AgentLibrary => {
             "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"

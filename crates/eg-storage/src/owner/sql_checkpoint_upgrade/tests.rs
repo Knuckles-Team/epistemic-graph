@@ -2,7 +2,7 @@
 //! the Train 4 owner lineage.
 
 use super::*;
-use crate::direct_state::private_tempdir;
+use crate::direct_state::private_local_tempdir;
 use crate::owner::persisted_layout::create_predecessor_owner_file;
 use crate::recovery::evidence::strict_recovery_evidence;
 use redb::{ReadableDatabase, TableDefinition};
@@ -100,7 +100,7 @@ fn upgrade_is_atomic_across_each_crash_stage() {
         "after_manifest",
         "after_commit",
     ] {
-        let directory = private_tempdir();
+        let directory = private_local_tempdir();
         let path = directory.path().join("sql.redb");
         predecessor(&path, &SQL_BEFORE_DURABLE_ANN);
         let before = row(&path);
@@ -135,7 +135,7 @@ fn upgrade_is_atomic_across_each_crash_stage() {
 #[test]
 fn both_declared_sql_predecessors_upgrade_once_and_preserve_rows() {
     for old in [SQL_BEFORE_SOURCE_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN] {
-        let directory = private_tempdir();
+        let directory = private_local_tempdir();
         let path = directory.path().join("sql.redb");
         predecessor(&path, &old);
         assert!(StorageKernel::open_owner::<SqlOwner>(&path, identity(), None).is_err());
@@ -170,7 +170,7 @@ fn both_declared_sql_predecessors_upgrade_once_and_preserve_rows() {
 
 #[test]
 fn mismatched_census_is_rejected_without_changing_the_file() {
-    let directory = private_tempdir();
+    let directory = private_local_tempdir();
     let path = directory.path().join("sql.redb");
     predecessor(&path, &SQL_BEFORE_DURABLE_ANN);
     let db = Database::open(&path).unwrap();

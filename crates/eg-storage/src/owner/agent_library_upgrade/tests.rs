@@ -1,5 +1,5 @@
 use super::*;
-use crate::direct_state::private_tempdir;
+use crate::direct_state::private_local_tempdir;
 use crate::owner::graph_shard::{
     NODES, REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS,
     REPOSITORY_ENRICHMENT_SUPERSESSIONS,
@@ -55,7 +55,7 @@ fn frozen_predecessor_contract_matches_historical_digest() {
 
 #[test]
 fn explicit_upgrade_preserves_existing_agent_rows_and_runs_once() {
-    let directory = private_tempdir();
+    let directory = private_local_tempdir();
     let path = directory.path().join("agent_library.redb");
     create_predecessor_owner_file(&path, identity(), &AGENT_LIBRARY_BEFORE_MCP_CATALOG).unwrap();
     write_agent_revision(&path, b"preserved agent revision");
@@ -98,7 +98,7 @@ fn explicit_upgrade_preserves_existing_agent_rows_and_runs_once() {
 
 #[test]
 fn inspected_bytes_are_rechecked_before_any_upgrade_write() {
-    let directory = private_tempdir();
+    let directory = private_local_tempdir();
     let path = directory.path().join("agent_library.redb");
     create_predecessor_owner_file(&path, identity(), &AGENT_LIBRARY_BEFORE_MCP_CATALOG).unwrap();
     let token =
@@ -110,7 +110,7 @@ fn inspected_bytes_are_rechecked_before_any_upgrade_write() {
 
 #[test]
 fn earlier_connector_packless_layout_is_not_upgradeable() {
-    let directory = private_tempdir();
+    let directory = private_local_tempdir();
     let path = directory.path().join("agent_library.redb");
     create_predecessor_owner_file(
         &path,
@@ -143,7 +143,7 @@ fn frozen_graph_predecessor_contract_matches_historical_digest() {
 
 #[test]
 fn graph_upgrade_preserves_existing_nodes_and_runs_once() {
-    let directory = private_tempdir();
+    let directory = private_local_tempdir();
     let path = directory.path().join("graph-0.redb");
     create_predecessor_owner_file(&path, graph_identity(), &GRAPH_SHARD_BEFORE_ENRICHMENT).unwrap();
     let database = Database::open(&path).unwrap();

@@ -152,9 +152,11 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // layer's `decision_records`, `DomainService`: service 139 = 138 + 1.
     // 141 -> 143: the two DomainService SQL ANN tables (RF-019): service 141.
     // 143 -> 144: the edge-index registry (DomainService): service 142.
-    // 144 -> 145: the graph shard's `storage_scrub_cursor` (EH-384),
-    // `DomainService` like every shard table: service 143.
-    assert_eq!((names.len(), service, shared), (145, 143, 2));
+    // 144 -> 145: the graph shard's `storage_scrub_cursor` (EH-384).
+    // 145 -> 149: four repository-enrichment authority rows in GraphShard.
+    // 149 -> 151: the two served MCP catalog rows in AgentLibrary. All six
+    // are DomainService, so SharedService remains the two CAS tables.
+    assert_eq!((names.len(), service, shared), (151, 149, 2));
 }
 
 #[test]
@@ -819,7 +821,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // 161 -> 162: the edge-index registry table.
     // 162 -> 163: the graph shard's file-wide `storage_scrub_cursor` (EH-384).
     // 163 -> 167: the graph shard's four `repository_enrichment_*` tables.
-    assert_eq!(names.len(), 167);
+    // 167 -> 169: the Agent Library's `mcp_catalog_configs` and
+    // `mcp_catalog_scopes`, both durable mutation tables.
+    assert_eq!(names.len(), 169);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
