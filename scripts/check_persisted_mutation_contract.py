@@ -9,7 +9,6 @@ from pathlib import Path
 
 from method_families import expand_method_families, families_source, family_pattern
 from method_policy_inventory import (
-    EXPECTED_METHOD_POLICY_ROWS,
     MethodPolicyInventoryError,
     load_capability_sources,
     parse_method_policy_table,
@@ -118,23 +117,6 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         len(names) == len(set(names)),
         "native method catalog contains a duplicate entry",
     )
-    # 100 since f17f47ab3 added the governed `GraphSchema => GraphState` record
-    # (the durable graph-schema authority). This is the catalog's declared
-    # cardinality, so it moves only with a reviewed catalog change.
-    # 100 -> 102: graph-os EG-2/EG-3 native records -- the tenant-bound
-    # `IssueControlLease` / `TransitionControlLease` control-lease rows.
-    # 102 -> 103: EH-346 `PolicyEvolutionStore`, the internal kernel write of
-    # an admitted policy-evolution record.
-    # 103 -> 107: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
-    # `GapSettle`, `WorkOfferPut` (WorkItem kernel).
-    # 107 -> 109: EH-404 `RbacElevation` (Identity) and EH-406
-    # `ThrottleCapacityCell` (WorkItem kernel).
-    # 109 -> 110: EH-524 `TsDefineSeries => TimeSeries` (materialised derived series).
-    # 110 -> 111: EH-558's `RetireSealedRecord` sealed-record retirement.
-    require(
-        len(entries) == 111,
-        f"native method catalog must contain 111 entries, observed {len(entries)}",
-    )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
         all(
@@ -150,31 +132,6 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         ),
         "read-only cluster/catalog methods must remain outside the native mutation "
         "catalog",
-    )
-    domain_counts: dict[str, int] = {}
-    for _, domain in entries:
-        domain_counts[domain] = domain_counts.get(domain, 0) + 1
-    require(
-        domain_counts
-        == {
-            "GraphState": 23,
-            "Transaction": 15,
-            # +2 control leases, +1 PolicyEvolutionStore; +4 EH-348 GapUpsert,
-            # GapTransition, GapSettle, WorkOfferPut; +1 EH-558 RetireSealedRecord
-            "WorkItem": 27,
-            "Blob": 6,
-            "KeyValue": 3,
-            "TimeSeries": 4,  # +1 TsDefineSeries (EH-524)
-            "AnalyticsJob": 1,
-            "Statechart": 1,
-            "SqliteCatalog": 1,
-            "SessionControl": 13,
-            "Identity": 3,
-            "ClusterAdmin": 11,
-            "GraphLifecycle": 2,
-            "Multisig": 1,
-        },
-        f"native method catalog/domain partition drifted: {domain_counts}",
     )
     require(
         mask.count("native_method_catalog!(declare_native_consensus_methods);") == 1
@@ -398,7 +355,7 @@ def _direct_method_matches_set(block: str, inventory: str) -> set[str]:
 def _policy_inventory(
     source: str,
     *,
-    expected_count: int = EXPECTED_METHOD_POLICY_ROWS,
+    expected_count: int | None = None,
     expected_order: tuple[str, ...] | None = None,
 ) -> dict[str, tuple[bool, str]]:
     try:

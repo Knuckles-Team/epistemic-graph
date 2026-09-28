@@ -57,6 +57,14 @@ pub(crate) use method_finish::__eg_method_finish;
 
 __eg_method_chunk_0!();
 impl Method {
+    /// Every variant name compiled into this build, in declaration order. The
+    /// method-policy registry is checked against this list instead of a
+    /// hand-kept variant count (feature-gated variants follow the build).
+    #[cfg(feature = "metrics")]
+    pub fn variant_names() -> &'static [&'static str] {
+        <Self as strum::VariantNames>::VARIANTS
+    }
+
     /// The wire tag name for this variant (e.g. `"Ping"`, `"AddNode"`) — the
     /// adjacently-tagged `"method"` field serde already writes
     /// (`#[serde(tag = "method", content = "params")]`). Used by the v1

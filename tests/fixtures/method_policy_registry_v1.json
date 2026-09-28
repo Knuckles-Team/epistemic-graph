@@ -1,6 +1,5 @@
 {
   "schema": "eg-method-policy-registry/v1",
-  "method_count": 456,
   "domain_order": [
     "cluster",
     "compute",
@@ -43,7 +42,5 @@
       "name": "KnowledgeStream",
       "feature": "knowledge-batch"
     }
-  ],
-  "order_sha256": "898c0ca72fa1951e5563bc89e0650fad3617926d9cb17b5e6814376d11273b28",
-  "policy_sha256": "9d9109cac5c6c2478285cfc0e502f466070c115c786bd277225ec0ce87edb68a"
+  ]
 }

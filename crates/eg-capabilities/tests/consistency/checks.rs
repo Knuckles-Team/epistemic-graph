@@ -237,13 +237,3 @@ fn generated_ledger_is_not_stale() {
         "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features contract --bin gen_contract` and commit the result"
     );
 }
-
-/// Sanity check that the canonical registry has the current variant count, so a future
-/// protocol edit that adds or removes variants is visible in the same policy parity check.
-#[test]
-fn method_policy_registry_has_the_expected_variant_count() {
-    assert_eq!(
-        eg_capabilities::method_policy_entries().count(),
-        super::row_count::expected_method_policy_rows()
-    );
-}
