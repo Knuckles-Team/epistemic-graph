@@ -171,7 +171,7 @@ impl CepSurface {
             .subs
             .get(&sub_id)
             .map(|r| r.clone())
-            .ok_or_else(|| format!("CEP subscription {sub_id} not found"))?;
+            .ok_or_else(|| format!("INVALID_ARGUMENT: CEP subscription {sub_id} not found"))?;
         let mut sub = sub.lock().await;
 
         let mut out = Vec::new();
@@ -448,7 +448,10 @@ async fn surface_of(
     let s = state.read().await;
     match &s.cdc {
         Some(hub) => Ok(hub.cep_surface()),
-        None => Err(Response::err(req_id, "streaming/CDC not configured")),
+        None => Err(Response::err(
+            req_id,
+            "ENGINE_UNAVAILABLE: streaming/CDC not configured",
+        )),
     }
 }
 
@@ -491,7 +494,12 @@ async fn cep_subscribe(
         pattern_msgpack,
         eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
     )
-    .map_err(|_| Response::err(req_id, "invalid or over-complex CEP pattern"))?;
+    .map_err(|_| {
+        Response::err(
+            req_id,
+            "INVALID_ARGUMENT: invalid or over-complex CEP pattern",
+        )
+    })?;
     let surface = surface_of(state, req_id).await?;
     let pattern = pattern_from_spec(&spec.pattern);
     let window = window_from_spec(spec.window);
@@ -750,8 +758,16 @@ mod tests {
         ] {
             let refused = try_handle(&state, req_id, &admin, method).await.unwrap();
             assert_eq!(
-                (refused.id, refused.error.as_deref()),
-                (req_id, Some("streaming/CDC not configured"))
+                (
+                    refused.id,
+                    refused.error.as_deref(),
+                    refused.error_detail.as_deref()
+                ),
+                (
+                    req_id,
+                    Some("ENGINE_UNAVAILABLE"),
+                    Some("streaming/CDC not configured")
+                )
             );
         }
     }

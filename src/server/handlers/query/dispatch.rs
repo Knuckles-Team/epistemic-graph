@@ -512,7 +512,7 @@ async fn handle_sql_with_lease(
         return Err("ACCESS_DENIED: current signed tenant authority is required".to_string());
     };
     let persist_dir = state.read().await.persist_dir.clone().ok_or_else(|| {
-        "SQL error: tenant SQL catalog requires the configured persistence directory".to_string()
+        "ENGINE_UNAVAILABLE: SQL error: tenant SQL catalog requires the configured persistence directory".to_string()
     })?;
     let (snap, _graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
     let graph = crate::server::sql_catalog_acl::RequestGraph {
@@ -550,7 +550,10 @@ async fn handle_cross_modal_with_lease(
     let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
     let resp = match run_unified_off_lock(state, req_id, core, snap, plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::UnifiedQuery>(req_id, &rows),
-        Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "UnifiedQuery error: ", &msg),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)

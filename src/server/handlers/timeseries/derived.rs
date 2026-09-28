@@ -58,7 +58,10 @@ pub(super) async fn handle_define(
             context.req_id,
             ResultPayload::of_ref::<results::TsDefineSeries>(&receipt),
         ),
-        Ok(Err(error)) => Response::err(context.req_id, error),
+        Ok(Err(error)) => Response::err(
+            context.req_id,
+            eg_types::contract::classify_refusal("INTERNAL", "", &error),
+        ),
         Err(response) => response,
     }
 }
@@ -90,12 +93,17 @@ fn define(
     def: &Definition,
 ) -> Result<DerivedSeriesReceipt, String> {
     if def.series_id == def.source {
-        return Err("a derived series cannot derive from itself".into());
+        return Err("INVALID_ARGUMENT: a derived series cannot derive from itself".into());
     }
-    let expr = eg_plan::uql::parse_series_expr(&def.expr).map_err(|e| e.render(&def.expr))?;
+    let expr = eg_plan::uql::parse_series_expr(&def.expr)
+        .map_err(|e| format!("INVALID_ARGUMENT: {}", e.render(&def.expr)))?;
     let source_key = scope.key(&def.source)?;
-    let source_meta = meta(store, &source_key)?
-        .ok_or_else(|| format!("the source series `{}` does not exist", def.source))?;
+    let source_meta = meta(store, &source_key)?.ok_or_else(|| {
+        format!(
+            "INVALID_ARGUMENT: the source series `{}` does not exist",
+            def.source
+        )
+    })?;
     check_fields(&expr, &source_meta)?;
     check_no_cycle(store, scope, &def.source, &def.series_id)?;
     let key = scope.key(&def.series_id)?;
@@ -126,7 +134,7 @@ fn check_fields(expr: &SeriesExpr, source: &SeriesMeta) -> Result<(), String> {
     match expr.channels().into_iter().find(|name| !in_range(name)) {
         None => Ok(()),
         Some(name) => Err(format!(
-            "`{name}` is not a field of the source (it has v0..v{})",
+            "INVALID_ARGUMENT: `{name}` is not a field of the source (it has v0..v{})",
             source.n_fields.saturating_sub(1)
         )),
     }
@@ -146,13 +154,13 @@ fn check_no_cycle(
         };
         if state.source == target {
             return Err(format!(
-                "defining `{target}` over `{source}` would make a cycle"
+                "INVALID_ARGUMENT: defining `{target}` over `{source}` would make a cycle"
             ));
         }
         current = state.source;
     }
     Err(format!(
-        "the derivation chain under `{source}` is deeper than {MAX_DERIVATION_DEPTH}"
+        "INVALID_ARGUMENT: the derivation chain under `{source}` is deeper than {MAX_DERIVATION_DEPTH}"
     ))
 }
 
@@ -165,12 +173,12 @@ fn same_definition(
     let bytes = existing
         .derived
         .as_deref()
-        .ok_or("the series already exists and is not a derived series")?;
+        .ok_or("INVALID_ARGUMENT: the series already exists and is not a derived series")?;
     let state = DerivedState::decode(bytes)?;
     if state.source == source && &state.expr == expr {
         return Ok(state);
     }
-    Err("the series is already derived by a different definition".into())
+    Err("INVALID_ARGUMENT: the series is already derived by a different definition".into())
 }
 
 /// Maintain the series derived from `source`, then theirs, to a bounded depth.
@@ -183,7 +191,7 @@ fn maintain_dependents(
 ) -> Result<(), String> {
     if depth >= MAX_DERIVATION_DEPTH {
         return Err(format!(
-            "the derivation chain under `{source}` is deeper than {MAX_DERIVATION_DEPTH}"
+            "INVALID_ARGUMENT: the derivation chain under `{source}` is deeper than {MAX_DERIVATION_DEPTH}"
         ));
     }
     let Some(source_meta) = meta(store, &scope.key(source)?)? else {

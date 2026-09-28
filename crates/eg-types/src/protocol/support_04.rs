@@ -159,6 +159,17 @@ impl Response {
         }
     }
 
+    /// The refusal folded back into the `"CODE: detail"` text `Response::err`
+    /// accepts, so re-wrapping a refused response keeps its detail. `None`
+    /// when the response carries no error.
+    pub fn refusal_text(&self) -> Option<String> {
+        let code = self.error.as_deref()?;
+        Some(match self.error_detail.as_deref() {
+            Some(detail) => format!("{code}: {detail}"),
+            None => code.to_string(),
+        })
+    }
+
     /// Schema-generated placement redirect used when this node cannot serve the
     /// graph's current `(group, epoch)`.
     pub fn stale_route(

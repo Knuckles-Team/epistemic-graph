@@ -20,7 +20,10 @@ pub(crate) async fn exec_sql_property_graph(
         K::GraphTableReadRequiresCatalogAdmission(query) => {
             exec_sql_graph_table_read(req_id, read_store.clone(), read_core.clone(), query).await
         }
-        _ => Response::err(req_id, "SQL error: read routed to write path".to_string()),
+        _ => Response::err(
+            req_id,
+            "INVALID_ARGUMENT: SQL error: read routed to write path".to_string(),
+        ),
     }
 }
 
@@ -36,25 +39,23 @@ pub(crate) async fn exec_sql_property_graph_privilege(
     let Method::Sql { query, .. } = &sql_method else {
         return Response::err(
             req_id,
-            "SQL error: property-graph privilege change needs its SQL text".to_string(),
+            "INVALID_ARGUMENT: SQL error: property-graph privilege change needs its SQL text"
+                .to_string(),
         );
     };
     let statement = match eg_query::sql::parse_property_graph_privilege(query) {
         Ok(statement) => statement,
-        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+        Err(error) => return Response::err(req_id, sql_refusal(error)),
     };
     let record = match store.property_graph(scope.tenant_scope, &statement.name) {
         Ok(Some(record)) => record,
         Ok(None) => {
             return Response::err(
                 req_id,
-                format!(
-                    "SQL error: {}",
-                    crate::server::sql_catalog_acl::ACCESS_DENIED
-                ),
+                sql_refusal(crate::server::sql_catalog_acl::ACCESS_DENIED),
             );
         }
-        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+        Err(error) => return Response::err(req_id, sql_refusal(error)),
     };
     let (op, tag) = eg_query::PropertyGraphTxnOp::from_privilege_statement(
         statement,
@@ -78,13 +79,13 @@ pub(crate) async fn exec_sql_property_graph_ddl(
     let Method::Sql { query, .. } = &sql_method else {
         return Response::err(
             req_id,
-            "SQL error: property-graph DDL needs its SQL text".to_string(),
+            "INVALID_ARGUMENT: SQL error: property-graph DDL needs its SQL text".to_string(),
         );
     };
     let actor = scope.caller.unwrap_or(scope.tenant_scope).to_string();
     let statement = match eg_query::sql::parse_property_graph_ddl(query, scope.tenant_scope) {
         Ok(statement) => statement,
-        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+        Err(error) => return Response::err(req_id, sql_refusal(error)),
     };
     let (op, tag) = eg_query::PropertyGraphTxnOp::from_statement(statement, &actor);
     let mut txn = eg_query::TableTxn::new();
@@ -116,7 +117,7 @@ pub(crate) async fn exec_sql_graph_table_read(
     let rows = compute_off_lock(req_id, move || graph_table_rows(&store, &read_core, &query)).await;
     match rows {
         Ok(Ok(typed)) => typed_sql_response(req_id, typed),
-        Ok(Err(error)) => Response::err(req_id, format!("SQL error: {error}")),
+        Ok(Err(error)) => Response::err(req_id, sql_refusal(error)),
         Err(response) => response,
     }
 }

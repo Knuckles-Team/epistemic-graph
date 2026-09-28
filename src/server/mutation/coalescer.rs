@@ -485,7 +485,10 @@ where
         .with_request_id(req_id);
     match writer.try_enqueue(job) {
         Ok(()) => reply_rx.await.unwrap_or_else(|_| {
-            Response::err(req_id, "routed write worker unavailable".to_string())
+            Response::err(
+                req_id,
+                "ENGINE_UNAVAILABLE: routed write worker unavailable".to_string(),
+            )
         }),
         Err(job) => {
             // The bounded queue is the ordering authority. Drop the unaccepted

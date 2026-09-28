@@ -81,7 +81,7 @@ fn handle_fork(req_id: u64, core: &Arc<GraphCore>) -> Response {
     let snapshot = (**core).fork().snapshot();
     let value = match prepare_fork_value(&snapshot) {
         Ok(value) => value,
-        Err(error) => return Response::err(req_id, error),
+        Err(error) => return Response::err(req_id, format!("INTERNAL: {error}")),
     };
 
     Response::ok(

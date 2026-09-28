@@ -32,7 +32,10 @@ pub(crate) async fn handle_explain_plan(
     .await
     {
         Ok(Ok(result)) => result_response::<query_results::ExplainPlan>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "ExplainPlan error: ", &msg),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -66,7 +69,14 @@ pub(crate) async fn handle_explain_provenance(
     .await
     {
         Ok(Ok(result)) => result_response::<query_results::ExplainProvenance>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                "ExplainProvenance error: ",
+                &msg,
+            ),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -99,7 +109,14 @@ pub(crate) async fn handle_explain_provenance_by_ids(
     .await
     {
         Ok(Ok(result)) => result_response::<query_results::ExplainProvenanceByIds>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                "ExplainProvenanceByIds error: ",
+                &msg,
+            ),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -137,7 +154,10 @@ pub(crate) async fn handle_explain_policy(
     .await
     {
         Ok(Ok(result)) => result_response::<query_results::ExplainPolicy>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "ExplainPolicy error: ", &msg),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -472,7 +492,14 @@ pub(crate) async fn handle_resolve_conflict(
     .await
     {
         Ok(Ok(result)) => result_response::<query_results::ResolveConflict>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                "ResolveConflict error: ",
+                &msg,
+            ),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -560,7 +587,14 @@ pub(crate) async fn handle_causal_estimate(
     .await
     {
         Ok(Ok(result)) => result_response::<query_results::CausalEstimate>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                "CausalEstimate error: ",
+                &msg,
+            ),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -584,7 +618,14 @@ pub(crate) async fn handle_causal_counterfactual(
     .await
     {
         Ok(Ok(result)) => result_response::<query_results::CausalCounterfactual>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                "CausalCounterfactual error: ",
+                &msg,
+            ),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)

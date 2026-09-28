@@ -11,7 +11,10 @@ fn cypher_query_response(
 ) -> Response {
     match outcome {
         Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "Cypher error: ", &msg),
+        ),
         Err(resp) => resp,
     }
 }
@@ -183,7 +186,10 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
             Ok(payload) => cache_and_respond(&core, req_id, hash, version, payload),
             Err(error) => Response::err(req_id, error),
         },
-        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+        Ok(Err(msg)) => Response::err(
+            req_id,
+            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "Cypher error: ", &msg),
+        ),
         Err(resp) => resp,
     };
     #[cfg(not(feature = "result-cache"))]

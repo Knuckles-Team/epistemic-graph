@@ -1,5 +1,12 @@
 use super::*;
 
+/// Classify a SQL-surface refusal: keep a code the inner error already carries
+/// and report free text as `INVALID_ARGUMENT` under the `SQL error: ` prefix.
+#[cfg(feature = "query")]
+pub(crate) fn sql_refusal(error: impl std::fmt::Display) -> String {
+    eg_types::contract::classify_refusal("INVALID_ARGUMENT", "SQL error: ", &error.to_string())
+}
+
 /// Verify that Cypher's explicit wire mode agrees with the native parser.
 ///
 /// The mode is an authorization and durability claim, not a parser hint. Callers
@@ -12,10 +19,19 @@ pub(crate) fn validate_cypher_mode(method: &Method) -> Result<(), String> {
     let parsed_mode = match eg_query::classify_cypher(query) {
         Ok(eg_query::CypherStatementKind::Read) => crate::protocol::CypherMode::Read,
         Ok(eg_query::CypherStatementKind::Write) => crate::protocol::CypherMode::Write,
-        Err(message) => return Err(format!("Cypher error: {message}")),
+        Err(message) => {
+            return Err(eg_types::contract::classify_refusal(
+                "INVALID_ARGUMENT",
+                "Cypher error: ",
+                &message,
+            ))
+        }
     };
     if &parsed_mode != mode {
-        return Err("Cypher error: declared mode does not match the parsed statement".to_string());
+        return Err(
+            "INVALID_ARGUMENT: Cypher error: declared mode does not match the parsed statement"
+                .to_string(),
+        );
     }
     Ok(())
 }

@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use eg_core::compute::semantic_ann_codes::SemanticCodeError;
 use eg_core::compute::semantic_index_service::SemanticIndexService;
-use eg_types::semantic_index::{SemanticBinding, SemanticIndexOp};
+use eg_types::semantic_index::{SemanticBinding, SemanticIndexError, SemanticIndexOp};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Response, ResultPayload};
@@ -83,11 +83,22 @@ fn authorize(
     verified: &crate::server::auth::VerifiedRequestContext,
     op: &SemanticIndexOp,
 ) -> Result<CarrierAuthority, Response> {
-    if op.validate().is_err() {
-        return Err(Response::err(
-            req_id,
-            "INVALID_ARGUMENT: semantic operation rejected",
-        ));
+    // Echo only the refused shape field and its static reason, never the
+    // submitted value.
+    match op.validate() {
+        Ok(()) => {}
+        Err(SemanticIndexError::InvalidField { field, reason }) => {
+            return Err(Response::err(
+                req_id,
+                format!("INVALID_ARGUMENT: semantic operation rejected: `{field}` {reason}"),
+            ));
+        }
+        Err(_) => {
+            return Err(Response::err(
+                req_id,
+                "INVALID_ARGUMENT: semantic operation rejected",
+            ));
+        }
     }
     // Tenant isolation, checked ONCE rather than per arm, keeps a binding id
     // from becoming an execution grant across tenants.
