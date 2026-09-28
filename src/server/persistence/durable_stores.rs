@@ -301,6 +301,11 @@ mod tests {
     /// unclassified new store and fail.
     const NOT_A_PERSIST_DIR_STORE: &[(&str, &str)] = &[
         (
+            "candidate.redb",
+            "extension suffix of the transient semantic-tenant upgrade candidate \
+             (`<tenant store>.candidate.redb`), renamed over its destination or removed",
+        ),
+        (
             "control-plane.redb",
             "eg-transaction outbox lease unit-test fixture (tempdir)",
         ),

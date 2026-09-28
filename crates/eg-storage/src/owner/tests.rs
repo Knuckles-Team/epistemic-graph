@@ -78,8 +78,10 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // transaction) MINUS the eight `mutation_*` tables of the shard's retired
     // private ledger, which RF-RULING-004 gives to `MutationKernel` alone:
     // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53, plus EH-384's file-wide
-    // `storage_scrub_cursor` = 54.
-    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 54);
+    // `storage_scrub_cursor` = 54, plus Train 4's four repository-enrichment
+    // tables (`repository_enrichment_budgets`, `_policy_revisions`,
+    // `_supersessions`, `_parks`) = 58.
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 58);
     assert_eq!(owner_layouts().len(), 18);
 }
 
@@ -816,7 +818,8 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // 159 -> 161: the SQL ANN generation and changed-row tables.
     // 161 -> 162: the edge-index registry table.
     // 162 -> 163: the graph shard's file-wide `storage_scrub_cursor` (EH-384).
-    assert_eq!(names.len(), 163);
+    // 163 -> 167: the graph shard's four `repository_enrichment_*` tables.
+    assert_eq!(names.len(), 167);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
