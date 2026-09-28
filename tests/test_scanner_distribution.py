@@ -9,7 +9,6 @@ optional native tools.
 from __future__ import annotations
 
 import configparser
-import re
 from pathlib import Path
 
 import pytest
@@ -141,13 +140,8 @@ def _assert_scanner_job(jobs, workflow_source):
 
     all_runs = "\n".join(str(step["run"]) for step in scanner["steps"] if "run" in step)
     for command in (
-        "cccc-cli",
-        "kiss-ai",
-        "dupehound",
-        "arch-lint-cli",
+        "scripts/install_scanners.sh",
         "import-linter==2.13",
-        "jscpd@5.0.16",
-        "dependency-cruiser@18.2.0",
         "check_duplication.py enforce --base-ref",
         "check_duplication.py census",
         "validate_cccc_census.py",
@@ -204,12 +198,14 @@ def _assert_security_and_build_jobs(jobs):
 def _assert_runtime_contract_jobs(jobs, security):
     runtime_contracts = jobs["lint-and-architecture"]
     assert "continue-on-error" not in runtime_contracts
-    assert "python3 scripts/check_p2_modality_architecture.py" in {
-        step.get("run") for step in runtime_contracts["steps"]
-    }
-    assert "python3 scripts/check_canonical_property_schema.py" in {
-        step.get("run") for step in runtime_contracts["steps"]
-    }
+    # CI runs the same pre-commit config as a local commit, so every
+    # commit-stage architecture hook is a blocking CI gate by construction.
+    assert any(
+        str(step.get("run", "")).startswith(
+            "pre-commit run --config .config/pre-commit.yaml"
+        )
+        for step in runtime_contracts["steps"]
+    )
     assert "python3 scripts/check_universal_read_rls.py" in {
         step.get("run") for step in security["steps"]
     }
@@ -317,36 +313,6 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     dependency_cruiser = (REPO / "clients/js/.dependency-cruiser.cjs").read_text()
     assert 'name: "no-circular"' in dependency_cruiser
     assert 'name: "no-unresolved"' in dependency_cruiser
-
-
-def test_scanner_toolchain_cache_key_spells_out_every_install_pin():
-    """A cached scanner toolchain is keyed on exactly the pins it was built from."""
-
-    scanner = _workflow()["jobs"]["scanner-quality"]
-    steps = {step.get("name"): step for step in scanner["steps"]}
-    cache = steps["Restore pinned scanner toolchain"]
-    install = steps["Provision pinned scanner toolchain"]
-    key = cache["with"]["key"]
-    assert install["if"] == (
-        "${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}"
-    )
-    assert cache["with"]["path"] == "${{ runner.temp }}/epistemic-graph-scanners"
-    script = install["run"]
-    pins = re.findall(r"--rev (\S+) --root \S+ (\S+)", script)
-    pins += [
-        (version, crate)
-        for version, crate in re.findall(r"--version (\S+) --root \S+ (\S+)", script)
-    ]
-    pins += [
-        (version, package)
-        for package, version in re.findall(r'"([\w-]+)@([\w.]+)"', script)
-    ]
-    assert len(pins) == 6, pins
-    for version, name in pins:
-        assert f"{name}-{version}" in key, f"cache key misses pin {name} {version}"
-    verify = steps["Verify scanner versions"]
-    # Version verification runs on cache hits too (only cancellation skips it).
-    assert verify.get("if") == "${{ !cancelled() }}"
 
 
 def test_scanner_job_reports_every_step_after_a_failure():

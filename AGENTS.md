@@ -34,6 +34,22 @@ Clients authenticate requests through the documented request envelope and
 policy context. Treat the code and generated API surfaces as authoritative when
 documentation differs.
 
+## Setup
+
+From a fresh clone (locally or in a Claude Code cloud session, where
+`.claude/hooks/session-start.sh` runs it automatically):
+
+```bash
+scripts/bootstrap.sh              # pinned Python + test deps, Rust toolchain, git hooks
+scripts/bootstrap.sh --scanners   # also cccc/kiss/dupehound/jscpd/arch-lint/cargo-deny (~15 min cold)
+```
+
+Hooks that need a missing tool or the sibling `agent-utilities` checkout print
+`SKIPPED (<gate>): <reason>` locally and fail closed in CI. On a 4-CPU container
+keep `CARGO_BUILD_JOBS=3` and debuginfo off (the session hook sets both), and
+iterate with `cargo check`/`cargo test -p <crate>` rather than the whole `full`
+suite.
+
 ## Commands
 
 Regenerate the status page after changing its source data, then verify it with:
@@ -43,10 +59,13 @@ python3 scripts/build_status_page.py --write
 python3 scripts/check_status_page.py
 ```
 
-Run the configured pre-commit stages and hosted-CI parity locally with:
+Hosted CI runs the same commit-stage hooks (`lint-and-architecture` job), so
+this is the local equivalent; `ci_parity.sh` adds the pre-push and manual
+(scanner, census, full-suite) stages:
 
 ```bash
-pre-commit run --config .config/pre-commit.yaml --all-files
+uvx pre-commit run --config .config/pre-commit.yaml --all-files
+uvx pre-commit run --config .config/pre-commit.yaml --all-files --hook-stage manual
 bash scripts/ci_parity.sh
 ```
 
