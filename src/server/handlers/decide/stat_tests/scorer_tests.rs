@@ -1,7 +1,8 @@
 //! Served resident scorer (EH-291, EH-295, EH-300): `DecisionFit` fits an
 //! `OptionAttention` head; a receipt that fails the promotion protocol cannot
-//! publish it; a passing one does; `Decide` then acts through it, records no
-//! (inexact) linear explanation, and the record verify-replays in the log.
+//! publish it; a passing one does. The inline-fitted head is synthetic, so
+//! `Decide` abstains rather than acting on it, records no (inexact) linear
+//! explanation, and an explored decision through it verify-replays in the log.
 
 use super::*;
 
@@ -134,26 +135,51 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
         .unwrap();
 
     belief_slices_are_refused_without_a_head_or_in_the_future(&h, &fixture).await;
+    // An inline-fitted head is synthetic, so its conformal calibration cannot
+    // authorize an ordinary Act: the head reads, but the ladder abstains.
+    let abstained =
+        decide_and_assert_abstains(&h, &fixture.schema_pin, Some(head_pin.clone())).await;
+    let record = &abstained.records.as_slice()[0];
+    assert!(
+        record.synthetic_evidence,
+        "a head fitted on synthetic data says so"
+    );
+    assert!(
+        record.explanation.is_none(),
+        "no partial explanation labelled exact"
+    );
+
+    // Belief replay and the log still need an executed decision: explicit
+    // ordinary-question exploration supplies one through the scorer head
+    // without claiming a risk-bound Act from the synthetic calibration.
+    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
+    policy.cold_start = ColdStart::Explore {
+        budget: ExplorationBudget {
+            fraction: rational(1, 1),
+            spend_at_risk_micros: 1,
+            questions: BoundedVec::new(vec!["route.tools".to_string()]).unwrap(),
+        },
+    };
+    let policy_pin = h.publish_policy("policy-scorer-explore", &policy);
     let mut request = request(
         &fixture.schema_pin,
         Some(head_pin),
-        DecisionPolicyRef::Default,
+        DecisionPolicyRef::Pinned {
+            component: policy_pin,
+        },
         QuestionSafety::Ordinary,
     );
     request.belief_as_of = BoundedVec::new(vec![1_000, 2_000]).unwrap();
     let batch = decide(&h, request).await.unwrap();
     let record = &batch.records.as_slice()[0];
-    let StatisticalOutcome::Acted { option_id, .. } = &record.outcome else {
-        panic!("expected to act: {:?}", record.outcome)
-    };
-    assert_eq!(option_id, "tool-a-search");
+    assert!(
+        matches!(record.outcome, StatisticalOutcome::Explored { .. }),
+        "expected to explore: {:?}",
+        record.outcome
+    );
     assert!(
         record.explanation.is_none(),
         "no partial explanation labelled exact"
-    );
-    assert_eq!(
-        record.calibration.map(|c| c.method),
-        Some(eg_types::decision::statistical::CalibrationMethod::Conformal)
     );
     belief_is_recorded_and_replayed(&h, record).await;
     decision_log_round_trip(&h, record.clone()).await;

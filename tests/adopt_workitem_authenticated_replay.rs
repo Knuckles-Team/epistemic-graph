@@ -278,10 +278,7 @@ async fn authenticated_submit_dispatch_replays_once_in_redb() {
     )
     .await;
     assert!(
-        conflict
-            .error_detail
-            .as_deref()
-            .is_some_and(|error| error.contains("IDEMPOTENCY_CONFLICT")),
+        conflict.error.as_deref() == Some("IDEMPOTENCY_CONFLICT"),
         "same key with changed submit payload must conflict: {conflict:?}"
     );
 
@@ -344,10 +341,7 @@ async fn authenticated_claim_dispatch_replays_once_in_redb() {
     )
     .await;
     assert!(
-        conflict
-            .error_detail
-            .as_deref()
-            .is_some_and(|error| error.contains("IDEMPOTENCY_CONFLICT")),
+        conflict.error.as_deref() == Some("IDEMPOTENCY_CONFLICT"),
         "same key with changed claim payload must conflict: {conflict:?}"
     );
 

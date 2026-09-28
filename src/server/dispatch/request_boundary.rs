@@ -373,6 +373,21 @@ async fn dispatch_preamble_checks(
     Ok((req, authority))
 }
 
+/// The wire refusal for a failed request verification. The published error
+/// sets distinguish a context bound to another node or scope (ADR-3), so
+/// those codes survive; every detail stays redacted so a failed verification
+/// is never an oracle for secrets, nonces or node identity.
+fn authentication_refusal(error: &str) -> &'static str {
+    let code = error.split_once(':').map_or(error, |(code, _)| code);
+    match code {
+        "NODE_MISMATCH" => "NODE_MISMATCH: Authentication failed",
+        "AUTH_TENANT_MISMATCH" => "AUTH_TENANT_MISMATCH: Authentication failed",
+        "AUTH_AUDIENCE_MISMATCH" => "AUTH_AUDIENCE_MISMATCH: Authentication failed",
+        "AUTH_POLICY_VERSION_MISMATCH" => "AUTH_POLICY_VERSION_MISMATCH: Authentication failed",
+        _ => "AUTHENTICATION_REQUIRED: Authentication failed",
+    }
+}
+
 async fn dispatch_inner(
     state: &Arc<RwLock<ServerState>>,
     mut req: Request,
@@ -389,9 +404,9 @@ async fn dispatch_inner(
             let s = timed_read(state).await;
             match verify_request_with_security_dir(&s.auth_secret, &req, s.persist_dir.as_deref()) {
                 Ok(context) => context,
-                Err(_) => {
+                Err(error) => {
                     crate::metrics::auth_failure();
-                    return Response::err(req.id, "AUTHENTICATION_REQUIRED: Authentication failed");
+                    return Response::err(req.id, authentication_refusal(&error));
                 }
             }
         }
