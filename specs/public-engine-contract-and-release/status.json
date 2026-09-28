@@ -29,5 +29,13 @@
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [
+    {
+      "kind": "merged_head",
+      "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4",
+      "commit": "a7f4dd74e7b2d01832fc9c3359046255d0e606d4",
+      "result": "passed",
+      "description": "PR #3 Train 4 source repair landed; package, consumer, and release acceptance remain open"
+    }
+  ]
 }

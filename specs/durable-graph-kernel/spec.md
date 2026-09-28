@@ -61,7 +61,7 @@ This table makes the historical work identifiers searchable without requiring th
 | EH-717, EH-718, EH-719, EH-720, EH-721, EH-722 | queued | KG-11–KG-15; native routing, durability, hot state, batch and measurement |
 | EH-185, EH-191 | gate source landed or deferred | Quality proof: differential clones and feature-specific Rust coverage; no runtime feature claimed |
 
-The generic method-codec artifact size item EH-383 is owned by `EG-T4-GREEN`; it does not define a second security mechanism here. The accelerated attached-source copy EH-669 is owned by `unified-data-plane`, because its source of truth is external. This boundary keeps native storage and attached-source acceleration distinct.
+The generic method-codec artifact size item EH-383 belongs to the [public engine contract and release spec](../public-engine-contract-and-release/spec.md); it does not define a second security mechanism here. The accelerated attached-source copy EH-669 belongs to [unified data plane](../unified-data-plane/spec.md), because its source of truth is external. This boundary keeps native storage and attached-source acceleration distinct.
 
 ## Quality and exclusion rules
 

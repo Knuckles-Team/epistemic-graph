@@ -16,6 +16,8 @@ A contributor must be able to change an engine method once and regenerate the sa
 
 The current repository includes a generated method catalog, error catalog, Python typed models, Go and JavaScript codec clients and a package contract receipt. Their presence establishes a partial source baseline only. No release acceptance is claimed here.
 
+[PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3) merged its Train 4 source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/epistemic-graph/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The EH-592 wheel and consumer proof, EH-655 duplication gate, EH-656 hooks, and exact-revision release acceptance remain open under this spec's test contract.
+
 ## Normative requirements
 
 | ID | Required behavior | Verifiable result |

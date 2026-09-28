@@ -61,7 +61,6 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 ## Local specifications
 
 - [`unified-data-plane`](unified-data-plane/spec.md) — Train 9 EG owner contract; PROPOSED.
-- [`EG-T4-GREEN`](EG-T4-GREEN/spec.md) — PR #3 source LANDED; package, consumer, and release acceptance pending.
 - [`EG-DECISION-ENGINE`](decision-engine/spec.md) — governed decision and calibration engine contract.
 - [`EG-DURABLE-KERNEL`](durable-graph-kernel/spec.md) — durable graph state and recovery contract.
 - [`EG-IDENTITY-001`](engine-identity-and-scope/spec.md) — issuer, identity, scope, and audit contract.
