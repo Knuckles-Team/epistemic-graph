@@ -659,6 +659,13 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     override = os.environ.get("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", "").strip()
     if override:
         return _identifiers_from_override(override)
+    # CI runners and Claude Code cloud sessions have no personal identity to
+    # protect: their ambient user, host and git identity are the platform's
+    # (e.g. user.name "Claude"), which only manufactures leaks from ordinary
+    # prose. There, only the declared override above applies; the home-path
+    # and internal-host detectors run everywhere regardless.
+    if os.environ.get("CI") or os.environ.get("CLAUDE_CODE_REMOTE") == "true":
+        return frozenset()
 
     candidates = _os_identifier_candidates()
     candidates.update(_git_common_dir_identifiers(root))

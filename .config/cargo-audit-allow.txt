@@ -1,6 +1,5 @@
-# Rust dependencies with an open RUSTSEC/OSV advisory that are risk-accepted --
-# the twin ledger to agent-utilities' `.config/security-audit-allow.txt`, same
-# semantics: one justified, <=90-day-expiring line per advisory.
+# Rust dependencies with an open RUSTSEC/OSV advisory that are risk-accepted:
+# one justified, <=90-day-expiring line per advisory.
 #
 # Format:  RUSTSEC-YYYY-NNNN expires=YYYY-MM-DD # justification (>=12 chars)
 #

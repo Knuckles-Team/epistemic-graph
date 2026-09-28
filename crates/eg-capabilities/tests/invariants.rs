@@ -6,11 +6,8 @@ use eg_capabilities::{
 };
 use eg_types::protocol::{CypherMode, Method};
 
-#[path = "consistency/row_count.rs"]
-mod row_count;
-
 #[test]
-fn method_policy_registry_has_no_duplicates() {
+fn method_policy_registry_is_unique_and_covers_every_method_variant() {
     use std::collections::HashSet;
     let mut seen = HashSet::new();
     for (name, table_policy, _note) in method_policy_entries() {
@@ -25,11 +22,16 @@ fn method_policy_registry_has_no_duplicates() {
         // classifier comparisons live in `tests/consistency.rs`.
         let _ = table_policy;
     }
-    let expected = row_count::expected_method_policy_rows();
-    assert_eq!(
-        seen.len(),
-        expected,
-        "expected exactly {expected} Method variants"
+    let variants = Method::variant_names()
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
+    let missing: Vec<_> = variants.difference(&seen).collect();
+    let stale: Vec<_> = seen.difference(&variants).collect();
+    assert!(
+        missing.is_empty() && stale.is_empty(),
+        "method-policy registry must cover exactly the compiled Method variants; \
+         missing rows: {missing:?}, rows for no variant: {stale:?}"
     );
 }
 

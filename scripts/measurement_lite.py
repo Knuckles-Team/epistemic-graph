@@ -6,8 +6,7 @@ CONCEPT:EG-KG.build.measurement-harness-lite
 Mirrors, on epistemic-graph's own gates/CI, the fuller measurement harness
 built in `agent-utilities` (`agent_utilities/measurement/`, capabilities
 A-G, one module per catalogued false-alarm incident — see that package's
-README for the full incident list). Same convention this repo already uses
-for `scripts/check_cargo_advisories.sh` mirroring `audit_dependencies.py`.
+README for the full incident list).
 
 Deliberately a SEPARATE, dependency-free file rather than an
 `agent-utilities` import, for one concrete reason: `epistemic-graph`

@@ -283,15 +283,22 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         .collect::<std::collections::BTreeSet<_>>();
     // `NodeInfoUpsert` moved behind the sealed native command envelope in
     // 7469acff; it is intentionally absent from the public method catalog.
-    // 193892753 added the two replicated ControlLease writes (their commit
-    // deferred this count pin to landing), taking the catalog from 100 to 102;
-    // 102 -> 103: EH-346 `PolicyEvolutionStore`;
-    // 103 -> 107: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
-    // `GapSettle`, `WorkOfferPut` -- all WorkItem-kernel writes;
-    // 107 -> 109: EH-404 `RbacElevation` and EH-406 `ThrottleCapacityCell`;
-    // 109 -> 110: EH-524 `TsDefineSeries => TimeSeries`;
-    // 110 -> 111: EH-558's `RetireSealedRecord`.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 111);
+    // Every catalog entry must be a real, mutating Method variant; the catalog
+    // size follows the catalog itself rather than a hand-kept count.
+    let variants = Method::variant_names()
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    for name in &unique {
+        assert!(variants.contains(name), "{name} is not a Method variant");
+        let (_, policy, _) = eg_capabilities::method_policy_entries()
+            .find(|(row, _, _)| row == name)
+            .unwrap_or_else(|| panic!("{name} has no method policy"));
+        assert!(
+            policy.mutates,
+            "{name} is in the native catalog but does not mutate"
+        );
+    }
     for control_lease_write in [
         "IssueControlLease",
         "TransitionControlLease",

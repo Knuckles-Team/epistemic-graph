@@ -1,8 +1,8 @@
 # Push-gate execution evidence
 
-`ci_gate_replica.py` is the single producer for workflow-derived heavy checks in
-the local manual validation tier. It parses the checked-in workflow files and builds one
-bounded plan. Identical selections in that plan execute once per invocation;
+`scripts/push_gate_evidence.py` keys heavy local checks (for example the
+cluster-extras affected lint) by their exact command and build environment.
+Identical selections execute once per invocation;
 later consumers may reuse only a verified result from that same invocation (or
 an explicitly declared completed prior phase).
 

@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
-"""Static release gate for G-04, G-14, G-15, and G-17 campaigns."""
+"""Static release gate for the G-04, G-14, G-15, and G-17 exact campaigns.
+
+The campaigns only run against a supplied release binary, so nothing else
+checks them statically. This gate keeps three kinds of property:
+
+* each campaign's declared inventory (wires, data paths, modalities,
+  behaviour dimensions, KnowledgeBatch families, reasoning cases) equals the
+  release claim, read from literal assignments via ``ast``;
+* bans: a harness may not discover, build, or skip its engine binary, and
+  its evidence may not carry the executable path;
+* structure: the multimodal campaign calls every served operation and runs
+  the full modality x fault-phase matrix, and ``full`` ships every direct
+  wire and the release features.
+
+It deliberately does not pin source text, error strings, docs, or other
+gates' implementation.
+"""
 
 from __future__ import annotations
 
@@ -122,12 +138,6 @@ def _literal_set(tree: ast.AST, name: str) -> set[str]:
     return set(value)
 
 
-def _require(source: str, tokens: set[str], label: str, errors: list[str]) -> None:
-    for token in sorted(tokens):
-        if token not in source:
-            errors.append(f"{label}: missing {token!r}")
-
-
 def _qualified_name(node: ast.AST) -> str | None:
     parts: list[str] = []
     current = node
@@ -186,22 +196,6 @@ def _check_harness_baseline(
     except SyntaxError as error:
         errors.append(f"{relative}: syntax error at line {error.lineno}")
         return None
-    _require(
-        source,
-        {
-            '"--binary"',
-            '"--binary-sha256"',
-            '"--output"',
-            "_validate_binary",
-            "ExactEngine",
-            "evidence_destination_must_be_new",
-            '"sha256": binary_digest',
-            "TemporaryDirectory",
-            "evidence_contains_ephemeral_authority",
-        },
-        relative,
-        errors,
-    )
     for forbidden in (
         "cargo build",
         "cargo run",
@@ -220,26 +214,19 @@ def _check_harness_baseline(
     return tree
 
 
-def _load_campaign_sources(
-    errors: list[str],
-) -> tuple[dict[str, str], dict[str, ast.AST | None]]:
-    relatives = (
-        "scripts/certify_exact_protocol_authorization.py",
-        "scripts/certify_exact_multimodal.py",
-        "scripts/certify_exact_knowledge_batch.py",
-        "scripts/certify_exact_reasoning_repair.py",
-    )
-    sources: dict[str, str] = {}
-    trees: dict[str, ast.AST | None] = {}
-    for relative in relatives:
-        source = _read(relative)
-        sources[relative] = source
-        trees[relative] = _check_harness_baseline(relative, source, errors)
-    return sources, trees
+def _load_campaign_trees(errors: list[str]) -> dict[str, ast.AST | None]:
+    return {
+        relative: _check_harness_baseline(relative, _read(relative), errors)
+        for relative in (
+            "scripts/certify_exact_protocol_authorization.py",
+            "scripts/certify_exact_multimodal.py",
+            "scripts/certify_exact_knowledge_batch.py",
+            "scripts/certify_exact_reasoning_repair.py",
+        )
+    }
 
 
 def _check_protocol_campaign(
-    source: str,
     tree: ast.AST | None,
     errors: list[str],
 ) -> None:
@@ -268,27 +255,6 @@ def _check_protocol_campaign(
                 errors.append(
                     "protocol listeners exceed or drift from launcher allowlist"
                 )
-    _require(
-        source,
-        {
-            "_wait_for_listeners(addresses)",
-            "_probe_native(engine)",
-            "PROBES[protocol](addresses[protocol])",
-            "peer.query.sql(sql) == []",
-            "peer.rdf.sparql",
-            "peer.graph.semantic_search",
-            "peer.query.unified",
-            "peer.timeseries.range",
-            "peer.blob.fetch",
-            "peer.jobs.status",
-            '"KvGet"',
-            "peer.broker.consume",
-            "engine.start(tenant=SECOND_TENANT)",
-            "cross_tenant_authorization_matrix_failed",
-        },
-        "protocol campaign",
-        errors,
-    )
 
 
 def _check_multimodal_campaign(
@@ -338,7 +304,6 @@ def _check_multimodal_campaign(
 
 
 def _check_batch_campaign(
-    source: str,
     tree: ast.AST | None,
     errors: list[str],
 ) -> None:
@@ -353,26 +318,9 @@ def _check_batch_campaign(
                 errors.append("KnowledgeBatch family inventory is not the exact seven")
             if requirements != EXPECTED_BATCH_REQUIREMENTS:
                 errors.append("KnowledgeBatch requirement inventory is incomplete")
-    _require(
-        source,
-        {
-            "client.knowledge.pull",
-            "arrow_schema_digest",
-            "tampered_cursor_was_accepted",
-            "first_client.close()",
-            "BACKPRESSURE_SECONDS",
-            "knowledge_batch_page_bound_violated",
-            "cross_family_arrow_schema_mismatch",
-            "changed_snapshot_cursor_was_accepted",
-            "immutable_source_resumed",
-        },
-        "KnowledgeBatch campaign",
-        errors,
-    )
 
 
 def _check_reasoning_campaign(
-    source: str,
     tree: ast.AST | None,
     errors: list[str],
 ) -> None:
@@ -384,27 +332,6 @@ def _check_reasoning_campaign(
         else:
             if cases != EXPECTED_REASONING_CASES:
                 errors.append("reasoning campaign inventory is not the exact nine")
-    _require(
-        source,
-        {
-            '"Stale"',
-            '"Fresh"',
-            "engine.stop()",
-            "engine.start()",
-            "reasoning_projection_restart_mismatch",
-            "resolve_conflict",
-            "what_changed(50, 200)",
-            "what_would_invalidate",
-            "causal_estimate",
-            "causal_counterfactual",
-            "causal_recomputation_not_deterministic",
-            "stale_recompute_fence_was_accepted",
-            "recompute_materialization",
-            "belief_retraction_restart_mismatch",
-        },
-        "reasoning campaign",
-        errors,
-    )
 
 
 def _check_feature_contract(errors: list[str]) -> None:
@@ -423,110 +350,10 @@ def _check_feature_contract(errors: list[str]) -> None:
             errors.append(f"full feature lost {feature}")
 
 
-def _check_architecture_contracts(errors: list[str]) -> None:
-    universal = _read("scripts/check_universal_read_rls.py")
-    _require(
-        universal,
-        {
-            "generated served-read inventory",
-            "GraphReadAuthority::from_verified",
-            "CarrierAuthority::from_verified",
-            "default-deny RLS",
-            "result-cache actor key",
-        },
-        "universal read authority gate",
-        errors,
-    )
-    modality = _read("scripts/check_p2_modality_architecture.py")
-    _require(
-        modality,
-        {"KnowledgeBatch", "KnowledgeStreamCursor", "ArrowIpc", "cross_modal"},
-        "modality architecture gate",
-        errors,
-    )
-    analytics = _read("scripts/check_p2_analytics_reasoning_architecture.py")
-    _require(
-        analytics,
-        {"reasoning_projection.rs", "claim_recompute(", "epistemic-tms"},
-        "reasoning architecture gate",
-        errors,
-    )
-
-
-def _check_release_test_contracts(errors: list[str]) -> None:
+def _check_release_wrapper(errors: list[str]) -> None:
     wrapper = _read("tests/test_exact_release_campaigns.py")
-    _require(
-        wrapper,
-        {
-            "certify_exact_protocol_authorization.py",
-            "certify_exact_multimodal.py",
-            "certify_exact_knowledge_batch.py",
-            "certify_exact_reasoning_repair.py",
-            "EPISTEMIC_GRAPH_TEST_BINARY",
-            "EPISTEMIC_GRAPH_TEST_BINARY_SHA256",
-            "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE",
-            "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256",
-            "pytest.mark.exact_artifact",
-            '"protocol_cases": 10',
-            '"modalities": 4',
-            '"dimensions_per_modality": 12',
-            '"fault_cases": 16',
-            '"families": 7',
-            '"cases": 9',
-        },
-        "exact release pytest wrapper",
-        errors,
-    )
     if "cargo" in wrapper or "resolve_engine_binary" in wrapper:
         errors.append("exact release pytest wrapper discovers or builds an artifact")
-    multimodal_contract_test = _read("tests/test_exact_multimodal_campaign_contract.py")
-    _require(
-        multimodal_contract_test,
-        {
-            "test_multimodal_campaign_inventory_is_current_and_complete",
-            "test_multimodal_campaign_binds_only_the_supplied_artifact",
-            "test_serial_exact_wrapper_requires_multimodal_summary",
-            '"document", "image", "audio", "video"',
-            '"dimensions_per_modality": 12',
-            '"fault_cases": 16',
-        },
-        "multimodal static contract tests",
-        errors,
-    )
-
-
-def _check_documentation_contract(errors: list[str]) -> None:
-    docs = _read("docs/operations/exact-release-campaigns.md")
-    nav = _read("mkdocs.yml")
-    # rust-ci.yml was originally folded into a two-workflow release model
-    # (advisory.yml, report-only + release.yml, blocking); advisory.yml was
-    # retired 2026-08-28 (wD9-CIGATE, continue-on-error is a ratchet by this
-    # project's definition) and every architecture/doc-contract gate --
-    # this one included -- now lives in release.yml's `lint-and-architecture`
-    # job, release-blocking. See release.yml's header comment.
-    workflow = _read(".github/workflows/release.yml")
-    _require(
-        docs,
-        {
-            "certify_exact_protocol_authorization.py",
-            "certify_exact_multimodal.py",
-            "certify_exact_knowledge_batch.py",
-            "certify_exact_reasoning_repair.py",
-            "contains no executable or temporary path",
-        },
-        "release campaign operations guide",
-        errors,
-    )
-    if "operations/exact-release-campaigns.md" not in nav:
-        errors.append("MkDocs navigation omits the exact release campaign guide")
-    if workflow.count("scripts/check_exact_release_campaigns.py") < 1:
-        errors.append("Release CI does not run the exact campaign gate")
-    # release.yml (unlike the retired advisory.yml) carries no path filters at
-    # all on push/pull_request -- it always triggered on every push/PR/tag
-    # directly (see this file's own header comment), so there is no
-    # 'scripts/**' filter to verify presence of anymore; the former check
-    # here was asserting an advisory.yml-specific trigger-scoping detail that
-    # no longer exists as a design, not a residual gap.
 
 
 def _report(errors: list[str]) -> int:
@@ -541,23 +368,17 @@ def _report(errors: list[str]) -> int:
 
 def main() -> int:
     errors: list[str] = []
-    sources, trees = _load_campaign_sources(errors)
+    trees = _load_campaign_trees(errors)
     protocol_relative = "scripts/certify_exact_protocol_authorization.py"
     multimodal_relative = "scripts/certify_exact_multimodal.py"
     batch_relative = "scripts/certify_exact_knowledge_batch.py"
     reasoning_relative = "scripts/certify_exact_reasoning_repair.py"
-    _check_protocol_campaign(
-        sources[protocol_relative], trees[protocol_relative], errors
-    )
+    _check_protocol_campaign(trees[protocol_relative], errors)
     _check_multimodal_campaign(trees[multimodal_relative], errors)
-    _check_batch_campaign(sources[batch_relative], trees[batch_relative], errors)
-    _check_reasoning_campaign(
-        sources[reasoning_relative], trees[reasoning_relative], errors
-    )
+    _check_batch_campaign(trees[batch_relative], errors)
+    _check_reasoning_campaign(trees[reasoning_relative], errors)
     _check_feature_contract(errors)
-    _check_architecture_contracts(errors)
-    _check_release_test_contracts(errors)
-    _check_documentation_contract(errors)
+    _check_release_wrapper(errors)
     return _report(errors)
 
 

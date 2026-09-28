@@ -92,7 +92,6 @@ class MethodPolicyRow:
 # `FinanceRollingZscore` and `FinanceEwma`, now served as UQL `DERIVE` /
 # SQL `eg_zscore` / `eg_ewma`.
 # 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
-EXPECTED_METHOD_POLICY_ROWS = 456
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
@@ -333,10 +332,10 @@ def _validate_cfg_rows(rows: tuple[MethodPolicyRow, ...]) -> None:
 
 def _validate_rows(
     rows: tuple[MethodPolicyRow, ...],
-    expected_count: int,
+    expected_count: int | None,
     expected_order: tuple[str, ...] | None,
 ) -> tuple[MethodPolicyRow, ...]:
-    if len(rows) != expected_count:
+    if expected_count is not None and len(rows) != expected_count:
         raise MethodPolicyInventoryError(
             f"method-policy registry has {len(rows)} rows instead of {expected_count}"
         )
@@ -346,7 +345,7 @@ def _validate_rows(
         raise MethodPolicyInventoryError(
             "method-policy registry order differs from expected order"
         )
-    if expected_count == EXPECTED_METHOD_POLICY_ROWS:
+    if expected_count is None:
         _validate_cfg_rows(rows)
     return rows
 
@@ -354,7 +353,7 @@ def _validate_rows(
 def parse_method_policy_table(
     source: str,
     *,
-    expected_count: int = EXPECTED_METHOD_POLICY_ROWS,
+    expected_count: int | None = None,
     expected_order: tuple[str, ...] | None = None,
 ) -> tuple[MethodPolicyRow, ...]:
     """Return policies in canonical domain and declaration order."""

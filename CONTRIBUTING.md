@@ -10,9 +10,13 @@ length-prefixed MessagePack on UDS/TCP. There is **no PyO3 / in-process FFI**
 ## Development setup
 
 ```bash
+scripts/bootstrap.sh                        # Python, test deps, Rust toolchain, git hooks
 cargo build --release --features server     # the server binary
-pip install -e .                            # the Python client
 ```
+
+Pick any spec under [`specs/`](specs/README.md), implement it on a branch and
+open a PR; everything needed to run the gates is installed by the bootstrap
+(add `--scanners` for the manual-stage scanners).
 
 ## Branch / worktree workflow
 
@@ -24,7 +28,8 @@ rm_worktree add epistemic-graph <your-branch>     # repository-manager MCP, or:
 git worktree add ${WORKTREE_ROOT}/epistemic-graph/<branch> -b <branch> main
 ```
 
-Commit early and often; merge to `main` locally when done. Push only when asked.
+Commit early and often, push your branch, and open a pull request against `main`;
+hosted CI runs the same hooks as your local commit plus the full test matrix.
 
 ## Before you push
 
@@ -32,7 +37,7 @@ Commit early and often; merge to `main` locally when done. Push only when asked.
 cargo test --features server --lib          # Rust unit tests
 pytest tests/                               # Python round-trip tests
 bash scripts/check_no_pyo3.sh               # the no-PyO3 gate
-pre-commit run --config .config/pre-commit.yaml --all-files
+uvx pre-commit run --config .config/pre-commit.yaml --all-files
 ```
 
 The complexity (cccc) and KISS gates have written, measured terms of acceptance

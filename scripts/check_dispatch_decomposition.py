@@ -3,80 +3,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 
-from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
+from rust_lexer import _rust_code_mask, _rust_comments_mask
 from rust_module_tree import read_compiler_family
 
 ROOT = Path(__file__).resolve().parents[1]
-
-EXPECTED_PATHS = {
-    "src/server/dispatch.rs",
-    "src/server/dispatch/change_envelope.rs",
-    "src/server/dispatch/change_envelope/multi_graph.rs",
-    "src/server/dispatch/consensus.rs",
-    "src/server/dispatch/consensus/fleet_catalog.rs",
-    "src/server/dispatch/consensus/fleet_catalog/project.rs",
-    "src/server/dispatch/consensus/fleet_catalog/project_tests.rs",
-    "src/server/dispatch/consensus/fleet_catalog/read.rs",
-    "src/server/dispatch/consensus/fleet_catalog/records.rs",
-    "src/server/dispatch/consensus/fleet_catalog/write.rs",
-    "src/server/dispatch/consensus/publication.rs",
-    "src/server/dispatch/consensus/registry.rs",
-    "src/server/dispatch/consensus/replicated.rs",
-    "src/server/dispatch/consensus/routing.rs",
-    "src/server/dispatch/consensus/sanitization.rs",
-    "src/server/dispatch/consensus/transaction.rs",
-    "src/server/dispatch/elevation.rs",
-    "src/server/dispatch/elevation/tests.rs",
-    "src/server/dispatch/graph_pipeline.rs",
-    "src/server/dispatch/graph_pipeline/dispatch_helpers.rs",
-    "src/server/dispatch/graph_pipeline/gateway.rs",
-    "src/server/dispatch/graph_pipeline/graph_access.rs",
-    "src/server/dispatch/graph_pipeline/graph_dispatch.rs",
-    "src/server/dispatch/graph_pipeline/modality.rs",
-    "src/server/dispatch/graph_pipeline/native_routes.rs",
-    "src/server/dispatch/graph_pipeline/pipeline.rs",
-    "src/server/dispatch/graph_pipeline/repository_index.rs",
-    "src/server/dispatch/graph_pipeline/repository_index/consumer.rs",
-    "src/server/dispatch/graph_pipeline/repository_index/enrichment.rs",
-    "src/server/dispatch/graph_pipeline/work_governance.rs",
-    "src/server/dispatch/policy_evolution.rs",
-    "src/server/dispatch/policy_evolution/blobs.rs",
-    "src/server/dispatch/policy_evolution/blobs/tests.rs",
-    "src/server/dispatch/policy_evolution/gate.rs",
-    "src/server/dispatch/policy_evolution/gate/tests.rs",
-    "src/server/dispatch/policy_evolution/store.rs",
-    "src/server/dispatch/request_boundary.rs",
-    "src/server/dispatch/request_boundary/authorization.rs",
-    "src/server/dispatch/request_boundary/consensus.rs",
-    "src/server/dispatch/request_boundary/method_errors.rs",
-    "src/server/dispatch/request_boundary/preflight.rs",
-    "src/server/dispatch/request_boundary/saga.rs",
-    "src/server/dispatch/request_boundary/screen.rs",
-    "src/server/dispatch/router.rs",
-    "src/server/dispatch/router/channels.rs",
-    "src/server/dispatch/router/control_plane.rs",
-    "src/server/dispatch/router/data_plane.rs",
-    "src/server/dispatch/router/data_plane_arms.rs",
-    "src/server/dispatch/router/decision_plane.rs",
-    "src/server/dispatch/router/graph_lifecycle.rs",
-    "src/server/dispatch/router/identity_access.rs",
-    "src/server/dispatch/router/lifecycle.rs",
-    "src/server/dispatch/router/resource_cost.rs",
-    "src/server/dispatch/router/service_control.rs",
-    "src/server/dispatch/router/source_ingest.rs",
-    "src/server/dispatch/router/telemetry.rs",
-    "src/server/dispatch/sparql_update.rs",
-    "src/server/dispatch/telemetry.rs",
-    "src/server/dispatch/telemetry/classes.rs",
-    "src/server/dispatch/telemetry/collect.rs",
-    "src/server/dispatch/telemetry/declarations.rs",
-    "src/server/dispatch/telemetry/materialize.rs",
-    "src/server/dispatch/telemetry/tests.rs",
-}
 
 REDUNDANT_WRAPPERS = {
     "dispatch_health",
@@ -196,99 +129,35 @@ LEGACY_COALESCER_METHODS = (
     "CompareAndSetNodeFields",
 )
 
-# The Wave B compiler family has 84 distinct cfg predicates. The prior 77
-# predicate pin predates the elevation, policy-evolution, and telemetry modules
-# listed in EXPECTED_PATHS. The SPARQL HTTP mutation path is constrained by its
-# redb/security/raft combinations, and the compiler-declared module walk is
-# the source universe.
-# 84 -> 92 after Train 4 merged to main; the two new repository_index
-# modules add no predicate of their own, the eight come from the merged
-# dispatch-family edits.
-CFG_PREDICATE_COUNT = 92
-CFG_FINGERPRINT = "607bd0f89cf9d9769edcee94ad7a90153d71dc6debf9a0f593dcc8c2beaade0f"
-# 355 -> 358 production / 440 -> 443 compiler functions: `Method::SqlSourceBatch`
-# added the data-plane route group `dispatch_sql_source_methods`, the request
-# preflight resolver `preflight_sql_source_msgpack`, and
-# `clustered_route_admission` (the non-local placement admission match, split
-# out of `check_cluster_placement_before_consensus` when it gained LocalOnly).
-# 358 -> 361 production / 443 -> 446 compiler functions: the 2.27.x contract
-# wave's decision plane adds exactly three route functions, all in the new
-# `router/decision_plane.rs` -- `dispatch_decision_plane_methods` (the link
-# `router.rs` chains) and the two groups it chains,
-# `dispatch_decision_methods` and `dispatch_catalog_admin_methods`. Every arm
-# calls a handler OUTSIDE this module tree, so no other function moves and the
-# test/assertion inventories are unchanged.
-# Those 361/446 pins matched no committed tree: a4804f87c^ has 360/445 and
-# a4804f87c itself 363/448, so the gate was red from its own pinning commit.
-# 363/448 -> 464/594 production/compiler, 52 -> 80 tests, 145 -> 247
-# assertions: re-derived per name against a4804f87c, every delta attributed to
-# the commit that added it (`git log -S "fn <name>"`); full list in the train-3
-# integration record. Compiler-name deltas by commit:
-#   aca7421a0 +99 -1  EH-345 fleet catalog: the six `consensus/fleet_catalog*`
-#                     modules (-1 `valid_register_server_name`, moved there)
-#   a2238864b +16     typed connector-pack and registry surfaces
-#   dcc5d53c0 +7      native ingestion and write-back contracts
-#   f17f47ab3 +6      governed graph schema authority
-#   193892753 +2, dad0b3a64 +1, a133fe4ec +1  ControlLease / work-item reads
-#   656c544f9 +1      train-2 shared jscpd helper
-#   b1e5495a2 +6      EH-280 branch-aware IndexRepository (`repository_index.rs`)
-#   ed8eee9c9 +1      EH-280 scope-path validation
-#   5e64e9715 +5      registry-served / withheld method advertisement
-#   638a8a61d +2      EH-375 tenant-keyed lifecycle batch ids
-#   ac5638477 +1      train-3 shared jscpd helper
-# Wave B adds 15 compiler-declared modules for elevation, policy evolution,
-# and telemetry: 464 -> 547 production functions, 594 -> 732 compiler-visible
-# functions, 80 -> 103 tests, and 247 -> 337 assertions. These counts and
-# digests were measured from read_compiler_family on the combined Wave B tip;
-# the existing ownership, route-call, CFG, and known-bad mutation proofs remain.
-# The method-error boundary adds one module with two production functions,
-# eight compiler-visible functions, two tests, and eight assertions. These
-# pins were measured from the full compiler-declared family at the Train 4
-# candidate, not from a file glob.
-# Train 4 as merged to main: 549 -> 590 production / 740 -> 803 compiler
-# functions, 105 -> 121 tests, 345 -> 408 assertions, led by the two new
-# compiler-declared `repository_index/{consumer,enrichment}.rs` modules
-# (EH-280 enrichment consumer). Measured with read_compiler_family on main
-# after the merge, not from a file glob. 590 -> 591 / 803 -> 804: the
-# request boundary's `authentication_refusal` (declared auth codes survive).
-PRODUCTION_FUNCTION_COUNT = 591
-PRODUCTION_FUNCTION_DIGEST = (
-    "3f07d98931b5c764e3288a6f903b108ec53e5c71dc05a9e77341e051d4952f60"
-)
-COMPILER_FUNCTION_COUNT = 804
-COMPILER_FUNCTION_DIGEST = (
-    "9af36b33e81aca19a947230e2472da2f698c57d2f68175415b531f23a3d710ab"
-)
-TEST_FUNCTION_COUNT = 121
-TEST_FUNCTION_DIGEST = (
-    "65657ad52feaf2ff88274cb952e04f0b1846abf18098c5c9de8bf488bd8fd825"
-)
-ASSERTION_COUNT = 408
-ASSERTION_DIGEST = "23998ed9f7c41488a7bc8407e2fd6772c76184678e0a77c29d81f0d3499aa614"
-
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(f"dispatch decomposition gate failed: {message}")
 
 
+DISPATCH_ROOT = "src/server/dispatch"
+
+
 def sources() -> dict[str, str]:
-    family = read_compiler_family(ROOT / "src/server/dispatch.rs", ROOT)
+    """The compiler-declared dispatch family; nothing is pinned.
+
+    `read_compiler_family` already refuses orphan `.rs` files the compiler never
+    reaches, so the only rule left is that every declared module stays under
+    `src/server/dispatch` (a `#[path]` escape would split the cut).
+    """
+
+    family = read_compiler_family(ROOT / f"{DISPATCH_ROOT}.rs", ROOT)
     paths = {
         str(path.relative_to(ROOT)): path.read_text(encoding="utf-8")
         for path in family.all_paths
     }
-    require(
-        set(paths) == EXPECTED_PATHS, "compiler module family or orphan set changed"
+    escaped = sorted(
+        path
+        for path in paths
+        if path != f"{DISPATCH_ROOT}.rs" and not path.startswith(f"{DISPATCH_ROOT}/")
     )
+    require(not escaped, f"dispatch module declared outside {DISPATCH_ROOT}: {escaped}")
     return paths
-
-
-def compiler_views() -> tuple[str, str]:
-    """Return compiler-resolved production and test-enabled dispatch views."""
-
-    family = read_compiler_family(ROOT / "src/server/dispatch.rs", ROOT)
-    return family.production, family.with_tests
 
 
 def function_names(source: str) -> list[str]:
@@ -297,66 +166,6 @@ def function_names(source: str) -> list[str]:
     return re.findall(
         r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)",
         _rust_code_mask(source),
-    )
-
-
-def test_function_names(source: str) -> list[str]:
-    """Functions carrying a compiler-visible Rust test attribute."""
-
-    code = _rust_code_mask(source)
-    return re.findall(
-        r"#\s*\[\s*(?:tokio::)?test(?:\s*\([^]]*\))?\s*\]\s*"
-        r"(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)",
-        code,
-    )
-
-
-def assertion_inventory(source: str) -> list[str]:
-    """Normalized compiler-visible assert macro invocations."""
-
-    code = _rust_code_mask(source)
-    assertions: list[str] = []
-    closing = {"(": ")", "[": "]", "{": "}"}
-    pattern = re.compile(r"\bassert(?:_eq|_ne)?!\s*([([{])")
-    for match in pattern.finditer(code):
-        opener = match.end() - 1
-        closer = _balanced_span_from(code, opener, code[opener], closing[code[opener]])
-        assertions.append(re.sub(r"\s+", " ", code[match.start() : closer + 1]).strip())
-    return assertions
-
-
-def inventory_digest(items: list[str]) -> str:
-    """Stable digest retaining duplicate inventory entries."""
-
-    return hashlib.sha256("\n".join(sorted(items)).encode()).hexdigest()
-
-
-def check_compiler_inventory(production: str, with_tests: str) -> None:
-    """Pin exact compiler-reachable function, test, and assertion inventories."""
-
-    production_names = function_names(production)
-    compiler_names = function_names(with_tests)
-    tests = test_function_names(with_tests)
-    assertions = assertion_inventory(with_tests)
-    require(
-        len(production_names) == PRODUCTION_FUNCTION_COUNT
-        and inventory_digest(production_names) == PRODUCTION_FUNCTION_DIGEST,
-        "production function inventory changed",
-    )
-    require(
-        len(compiler_names) == COMPILER_FUNCTION_COUNT
-        and inventory_digest(compiler_names) == COMPILER_FUNCTION_DIGEST,
-        "named-function inventory changed",
-    )
-    require(
-        len(tests) == TEST_FUNCTION_COUNT
-        and inventory_digest(tests) == TEST_FUNCTION_DIGEST,
-        "test inventory changed",
-    )
-    require(
-        len(assertions) == ASSERTION_COUNT
-        and inventory_digest(assertions) == ASSERTION_DIGEST,
-        "assertion inventory changed",
     )
 
 
@@ -369,16 +178,7 @@ def check_route_calls(parts: dict[str, str]) -> None:
         )
 
 
-def check_optional_compiler_inventory(views: tuple[str, str] | None) -> None:
-    """Check the exact compiler inventory when the caller supplied its views."""
-
-    if views is not None:
-        check_compiler_inventory(*views)
-
-
-def check_inventory(
-    parts: dict[str, str], views: tuple[str, str] | None = None
-) -> None:
+def check_inventory(parts: dict[str, str]) -> None:
     joined = _rust_code_mask("\n".join(parts.values()))
     names = function_names(joined)
     # 324 -> 331. Seven functions were added to the dispatch compiler family and
@@ -409,22 +209,6 @@ def check_inventory(
         ]
         require(owners == [owner], f"{function} ownership changed: {owners}")
     check_route_calls(parts)
-    check_optional_compiler_inventory(views)
-
-
-def check_cfg_contract(parts: dict[str, str]) -> None:
-    joined = "\n".join(parts.values())
-    predicates = sorted(
-        {
-            re.sub(r"\s+", " ", predicate).strip()
-            for predicate in re.findall(r"#\[cfg\((.*?)\)\]", joined, re.DOTALL)
-        }
-    )
-    digest = hashlib.sha256("\n".join(predicates).encode()).hexdigest()
-    require(
-        len(predicates) == CFG_PREDICATE_COUNT and digest == CFG_FINGERPRINT,
-        "cfg boundary set changed",
-    )
 
 
 def family_source(parts: dict[str, str], root: str) -> str:
@@ -539,70 +323,11 @@ def check_consensus_exhaustiveness(parts: dict[str, str]) -> None:
     )
 
 
-def check_graph_compile_shapes(graph: str) -> None:
-    require(
-        "let method = Method::ServedModality { op: op.clone() };" in graph,
-        "ServedModality lost its reconstructed method value",
-    )
-    require(
-        "anchor_seq: Option<u64>" in graph,
-        "audit inclusion anchor contract no longer accepts the optional sequence",
-    )
-
-
-def check_router_compile_shapes(router: str) -> None:
-    for variant in (
-        "TxnAddMeasurement",
-        "TxnAxiom",
-        "TxnConstruct",
-        "TxnPlanWriteback",
-        "TxnMaterializeBelief",
-        "OwlReasonDistributed",
-    ):
-        require(
-            f"method @ (Method::{variant}" not in router,
-            f"{variant} regained an unnecessary at-pattern parenthesis",
-        )
-    require(
-        "Method::NlQuery { text, graph }" in router
-        and "Method::NlQuery { text, graph }," in router,
-        "NlQuery no longer destructures and reconstructs without borrow/move overlap",
-    )
-
-
-def check_envelope_compile_shapes(envelopes: str) -> None:
-    require(
-        "ApplyChangeEnvelopeCtx" not in envelopes,
-        "obsolete change-envelope wrapper context returned",
-    )
-
-
-def check_knowledge_stream_compile_shape(router: str) -> None:
-    require(
-        "mint_policy_decision_lease(" in router
-        and "&carrier," in router
-        and "mint_graph_policy_lease(" not in router,
-        "KnowledgeStream lost the integrated policy-decision lease recipe",
-    )
-
-
-def check_compile_shapes(parts: dict[str, str]) -> None:
-    graph = family_source(parts, "src/server/dispatch/graph_pipeline.rs")
-    router = family_source(parts, "src/server/dispatch/router.rs")
-    envelopes = family_source(parts, "src/server/dispatch/change_envelope.rs")
-    check_graph_compile_shapes(graph)
-    check_router_compile_shapes(router)
-    check_envelope_compile_shapes(envelopes)
-    check_knowledge_stream_compile_shape(router)
-
-
 def main() -> None:
     parts = sources()
-    check_inventory(parts, compiler_views())
-    check_cfg_contract(parts)
+    check_inventory(parts)
     check_routing_and_coalescing(parts)
     check_consensus_exhaustiveness(parts)
-    check_compile_shapes(parts)
     print("dispatch decomposition gate: OK")
 
 

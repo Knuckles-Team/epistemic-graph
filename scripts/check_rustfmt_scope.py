@@ -223,10 +223,21 @@ def build_rustfmt_command(
     ]
 
 
+def _is_generated(path: Path) -> bool:
+    """A file whose first line says ``@generated`` is owned by its generator.
+
+    Its bytes are pinned by the generator's own ``--check`` (for example
+    ``gen_contract --check``), so reformatting it would break that check.
+    """
+
+    with path.open("rb") as handle:
+        return b"@generated" in handle.readline()
+
+
 def _run_rustfmt(channel: str, paths: list[str]) -> int:
     by_edition: defaultdict[str, list[str]] = defaultdict(list)
     for path in paths:
-        if (ROOT / path).is_file():
+        if (ROOT / path).is_file() and not _is_generated(ROOT / path):
             by_edition[_edition_for(path)].append(path)
     if not by_edition:
         print("rustfmt-scope: no existing Rust files in scope")

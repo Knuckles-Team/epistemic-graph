@@ -28,13 +28,11 @@ fleet's Extend-Before-Invent convention (see MEMORY
 original from a hardcoded ``ALLOWED_DIRS``/``ALLOWED_FILES`` pair into a
 manifest-driven engine precisely so this port needs ZERO logic changes: the
 only thing that differs between repos is ``ALLOWED_DOTFILES`` immediately
-below (only the dot-files a tool discovers exclusively at the root; both
-audit ledgers, ``.config/cargo-audit-allow.txt`` for Rust and
-``.config/security-audit-allow.txt`` for the Python client and wheel, live
-under ``.config/``) and the contents of this repo's own
-``.config/repo-layout.toml``. Two holes this engine closed relative to the
-pre-CX-HYG-01 original, both of which let a real tracked artifact sit
-unchallenged at a repo root:
+below (only the dot-files a tool discovers exclusively at the root; the
+Rust audit ledger ``.config/cargo-audit-allow.txt`` lives under ``.config/``)
+and the contents of this repo's own ``.config/repo-layout.toml``. Two holes
+this engine closed relative to the pre-CX-HYG-01 original, both of which let a
+real tracked artifact sit unchallenged at a repo root:
 
 1. Dotfiles used to be allowed as an unenumerated CLASS ("anything starting
    with '.' is conventional config"). That is what let a tracked
