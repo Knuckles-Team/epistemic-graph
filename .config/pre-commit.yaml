@@ -3,8 +3,8 @@ default_language_version:
 # Automatic pre-push is the bounded local publication gate: generated-artifact
 # freshness, formatting/lint, lock/contract checks, and targeted smoke only.
 # Exhaustive scanners/censuses, full feature matrices, wheel builds, integration
-# suites, and the full CI replica are manual-only locally; hosted CI remains the
-# exhaustive authority. Install both commit and push hooks with:
+# suites are manual-only locally; hosted CI runs this same config
+# (`pre-commit run --all-files`) and remains the exhaustive authority. Install both commit and push hooks with:
 #   pre-commit install --config .config/pre-commit.yaml
 # Run the complete manual tier with:
 #   pre-commit run --config .config/pre-commit.yaml --all-files --hook-stage manual
@@ -516,95 +516,6 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-commit, pre-push, manual]
-  # Anti-drift check for the manual-only ci-gate-replica hook below —
-  # pure YAML parse, no cargo/build, <1s, so it runs on EVERY commit rather
-  # than waiting for a push to discover a workflow grew a job
-  # ci_gate_replica.py doesn't know how to classify. Covers EVERY workflow
-  # file under .github/workflows/ (release.yml AND repro-diagnose.yml — a
-  # new workflow file with no WORKFLOW_REGISTRY entry fails this too, not
-  # just a new job in a known one), and also fails if .cargo/config.toml adds an
-  # external-binary build dependency (rustc-wrapper/linker/runner) that no
-  # workflow file ever installs — the exact shape of the sccache/mold break
-  # (commit 652f91c): cargo hard-errors when a configured rustc-wrapper is
-  # missing rather than soft-falling-back, and the local build host having
-  # sccache/mold installed hid it from every command-equivalence check.
-  - id: ci-gate-replica-consistency
-    name: CI gate replica — anti-drift check (all workflow jobs classified + build-tool deps installable)
-    entry: python3 scripts/ci_gate_replica.py --consistency-check
-    language: system
-    pass_filenames: false
-    always_run: true
-  # Authoritative "is it safe to skip the heavy ci-gate-replica hook for
-  # this diff" check — see scripts/ci_gate_replica.py's BUILD_AFFECTING_FILE_PATTERNS
-  # and --skip-safe. Not itself a gate (informational only, always exits 0)
-  # so a human/agent choosing SKIP=ci-gate-replica has one authoritative
-  # answer instead of an ad-hoc grep over changed files. The incident this
-  # replaces: a push judged safe to SKIP=ci-gate-replica on "zero .rs/
-  # Cargo.toml/Cargo.lock changes", missing that .cargo/config.toml is
-  # build-affecting too.
-  - id: ci-gate-replica-skip-advisory
-    name: CI gate replica — skip-safety advisory (informational; never fails the commit)
-    entry: bash -c 'python3 scripts/ci_gate_replica.py --skip-safe HEAD || true'
-    language: system
-    pass_filenames: false
-    always_run: true
-  # ci-gate-replica: the individual hooks above were hand-derived mirrors of
-  # release.yml's `gates` job, one at a time, over several lanes — real but
-  # not provably complete, and drift-prone (the eg-numeric kernel build +
-  # numpy-parity gate steps were never wired into ANY local hook until this
-  # one; that gap is exactly what shipped 2.14.0-2.23.0 with no numeric
-  # kernel, invisible to every gate above). This hook instead PARSES EVERY
-  # workflow file under .github/workflows/ at run time
-  # (scripts/ci_gate_replica.py) and executes every step of every job it has
-  # classified as executable (release.yml's `gates` and `lint-and-
-  # architecture`, matrix-expanded per leg) verbatim — a step added there is
-  # run here with NO change to this file. release.yml carries no
-  # `continue-on-error` step anymore (the former second file, advisory.yml,
-  # was retired 2026-08-28 — wD9-CIGATE — and folded in here; see
-  # ci_gate_replica.py's WORKFLOW_REGISTRY comments for the couple of jobs
-  # still disclosed as open, unmeasured gaps rather than silently
-  # accepted), so every executable step failing here fails this hook. Its
-  # own --consistency-check fails loudly if any workflow file grows a job
-  # this script doesn't know how to classify, or gains an unregistered
-  # workflow file entirely, or if .cargo/config.toml comes to depend on a
-  # binary no workflow installs (see the meta-tests in
-  # tests/test_ci_gate_replica_consistency_check.py). release.yml's `build`/
-  # `docker-image`/`publish-*`/`feature-matrix`/`benchmarks`/`pages` jobs
-  # are NOT executable locally (5-platform native matrix; tag-gated
-  # registry/PyPI publish; cost/trigger-scoped cargo matrices; a
-  # reusable-workflow call with no local steps) and are reported
-  # "NOT VALIDATED LOCALLY" with a reason in the run's summary rather than
-  # omitted — run `scripts/ci_gate_replica.sh --dry-run` to see the full
-  # plan without executing anything.
-  #
-  # The workflow-derived gate is the single producer for the heavy selections
-  # below. It records signed, source/configuration-bound results before any
-  # consumer hook runs; a missing or non-identical record always executes the
-  # consumer command normally. Keeping this producer ahead of the consumers is
-  # what makes the cache an execution plan rather than a best-effort hint.
-  - id: ci-gate-replica
-    name: CI gate replica — parses every workflow file, runs executable jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — manual)
-    entry: bash -c 'bash scripts/ci_gate_replica.sh'
-    language: system
-    pass_filenames: false
-    always_run: true
-    require_serial: true
-    stages: [manual]
-  # The no-cargo jobs of the release workflow, run through the SAME replica the
-  # build-host landing gate and hosted CI use: one gate definition, so a push
-  # sees exactly the checks CI will run -- including the jscpd/dupehound diff
-  # over the whole pushed range (github.event.before = the remote tip being
-  # replaced; see scripts/gate_base_ref.sh for the fallbacks). Advisory jobs count as blocking
-  # here. The cargo jobs run at landing on a build host (see
-  # docs/quality-gate-terms.md "Landing gate").
-  - id: ci-replica-static
-    name: CI replica — no-cargo release jobs over the pushed range (pre-push)
-    entry: bash -c 'base="$(bash scripts/gate_base_ref.sh)" && exec bash scripts/ci_gate_replica.sh --jobs lint-and-architecture,documentation-advisory,scanner-quality --all-blocking --base-ref "$base"'
-    language: system
-    pass_filenames: false
-    always_run: true
-    require_serial: true
-    stages: [pre-push, manual]
   # RF-RULING-003: the engine contract replaced the `protocol-parity` pytest gate
   # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
   # regenerates every committed artifact (`contract/methods.json`,
@@ -613,8 +524,7 @@ repos:
   # byte-diffs the tree, so "is this method bound in the Python client" is answered by
   # the descriptor's `consumer_profiles` rather than by a regex over two files and a
   # baseline nobody re-reviews. It runs on the SAME pre-push/manual stage the old
-  # standalone hook did, and release.yml runs the identical command so
-  # `ci-gate-replica` stays a verbatim replica. `--locked` on BOTH commands is load
+  # standalone hook did, and release.yml runs the identical command. `--locked` on BOTH commands is load
   # bearing, not decoration: an unlocked `cargo run` REWRITES Cargo.lock on disk and a
   # later `--locked` step then validates cargo's own repair -- exactly how this lane's
   # missing schemars/serde_json/sha2/hex entries survived two green gates.
@@ -680,18 +590,15 @@ repos:
     always_run: true
     require_serial: true
     stages: [manual]
-  # Exhaustive Rust test selections remain in hosted CI and the local manual
-  # replica. They are intentionally not part of the bounded automatic push gate.
+  # Exhaustive Rust test selections remain in hosted CI. They are intentionally not part of the bounded automatic push gate.
   # perf/gate-dedup (2026-08-15): the standalone `cargo-test` (lower crates)
   # hook that used to live here ran `cargo nextest run -p eg-types -p eg-core -p
   # eg-compute --all-features --no-fail-fast` on every push — the same crate/
   # feature/test scope as release.yml's `gates` job "Test (lower crates, all
   # features)" step (`cargo test -p eg-types -p eg-core -p eg-compute
-  # --all-features --no-fail-fast`), which `ci-gate-replica` (above) executes
-  # verbatim. nextest vs plain `cargo test` is a harness swap, not a different
+  # --all-features --no-fail-fast`), which hosted CI executes. nextest vs plain `cargo test` is a harness swap, not a different
   # test selection (D-PERF-1's own rationale: "nothing downstream parses its
-  # output"), so this was the same tests running twice per push. Verified via
-  # `scripts/ci_gate_replica.py --dry-run`. Removed from the automatic pre-push
+  # output"), so this was the same tests running twice per push. Removed from the automatic pre-push
   # stage. To run it standalone:
   #   cargo nextest run -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
   # rust-ci facade full test matrix (~9 min) is manual-only locally; hosted CI
@@ -744,10 +651,8 @@ repos:
   # perf/gate-dedup (2026-08-15): the `cargo-test-full` hook that lived here ran
   # the EXACT command above (`cargo test -p epistemic-graph --features full
   # --no-fail-fast`) on every push — byte-for-byte release.yml's `gates` job
-  # "Test (facade full)" step, which `ci-gate-replica` (above) executes
-  # verbatim. This was the confirmed root cause of a 70+-minute eg push running
-  # this ~9-min (warm) / much longer (cold) command TWICE. Verified via
-  # `scripts/ci_gate_replica.py --dry-run`. Removed from the automatic pre-push
+  # "Test (facade full)" step, which hosted CI executes. This was the confirmed root cause of a 70+-minute eg push running
+  # this ~9-min (warm) / much longer (cold) command TWICE. Removed from the automatic pre-push
   # stage. To run it standalone:
   #   cargo test -p epistemic-graph --features full --no-fail-fast
   # GOC-70: epistemic-graph 2.25.0 shipped with all six gates verified green on
@@ -765,7 +670,7 @@ repos:
   # EPISTEMIC_GRAPH_ENCRYPTION_KEY ambient-env defect in
   # advanced_crossmodal_roundtrip.rs reached CI instead of failing here), the
   # same mechanism that broke 2.25.0 in CI. The blocking release-workflow step
-  # is executed by hosted CI and the manual-only `ci-gate-replica`; this direct
+  # is executed by hosted CI; this direct
   # hook also remains manual-only for focused invocation. Coordinate with
   # `rm_gates(stage=heavy)` (feat/rm-gates,
   # in-flight) -- this belongs in that tier, not as a second enforcement
@@ -793,9 +698,9 @@ repos:
   # scope as release.yml's `gates` job "Test (replay-determinism —
   # eg-jobs/eg-statechart crash-replay proofs, DE7)" step (`cargo test -p
   # eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast`), which
-  # `ci-gate-replica` (above) executes verbatim. Same nextest-vs-cargo-test
+  # hosted CI executes. Same nextest-vs-cargo-test
   # harness swap as the `cargo-test` hook above, not a different test
-  # selection. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed
+  # selection. Removed
   # from the automatic pre-push stage. To run it standalone:
   #   cargo nextest run -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
   # W0.12 — Rust dependency CVE gate: fail-closed `cargo deny check advisories`
