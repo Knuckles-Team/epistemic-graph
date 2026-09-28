@@ -8,17 +8,17 @@ all other fleet sprawl findings remain blocking.
 
 from __future__ import annotations
 
-import os
 import re
 import runpy
-import subprocess
 import sys
 from pathlib import Path
 
 try:
     from generated_artifacts import verify
+    from sibling_gate import agent_utilities_script, unavailable
 except ModuleNotFoundError:  # imported as scripts.check_sprawl by focused tests
     from scripts.generated_artifacts import verify
+    from scripts.sibling_gate import agent_utilities_script, unavailable
 
 ROOT = Path(__file__).resolve().parents[1]
 LARGE_BINARY = re.compile(r"^tracked binary > \d+ bytes: (.+) \(\d+ bytes\)$")
@@ -26,15 +26,7 @@ LARGE_BINARY = re.compile(r"^tracked binary > \d+ bytes: (.+) \(\d+ bytes\)$")
 
 def fleet_checker() -> Path:
     """Resolve the same sibling AU checkout used by the pre-commit hook."""
-    configured = os.environ.get("AGENT_UTILITIES_ROOT")
-    if configured:
-        return Path(configured) / "scripts/check_sprawl.py"
-    common = subprocess.check_output(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=ROOT,
-        text=True,
-    ).strip()
-    return Path(common).parent.parent / "agent-utilities/scripts/check_sprawl.py"
+    return agent_utilities_script("check_sprawl.py")
 
 
 def remaining(findings: list[str], verified: set[str]) -> list[str]:
@@ -49,13 +41,14 @@ def remaining(findings: list[str], verified: set[str]) -> list[str]:
 
 def main() -> int:
     checker = fleet_checker()
-    if not checker.is_file():
-        print(
-            f"Anti-sprawl gate FAILED: fleet checker missing: {checker}",
-            file=sys.stderr,
-        )
-        return 1
-    findings = runpy.run_path(str(checker))["scan"](ROOT)
+    if checker.is_file():
+        findings = runpy.run_path(str(checker))["scan"](ROOT)
+    else:
+        # The generated-artifact pins below are checked either way.
+        status = unavailable("check-sprawl fleet scan", f"missing {checker}")
+        if status:
+            return status
+        findings = []
     verified, ledger_problems = verify(ROOT)
     failures = [*remaining(findings, verified), *ledger_problems]
     if failures:

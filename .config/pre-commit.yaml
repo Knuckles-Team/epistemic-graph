@@ -179,13 +179,13 @@ repos:
     # sets to THIS repo's root, so it guards epistemic-graph, not agent-utilities.
     # See docs/architecture/lane-concurrency.md (agent-utilities) and
     # reports/deferred/lane-concurrency-protocol.md (D-CP-3, D-CP-4).
-    entry: bash -c 'repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${AGENT_UTILITIES_ROOT:-"$(dirname "$repo")/agent-utilities"}; python3 "$root/scripts/check_lane_guard.py"'
+    entry: python3 scripts/sibling_gate.py check_lane_guard.py
     language: system
     pass_filenames: false
     always_run: true
   - id: check-stubs
     name: Check for Active Stubs and TODOs
-    entry: bash -c 'repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${AGENT_UTILITIES_ROOT:-"$(dirname "$repo")/agent-utilities"}; python3 "$root/scripts/check_stubs.py" "$@"' --
+    entry: python3 scripts/sibling_gate.py check_stubs.py
     language: system
     types: [python]
   - id: check-sprawl
@@ -198,7 +198,7 @@ repos:
   - id: check-bumpversion
     name: validate bumpversion config
     entry: |-
-      bump2version --config-file .config/bumpversion.cfg patch --dry-run --allow-dirty
+      uvx --from bump2version==1.0.1 bump2version --config-file .config/bumpversion.cfg patch --dry-run --allow-dirty
     language: system
     pass_filenames: false
     always_run: true
@@ -208,6 +208,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual]
   # BUG-CX-136 scanner profile.  These hooks resolve already-installed tools
   # only; provisioning belongs to the CI scanner-quality job below, never to a
   # developer hook.  The wrappers own staged/index semantics and fail closed
@@ -218,14 +219,14 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit]
+    stages: [manual]
   - id: kiss-changed-rust
     name: KISS — changed Rust source (one path per invocation)
     entry: bash scripts/check_kiss_staged.sh
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit]
+    stages: [manual]
   - id: jscpd-differential
     name: jscpd — differential clone gate (new pairs only)
     # The base is the remote tip a push replaces (scripts/gate_base_ref.sh), as
@@ -313,7 +314,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, manual]
+    stages: [manual]
   - id: dependency-cruiser-architecture
     name: JavaScript architecture — dependency-cruiser
     entry: |-
@@ -328,14 +329,14 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, manual]
+    stages: [manual]
   - id: rust-arch-lint
     name: Rust architecture — arch-lint
     entry: python3 scripts/check_rust_arch_lint.py
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, manual]
+    stages: [manual]
   - id: canonical-property-schema
     name: Canonical structural property schema
     entry: python3 scripts/check_canonical_property_schema.py

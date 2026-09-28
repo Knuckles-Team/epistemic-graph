@@ -408,9 +408,15 @@ def audit(
 
 
 def _offline_warn_allowed() -> bool:
-    return (
-        os.environ.get("SECURITY_AUDIT_OFFLINE_POLICY", "").strip().casefold() == "warn"
-    )
+    """An unreachable OSV service blocks only in CI (``CI`` set).
+
+    Locally, including cloud containers whose egress policy blocks the OSV API,
+    the audit warns instead so a lockfile edit can still be committed; CI runs
+    the same hook fail-closed. ``SECURITY_AUDIT_OFFLINE_POLICY=warn`` also
+    allows the warning explicitly.
+    """
+    explicit = os.environ.get("SECURITY_AUDIT_OFFLINE_POLICY", "").strip().casefold()
+    return explicit == "warn" or not os.environ.get("CI")
 
 
 def _run_audit(
@@ -453,7 +459,10 @@ def _report_findings(
 
 def _audit_error_exit(error: AuditError) -> int:
     if _offline_warn_allowed() and str(error) == "OSV service is unavailable":
-        print("audit: WARNING - OSV unavailable under explicit local offline policy")
+        print(
+            "SKIPPED (dependency-audit): OSV service unavailable; CI runs this audit "
+            "fail-closed"
+        )
         return 0
     print(f"audit: FAILED - {error}", file=sys.stderr)
     return 2
