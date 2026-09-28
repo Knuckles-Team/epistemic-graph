@@ -5,7 +5,8 @@ use super::{
     ValidatedOwnerLayoutUpgrade,
 };
 use crate::owner::graph_shard::{
-    REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS, REPOSITORY_ENRICHMENT_SUPERSESSIONS,
+    REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS,
+    REPOSITORY_ENRICHMENT_POLICY_REVISIONS, REPOSITORY_ENRICHMENT_SUPERSESSIONS,
 };
 use crate::owner::registry::{predecessor_evidence, MCP_CATALOG_CONFIGS, MCP_CATALOG_SCOPES};
 use crate::owner::sql_checkpoint_upgrade::{
@@ -69,6 +70,9 @@ fn open_successor_tables(write: &WriteTransaction, target: UpgradeTarget) -> Res
         UpgradeTarget::GraphShard => {
             write
                 .open_table(REPOSITORY_ENRICHMENT_BUDGETS)
+                .map_err(|error| error.to_string())?;
+            write
+                .open_table(REPOSITORY_ENRICHMENT_POLICY_REVISIONS)
                 .map_err(|error| error.to_string())?;
             write
                 .open_table(REPOSITORY_ENRICHMENT_SUPERSESSIONS)

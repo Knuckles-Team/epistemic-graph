@@ -2,7 +2,7 @@ use super::*;
 use crate::direct_state::private_local_tempdir;
 use crate::owner::graph_shard::{
     NODES, REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS,
-    REPOSITORY_ENRICHMENT_SUPERSESSIONS,
+    REPOSITORY_ENRICHMENT_POLICY_REVISIONS, REPOSITORY_ENRICHMENT_SUPERSESSIONS,
 };
 use crate::owner::persisted_layout::create_predecessor_owner_file;
 use crate::owner::registry::{AGENT_LIBRARY_REVISIONS, MCP_CATALOG_CONFIGS, MCP_CATALOG_SCOPES};
@@ -178,6 +178,7 @@ fn graph_upgrade_preserves_existing_nodes_and_runs_once() {
     );
     for name in [
         REPOSITORY_ENRICHMENT_BUDGETS.name(),
+        REPOSITORY_ENRICHMENT_POLICY_REVISIONS.name(),
         REPOSITORY_ENRICHMENT_SUPERSESSIONS.name(),
         REPOSITORY_ENRICHMENT_PARKS.name(),
     ] {
