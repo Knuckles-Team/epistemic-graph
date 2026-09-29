@@ -474,14 +474,19 @@ def _check_mutation_authority_inventory(
     # and delegates the base+broker set to eg_core::durable_apply::is_durable_mutation
     # (see the "durable_apply" source comment above) — union both bodies' Method
     # sets to see the classifier's real, post-hoist coverage.
-    live_classifier = _method_set(
-        _function_with_callees(mutation_apply, "is_durable_mutation", max_depth=4),
-        "is_durable_mutation",
-    ) | _method_set(
-        expand_method_families(
-            _function(durable_apply, "is_durable_mutation"), sources["method_families"]
-        ),
-        "eg_core::durable_apply::is_durable_mutation",
+    live_classifier = (
+        _method_set(
+            _function_with_callees(mutation_apply, "is_durable_mutation", max_depth=4),
+            "is_durable_mutation",
+        )
+        | _method_set(
+            expand_method_families(
+                _function(durable_apply, "is_durable_mutation"),
+                sources["method_families"],
+            ),
+            "eg_core::durable_apply::is_durable_mutation",
+        )
+        | _method_set(sources["writeback"], "Method::is_writeback_mutation")
     )
     require(
         live_classifier == mirrored_applier,
@@ -1215,6 +1220,11 @@ def mutation_inventory_sources() -> dict[str, str]:
         # classifier/applier inventory below must read BOTH sources and union
         # them, or it silently measures only the facade remainder (BUG-CX-112).
         "durable_apply": read_module_tree("crates/eg-core/src/durable_apply.rs"),
+        # The feature-gated triple / mining / graph-learning write-backs are
+        # classified in eg-types, under the same gates as their variants.
+        "writeback": read_module_tree(
+            "crates/eg-types/src/protocol/method/writeback.rs"
+        ),
         "method_families": families_source(ROOT),
         "mutation_runtime": mutation_runtime.production,
         "mutation_runtime_tests": mutation_runtime.with_tests,

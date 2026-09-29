@@ -10987,6 +10987,7 @@
         "READ_ONLY",
         "REDIRECTED",
         "REPLAY_NONCE_CONSUMED",
+        "STALE_AGENT_LIBRARY_REVISION",
         "STALE_OUTBOX_LEASE",
         "STALE_ROUTE",
         "TIMEOUT"

@@ -53,6 +53,8 @@ pub(crate) use connector_pack::handle_connector_pack;
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) use saga::begin_admin_saga;
 #[cfg(feature = "redb")]
+pub(crate) use saga::decode_durable_saga_result;
+#[cfg(feature = "redb")]
 pub(crate) use saga::{
     begin_authenticated_admin_saga, begin_named_admin_saga_with_nonce,
     begin_named_admin_saga_with_private_payload_and_nonce, current_admin_saga_authority,

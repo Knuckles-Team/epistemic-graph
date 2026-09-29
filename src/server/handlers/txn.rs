@@ -95,6 +95,20 @@ fn decode_txn_value<T: serde::de::DeserializeOwned>(
 }
 
 fn decode_txn_result(bytes: &[u8]) -> Result<ResultPayload, String> {
+    // Commit outcomes are persisted through the admin saga ledger in its tagged
+    // durable encoding; reading them as the untagged wire enum would turn
+    // `Bool(true)` into `Json({"kind":"Bool","value":true})`.
+    #[cfg(feature = "redb")]
+    if let Some(result) = crate::server::handlers::admin::decode_durable_saga_result(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_TXN_RESULT_BYTES,
+            1_024,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    ) {
+        return Ok(result);
+    }
     decode_txn_value(bytes, MAX_TXN_RESULT_BYTES, 1_024)
 }
 

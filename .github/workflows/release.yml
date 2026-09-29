@@ -1605,7 +1605,9 @@ jobs:
   # `build`/`publish-pypi`/`publish-image` regardless.
   pages:
     name: Deploy GitHub Pages
-    if: github.event_name == 'push'
+    # Only main deploys: the github-pages environment rejects tag refs, which
+    # failed every release run before a runner was even assigned.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
     with:
       content_source: docs
