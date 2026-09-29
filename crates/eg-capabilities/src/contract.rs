@@ -33,31 +33,24 @@ pub struct Artifact {
     pub bytes: Vec<u8>,
 }
 
-/// The HAND-WRITTEN inputs the contract is derived from, digested into
+/// The HAND-WRITTEN client surfaces consumers depend on, digested into
 /// `receipt.json.source_tree_oid`.
 ///
-/// `epistemic_graph/client.py` is here because it is the transport every one of
-/// agent-utilities' import lines actually consumes (`SyncEpistemicGraphClient`, framing,
-/// auth, pooling). It is NOT generated, so nothing else would bind it, and a
-/// transport-breaking edit must move the digest AU pins. `pyproject.toml` is here because
-/// the generated client's `pydantic` dependency is part of what the wheel promises.
+/// `epistemic_graph/client.py` is the transport every one of agent-utilities'
+/// import lines consumes (`SyncEpistemicGraphClient`, framing, auth, pooling), and
+/// `connector_pack.py` implements the Rust-owned ConnectorPack framed identity and
+/// replay key the SDK consumes. Neither is generated, so nothing else would bind
+/// them, and a transport-breaking edit must move the digest AU pins.
 ///
-/// The GENERATED half -- `contract/**` and `epistemic_graph/generated/**` -- is bound by
-/// `artifact_digests` (an exact sha256 per file, which is strictly stronger than folding
-/// them into one rolled-up input) and both halves are folded into the single
-/// `contract_digest` below. Digesting a generated file as a *source input* would be
-/// self-referential and would not reproduce from a clean checkout.
+/// The Rust sources the contract is generated FROM are deliberately not listed:
+/// every effect they have on the contract shows up in the generated half --
+/// `contract/**` and `epistemic_graph/generated/**` -- which `artifact_digests`
+/// binds file by file. Hashing their raw bytes (or `pyproject.toml`, or
+/// `Cargo.lock`) only made comment edits and dependency bumps look like
+/// contract changes.
 const HAND_WRITTEN_INPUTS: &[&str] = &[
-    "crates/eg-capabilities/src",
-    "crates/eg-capabilities/Cargo.toml",
-    "crates/eg-types/src",
-    "crates/eg-types/Cargo.toml",
     "epistemic_graph/client.py",
-    // This helper implements the Rust-owned ConnectorPack framed identity and
-    // deterministic replay key consumed by the SDK. A wheel that changes it is
-    // not the same client contract even when its generated DTOs are unchanged.
     "epistemic_graph/connector_pack.py",
-    "pyproject.toml",
 ];
 
 /// The optional surfaces this build selected, in declaration order.
@@ -251,7 +244,6 @@ fn contract_digest(source_tree_oid: &str, digests: &BTreeMap<&str, String>) -> S
 
 /// `contract/receipt.json` — what AU pins.
 fn receipt_json(root: &Path, artifacts: &[Artifact], catalog: &Catalog) -> Vec<u8> {
-    let lock = std::fs::read(root.join("Cargo.lock")).unwrap_or_default();
     let (python, internal) = consumer_census();
     let digests: BTreeMap<&str, String> = artifacts
         .iter()
@@ -281,7 +273,6 @@ fn receipt_json(root: &Path, artifacts: &[Artifact], catalog: &Catalog) -> Vec<u
         "contract_digest": contract_digest(&source_oid, &digests),
         "feature_profile": feature_profile(),
         "source_tree_oid": source_oid,
-        "cargo_lock_sha256": sha256_hex(&lock),
         "method_count": crate::method_descriptors().count(),
         "result_classification": result_classification(catalog),
         "python_client_methods": python,
