@@ -8,7 +8,7 @@ use eg_types::native_control::{
 
 use super::enrichment_snapshot::{EligibleSnapshot, EnrichmentBudgetCheckpoint};
 
-pub const TOP_UP_ACTION: &str = "repository:enrichment:budget:top_up";
+pub use super::TOP_UP_ACTION;
 
 /// Caller-proposed revision fields. The serving boundary must bind these to a
 /// verified caller, retained policy authority, and a durable prior revision.

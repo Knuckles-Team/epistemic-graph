@@ -54,7 +54,7 @@
     "epistemic_graph/generated/transactions.py": "f4f7307094f8915f8672a2546d66981b36477e6182d9aec7a2293bf3cb951f71",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "cargo_lock_sha256": "dc2edc2f85045a51b06a50177055fc5049663be4d3aa63e40ab463b265f1fc36",
+  "cargo_lock_sha256": "4d75d09b6248ff43bea44b497879aef1490535d01cf9bd6645eafe4a33d50fde",
   "contract_digest": "8fd68756b3e2b02a7c32203e5e16eacf4c029f664320742af663f51e3e78e78a",
   "contract_version": 1,
   "feature_profile": [

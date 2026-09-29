@@ -20,6 +20,9 @@ mod branch_projection;
 mod branch_scope;
 #[cfg(feature = "ast")]
 pub mod enrichment_admission;
+/// The action a repository enrichment budget top-up must be verified for. The
+/// durable store checks it in every build, so it lives outside the `ast` gate.
+pub const TOP_UP_ACTION: &str = "repository:enrichment:budget:top_up";
 #[cfg(feature = "ast")]
 pub mod enrichment_reactivation;
 #[cfg(feature = "ast")]
