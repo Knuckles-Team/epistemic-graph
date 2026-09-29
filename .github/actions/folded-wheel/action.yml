@@ -1,0 +1,97 @@
+name: Build folded release wheel
+description: >-
+  One complete release-wheel pass: build the epistemic-graph server wheel, fold
+  the eg-numeric and eg-pyengine kernels into it, normalize and privacy-audit
+  it, and require the result to be complete. The primary and reproduction
+  passes in release.yml both run this, so the two cannot drift apart. Reads
+  EG_WHEEL_TARGET, EG_WHEEL_MANYLINUX, EG_WHEEL_MATURIN_ARGS and
+  MATURIN_FEATURES from the calling job's environment.
+inputs:
+  pass:
+    description: Output suffix for this pass (`primary` or `reproduction`).
+    required: true
+runs:
+  using: composite
+  steps:
+    # All three builds of a pass share one target directory, so the kernels
+    # reuse the dependency crates the server wheel already compiled.
+    - name: Select the release target directory
+      shell: bash
+      run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" >> "$GITHUB_ENV"
+
+    - name: Build server wheel
+      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      with:
+        target: ${{ env.EG_WHEEL_TARGET }}
+        args: >-
+          --release
+          --out dist-${{ inputs.pass }}
+          --features ${{ env.MATURIN_FEATURES }}
+          ${{ env.EG_WHEEL_MATURIN_ARGS }}
+        # zig gives reproducible glibc-pinned linux cross-builds.
+        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
+        sccache: 'false'
+
+    # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
+    #    Build the pyo3 cdylib kernel (`crates/eg-numeric --features python`) for the
+    #    SAME target, then inject its compiled extension (`.so`/`.pyd`) into the
+    #    server wheel as `epistemic_graph.numeric`. Result: ONE published `epistemic-graph`
+    #    wheel that ships BOTH the server binary AND the numeric kernel — no separate
+    #    `eg-numeric` package on PyPI. The kernel is a distinct maturin target (a pyo3
+    #    cdylib), so the engine binary's no-pyo3 / Pi contract is untouched.
+    - name: Build eg-numeric kernel (same target)
+      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      with:
+        target: ${{ env.EG_WHEEL_TARGET }}
+        args: >-
+          --release
+          --out numdist-${{ inputs.pass }}
+          -m crates/eg-numeric/Cargo.toml
+          --features python
+        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
+        sccache: 'false'
+
+    - name: Fold numeric kernel into the epistemic-graph wheel
+      shell: bash
+      run: |
+        python scripts/inject_numeric_kernel.py "$(ls dist-${{ inputs.pass }}/epistemic_graph-*.whl)" "$(ls numdist-${{ inputs.pass }}/*.whl)"
+
+    # ── Fold the eg-pyengine in-process engine binding INTO this same wheel
+    #    (BUG-PE-002: `import epistemic_graph.engine` failed in the live shipped
+    #    image because nothing built and folded this extension). Same shape as
+    #    the numeric kernel fold above; the two injections are order-independent
+    #    (each only rewrites the target wheel's RECORD, never the other's
+    #    extension member), so one normalize/audit/completeness pass covers both.
+    - name: Build eg-pyengine kernel (same target)
+      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      with:
+        target: ${{ env.EG_WHEEL_TARGET }}
+        args: >-
+          --release
+          --out enginedist-${{ inputs.pass }}
+          -m crates/eg-pyengine/Cargo.toml
+          --features python,security
+        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
+        sccache: 'false'
+
+    - name: Fold pyengine kernel into the epistemic-graph wheel
+      shell: bash
+      run: |
+        python scripts/inject_pyengine.py "$(ls dist-${{ inputs.pass }}/epistemic_graph-*.whl)" "$(ls enginedist-${{ inputs.pass }}/*.whl)"
+
+    - name: Normalize and audit wheel
+      shell: bash
+      run: |
+        python scripts/normalize_wheel_sbom.py dist-${{ inputs.pass }}/*.whl
+        python scripts/normalize_wheel_build_paths.py dist-${{ inputs.pass }}/*.whl
+        python scripts/check_wheel_privacy.py dist-${{ inputs.pass }}/*.whl
+
+    # Assert the artifact is COMPLETE after every step that rewrites it (inject,
+    # sbom, build-path normalization). Published 2.14.0-2.23.0 wheels shipped with
+    # NO numeric kernel because nothing here ever inspected the payload — the graft
+    # is silent when it fails. Running the gate on the build leg localizes such a
+    # regression to the platform that produced it; `publish-pypi` re-runs it on the
+    # downloaded artifacts as the actual publish boundary.
+    - name: Require a complete wheel (numeric + engine kernels + executable binary + RECORD)
+      shell: bash
+      run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-${{ inputs.pass }}/*.whl
