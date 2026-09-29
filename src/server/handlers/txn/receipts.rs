@@ -752,7 +752,12 @@ pub(super) fn finish_txn_receipt(
 /// validate that envelope before returning it; decoding an outer receipt as a
 /// method body would silently accept a different transaction result family.
 pub(super) fn validate_txn_commit_result(result: &ResultPayload) -> Result<(), String> {
-    if matches!(result, ResultPayload::Bool(_)) {
+    // `Commit` declares its unkeyed outcome as the JSON boolean, the same bytes
+    // on the wire as a `Bool` payload.
+    if matches!(
+        result,
+        ResultPayload::Bool(_) | ResultPayload::Json(serde_json::Value::Bool(_))
+    ) {
         Ok(())
     } else {
         Err("transaction parent receipt has the wrong result type".to_string())
