@@ -14,6 +14,7 @@ pytestmark = pytest.mark.no_engine
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
+WHEEL_PASS_ACTION = REPO / ".github" / "actions" / "folded-wheel" / "action.yml"
 NUMERIC_CONTRACT_DOCS = (
     REPO / "AGENTS.md",
     REPO / "README.md",
@@ -163,48 +164,39 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     # so tag releases build each wheel once; the publish candidate is always the
     # primary pass.
     assert "Build reproduction wheel" in build_job_raw
-    assert build_job_raw.count("github.event_name == 'workflow_dispatch'") >= 9
+    assert build_job_raw.count("uses: ./.github/actions/folded-wheel") == 2
+    assert "pass: primary" in build_job_raw
+    assert "pass: reproduction" in build_job_raw
+    assert build_job_raw.count("github.event_name == 'workflow_dispatch'") >= 3
     assert "cp dist-primary/epistemic_graph-*.whl dist/" in build_job_raw
     assert 'CARGO_INCREMENTAL: "0"' in raw
     assert "max-parallel: 1" in raw
     assert "SOURCE_DATE_EPOCH=" in raw
-    for output in (
-        "dist-primary",
-        "numdist-primary",
-        "dist-reproduction",
-        "numdist-reproduction",
+    # One pass (.github/actions/folded-wheel) builds the server wheel, the
+    # numeric kernel and the pyengine kernel into one shared target directory,
+    # folds both kernels in, then normalizes, audits and checks the result.
+    wheel_pass = WHEEL_PASS_ACTION.read_text(encoding="utf-8")
+    for output in ("dist", "numdist", "enginedist"):
+        assert f"--out {output}-${{{{ inputs.pass }}}}" in wheel_pass
+    assert wheel_pass.count("sccache: 'false'") == 3
+    assert "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" in wheel_pass
+    for script in (
+        "scripts/inject_numeric_kernel.py",
+        "scripts/inject_pyengine.py",
+        "scripts/normalize_wheel_sbom.py",
+        "scripts/normalize_wheel_build_paths.py",
+        "scripts/check_wheel_privacy.py",
+        "scripts/check_wheel_completeness.py --require-engine-kernel",
     ):
-        assert f"--out {output}" in raw
-    # The `gates` job now folds its OWN numeric kernel wheel into a real
-    # `epistemic-graph` wheel (CONCEPT:EG-346) — mirroring the `build` job's
-    # primary/reproduction fold — rather than `pip install`ing the standalone
-    # `eg-numeric` build artifact (the 2026-08-21 stale-install incident this
-    # gate exists to prevent: that package's version is permanently `0.1.0`,
-    # so a pip install of it can report "already satisfied" against a
-    # six-week-old build and mask a real kernel regression). So
-    # `inject_numeric_kernel.py` runs 3x, not 2x: once in the `build` job for
-    # each of the primary/reproduction release-wheel passes, PLUS once more in
-    # the `gates` job's own fold — a drop below 3 means one of those calls
-    # went missing.
-    assert raw.count("scripts/inject_numeric_kernel.py") == 3
-    # normalize/audit run once per raw kernel wheel plus once more for the
-    # folded server wheel — 2x in `build` (primary + reproduction, each a
-    # single combined "Normalize and audit ... wheel" step) plus 3x in `gates`
-    # (its own numeric kernel wheel, its own pyengine kernel wheel —
-    # BUG-PE-002 — and its own folded wheel) = 5. A drop below 5 means one of
-    # those calls went missing.
-    assert raw.count("scripts/normalize_wheel_sbom.py") == 5
-    assert raw.count("scripts/normalize_wheel_build_paths.py") == 5
-    assert raw.count("scripts/check_wheel_privacy.py") == 5
-    # 3 build steps per pass (server wheel, numeric kernel, pyengine kernel;
-    # BUG-PE-002 added the pyengine kernel step) x 2 passes (primary +
-    # reproduction) = 6. A drop below 6 means one of those build steps' cache
-    # config went missing.
-    assert raw.count("sccache: 'false'") == 6
-    assert (
-        raw.count("CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target")
-        == 6
-    )
+        assert wheel_pass.count(script) == 1, script
+    # The `gates` job folds its OWN numeric kernel into a real wheel
+    # (CONCEPT:EG-346) and normalizes/audits its numeric kernel, pyengine
+    # kernel and folded wheel, rather than `pip install`ing the standalone
+    # `eg-numeric` build (the 2026-08-21 stale-install incident).
+    assert raw.count("scripts/inject_numeric_kernel.py") == 1
+    assert raw.count("scripts/normalize_wheel_sbom.py") == 3
+    assert raw.count("scripts/normalize_wheel_build_paths.py") == 3
+    assert raw.count("scripts/check_wheel_privacy.py") == 3
     assert "Remove primary native build state" in raw
     assert "release wheel digest mismatch" in raw
 
