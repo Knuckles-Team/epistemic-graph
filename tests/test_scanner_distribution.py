@@ -223,7 +223,10 @@ def test_release_scanner_job_is_full_history_advisory_and_pinned():
 
 
 def test_ci_uses_central_exact_python_version():
-    assert (REPO / ".python-version").read_text(encoding="utf-8") == "3.12.13\n"
+    # A minor-version pin: every hosted runner (Linux, Windows, macOS) resolves
+    # its newest 3.12. An exact patch pin failed setup-python wherever that
+    # patch had not been built for the platform yet.
+    assert (REPO / ".python-version").read_text(encoding="utf-8") == "3.12\n"
     workflows = sorted(path.name for path in (REPO / ".github/workflows").glob("*.yml"))
     setup_steps = [
         (filename, step)
