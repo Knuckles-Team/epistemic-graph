@@ -25,6 +25,19 @@ fn scorer() -> DecisionHeadBody {
     fitted(HeadKind::OptionAttention, &gold_dataset(200, 0))
 }
 
+/// The same scorer fitted on human-labelled evidence. Only a non-synthetic
+/// head and calibration may act (27ebff52d), so tests about when an acting
+/// head must abstain start from this one.
+fn human_scorer() -> DecisionHeadBody {
+    let mut data = dataset(
+        (0..200)
+            .map(|i| gold_item(i, 0, LabelSource::Human))
+            .collect(),
+    );
+    data.synthetic = false;
+    fitted(HeadKind::OptionAttention, &data)
+}
+
 fn receipt(head: &DecisionHeadBody, data: &LabelledDataset) -> DecisionEvalReceipt {
     let stat = statistical();
     let admitted = admit(data, &rules(Regime::FullLabel, &[]));
@@ -111,7 +124,7 @@ fn a_scorer_fit_is_reproducible_and_conformally_calibrated() {
 
 #[test]
 fn an_abstention_is_returned_when_the_calibrated_coverage_bound_fails() {
-    let head = scorer();
+    let head = human_scorer();
     let acting = (0..40)
         .find(|&item| matches!(outcome(&head, item), StatisticalOutcome::Acted { .. }))
         .expect("the calibrated scorer acts on some state");
