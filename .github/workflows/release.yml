@@ -376,11 +376,16 @@ jobs:
       - name: Test (memory-regression — RSS bounds, isolated)
         run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
 
+  # Slim-server and raft-cluster variants run after merge (main, tags), not on
+  # pull requests: each is a separate cold compile of the whole engine, slim's
+  # code paths are already compiled and linted per PR by `Clippy slim-server`,
+  # and `cluster` is not part of the published wheel (MATURIN_FEATURES), so it
+  # reports on main without gating the release build.
   gates-variants:
     name: gates (slim server + raft cluster)
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     steps:
       - *eg-gates-checkout
 
@@ -972,7 +977,7 @@ jobs:
   # product tests and installed-wheel smoke in `gates`.
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
