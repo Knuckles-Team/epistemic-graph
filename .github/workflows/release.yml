@@ -963,10 +963,6 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
-    # Release wheels are optimised (thin LTO) and some legs cross-build under
-    # zig/qemu, which needs far more memory per rustc than a dev build.
-    env:
-      CARGO_BUILD_JOBS: "2"
     # An OPTIONAL leg must not hold the whole run open. Measured on run
     # 32697532796: macos-x86_64 is `continue-on-error: true`, yet the run sat at
     # 8h06m because a non-blocking leg still keeps the matrix (and therefore the
@@ -1154,6 +1150,7 @@ jobs:
         run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-primary/*.whl
 
       - name: Remove primary native build state
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: >-
           python -c "import os,shutil; from pathlib import Path;
@@ -1164,6 +1161,7 @@ jobs:
           shutil.rmtree(target) if target.exists() else None"
 
       - name: Build reproduction wheel (${{ matrix.name }})
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         continue-on-error: ${{ matrix.experimental == true }}
         env:
@@ -1179,6 +1177,7 @@ jobs:
           sccache: 'false'
 
       - name: Build reproduction eg-numeric kernel (same target)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
@@ -1193,11 +1192,13 @@ jobs:
           sccache: 'false'
 
       - name: Fold reproduction numeric kernel into the epistemic-graph wheel
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-reproduction/epistemic_graph-*.whl)" "$(ls numdist-reproduction/*.whl)"
 
       - name: Build reproduction eg-pyengine kernel (same target)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
@@ -1212,11 +1213,13 @@ jobs:
           sccache: 'false'
 
       - name: Fold reproduction pyengine kernel into the epistemic-graph wheel
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: |
           python scripts/inject_pyengine.py "$(ls dist-reproduction/epistemic_graph-*.whl)" "$(ls enginedist-reproduction/*.whl)"
 
       - name: Normalize and audit reproduction wheel
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: |
           python scripts/normalize_wheel_sbom.py dist-reproduction/*.whl
@@ -1224,6 +1227,7 @@ jobs:
           python scripts/check_wheel_privacy.py dist-reproduction/*.whl
 
       - name: Require a complete reproduction wheel
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-reproduction/*.whl
 
@@ -1237,6 +1241,7 @@ jobs:
       # CONTENT-vs-CONTAINER-ONLY report on stdout. See
       # scripts/compare_wheel_reproducibility.py.
       - name: Require byte-identical folded wheels
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: python scripts/compare_wheel_reproducibility.py dist-primary dist-reproduction
 
@@ -1260,7 +1265,7 @@ jobs:
       #   2) the numeric kernel must import AND compute from the INSTALLED wheel.
       #   3) the engine kernel must import from the INSTALLED wheel.
       - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
-        if: ${{ matrix.name != 'linux-aarch64' && matrix.experimental != true }}
+        if: ${{ matrix.experimental != true }}
         shell: bash
         run: |
           python -m pip install --upgrade pip

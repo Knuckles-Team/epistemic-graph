@@ -159,7 +159,12 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     assert "toolchain: ${{ steps.rust-toolchain.outputs.channel }}" in build_job_raw
     assert "toolchain: stable" not in build_job_raw
     # Wheel legs (thin LTO, zig/qemu cross builds) keep a low job count.
-    assert 'CARGO_BUILD_JOBS: "2"' in build_job_raw
+    # The byte-identical reproduction pass is a manual (workflow_dispatch) check,
+    # so tag releases build each wheel once; the publish candidate is always the
+    # primary pass.
+    assert "Build reproduction wheel" in build_job_raw
+    assert build_job_raw.count("github.event_name == 'workflow_dispatch'") >= 9
+    assert "cp dist-primary/epistemic_graph-*.whl dist/" in build_job_raw
     assert 'CARGO_INCREMENTAL: "0"' in raw
     assert "max-parallel: 1" in raw
     assert "SOURCE_DATE_EPOCH=" in raw
