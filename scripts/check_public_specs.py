@@ -213,6 +213,31 @@ def _contract_errors(root: Path, paths: set[Path]) -> list[str]:
     return errors
 
 
+def _directory_errors(name: str, links: set[str]) -> list[str]:
+    """A spec directory is kebab-case and linked from the specs index."""
+    errors: list[str] = []
+    if not SPEC_DIRECTORY.fullmatch(name):
+        errors.append(f"specs/{name}: use a lower-case kebab-case directory")
+    if f"{name}/spec.md" not in links:
+        errors.append(f"specs/{name}: add a spec.md link to specs/README.md")
+    return errors
+
+
+def _requirement_ids(root: Path, name: str) -> list[str]:
+    """The requirement IDs a spec claims, or none when its status.json is
+    missing or invalid (_contract_errors and _status_errors report those)."""
+    status = root / "specs" / name / "status.json"
+    if not status.is_file():
+        return []
+    try:
+        data = json.loads(status.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, dict) or not isinstance(data.get("requirement_ids"), list):
+        return []
+    return [rid for rid in data["requirement_ids"] if isinstance(rid, str)]
+
+
 def _inventory_errors(root: Path, paths: set[Path]) -> list[str]:
     """Keep one indexed, stable owner for each public requirement ID."""
     names = sorted(
@@ -227,24 +252,8 @@ def _inventory_errors(root: Path, paths: set[Path]) -> list[str]:
     owners: dict[str, str] = {}
     errors: list[str] = []
     for name in names:
-        if not SPEC_DIRECTORY.fullmatch(name):
-            errors.append(f"specs/{name}: use a lower-case kebab-case directory")
-        if f"{name}/spec.md" not in links:
-            errors.append(f"specs/{name}: add a spec.md link to specs/README.md")
-        status = root / "specs" / name / "status.json"
-        if not status.is_file():
-            continue  # _contract_errors reports the missing contract.
-        try:
-            data = json.loads(status.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue  # _status_errors reports invalid JSON.
-        if not isinstance(data, dict) or not isinstance(
-            data.get("requirement_ids"), list
-        ):
-            continue
-        for requirement_id in data["requirement_ids"]:
-            if not isinstance(requirement_id, str):
-                continue
+        errors.extend(_directory_errors(name, links))
+        for requirement_id in _requirement_ids(root, name):
             previous = owners.setdefault(requirement_id, name)
             if previous != name:
                 errors.append(

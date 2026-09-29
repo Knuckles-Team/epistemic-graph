@@ -753,6 +753,19 @@ fn decode_admin_commit(
     Ok((commit.record, result))
 }
 
+/// Decode a saga result stored in the tagged durable encoding, within
+/// `limits`. Transaction commits persist their outcome through the same saga
+/// ledger, so their receipts must be read back this way too.
+#[cfg(feature = "redb")]
+pub(crate) fn decode_durable_saga_result(
+    bytes: &[u8],
+    limits: eg_types::msgpack::MsgpackLimits,
+) -> Option<crate::protocol::ResultPayload> {
+    eg_types::msgpack::decode_bounded::<DurableAdminResult>(bytes, limits)
+        .ok()
+        .map(DurableAdminResult::into_result)
+}
+
 #[cfg(feature = "redb")]
 fn decode_admin_result(
     bytes: &[u8],

@@ -115,9 +115,14 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("SubmitWorkItem", &["REPLAY_NONCE_CONSUMED"]),
     ("ClaimWorkItem", &["REPLAY_NONCE_CONSUMED"]),
     ("TsListSeries", &["REPLAY_NONCE_CONSUMED"]),
+    // delegation/validation.rs refuses a retired Agent Library head or entry.
     (
         "KgDelegate",
-        &["CLUSTER_CONFIGURATION_INVALID", "REPLAY_NONCE_CONSUMED"],
+        &[
+            "CLUSTER_CONFIGURATION_INVALID",
+            "REPLAY_NONCE_CONSUMED",
+            "STALE_AGENT_LIBRARY_REVISION",
+        ],
     ),
     ("ApplyChangeEnvelopes", &["ABORTED_ATOMIC_GRAPH_BATCH"]),
     (
