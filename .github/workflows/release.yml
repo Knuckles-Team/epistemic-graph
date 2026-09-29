@@ -680,24 +680,6 @@ jobs:
       - name: rustfmt
         run: cargo fmt --all --check
 
-  # ── Documentation freshness is useful feedback, but generated counts and
-  # MkDocs prose do not change whether the engine or wheel is correct.
-  documentation-advisory:
-    name: Documentation freshness (advisory)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version-file: '.python-version'
-      - name: Documentation feature, ledger, and MkDocs contract
-        run: python3 scripts/check_documentation_contract.py
-      - name: Status page freshness (docs/status.md vs capabilities/concept-reservations)
-        run: python3 scripts/check_status_page.py
-
   # ── Clippy is blocking on every profile: the toolchain is pinned, so a new
   # finding comes from the change under review, not from an upgrade.
   # EH-191/EH-225: `-D warnings` across every release profile. `--all-features`

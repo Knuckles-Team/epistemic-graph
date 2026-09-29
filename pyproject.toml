@@ -207,7 +207,7 @@ jscpd_exclusions = [
     # D7/D8 API reference: `scripts/gen_api_docs.py` renders these FROM
     # `contract/` (per-method request/result tables, one OpenAPI document), so
     # they repeat exactly as the contract does -- generated output under the
-    # rule above; `check_api_contract_docs.py` byte-verifies them.
+    # rule above.
     "docs/api/**",
     "docs/openapi.json",
     "**/.git/**",

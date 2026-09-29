@@ -5,7 +5,7 @@ actually about — the commit model, the analytics/reasoning plane, distribution
 performance, media/voice/visualization, the robotics/GPU tail, and security/access hardening — so
 you can go straight to the layer you need instead of scanning a flat file list. Pages marked
 **★** are the release-defining contract pages tracked directly in site navigation and by the
-documentation-contract gate (`scripts/check_documentation_contract.py`); everything else here is
+generated documentation ledger; everything else here is
 just as real, only demoted out of the sidebar.
 
 For the engine's single guiding design principle, see
