@@ -479,7 +479,7 @@ fn revision_prior_and_caller_matches(
     expected: &BudgetCheckpoint,
     park: &EnrichmentBudgetPark,
 ) -> bool {
-    use crate::parser::enrichment_reactivation::TOP_UP_ACTION;
+    use crate::parser::TOP_UP_ACTION;
     revision.prior_source_envelope.as_deref() == Some(expected.source_envelope.as_str())
         && revision.prior_snapshot_digest.as_deref() == Some(expected.snapshot_digest.as_str())
         && revision.prior_policy_digest.as_deref() == Some(park.policy_digest.as_str())
