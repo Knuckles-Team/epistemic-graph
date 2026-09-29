@@ -990,8 +990,10 @@ jobs:
             runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
+          # Native ARM runner: the qemu-emulated cross build on an x86 host ran
+          # past two hours and lost its runner mid-build.
           - name: linux-aarch64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
           - name: windows-x86_64
