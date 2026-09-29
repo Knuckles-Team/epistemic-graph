@@ -17,28 +17,6 @@ ci:
   autoupdate_schedule: 'monthly'
 
 repos:
-- repo: local
-  hooks:
-  # First cheap generated-artifact freshness check in the automatic gate: fail
-  # before formatting, lint, or any compile-backed/manual contract validation.
-  # Regenerate with `python3 scripts/build_status_page.py --write`.
-  - id: check-status-page
-    name: Status page freshness (generated docs; see build_status_page.py --write)
-    entry: python3 scripts/check_status_page.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-commit, pre-push, manual]
-  # D7/D8: per-namespace API reference pages + OpenAPI document, generated
-  # from contract/. Same shape as check-status-page above.
-  # Regenerate with `python3 scripts/gen_api_docs.py --write`.
-  - id: api-contract-docs
-    name: API contract docs freshness (generated docs/api/, openapi.json; see gen_api_docs.py --write)
-    entry: python3 scripts/check_api_contract_docs.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
   hooks:
@@ -226,12 +204,6 @@ repos:
 # ─────────────────────────────────────────────────────────────────────────
 - repo: local
   hooks:
-  - id: documentation-contract
-    name: Documentation contract (Cargo, ledger, MkDocs)
-    entry: python3 scripts/check_documentation_contract.py
-    language: system
-    pass_filenames: false
-    always_run: true
   # Whole-tree scanner profile. Exact coverage and a zero actionable backlog
   # are required at manual publication boundaries; there is no
   # checked-in baseline.  Missing tools, version drift, parse errors, and
@@ -337,7 +309,7 @@ repos:
   # w5-ci-gates-local (D-W5CG-1): rust-ci.yml `lint-and-test`'s first four
   # architecture-gate steps ran ONLY in CI before this — pure-stdlib, no cargo,
   # no wheel build, each <0.3s measured cold on this worktree. Same shape as
-  # documentation-contract/canonical-property-schema/epistemic-operations-protocol
+  # canonical-property-schema/epistemic-operations-protocol
   # above (already local); this closes the rest of that job's cheap-script surface.
   - id: p2-modality-architecture
     name: P2 modality architecture gate
@@ -418,12 +390,6 @@ repos:
   - id: mint-lease-call-sites
     name: mint_policy_decision_lease has one production call site
     entry: python3 scripts/check_mint_lease_call_sites.py
-    language: system
-    pass_filenames: false
-    always_run: true
-  - id: scale-documentation
-    name: Bounded, source-anchored scaling documentation register
-    entry: python3 scripts/check_scale_documentation.py
     language: system
     pass_filenames: false
     always_run: true

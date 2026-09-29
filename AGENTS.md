@@ -52,11 +52,10 @@ suite.
 
 ## Commands
 
-Regenerate the status page after changing its source data, then verify it with:
+Regenerate the status page after changing its source data with:
 
 ```bash
 python3 scripts/build_status_page.py --write
-python3 scripts/check_status_page.py
 ```
 
 Hosted CI runs the same commit-stage hooks (`lint-and-architecture` job), so

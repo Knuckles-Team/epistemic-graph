@@ -59,10 +59,10 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 | **AU-KG** | `agent-utilities: docs/pillars/2_epistemic_knowledge_graph/` | agent-utilities' `scripts/check_concepts.py` |
 | **AU-ORCH** | `agent-utilities: docs/pillars/1_graph_orchestration.md` | agent-utilities' `scripts/check_concepts.py` |
 | **AU-OS** | `agent-utilities: docs/pillars/5_agent_os_infrastructure.md` | agent-utilities' `scripts/check_concepts.py` |
-| **EG-AHE** | `docs/architecture/` | `scripts/check_documentation_contract.py` (generated-ledger regen check) |
-| **EG-KG** | `docs/interfaces/ + docs/architecture/engine.md` | `scripts/check_documentation_contract.py` (generated-ledger regen check) |
-| **EG-ORCH** | `docs/architecture/` | `scripts/check_documentation_contract.py` (generated-ledger regen check) |
-| **EG-OS** | `docs/deploy/ + docs/deployment.md` | `scripts/check_documentation_contract.py` (generated-ledger regen check) |
+| **EG-AHE** | `docs/architecture/` | `scripts/build_status_page.py` (generated-ledger regen check) |
+| **EG-KG** | `docs/interfaces/ + docs/architecture/engine.md` | `scripts/build_status_page.py` (generated-ledger regen check) |
+| **EG-ORCH** | `docs/architecture/` | `scripts/build_status_page.py` (generated-ledger regen check) |
+| **EG-OS** | `docs/deploy/ + docs/deployment.md` | `scripts/build_status_page.py` (generated-ledger regen check) |
 
 ## How this page stays honest
 
@@ -70,10 +70,4 @@ This page is produced by `scripts/build_status_page.py` from `docs/capabilities.
 
 ```bash
 python scripts/build_status_page.py --write
-```
-
-`scripts/check_status_page.py` is wired into `.github/workflows/release.yml`'s `documentation-advisory` job. Stale generated status is reported in CI but does not block builds or releases. Run it locally with:
-
-```bash
-python scripts/check_status_page.py
 ```

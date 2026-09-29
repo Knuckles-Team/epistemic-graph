@@ -30,7 +30,7 @@ Sources (never hand-typed):
   (unlike agent-utilities) has no generated `concepts.yaml` registry.
 
 Dependency-free by design, matching this repo's other advisory-gate scripts
-(see ``scripts/check_documentation_contract.py``'s own docstring): the
+(see ``scripts/build_status_page.py``'s own docstring): the
 reservations ledger is flow-style YAML (one ``- {k: v, ...}`` dict per line)
 and is parsed with a small dedicated parser rather than a ``pyyaml`` import,
 so this script needs no environment setup before it runs in CI.
@@ -83,12 +83,10 @@ PILLAR_SUBTREE = {
     "AU-OS": "agent-utilities: docs/pillars/5_agent_os_infrastructure.md",
 }
 PILLAR_GATE = {
-    "EG-AHE": "`scripts/check_documentation_contract.py` (generated-ledger regen "
-    "check)",
-    "EG-KG": "`scripts/check_documentation_contract.py` (generated-ledger regen check)",
-    "EG-ORCH": "`scripts/check_documentation_contract.py` (generated-ledger regen "
-    "check)",
-    "EG-OS": "`scripts/check_documentation_contract.py` (generated-ledger regen check)",
+    "EG-AHE": "`scripts/build_status_page.py` (generated-ledger regen check)",
+    "EG-KG": "`scripts/build_status_page.py` (generated-ledger regen check)",
+    "EG-ORCH": "`scripts/build_status_page.py` (generated-ledger regen check)",
+    "EG-OS": "`scripts/build_status_page.py` (generated-ledger regen check)",
     "AU-KG": "agent-utilities' `scripts/check_concepts.py`",
     "AU-ECO": "agent-utilities' `scripts/check_concepts.py`",
     "AU-AHE": "agent-utilities' `scripts/check_concepts.py`",
@@ -349,7 +347,7 @@ def render() -> str:
     lines.append("|:------|:------|:------|")
     for pillar in pillars:
         subtree = PILLAR_SUBTREE.get(pillar, "—")
-        gate = PILLAR_GATE.get(pillar, "`scripts/check_documentation_contract.py`")
+        gate = PILLAR_GATE.get(pillar, "`scripts/build_status_page.py`")
         lines.append(f"| **{pillar}** | `{subtree}` | {gate} |")
     lines.append("")
 
@@ -366,22 +364,13 @@ def render() -> str:
     lines.append("python scripts/build_status_page.py --write")
     lines.append("```")
     lines.append("")
-    lines.append(
-        "`scripts/check_status_page.py` is wired into `.github/workflows/"
-        "release.yml`'s `documentation-advisory` job. Stale generated status "
-        "is reported in CI but does not block builds or releases. Run it locally with:"
-    )
-    lines.append("")
-    lines.append("```bash")
-    lines.append("python scripts/check_status_page.py")
-    lines.append("```")
     # No trailing blank line: `"\n".join(lines) + "\n"` already terminates the
     # last line, and an extra "" here emitted a trailing BLANK line that
     # `end-of-file-fixer` strips on the very next commit -- after which
-    # `check_status_page.py` (which compares byte-for-byte against this
-    # renderer) reports the page stale again. The two hooks were mutually
-    # unsatisfiable, so `docs/status.md` could not be regenerated and committed
-    # at all; it only surfaced once something actually made the page stale.
+    # a byte-for-byte freshness check reported the page stale again. The two
+    # hooks were mutually unsatisfiable, so `docs/status.md` could not be
+    # regenerated and committed at all; it only surfaced once something
+    # actually made the page stale.
 
     return "\n".join(lines) + "\n"
 

@@ -70,7 +70,6 @@ OPENAPI_PATH = ROOT / "docs" / "openapi.json"
 # Alphabetical -- matches `contract/schemas/result.<domain>.json`'s own file
 # naming and the domain breakdown in `contract/methods.json`. A domain
 # absent here would silently drop its methods from every generated page, so
-# `check_api_contract_docs.py` also asserts this set against the live data.
 DOMAINS: tuple[str, ...] = (
     "cluster",
     "compute",
@@ -573,7 +572,7 @@ def main() -> int:
 
 def check_rendered(files: dict[Path, str], program: str) -> int:
     """Compare committed output with a fresh render; the one freshness check
-    shared by ``--check`` and ``check_api_contract_docs.py``."""
+    used by ``--check``."""
     stale = [
         path.relative_to(ROOT)
         for path, content in files.items()
