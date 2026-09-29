@@ -961,6 +961,11 @@ jobs:
       - name: Rust architecture (arch-lint)
         if: ${{ !cancelled() }}
         run: python3 scripts/check_rust_arch_lint.py
+      - name: arch-lint policy against the installed scanner
+        if: ${{ !cancelled() }}
+        env:
+          EG_REQUIRE_SCANNERS: "1"
+        run: python -m pytest -q -p no:cacheprovider tests/test_arch_lint_policy.py
 
   # ── Release wheel matrix. Run the expensive cross-platform reproducible
   # build for tags and explicit dispatches; ordinary pushes already run the

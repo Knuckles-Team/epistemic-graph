@@ -58,13 +58,15 @@ def test_probe_accepts_a_build_that_resolves_the_inline_module(tmp_path: Path) -
 
 def test_ci_installs_and_probes_exactly_the_pinned_fork_rev() -> None:
     steps = _scanner_steps()
-    install = steps["Provision pinned scanner toolchain"]["run"]
     assert (
-        f"cargo install --locked --git {kiss_fork.KISS_FORK_GIT} "
-        f"--rev {kiss_fork.KISS_FORK_REV} --root" in install
+        "scripts/install_scanners.sh"
+        in steps["Provision pinned scanner toolchain"]["run"]
     )
+    install = (REPO / "scripts" / "install_scanners.sh").read_text(encoding="utf-8")
+    assert f"--git {kiss_fork.KISS_FORK_GIT} --rev {kiss_fork.KISS_FORK_REV}" in install
     assert "--version 0.4.12" not in install
     verify = steps["Verify scanner versions"]["run"]
     assert 'python3 scripts/kiss_fork.py "$(command -v kiss)"' in verify
+    # The toolchain cache is keyed on the installer, so a new pin rebuilds it.
     key = steps["Restore pinned scanner toolchain"]["with"]["key"]
-    assert f"kiss-ai-{kiss_fork.KISS_FORK_REV}" in key
+    assert "hashFiles('scripts/install_scanners.sh')" in key

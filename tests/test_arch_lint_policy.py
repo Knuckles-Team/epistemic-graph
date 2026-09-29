@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -548,7 +549,14 @@ def test_installed_scanner_fixture_contract(
     source = (FIXTURES / fixture).read_text(encoding="utf-8")
     rust_file = tmp_path / "lib.rs"
     rust_file.write_text(source, encoding="utf-8")
-    binary = module.resolve_binary("arch-lint", "ARCH_LINT_BIN")
+    try:
+        binary = module.resolve_binary("arch-lint", "ARCH_LINT_BIN")
+    except FileNotFoundError:
+        # The scanner-quality job installs the pinned scanners and sets
+        # EG_REQUIRE_SCANNERS, so a missing binary fails closed there.
+        if os.environ.get("EG_REQUIRE_SCANNERS"):
+            raise
+        pytest.skip("arch-lint is not installed (scripts/install_scanners.sh)")
     result = subprocess.run(
         [binary, "check", "--format", "json", "--rules", "AL002", str(tmp_path)],
         cwd=tmp_path,

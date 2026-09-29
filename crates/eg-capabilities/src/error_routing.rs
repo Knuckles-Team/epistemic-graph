@@ -21,6 +21,8 @@ pub(crate) fn typed_codes<T: Copy>(
 
 /// Shared refusals apply before the request reaches its method handler.
 const SHARED_ENGINE_ERRORS: &[&str] = &[
+    // The request boundary refuses any request naming an engine-internal method.
+    "ENGINE_INTERNAL_METHOD",
     "INVALID_ARGUMENT",
     "ACCESS_DENIED",
     "AUTH_TENANT_MISMATCH",
@@ -99,6 +101,8 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    // `ChangeEnvelope::validate` refuses carried engine-internal/native operations.
+    ("ApplyChangeEnvelope", &["CARRIER_INNER_METHOD_REFUSED"]),
     ("GetNodes", &["RESULT_TOO_LARGE"]),
     ("GetEdges", &["RESULT_TOO_LARGE"]),
     (

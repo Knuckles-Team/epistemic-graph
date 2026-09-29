@@ -158,7 +158,8 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     build_job_raw = _build_job_source(raw)
     assert "toolchain: ${{ steps.rust-toolchain.outputs.channel }}" in build_job_raw
     assert "toolchain: stable" not in build_job_raw
-    assert 'CARGO_BUILD_JOBS: "1"' in raw
+    # Wheel legs (thin LTO, zig/qemu cross builds) keep a low job count.
+    assert 'CARGO_BUILD_JOBS: "2"' in build_job_raw
     assert 'CARGO_INCREMENTAL: "0"' in raw
     assert "max-parallel: 1" in raw
     assert "SOURCE_DATE_EPOCH=" in raw
