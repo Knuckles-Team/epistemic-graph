@@ -1,44 +1,89 @@
 # Shared offline pack validation: staged boundary
 
-Status: **preprocessing extraction only; no standalone validation profile or CLI
-is shipped by this change.** A successful preprocessing call does not establish
-ontology consistency, shape conformance, pack admission, graph attachment or
+Status: **shared preprocessing and admission orchestration; no standalone
+validation profile or CLI is shipped by this change.** A successful preprocessing
+call does not establish ontology consistency, shape conformance, pack admission, graph attachment or
 authorization.
 
 ## First stage: shared engine code
 
 `eg_rdf::pack` (feature `rdf`) now owns the former connector-pack server helpers:
 
-| API | Preserved behavior |
+| API | Shared behavior (including second-stage limits) |
 | --- | --- |
-| `validate_document` | Parse Turtle using the engine parser, then enforce 100,000 triples, existing 4 KiB term checks and 256 KiB literal values; return the existing `PackViolationCode` and static detail. |
+| `validate_document` | Enforce the 2 MiB body bound before the engine Turtle parser, then stream at most 100,000 triples with existing 4 KiB term checks and 256 KiB literal values; return the existing `PackViolationCode` and static detail. |
 | `validate_ontology_imports` | Imports must be named IRIs of other supplied ontology entries; refuse self-imports, external imports and non-IRI objects; never fetch. |
 | `declared_shape_iris` | Discover named node/property shapes for existing duplicate-IRI warnings; malformed input gives no names and must separately fail document validation. |
 | `scoped_union` | Parse files independently in caller order, scope subject/object blank nodes by file index, and render the union as N-Triples; report the first malformed file index. |
 
 The server imports or delegates to these functions. The old private union module
-is removed, so it cannot diverge from a future offline consumer. No RDF library,
-parser, reasoner, dependency, feature default, wire type or package is added.
+is removed, so it cannot diverge from a future offline consumer. The first
+extraction added no dependency, package or wire type; the second stage adds the
+orchestration crate below, still using the same RDF parser and reasoners.
 The `rdf`-disabled refusal path remains in the server.
 
-This is intentionally a behavior-preserving extraction. It retains details such
-as the subject IRI bound counting its rendered angle brackets, and only applying
-the triple count after parsing. `scoped_union` is a preprocessing primitive and
-does not apply byte/triple limits itself. Callers cannot treat any of these
-helpers as a complete bounded validator.
+The first stage retained the existing subject IRI bound counting its rendered
+angle brackets. The second stage intentionally strengthens allocation refusals:
+`validate_document` checks bytes before parsing and stops on the first streamed
+syntax, triple or term refusal; a term failure can now precede malformed Turtle
+later in the document. `scoped_union` retains its original unbounded contract;
+new admission callers use `scoped_union_with_limits` instead. Neither helper is
+a complete validator.
+
+## Second stage: shared orchestration and allocation guards
+
+`eg-pack-validation` sits above `eg-rdf` (with `owl-dl`), `eg-shacl` and
+`eg-types`. It adds no external dependencies. The facade's `shacl` feature opts
+into this crate; disabled-feature refusals stay in the server. The call requires
+no storage, authentication or server startup, although `eg-rdf` still has its
+existing compile-time dependency on `eg-core`.
+
+The server now directly aliases `eg_pack_validation::validate_unions`. It is the
+former `validate_rdf_unions`/`validate_shapes_union` orchestration with the same
+class/ABox checker, SHACL evaluator, static refusal messages and 10,000,000
+reasoning and SHACL graph-size-product limits. Entry identity/import/base/term
+validation remains a prerequisite. This is not yet a stable Pipelines CLI.
+
+Before allocating parsed unions, preflight checks both document lists together:
+up to 1,024 documents, at most 2 MiB per document and 16 MiB total UTF-8 bytes,
+reusing `eg-types` pack constants. Limits are inclusive. Then the existing Turtle
+parser is streamed through `mapping::turtle_triples`; the ordinary
+`parse_turtle` also uses that iterator. Each union stops before accumulating more
+than 100,000 triples or 16 MiB of rendered N-Triples. Streamed entry validation also
+checks that rendered-byte bound before import/shape-discovery passes. Prefix expansion therefore
+cannot amplify a small text into an unbounded collected union. A single parsed
+term is still bounded by its input document, not by a parser-level lexical cap.
+
+New resource failures use `PackTooLarge` for input bytes/count and
+`ValidationBudgetExceeded` for collected/rendered union bounds. Allocation
+preflight intentionally wins over all parse/semantic errors; streamed syntax
+errors win at their position, before testing the current triple's count. All
+otherwise admissible inputs use the original ontology-then-shapes order.
+The new shapes-union and rendered-byte limits are intentional stricter refusals,
+not claims that the first extraction had those bounds.
+
+### Why this stage does not ship a passing CLI verdict
+
+Inspection found that SHACL `Validator::validate_focus` returns `Ok(())` past
+`MAX_DEPTH`, and `node_conforms` returns `Ok(true)`. A recursion limit must instead
+produce a typed refusal before a fail-closed profile is exposed. The existing
+10-million graph-size product also does not meter recursive evaluation or
+SPARQL joins, and shape parsing ignores unrecognized predicates. Moving these
+functions does not fix those semantics. A bounded CLI requires an independently
+reviewed shared SHACL hardening change, not a CLI-only check or a second RDF
+interpretation.
 
 ## Remaining work before a CLI can be a CI gate
 
 1. Establish the versioned profile in an EG-owned component above `eg-rdf` and
-   `eg-shacl`. Move the existing `validate_rdf_unions` / `validate_shapes_union`
-   orchestration out of the server and have server admission and the CLI invoke
-   that same implementation. Reuse `eg_rdf::tableau::check_pack_ontology` for
+   `eg-shacl`. The orchestration has moved into `eg-pack-validation`; make the
+   future CLI invoke it after its profile prerequisites. Reuse
+   `eg_rdf::tableau::check_pack_ontology` for
    class and ABox checks and the existing SHACL/ICV evaluator; do not implement
    a second semantics stack. Runtime storage, auth and server startup are not
    prerequisites for this library call.
-2. Make resource bounds enforceable before allocation/evaluation. Today
-   `mapping::parse_turtle` collects all triples before checking 100,000, and the
-   SHACL guard checks `shape_triples * max(ontology_triples, 1)` rather than
+2. Make resource bounds enforceable before allocation/evaluation. Admission now
+   streams bounded unions, while the SHACL guard still checks `shape_triples * max(ontology_triples, 1)` rather than
    metering all evaluator work. Centralize document/count/total-byte, nesting,
    triple, reasoning, evaluation and diagnostic limits in the profile. Preserve
    admission's existing 2 MiB body cap and refusal codes; make any stronger
@@ -91,4 +136,13 @@ shapes, class contradiction, ABox contradiction, each budget exhausted, valid
 multi-document packs and explicit-baseline composition. Compare profile,
 ordered digests, verdict and diagnostic codes/order. Include unavailable-feature
 and unsupported-profile refusals. No passing CLI evidence is claimed by this
-first stage.
+stage.
+
+Second-stage library fixtures add class/ABox contradictions, blank shape
+isolation, non-predicate paths, SERVICE rejection, SHACL nonconformance,
+aggregate preflight precedence and exact boundaries, multi-document triple
+exhaustion, the existing SHACL product budget and actual exhaustion of the fixed
+10-million reasoning budget. Parser fixtures exercise rendered expansion limits,
+first failing document indices and the intentional early-refusal ordering.
+Server feature builds and CLI/engine differential execution remain separate
+required evidence; library fixtures do not stand in for them.

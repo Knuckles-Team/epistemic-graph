@@ -2981,6 +2981,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-pack-validation"
+version = "0.1.0"
+dependencies = [
+ "eg-rdf",
+ "eg-shacl",
+ "eg-types",
+]
+
+[[package]]
 name = "eg-plan"
 version = "0.33.0"
 dependencies = [
@@ -3491,6 +3500,7 @@ dependencies = [
  "eg-lake",
  "eg-modality",
  "eg-numeric",
+ "eg-pack-validation",
  "eg-plan",
  "eg-program",
  "eg-pyengine",

@@ -3,31 +3,62 @@
 //! Extracted from the server without changing refusal codes, messages or limits.
 //! These helpers are NOT an offline validation profile: callers still own byte
 //! limits, identity/order checks, base policy, class/ABox reasoning and SHACL.
-//! In particular, Turtle parsing allocates before applying the triple limit.
+//! Document validation now stops collection at its byte/triple/term bounds;
+//! the unbounded union helper remains for callers that own their own limits.
 
 use eg_types::connector_pack::PackViolationCode;
 use std::collections::BTreeSet;
 
 mod union;
-pub use union::{scoped_union, RdfUnion};
+pub use union::{scoped_union, scoped_union_with_limits, RdfUnion, UnionLimitError};
 
-/// Check the existing pack per-document triple and term limits after parsing.
+/// Existing per-document and ontology-union admission triple limit.
+pub const MAX_RDF_TRIPLES: usize = 100_000;
+/// Admission cap for N-Triples expansion of a document or collected union.
+pub const MAX_RDF_RENDERED_BYTES: usize = eg_types::connector_pack::MAX_PACK_ARCHIVE_BYTES as usize;
+
+/// Enforce pack body bytes before parsing, then check streamed triples and terms.
 /// Callers choose the existing ontology/shapes syntax refusal code.
-/// This is not a streaming allocation bound or a complete pack verdict.
+/// This is not a complete pack verdict; limits and errors stop the stream early.
 pub fn validate_document(
     code: PackViolationCode,
     text: &str,
 ) -> Result<(), (PackViolationCode, &'static str)> {
-    let triples =
-        crate::mapping::parse_turtle(text).map_err(|_| (code, "RDF body is not valid Turtle"))?;
-    if triples.len() > 100_000 {
+    if text.len() > eg_types::connector_pack::MAX_PACK_BODY_BYTES as usize {
+        return Err((
+            PackViolationCode::PackTooLarge,
+            "section exceeds its served size bound",
+        ));
+    }
+    let mut rendered_bytes = 0usize;
+    for (count, triple) in crate::mapping::turtle_triples(text).enumerate() {
+        let triple = triple.map_err(|_| (code, "RDF body is not valid Turtle"))?;
+        validate_streamed_triple(code, &triple, count, &mut rendered_bytes)?;
+    }
+    Ok(())
+}
+
+fn validate_streamed_triple(
+    code: PackViolationCode,
+    triple: &crate::oxrdf::Triple,
+    count: usize,
+    rendered_bytes: &mut usize,
+) -> Result<(), (PackViolationCode, &'static str)> {
+    if count >= MAX_RDF_TRIPLES {
         return Err((
             PackViolationCode::ValidationBudgetExceeded,
             "RDF graph exceeds the triple validation budget",
         ));
     }
-    for triple in &triples {
-        validate_rdf_triple(code, triple)?;
+    validate_rdf_triple(code, triple)?;
+    *rendered_bytes = rendered_bytes
+        .saturating_add(triple.to_string().len())
+        .saturating_add(3);
+    if *rendered_bytes > MAX_RDF_RENDERED_BYTES {
+        return Err((
+            PackViolationCode::ValidationBudgetExceeded,
+            "RDF graph rendering exceeds the byte validation budget",
+        ));
     }
     Ok(())
 }
