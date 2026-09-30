@@ -1004,7 +1004,9 @@ jobs:
       matrix:
         include:
           - name: linux-x86_64
-            runner: [self-hosted, linux, x64]
+            # The org's Docker-in-Docker runners, matched exactly as the
+            # shared pipelines workflows match them.
+            runner: self-hosted
             self_hosted: true
             target: x86_64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
