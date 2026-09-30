@@ -4,7 +4,7 @@
 //! (`tests/fixtures/finance_market/reference.py`) from the same 64-bit LCG;
 //! `golden.json` holds the reference's sha256 of every indicator's canonical
 //! output. Integer kernels make these bit-identical on every host: the same
-//! test run on R820 and GR1080 must pass unchanged.
+//! test run on different hardware must pass unchanged.
 
 use serde_json::Value;
 
