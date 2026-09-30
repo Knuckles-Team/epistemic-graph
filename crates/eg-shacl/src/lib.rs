@@ -8,7 +8,7 @@
 //! * targets — `sh:targetClass`, `sh:targetNode`, `sh:targetSubjectsOf`,
 //!   `sh:targetObjectsOf`;
 //! * property paths — **predicate paths** (`sh:path <p>`); complex paths are recognised
-//!   and skipped as an EG-132 follow-up;
+//!   and refused;
 //! * constraint components — cardinality (`sh:minCount`/`sh:maxCount`), `sh:datatype`,
 //!   `sh:class`, `sh:nodeKind`, value range (`sh:minInclusive`/`sh:maxInclusive`/
 //!   `sh:minExclusive`/`sh:maxExclusive`), string (`sh:minLength`/`sh:maxLength`/
@@ -20,10 +20,18 @@
 //! [`validate`] returns a `Result` of a serde-serializable [`ValidationReport`] =
 //! `conforms` + a list of [`ValidationResult`] (`focus_node`, `path`, `value`,
 //! `source_shape`, `constraint_component`, `message`, `severity`); the `Err` case is a
+//! resource-budget refusal, unsupported or malformed shape syntax, or a
 //! `sh:sparql` query that fails to parse or uses a construct this engine does not
 //! evaluate (property paths, `MINUS`/`VALUES`/non-`SILENT` `SERVICE`/sub-`SELECT`/
 //! aggregates/`EXISTS`/arithmetic, or rebinding `$this` — all constructs the W3C
 //! SHACL-SPARQL test suite itself expects an implementation MAY decline).
+//!
+//! Validation shares a fixed ten-million-unit work allowance across shape parsing,
+//! target/value selection, nested constraints, SPARQL evaluation, and ICV witnesses.
+//! The existing shape-depth ceiling of 40 now returns an error when exhausted.
+//! Work units conservatively charge graph traversals, candidates, and bindings;
+//! this is a logical-work limit, not a wall-clock or process-memory guarantee.
+//! Direct Turtle parsing still requires caller-supplied input allocation limits.
 //!
 //! Pi contract: pure Rust, no C/native dep — the `sh:sparql` engine parses with
 //! `spargebra` (already pulled in transitively wherever `sparql` is on; pinned here as
@@ -33,6 +41,10 @@
 //! top: the same shapes read as Stardog-style **closed-world** DB integrity constraints
 //! ([`validate_icv`]), with a SPARQL **explain witness** per violation and a
 //! [`check_write`] guard for constraint-enforced transactions.
+
+mod budget;
+mod supported;
+pub use budget::{is_resource_refusal, DEPTH_EXCEEDED, MAX_VALIDATION_STEPS, WORK_EXCEEDED};
 
 pub mod icv;
 pub mod policy;

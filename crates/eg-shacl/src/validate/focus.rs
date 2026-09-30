@@ -11,8 +11,8 @@
 use eg_rdf::oxrdf::{Graph, NamedNode, NamedNodeRef, Term};
 
 use super::Validator;
+use crate::budget::Budget;
 use crate::report::ValidationReport;
-use crate::shapes::ShapesGraph;
 
 /// Validate each of `focus_nodes` against the shape `shape_iri` (a bare IRI) of
 /// `shapes_graph`, over `data_graph`. The report holds every result for every focus
@@ -32,11 +32,9 @@ pub fn validate_nodes(
             "shape <{shape_iri}> is not declared in the shapes graph"
         ));
     }
-    let validator = Validator {
-        shapes: ShapesGraph::new(shapes_graph),
-        data: data_graph,
-    };
-    let shape = validator.shapes.parse_shape(&Term::NamedNode(shape_node));
+    let budget = Budget::default();
+    let validator = Validator::new(shapes_graph, data_graph, &budget)?;
+    let shape = validator.parse_shape(&Term::NamedNode(shape_node))?;
     let mut results = Vec::new();
     if !shape.deactivated {
         for focus in focus_nodes {

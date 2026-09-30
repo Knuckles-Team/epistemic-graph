@@ -29,6 +29,7 @@
 //! `BIND`/`AS` (e.g. `BIND(true AS $this)`) is likewise rejected — allowing it
 //! would let a shape's query silently defeat pre-binding.
 
+use crate::budget::Budget;
 use std::collections::HashMap;
 
 use eg_rdf::oxrdf::{Graph, NamedNode, Term};
@@ -82,7 +83,9 @@ pub fn eval_select(
     data: &Graph,
     shapes: &Graph,
     pre: &PreBindings,
+    budget: &Budget,
 ) -> Result<Vec<Solution>, String> {
+    budget.charge(query_text.len().saturating_add(prefixes.len()))?;
     let query = parse_prefixed(query_text, prefixes)?;
     let Query::Select { pattern, .. } = query else {
         return Err("sh:sparql: sh:select must be a SPARQL SELECT query".to_string());
@@ -93,6 +96,7 @@ pub fn eval_select(
         shapes,
         shapes_graph_term: &pre.shapes_graph,
         active: data,
+        budget,
     };
     pattern::eval_pattern(&ctx, &pattern, &init)
 }
@@ -131,6 +135,7 @@ pub(super) struct Ctx<'a> {
     pub(super) shapes: &'a Graph,
     pub(super) shapes_graph_term: &'a Term,
     pub(super) active: &'a Graph,
+    pub(super) budget: &'a Budget,
 }
 
 impl<'a> Ctx<'a> {
@@ -140,6 +145,68 @@ impl<'a> Ctx<'a> {
             shapes: self.shapes,
             shapes_graph_term: self.shapes_graph_term,
             active,
+            budget: self.budget,
         }
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    fn run(query: &str, budget: &Budget) -> Result<Vec<Solution>, String> {
+        let data = (0..20)
+            .map(|i| format!("<urn:n{i}> <urn:p> <urn:v> .\n"))
+            .collect::<String>();
+        let data = crate::graph_from_turtle(&data).unwrap();
+        let shapes = Graph::new();
+        let pre = PreBindings {
+            this: Term::NamedNode(NamedNode::new_unchecked("urn:focus")),
+            path: None,
+            shapes_graph: shapes_graph_sentinel(),
+            current_shape: Term::NamedNode(NamedNode::new_unchecked("urn:shape")),
+        };
+        eval_select(query, &[], &data, &shapes, &pre, budget)
+    }
+
+    #[test]
+    fn joins_refuse_before_materializing_unbounded_cross_products() {
+        let query = "SELECT $this WHERE { ?a <urn:p> ?b . ?c <urn:p> ?d . ?e <urn:p> ?f }";
+        assert_eq!(
+            run(query, &Budget::new(2_000)).unwrap_err(),
+            crate::WORK_EXCEEDED
+        );
+        assert_eq!(run(query, &Budget::new(1_000_000)).unwrap().len(), 8000);
+    }
+
+    #[test]
+    fn queries_share_the_validation_allowance() {
+        let query = "SELECT $this WHERE { FILTER(true) }";
+        let budget = Budget::new(60);
+        assert!(run(query, &budget).is_ok());
+        assert_eq!(run(query, &budget).unwrap_err(), crate::WORK_EXCEEDED);
+        assert!(run(query, &Budget::new(60)).is_ok());
+    }
+    #[test]
+    fn expression_depth_is_a_resource_refusal() {
+        use spargebra::algebra::Expression;
+        let mut expression = Expression::Literal(eg_rdf::oxrdf::Literal::from(true));
+        for _ in 0..45 {
+            expression = Expression::Not(Box::new(expression));
+        }
+        let graph = Graph::new();
+        let sentinel = shapes_graph_sentinel();
+        let budget = Budget::default();
+        let ctx = Ctx {
+            data: &graph,
+            shapes: &graph,
+            active: &graph,
+            shapes_graph_term: &sentinel,
+            budget: &budget,
+        };
+        assert_eq!(
+            expression::eval_term(&ctx, &expression, &Solution::new()).unwrap_err(),
+            crate::DEPTH_EXCEEDED
+        );
     }
 }

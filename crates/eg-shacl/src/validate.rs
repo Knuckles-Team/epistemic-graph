@@ -25,6 +25,7 @@ use std::cmp::Ordering;
 use eg_rdf::oxrdf::{Graph, NamedNode, Term};
 use regex::RegexBuilder;
 
+use crate::budget::Budget;
 use crate::report::{ValidationReport, ValidationResult};
 use crate::shapes::{
     as_subject_ref, nn, Constraint, NodeKind, Path, RangeKind, Shape, ShapesGraph, Target,
@@ -32,23 +33,30 @@ use crate::shapes::{
 use crate::sparql::{self, PreBindings};
 use crate::vocab;
 
+mod context;
 mod focus;
 pub use focus::validate_nodes;
 
 /// Validate a data graph against a shapes graph (CONCEPT:EG-KG.ontology.concept-6). `Err`
-/// iff a `sh:sparql` constraint's query cannot be evaluated (see the module docs).
+/// on unsupported/malformed shapes, resource exhaustion, or an unevaluable query.
 pub fn validate(shapes_graph: &Graph, data_graph: &Graph) -> Result<ValidationReport, String> {
-    let v = Validator {
-        shapes: ShapesGraph::new(shapes_graph),
-        data: data_graph,
-    };
+    validate_with_budget(shapes_graph, data_graph, &Budget::default())
+}
+
+pub(crate) fn validate_with_budget(
+    shapes_graph: &Graph,
+    data_graph: &Graph,
+    budget: &Budget,
+) -> Result<ValidationReport, String> {
+    let v = Validator::new(shapes_graph, data_graph, budget)?;
+    budget.charge(shapes_graph.len().saturating_mul(4))?;
     let mut results = Vec::new();
     for shape_term in v.shapes.root_shapes() {
-        let shape = v.shapes.parse_shape(&shape_term);
+        let shape = v.parse_shape(&shape_term)?;
         if shape.deactivated {
             continue;
         }
-        for focus in v.focus_nodes(&shape) {
+        for focus in v.focus_nodes(&shape)? {
             v.validate_focus(&shape, &focus, &mut results, 0)?;
         }
     }
@@ -58,63 +66,10 @@ pub fn validate(shapes_graph: &Graph, data_graph: &Graph) -> Result<ValidationRe
 struct Validator<'a> {
     shapes: ShapesGraph<'a>,
     data: &'a Graph,
+    budget: &'a Budget,
 }
 
-/// Guard against pathological cyclic shape references.
-const MAX_DEPTH: usize = 40;
-
-impl Validator<'_> {
-    /// Focus nodes selected by a shape's targets.
-    fn focus_nodes(&self, shape: &Shape) -> Vec<Term> {
-        let mut out: Vec<Term> = Vec::new();
-        let push = |t: Term, out: &mut Vec<Term>| {
-            if !out.iter().any(|x| x == &t) {
-                out.push(t);
-            }
-        };
-        for target in &shape.targets {
-            match target {
-                Target::Node(n) => push(n.clone(), &mut out),
-                Target::Class(c) => {
-                    for s in self
-                        .data
-                        .subjects_for_predicate_object(nn(vocab::RDF_TYPE), c.as_ref())
-                    {
-                        push(s.into_owned().into(), &mut out);
-                    }
-                }
-                Target::SubjectsOf(p) => {
-                    for t in self.data.triples_for_predicate(p.as_ref()) {
-                        push(t.subject.into_owned().into(), &mut out);
-                    }
-                }
-                Target::ObjectsOf(p) => {
-                    for t in self.data.triples_for_predicate(p.as_ref()) {
-                        push(t.object.into_owned(), &mut out);
-                    }
-                }
-            }
-        }
-        out
-    }
-
-    /// The value nodes of `shape` for `focus`.
-    fn value_nodes(&self, shape: &Shape, focus: &Term) -> Vec<Term> {
-        match &shape.path {
-            None => vec![focus.clone()],
-            Some(Path::Predicate(p)) => match as_subject_ref(focus) {
-                Some(s) => self
-                    .data
-                    .objects_for_subject_predicate(s, p.as_ref())
-                    .map(|t| t.into_owned())
-                    .collect(),
-                None => Vec::new(),
-            },
-            // Complex path — unsupported (EG-132 follow-up); no value nodes, no results.
-            Some(Path::Unsupported) => Vec::new(),
-        }
-    }
-
+impl<'a> Validator<'a> {
     /// The `sh:resultPath` string for a property shape, if any.
     fn path_str(shape: &Shape) -> Option<String> {
         match &shape.path {
@@ -150,11 +105,11 @@ impl Validator<'_> {
         out: &mut Vec<ValidationResult>,
         depth: usize,
     ) -> Result<(), String> {
-        if depth > MAX_DEPTH {
-            return Ok(());
-        }
-        let values = self.value_nodes(shape, focus);
+        Budget::depth(depth)?;
+        self.budget.charge(1)?;
+        let values = self.value_nodes(shape, focus)?;
         for c in &shape.constraints {
+            self.budget.charge(values.len().saturating_add(1))?;
             match c {
                 // ── Set-level (over all value nodes, or over $this directly) ──
                 Constraint::MinCount(n) if values.len() < *n => out.push(self.result(
@@ -190,9 +145,9 @@ impl Validator<'_> {
             }
         }
         if shape.closed {
-            let allowed = self.closed_allowed_predicates(shape);
+            let allowed = self.closed_allowed_predicates(shape)?;
             for vn in &values {
-                self.check_closed(shape, focus, vn, &allowed, out);
+                self.check_closed(shape, focus, vn, &allowed, out)?;
             }
         }
         Ok(())
@@ -208,6 +163,7 @@ impl Validator<'_> {
         out: &mut Vec<ValidationResult>,
         depth: usize,
     ) -> Result<(), String> {
+        self.budget.charge(constraint_work(c, self.data.len()))?;
         match c {
             Constraint::Datatype(_)
             | Constraint::Class(_)
@@ -624,7 +580,7 @@ impl Validator<'_> {
     ) -> Result<(), String> {
         // Validate the value node against the referenced property shape and
         // surface its results directly (the SHACL sh:property semantics).
-        let property_shape = self.shapes.parse_shape(property_ref);
+        let property_shape = self.parse_shape(property_ref)?;
         if !property_shape.deactivated {
             self.validate_focus(&property_shape, vn, out, depth + 1)?;
         }
@@ -646,10 +602,8 @@ impl Validator<'_> {
     /// Whether `focus` conforms to the shape identified by `shape_ref` (no results of any
     /// severity). Used by the shape-based logical/`sh:node` components.
     fn node_conforms(&self, shape_ref: &Term, focus: &Term, depth: usize) -> Result<bool, String> {
-        if depth > MAX_DEPTH {
-            return Ok(true);
-        }
-        let shape = self.shapes.parse_shape(shape_ref);
+        Budget::depth(depth)?;
+        let shape = self.parse_shape(shape_ref)?;
         let mut tmp = Vec::new();
         self.validate_focus(&shape, focus, &mut tmp, depth + 1)?;
         Ok(tmp.is_empty())
@@ -669,6 +623,8 @@ impl Validator<'_> {
         constraint_ref: &Term,
         out: &mut Vec<ValidationResult>,
     ) -> Result<(), String> {
+        self.budget
+            .charge(self.shapes.graph().len().saturating_add(1))?;
         let sc = self
             .shapes
             .parse_sparql_constraint(constraint_ref)
@@ -689,6 +645,7 @@ impl Validator<'_> {
             self.data,
             self.shapes.graph(),
             &pre,
+            self.budget,
         )?;
         for row in rows {
             let focus_out = row.get("this").cloned().unwrap_or_else(|| focus.clone());
@@ -723,17 +680,17 @@ impl Validator<'_> {
     /// Predicates a closed `shape`'s value nodes may carry without violating
     /// `sh:closed`: the paths of its own `sh:property` sub-shapes, plus
     /// `sh:ignoredProperties`.
-    fn closed_allowed_predicates(&self, shape: &Shape) -> Vec<NamedNode> {
+    fn closed_allowed_predicates(&self, shape: &Shape) -> Result<Vec<NamedNode>, String> {
         let mut allowed = shape.ignored_properties.clone();
         for c in &shape.constraints {
             if let Constraint::Property(prop_ref) = c {
-                let prop_shape = self.shapes.parse_shape(prop_ref);
+                let prop_shape = self.parse_shape(prop_ref)?;
                 if let Some(Path::Predicate(p)) = prop_shape.path {
                     allowed.push(p);
                 }
             }
         }
-        allowed
+        Ok(allowed)
     }
 
     /// One `ClosedConstraintComponent` violation per (predicate, value) pair
@@ -746,11 +703,12 @@ impl Validator<'_> {
         vn: &Term,
         allowed: &[NamedNode],
         out: &mut Vec<ValidationResult>,
-    ) {
+    ) -> Result<(), String> {
         let Some(subject) = as_subject_ref(vn) else {
-            return;
+            return Ok(());
         };
         for t in self.data.triples_for_subject(subject) {
+            self.budget.charge(allowed.len().saturating_add(1))?;
             if allowed.iter().any(|a| a.as_ref() == t.predicate) {
                 continue;
             }
@@ -769,6 +727,18 @@ impl Validator<'_> {
                 severity: shape.severity,
             });
         }
+        Ok(())
+    }
+}
+
+// Membership/string constraints perform work proportional to their operand.
+fn constraint_work(c: &Constraint, data_triples: usize) -> usize {
+    match c {
+        Constraint::Class(_) => data_triples.saturating_add(1),
+        Constraint::In(items) => items.len().saturating_add(1),
+        Constraint::LanguageIn(items) => items.len().saturating_add(1),
+        Constraint::Pattern { pattern, .. } => pattern.len().saturating_add(1),
+        _ => 1,
     }
 }
 

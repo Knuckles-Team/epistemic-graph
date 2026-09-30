@@ -43,9 +43,10 @@ use std::collections::HashMap;
 use eg_rdf::oxrdf::{Graph, NamedNode, Term, Triple};
 use serde::{Deserialize, Serialize};
 
+use crate::budget::Budget;
 use crate::report::{Severity, ValidationResult};
 use crate::shapes::{Constraint, NodeKind, Path, RangeKind, Shape, ShapesGraph};
-use crate::validate::{graph_from_turtle, validate};
+use crate::validate::{graph_from_turtle, validate_with_budget};
 use crate::vocab;
 
 /// One integrity-constraint violation (CONCEPT:EG-KG.ontology.wired-into-commit-write): the underlying SHACL
@@ -106,18 +107,20 @@ pub struct WriteCheck {
 /// errors (a `sh:sparql` constraint this engine cannot evaluate — see
 /// [`crate::validate`]'s module docs).
 pub fn validate_icv(shapes_graph: &Graph, data_graph: &Graph) -> Result<IcvReport, String> {
-    let report = validate(shapes_graph, data_graph)?;
+    let budget = Budget::default();
+    let report = validate_with_budget(shapes_graph, data_graph, &budget)?;
     let shapes = ShapesGraph::new(shapes_graph);
-    let registry = collect_shape_registry(&shapes);
+    let registry = collect_shape_registry(&shapes, &budget)?;
 
     let violations = report
         .results
         .into_iter()
         .map(|result| {
+            budget.charge(shapes_graph.len().saturating_add(1))?;
             let witness = build_witness(&result, &registry, shapes_graph);
-            IcvViolation { result, witness }
+            Ok(IcvViolation { result, witness })
         })
-        .collect();
+        .collect::<Result<_, String>>()?;
     Ok(IcvReport::from_violations(violations))
 }
 
@@ -241,33 +244,45 @@ fn key(r: &ValidationResult) -> ViolationKey {
 /// referenced by `sh:node`/`sh:property`/`sh:and`/`sh:or`/`sh:not`/`sh:xone` — keyed by
 /// its N-Triples id string, so a [`ValidationResult`] (which carries `source_shape` as a
 /// string) can be mapped back to its parsed [`Shape`] to build the witness.
-fn collect_shape_registry(shapes: &ShapesGraph) -> HashMap<String, Shape> {
-    let mut acc: HashMap<String, Shape> = HashMap::new();
-    for root in shapes.root_shapes() {
-        collect_shape(shapes, &root, &mut acc);
-    }
-    acc
+fn collect_shape_registry(
+    shapes: &ShapesGraph,
+    budget: &Budget,
+) -> Result<HashMap<String, Shape>, String> {
+    budget.charge(shapes.graph().len().saturating_mul(4))?;
+    collect_referenced_shapes(shapes, shapes.root_shapes(), budget)
 }
 
-fn collect_shape(shapes: &ShapesGraph, id: &Term, acc: &mut HashMap<String, Shape>) {
-    let k = id.to_string();
-    if acc.contains_key(&k) {
-        return;
-    }
-    let shape = shapes.parse_shape(id);
-    acc.insert(k, shape.clone());
-    for c in &shape.constraints {
-        match c {
-            Constraint::Node(t) | Constraint::Not(t) | Constraint::Property(t) => {
-                collect_shape(shapes, t, acc);
-            }
-            Constraint::And(v) | Constraint::Or(v) | Constraint::Xone(v) => {
-                for t in v {
-                    collect_shape(shapes, t, acc);
-                }
-            }
-            _ => {}
+fn collect_referenced_shapes(
+    shapes: &ShapesGraph,
+    mut pending: Vec<Term>,
+    budget: &Budget,
+) -> Result<HashMap<String, Shape>, String> {
+    let mut acc = HashMap::new();
+    while let Some(id) = pending.pop() {
+        budget.charge(1)?;
+        let key = id.to_string();
+        if acc.contains_key(&key) {
+            continue;
         }
+        budget.charge(shapes.graph().len().saturating_add(1))?;
+        let shape = shapes.parse_shape(&id);
+        for c in &shape.constraints {
+            append_references(c, &mut pending);
+        }
+        acc.insert(key, shape);
+    }
+    Ok(acc)
+}
+
+fn append_references(c: &Constraint, pending: &mut Vec<Term>) {
+    match c {
+        Constraint::Node(t) | Constraint::Not(t) | Constraint::Property(t) => {
+            pending.push(t.clone())
+        }
+        Constraint::And(v) | Constraint::Or(v) | Constraint::Xone(v) => {
+            pending.extend(v.iter().cloned())
+        }
+        _ => {}
     }
 }
 
