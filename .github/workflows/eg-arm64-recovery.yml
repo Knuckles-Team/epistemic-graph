@@ -1,0 +1,174 @@
+# One diagnostic recovery of the failed tag-build ARM64 leg; no publication.
+# The original push built one primary folded wheel, not a reproduction pass.
+name: Recover v2.27.0 ARM64 wheel with one compiler job
+'on':
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: eg-v2.27.0-arm64-one-job-recovery
+  cancel-in-progress: false
+jobs:
+  wheel:
+    name: ARM64 recovery (one job)
+    if: >-
+      github.repository == 'Knuckles-Team/epistemic-graph' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NET_RETRY: '10'
+      RUST_BACKTRACE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      MATURIN_FEATURES: full,ast-extended
+      EG_WHEEL_TARGET: aarch64-unknown-linux-gnu
+      EG_WHEEL_MATURIN_ARGS: ''
+      EG_WHEEL_JOBS_ARG: '--jobs 1'
+      EG_WHEEL_MANYLINUX: '2_28'
+      RUSTUP_TOOLCHAIN: '1.96.0'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/epistemic-graph
+          ref: 29301642c205adc75d63cde2e69d7f53d85d707f
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+      - name: Verify immutable source, native host, and release profile
+        run: |
+          test "$(git rev-parse HEAD)" = 29301642c205adc75d63cde2e69d7f53d85d707f
+          test "$(uname -m)" = aarch64
+          python - <<'PYTHON'
+          import tomllib
+          from pathlib import Path
+          assert tomllib.loads(Path('rust-toolchain.toml').read_text())['toolchain']['channel'] == '1.96.0'
+          profile = tomllib.loads(Path('Cargo.toml').read_text())['profile']['release']
+          assert (profile['opt-level'], profile['lto'], profile['codegen-units'], profile['panic']) == (3, 'thin', 1, 'unwind')
+          PYTHON
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: '1.96.0'
+          targets: aarch64-unknown-linux-gnu
+      - name: Bind build time to the source revision
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          case "$SOURCE_DATE_EPOCH" in
+            ''|*[!0-9]*) exit 1 ;;
+          esac
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+      - name: Configure identity-neutral Rust source paths
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target aarch64-unknown-linux-gnu
+      - name: Start read-only host and cgroup telemetry
+        run: |
+          cat > "$RUNNER_TEMP/arm64-telemetry.sh" <<'SH'
+          #!/usr/bin/env bash
+          snapshot() {
+            date --utc --iso-8601=seconds
+            nproc
+            free -b
+            df -B1 / "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+            cat /proc/swaps
+            cat /proc/self/cgroup
+            relative="$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)"
+            # Observe the runner cgroup and active Docker build containers.
+            for group in "/sys/fs/cgroup$relative" /sys/fs/cgroup/system.slice/docker-*.scope; do
+              [ -d "$group" ] || continue
+              for file in memory.current memory.peak memory.max memory.events memory.swap.current memory.swap.max; do
+                if [ -r "$group/$file" ]; then
+                  echo "cgroup $group/$file"
+                  cat "$group/$file"
+                fi
+              done
+            done
+          }
+          snapshot
+          if [ "${1:-}" = once ]; then exit 0; fi
+          while sleep 60; do snapshot; done
+          SH
+          bash "$RUNNER_TEMP/arm64-telemetry.sh" once
+          nohup bash "$RUNNER_TEMP/arm64-telemetry.sh" > "$RUNNER_TEMP/arm64-telemetry.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/arm64-telemetry.pid"
+      - name: Build and audit primary folded wheel
+        uses: ./.github/actions/folded-wheel
+        with:
+          pass: primary
+      - name: Stage sole recovery candidate
+        run: |
+          mkdir dist
+          cp dist-primary/epistemic_graph-*.whl dist/
+      - name: Run the exact original native installed-wheel smoke
+        run: |
+          python - <<'PYTHON'
+          import hashlib, subprocess, textwrap
+          from pathlib import Path
+          source = Path('.github/workflows/release.yml').read_text()
+          marker = '      - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})\n'
+          assert source.count(marker) == 1
+          block = source.split(marker, 1)[1].split('      - name:', 1)[0]
+          commands = textwrap.dedent(block.split('        run: |\n', 1)[1]).rstrip() + '\n'
+          assert hashlib.sha256(commands.encode()).hexdigest() == '423d3f865f5af5ea8d5139c3f868ec74c0e3b341458181c18b1e8f7507cf044f'
+          subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', commands], check=True)
+          PYTHON
+      - name: Record wheel source, run, attempt, and digest
+        env:
+          RECOVERY_RUN_ID: ${{ github.run_id }}
+          RECOVERY_RUN_ATTEMPT: ${{ github.run_attempt }}
+          RECOVERY_LAUNCHER_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PYTHON'
+          import hashlib, json, os
+          from pathlib import Path
+          wheels = list(Path('dist').glob('epistemic_graph-*.whl'))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert 'manylinux_2_28_aarch64' in wheel.name, wheel.name
+          record = {
+              'source': '29301642c205adc75d63cde2e69d7f53d85d707f',
+              'version': 'v2.27.0',
+              'launcher_sha': os.environ['RECOVERY_LAUNCHER_SHA'],
+              'run_id': os.environ['RECOVERY_RUN_ID'],
+              'run_attempt': os.environ['RECOVERY_RUN_ATTEMPT'],
+              'run_url': 'https://github.com/Knuckles-Team/epistemic-graph/actions/runs/' + os.environ['RECOVERY_RUN_ID'],
+              'wheel': wheel.name,
+              'sha256': hashlib.file_digest(wheel.open('rb'), 'sha256').hexdigest(),
+              'rust': '1.96.0',
+              'features': 'full,ast-extended',
+              'jobs_arg': '--jobs 1',
+              'release_profile': {'opt-level': 3, 'lto': 'thin', 'codegen-units': 1, 'panic': 'unwind'},
+          }
+          Path('dist/provenance.json').write_text(json.dumps(record, indent=2) + '\n')
+          print(json.dumps(record, indent=2))
+          PYTHON
+      - name: Upload successful ARM64 recovery artifact
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: recovered-v2.27.0-arm64-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            dist/*.whl
+            dist/provenance.json
+          if-no-files-found: error
+      - name: Record artifact digest
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.artifact.outputs.artifact-digest }}
+        run: |
+          printf 'ARM64 recovery artifact: %s\nSHA256: %s\n' "$ARTIFACT_URL" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Report final telemetry even on failure
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/arm64-telemetry.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/arm64-telemetry.pid")" || true
+            cat "$RUNNER_TEMP/arm64-telemetry.log"
+            bash "$RUNNER_TEMP/arm64-telemetry.sh" once
+          fi
