@@ -1005,7 +1005,9 @@ jobs:
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
-            jobs: 2
+            # The two-job server compile was SIGKILLed on the 16 GiB runner.
+            # Keep full features/LTO; bound Cargo concurrency to one job.
+            jobs: 1
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc

@@ -148,6 +148,9 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["include"]
     targets = {entry["name"]: entry["target"] for entry in matrix}
     assert len(matrix) == len(targets) == 4
+    arm = next(entry for entry in matrix if entry["name"] == "linux-aarch64")
+    assert arm["runner"] == "ubuntu-24.04-arm"
+    assert arm["jobs"] == 1
     x86 = _verified_x86_workflow()["jobs"]["wheel"]
     assert x86["env"]["MATURIN_FEATURES"] == "full,ast-extended"
     upload = next(
