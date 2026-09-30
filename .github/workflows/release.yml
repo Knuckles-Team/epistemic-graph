@@ -56,6 +56,7 @@ jobs:
   # jobs; skipped jobs still report, so required checks never hang, and tags,
   # manual runs and new branches always run everything.
   changes:
+    timeout-minutes: 360
     name: Change scope
     runs-on: ubuntu-latest
     outputs:
@@ -86,6 +87,7 @@ jobs:
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
+    timeout-minutes: 360
     name: Security checks
     runs-on: ubuntu-latest
     steps:
@@ -133,6 +135,7 @@ jobs:
 
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
+    timeout-minutes: 360
     name: gates
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -346,6 +349,7 @@ jobs:
   # failure, with nine selections still to go). Every step is carried over
   # verbatim; `build` needs all three.
   gates-facade:
+    timeout-minutes: 360
     name: gates (facade full)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -385,6 +389,7 @@ jobs:
   # and `cluster` is not part of the published wheel (MATURIN_FEATURES), so it
   # reports on main without gating the release build.
   gates-variants:
+    timeout-minutes: 360
     name: gates (slim server + raft cluster)
     runs-on: ubuntu-latest
     needs: changes
@@ -422,6 +427,7 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
+    timeout-minutes: 360
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -500,11 +506,11 @@ jobs:
   # -m crates/eg-pyengine/Cargo.toml --features python,security` invocation the `gates`
   # job's "Build gates pyengine kernel wheel" step runs for the WHEEL path.
   python-suite:
+    timeout-minutes: 360
     name: Python suite (tests/)
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
     steps:
       - *eg-gates-checkout
 
@@ -576,11 +582,11 @@ jobs:
   #     runner image. Installed so bindgen's libclang lookup does not depend on
   #     which clang packages the image happens to ship.
   tts-piper-inference:
+    timeout-minutes: 360
     name: eg-tts-piper real-inference tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -613,6 +619,7 @@ jobs:
   # byte-for-byte, then replays every contract method-body vector (body digest and
   # envelope MAC) through each client's signer, plus the clients' own unit tests.
   language-clients:
+    timeout-minutes: 360
     name: Go and JavaScript clients
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -654,6 +661,7 @@ jobs:
   # modality, reasoning, release-campaign, and persisted-schema behavior.
   # They remain blocking alongside the executable test suites.
   lint-and-architecture:
+    timeout-minutes: 360
     name: Lint, format and architecture (pre-commit)
     runs-on: ubuntu-latest
     steps:
@@ -690,6 +698,7 @@ jobs:
   # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
   # the slim `server` build; each profile is its own leg.
   quality-advisory:
+    timeout-minutes: 360
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -730,6 +739,7 @@ jobs:
   # jscpd step left CCCC, KISS, import-linter, depcruise and arch-lint unrun.
   # The job still fails at the end if any step failed.
   scanner-quality:
+    timeout-minutes: 360
     name: Scanner + architecture quality (advisory)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -961,24 +971,27 @@ jobs:
   # build for tags and explicit dispatches; ordinary pushes already run the
   # product tests and installed-wheel smoke in `gates`.
   build:
+    timeout-minutes: 360
     name: wheel ${{ matrix.name }}
     needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # The linux-x86_64 leg runs on the project's own self-hosted runner. Only
+    # a tag push or a manual dispatch in THIS repository can start this job:
+    # both need write access, and a pull request (including one from a fork)
+    # never reaches it. Never add `pull_request` here.
+    if: >-
+      github.repository == 'Knuckles-Team/epistemic-graph'
+      && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
-    # An OPTIONAL leg must not hold the whole run open. Measured on run
-    # 32697532796: macos-x86_64 is `continue-on-error: true`, yet the run sat at
-    # 8h06m because a non-blocking leg still keeps the matrix (and therefore the
-    # `publish-pypi` gate that `needs: build`) alive until it finishes or the
-    # 6h GitHub default expires. `matrix.timeout_minutes` caps the best-effort
-    # legs tightly while leaving the supported legs a generous bound -- the
-    # measured full `--release --features full,ast-extended` build is ~40 min
-    # per pass and each leg runs two passes plus fold/normalize/compare.
-    timeout-minutes: ${{ matrix.timeout_minutes || 240 }}
     # Read by .github/actions/folded-wheel, which cannot see the matrix.
     env:
       EG_WHEEL_TARGET: ${{ matrix.target }}
       EG_WHEEL_MATURIN_ARGS: ${{ matrix.maturin_args }}
+      # Release rustc processes (thin LTO, codegen-units = 1) are memory-heavy:
+      # at 4 jobs the 16 GB hosted Linux runners were killed mid-build ("runner
+      # has received a shutdown signal"). Hosted legs cap parallel jobs; the
+      # self-hosted leg sets none, so maturin uses every CPU.
+      EG_WHEEL_JOBS_ARG: ${{ matrix.jobs && format('--jobs {0}', matrix.jobs) || '' }}
       EG_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
     strategy:
       fail-fast: false
@@ -991,7 +1004,10 @@ jobs:
       matrix:
         include:
           - name: linux-x86_64
-            runner: ubuntu-latest
+            # The org's Docker-in-Docker runners, matched exactly as the
+            # shared pipelines workflows match them.
+            runner: self-hosted
+            self_hosted: true
             target: x86_64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
           # Native ARM runner: the qemu-emulated cross build on an x86 host ran
@@ -1000,10 +1016,12 @@ jobs:
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
+            jobs: 2
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             maturin_args: ""
+            jobs: 4
           # macOS is best-effort: a runner-image or toolchain regression on a
           # platform nothing in this fleet deploys to must not withhold the
           # Linux and Windows wheels, which ARE the supported install targets.
@@ -1012,13 +1030,13 @@ jobs:
             runner: macos-14
             target: aarch64-apple-darwin
             maturin_args: ""
-            timeout_minutes: 90
+            jobs: 2
             optional: true
           - name: macos-x86_64
             runner: macos-15-intel
             target: x86_64-apple-darwin
             maturin_args: ""
-            timeout_minutes: 90
+            jobs: 2
             optional: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -1135,7 +1153,7 @@ jobs:
           # interpreter-side NumPy dependency; `check_wheel_completeness.py` rejects both
           # base and extra-gated NumPy metadata. Keep this smoke test independent from the
           # developer-only parity environment below.
-          pip install "$(ls dist/epistemic_graph-*.whl)"
+          pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
           # (1) The binary must be executable (inject must preserve 0755) — fails loud
           #     with "Permission denied" otherwise.
           epistemic-graph-server --help
@@ -1164,6 +1182,15 @@ jobs:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
 
+      - name: Return container-created files to the runner user (self-hosted)
+        if: ${{ always() && matrix.self_hosted }}
+        shell: bash
+        run: >-
+          docker run --rm
+          -v "$RUNNER_TEMP:/scratch" -v "$GITHUB_WORKSPACE:/work"
+          quay.io/pypa/manylinux_2_28_x86_64
+          chown -R "$(id -u):$(id -g)" /scratch /work
+
   # NOTE (CONCEPT:EG-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
   # existed only because the deployment tiers produced DIFFERENT binaries that all shared
@@ -1183,6 +1210,7 @@ jobs:
   #    Tag-gated: optional feature and benchmark feedback runs independently
   #    and cannot delay this image build.
   docker-image:
+    timeout-minutes: 360
     needs: [build]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
@@ -1226,6 +1254,7 @@ jobs:
   # real-inference tests. Optional feature builds and benchmarks are not
   # prerequisites and cannot hold up publication.
   publish-pypi:
+    timeout-minutes: 360
     name: Publish wheels to PyPI (release only)
     needs: [build]
     runs-on: ubuntu-latest
@@ -1315,6 +1344,7 @@ jobs:
           exit 1
 
   publish-image:
+    timeout-minutes: 360
     name: Push multi-arch image (release only)
     needs: [docker-image]
     runs-on: ubuntu-latest
@@ -1363,6 +1393,7 @@ jobs:
   # ── Optional feature-combination build analysis. Failures stay visible in
   # Actions but cannot delay a release.
   feature-matrix:
+    timeout-minutes: 360
     name: feature-build ${{ matrix.target.name }}
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -1416,6 +1447,7 @@ jobs:
   # ── Optional perf/recall feedback. Failures stay visible in Actions but
   # cannot delay a release.
   benchmarks:
+    timeout-minutes: 360
     name: Perf/recall regression gate
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

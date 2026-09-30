@@ -590,6 +590,36 @@ def test_build_path_normalizer_rewrites_utf16le_windows_payload(tmp_path: Path):
     ).findings
 
 
+def test_build_path_normalizer_keeps_windows_utf8_payload_width(tmp_path: Path):
+    """A Windows alias is inserted literally, never read as a regex template.
+
+    As a template, `\b` in "b:\bbbbb" became a backspace, so every rewritten
+    UTF-8 Windows path shrank by a byte and the shifted `.exe` failed to load
+    ("Exec format error") in the windows-x86_64 wheel smoke test.
+    """
+    cargo_home = str(PureWindowsPath("Z:/", "Users", "fixture-builder", ".cargo"))
+    executable = "fixture_package-1.0.0.data/scripts/fixture-server.exe"
+    original = (
+        b"MZ\x00" + cargo_home.encode() + rb"\registry\src\crate\lib.rs" + b"\x00tail"
+    )
+    wheel = _wheel(
+        tmp_path,
+        {
+            "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
+            "fixture_package-1.0.0.dist-info/RECORD": b"stale-record\n",
+            executable: original,
+        },
+    )
+
+    assert normalize_wheel_build_paths(wheel, environ={"CARGO_HOME": cargo_home}) == 1
+    with zipfile.ZipFile(wheel) as archive:
+        payload = archive.read(executable)
+    assert len(payload) == len(original)
+    assert b"\x08" not in payload
+    assert cargo_home.encode().lower() not in payload.lower()
+    assert payload.endswith(rb"\registry\src\crate\lib.rs" + b"\x00tail")
+
+
 def test_sbom_normalizer_rewrites_local_refs_and_rebuilds_record(tmp_path: Path):
     source_root = PurePosixPath("/", "srv", "fixture-source")
     reference = f"path+file://{source_root}#1.0.0"

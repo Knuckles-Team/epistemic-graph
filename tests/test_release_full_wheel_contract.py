@@ -213,3 +213,47 @@ def test_incomplete_fallback_artifacts_cannot_be_published() -> None:
     # release path this test exists to rule out.
     assert not (REPO / ".github" / "workflows" / "release-build.yml").exists()
     assert not (REPO / ".github" / "workflows" / "rust-ci.yml").exists()
+
+
+def _runner_labels(job: dict) -> list[str]:
+    """Every runner label a job can resolve to, across its matrix legs."""
+
+    runs_on = job.get("runs-on", [])
+    if isinstance(runs_on, str) and "matrix.runner" in runs_on:
+        legs = job["strategy"]["matrix"]["include"]
+        values = [leg["runner"] for leg in legs]
+    else:
+        values = [runs_on]
+    labels: list[str] = []
+    for value in values:
+        labels.extend(value if isinstance(value, list) else [value])
+    return labels
+
+
+def test_self_hosted_runners_are_unreachable_from_pull_requests() -> None:
+    """Only a tag push or a manual dispatch in this repository reaches the
+    project's own runners; a pull request, including one from a fork, never
+    runs code on them."""
+
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        for name, job in doc["jobs"].items():
+            if "self-hosted" not in _runner_labels(job):
+                continue
+            condition = " ".join(str(job.get("if", "")).split())
+            assert (
+                "github.repository == 'Knuckles-Team/epistemic-graph'" in condition
+            ), f"{workflow.name}:{name}"
+            assert "pull_request" not in condition, f"{workflow.name}:{name}"
+            assert "startsWith(github.ref, 'refs/tags/v')" in condition, (
+                f"{workflow.name}:{name}"
+            )
+
+
+def test_every_runner_job_has_the_maximum_timeout() -> None:
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+        for name, job in doc["jobs"].items():
+            if "uses" in job:  # reusable-workflow call: GitHub rejects a timeout here
+                continue
+            assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"
