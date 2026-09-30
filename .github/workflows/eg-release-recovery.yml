@@ -1,0 +1,165 @@
+# REVIEW ONLY: allowlist this reusable workflow by its reviewed full commit SHA.
+# Its own guard rejects all PR event families. Caller input cannot select code or commands.
+# The source and script paths are literal. This workflow only builds and validates.
+name: Build approved EG v2.27.0 recovery wheel
+'on':
+  workflow_call: {}
+permissions:
+  contents: read
+jobs:
+  wheel:
+    timeout-minutes: 360
+    name: Recover approved v2.27.0 Linux wheel
+    if: github.repository == 'Knuckles-Team/epistemic-graph' && github.event_name == 'workflow_dispatch' && github.ref ==
+      'refs/heads/main' && github.workflow_ref == 'Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery-dispatch.yml@refs/heads/main'
+    runs-on:
+      group: eg-release-recovery
+      labels:
+      - self-hosted
+      - linux
+      - x64
+      - homelab
+    env:
+      MATURIN_FEATURES: full,ast-extended
+      EG_WHEEL_TARGET: ${{ matrix.target }}
+      EG_WHEEL_MATURIN_ARGS: ${{ matrix.maturin_args }}
+      EG_WHEEL_JOBS_ARG: --jobs 2
+      EG_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux')
+        && '2_28' || 'auto') }}
+      RUSTUP_TOOLCHAIN: 1.96.0
+    strategy:
+      matrix:
+        include:
+        - name: linux-x86_64
+          runner: self-hosted
+          self_hosted: true
+          target: x86_64-unknown-linux-gnu
+          maturin_args: ''
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        persist-credentials: false
+        repository: Knuckles-Team/epistemic-graph
+        ref: 29301642c205adc75d63cde2e69d7f53d85d707f
+    - name: Verify approved source and baked dependencies
+      shell: bash
+      run: |
+        test "$(git rev-parse HEAD)" = "29301642c205adc75d63cde2e69d7f53d85d707f"
+        eg-piper-image-smoke
+    - name: Select baked release-compatible Python and Rust
+      shell: bash
+      run: |
+        test "$(cat .python-version)" = "3.12"
+        python3 -c "import tomllib; assert tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'] == '1.96.0'"
+        /opt/python/3.12.14/bin/python3 -m venv "$RUNNER_TEMP/recovery-python"
+        echo "$RUNNER_TEMP/recovery-python/bin" >> "$GITHUB_PATH"
+        rustup run 1.96.0 rustc --version
+    - name: Test exact-source Piper using the baked checksum-pinned runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 - <<'PYTHON'
+        import hashlib, os, re, tarfile, tempfile
+        from pathlib import Path
+        source = Path('scripts/fetch_onnxruntime.sh').read_text()
+        version = re.search(r'^VERSION=(\S+)$', source, re.M).group(1)
+        sha = re.search(r'^ARCHIVE_SHA256=([0-9a-f]{64})$', source, re.M).group(1)
+        assert version == '1.24.2'
+        assert sha == '43725474ba5663642e17684717946693850e2005efbd724ac72da278fead25e6'
+        archive = Path('/opt/eg-ci/onnxruntime-linux-x64-1.24.2.tgz')
+        assert hashlib.sha256(archive.read_bytes()).hexdigest() == sha
+        scratch = Path(tempfile.mkdtemp(prefix='recovery-ort-', dir=os.environ['RUNNER_TEMP']))
+        with tarfile.open(archive) as bundle:
+            bundle.extractall(scratch, filter='data')
+        library = scratch / f'onnxruntime-linux-x64-{version}/lib/libonnxruntime.so.{version}'
+        assert library.is_file()
+        Path(os.environ['RUNNER_TEMP'], 'recovery-ort-path').write_text(str(library))
+        PYTHON
+        export ORT_DYLIB_PATH="$(cat "$RUNNER_TEMP/recovery-ort-path")"
+        python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
+      env:
+        CARGO_TARGET_DIR: ${{ runner.temp }}/recovery-piper-target
+    - name: Read tracked Rust toolchain pin
+      id: rust-toolchain
+      shell: bash
+      run: python -c "import os,re,tomllib; channel=tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'];
+        assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel); open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
+    - name: Bind build time to the source revision
+      shell: bash
+      run: |
+        SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+        case "$SOURCE_DATE_EPOCH" in
+          ''|*[!0-9]*) exit 1 ;;
+        esac
+        echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+    - name: Configure identity-neutral Rust source paths
+      shell: bash
+      run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "${{ matrix.target }}"
+    - name: Build primary wheel (${{ matrix.name }})
+      uses: ./.github/actions/folded-wheel
+      with:
+        pass: primary
+    - name: Remove primary native build state
+      if: ${{ github.event_name == 'workflow_dispatch' }}
+      shell: bash
+      run: python -c "import os,shutil; from pathlib import Path; root=Path(os.environ['RUNNER_TEMP']).resolve(); target=(root/'epistemic-graph-release-target').resolve();
+        assert target.parent==root and target.name=='epistemic-graph-release-target'; print('removing' if target.exists()
+        else 'already absent:', target); shutil.rmtree(target) if target.exists() else None"
+    - name: Build reproduction wheel (${{ matrix.name }})
+      if: ${{ github.event_name == 'workflow_dispatch' }}
+      uses: ./.github/actions/folded-wheel
+      with:
+        pass: reproduction
+    - name: Require byte-identical folded wheels
+      if: ${{ github.event_name == 'workflow_dispatch' }}
+      shell: bash
+      run: python scripts/compare_wheel_reproducibility.py dist-primary dist-reproduction
+    - name: Stage sole publish candidate
+      shell: bash
+      run: |
+        mkdir dist
+        cp dist-primary/epistemic_graph-*.whl dist/
+    - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        # Install the BARE wheel — NO compatibility extra. The native kernel retired its
+        # interpreter-side NumPy dependency; `check_wheel_completeness.py` rejects both
+        # base and extra-gated NumPy metadata. Keep this smoke test independent from the
+        # developer-only parity environment below.
+        pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
+        # (1) The binary must be executable (inject must preserve 0755) — fails loud
+        #     with "Permission denied" otherwise.
+        epistemic-graph-server --help
+        # (2) Import + compute the kernel FROM THE INSTALLED WHEEL. Run from a neutral
+        #     dir ($RUNNER_TEMP) — the repo checkout root holds the `epistemic_graph/`
+        #     SOURCE package (no compiled `.so`), and cwd is on sys.path for `python -c`,
+        #     so importing at the repo root would shadow the wheel and always fail.
+        cd "${RUNNER_TEMP:-/tmp}"
+        python - <<'PY'
+        import importlib.metadata as metadata
+        import re
+
+        requirements = metadata.requires("epistemic-graph") or []
+        assert not any(
+            re.split(r"[\\[<>=!~;]", requirement, maxsplit=1)[0].lower() == "numpy"
+            for requirement in requirements
+        ), requirements
+        PY
+        python -c "import epistemic_graph.numeric as n; values=[1.,2.,3.,4.]; assert n.sum(values)==10.0 and n.mean(values)==2.5, (n.sum(values), n.mean(values)); print('numeric kernel OK:', n.__file__, '| sum=', n.sum(values), 'mean=', n.mean(values), 'std=', n.std(values))"
+        python -c "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+    - name: Upload wheel artifact
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: recovered-v2.27.0-wheel-linux-x86_64
+        path: dist/*.whl
+        if-no-files-found: error
+      id: wheel-artifact
+    - name: Return container-created files to the runner user (self-hosted)
+      if: ${{ always() && matrix.self_hosted }}
+      shell: bash
+      run: docker run --rm -v "$RUNNER_TEMP:/scratch" -v "$GITHUB_WORKSPACE:/work" quay.io/pypa/manylinux_2_28_x86_64 chown
+        -R "$(id -u):$(id -g)" /scratch /work
+    outputs:
+      wheel-artifact-id: ${{ steps.wheel-artifact.outputs.artifact-id }}
+      wheel-artifact-digest: ${{ steps.wheel-artifact.outputs.artifact-digest }}
