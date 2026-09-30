@@ -8,6 +8,19 @@ use crate::recovery::evidence::strict_recovery_evidence;
 use redb::{ReadableDatabase, TableDefinition};
 use sha2::{Digest, Sha256};
 
+/// Serializes the tests here that open redb files. `upgrade_is_atomic_across_each_crash_stage`
+/// spawns child processes, and a child holds duplicates of every parent file
+/// descriptor until it execs. redb's `flock` lives on the shared open file, so a
+/// database another test thread has just dropped can still read as locked
+/// ("Database already open") while a child is starting.
+static REDB_FILES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn redb_files() -> std::sync::MutexGuard<'static, ()> {
+    REDB_FILES
+        .lock()
+        .expect("a sibling redb-file test panicked while holding the lock")
+}
+
 const USER_ROWS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("__sql_rows__");
 const STRAY: TableDefinition<&str, &[u8]> = TableDefinition::new("stray_sql_table");
 
@@ -94,6 +107,7 @@ fn layout_upgrade_crash_child() {
 
 #[test]
 fn upgrade_is_atomic_across_each_crash_stage() {
+    let _serial = redb_files();
     for stage in [
         "before_table",
         "after_table",
@@ -134,6 +148,7 @@ fn upgrade_is_atomic_across_each_crash_stage() {
 
 #[test]
 fn both_declared_sql_predecessors_upgrade_once_and_preserve_rows() {
+    let _serial = redb_files();
     for old in [SQL_BEFORE_SOURCE_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN] {
         let directory = private_local_tempdir();
         let path = directory.path().join("sql.redb");
@@ -170,6 +185,7 @@ fn both_declared_sql_predecessors_upgrade_once_and_preserve_rows() {
 
 #[test]
 fn mismatched_census_is_rejected_without_changing_the_file() {
+    let _serial = redb_files();
     let directory = private_local_tempdir();
     let path = directory.path().join("sql.redb");
     predecessor(&path, &SQL_BEFORE_DURABLE_ANN);
