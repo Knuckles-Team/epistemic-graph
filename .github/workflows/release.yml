@@ -1134,33 +1134,7 @@ jobs:
       #   3) the engine kernel must import from the INSTALLED wheel.
       - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
         shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          # Install the BARE wheel — NO compatibility extra. The native kernel retired its
-          # interpreter-side NumPy dependency; `check_wheel_completeness.py` rejects both
-          # base and extra-gated NumPy metadata. Keep this smoke test independent from the
-          # developer-only parity environment below.
-          pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
-          # (1) The binary must be executable (inject must preserve 0755) — fails loud
-          #     with "Permission denied" otherwise.
-          epistemic-graph-server --help
-          # (2) Import + compute the kernel FROM THE INSTALLED WHEEL. Run from a neutral
-          #     dir ($RUNNER_TEMP) — the repo checkout root holds the `epistemic_graph/`
-          #     SOURCE package (no compiled `.so`), and cwd is on sys.path for `python -c`,
-          #     so importing at the repo root would shadow the wheel and always fail.
-          cd "${RUNNER_TEMP:-/tmp}"
-          python - <<'PY'
-          import importlib.metadata as metadata
-          import re
-
-          requirements = metadata.requires("epistemic-graph") or []
-          assert not any(
-              re.split(r"[\\[<>=!~;]", requirement, maxsplit=1)[0].lower() == "numpy"
-              for requirement in requirements
-          ), requirements
-          PY
-          python -c "import epistemic_graph.numeric as n; values=[1.,2.,3.,4.]; assert n.sum(values)==10.0 and n.mean(values)==2.5, (n.sum(values), n.mean(values)); print('numeric kernel OK:', n.__file__, '| sum=', n.sum(values), 'mean=', n.mean(values), 'std=', n.std(values))"
-          python -c "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+        run: bash scripts/release_wheel_smoke.sh
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -1194,7 +1168,7 @@ jobs:
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
-    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@c62f10d90c034e87936be03091ba8d7e13879d5f
+    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93
 
   docker-image:
     timeout-minutes: 360
@@ -1296,13 +1270,13 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/pipelines
-          ref: 2a3669edad16ffacdfe540501fa610df56e55654
+          ref: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
           path: .pipeline-contract
           persist-credentials: false
       - name: Freeze exact staged publication identity
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-          PIPELINES_CONTRACT_COMMIT: 2a3669edad16ffacdfe540501fa610df56e55654
+          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py preflight \
             --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
@@ -1312,7 +1286,7 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
           SOURCE_COMMIT: ${{ github.sha }}
-          PIPELINES_CONTRACT_COMMIT: 2a3669edad16ffacdfe540501fa610df56e55654
+          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
         run: |
           python -m pip install --upgrade twine
           python scripts/verify_release_tag.py
@@ -1330,7 +1304,7 @@ jobs:
       - name: Verify every published filename and digest
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-          PIPELINES_CONTRACT_COMMIT: 2a3669edad16ffacdfe540501fa610df56e55654
+          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify \
             --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \

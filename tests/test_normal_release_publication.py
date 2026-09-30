@@ -46,7 +46,7 @@ class ReleasePublication(unittest.TestCase):
         self.assertEqual(len(jobs["build-x86"]["needs"]), 8)
         self.assertEqual(
             jobs["build-x86"]["uses"],
-            "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@c62f10d90c034e87936be03091ba8d7e13879d5f",
+            "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93",
         )
         for name in ("docker-image", "publish-pypi"):
             self.assertEqual(jobs[name]["needs"], ["build", "build-x86"])
