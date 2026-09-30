@@ -180,6 +180,7 @@ def _stream(command: Sequence[str]) -> tuple[int, list[str]]:
     ) as proc:
         for line in proc.stdout or ():
             sys.stdout.write(line)
+            sys.stdout.flush()
             lines.append(line)
     sys.stdout.flush()
     return proc.returncode, lines
