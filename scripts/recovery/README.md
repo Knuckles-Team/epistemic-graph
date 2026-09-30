@@ -33,3 +33,8 @@ setting or runner registration is performed by this code change.
 Run the focused contract checks with
 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_recovery_workflow_contract.py -v`.
 Full repository gates and native build validation remain required separately.
+
+The caller intentionally retains approved commit `4b232785086ae47791f1e58fe075c1ee74e6c877`.
+Subsequent cleanup of the reusable workflow at the branch tip does not change
+the executed workflow. Selecting a later revision requires separate review and
+an explicit runner-group selector update; do not repin the caller implicitly.
