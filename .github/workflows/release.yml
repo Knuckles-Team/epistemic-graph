@@ -979,6 +979,10 @@ jobs:
     env:
       EG_WHEEL_TARGET: ${{ matrix.target }}
       EG_WHEEL_MATURIN_ARGS: ${{ matrix.maturin_args }}
+      # Release rustc processes (thin LTO, codegen-units = 1) are memory-heavy.
+      # At 4 jobs both 16 GB Linux runners were killed mid-build ("runner has
+      # received a shutdown signal"); Windows completed at 4.
+      EG_WHEEL_JOBS: ${{ matrix.jobs || 4 }}
       EG_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
     strategy:
       fail-fast: false
@@ -994,16 +998,20 @@ jobs:
             runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
+            jobs: 2
           # Native ARM runner: the qemu-emulated cross build on an x86 host ran
           # past two hours and lost its runner mid-build.
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
+            jobs: 2
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             maturin_args: ""
+            # Measured ~3h45m at 4 jobs, too close to the 240-minute default.
+            timeout_minutes: 330
           # macOS is best-effort: a runner-image or toolchain regression on a
           # platform nothing in this fleet deploys to must not withhold the
           # Linux and Windows wheels, which ARE the supported install targets.

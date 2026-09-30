@@ -23,7 +23,7 @@ import os
 import re
 import sys
 import zipfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -167,11 +167,23 @@ def _replacement_rules(
     return tuple(rules)
 
 
+def _literal(alias: bytes) -> Callable[[re.Match[bytes]], bytes]:
+    """A substitution that inserts `alias` verbatim, never as a template."""
+
+    return lambda _match: alias
+
+
 def _normalize(data: bytes, rules: Sequence[_Replacement]) -> tuple[bytes, int]:
     normalized = data
     count = 0
     for rule in rules:
-        normalized, replacements = rule.pattern.subn(rule.replacement, normalized)
+        # A callable inserts the alias literally. As a template, the backslashes
+        # of a Windows alias ("b:\bbbb") are escapes: `\b` became a backspace,
+        # every replacement shrank by a byte, and the shifted `.exe` no longer
+        # loaded ("Exec format error").
+        normalized, replacements = rule.pattern.subn(
+            _literal(rule.replacement), normalized
+        )
         count += replacements
     return normalized, count
 

@@ -193,7 +193,13 @@ def _normalize_embedded_roots(value: str, roots: Sequence[tuple[str, str]]) -> s
         variants = {root, root.replace("/", "\\")}
         for variant in sorted(variants, key=len, reverse=True):
             flags = re.IGNORECASE if re.match(r"^[A-Za-z]:[/\\]", variant) else 0
-            normalized = re.sub(re.escape(variant), alias, normalized, flags=flags)
+            # Literal alias: a string template would read its backslashes as escapes.
+            normalized = re.sub(
+                re.escape(variant),
+                lambda _match, alias=alias: alias,
+                normalized,
+                flags=flags,
+            )
     return normalized
 
 
