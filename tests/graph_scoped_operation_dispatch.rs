@@ -29,6 +29,9 @@ use epistemic_graph::protocol::{CypherMode, GraphType, Method, Response, ResultP
 const SECRET: &str = "cx-eg-06-dispatch-graph-op-inner-secret";
 
 fn state() -> test_support::SharedState {
+    // Set the signing fixture's policy before durable_state can provision its
+    // fallback values; auth caches the first deployment policy process-wide.
+    common::configure_authority();
     let isolation = common::current_isolation();
     test_support::durable_state(SECRET, isolation)
 }
@@ -70,6 +73,33 @@ async fn add_node(
         },
     )
     .await
+}
+
+// Run this test alone as well as in the parallel target: no signed request
+// should be needed to replace state-construction defaults with the signer policy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_state_construction_provisions_signer_policy_before_requests() {
+    let workers: Vec<_> = (0..4).map(|_| tokio::task::spawn_blocking(state)).collect();
+    let mut states = Vec::new();
+    for worker in workers {
+        states.push(worker.await.expect("state constructor panicked"));
+    }
+    for (name, expected) in [
+        (
+            "EPISTEMIC_GRAPH_AUDIENCE",
+            "epistemic-graph-integration-tests",
+        ),
+        ("EPISTEMIC_GRAPH_TENANT", "integration-test-tenant"),
+        (
+            "EPISTEMIC_GRAPH_POLICY_VERSION",
+            "integration-test-policy-v1",
+        ),
+    ] {
+        assert_eq!(std::env::var(name).as_deref(), Ok(expected), "{name}");
+    }
+    for (index, state) in states.iter().enumerate() {
+        create_graph(state, 1, &format!("cx06-init-{index}")).await;
+    }
 }
 
 // ── Graph-not-found / not-yet-materialized guard (top of the function) ────
