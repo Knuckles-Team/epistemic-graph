@@ -296,3 +296,42 @@ async fn an_engine_without_an_observability_store_says_so() {
     let error = response.error.expect("no store configured");
     assert!(error.contains("TELEMETRY_UNAVAILABLE"), "{error}");
 }
+
+/// All stores stay open together, use the same series id, and must retain only
+/// their own point. A shared temporary path either fails Redb's exclusive open
+/// or leaks one fixture's observations into another.
+#[test]
+fn concurrent_ephemeral_observability_stores_are_independent() {
+    const STORES: usize = 8;
+    let stores = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..STORES)
+            .map(|index| {
+                scope.spawn(move || {
+                    let obs = ObsState::in_memory(1024).expect("open independent temporary store");
+                    obs.series_store()
+                        .append_batch(
+                            "fixture",
+                            1,
+                            100,
+                            &["value".to_string()],
+                            &[Point {
+                                ts: 1,
+                                values: vec![index as f64],
+                            }],
+                        )
+                        .expect("write private fixture point");
+                    obs
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| worker.join().expect("temporary store worker"))
+            .collect::<Vec<_>>()
+    });
+    for (index, obs) in stores.iter().enumerate() {
+        let points = obs.series_store().range("fixture", 0, 2).unwrap();
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].values, vec![index as f64]);
+    }
+}
