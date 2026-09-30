@@ -1,0 +1,9 @@
+# The reusable workflow reference must be a reviewed full commit SHA.
+name: Build approved v2.27.0 recovery wheel
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovery:
+    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery.yml@REVIEWED_REUSABLE_SHA
