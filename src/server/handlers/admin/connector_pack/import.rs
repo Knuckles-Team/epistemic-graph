@@ -23,7 +23,6 @@ mod facts;
 mod front_matter;
 mod json;
 mod planning;
-mod rdf_union;
 mod skill_files;
 mod validation;
 

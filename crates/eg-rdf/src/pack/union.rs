@@ -8,25 +8,23 @@
 //! is the concatenation of those triples, also rendered as N-Triples for the
 //! validators that take text.
 
-#![cfg(all(feature = "owl", feature = "shacl"))]
-
-use eg_rdf::oxrdf::{BlankNode, NamedOrBlankNode, Term, Triple};
+use crate::oxrdf::{BlankNode, NamedOrBlankNode, Term, Triple};
 
 /// A parsed union and its N-Triples rendering.
-pub(super) struct RdfUnion {
-    pub(super) triples: Vec<Triple>,
-    pub(super) ntriples: String,
+pub struct RdfUnion {
+    pub triples: Vec<Triple>,
+    pub ntriples: String,
 }
 
 /// Parse every document on its own and union them with file-scoped blank
 /// nodes. `Err` carries the index of the first document that does not parse.
-pub(super) fn scoped_union(documents: &[String]) -> Result<RdfUnion, usize> {
+pub fn scoped_union(documents: &[String]) -> Result<RdfUnion, usize> {
     let mut union = RdfUnion {
         triples: Vec::new(),
         ntriples: String::new(),
     };
     for (file, document) in documents.iter().enumerate() {
-        let parsed = eg_rdf::mapping::parse_turtle(document).map_err(|_| file)?;
+        let parsed = crate::mapping::parse_turtle(document).map_err(|_| file)?;
         for triple in parsed {
             let triple = scope_triple(triple, file);
             union.ntriples.push_str(&triple.to_string());
@@ -61,7 +59,7 @@ mod tests {
         let union = scoped_union(&[doc.clone(), doc]).unwrap();
         assert_eq!(union.triples.len(), 2);
         assert_ne!(union.triples[0].subject, union.triples[1].subject);
-        let reparsed = eg_rdf::mapping::parse_turtle(&union.ntriples).unwrap();
+        let reparsed = crate::mapping::parse_turtle(&union.ntriples).unwrap();
         assert_eq!(reparsed.len(), 2);
     }
 
