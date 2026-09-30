@@ -303,13 +303,10 @@ async fn an_engine_without_an_observability_store_says_so() {
 #[test]
 fn concurrent_ephemeral_observability_stores_are_independent() {
     const STORES: usize = 8;
-    let start = std::sync::Barrier::new(STORES);
     let stores = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..STORES)
             .map(|index| {
-                let start = &start;
                 scope.spawn(move || {
-                    start.wait();
                     let obs = ObsState::in_memory(1024).expect("open independent temporary store");
                     obs.series_store()
                         .append_batch(
