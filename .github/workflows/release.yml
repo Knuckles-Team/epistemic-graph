@@ -1296,13 +1296,13 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/pipelines
-          ref: 8797e0553ae8cd592af4b0526d1fbd93a3969819
+          ref: 2a3669edad16ffacdfe540501fa610df56e55654
           path: .pipeline-contract
           persist-credentials: false
       - name: Freeze exact staged publication identity
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-          PIPELINES_CONTRACT_COMMIT: 8797e0553ae8cd592af4b0526d1fbd93a3969819
+          PIPELINES_CONTRACT_COMMIT: 2a3669edad16ffacdfe540501fa610df56e55654
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py preflight \
             --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
@@ -1312,7 +1312,7 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
           SOURCE_COMMIT: ${{ github.sha }}
-          PIPELINES_CONTRACT_COMMIT: 8797e0553ae8cd592af4b0526d1fbd93a3969819
+          PIPELINES_CONTRACT_COMMIT: 2a3669edad16ffacdfe540501fa610df56e55654
         run: |
           python -m pip install --upgrade twine
           python scripts/verify_release_tag.py
@@ -1330,7 +1330,7 @@ jobs:
       - name: Verify every published filename and digest
         env:
           SOURCE_COMMIT: ${{ github.sha }}
-          PIPELINES_CONTRACT_COMMIT: 8797e0553ae8cd592af4b0526d1fbd93a3969819
+          PIPELINES_CONTRACT_COMMIT: 2a3669edad16ffacdfe540501fa610df56e55654
         run: |
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify \
             --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
