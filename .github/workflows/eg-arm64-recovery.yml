@@ -78,11 +78,17 @@ jobs:
             free -b
             df -B1 / "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
             cat /proc/swaps
-            for file in memory.current memory.peak memory.max memory.events memory.swap.current memory.swap.max; do
-              if [ -r "/sys/fs/cgroup/$file" ]; then
-                echo "cgroup $file"
-                cat "/sys/fs/cgroup/$file"
-              fi
+            cat /proc/self/cgroup
+            relative="$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)"
+            # Observe the runner cgroup and active Docker build containers.
+            for group in "/sys/fs/cgroup$relative" /sys/fs/cgroup/system.slice/docker-*.scope; do
+              [ -d "$group" ] || continue
+              for file in memory.current memory.peak memory.max memory.events memory.swap.current memory.swap.max; do
+                if [ -r "$group/$file" ]; then
+                  echo "cgroup $group/$file"
+                  cat "$group/$file"
+                fi
+              done
             done
           }
           snapshot
