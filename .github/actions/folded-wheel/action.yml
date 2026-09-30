@@ -4,7 +4,7 @@ description: >-
   the eg-numeric and eg-pyengine kernels into it, normalize and privacy-audit
   it, and require the result to be complete. The primary and reproduction
   passes in release.yml both run this, so the two cannot drift apart. Reads
-  EG_WHEEL_TARGET, EG_WHEEL_MANYLINUX, EG_WHEEL_MATURIN_ARGS, EG_WHEEL_JOBS and
+  EG_WHEEL_TARGET, EG_WHEEL_MANYLINUX, EG_WHEEL_MATURIN_ARGS, EG_WHEEL_JOBS_ARG and
   MATURIN_FEATURES from the calling job's environment.
 inputs:
   pass:
@@ -25,7 +25,7 @@ runs:
         target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
-          --jobs ${{ env.EG_WHEEL_JOBS }}
+          ${{ env.EG_WHEEL_JOBS_ARG }}
           --out dist-${{ inputs.pass }}
           --features ${{ env.MATURIN_FEATURES }}
           ${{ env.EG_WHEEL_MATURIN_ARGS }}
@@ -46,7 +46,7 @@ runs:
         target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
-          --jobs ${{ env.EG_WHEEL_JOBS }}
+          ${{ env.EG_WHEEL_JOBS_ARG }}
           --out numdist-${{ inputs.pass }}
           -m crates/eg-numeric/Cargo.toml
           --features python
@@ -70,7 +70,7 @@ runs:
         target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
-          --jobs ${{ env.EG_WHEEL_JOBS }}
+          ${{ env.EG_WHEEL_JOBS_ARG }}
           --out enginedist-${{ inputs.pass }}
           -m crates/eg-pyengine/Cargo.toml
           --features python,security

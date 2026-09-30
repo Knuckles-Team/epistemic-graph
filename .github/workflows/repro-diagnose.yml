@@ -46,6 +46,7 @@ env:
 
 jobs:
   diagnose:
+    timeout-minutes: 360
     name: diagnose windows-x86_64 wheel reproducibility
     runs-on: windows-latest
     steps:
