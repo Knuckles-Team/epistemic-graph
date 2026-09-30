@@ -4,6 +4,7 @@ import io
 import json
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import yaml
@@ -41,6 +42,9 @@ def context():
 
 
 class NormalReleaseTrust(unittest.TestCase):
+    workflow: dict[str, Any]
+    guard: dict[str, Any]
+
     @classmethod
     def setUpClass(cls):
         cls.workflow, cls.guard = load_contract()
@@ -49,7 +53,7 @@ class NormalReleaseTrust(unittest.TestCase):
         self.assertEqual(self.guard["authorize"](context(), SHA), SHA)
 
     def test_untrusted_contexts_rejected(self):
-        changes = [
+        changes: list[tuple[str, Any]] = [
             ("event_name", event)
             for event in (
                 "pull_request",
