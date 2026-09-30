@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -126,11 +127,37 @@ def test_agent_skills_have_one_canonical_owner() -> None:
     }
 
 
+def _verified_x86_workflow() -> dict:
+    """Bind the local structural proof to the reviewed immutable workflow."""
+    caller = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    expected = (
+        "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@"
+        "bc4448160e8d16deb8210ce8aeb058b2da293d93"
+    )
+    assert caller["jobs"]["build-x86"]["uses"] == expected
+    source = (WORKFLOW.parent / "eg-release-x86.yml").read_bytes()
+    assert hashlib.sha256(source).hexdigest() == (
+        "5379e1939b5e4972923ef9961b902fc6d5425a517daf8d23ff22725fd0aa4ee3"
+    )
+    return yaml.safe_load(source)
+
+
 def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     raw = WORKFLOW.read_text(encoding="utf-8")
     workflow = yaml.safe_load(raw)
     matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["include"]
     targets = {entry["name"]: entry["target"] for entry in matrix}
+    assert len(matrix) == len(targets) == 4
+    x86 = _verified_x86_workflow()["jobs"]["wheel"]
+    assert x86["env"]["MATURIN_FEATURES"] == "full,ast-extended"
+    upload = next(
+        step
+        for step in x86["steps"]
+        if step.get("uses", "").startswith("actions/upload-artifact@")
+    )
+    target_name = upload["with"]["name"].removeprefix("wheel-")
+    assert target_name == "linux-x86_64" and target_name not in targets
+    targets[target_name] = x86["env"]["EG_WHEEL_TARGET"]
     assert targets == {
         "linux-aarch64": "aarch64-unknown-linux-gnu",
         "linux-x86_64": "x86_64-unknown-linux-gnu",
@@ -250,10 +277,15 @@ def test_self_hosted_runners_are_unreachable_from_pull_requests() -> None:
             )
 
 
-def test_every_runner_job_has_the_maximum_timeout() -> None:
+def test_runner_jobs_keep_build_budget_and_bounded_authorization() -> None:
     for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
         doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
         for name, job in doc["jobs"].items():
             if "uses" in job:  # reusable-workflow call: GitHub rejects a timeout here
                 continue
-            assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"
+            if (workflow.name, name) == ("eg-release-x86.yml", "authorize"):
+                assert job == _verified_x86_workflow()["jobs"]["authorize"]
+                assert job["runs-on"] == "ubuntu-latest"
+                assert job.get("timeout-minutes") == 5
+            else:
+                assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"
