@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import queue
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -201,3 +203,47 @@ def test_every_release_cargo_test_step_goes_through_the_rescue():
         if line.strip().startswith("cargo test")
     ]
     assert bare == [], "wrap with `python3 scripts/cargo_test_rescue.py cargo test`"
+
+
+def test_stream_exposes_line_before_child_exit():
+    """A blocked child must not hide a short line in the wrapper's pipe buffer."""
+    child = (
+        "import sys; print('child-ready', flush=True); "
+        "sys.stdin.readline(); sys.exit(7)"
+    )
+    wrapper = (
+        "import runpy, sys; "
+        "module = runpy.run_path(sys.argv[1]); "
+        "code, _ = module['_stream']([sys.executable, '-c', sys.argv[2]]); "
+        "sys.exit(code)"
+    )
+    environment = dict(os.environ)
+    environment.pop("PYTHONUNBUFFERED", None)
+    with subprocess.Popen(
+        [sys.executable, "-c", wrapper, str(SCRIPT), child],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    ) as process:
+        assert process.stdin is not None and process.stdout is not None
+        output = process.stdout
+        lines: queue.Queue[str] = queue.Queue()
+        reader = threading.Thread(
+            target=lambda: lines.put(output.readline()), daemon=True
+        )
+        reader.start()
+        try:
+            assert lines.get(timeout=5) == "child-ready\n"
+            assert process.poll() is None, "child should still await the release input"
+        finally:
+            process.stdin.write("release\n")
+            process.stdin.flush()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            reader.join(timeout=5)
+        assert process.returncode == 7
