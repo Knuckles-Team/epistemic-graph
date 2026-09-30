@@ -32,6 +32,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Registry and git fetches retry dropped connections (curl [55] SSL_read
+  # resets from crates.io failed a feature-build leg) instead of cargo's 3.
+  CARGO_NET_RETRY: "10"
   RUST_BACKTRACE: 1
   PYTHONDONTWRITEBYTECODE: "1"
   # Hosted runners have 4 vCPU / 16 GB. About 80% of a cold facade build is
