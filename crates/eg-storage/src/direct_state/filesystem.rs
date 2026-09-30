@@ -531,14 +531,19 @@ pub fn ensure_private_directory(path: &Path) -> Result<(), String> {
                     .map_err(|error| format!("fsync direct-state staging parent: {error}"))?;
             }
             #[cfg(not(unix))]
-            return Err("direct-state private staging is unsupported on this platform".into());
-            let metadata = std::fs::symlink_metadata(path)
-                .map_err(|error| format!("restat direct-state staging root: {error}"))?;
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                return Err("direct-state staging root changed during creation".into());
+            {
+                Err("direct-state private staging is unsupported on this platform".into())
             }
-            validate_private_directory_metadata(&metadata)?;
-            open_directory_nofollow(path, "pin created direct-state staging root").map(|_| ())
+            #[cfg(unix)]
+            {
+                let metadata = std::fs::symlink_metadata(path)
+                    .map_err(|error| format!("restat direct-state staging root: {error}"))?;
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    return Err("direct-state staging root changed during creation".into());
+                }
+                validate_private_directory_metadata(&metadata)?;
+                open_directory_nofollow(path, "pin created direct-state staging root").map(|_| ())
+            }
         }
         Err(error) => Err(format!("stat direct-state staging root: {error}")),
     }
@@ -620,17 +625,23 @@ pub(super) fn open_directory_nofollow(path: &Path, operation: &str) -> Result<Fi
         current
     };
     #[cfg(not(unix))]
-    return Err(format!(
-        "{operation}: direct-state private directories are unsupported on this platform"
-    ));
-    let metadata = directory
-        .metadata()
-        .map_err(|error| format!("{operation} metadata: {error}"))?;
-    if !metadata.is_dir() {
-        return Err(format!("{operation}: source is not a directory"));
+    {
+        let _ = path;
+        Err(format!(
+            "{operation}: direct-state private directories are unsupported on this platform"
+        ))
     }
-    validate_private_directory_metadata(&metadata)?;
-    Ok(directory)
+    #[cfg(unix)]
+    {
+        let metadata = directory
+            .metadata()
+            .map_err(|error| format!("{operation} metadata: {error}"))?;
+        if !metadata.is_dir() {
+            return Err(format!("{operation}: source is not a directory"));
+        }
+        validate_private_directory_metadata(&metadata)?;
+        Ok(directory)
+    }
 }
 
 pub(super) fn validate_same_file_identity(
@@ -652,8 +663,13 @@ pub(super) fn validate_same_file_identity(
         if expected.dev() != actual.dev() || expected.ino() != actual.ino() {
             return Err(format!("{label} path identity changed"));
         }
+        Ok(())
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let _ = (expected, actual, label);
+        Ok(())
+    }
 }
 
 pub(super) fn validate_file_content(

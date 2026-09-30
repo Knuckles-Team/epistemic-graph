@@ -53,6 +53,18 @@
 [build]
 target-dir = "target-isolated"
 
+# crates.io sparse-index fetches over one multiplexed HTTP/2 connection fail
+# as a whole when that connection resets (curl [55] "Failed sending data to
+# the peer", SSL_ERROR_SYSCALL), which broke CI feature and wheel builds
+# before any compilation. Separate HTTP/1.1 requests are retried one by one.
+# Committed here rather than in the workflow so the manylinux wheel container
+# reads it too.
+[http]
+multiplexing = false
+
+[net]
+retry = 10
+
 # GOC-33 (`eg-asr-whisper`, OWNER-VOICE-ASR): CPU-portability build contract for the
 # vendored whisper.cpp/ggml C++ library `whisper-rs-sys` compiles from source via
 # `cmake`. `whisper-rs-sys`'s build.rs forwards ANY `GGML_*`/`WHISPER_*`/`CMAKE_*`
