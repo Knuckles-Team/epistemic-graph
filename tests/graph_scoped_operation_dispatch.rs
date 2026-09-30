@@ -43,7 +43,14 @@ async fn create_graph(state: &test_support::SharedState, id: u64, name: &str) ->
         graph_name: name.to_string(),
         graph_type: GraphType::Global,
     };
-    call(state, id, name, method).await
+    let response = call(state, id, name, method).await;
+    assert!(
+        response.error.is_none(),
+        "CreateGraph({name}) failed: error={:?}, error_detail={:?}",
+        response.error,
+        response.error_detail
+    );
+    response
 }
 
 async fn add_node(
