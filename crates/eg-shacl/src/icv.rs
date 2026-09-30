@@ -116,7 +116,7 @@ pub fn validate_icv(shapes_graph: &Graph, data_graph: &Graph) -> Result<IcvRepor
         .results
         .into_iter()
         .map(|result| {
-            budget.charge(shapes_graph.len().saturating_add(1))?;
+            charge_witness(registry.get(&result.source_shape), shapes_graph, &budget)?;
             let witness = build_witness(&result, &registry, shapes_graph);
             Ok(IcvViolation { result, witness })
         })
@@ -264,7 +264,7 @@ fn collect_referenced_shapes(
         if acc.contains_key(&key) {
             continue;
         }
-        budget.charge(shapes.graph().len().saturating_add(1))?;
+        crate::parse_work::shape(shapes.graph(), &id, budget)?;
         let shape = shapes.parse_shape(&id);
         for c in &shape.constraints {
             append_references(c, &mut pending);
@@ -286,13 +286,29 @@ fn append_references(c: &Constraint, pending: &mut Vec<Term>) {
     }
 }
 
+fn charge_witness(shape: Option<&Shape>, graph: &Graph, budget: &Budget) -> Result<(), String> {
+    let Some(shape) = shape else {
+        return budget.charge(1);
+    };
+    budget.charge(shape.constraints.len().saturating_add(1))?;
+    for constraint in &shape.constraints {
+        if let Constraint::Sparql(id) = constraint {
+            crate::parse_work::sparql(graph, id, budget)?;
+        }
+    }
+    Ok(())
+}
+
 /// Find the constraint on `shape` whose reported component IRI is `cc`.
 fn constraint_for(shape: &Shape, cc: &str) -> Option<Constraint> {
-    shape
+    let mut candidates = shape
         .constraints
         .iter()
-        .find(|c| component_matches(c, cc))
-        .cloned()
+        .filter(|c| component_matches(c, cc));
+    let first = candidates.next()?;
+    // The report has no parameter identity. Never give the first parameter's
+    // witness for a failure belonging to another repeated constraint.
+    candidates.next().is_none().then(|| first.clone())
 }
 
 fn component_matches(c: &Constraint, cc: &str) -> bool {
