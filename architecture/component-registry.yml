@@ -3961,6 +3961,7 @@ components:
       - "tests/test_rdf_client.py"
       - "tests/test_reasoning.py"
       - "tests/test_reasoning_client.py"
+      - "tests/test_recovery_workflow_contract.py"
       - "tests/test_release_full_wheel_contract.py"
       - "tests/test_release_image_contract.py"
       - "tests/test_repository_fuzz.py"

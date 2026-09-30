@@ -24,10 +24,11 @@ offline smoke, and full recovery execution are separate validation steps.
    reusable workflow. The reusable job rejects other repositories, caller paths,
    branches, and event families, including both pull-request event families.
 
-This change intentionally includes only a `.yml.in` caller template outside the
-workflow directory. Publishing this branch or opening its draft PR does not
-activate the recovery caller or the existing release build/publish jobs. Normal
-PR checks may still run. No group setting or runner registration is performed.
+The active caller is rendered with immutable workflow commit
+`4b232785086ae47791f1e58fe075c1ee74e6c877`. It is manual-only and becomes
+available for the admitted main-branch dispatch after merge. Branch pushes and
+PR events cannot invoke recovery. Normal PR checks may still run. No group
+setting or runner registration is performed by this code change.
 
 Run the focused contract checks with
 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_recovery_workflow_contract.py -v`.

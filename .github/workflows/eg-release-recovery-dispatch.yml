@@ -6,4 +6,4 @@ permissions:
   contents: read
 jobs:
   recovery:
-    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery.yml@REVIEWED_REUSABLE_SHA
+    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-recovery.yml@4b232785086ae47791f1e58fe075c1ee74e6c877
