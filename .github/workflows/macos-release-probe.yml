@@ -1,0 +1,54 @@
+name: Native macOS release probe
+'on':
+  pull_request:
+    paths:
+      - '.github/workflows/macos-release-probe.yml'
+      - 'scripts/configure_macos_linker.sh'
+      - 'scripts/probe_macos_release.py'
+      - 'scripts/prebuild_macos_bins.sh'
+      - '.github/actions/folded-wheel/action.yml'
+      - '.github/workflows/release.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      RUSTUP_TOOLCHAIN: '1.96.0'
+      EG_WHEEL_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: '1.96.0'
+      - name: Install the exact packaging probe tool
+        run: python -m pip install 'maturin==1.15.0'
+      - name: Configure path remaps
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
+      - name: Probe native Mach-O linking and five-binary packaging
+        shell: bash
+        run: |
+          if [ "$EG_WHEEL_TARGET" = aarch64-apple-darwin ]; then
+            export MACOSX_DEPLOYMENT_TARGET=11.0
+          else
+            export MACOSX_DEPLOYMENT_TARGET=10.12
+          fi
+          source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
+          python scripts/probe_macos_release.py

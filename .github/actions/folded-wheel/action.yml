@@ -28,6 +28,20 @@ runs:
           echo "container=quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc" >> "$GITHUB_OUTPUT"
           echo "maturin-version=1.15.0" >> "$GITHUB_OUTPUT"
         fi
+        case "${EG_WHEEL_TARGET:-}" in
+          *-apple-darwin)
+            echo "maturin-version=1.15.0" >> "$GITHUB_OUTPUT"
+            echo "server-packaging-args=--strip=false" >> "$GITHUB_OUTPUT"
+            ;;
+        esac
+
+    # Cargo can schedule all enabled tools together. The profile still strips
+    # binaries; only Maturin's redundant final-crate strip override is omitted,
+    # so packaging reuses the same-pass compiled output. Never seed another pass.
+    - name: Prebuild all shipped macOS executable targets
+      if: ${{ endsWith(env.EG_WHEEL_TARGET, '-apple-darwin') }}
+      shell: bash
+      run: bash scripts/prebuild_macos_bins.sh '${{ inputs.pass }}'
 
     - name: Build server wheel
       uses: ./.github/actions/release-maturin
@@ -38,6 +52,7 @@ runs:
           --out dist-${{ inputs.pass }}
           --features ${{ env.MATURIN_FEATURES }}
           ${{ env.EG_WHEEL_MATURIN_ARGS }}
+          ${{ steps.build-environment.outputs.server-packaging-args }}
         container: ${{ steps.build-environment.outputs.container }}
         maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
 

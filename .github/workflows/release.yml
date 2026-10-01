@@ -1074,6 +1074,24 @@ jobs:
         shell: bash
         run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "${{ matrix.target }}"
 
+      - name: Select the verified native Mach-O linker
+        if: ${{ endsWith(matrix.target, '-apple-darwin') }}
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.rust-toolchain.outputs.channel }}
+        run: |
+          case "$EG_WHEEL_TARGET" in
+            aarch64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=11.0 ;;
+            x86_64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=10.12 ;;
+          esac
+          source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
+          python - <<'PYENV'
+          import os
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              for key in ("SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "RUSTUP_TOOLCHAIN", "CARGO_ENCODED_RUSTFLAGS"):
+                  output.write(f"{key}={os.environ[key]}\n")
+          PYENV
+
       # Each pass builds the server wheel plus the eg-numeric and eg-pyengine
       # kernels, folds them in, then normalizes, privacy-audits and checks the
       # result (.github/actions/folded-wheel). Tag releases publish the primary
@@ -1144,6 +1162,15 @@ jobs:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
 
+      - name: Retain Mac prebuild measurements
+        if: ${{ always() && endsWith(matrix.target, '-apple-darwin') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-build-metrics-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/eg-macos-build-metrics
+          if-no-files-found: warn
+          retention-days: 7
+
   # NOTE (CONCEPT:EG-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
   # existed only because the deployment tiers produced DIFFERENT binaries that all shared
@@ -1162,6 +1189,7 @@ jobs:
   #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
   #    Tag-gated: optional feature and benchmark feedback runs independently
   #    and cannot delay this image build.
+
   build-x86:
     name: wheel linux-x86_64
     needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]

@@ -185,7 +185,7 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
     "target",
     ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "aarch64-apple-darwin"],
 )
-def test_only_linux_arm_uses_exact_probed_environment(tmp_path, target):
+def test_platform_overrides_preserve_exact_probed_environments(tmp_path, target):
     action = yaml.safe_load(
         (ROOT / ".github/actions/folded-wheel/action.yml").read_text()
     )
@@ -204,6 +204,11 @@ def test_only_linux_arm_uses_exact_probed_environment(tmp_path, target):
         assert outputs.read_text().splitlines() == [
             "container=quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc",
             "maturin-version=1.15.0",
+        ]
+    elif target.endswith("-apple-darwin"):
+        assert outputs.read_text().splitlines() == [
+            "maturin-version=1.15.0",
+            "server-packaging-args=--strip=false",
         ]
     else:
         assert outputs.read_text() == ""
