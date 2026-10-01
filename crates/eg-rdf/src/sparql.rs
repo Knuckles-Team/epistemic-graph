@@ -44,7 +44,7 @@ use bool_builtins::{eval_bool_str_relation, term_type_test};
 // EH-197 — witness proofs for SELECT rows (child module: it reuses the private
 // pattern matcher and join rather than re-implementing them).
 mod proof;
-// SERVICE delegation: narrowed requests and the fallback to the clause's own query.
+// SERVICE delegation: pushdown eligibility and the fallback to the clause's own query.
 mod service;
 #[cfg(test)]
 mod service_tests;

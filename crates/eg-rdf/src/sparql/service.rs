@@ -7,9 +7,13 @@
 //! for it:
 //!
 //!  * it is sent without `SILENT`; when the endpoint refuses it, the clause's own query is
-//!    sent, and only that final attempt's failure becomes the `SILENT` join identity.
+//!    sent, and only that final attempt's failure becomes the `SILENT` join identity;
+//!  * a `FILTER` is pushed only when the endpoint can decide it from the rows of the
+//!    `SERVICE` pattern alone ([`filter_is_pushable`]) — anything that reads a dataset
+//!    (`EXISTS`), is not deterministic, or names a variable the pattern does not bind
+//!    stays local, because a row the endpoint drops cannot be restored by filtering again.
 
-use spargebra::algebra::{Expression, GraphPattern};
+use spargebra::algebra::{Expression, Function, GraphPattern};
 use spargebra::term::{GroundTerm, NamedNode, NamedNodePattern, Variable};
 use spargebra::Query;
 
@@ -143,9 +147,10 @@ impl<'q> ServiceCall<'q> {
         }
     }
 
-    /// The clause's pattern narrowed by `expr`.
+    /// The clause's pattern narrowed by `expr`, when sending the filter to the endpoint
+    /// cannot drop a row the local filter keeps.
     fn pushed_filter(&self, expr: &Expression) -> Option<GraphPattern> {
-        Some(GraphPattern::Filter {
+        filter_is_pushable(expr, self.pattern).then(|| GraphPattern::Filter {
             expr: expr.clone(),
             inner: Box::new(self.pattern.clone()),
         })
@@ -291,4 +296,85 @@ pub(super) fn build_service_query(inner: &GraphPattern) -> String {
         base_iri: None,
     }
     .to_string()
+}
+
+// ── FILTER pushdown eligibility ────────────────────────────────────────────────────
+
+/// Built-ins whose value depends only on their arguments. Everything else stays local:
+/// the non-deterministic ones (`RAND`, `NOW`, `UUID`, `STRUUID`, `BNODE`), `IRI` (its
+/// result depends on the evaluating side's base IRI), an extension function (its meaning
+/// is the endpoint's own), and the ones reading a datatype or language tag this
+/// evaluator does not carry.
+const REMOTE_SAFE_FUNCTIONS: &[Function] = &[
+    Function::Str,
+    Function::IsIri,
+    Function::IsBlank,
+    Function::IsLiteral,
+    Function::Contains,
+    Function::StrStarts,
+    Function::StrEnds,
+    Function::StrLen,
+    Function::UCase,
+    Function::LCase,
+];
+
+/// May `expr`, the filter directly over a `SERVICE` clause whose pattern is `remote`, also
+/// be evaluated by the endpoint?
+///
+/// It may when the endpoint can decide it from each row of `remote` alone: every variable
+/// is in the scope of `remote`, and every operator is on the allow-list below — a
+/// constant, a variable, `BOUND`, a comparison, arithmetic, a logical connective, `IN`,
+/// `IF`, `COALESCE`, or one of [`REMOTE_SAFE_FUNCTIONS`]. `EXISTS` / `NOT EXISTS` never
+/// qualifies: its pattern is matched against the dataset of whichever side evaluates it,
+/// and the endpoint's dataset is not this one. The list is an allow-list, so an operator
+/// added later is local-only until it is reviewed.
+///
+/// The local filter is applied to the returned rows regardless, so the endpoint's
+/// evaluation can only narrow the transfer. The endpoint is assumed to evaluate the
+/// allow-listed operators as SPARQL defines them. This evaluator compares lexical forms
+/// without datatypes, so it is more lenient than that in one case: an ill-typed
+/// comparison (a string-typed numeral compared as a number) is a type error at the
+/// endpoint, and a pushed filter then drops the row there.
+pub(super) fn filter_is_pushable(expr: &Expression, remote: &GraphPattern) -> bool {
+    expr_is_remote_safe(expr, &collect_vars(remote))
+}
+
+fn expr_is_remote_safe(expr: &Expression, scope: &[String]) -> bool {
+    let in_scope = |variable: &Variable| scope.iter().any(|name| name == variable.as_str());
+    match expr {
+        Expression::NamedNode(_) | Expression::Literal(_) => true,
+        Expression::Variable(variable) | Expression::Bound(variable) => in_scope(variable),
+        Expression::FunctionCall(function, arguments) => {
+            REMOTE_SAFE_FUNCTIONS.contains(function)
+                && arguments.iter().all(|a| expr_is_remote_safe(a, scope))
+        }
+        other => remote_safe_operands(other)
+            .is_some_and(|operands| operands.iter().all(|o| expr_is_remote_safe(o, scope))),
+    }
+}
+
+/// The operands of an allow-listed operator; `None` for every other expression
+/// (`EXISTS` among them), which therefore stays local.
+fn remote_safe_operands(expr: &Expression) -> Option<Vec<&Expression>> {
+    match expr {
+        Expression::Or(a, b)
+        | Expression::And(a, b)
+        | Expression::Equal(a, b)
+        | Expression::SameTerm(a, b)
+        | Expression::Greater(a, b)
+        | Expression::GreaterOrEqual(a, b)
+        | Expression::Less(a, b)
+        | Expression::LessOrEqual(a, b)
+        | Expression::Add(a, b)
+        | Expression::Subtract(a, b)
+        | Expression::Multiply(a, b)
+        | Expression::Divide(a, b) => Some(vec![a.as_ref(), b.as_ref()]),
+        Expression::UnaryPlus(a) | Expression::UnaryMinus(a) | Expression::Not(a) => {
+            Some(vec![a.as_ref()])
+        }
+        Expression::In(a, list) => Some(std::iter::once(a.as_ref()).chain(list).collect()),
+        Expression::If(a, b, c) => Some(vec![a.as_ref(), b.as_ref(), c.as_ref()]),
+        Expression::Coalesce(list) => Some(list.iter().collect()),
+        _ => None,
+    }
 }

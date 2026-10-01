@@ -7,10 +7,13 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use eg_core::graph::GraphView;
+use spargebra::algebra::{Expression, GraphPattern};
+use spargebra::Query;
 
-use super::service::service_values_rows;
+use super::service::{filter_is_pushable, service_values_rows};
 use super::{
-    execute, view_of_turtle, Binding, Dataset, Projection, RemoteSparql, Solution, SparqlResult,
+    execute, parse_query, view_of_turtle, Binding, Dataset, Projection, RemoteSparql, Solution,
+    SparqlResult,
 };
 
 const PREFIX: &str = "PREFIX ex: <http://example.org/>\n";
@@ -89,9 +92,9 @@ fn iri(local_name: &str) -> String {
     format!("<http://example.org/{local_name}>")
 }
 
-// ── FILTER pushdown ────────────────────────────────────────────────────────────────
+// ── FILTER pushdown eligibility ────────────────────────────────────────────────────
 
-/// The local graph: it has no scores, so every score row comes from the endpoint.
+/// Locally only `ex:a` carries the flag; the endpoint's dataset has no flag at all.
 const FLAGGED_LOCALLY: &str = r#"
 @prefix ex: <http://example.org/> .
 ex:a <urn:localFlag> "yes" .
@@ -103,6 +106,50 @@ const REMOTE_SCORES: &str = r#"
 ex:a ex:score 1 .
 ex:b ex:score 2 .
 "#;
+
+#[test]
+fn a_filter_reading_the_local_dataset_is_never_sent_to_the_endpoint() {
+    let local = view_of_turtle(FLAGGED_LOCALLY);
+    let endpoint = Endpoint::over(REMOTE_SCORES);
+    let rows = run(
+        &local,
+        &endpoint,
+        "SELECT ?s ?score WHERE {
+            SERVICE <http://remote/e> { ?s ex:score ?score }
+            FILTER EXISTS { ?s <urn:localFlag> ?x }
+        }",
+    )
+    .unwrap();
+    assert_eq!(
+        column(&rows, "s"),
+        vec![iri("a")],
+        "the flag exists only locally: the row it selects must survive"
+    );
+    assert_eq!(column(&rows, "score"), vec!["1"]);
+    let sent = endpoint.queries();
+    assert_eq!(sent.len(), 1);
+    assert!(!sent[0].contains("EXISTS"), "{}", sent[0]);
+    assert!(!sent[0].contains("FILTER"), "{}", sent[0]);
+}
+
+#[test]
+fn a_negated_local_exists_filter_is_never_sent_to_the_endpoint() {
+    let local = view_of_turtle(FLAGGED_LOCALLY);
+    let endpoint = Endpoint::over(REMOTE_SCORES);
+    let rows = run(
+        &local,
+        &endpoint,
+        "SELECT ?s WHERE {
+            SERVICE <http://remote/e> { ?s ex:score ?score }
+            FILTER NOT EXISTS { ?s <urn:localFlag> ?x }
+        }",
+    )
+    .unwrap();
+    assert_eq!(column(&rows, "s"), vec![iri("b")]);
+    let sent = endpoint.queries();
+    assert_eq!(sent.len(), 1);
+    assert!(!sent[0].contains("EXISTS"), "{}", sent[0]);
+}
 
 #[test]
 fn a_filter_over_the_service_rows_is_sent_and_reapplied_locally() {
@@ -121,6 +168,60 @@ fn a_filter_over_the_service_rows_is_sent_and_reapplied_locally() {
     let sent = endpoint.queries();
     assert_eq!(sent.len(), 1, "the endpoint filtered: one narrowed request");
     assert!(sent[0].contains("FILTER"), "{}", sent[0]);
+}
+
+/// The filter directly over the `SERVICE` clause of `query`, and that clause's pattern.
+fn service_filter(query: &str) -> (Expression, GraphPattern) {
+    fn find(pattern: &GraphPattern) -> Option<(Expression, GraphPattern)> {
+        match pattern {
+            GraphPattern::Filter { expr, inner } => match inner.as_ref() {
+                GraphPattern::Service { inner, .. } => Some((expr.clone(), (**inner).clone())),
+                other => find(other),
+            },
+            GraphPattern::Project { inner, .. } => find(inner),
+            _ => None,
+        }
+    }
+    let Query::Select { pattern, .. } = parse_query(&format!("{PREFIX}{query}")).unwrap() else {
+        panic!("a SELECT query")
+    };
+    find(&pattern).expect("a FILTER directly over a SERVICE clause")
+}
+
+fn pushable(filter: &str) -> bool {
+    let (expr, remote) = service_filter(&format!(
+        "SELECT * WHERE {{ SERVICE <http://remote/e> {{ ?s ex:score ?score }} FILTER ({filter}) }}"
+    ));
+    filter_is_pushable(&expr, &remote)
+}
+
+#[test]
+fn only_filters_the_endpoint_can_decide_from_the_service_rows_are_pushable() {
+    for filter in [
+        "?score > 1",
+        "?s = ex:a",
+        "?score IN (1, 2)",
+        "bound(?score) && strstarts(str(?s), \"http://example.org/\")",
+        "!(?score < 2) || isIRI(?s)",
+        "if(?score > 1, ?score + 1, ?score * 2) >= 3",
+    ] {
+        assert!(pushable(filter), "{filter} reads only the SERVICE rows");
+    }
+    for filter in [
+        "EXISTS { ?s <urn:localFlag> ?x }",
+        "NOT EXISTS { ?s <urn:localFlag> ?x }",
+        "?score > 1 && EXISTS { ?s <urn:localFlag> ?x }",
+        "coalesce(EXISTS { ?s ex:name ?n }, false)",
+        "?elsewhere > 1",
+        "bound(?elsewhere)",
+        "rand() < 0.5",
+        "str(now()) > \"2000\"",
+        "isIRI(iri(str(?score)))",
+        "<http://example.org/extension>(?score)",
+        "datatype(?score) = <http://www.w3.org/2001/XMLSchema#integer>",
+    ] {
+        assert!(!pushable(filter), "{filter} must stay local");
+    }
 }
 
 // ── SILENT and the fallback to the clause's own query ──────────────────────────────
