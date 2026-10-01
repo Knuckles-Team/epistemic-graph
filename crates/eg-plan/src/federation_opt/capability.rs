@@ -40,6 +40,23 @@ pub enum FullFetch {
     RequiresKeys,
 }
 
+/// Process-wide request admission for one source fingerprint. Zero requests per second
+/// means no pacing; the concurrent request cap always applies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct SourceRate {
+    pub max_concurrent: usize,
+    pub requests_per_second: usize,
+}
+
+impl SourceRate {
+    pub const fn new(max_concurrent: usize, requests_per_second: usize) -> Self {
+        Self {
+            max_concurrent,
+            requests_per_second,
+        }
+    }
+}
+
 /// The capability row the optimizer plans against (design §3). Derived from the source
 /// spec, never from the caller's request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -48,6 +65,7 @@ pub struct SourceCapabilities {
     pub limit: LimitPushdown,
     pub paging: Paging,
     pub full_fetch: FullFetch,
+    pub rate: SourceRate,
 }
 
 impl SourceCapabilities {
@@ -58,6 +76,7 @@ impl SourceCapabilities {
             limit,
             paging: Paging::Single,
             full_fetch: FullFetch::Allowed,
+            rate: SourceRate::new(4, 0),
         }
     }
 

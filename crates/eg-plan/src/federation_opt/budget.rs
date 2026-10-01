@@ -104,11 +104,16 @@ impl BudgetMeter {
         if self.requests >= self.budget.max_requests {
             return Err(refusal("requests", self.budget.max_requests));
         }
-        let elapsed = self.started.elapsed().as_millis();
-        if elapsed > u128::from(self.budget.max_wall_ms) {
+        self.check_wall()?;
+        self.requests += 1;
+        Ok(())
+    }
+
+    /// Recheck after waiting for a process-wide source slot.
+    pub(crate) fn check_wall(&self) -> Result<(), String> {
+        if self.started.elapsed().as_millis() > u128::from(self.budget.max_wall_ms) {
             return Err(refusal("wall_ms", self.budget.max_wall_ms));
         }
-        self.requests += 1;
         Ok(())
     }
 
