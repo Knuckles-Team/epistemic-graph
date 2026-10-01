@@ -974,10 +974,7 @@ jobs:
     timeout-minutes: 360
     name: wheel ${{ matrix.name }}
     needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
-    # The linux-x86_64 leg runs on the project's own self-hosted runner. Only
-    # a tag push or a manual dispatch in THIS repository can start this job:
-    # both need write access, and a pull request (including one from a fork)
-    # never reaches it. Never add `pull_request` here.
+    # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
@@ -989,8 +986,7 @@ jobs:
       EG_WHEEL_MATURIN_ARGS: ${{ matrix.maturin_args }}
       # Release rustc processes (thin LTO, codegen-units = 1) are memory-heavy:
       # at 4 jobs the 16 GB hosted Linux runners were killed mid-build ("runner
-      # has received a shutdown signal"). Hosted legs cap parallel jobs; the
-      # self-hosted leg sets none, so maturin uses every CPU.
+      # has received a shutdown signal"). Every leg caps parallel jobs.
       EG_WHEEL_JOBS_ARG: ${{ matrix.jobs && format('--jobs {0}', matrix.jobs) || '' }}
       EG_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
     strategy:
@@ -1003,20 +999,15 @@ jobs:
       # a ~17h projected matrix for ~3h of critical path. Legs run concurrently.
       matrix:
         include:
-          - name: linux-x86_64
-            # The org's Docker-in-Docker runners, matched exactly as the
-            # shared pipelines workflows match them.
-            runner: self-hosted
-            self_hosted: true
-            target: x86_64-unknown-linux-gnu
-            maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
           # Native ARM runner: the qemu-emulated cross build on an x86 host ran
           # past two hours and lost its runner mid-build.
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
-            jobs: 2
+            # The two-job server compile was SIGKILLed on the 16 GiB runner.
+            # Keep full features/LTO; bound Cargo concurrency to one job.
+            jobs: 1
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
@@ -1090,7 +1081,6 @@ jobs:
       # Cargo state at the same neutral path and requires byte-identical wheels.
       - name: Build primary wheel (${{ matrix.name }})
         uses: ./.github/actions/folded-wheel
-        continue-on-error: ${{ matrix.experimental == true }}
         with:
           pass: primary
 
@@ -1145,51 +1135,14 @@ jobs:
       #   2) the numeric kernel must import AND compute from the INSTALLED wheel.
       #   3) the engine kernel must import from the INSTALLED wheel.
       - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
-        if: ${{ matrix.experimental != true }}
         shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          # Install the BARE wheel — NO compatibility extra. The native kernel retired its
-          # interpreter-side NumPy dependency; `check_wheel_completeness.py` rejects both
-          # base and extra-gated NumPy metadata. Keep this smoke test independent from the
-          # developer-only parity environment below.
-          pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
-          # (1) The binary must be executable (inject must preserve 0755) — fails loud
-          #     with "Permission denied" otherwise.
-          epistemic-graph-server --help
-          # (2) Import + compute the kernel FROM THE INSTALLED WHEEL. Run from a neutral
-          #     dir ($RUNNER_TEMP) — the repo checkout root holds the `epistemic_graph/`
-          #     SOURCE package (no compiled `.so`), and cwd is on sys.path for `python -c`,
-          #     so importing at the repo root would shadow the wheel and always fail.
-          cd "${RUNNER_TEMP:-/tmp}"
-          python - <<'PY'
-          import importlib.metadata as metadata
-          import re
-
-          requirements = metadata.requires("epistemic-graph") or []
-          assert not any(
-              re.split(r"[\\[<>=!~;]", requirement, maxsplit=1)[0].lower() == "numpy"
-              for requirement in requirements
-          ), requirements
-          PY
-          python -c "import epistemic_graph.numeric as n; values=[1.,2.,3.,4.]; assert n.sum(values)==10.0 and n.mean(values)==2.5, (n.sum(values), n.mean(values)); print('numeric kernel OK:', n.__file__, '| sum=', n.sum(values), 'mean=', n.mean(values), 'std=', n.std(values))"
-          python -c "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+        run: bash scripts/release_wheel_smoke.sh
 
       - name: Upload wheel artifact
-        if: ${{ matrix.experimental != true }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
-
-      - name: Return container-created files to the runner user (self-hosted)
-        if: ${{ always() && matrix.self_hosted }}
-        shell: bash
-        run: >-
-          docker run --rm
-          -v "$RUNNER_TEMP:/scratch" -v "$GITHUB_WORKSPACE:/work"
-          quay.io/pypa/manylinux_2_28_x86_64
-          chown -R "$(id -u):$(id -g)" /scratch /work
 
   # NOTE (CONCEPT:EG-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
@@ -1209,11 +1162,21 @@ jobs:
   #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
   #    Tag-gated: optional feature and benchmark feedback runs independently
   #    and cannot delay this image build.
+  build-x86:
+    name: wheel linux-x86_64
+    needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    if: >-
+      github.repository == 'Knuckles-Team/epistemic-graph'
+      && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+    uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93
+
   docker-image:
     timeout-minutes: 360
-    needs: [build]
+    needs: [build, build-x86]
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
       packages: write
@@ -1256,9 +1219,9 @@ jobs:
   publish-pypi:
     timeout-minutes: 360
     name: Publish wheels to PyPI (release only)
-    needs: [build]
+    needs: [build, build-x86]
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
     steps:
@@ -1305,50 +1268,56 @@ jobs:
           ls -1 dist/
           python scripts/check_wheel_completeness.py --require-engine-kernel dist/*.whl
 
-      - name: Publish to PyPI (token)
+      - name: Checkout immutable publication contract
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/pipelines
+          ref: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
+          path: .pipeline-contract
+          persist-credentials: false
+      - name: Freeze exact staged publication identity
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
+        run: |
+          python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py preflight \
+            --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
+            --manifest "$RUNNER_TEMP/publication.json"
+      - name: Publish only missing exact files to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
         run: |
           python -m pip install --upgrade twine
-          echo "Distributions to upload:"
-          ls -1 dist/
-          twine upload --skip-existing --verbose dist/*
-
-      # HONEST VERIFICATION — CI must go RED if the release did NOT actually land on
-      # PyPI. `--skip-existing` (and any token-scope / name mismatch) can make the
-      # upload step pass without publishing the tag version; this step asserts the
-      # exact tag version is now queryable on PyPI, retrying for CDN propagation lag.
-      - name: Verify epistemic-graph ${{ github.ref_name }} is published on PyPI
+          python scripts/verify_release_tag.py
+          python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py missing \
+            --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
+            --manifest "$RUNNER_TEMP/publication.json" > "$RUNNER_TEMP/publication-missing.json"
+          python - <<'PYTHON'
+          import json, os, pathlib, subprocess, sys
+          missing = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'publication-missing.json').read_text())
+          if missing:
+              subprocess.run([sys.executable, '-m', 'twine', 'upload', *[str(pathlib.Path('dist') / name) for name in missing]], check=True)
+          else:
+              print('Every staged filename already exists with identical bytes.')
+          PYTHON
+      - name: Verify every published filename and digest
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          echo "Asserting epistemic-graph==${VER} is live on PyPI…"
-          url="https://pypi.org/pypi/epistemic-graph/${VER}/json"
-          for i in 1 2 3 4 5 6 7 8; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || echo 000)
-            if [ "$code" = "200" ]; then
-              echo "OK: epistemic-graph ${VER} is published (PyPI returned 200)."
-              python -m pip download --no-deps --only-binary :all: \
-                "epistemic-graph==${VER}" -d pypi-verify
-              python scripts/check_wheel_completeness.py --require-engine-kernel pypi-verify/*.whl
-              echo "OK: the wheel PyPI serves for ${VER} is complete."
-              exit 0
-            fi
-            echo "Attempt ${i}: PyPI returned HTTP ${code} for ${VER} — retrying in 20s (CDN lag)…"
-            sleep 20
-          done
-          echo "::error::epistemic-graph ${VER} did NOT publish to PyPI (never returned 200)."
-          echo "::error::The upload was a no-op (already-existing/mis-versioned dist) OR the PYPI_API_TOKEN"
-          echo "::error::lacks maintainer rights on the 'epistemic-graph' project. Grant the token access"
-          echo "::error::to that PyPI project, or fix the built version, then re-run this release."
-          exit 1
+          python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify \
+            --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
+            --manifest "$RUNNER_TEMP/publication.json"
 
   publish-image:
     timeout-minutes: 360
     name: Push multi-arch image (release only)
-    needs: [docker-image]
+    needs: [docker-image, publish-pypi]
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     environment: release
     permissions:
       contents: read
@@ -1377,6 +1346,8 @@ jobs:
           registry: ${{ secrets.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Recheck canonical release source before image publication
+        run: python3 scripts/verify_release_tag.py
       - name: Build & push multi-arch image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:

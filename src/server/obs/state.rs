@@ -20,7 +20,7 @@ use super::segment::{self, SegmentManifest};
 #[cfg(feature = "traces")]
 use super::snapshot::load_traces_snapshot;
 use super::snapshot::{SnapshotDirectory, OBS_PERSISTENCE_DIRECTORY_ERROR};
-use super::{now_ns, severity_number, stream_storage_key, IngestOutcome, LogRecord, ObsState};
+use super::{severity_number, stream_storage_key, IngestOutcome, LogRecord, ObsState};
 
 /// TSDB time-partition width for a log series: 1 hour of wall-clock per chunk.
 const SERIES_BUCKET_NS: u64 = 3_600_000_000_000;
@@ -66,8 +66,8 @@ fn open_obs_state_blocking(
             (series, blob, Some(base.join("text")), Some(base))
         }
         None => {
-            let base =
-                std::env::temp_dir().join(format!("eg-obs-{}-{}", std::process::id(), now_ns()));
+            // A repeated clock tick must not alias another live store.
+            let base = crate::server::unique_temp_dir("eg-obs");
             let series = SeriesStore::open_in_dir(
                 &base,
                 crate::store_authority::process_verifier(),

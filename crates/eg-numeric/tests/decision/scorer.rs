@@ -17,7 +17,7 @@ use super::common::{bounded, SCHEMA_DIGEST};
 
 /// Digest of the golden fixture's integer outputs. Reproduced independently
 /// by an integer-only Python port of the kernels; it must be the same on
-/// every host (checked on R820 and GR1080).
+/// every host (checked independently on different hardware).
 const GOLDEN_DIGEST: &str =
     "sha256:918ab491393590240314694cae472deb42b0ebf9b7546ba019c1c29672ee1beb";
 const GOLDEN_DOMAIN: &str = "eg/decision-scorer-golden/v1";
