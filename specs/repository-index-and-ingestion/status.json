@@ -22,8 +22,17 @@
     {
       "id": "EG-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "ac563847728840503193b0d6b999e4012bf17c78",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ac563847728840503193b0d6b999e4012bf17c78",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "admit_sql_source_dirty_reconcile exists and is heavily tested for crash/reopen and tombstone-after-snapshot reconciliation, but no 'retire a topic' operation exists anywhere, and no test retires a topic with pending stranded intents and confirms reconcile-mode re-admission as the requirement specifi"
     },
     {
       "id": "EG-REPO-INGEST-R002",
@@ -31,13 +40,14 @@
       "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "description": "Part of the requirement is implemented on the default branch."
         }
-      ]
+      ],
+      "remaining": "SourceIngest exists on main as a real method wired through dispatch/access/mutation/audit, but none of the 14 named legacy capabilities (envelope_ingest, change_envelope, evidence_spine, semantic_event_model, object_centric_derivation, process_conformance, embedding_admission, gpu_slot_scheduler, pr"
     },
     {
       "id": "EG-REPO-INGEST-R003",
@@ -48,22 +58,30 @@
     {
       "id": "EG-REPO-INGEST-R004",
       "title": "Derived series maintained incrementally with lineage",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "290b3cfb9b55bad221c7d63ef25f0ea7d3b9e028",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/290b3cfb9b55bad221c7d63ef25f0ea7d3b9e028",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "2b8c0364ebb79449959bc6c1b904f233b87d00e3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2b8c0364ebb79449959bc6c1b904f233b87d00e3",
+          "description": "Implemented on the default branch; exercised by src/server/handlers/timeseries/derived_tests.rs::bad_definitions_are_refused_and_other_tenants_see_nothing; crates/eg-tsdb/src/derive/maintain_tests.rs::a_replay_over_the_budget_is_refused_and_checkpoints_stay_bounded"
         }
       ]
     },
     {
       "id": "EG-REPO-INGEST-R005",
       "title": "Replay-protection nonces commit in batches for throughput",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7d1bf0006b9484897b4c97fab4d6c6e54a870413",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7d1bf0006b9484897b4c97fab4d6c6e54a870413",
+          "description": "Implemented on the default branch; exercised by src/server/request_replay.rs::tests::a_nonce_is_accepted_once_and_refused_after; ::one_durable_commit_per_advancing_second"
+        }
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R006",
@@ -71,25 +89,26 @@
       "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "3fd09ccd23754f636824a157dc43e5d9ca440b9e",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3fd09ccd23754f636824a157dc43e5d9ca440b9e",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
+          "description": "Part of the requirement is implemented on the default branch."
         }
-      ]
+      ],
+      "remaining": "Native admission/budget/deferred-enrichment pipeline and a background drain worker exist on main, but no bounded on-demand enrichment path for a unit a query needs, and no end-to-end commit-latency benchmark against real public repositories was found; private tracking confirms served/enrichment and "
     },
     {
       "id": "EG-REPO-INGEST-R007",
       "title": "Large ingestion batches refuse atomically with a stable code",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "9a9a184567ecdd64f92730c24124ddca02906623",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9a9a184567ecdd64f92730c24124ddca02906623",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "33c5c6459154be8b8356b93e66c54322a28715c4",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/33c5c6459154be8b8356b93e66c54322a28715c4",
+          "description": "Implemented on the default branch; exercised by src/server/handlers/repository_index_tests.rs::a_batch_over_the_commit_budget_is_refused_whole"
         }
       ]
     },

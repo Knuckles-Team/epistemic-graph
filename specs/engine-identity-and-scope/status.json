@@ -16,32 +16,65 @@
     {
       "id": "EG-IDENTITY-R001",
       "title": "Multi-issuer OIDC trust list with per-issuer kind limits",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "46628aaef4bf614e2b48d73429f4733f0fe50c39",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/46628aaef4bf614e2b48d73429f4733f0fe50c39",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-IDENTITY-R002",
       "title": "Identity and RBAC writes recompute roles and audit atomically",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "1cdde6348908afe8ccd5128e02b7d46ebb5c4d1f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1cdde6348908afe8ccd5128e02b7d46ebb5c4d1f",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-IDENTITY-R003",
       "title": "Identity mode is a durable singleton with CAS transition",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e9bed82e7e44da062b32db64b6aab08b6ee57791",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e9bed82e7e44da062b32db64b6aab08b6ee57791",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-IDENTITY-R004",
       "title": "Generated scope registry classifies every capability scope",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "5ad487bf2efcd2f1e4559453c9277637bfdde04b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5ad487bf2efcd2f1e4559453c9277637bfdde04b",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-IDENTITY-R005",
       "title": "Semantic workers use one identity across queue classes",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME "
     }
   ]
 }

@@ -136,19 +136,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R005",
       "title": "Outbox delivery state remains local to the owning node",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R006",
       "title": "Engine startup does not block on one store's lazy open",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated functiona"
     },
     {
       "id": "EG-DURABLE-KERNEL-R007",
       "title": "Host binary exposes a storage inspect and upgrade command",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
@@ -236,8 +237,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R015",
       "title": "Raft heartbeat flush and batch dispatch avoid head-of-line blocking",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "a595f3a182c3308e47d15fcdd828fcdcfb35916f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a595f3a182c3308e47d15fcdd828fcdcfb35916f",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "Per-peer independent flush and concurrent per-group dispatch are landed with functional tests, but the required benchmark artifact measuring worst-case heartbeat time is not on main; the eg-perf-raft benchmark with measured ops/s (d3fe2bfbe) lives only on the unmerged fix/eg-perf-raft branch."
     },
     {
       "id": "EG-DURABLE-KERNEL-R016",
@@ -256,8 +266,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R017",
       "title": "Correctness-gated benchmark compares EG against HelixDB",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d2a5aa6460df11afd1eb7bbe57397ff0f7a346ff",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d2a5aa6460df11afd1eb7bbe57397ff0f7a346ff",
+          "description": "Implemented on the default branch; exercised by tests/test_bench_helix_compare.py"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R018",
@@ -290,42 +308,60 @@
     {
       "id": "EG-DURABLE-KERNEL-R020",
       "title": "Bounded background scrub detects node corruption between restarts",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "c770cbdc20a67f24b97c71a0751b4ff12086e208",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c770cbdc20a67f24b97c71a0751b4ff12086e208",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "461f8c84eb44b2edcf2ff75df0b6b37fe8d2d018",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/461f8c84eb44b2edcf2ff75df0b6b37fe8d2d018",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
         }
-      ]
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DURABLE-KERNEL-R021",
       "title": "Store-authority binding validates once per write transaction",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "0d025fe8cce73caa50f18b21160579500add6645",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0d025fe8cce73caa50f18b21160579500add6645",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "a5e7b2983a04754315372b93637d5170844fab89",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a5e7b2983a04754315372b93637d5170844fab89",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
         }
-      ]
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DURABLE-KERNEL-R022",
       "title": "Just-in-time RBAC elevation requires two-person approval",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2f37015096debeb2467a1549e77e8681db8c2203",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2f37015096debeb2467a1549e77e8681db8c2203",
+          "description": "Implemented on the default branch; exercised by crates/eg-core/src/isolation/elevation_tests.rs::check_access_denies_before_allows_during_and_denies_at_expiry"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R023",
       "title": "UQL enforces a read-only guarantee at compile time and by test",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e1ca1b8fd167c8caee7f3a10a3a768d4113aeba9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e1ca1b8fd167c8caee7f3a10a3a768d4113aeba9",
+          "description": "Implemented on the default branch; exercised by crates/eg-capabilities/tests/invariants.rs::uql_surfaces_are_read_only"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024",
@@ -339,13 +375,22 @@
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bfa1cabd8494accef2ae87892bdd63d8358eec93",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
-      ]
+      ],
+      "remaining": "A generic ForeignSourceSpec federation mechanism exists (RemoteEngine/HttpJson/Sql kinds), but none of the specifically named legacy backends (fanout, PostgreSQL/AGE, Neo4j/Cypher transpiler, FalkorDB, mirror target, brain_guarded, Trino, Spark) have been migrated in; that work is actively in-progre"
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",
       "title": "Raft admin follows the current leader and traces are leader-agnostic",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "05bf09d8eee4dbd3a34612153e46dd998e109b24",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/05bf09d8eee4dbd3a34612153e46dd998e109b24",
+          "description": "Implemented on the default branch; exercised by src/raft/tests.rs::multi_node_group_join_then_leader_rebalance"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R026",
@@ -356,55 +401,63 @@
     {
       "id": "EG-DURABLE-KERNEL-R027",
       "title": "Schema repair uses a reserved two-person approval lease",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
-    },
-    {
-      "id": "EG-DURABLE-KERNEL-R028",
-      "title": "WorkItem lifecycle test uses a consistent verified tenant",
       "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "0296193fa29165a4189a4a1c6ccc7de5ea41cce1",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0296193fa29165a4189a4a1c6ccc7de5ea41cce1",
+          "commit": "bc43de58a9da5983dbbb927da3276dada7772593",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bc43de58a9da5983dbbb927da3276dada7772593",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028",
+      "title": "WorkItem lifecycle test uses a consistent verified tenant",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "15451958704f4dba8806e234154625616977750b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/15451958704f4dba8806e234154625616977750b",
+          "description": "Implemented on the default branch; exercised by tests/adopt_workitem_metadata_cas_lifecycle.rs::workitem_metadata_cas_full_lifecycle_survives_restart"
         }
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R029",
       "title": "Universal read-RLS gate checks the current TsScan dispatch path",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "47d487411e60032581fc5c666c874bf309a7cc4b",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/47d487411e60032581fc5c666c874bf309a7cc4b",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "0447684dce7beaf38b8a56a3c9b4dcdb120cf614",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0447684dce7beaf38b8a56a3c9b4dcdb120cf614",
+          "description": "Implemented on the default branch; exercised by scripts/check_universal_read_rls.py (CI gate step in .github/workflows/release.yml and pre-commit)"
         }
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R030",
       "title": "Reserved RBAC elevation lease kind cannot be issued generically",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "ba6c4d2d7f80139020572c6f5d8e72d4fecdcad0",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ba6c4d2d7f80139020572c6f5d8e72d4fecdcad0",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "3157bcbb4ac20f2d1b9a05edd09ac9df84e0ed34",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3157bcbb4ac20f2d1b9a05edd09ac9df84e0ed34",
+          "description": "Implemented on the default branch; exercised by tests/test_control_lease_kind_policy.py::test_other_principal_cannot_bypass_reserved_elevation_flow"
         }
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
@@ -512,8 +565,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R045",
       "title": "A single owner-manifest lineage check governs format upgrades",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "df476f0df01068dc10f5aef36fcd85ef9431cd43",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/df476f0df01068dc10f5aef36fcd85ef9431cd43",
+          "description": "Implemented on the default branch; exercised by crates/eg-storage/src/owner/lineage_tests.rs::every_declared_predecessor_file_is_refused_by_name_without_a_write"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R046",
@@ -602,8 +663,9 @@
     {
       "id": "EG-DURABLE-KERNEL-R052",
       "title": "Outbox delivery is organized by semantic class topics",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "The outbox architecture fully supports per-topic subscription/indexing (topic is a first-class subscribe/claim parameter), and head-only attempt accounting is tested, but no test on main exercises two distinct message-class topics simultaneously to confirm topic separation leaves attempt accounting/"
     },
     {
       "id": "EG-DURABLE-KERNEL-R053",
@@ -664,14 +726,31 @@
     {
       "id": "EG-DURABLE-KERNEL-R057",
       "title": "Sealed record classes are protected by a create-only write guard",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "5c2ab50088c49261a6588380ef0d7c13d49e129c",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5c2ab50088c49261a6588380ef0d7c13d49e129c",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DURABLE-KERNEL-R058",
       "title": "Source-batch publication waiter cancellation is deterministic",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "480766675bd1b52176c0652a9014edb0bd734d37",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/480766675bd1b52176c0652a9014edb0bd734d37",
+          "description": "Implemented on the default branch; exercised by src/server/handlers/source_batch/tests.rs::cancelling_publication_waiter_does_not_cancel_owned_commit"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R059",
@@ -690,14 +769,30 @@
     {
       "id": "EG-DURABLE-KERNEL-R060",
       "title": "Unsupported legacy graph-data layouts are not silently migrated",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9bc78efe95b37a07ec3db7384c53dadc5875c55b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9bc78efe95b37a07ec3db7384c53dadc5875c55b",
+          "description": "Implemented on the default branch; exercised by crates/eg-storage/src/owner/lineage_tests.rs::every_declared_predecessor_file_is_refused_by_name_without_a_write"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R061",
       "title": "Test threading avoids unbounded channels and dead-time joins",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c143146d7855279515d8ba74ac06f5462aff4a41",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c143146d7855279515d8ba74ac06f5462aff4a41",
+          "description": "Implemented on the default branch; exercised by crates/eg-query/src/tables/store/source_batch/tests.rs::checkpoint_compare_and_swap_is_serialized_across_distinct_admitted_owner_scopes"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R062",
@@ -716,14 +811,30 @@
     {
       "id": "EG-DURABLE-KERNEL-R063",
       "title": "Version-2 control-state rows are lifted losslessly on read",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "description": "Implemented on the default branch; exercised by src/redb_store/dump.rs::a_v2_row_lifts_its_integrity_policy_into_the_operator_source"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R064",
       "title": "Compiled shape memoization is benchmarked against parsing per write",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bee3dd02e6ed78872fe254af52f1d468fd526e77",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bee3dd02e6ed78872fe254af52f1d468fd526e77",
+          "description": "Implemented on the default branch; exercised by src/server/icv_guard.rs::per_write_policy_cost_after_the_first_compile_is_a_cache_hit"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R065",
@@ -770,14 +881,30 @@
     {
       "id": "EG-DURABLE-KERNEL-R068",
       "title": "Channel-group leave returns its own result, not a replayed join result",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cee22e5290b182413711fcf3effc94bc6abfd3ca",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cee22e5290b182413711fcf3effc94bc6abfd3ca",
+          "description": "Implemented on the default branch; exercised by tests/test_service_layer.py::test_service_channel_group"
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R069",
       "title": "Scrub cursor fixture reliably tests the no-key encryption state",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "be291021dfdce44e0eefa42fc80611bf2eb0ecf9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be291021dfdce44e0eefa42fc80611bf2eb0ecf9",
+          "description": "Implemented on the default branch; exercised by src/server/persistence/redb_backend/scrub_api_tests.rs::scrub_cursor_survives_reopen_and_the_walk_skips_nothing"
+        }
+      ]
     }
   ]
 }

@@ -136,8 +136,17 @@
     {
       "id": "EG-DECISION-ENGINE-R001",
       "title": "Typed decision ladder with explicit resolution kinds",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "ResolutionKind has all 5 variants, but only Optimization/Statistical/Abstention are ever produced in code; Constraint and Entailment are never assigned anywhere and no test exercises them."
     },
     {
       "id": "EG-DECISION-ENGINE-R002",
@@ -240,14 +249,31 @@
     {
       "id": "EG-DECISION-ENGINE-R009",
       "title": "Learned ranking stays monotone with respect to safety",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R010",
       "title": "Typed abstention reason for unmet capability",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/assemble/tests/routing.rs::every_routing_item_answers_inside_its_acceptability_set"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R011",
@@ -328,20 +354,38 @@
     {
       "id": "EG-DECISION-ENGINE-R017",
       "title": "Single write authority per durable decision state kind",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "validate_publish() refuses a direct AgentComponentKind::DecisionRecord publish (FORBIDDEN_COMPONENT_KIND), making DecisionCommit the sole write path structurally, but no test anywhere exercises that rejection (the bypass case is untested)."
     },
     {
       "id": "EG-DECISION-ENGINE-R018",
       "title": "Unknown facts never default to zero in the solver",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R019",
       "title": "Decision commit re-derives and verifies before writing",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d6baf6dfc8c9aa0d065b27b9f152dd85cb1d798f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d6baf6dfc8c9aa0d065b27b9f152dd85cb1d798f",
+          "description": "Implemented on the default branch; exercised by src/server/persistence/decision_record/tests.rs::a_catalog_that_moved_since_the_decision_is_a_stale_refusal"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R020",
@@ -472,20 +516,23 @@
     {
       "id": "EG-DECISION-ENGINE-R029",
       "title": "Decision-based retrieval-plan selection",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "QuestionKind::RetrievalPlan plus the generic Declared-candidate Decide path exists and is tested, but no evidence the real LeanRAG/FuseRrf/SPARQL retrieval code (crates/eg-plan/src/leanrag.rs, hybrid_queries.rs) calls Decide; no test selects a correct plan for a representative request shape."
     },
     {
       "id": "EG-DECISION-ENGINE-R030",
       "title": "Decision-based ingestion path routing",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "QuestionKind::IngestionLane exists only as an enum variant; it is referenced nowhere else in the repository (no routing logic, no caller, no test)."
     },
     {
       "id": "EG-DECISION-ENGINE-R031",
       "title": "Expected-value scheduling for enrichment work",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "QuestionKind::EnrichmentSchedule exists only as an enum variant; it is referenced nowhere else in the repository (no scheduling logic, no caller, no test)."
     },
     {
       "id": "EG-DECISION-ENGINE-R032",
@@ -518,38 +565,64 @@
     {
       "id": "EG-DECISION-ENGINE-R034",
       "title": "Proposal-only contradiction-handling suggestions",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R035",
       "title": "Decision-based routing for execution configuration",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "The generic graph.decide()/Declared-candidate mechanism exists and is tested, but no type or contract test names the 7 specific routing categories (model/prompt/skill/tool/harness/account-mode/sandbox); no account_mode/harness_mode/sandbox_mode types found anywhere."
     },
     {
       "id": "EG-DECISION-ENGINE-R036",
       "title": "graph.assemble() as the authority for agent composition",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d6baf6dfc8c9aa0d065b27b9f152dd85cb1d798f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d6baf6dfc8c9aa0d065b27b9f152dd85cb1d798f",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/assemble/tests/routing.rs::every_routing_item_answers_inside_its_acceptability_set"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R037",
       "title": "Escalated abstentions re-enter as claims",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2ae20b2685390509fff14e1fe01b50b40e0a9e60",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2ae20b2685390509fff14e1fe01b50b40e0a9e60",
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/stat_tests/consumer_tests.rs::a_logged_abstention_takes_a_resolution_of_its_resolver_class"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R038",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R039",
       "title": "Cost-aware routing using accounting data",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "0cbda8f2af96ae961016f2a144c0696ab29c9965",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0cbda8f2af96ae961016f2a144c0696ab29c9965",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "An l5.observed_cost feature is wired and tested only for the abstain-on-missing-data branch; no test shows the decision actually preferring the lower-cost legal option when cost data is present for multiple candidates."
     },
     {
       "id": "EG-DECISION-ENGINE-R040",
@@ -568,44 +641,61 @@
     {
       "id": "EG-DECISION-ENGINE-R041",
       "title": "Connector event triage through Decide",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R042",
       "title": "Connector tool-choice advisory via Decide",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R043",
       "title": "Write-back proposals routed through Decide",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R044",
       "title": "A2A task routing through the decision ladder",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R045",
       "title": "Smallest covering tool subset within a context budget",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R046",
       "title": "Swarm topology decisions via the decision ladder",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "2d087761c9645d65efc35177f542b3140ff9c4e9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2d087761c9645d65efc35177f542b3140ff9c4e9",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R047",
       "title": "DecisionRecord v1 contract: types and methods",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "description": "Implemented on the default branch; exercised by tests/test_contract_wave_surface.py::test_every_wave_request_schema_resolves"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R048",
@@ -624,8 +714,16 @@
     {
       "id": "EG-DECISION-ENGINE-R049",
       "title": "Exact 0-1 solver with certificate and verifier",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4b11f62898df2d556fabb23a321591858b630ddd",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4b11f62898df2d556fabb23a321591858b630ddd",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/tests/solve/exhaustive.rs"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R050",
@@ -714,7 +812,7 @@
     {
       "id": "EG-DECISION-ENGINE-R056",
       "title": "Statistical-path release of the exact solver",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
@@ -734,14 +832,23 @@
     {
       "id": "EG-DECISION-ENGINE-R058",
       "title": "Graph-sourced decision records with RLS-routed reads",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bda8269797abc1d71f2fd86c7b805b2faa55da3f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bda8269797abc1d71f2fd86c7b805b2faa55da3f",
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/stat_tests/log_tests.rs::retention_compacts_and_verifies"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R059",
       "title": "Outcome aggregate with independent-evaluation join",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "The independent-evaluation label rule (label_use) is implemented and tested via two consumers (stat_reputation.rs, stat_slate_attribution.rs), but the outcome-aggregate index itself (aggregate()/aggregate_log()/DecisionLogAggregate, with min_support pooling and censoring) has no test anywhere."
     },
     {
       "id": "EG-DECISION-ENGINE-R060",
@@ -760,14 +867,23 @@
     {
       "id": "EG-DECISION-ENGINE-R061",
       "title": "Assembly facts extended for the statistical path",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "AgentComponentFacts (cost/latency/capability) is read by both the exact-solver path and the statistical candidate path (CandidateView::from_component), but no test directly confirms the same typed fact values are readable/consistent across both paths."
     },
     {
       "id": "EG-DECISION-ENGINE-R062",
       "title": "NlTemplate selection without a language model",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2ffc3594800bb43876061914fde594345e916de2",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2ffc3594800bb43876061914fde594345e916de2",
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/stat_tests/nl_tests.rs::an_utterance_routes_over_templates_and_an_llm_proposal_is_only_a_claim"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R063",
@@ -786,8 +902,17 @@
     {
       "id": "EG-DECISION-ENGINE-R064",
       "title": "Optional read views of decision records",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "857e20c63775b37833a21a58ba4e13a85ef53d39",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/857e20c63775b37833a21a58ba4e13a85ef53d39",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "Decision records are exposed read-only via the shared SQL catalog (hence pgwire) and UQL's DECISIONS source, with tenant-visibility tested, but no SPARQL or GraphQL read view over decision records exists (no references in eg-rdf or eg-graphql crates)."
     },
     {
       "id": "EG-DECISION-ENGINE-R065",
@@ -918,20 +1043,31 @@
     {
       "id": "EG-DECISION-ENGINE-R074",
       "title": "Agent-slot component-kind closure rule kept current",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "AgentComponentKind doc comment already states the OR-clause closure rule (slot-referenced OR validated/decided-against), but no automated test enumerates every kind against that rule."
     },
     {
       "id": "EG-DECISION-ENGINE-R075",
       "title": "Component-id uniqueness and forbidden decision kinds",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "PackViolationCode::DuplicateComponentId rejects duplicate ids and PackEntryKind structurally excludes decision kinds, but no test exercising the duplicate-id rejection was located."
     },
     {
       "id": "EG-DECISION-ENGINE-R076",
       "title": "Opt-in nested models for decision result markers",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Decision-type results deserialize into generated pydantic BaseModels, but no client test confirms decision-scoped nesting specifically, and pydantic models now appear used repo-wide (not clearly scoped/opt-in ahead of a broader migration as described)."
     },
     {
       "id": "EG-DECISION-ENGINE-R077",
@@ -950,68 +1086,124 @@
     {
       "id": "EG-DECISION-ENGINE-R078",
       "title": "Contract freeze reissued with the decide feature",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Decide methods are present in the generated contract and a generic contract-freshness test suite exists, but no decide-specific reissued-freeze artifact/test was found; the private tracker treats this item as a ruled duplicate of a different item, not an independent delivery."
     },
     {
       "id": "EG-DECISION-ENGINE-R079",
       "title": "Per-unit embedding admission classifier for ingestion",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R080",
       "title": "Ingestion cost ladder with provenance rungs",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R081",
       "title": "Confidence-weighted community detection excluding similarity edges",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b5fe3c140c212d2c32d80074c72e7913103554a7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b5fe3c140c212d2c32d80074c72e7913103554a7",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/algorithms/community.rs::tests::similar_to_edge_is_excluded"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R082",
       "title": "Single-pass option-marker scoring head for Decide",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R083",
       "title": "Options encode structured facts, not option-label text",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Scorer encodes fixed-width numeric feature rows, not text labels, so cardinality bounds width; but no test scores an option set sized to exceed a plausible text-token budget, as the acceptance specifically requires."
     },
     {
       "id": "EG-DECISION-ENGINE-R084",
       "title": "Conformal calibration as primary rung over temperature scaling",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R085",
       "title": "Legal option sets are derived from the ontology, never received as-is",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "LegalSet in eg-numeric only consumes a caller-supplied eliminated-index list; could not confirm, within this repo, a SHACL-shape/SPARQL-shortlist-driven derivation with a negative test proving an illegal caller-supplied option never reaches the scorer."
     },
     {
       "id": "EG-DECISION-ENGINE-R086",
       "title": "DecisionFit promotion protocol reports nine metrics",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R087",
       "title": "Scorer always receives a bounded shortlist, never a full catalog",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R088",
       "title": "Belief-as-of-t exposed as a Decide primitive over prefixes",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R089",
@@ -1022,32 +1214,45 @@
     {
       "id": "EG-DECISION-ENGINE-R090",
       "title": "Resident native decision-scorer head in eg-decision",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Resident CPU-only Rust option-attention scorer exists with no GPU/Python/sidecar dependency, but no benchmark test measures per-decision latency or compiled footprint against the declared budget."
     },
     {
       "id": "EG-DECISION-ENGINE-R091",
       "title": "Resident scorer is bit-reproducible via fixed-point arithmetic",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R092",
       "title": "Scorer selection and structured encoding apply ladder-wide",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Select-only-from-derived-options and structured (non-text) encoding are each tested individually, but no single cross-question test exercises two distinct Decide question types asserting both properties together, as the acceptance requires."
     },
     {
       "id": "EG-DECISION-ENGINE-R093",
       "title": "Resident scorer is trained from the served synthetic-episode generator",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Only a manual CLI example wires training to an FX-SYNTH-exported corpus; no automated test confirms a training run consumes episodes from the synthetic generator's served path with verifiable ground-truth labels."
     },
     {
       "id": "EG-DECISION-ENGINE-R094",
       "title": "Decision scoring requires no GPU or model-server dependency",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Scorer is pure-Rust/CPU by construction (no GPU, Python runtime or model-server code anywhere in the crate), but no deployment test runs the engine without a GPU/sidecar present and confirms decisions are still served."
     },
     {
       "id": "EG-DECISION-ENGINE-R095",
@@ -1114,103 +1319,213 @@
     {
       "id": "EG-DECISION-ENGINE-R100",
       "title": "Retrieval decisions join cited evidence with independent outcomes",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "e429630278b867a9718a12b0e77d9ecbc6d1fec4",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e429630278b867a9718a12b0e77d9ecbc6d1fec4",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R101",
       "title": "Query-side embedding adapter head promoted via DecisionEval",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "e429630278b867a9718a12b0e77d9ecbc6d1fec4",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e429630278b867a9718a12b0e77d9ecbc6d1fec4",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R102",
       "title": "Schema repair proposals pass a decided mapping and shadow-branch check",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Mapping to a typed candidate contract, SHACL render/validate-without-attach, and approval-gated attach are implemented and tested; no explicit 'ingested on a shadow branch' step (validating the candidate against actually-ingested data before approval) was located."
     },
     {
       "id": "EG-DECISION-ENGINE-R103",
       "title": "Calibrated per-horizon flip confidence with conformal abstention",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/record_tests.rs::warmup_thin_history_regime_drift_and_ambiguity_abstain"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R104",
       "title": "DecideText shares the UQL lexer and grammar family",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "decide_text_shares_the_uql_lexical_family and a grammar-table-driven test exist, but were introduced in commit 857e20c63 whose own message is labelled '(uncompiled)'; a later non-wip commit (0ba13045f) further edits the same lexer, but a read-only audit could not build to confirm the fix."
     },
     {
       "id": "EG-DECISION-ENGINE-R105",
       "title": "GraphSchema.attach publishes the swarm-topology ontology",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4ded009c7d6e4948d2141ab8c4c18b4eaa55b1b6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4ded009c7d6e4948d2141ab8c4c18b4eaa55b1b6",
+          "description": "Implemented on the default branch; exercised by src/server/graph_schema/swarm_topology_tests.rs::each_planted_template_defect_is_flagged"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R106",
       "title": "AgentGraph templates carry topology facts for standard shapes",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Only the fan-out/join shape is represented and SHACL-tested in this repo; the other five standard shapes (single, pipeline, supervisor-to-workers, critique-loop, council) are not defined or tested here. Per private notes the reference-template catalog lives in agent-utilities (decide/topology/templa"
     },
     {
       "id": "EG-DECISION-ENGINE-R107",
       "title": "Typed topology contract in eg-types with versioned goldens",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R108",
       "title": "Publish-time topology-shape validation fails closed",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R109",
       "title": "OWL entailment derives topology admissibility before assembly",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R110",
       "title": "Topology optimization model rows with a brute-force oracle",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R111",
       "title": "Decide exposes the topology decision as a single typed question",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "Topology inputs are computed inside graph.assemble()'s AssemblyRequest.requirements.topology path, not exposed as a separate standalone typed Decide question; no dispatch-level 'Topology' Decide method found. AU-side consumer convergence (topology.py asking the question directly, deleting the old he"
     },
     {
       "id": "EG-DECISION-ENGINE-R112",
       "title": "Capacity premise derives headroom observations by priority",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
+        }
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-DECISION-ENGINE-R113",
       "title": "EG commits capacity acquisition atomically with synthesis evidence",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "EG supplies the capacity-headroom premise and an AcquireCapacity/ReleaseCapacity primitive, but the evaluate-→commit-→publish-with-synthesis_evidence orchestration, the all-or-nothing acquisition sequencing, and the 'exactly one further re-decide on denial' rule are implemented in graph-os (graph_os"
     },
     {
       "id": "EG-DECISION-ENGINE-R114",
       "title": "Subagent allowance negotiation reads EG's topology facts",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "EG attaches typed SubagentFallback/allowance facts to the committed topology plan and this is tested. Whether the caller's subagent-allowance negotiation (AU repo: agent_utilities/layers/{contracts,negotiation}.py) actually reads this field, rather than computing its own estimate, cannot be verified"
     },
     {
       "id": "EG-DECISION-ENGINE-R115",
       "title": "Continuation decisions are evaluate-only and narrow-only",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "EG defines the StopRule fact type on TopologyFacts, but its own doc comment states 'Evaluating it is execution, not decision' -- i.e. the evaluate-only/narrow-only continuation decision point and the automatic ReleaseCapacity-on-narrow behavior are implemented in AU (au.swarm.continue, decide/consum"
     },
     {
       "id": "EG-DECISION-ENGINE-R116",
       "title": "Consumers reach EG only through the versioned client contract",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
@@ -1227,13 +1542,14 @@
       "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "3f3f2d9fa39fcf9d2dbfcf2bd191741a09098b76",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3f3f2d9fa39fcf9d2dbfcf2bd191741a09098b76",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "9480759eb7c26d010af9fcde9882d13e742e9628",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9480759eb7c26d010af9fcde9882d13e742e9628",
+          "description": "Part of the requirement is implemented on the default branch."
         }
-      ]
+      ],
+      "remaining": "All named SeriesFunc kernels (Lag/Diff/Ret/Logret/Rmean/Rstd/Rsum/Rmin/Rmax/Rrank/Rcorr/Zscore/Ewma/Wsum) and a FeatureSkill report (rolling IC, icir, n_eff, bootstrap CI) are on main with unit tests, but PromQL-function parity, a Python-reference-golden comparison, and the Rust/served/combined-tip "
     },
     {
       "id": "EG-DECISION-ENGINE-R118",
@@ -1241,13 +1557,14 @@
       "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "967a941c34b361a57ee1aa4b3ba5e91eeab409ac",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/967a941c34b361a57ee1aa4b3ba5e91eeab409ac",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "28fbbbe2ee1e4b23c8e56699b1bacc44b3777fec",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/28fbbbe2ee1e4b23c8e56699b1bacc44b3777fec",
+          "description": "Part of the requirement is implemented on the default branch."
         }
-      ]
+      ],
+      "remaining": "BayesFuse evidence fusion has not been moved to a domain-neutral eg-epistemic module (still only lives under finance/signal_models.rs in eg-types/eg-compute/src/server); immutable admission-backed source binding for the ranking subject is tracked as still open on the unmerged branch per status notes"
     },
     {
       "id": "EG-DECISION-ENGINE-R119",
@@ -1258,14 +1575,14 @@
     {
       "id": "EG-DECISION-ENGINE-R120",
       "title": "Admission anchors are limited to persisted write paths",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "3459620276d6fe861b2abfaee0613d4d36bf555d",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3459620276d6fe861b2abfaee0613d4d36bf555d",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "3c39771e7a446d8c24a23112bbcdb8625191ee9e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3c39771e7a446d8c24a23112bbcdb8625191ee9e",
+          "description": "Implemented on the default branch; exercised by tests/test_pinned_reference_resolution.py::test_nested_write_closure_does_not_anchor_outer_function"
         }
       ]
     },
@@ -1286,8 +1603,16 @@
     {
       "id": "EG-DECISION-ENGINE-R122",
       "title": "Synthetic decision data stays separate from calibration",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cfbe224640086608d57a3ade2549636618eef7bb",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cfbe224640086608d57a3ade2549636618eef7bb",
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/stat_tests.rs::fit_evaluate_publish_and_decide_end_to_end"
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R123",
@@ -1320,8 +1645,16 @@
     {
       "id": "EG-DECISION-ENGINE-R125",
       "title": "Telemetry binds to ontology entities as BehaviourObservation",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cae7ecad71e2a1e76589861f2347fe5855f09bc3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cae7ecad71e2a1e76589861f2347fe5855f09bc3",
+          "description": "Implemented on the default branch; exercised by crates/eg-stream/src/telemetry/tests/rollup.rs::a_pods_behaviour_also_rolls_up_to_the_workload_that_schedules_it"
+        }
+      ]
     }
   ]
 }

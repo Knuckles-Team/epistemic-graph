@@ -28,16 +28,17 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R001",
       "title": "Cross-host BacktestRun digest and Pine parity for finance-core",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "84627265edaa53999e338cd166d0416101610538",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/84627265edaa53999e338cd166d0416101610538",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
+          "description": "Implementing commit is on the default branch but is marked work in progress."
         }
-      ]
+      ],
+      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002",
@@ -45,18 +46,19 @@
       "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "7532999ace51379bc6f03b4ab04d2c9c05deeb84",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7532999ace51379bc6f03b4ab04d2c9c05deeb84",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
+          "description": "Part of the requirement is implemented on the default branch."
         }
-      ]
+      ],
+      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still "
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
       "title": "Compute PBO from a BacktestRun's own CSCV splits",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
@@ -130,26 +132,59 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R014",
       "title": "finance-v1 thin instrument and signal module",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/golden_tests.rs::daily_kernels_match_the_reference_bit_for_bit"
+        }
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R015",
       "title": "AnalysisSnapshot records with share.read control leases",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "3899594fed447ce6b784365fc954be1e837cde4f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3899594fed447ce6b784365fc954be1e837cde4f",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in crates/eg-types/s"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
       "title": "Incremental deterministic indicator kernels with Pine parity",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/golden_tests.rs::weekly_kernels_match_the_reference_bit_for_bit"
+        }
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R017",
       "title": "BacktestRun provenance record with mandatory fields",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/532418b7e55b483cd5745e624bc5d5e9a859dd1a",
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/record_tests.rs::look_ahead_fills_and_missing_outputs_are_refused"
+        }
+      ]
     }
   ]
 }
