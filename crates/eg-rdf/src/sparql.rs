@@ -44,10 +44,16 @@ use bool_builtins::{eval_bool_str_relation, term_type_test};
 // EH-197 — witness proofs for SELECT rows (child module: it reuses the private
 // pattern matcher and join rather than re-implementing them).
 mod proof;
+// SERVICE delegation: narrowed requests and the fallback to the clause's own query.
+mod service;
+#[cfg(test)]
+mod service_tests;
 // EH-583 — multi-valued literal properties bind every value.
 #[cfg(test)]
 mod multivalue_tests;
 pub use proof::{execute_explained, MAX_WITNESS_STEPS};
+pub use service::RemoteSparql;
+use service::ServiceCall;
 
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
 pub type Solution = HashMap<String, Binding>;
@@ -268,17 +274,6 @@ fn merge_views<'v>(views: impl Iterator<Item = &'v GraphView>) -> GraphView {
             .extend(v.schema_node_ids.iter().cloned());
     }
     out
-}
-
-/// A remote SPARQL endpoint the evaluator can delegate a `SERVICE` clause to
-/// (CONCEPT:EG-KG.query.sparql-service-federation-client). This is the SEAM: `eg-rdf` owns the algebra + the SILENT / join
-/// semantics but knows NOTHING about HTTP — the facade supplies a `ureq`-backed impl
-/// (feature `sparql-service`), keeping the Pi/crate-DAG contract intact (no HTTP dep
-/// enters this pure-Rust crate). `select` runs one remote SELECT and returns its
-/// solution table; `Err` carries a human-readable failure (routed by SILENT).
-pub trait RemoteSparql: Sync {
-    /// Evaluate `query` (a complete SPARQL SELECT) against `endpoint`, returning its rows.
-    fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String>;
 }
 
 /// The active evaluation context: the dataset, the graph the current scans resolve
@@ -762,7 +757,12 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             name,
             inner,
             silent,
-        } => eval_service(ctx, name, inner, *silent),
+        } => ServiceCall {
+            name,
+            pattern: inner,
+            silent: *silent,
+        }
+        .eval(ctx),
     }
 }
 
@@ -772,20 +772,9 @@ fn eval_pattern_filter(
     expr: &Expression,
     inner: &GraphPattern,
 ) -> Result<Vec<Solution>, String> {
-    let inner_sols = match inner {
-        GraphPattern::Service {
-            name,
-            inner: remote,
-            silent,
-        } => {
-            let pushed = GraphPattern::Filter {
-                expr: expr.clone(),
-                inner: remote.clone(),
-            };
-            eval_service(ctx, name, &pushed, *silent)
-                .or_else(|_| eval_service(ctx, name, remote, *silent))?
-        }
-        _ => eval_pattern(ctx, inner)?,
+    let inner_sols = match ServiceCall::of(inner) {
+        Some(call) => call.eval_filtered(ctx, expr)?,
+        None => eval_pattern(ctx, inner)?,
     };
     Ok(inner_sols
         .into_iter()
@@ -800,106 +789,11 @@ fn eval_pattern_join(
     right: &GraphPattern,
 ) -> Result<Vec<Solution>, String> {
     let l = eval_pattern(ctx, left)?;
-    if let GraphPattern::Service {
-        name,
-        inner,
-        silent,
-    } = right
-    {
-        return eval_service_bind_join(ctx, &l, name, inner, *silent);
+    if let Some(call) = ServiceCall::of(right) {
+        return call.eval_bind_join(ctx, &l);
     }
     let r = eval_pattern(ctx, right)?;
     Ok(hash_join(&l, &r))
-}
-
-/// Ship distinct local join keys in bounded VALUES blocks. A remote endpoint that
-/// cannot evaluate VALUES falls back to the original full-fetch join, preserving
-/// compatibility with endpoints whose supported SPARQL subset is unknown.
-fn eval_service_bind_join(
-    ctx: &Ctx,
-    local: &[Solution],
-    name: &NamedNodePattern,
-    inner: &GraphPattern,
-    silent: bool,
-) -> Result<Vec<Solution>, String> {
-    if local.is_empty() {
-        return Ok(Vec::new());
-    }
-    let remote_vars = collect_vars(inner);
-    let mut keys: Vec<_> = remote_vars
-        .into_iter()
-        .filter(|key| local.iter().any(|row| row.contains_key(key)))
-        .collect();
-    keys.sort();
-    if keys.is_empty()
-        || local
-            .iter()
-            .any(|row| keys.iter().any(|key| !row.contains_key(key)))
-    {
-        return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
-    }
-    let Some(rows) = service_values_rows(local, &keys) else {
-        return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
-    };
-    let mut remote = Vec::new();
-    for batch in rows.chunks(100) {
-        let values = GraphPattern::Values {
-            variables: keys
-                .iter()
-                .filter_map(|key| Variable::new(key).ok())
-                .collect(),
-            bindings: batch.to_vec(),
-        };
-        let scoped = GraphPattern::Join {
-            left: Box::new(inner.clone()),
-            right: Box::new(values),
-        };
-        let query = build_service_query(&scoped);
-        let endpoint = match name {
-            NamedNodePattern::NamedNode(n) => n.as_str(),
-            NamedNodePattern::Variable(_) => {
-                return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
-            }
-        };
-        let Some(client) = ctx.service else {
-            return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?));
-        };
-        match client.select(endpoint, &query) {
-            Ok(result) => remote.extend(result.solutions),
-            Err(_) => return Ok(hash_join(local, &eval_service(ctx, name, inner, silent)?)),
-        }
-    }
-    Ok(hash_join(local, &remote))
-}
-
-/// Convert only losslessly representable keys. The evaluator stores literal
-/// lexical values without datatype/language metadata, so sending them as plain
-/// literals would make typed/lang-tagged remote matches disappear. Blank nodes
-/// cannot be sent as VALUES ground terms either. Both use full fetch.
-fn service_values_rows(
-    local: &[Solution],
-    keys: &[String],
-) -> Option<Vec<Vec<Option<GroundTerm>>>> {
-    use spargebra::term::NamedNode;
-    let mut seen = std::collections::HashSet::new();
-    let mut rows = Vec::new();
-    for row in local {
-        let terms: Vec<_> = keys
-            .iter()
-            .map(|key| match row.get(key)? {
-                Binding::Node(node) => {
-                    let iri = node.strip_prefix('<')?.strip_suffix('>')?;
-                    Some(GroundTerm::NamedNode(NamedNode::new(iri).ok()?))
-                }
-                Binding::Literal(_) => None,
-            })
-            .collect::<Option<_>>()?;
-        let signature: Vec<String> = terms.iter().map(ToString::to_string).collect();
-        if seen.insert(signature) {
-            rows.push(terms.into_iter().map(Some).collect());
-        }
-    }
-    Some(rows)
 }
 
 /// OPTIONAL: keep every left solution; extend with a compatible right (passing the
@@ -1034,17 +928,7 @@ fn eval_pattern_slice(
     length: Option<usize>,
 ) -> Result<Vec<Solution>, String> {
     let all = match (start, length) {
-        (0, Some(limit)) => match inner {
-            GraphPattern::Service { .. } => eval_service_limited(ctx, inner, limit)?,
-            GraphPattern::Project {
-                inner: service,
-                variables,
-            } if matches!(service.as_ref(), GraphPattern::Service { .. }) => {
-                let rows = eval_service_limited(ctx, service, limit)?;
-                project_solutions(rows, variables)
-            }
-            _ => eval_pattern(ctx, inner)?,
-        },
+        (0, Some(limit)) => service::eval_limited(ctx, inner, limit)?,
         _ => eval_pattern(ctx, inner)?,
     };
     let end = length.map(|l| start + l).unwrap_or(all.len());
@@ -1053,27 +937,6 @@ fn eval_pattern_slice(
         .skip(start)
         .take(end.saturating_sub(start))
         .collect())
-}
-
-fn eval_service_limited(
-    ctx: &Ctx,
-    pattern: &GraphPattern,
-    limit: usize,
-) -> Result<Vec<Solution>, String> {
-    let GraphPattern::Service {
-        name,
-        inner,
-        silent,
-    } = pattern
-    else {
-        return eval_pattern(ctx, pattern);
-    };
-    let pushed = GraphPattern::Slice {
-        inner: inner.clone(),
-        start: 0,
-        length: Some(limit),
-    };
-    eval_service(ctx, name, &pushed, *silent).or_else(|_| eval_service(ctx, name, inner, *silent))
 }
 
 fn project_solutions(rows: Vec<Solution>, variables: &[Variable]) -> Vec<Solution> {
@@ -1115,72 +978,6 @@ fn eval_pattern_order_by(
     let mut sols = eval_pattern(ctx, inner)?;
     sort_solutions(ctx, &mut sols, expression);
     Ok(sols)
-}
-
-/// Evaluate a `SERVICE <ep> { inner }` clause (CONCEPT:EG-KG.query.sparql-service-federation-client) by delegating `inner` to a
-/// remote SPARQL endpoint through `ctx.service`.
-///
-/// SILENT semantics: on ANY failure — a variable endpoint, no bound client, or a remote
-/// HTTP/parse error — `silent` returns ONE empty solution (the join identity, so the
-/// enclosing join passes the local side through unchanged); otherwise the error propagates.
-/// Only a CONSTANT-IRI endpoint is supported (a `?var` endpoint is a failure per the rule).
-fn eval_service(
-    ctx: &Ctx,
-    name: &NamedNodePattern,
-    inner: &GraphPattern,
-    silent: bool,
-) -> Result<Vec<Solution>, String> {
-    // One empty solution = the neutral element for a join (pass-through under SILENT).
-    let hushed = |e: String| -> Result<Vec<Solution>, String> {
-        if silent {
-            Ok(vec![Solution::new()])
-        } else {
-            Err(e)
-        }
-    };
-    let endpoint = match name {
-        NamedNodePattern::NamedNode(n) => n.as_str(),
-        // A variable endpoint (`SERVICE ?ep { … }`) is unsupported: it requires binding the
-        // endpoint from an earlier pattern, which this evaluator does not resolve.
-        NamedNodePattern::Variable(_) => {
-            return hushed("eg-rdf SPARQL: SERVICE with a variable endpoint is unsupported".into());
-        }
-    };
-    let client = match ctx.service {
-        Some(c) => c,
-        // Fail-closed: no client bound (feature off / allowlist empty) ⇒ SERVICE is disabled.
-        None => {
-            return hushed("eg-rdf SPARQL: SERVICE requires a remote client; none bound".into());
-        }
-    };
-    let remote_query = build_service_query(inner);
-    match client.select(endpoint, &remote_query) {
-        Ok(res) => Ok(res.solutions),
-        Err(e) => hushed(format!("eg-rdf SPARQL: SERVICE failed: {e}")),
-    }
-}
-
-/// Build the SPARQL SELECT text sent to a remote SERVICE endpoint (CONCEPT:EG-KG.query.sparql-service-federation-client): wrap
-/// `inner` in a `SELECT` projecting its in-scope variables and render it with spargebra's
-/// `Display` (which emits valid SPARQL 1.1). The projected vars are what the enclosing join
-/// binds on, so the remote side returns exactly the columns the local pattern needs.
-fn build_service_query(inner: &GraphPattern) -> String {
-    let mut variables: Vec<Variable> = Vec::new();
-    inner.on_in_scope_variable(|v| {
-        if !variables.contains(v) {
-            variables.push(v.clone());
-        }
-    });
-    let pattern = GraphPattern::Project {
-        inner: Box::new(inner.clone()),
-        variables,
-    };
-    Query::Select {
-        dataset: None,
-        pattern,
-        base_iri: None,
-    }
-    .to_string()
 }
 
 /// Stable-sort solutions by an `ORDER BY` comparator list (CONCEPT:EG-KG.ontology.order-by-values-exists). Each
@@ -4290,191 +4087,6 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         assert_eq!(r.solutions[0].get("score").unwrap().as_str(), "100");
     }
 
-    #[test]
-    fn service_bind_join_sends_distinct_values() {
-        use std::sync::Mutex;
-
-        struct RecordingService(Mutex<Vec<String>>);
-        impl RemoteSparql for RecordingService {
-            fn select(&self, _endpoint: &str, query: &str) -> Result<SparqlResult, String> {
-                self.0.lock().unwrap().push(query.to_string());
-                let solutions = ["alice", "bob", "carol"]
-                    .into_iter()
-                    .filter(|name| query.contains(&format!("<http://example.org/{name}>")))
-                    .map(|name| {
-                        let mut row = Solution::new();
-                        row.insert(
-                            "p".into(),
-                            Binding::Node(format!("<http://example.org/{name}>")),
-                        );
-                        row.insert("score".into(), Binding::Literal("1".into()));
-                        row
-                    })
-                    .collect();
-                Ok(SparqlResult {
-                    vars: vec!["p".into(), "score".into()],
-                    solutions,
-                })
-            }
-        }
-
-        let view = loaded_view();
-        let ds = Dataset::new(&view, Vec::new());
-        let service = RecordingService(Mutex::new(Vec::new()));
-        let query = r#"PREFIX ex: <http://example.org/>
-            SELECT ?p ?name ?score WHERE {
-              ?p ex:name ?name .
-              SERVICE <http://remote/e> { ?p ex:score ?score }
-            }"#;
-        let QueryOutcome::Solutions(result) =
-            query_dataset_service(&ds, query, &Projection::raw(), Some(&service)).unwrap()
-        else {
-            panic!()
-        };
-        assert_eq!(result.solutions.len(), 3);
-        let requests = service.0.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert!(requests[0].contains("VALUES"));
-        for name in ["alice", "bob", "carol"] {
-            assert!(requests[0].contains(&format!("<http://example.org/{name}>")));
-        }
-    }
-
-    #[test]
-    fn service_values_rows_deduplicate_and_reject_blank_nodes() {
-        let keys = vec!["name".to_string()];
-        let rows: Vec<_> = (0..205)
-            .map(|index| {
-                let mut row = Solution::new();
-                row.insert(
-                    "name".into(),
-                    Binding::Node(format!("<http://example.org/{index}>")),
-                );
-                row
-            })
-            .collect();
-        let values = service_values_rows(&rows, &keys).unwrap();
-        assert_eq!(values.len(), 205);
-        assert_eq!(
-            values.chunks(100).map(<[_]>::len).collect::<Vec<_>>(),
-            [100, 100, 5]
-        );
-        let duplicated = [rows[0].clone(), rows[0].clone()];
-        assert_eq!(service_values_rows(&duplicated, &keys).unwrap().len(), 1);
-        let mut blank = Solution::new();
-        blank.insert("name".into(), Binding::Node("_:local".into()));
-        assert!(service_values_rows(&[blank], &keys).is_none());
-        let mut typed_unknown = Solution::new();
-        typed_unknown.insert("name".into(), Binding::Literal("42".into()));
-        assert!(service_values_rows(&[typed_unknown], &keys).is_none());
-    }
-
-    #[test]
-    fn service_filter_and_limit_are_pushed_with_local_residuals() {
-        use std::sync::Mutex;
-
-        struct CapturingService(Mutex<Vec<String>>);
-        impl RemoteSparql for CapturingService {
-            fn select(&self, _endpoint: &str, query: &str) -> Result<SparqlResult, String> {
-                self.0.lock().unwrap().push(query.to_string());
-                let solutions = ["1", "2"]
-                    .into_iter()
-                    .map(|value| {
-                        let mut row = Solution::new();
-                        row.insert("score".into(), Binding::Literal(value.into()));
-                        row
-                    })
-                    .collect();
-                Ok(SparqlResult {
-                    vars: vec!["score".into()],
-                    solutions,
-                })
-            }
-        }
-
-        let view = loaded_view();
-        let ds = Dataset::new(&view, Vec::new());
-        let service = CapturingService(Mutex::new(Vec::new()));
-        let filter_query = r#"PREFIX ex: <http://example.org/>
-            SELECT ?score WHERE {
-                SERVICE <http://remote/e> { ?name ex:score ?score }
-                FILTER (?score > 1)
-            }"#;
-        let QueryOutcome::Solutions(filtered) =
-            query_dataset_service(&ds, filter_query, &Projection::raw(), Some(&service)).unwrap()
-        else {
-            panic!()
-        };
-        assert_eq!(filtered.solutions.len(), 1);
-        assert!(service.0.lock().unwrap()[0].contains("FILTER"));
-
-        let limit_query = r#"PREFIX ex: <http://example.org/>
-            SELECT ?score WHERE {
-                SERVICE <http://remote/e> { ?name ex:score ?score }
-            } LIMIT 1"#;
-        let QueryOutcome::Solutions(limited) =
-            query_dataset_service(&ds, limit_query, &Projection::raw(), Some(&service)).unwrap()
-        else {
-            panic!()
-        };
-        assert_eq!(limited.solutions.len(), 1);
-        assert!(service.0.lock().unwrap()[1].contains("LIMIT 1"));
-    }
-
-    #[test]
-    fn service_bind_join_matches_full_fetch_oracle() {
-        use std::sync::Mutex;
-
-        struct GraphBackedService {
-            queries: Mutex<Vec<String>>,
-            reject_values: bool,
-        }
-        impl RemoteSparql for GraphBackedService {
-            fn select(&self, _endpoint: &str, query: &str) -> Result<SparqlResult, String> {
-                self.queries.lock().unwrap().push(query.to_string());
-                if self.reject_values && query.contains("VALUES") {
-                    return Err("VALUES unsupported".into());
-                }
-                let view = loaded_view();
-                let ds = Dataset::new(&view, Vec::new());
-                match execute(&ds, query, &Projection::raw(), None)? {
-                    QueryOutcome::Solutions(result) => Ok(result),
-                    _ => Err("expected SELECT".into()),
-                }
-            }
-        }
-
-        let view = loaded_view();
-        let ds = Dataset::new(&view, Vec::new());
-        let query = r#"PREFIX ex: <http://example.org/>
-            SELECT ?p ?name ?age WHERE {
-                ?p ex:name ?name .
-                SERVICE <http://remote/e> { ?p ex:age ?age }
-            }"#;
-        let run = |reject_values| {
-            let service = GraphBackedService {
-                queries: Mutex::new(Vec::new()),
-                reject_values,
-            };
-            let QueryOutcome::Solutions(result) =
-                query_dataset_service(&ds, query, &Projection::raw(), Some(&service)).unwrap()
-            else {
-                panic!()
-            };
-            let mut rows: Vec<_> = result.solutions.iter().map(canonical_solution).collect();
-            rows.sort();
-            (rows, service.queries.into_inner().unwrap())
-        };
-        let (optimized, requests) = run(false);
-        let (naive, fallback_requests) = run(true);
-        assert_eq!(optimized, naive);
-        assert_eq!(optimized.len(), 3);
-        assert_eq!(requests.len(), 1);
-        assert!(requests[0].contains("VALUES"));
-        assert_eq!(fallback_requests.len(), 2);
-        assert!(!fallback_requests[1].contains("VALUES"));
-    }
-
     /// (b) SILENT swallows a remote error to ONE empty solution → the local side passes
     /// through (the three people bound by the BGP survive the join unchanged).
     #[test]
@@ -4547,7 +4159,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
             panic!()
         };
         let inner = find_service_inner(&pattern).expect("a SERVICE node");
-        let remote = build_service_query(&inner);
+        let remote = service::build_service_query(&inner);
         assert!(
             parse_query(&remote).is_ok(),
             "generated remote query must parse: {remote}"
