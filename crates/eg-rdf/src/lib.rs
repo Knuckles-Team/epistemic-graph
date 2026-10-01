@@ -27,6 +27,10 @@ pub use oxrdf;
 #[cfg(feature = "rdf")]
 pub mod mapping;
 
+/// Pure connector-pack RDF preprocessing shared with admission.
+#[cfg(feature = "rdf")]
+pub mod pack;
+
 #[cfg(feature = "rdf-xml")]
 mod rdfxml;
 

@@ -525,67 +525,14 @@ fn text_kind(kind: PackEntryKind) -> bool {
 }
 
 #[cfg(feature = "rdf")]
+pub(super) use eg_rdf::pack::{declared_shape_iris, validate_ontology_imports};
+
+#[cfg(feature = "rdf")]
 fn parse_rdf_bounded(
     kind: PackEntryKind,
     text: &str,
 ) -> Result<(), (PackViolationCode, &'static str)> {
-    let code = rdf_invalid_code(kind);
-    let triples =
-        eg_rdf::mapping::parse_turtle(text).map_err(|_| (code, "RDF body is not valid Turtle"))?;
-    if triples.len() > 100_000 {
-        return Err((
-            PackViolationCode::ValidationBudgetExceeded,
-            "RDF graph exceeds the triple validation budget",
-        ));
-    }
-    for triple in &triples {
-        validate_rdf_triple(code, triple)?;
-    }
-    Ok(())
-}
-
-#[cfg(feature = "rdf")]
-fn validate_rdf_triple(
-    code: PackViolationCode,
-    triple: &eg_rdf::oxrdf::Triple,
-) -> Result<(), (PackViolationCode, &'static str)> {
-    if triple.subject.to_string().len() > 4 * 1024 || triple.predicate.as_str().len() > 4 * 1024 {
-        return Err((code, "RDF graph contains an IRI above the served bound"));
-    }
-    match &triple.object {
-        eg_rdf::oxrdf::Term::Literal(literal) if literal.value().len() > 256 * 1024 => {
-            Err((code, "RDF graph contains a literal above the served bound"))
-        }
-        eg_rdf::oxrdf::Term::NamedNode(node) if node.as_str().len() > 4 * 1024 => {
-            Err((code, "RDF graph contains an IRI above the served bound"))
-        }
-        _ => Ok(()),
-    }
-}
-
-#[cfg(feature = "rdf")]
-pub(super) fn validate_ontology_imports(
-    text: &str,
-    current: &str,
-    allowed: &BTreeSet<&str>,
-) -> Result<(), &'static str> {
-    use eg_rdf::oxrdf::Term;
-
-    const OWL_IMPORTS: &str = "http://www.w3.org/2002/07/owl#imports";
-    let triples = eg_rdf::mapping::parse_turtle(text)
-        .map_err(|_| "ontology import policy could not parse its graph")?;
-    for triple in triples {
-        if triple.predicate.as_str() != OWL_IMPORTS {
-            continue;
-        }
-        let Term::NamedNode(imported) = &triple.object else {
-            return Err("owl:imports must name an ontology IRI from this pack");
-        };
-        if imported.as_str() == current || !allowed.contains(imported.as_str()) {
-            return Err("owl:imports may name only an ontology entry in this pack");
-        }
-    }
-    Ok(())
+    eg_rdf::pack::validate_document(rdf_invalid_code(kind), text)
 }
 
 #[cfg(not(feature = "rdf"))]
@@ -595,33 +542,6 @@ pub(super) fn validate_ontology_imports(
     _allowed: &BTreeSet<&str>,
 ) -> Result<(), &'static str> {
     Err("RDF validation is unavailable in this build")
-}
-
-#[cfg(feature = "rdf")]
-pub(super) fn declared_shape_iris(text: &str) -> BTreeSet<String> {
-    use eg_rdf::oxrdf::{NamedOrBlankNode, Term};
-
-    const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-    const NODE_SHAPE: &str = "http://www.w3.org/ns/shacl#NodeShape";
-    const PROPERTY_SHAPE: &str = "http://www.w3.org/ns/shacl#PropertyShape";
-    eg_rdf::mapping::parse_turtle(text)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|triple| {
-            if triple.predicate.as_str() != RDF_TYPE
-                || !matches!(&triple.object, Term::NamedNode(node) if matches!(node.as_str(), NODE_SHAPE | PROPERTY_SHAPE))
-            {
-                return None;
-            }
-            // Only a named shape can collide across files; a blank-node shape
-            // is scoped to its own file by construction.
-            if let NamedOrBlankNode::NamedNode(node) = triple.subject {
-                Some(node.as_str().to_string())
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
 #[cfg(not(feature = "rdf"))]
@@ -648,7 +568,7 @@ fn validate_rdf_unions(
     if ontologies.is_empty() && shapes.is_empty() {
         return Ok(());
     }
-    let ontology = super::rdf_union::scoped_union(ontologies).map_err(|_| {
+    let ontology = eg_rdf::pack::scoped_union(ontologies).map_err(|_| {
         (
             PackViolationCode::OntologyInvalid,
             "an ontology file is not valid Turtle",
@@ -693,7 +613,7 @@ fn validate_shapes_union(
     ontology: &str,
     ontology_triples: usize,
 ) -> Result<(), (PackViolationCode, &'static str)> {
-    let shape_union = super::rdf_union::scoped_union(shapes).map_err(|_| {
+    let shape_union = eg_rdf::pack::scoped_union(shapes).map_err(|_| {
         (
             PackViolationCode::ShapesInvalid,
             "a shapes file is not valid Turtle",
