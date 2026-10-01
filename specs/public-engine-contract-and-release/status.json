@@ -79,14 +79,22 @@
     {
       "id": "EG-CONTRACT-R002",
       "title": "Served Agent Library test coverage for pack import and Decide",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-CONTRACT-R003",
       "title": "Privacy scan covers the relocated graph-backends documentation",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "fb1d50d0d7d49096259b8ea2c15f0399ade22448",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fb1d50d0d7d49096259b8ea2c15f0399ade22448",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R004",
@@ -105,64 +113,114 @@
     {
       "id": "EG-CONTRACT-R005",
       "title": "One generated model per wire shape, with typed SPARQL decode",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e2b2f1cfa8eeaaa53c649122df0ec6accfdea2f6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e2b2f1cfa8eeaaa53c649122df0ec6accfdea2f6",
+          "description": "Implemented on the default branch; exercised by tests/test_rdf_client.py::test_sparql_result_is_the_typed_contract_model"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R006",
       "title": "Deterministic, size-budgeted WASM codec artifact",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "2b681e1a159c8bf15e383581ef1dd2871e049142",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2b681e1a159c8bf15e383581ef1dd2871e049142",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "Main dropped the pinned-binaryen wasm-opt reduction in favor of a Rust-only build; committed module is 9,483,622 B (vs prior ~6.2MB optimized target) and no declared size-budget assertion exists anywhere in the script or its tests. Determinism (byte-identical client copies) is proven; size budget …"
     },
     {
       "id": "EG-CONTRACT-R007",
       "title": "Dispatch decomposition test is current and runs in CI",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "43137cbf0f6b41541ede1eba953d80d445c315c7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/43137cbf0f6b41541ede1eba953d80d445c315c7",
+          "description": "Implemented on the default branch; exercised by tests/test_dispatch_decomposition.py::test_undeclared_dispatch_module_is_an_orphan"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R008",
       "title": "Repo-parity check validates the resolved checkout",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-CONTRACT-R009",
       "title": "Release workflow runs the full root Python test suite",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
-    },
-    {
-      "id": "EG-CONTRACT-R010",
-      "title": "Complexity gate scores exhaustive matches by arm body, not count",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "5305979f75cdcd1656541ab334699c9a822baf5e",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5305979f75cdcd1656541ab334699c9a822baf5e",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "c835ce794b21712166ba13b07ac90266ee0eeff9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c835ce794b21712166ba13b07ac90266ee0eeff9",
+          "description": "Implemented on the default branch; exercised by Python suite (tests/) job: `python3 -m pytest tests/ -n $W --timeout=900 -q` in .github/workflows/release.yml"
         }
       ]
     },
     {
+      "id": "EG-CONTRACT-R010",
+      "title": "Complexity gate scores exhaustive matches by arm body, not count",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "c2deb6908131c8a6898f22332a2d4d13f8fd391e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c2deb6908131c8a6898f22332a2d4d13f8fd391e",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "Residual scoring (cyclomatic minus trivial arm count) already exists on main and a 'trivial new arm passes' test exists, but the specific 'newly added arm with nested branching still fails' gate fixture is only on unmerged origin/feat/gate-tools (5305979f75c); main's closest test grows an existing …"
+    },
+    {
       "id": "EG-CONTRACT-R011",
       "title": "Parallel fan-out for the land gate across build hosts",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
       "id": "EG-CONTRACT-R012",
       "title": "Complexity scanner resolves modules declared in inline mod blocks",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "78e5f21032197188f8c180155aaf4bfe2187d500",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/78e5f21032197188f8c180155aaf4bfe2187d500",
+          "description": "Implemented on the default branch; exercised by tests/test_kiss_fork.py::test_probe_accepts_a_build_that_resolves_the_inline_module"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R013",
       "title": "KISS config keys migrated to avoid a silently dropped section",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "78e5f21032197188f8c180155aaf4bfe2187d500",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/78e5f21032197188f8c180155aaf4bfe2187d500",
+          "description": "Implemented on the default branch; exercised by tests/test_kiss_config_keys.py::test_the_renamed_orphan_key_is_refused"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R014",
@@ -173,7 +231,7 @@
     {
       "id": "EG-CONTRACT-R015",
       "title": "Wheel ships the method, error and scope contract with callability flags",
-      "delivery_state": "BUILDING",
+      "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
@@ -187,60 +245,86 @@
     {
       "id": "EG-CONTRACT-R016",
       "title": "Consumer-profile allowlist covers all generated PolicyEvolution senders",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ad14dd57f95be87fbf3041af1fe3efc838967a5a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ad14dd57f95be87fbf3041af1fe3efc838967a5a",
+          "description": "Implemented on the default branch; exercised by tests.test_generated_client_contract (all 6 send_policy_evolution_* entries in _TYPED_OPERATION_SENDS)"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R017",
       "title": "Dispatch census pins cover the current compiler-declared modules",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "7fcd675b77cbf43be031f527ed90c5695d8cb88f",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7fcd675b77cbf43be031f527ed90c5695d8cb88f",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "43137cbf0f6b41541ede1eba953d80d445c315c7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/43137cbf0f6b41541ede1eba953d80d445c315c7",
+          "description": "Implemented on the default branch; exercised by tests/test_dispatch_decomposition.py::test_dispatch_decomposition_gate"
         }
       ]
     },
     {
       "id": "EG-CONTRACT-R018",
       "title": "Release feature matrix includes the motif Cargo feature",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "55e69dfb12b64f89166bcdbdc5b427cde29c646c",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/55e69dfb12b64f89166bcdbdc5b427cde29c646c",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "motif is added to the gates-crates cargo-test feature list in release.yml, but no dedicated test/'Python CI replica feature-matrix consistency check' (no such named artifact found anywhere in the repo) proves matrix consistency."
     },
     {
       "id": "EG-CONTRACT-R019",
       "title": "Dispatch reachability gate follows the current FOREIGN paths",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "implementation",
           "result": "passed",
-          "commit": "a076940995e55ea685f7ce4c3e6cc4df2cfa7e10",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a076940995e55ea685f7ce4c3e6cc4df2cfa7e10",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "a8cfd0978c58f883adbcd7bb5ecb31319e24d540",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a8cfd0978c58f883adbcd7bb5ecb31319e24d540",
+          "description": "Part of the requirement is implemented on the default branch."
         }
-      ]
+      ],
+      "remaining": "The gate now reads exec.rs/federation_opt/mod.rs via compiler-declared tree() expansion (so it does follow exec/dispatch.rs and federation_opt/run.rs), and the gate passes on current main, but no dedicated mutation test proves a pass-through regression planted in either file still fails the gate."
     },
     {
       "id": "EG-CONTRACT-R020",
       "title": "Topology test names avoid version-number suffixes",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "40b49253d3b9dd1394e58a72a4a50545a1fcba40",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/40b49253d3b9dd1394e58a72a4a50545a1fcba40",
+          "description": "Implemented on the default branch; exercised by tests/test_no_version_suffixes.py::test_no_stray_version_suffixed_names"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R021",
       "title": "Failed-connect test checks its own teardown, not process counts",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "8916ee09a0d67b4d90beaadf83f0ec79ba0777db",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8916ee09a0d67b4d90beaadf83f0ec79ba0777db",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "1bd79a8991eab343aaaf93a17911eb12ac5639d3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1bd79a8991eab343aaaf93a17911eb12ac5639d3",
+          "description": "Implemented on the default branch; exercised by tests/test_sync_client_lifecycle.py::test_failed_sync_connect_releases_its_loop_resources"
         }
       ]
     },
@@ -259,8 +343,16 @@
     {
       "id": "EG-CONTRACT-R024",
       "title": "Pre-commit and codespell configuration finalized and locked",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c65a2566a170e0ffebfa18805ac8e1996dc0c89d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c65a2566a170e0ffebfa18805ac8e1996dc0c89d",
+          "description": "Implemented on the default branch; exercised by .config/pre-commit.yaml hook `check-root-hygiene` (scripts/check_root_hygiene.py), run in CI"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R025",
@@ -383,8 +475,16 @@
     {
       "id": "EG-CONTRACT-R034",
       "title": "Complexity test derives its residual from the dispatch arm count",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cba8840758036b7f395d1f2d7a6b0d7e7bd1eafa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cba8840758036b7f395d1f2d7a6b0d7e7bd1eafa",
+          "description": "Implemented on the default branch; exercised by tests/test_scanner_wrappers.py::test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R035",
@@ -485,8 +585,16 @@
     {
       "id": "EG-CONTRACT-R043",
       "title": "Test fixtures carry no credential-shaped literals",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e63a9e5ff1f2d1ea452d65f2029abb7b887583ad",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e63a9e5ff1f2d1ea452d65f2029abb7b887583ad",
+          "description": "Implemented on the default branch; exercised by release.yml step: `python3 scripts/security/check_secret_history.py --base \"$base\"`"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R044",
