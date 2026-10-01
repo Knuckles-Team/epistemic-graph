@@ -5,8 +5,15 @@
 //! and "which of these conjuncts do I report as `Inexact`?". Both live here so the
 //! shape rule is decided in one place.
 
+use std::sync::Arc;
+
 use datafusion::common::{Column, ScalarValue};
+use datafusion::error::Result as DfResult;
 use datafusion::logical_expr::{Expr, Operator, TableProviderFilterPushDown};
+use datafusion::physical_plan::ExecutionPlan;
+
+/// What a table provider's `scan` returns: the physical plan, or DataFusion's error.
+pub(crate) type ScanPlan = DfResult<Arc<dyn ExecutionPlan>>;
 
 /// The `(column, literal)` of a `column = literal` / `literal = column` equality;
 /// `None` for any other expression shape.

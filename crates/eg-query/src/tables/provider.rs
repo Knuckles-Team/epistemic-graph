@@ -26,12 +26,11 @@ use datafusion::common::ScalarValue;
 use datafusion::datasource::MemTable;
 use datafusion::error::Result as DfResult;
 use datafusion::logical_expr::{Expr, Operator, TableProviderFilterPushDown, TableType};
-use datafusion::physical_plan::ExecutionPlan;
 
 use super::index::SecondaryIndexLookup;
 use super::schema::{ArrayElemType, Cell, ColumnType, TableSchema};
 use super::store::TableStore;
-use crate::sql::filter_shape::{classify_pushdown, column_eq_literal};
+use crate::sql::filter_shape::{classify_pushdown, column_eq_literal, ScanPlan};
 use crate::sql::providers::NodesTableProvider;
 
 /// The Arrow `DataType` a [`ColumnType`] materializes as. Scalar legacy types keep
@@ -708,7 +707,7 @@ impl TableProvider for UserTableProvider {
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
-    ) -> DfResult<Arc<dyn ExecutionPlan>> {
+    ) -> ScanPlan {
         if let Some(lookup) = filters
             .iter()
             .find_map(|filter| secondary_lookup(filter, &self.schema))

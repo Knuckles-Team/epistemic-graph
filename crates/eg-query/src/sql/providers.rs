@@ -22,18 +22,19 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
-use datafusion::catalog::{Session, TableProvider};
-use datafusion::common::ScalarValue;
-use datafusion::datasource::MemTable;
-use datafusion::error::Result as DfResult;
-use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion::{
+    catalog::{Session, TableProvider},
+    common::ScalarValue,
+    datasource::MemTable,
+    error::Result as DfResult,
+    logical_expr::{Expr, TableProviderFilterPushDown, TableType},
+};
 use eg_core::graph::GraphView;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::Direction;
 use serde_json::Value;
 
-use super::filter_shape::{classify_pushdown, column_eq_literal};
+use super::filter_shape::{classify_pushdown, column_eq_literal, ScanPlan};
 
 /// Widening lattice for an inferred column type. `Null` means "seen only null /
 /// not yet seen"; anything wider wins on conflict, collapsing to `Utf8` for
@@ -481,7 +482,7 @@ impl TableProvider for EdgesTableProvider {
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
-    ) -> DfResult<Arc<dyn ExecutionPlan>> {
+    ) -> ScanPlan {
         let eq = EdgeEquality::from_filters(filters);
 
         // `src`, when pushed, is tried first (it also absorbs a co-pushed `dst`
@@ -845,7 +846,7 @@ impl TableProvider for NodesTableProvider {
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
-    ) -> DfResult<Arc<dyn ExecutionPlan>> {
+    ) -> ScanPlan {
         // Collect the indexable equality predicates DataFusion pushed down,
         // classified through the ONE pushdown registry (CONCEPT:AU-KG.retrieval.architecture-report).
         let preds: Vec<(String, IndexKey)> = filters

@@ -72,7 +72,6 @@ use datafusion::catalog::{Session, TableFunctionArgs, TableFunctionImpl, TablePr
 use datafusion::datasource::MemTable;
 use datafusion::error::{DataFusionError, Result as DfResult};
 use datafusion::logical_expr::{BinaryExpr, Expr, Operator, TableProviderFilterPushDown};
-use datafusion::physical_plan::ExecutionPlan;
 use datafusion::scalar::ScalarValue;
 use futures_util::TryStreamExt;
 use iceberg::expr::{Predicate, Reference};
@@ -81,7 +80,7 @@ use iceberg::{Catalog, CatalogBuilder, TableIdent};
 use iceberg_catalog_rest::RestCatalogBuilder;
 use iceberg_storage_opendal::OpenDalResolvingStorageFactory;
 
-use super::filter_shape::classify_pushdown;
+use super::filter_shape::{classify_pushdown, ScanPlan};
 
 /// REST catalog base URI (required; unset ⇒ `iceberg(...)` errors, never silently empty).
 pub const ICEBERG_FEDERATION_CATALOG_URI_ENV: &str =
@@ -383,7 +382,7 @@ impl TableProvider for IcebergTableProvider {
         projection: Option<&Vec<usize>>,
         pushed_exprs: &[Expr],
         limit: Option<usize>,
-    ) -> DfResult<Arc<dyn ExecutionPlan>> {
+    ) -> ScanPlan {
         let projected_schema = match projection {
             Some(indices) => Arc::new(self.schema.project(indices)?),
             None => self.schema.clone(),
