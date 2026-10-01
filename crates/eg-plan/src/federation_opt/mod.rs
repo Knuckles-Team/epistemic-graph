@@ -22,7 +22,9 @@
 
 mod budget;
 mod capability;
+mod engine;
 mod http;
+mod limiter;
 mod remote;
 mod run;
 mod session;
@@ -37,6 +39,7 @@ mod tests;
 pub use budget::{FederationBudget, BUDGET_EXCEEDED, REQUIRES_KEYS, RESULT_INCOMPLETE};
 pub use capability::{
     FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
+    SourceRate,
 };
 pub use session::FederationSession;
 pub use stats::{stats_snapshot, SourceStats};
