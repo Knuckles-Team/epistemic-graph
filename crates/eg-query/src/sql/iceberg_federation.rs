@@ -370,16 +370,10 @@ impl TableProvider for IcebergTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(filters
-            .iter()
-            .map(|f| {
-                if iceberg_predicate_for(f, &self.schema).is_some() {
-                    TableProviderFilterPushDown::Inexact
-                } else {
-                    TableProviderFilterPushDown::Unsupported
-                }
-            })
-            .collect())
+        use super::providers::classify_filters_pushdown;
+        Ok(classify_filters_pushdown(filters, |f| {
+            iceberg_predicate_for(f, &self.schema).is_some()
+        }))
     }
 
     async fn scan(

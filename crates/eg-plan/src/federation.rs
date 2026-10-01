@@ -580,20 +580,10 @@ impl ForeignSource for HttpJsonSource<'_> {
         }
 
         // Resolve exactly once, vet every answer, then pin the resulting socket list in
-        // ureq's per-call resolver. This closes the usual validate-then-resolve DNS
-        // rebinding gap. Environment proxies are disabled because routing a pinned
-        // request through an unvalidated implicit proxy would invalidate that guarantee.
+        // ureq's per-call resolver via the shared federation gate. This closes the usual
+        // validate-then-resolve DNS rebinding gap.
         let target = validate_http_json_target(self.url)?;
-        let pinned_addresses = target.addresses.clone();
-        let agent = ureq::AgentBuilder::new()
-            .try_proxy_from_env(false)
-            .resolver(
-                move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
-                    Ok(pinned_addresses.clone())
-                },
-            )
-            .https_only(target.https_only)
-            .redirects(0)
+        let agent = crate::federation_ssrf::pinned_agent_builder(&target)
             .timeout_connect(HTTP_JSON_CONNECT_TIMEOUT)
             .timeout_read(HTTP_JSON_IO_TIMEOUT)
             .timeout_write(HTTP_JSON_IO_TIMEOUT)

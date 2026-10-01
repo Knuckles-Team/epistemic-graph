@@ -492,23 +492,16 @@ impl ServiceClient {
 #[cfg(feature = "sparql-service")]
 impl eg_rdf::sparql::RemoteSparql for ServiceClient {
     fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String> {
-        use eg_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
+        use eg_plan::federation_ssrf::{
+            pinned_agent_builder, validate_outbound_http_target, OutboundAllowPolicy,
+        };
         use std::io::Read;
         let target = validate_outbound_http_target(
             endpoint,
             &self.allow,
             OutboundAllowPolicy::ExplicitOnly,
         )?;
-        let addresses = target.addresses.clone();
-        let agent = ureq::AgentBuilder::new()
-            .try_proxy_from_env(false)
-            .resolver(
-                move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
-                    Ok(addresses.clone())
-                },
-            )
-            .https_only(target.https_only)
-            .redirects(0)
+        let agent = pinned_agent_builder(&target)
             .timeout_connect(std::time::Duration::from_secs(Self::CONNECT_TIMEOUT_SECS))
             .timeout_read(std::time::Duration::from_secs(Self::READ_TIMEOUT_SECS))
             .build();

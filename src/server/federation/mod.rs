@@ -54,9 +54,7 @@ use tokio::sync::RwLock;
 
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
-use eg_plan::federation_ssrf::{
-    validate_outbound_http_target, OutboundAllowPolicy, ValidatedHttpJsonTarget,
-};
+use eg_plan::federation_ssrf::ValidatedHttpJsonTarget;
 
 /// Comma-separated peer engine base-URLs, e.g.
 /// `https://eg-eu.example:7900,https://eg-us.example:7900` (CONCEPT:EG-KG.ontology.federation-client).
@@ -239,6 +237,7 @@ impl PeerAllowlist {
     }
 
     fn check_target(&self, peer_url: &str) -> Result<ValidatedHttpJsonTarget, String> {
+        use eg_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
         validate_outbound_http_target(peer_url, &self.allow, OutboundAllowPolicy::PublicHttps)
     }
 }
@@ -255,18 +254,12 @@ fn fetch_one_peer(
     query: &str,
     lang: &str,
 ) -> Result<Vec<FedRow>, String> {
+    use eg_plan::federation_ssrf::pinned_agent_builder;
     use std::io::Read;
     let target = allow.check_target(peer)?;
     let endpoint = format!("{peer}/federated?local=1");
     let body = serde_json::json!({ "query": query, "lang": lang }).to_string();
-    let addresses = target.addresses;
-    let agent = ureq::AgentBuilder::new()
-        .try_proxy_from_env(false)
-        .resolver(
-            move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> { Ok(addresses.clone()) },
-        )
-        .https_only(target.https_only)
-        .redirects(0)
+    let agent = pinned_agent_builder(&target)
         .timeout_connect(Duration::from_secs(CONNECT_TIMEOUT_SECS))
         .timeout_read(Duration::from_secs(READ_TIMEOUT_SECS))
         .build();
