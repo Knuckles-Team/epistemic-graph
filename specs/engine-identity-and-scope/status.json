@@ -2,8 +2,46 @@
   "schema_version": 1,
   "spec_id": "EG-IDENTITY-001",
   "owner_repo": "epistemic-graph",
-  "requirement_ids": ["EH-538", "EH-539", "EH-540", "EH-541"],
+  "requirement_ids": [
+    "EG-IDENTITY-R001",
+    "EG-IDENTITY-R002",
+    "EG-IDENTITY-R003",
+    "EG-IDENTITY-R004",
+    "EG-IDENTITY-R005"
+  ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-IDENTITY-R001",
+      "title": "Multi-issuer OIDC trust list with per-issuer kind limits",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-IDENTITY-R002",
+      "title": "Identity and RBAC writes recompute roles and audit atomically",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-IDENTITY-R003",
+      "title": "Identity mode is a durable singleton with CAS transition",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-IDENTITY-R004",
+      "title": "Generated scope registry classifies every capability scope",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-IDENTITY-R005",
+      "title": "Semantic workers use one identity across queue classes",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

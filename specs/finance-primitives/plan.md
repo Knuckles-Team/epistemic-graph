@@ -2,11 +2,11 @@
 
 ## Sequence
 
-1. **Contract foundation (EH-698, EH-700).** Add typed versioned records, ontology and SHACL shapes, temporal revision resolution and session/calendar semantics. Review migration of existing asset-class values. Generate clients and prove old `FinanceMarket` decoding.
-2. **Accounting authority (EH-699, EH-715).** Implement one fixed-point event-to-lot projection, valuation join and return kernels. Add independent vectors and property tests before exposing a public projection method. Reconcile imported activities against statement fixtures.
-3. **Strategy/evidence authority (EH-702, EH-703).** Implement immutable strategy specs and deterministic proposal evaluation. Feed run provenance into the existing sealed `BacktestRun`; calculate validation from the same split matrix and compare common horizons/costs.
-4. **Advisory and risk (EH-704, EH-706).** Add calibrated abstention and scorecards, seal `AnalysisSnapshot`, and implement leverage scenarios with explicit product/policy terms. Audit that no result acts as an order authorization.
-5. **Events and optional attached source (EH-712, EH-714).** Extend the finance event family with stable IDs and atomic outbox state. Qualify the optional read-only importer against disposable fixtures after account identity and revision contracts are stable.
+1. **Contract foundation (EG-FINANCE-PRIMITIVES-R004, EG-FINANCE-PRIMITIVES-R006).** Add typed versioned records, ontology and SHACL shapes, temporal revision resolution and session/calendar semantics. Review migration of existing asset-class values. Generate clients and prove old `FinanceMarket` decoding.
+2. **Accounting authority (EG-FINANCE-PRIMITIVES-R005, EG-FINANCE-PRIMITIVES-R013).** Implement one fixed-point event-to-lot projection, valuation join and return kernels. Add independent vectors and property tests before exposing a public projection method. Reconcile imported activities against statement fixtures.
+3. **Strategy/evidence authority (EG-FINANCE-PRIMITIVES-R007, EG-FINANCE-PRIMITIVES-R008).** Implement immutable strategy specs and deterministic proposal evaluation. Feed run provenance into the existing sealed `BacktestRun`; calculate validation from the same split matrix and compare common horizons/costs.
+4. **Advisory and risk (EG-FINANCE-PRIMITIVES-R009, EG-FINANCE-PRIMITIVES-R010).** Add calibrated abstention and scorecards, seal `AnalysisSnapshot`, and implement leverage scenarios with explicit product/policy terms. Audit that no result acts as an order authorization.
+5. **Events and optional attached source (EG-FINANCE-PRIMITIVES-R011, EG-FINANCE-PRIMITIVES-R012).** Extend the finance event family with stable IDs and atomic outbox state. Qualify the optional read-only importer against disposable fixtures after account identity and revision contracts are stable.
 6. **Final qualification.** Run the matrix in `test-spec.md` at an exact main head and add per-ID evidence. Publish a new contract version only after generated clients and compatibility tests are green.
 
 ## Decisions to resolve before implementation

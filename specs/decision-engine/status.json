@@ -3,128 +3,1325 @@
   "spec_id": "EG-DECISION-ENGINE",
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
-    "EH-001",
-    "EH-002",
-    "EH-003",
-    "EH-004",
-    "EH-005",
-    "EH-006",
-    "EH-007",
-    "EH-008",
-    "EH-009",
-    "EH-010",
-    "EH-011",
-    "EH-012",
-    "EH-013",
-    "EH-014",
-    "EH-015",
-    "EH-016",
-    "EH-017",
-    "EH-018",
-    "EH-019",
-    "EH-020",
-    "EH-021",
-    "EH-022",
-    "EH-023",
-    "EH-024",
-    "EH-025",
-    "EH-026",
-    "EH-027",
-    "EH-028",
-    "EH-029",
-    "EH-030",
-    "EH-031",
-    "EH-032",
-    "EH-033",
-    "EH-034",
-    "EH-035",
-    "EH-036",
-    "EH-037",
-    "EH-038",
-    "EH-039",
-    "EH-040",
-    "EH-041",
-    "EH-042",
-    "EH-043",
-    "EH-044",
-    "EH-045",
-    "EH-048",
-    "EH-049",
-    "EH-050",
-    "EH-051",
-    "EH-052",
-    "EH-053",
-    "EH-054",
-    "EH-055",
-    "EH-056",
-    "EH-057",
-    "EH-058",
-    "EH-059",
-    "EH-060",
-    "EH-061",
-    "EH-062",
-    "EH-063",
-    "EH-064",
-    "EH-065",
-    "EH-066",
-    "EH-067",
-    "EH-068",
-    "EH-069",
-    "EH-070",
-    "EH-071",
-    "EH-072",
-    "EH-073",
-    "EH-074",
-    "EH-076",
-    "EH-105",
-    "EH-111",
-    "EH-193",
-    "EH-241",
-    "EH-242",
-    "EH-269",
-    "EH-270",
-    "EH-284",
-    "EH-291",
-    "EH-292",
-    "EH-293",
-    "EH-294",
-    "EH-295",
-    "EH-296",
-    "EH-297",
-    "EH-298",
-    "EH-299",
-    "EH-300",
-    "EH-301",
-    "EH-302",
-    "EH-303",
-    "EH-310",
-    "EH-314",
-    "EH-320",
-    "EH-350",
-    "EH-362",
-    "EH-395",
-    "EH-396",
-    "EH-403",
-    "EH-417",
-    "EH-452",
-    "EH-453",
-    "EH-454",
-    "EH-455",
-    "EH-456",
-    "EH-457",
-    "EH-458",
-    "EH-459",
-    "EH-460",
-    "EH-461",
-    "EH-462",
-    "EH-463",
-    "EH-493",
-    "EH-522",
-    "EH-525",
-    "EH-528",
-    "EH-586"
+    "EG-DECISION-ENGINE-R001",
+    "EG-DECISION-ENGINE-R002",
+    "EG-DECISION-ENGINE-R003",
+    "EG-DECISION-ENGINE-R004",
+    "EG-DECISION-ENGINE-R005",
+    "EG-DECISION-ENGINE-R006",
+    "EG-DECISION-ENGINE-R007",
+    "EG-DECISION-ENGINE-R008",
+    "EG-DECISION-ENGINE-R009",
+    "EG-DECISION-ENGINE-R010",
+    "EG-DECISION-ENGINE-R011",
+    "EG-DECISION-ENGINE-R012",
+    "EG-DECISION-ENGINE-R013",
+    "EG-DECISION-ENGINE-R014",
+    "EG-DECISION-ENGINE-R015",
+    "EG-DECISION-ENGINE-R016",
+    "EG-DECISION-ENGINE-R017",
+    "EG-DECISION-ENGINE-R018",
+    "EG-DECISION-ENGINE-R019",
+    "EG-DECISION-ENGINE-R020",
+    "EG-DECISION-ENGINE-R021",
+    "EG-DECISION-ENGINE-R022",
+    "EG-DECISION-ENGINE-R023",
+    "EG-DECISION-ENGINE-R024",
+    "EG-DECISION-ENGINE-R025",
+    "EG-DECISION-ENGINE-R026",
+    "EG-DECISION-ENGINE-R027",
+    "EG-DECISION-ENGINE-R028",
+    "EG-DECISION-ENGINE-R029",
+    "EG-DECISION-ENGINE-R030",
+    "EG-DECISION-ENGINE-R031",
+    "EG-DECISION-ENGINE-R032",
+    "EG-DECISION-ENGINE-R033",
+    "EG-DECISION-ENGINE-R034",
+    "EG-DECISION-ENGINE-R035",
+    "EG-DECISION-ENGINE-R036",
+    "EG-DECISION-ENGINE-R037",
+    "EG-DECISION-ENGINE-R038",
+    "EG-DECISION-ENGINE-R039",
+    "EG-DECISION-ENGINE-R040",
+    "EG-DECISION-ENGINE-R041",
+    "EG-DECISION-ENGINE-R042",
+    "EG-DECISION-ENGINE-R043",
+    "EG-DECISION-ENGINE-R044",
+    "EG-DECISION-ENGINE-R045",
+    "EG-DECISION-ENGINE-R046",
+    "EG-DECISION-ENGINE-R047",
+    "EG-DECISION-ENGINE-R048",
+    "EG-DECISION-ENGINE-R049",
+    "EG-DECISION-ENGINE-R050",
+    "EG-DECISION-ENGINE-R051",
+    "EG-DECISION-ENGINE-R052",
+    "EG-DECISION-ENGINE-R053",
+    "EG-DECISION-ENGINE-R054",
+    "EG-DECISION-ENGINE-R055",
+    "EG-DECISION-ENGINE-R056",
+    "EG-DECISION-ENGINE-R057",
+    "EG-DECISION-ENGINE-R058",
+    "EG-DECISION-ENGINE-R059",
+    "EG-DECISION-ENGINE-R060",
+    "EG-DECISION-ENGINE-R061",
+    "EG-DECISION-ENGINE-R062",
+    "EG-DECISION-ENGINE-R063",
+    "EG-DECISION-ENGINE-R064",
+    "EG-DECISION-ENGINE-R065",
+    "EG-DECISION-ENGINE-R066",
+    "EG-DECISION-ENGINE-R067",
+    "EG-DECISION-ENGINE-R068",
+    "EG-DECISION-ENGINE-R069",
+    "EG-DECISION-ENGINE-R070",
+    "EG-DECISION-ENGINE-R071",
+    "EG-DECISION-ENGINE-R072",
+    "EG-DECISION-ENGINE-R073",
+    "EG-DECISION-ENGINE-R074",
+    "EG-DECISION-ENGINE-R075",
+    "EG-DECISION-ENGINE-R076",
+    "EG-DECISION-ENGINE-R077",
+    "EG-DECISION-ENGINE-R078",
+    "EG-DECISION-ENGINE-R079",
+    "EG-DECISION-ENGINE-R080",
+    "EG-DECISION-ENGINE-R081",
+    "EG-DECISION-ENGINE-R082",
+    "EG-DECISION-ENGINE-R083",
+    "EG-DECISION-ENGINE-R084",
+    "EG-DECISION-ENGINE-R085",
+    "EG-DECISION-ENGINE-R086",
+    "EG-DECISION-ENGINE-R087",
+    "EG-DECISION-ENGINE-R088",
+    "EG-DECISION-ENGINE-R089",
+    "EG-DECISION-ENGINE-R090",
+    "EG-DECISION-ENGINE-R091",
+    "EG-DECISION-ENGINE-R092",
+    "EG-DECISION-ENGINE-R093",
+    "EG-DECISION-ENGINE-R094",
+    "EG-DECISION-ENGINE-R095",
+    "EG-DECISION-ENGINE-R096",
+    "EG-DECISION-ENGINE-R097",
+    "EG-DECISION-ENGINE-R098",
+    "EG-DECISION-ENGINE-R099",
+    "EG-DECISION-ENGINE-R100",
+    "EG-DECISION-ENGINE-R101",
+    "EG-DECISION-ENGINE-R102",
+    "EG-DECISION-ENGINE-R103",
+    "EG-DECISION-ENGINE-R104",
+    "EG-DECISION-ENGINE-R105",
+    "EG-DECISION-ENGINE-R106",
+    "EG-DECISION-ENGINE-R107",
+    "EG-DECISION-ENGINE-R108",
+    "EG-DECISION-ENGINE-R109",
+    "EG-DECISION-ENGINE-R110",
+    "EG-DECISION-ENGINE-R111",
+    "EG-DECISION-ENGINE-R112",
+    "EG-DECISION-ENGINE-R113",
+    "EG-DECISION-ENGINE-R114",
+    "EG-DECISION-ENGINE-R115",
+    "EG-DECISION-ENGINE-R116",
+    "EG-DECISION-ENGINE-R117",
+    "EG-DECISION-ENGINE-R118",
+    "EG-DECISION-ENGINE-R119",
+    "EG-DECISION-ENGINE-R120",
+    "EG-DECISION-ENGINE-R121",
+    "EG-DECISION-ENGINE-R122",
+    "EG-DECISION-ENGINE-R123",
+    "EG-DECISION-ENGINE-R124",
+    "EG-DECISION-ENGINE-R125"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-DECISION-ENGINE-R001",
+      "title": "Typed decision ladder with explicit resolution kinds",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R002",
+      "title": "Evidence class recorded on every decision record",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R003",
+      "title": "Derivation records for entailed answers",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R004",
+      "title": "Independently verifiable 0-1 integer solver certificate",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R005",
+      "title": "Conformal and risk-controlled statistical guarantees",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R006",
+      "title": "Off-policy evaluation gated on effective sample size",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R007",
+      "title": "Deterministic cross-target replay of committed decision records",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R008",
+      "title": "Why-chosen and why-not explanations for solved assemblies",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R009",
+      "title": "Learned ranking stays monotone with respect to safety",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R010",
+      "title": "Typed abstention reason for unmet capability",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R011",
+      "title": "Work-budgeted search without an arbitrary result cap",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R012",
+      "title": "Shared slate crediting across multiple questions",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R013",
+      "title": "Tenant-visibility filtering before feature computation",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R014",
+      "title": "Composition solved as bounded constraint optimization",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R015",
+      "title": "No generative model weights inside the decision engine",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R016",
+      "title": "Training restricted to independently evaluated outcomes",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R017",
+      "title": "Single write authority per durable decision state kind",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R018",
+      "title": "Unknown facts never default to zero in the solver",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R019",
+      "title": "Decision commit re-derives and verifies before writing",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R020",
+      "title": "Bounded, keyed exploration excluded from sensitive questions",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R021",
+      "title": "Versioned feature schema for decision candidates",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R022",
+      "title": "Separation of full-label and bandit-label training regimes",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R023",
+      "title": "Hierarchical pooling of outcome statistics with a minimum-sample gate",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R024",
+      "title": "Multi-class and binary calibration utilities",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R025",
+      "title": "Drift detection via out-of-distribution checks and adaptive conformal bounds",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R026",
+      "title": "Inverse-probability-weighted audit sampling of acted decisions",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R027",
+      "title": "WeightedFeatures and ListwiseLogistic fitted decision heads",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R028",
+      "title": "Natural-language template routing without a generative model",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R029",
+      "title": "Decision-based retrieval-plan selection",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R030",
+      "title": "Decision-based ingestion path routing",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R031",
+      "title": "Expected-value scheduling for enrichment work",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R032",
+      "title": "Entity-resolution candidates with conformal guarantees",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R033",
+      "title": "Decision-based schema mapping for SQL sources",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R034",
+      "title": "Proposal-only contradiction-handling suggestions",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R035",
+      "title": "Decision-based routing for execution configuration",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036",
+      "title": "graph.assemble() as the authority for agent composition",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R037",
+      "title": "Escalated abstentions re-enter as claims",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R038",
+      "title": "Advisory pre-tool risk scoring",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R039",
+      "title": "Cost-aware routing using accounting data",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R040",
+      "title": "Guarded promotion of fitted heads via publish receipt",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R041",
+      "title": "Connector event triage through Decide",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R042",
+      "title": "Connector tool-choice advisory via Decide",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R043",
+      "title": "Write-back proposals routed through Decide",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R044",
+      "title": "A2A task routing through the decision ladder",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R045",
+      "title": "Smallest covering tool subset within a context budget",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R046",
+      "title": "Swarm topology decisions via the decision ladder",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R047",
+      "title": "DecisionRecord v1 contract: types and methods",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R048",
+      "title": "Entailment derivation with weakest-premise evidence class",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R049",
+      "title": "Exact 0-1 solver with certificate and verifier",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R050",
+      "title": "Typed optional model and tool facts",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R051",
+      "title": "AgentAssemble and DecisionCommit handlers with audit lines",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R052",
+      "title": "Routing acceptance fixture with golden vectors",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R053",
+      "title": "Gold set of labelled requirement-to-assembly items",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R054",
+      "title": "Statistical contract: Decide, DecisionFit, DecisionEval",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R055",
+      "title": "Pinned deterministic numeric stack for calibration",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R056",
+      "title": "Statistical-path release of the exact solver",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R057",
+      "title": "Decision executor with CandidateSource and DecideText",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R058",
+      "title": "Graph-sourced decision records with RLS-routed reads",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R059",
+      "title": "Outcome aggregate with independent-evaluation join",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R060",
+      "title": "DecisionFit and DecisionEval jobs with gated promotion",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R061",
+      "title": "Assembly facts extended for the statistical path",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R062",
+      "title": "NlTemplate selection without a language model",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R063",
+      "title": "Typed client wrappers and documentation for Decide",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R064",
+      "title": "Optional read views of decision records",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R065",
+      "title": "Decision record size and shape limits",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R066",
+      "title": "Retention split between library and graph-sourced records",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R067",
+      "title": "Decision record versioning stays decodable",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R068",
+      "title": "Outcome link via the existing synthesis-evidence pin",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R069",
+      "title": "DecisionShape enforcement inside the commit handler",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R070",
+      "title": "Bounded no-good-cut re-solve for post-solve validators",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R071",
+      "title": "DecideText parser kept separate from the UQL core",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R072",
+      "title": "Decision observability spans and metrics",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073",
+      "title": "Decision-owned storage tables and outbox events",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R074",
+      "title": "Agent-slot component-kind closure rule kept current",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R075",
+      "title": "Component-id uniqueness and forbidden decision kinds",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R076",
+      "title": "Opt-in nested models for decision result markers",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R077",
+      "title": "Component schema version bump to add decision kinds",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R078",
+      "title": "Contract freeze reissued with the decide feature",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079",
+      "title": "Per-unit embedding admission classifier for ingestion",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R080",
+      "title": "Ingestion cost ladder with provenance rungs",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R081",
+      "title": "Confidence-weighted community detection excluding similarity edges",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R082",
+      "title": "Single-pass option-marker scoring head for Decide",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R083",
+      "title": "Options encode structured facts, not option-label text",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R084",
+      "title": "Conformal calibration as primary rung over temperature scaling",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R085",
+      "title": "Legal option sets are derived from the ontology, never received as-is",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R086",
+      "title": "DecisionFit promotion protocol reports nine metrics",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R087",
+      "title": "Scorer always receives a bounded shortlist, never a full catalog",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R088",
+      "title": "Belief-as-of-t exposed as a Decide primitive over prefixes",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R089",
+      "title": "Learned ranking never replaces the constraint-first decision ladder",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R090",
+      "title": "Resident native decision-scorer head in eg-decision",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R091",
+      "title": "Resident scorer is bit-reproducible via fixed-point arithmetic",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R092",
+      "title": "Scorer selection and structured encoding apply ladder-wide",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R093",
+      "title": "Resident scorer is trained from the served synthetic-episode generator",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R094",
+      "title": "Decision scoring requires no GPU or model-server dependency",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R095",
+      "title": "Solver certificate digest matches its committed golden vector",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R096",
+      "title": "Community-detection wire contract carries edge weight and quality function",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R097",
+      "title": "Replay-nonce rejection and blob GC grace period behave correctly",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R098",
+      "title": "Decide ladder excludes generative free-text models by design",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R099",
+      "title": "Wikidata alignment connector supplies entity-resolution keys",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100",
+      "title": "Retrieval decisions join cited evidence with independent outcomes",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R101",
+      "title": "Query-side embedding adapter head promoted via DecisionEval",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R102",
+      "title": "Schema repair proposals pass a decided mapping and shadow-branch check",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R103",
+      "title": "Calibrated per-horizon flip confidence with conformal abstention",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R104",
+      "title": "DecideText shares the UQL lexer and grammar family",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R105",
+      "title": "GraphSchema.attach publishes the swarm-topology ontology",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R106",
+      "title": "AgentGraph templates carry topology facts for standard shapes",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R107",
+      "title": "Typed topology contract in eg-types with versioned goldens",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R108",
+      "title": "Publish-time topology-shape validation fails closed",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R109",
+      "title": "OWL entailment derives topology admissibility before assembly",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R110",
+      "title": "Topology optimization model rows with a brute-force oracle",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R111",
+      "title": "Decide exposes the topology decision as a single typed question",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R112",
+      "title": "Capacity premise derives headroom observations by priority",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113",
+      "title": "EG commits capacity acquisition atomically with synthesis evidence",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R114",
+      "title": "Subagent allowance negotiation reads EG's topology facts",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R115",
+      "title": "Continuation decisions are evaluate-only and narrow-only",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R116",
+      "title": "Consumers reach EG only through the versioned client contract",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R117",
+      "title": "DERIVE series functions share one incremental kernel",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3f3f2d9fa39fcf9d2dbfcf2bd191741a09098b76",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3f3f2d9fa39fcf9d2dbfcf2bd191741a09098b76",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R118",
+      "title": "Reputation view backs source reliability across all readers",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "967a941c34b361a57ee1aa4b3ba5e91eeab409ac",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/967a941c34b361a57ee1aa4b3ba5e91eeab409ac",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R119",
+      "title": "Walk-forward replay seals deflated Sharpe and PBO evidence",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R120",
+      "title": "Admission anchors are limited to persisted write paths",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3459620276d6fe861b2abfaee0613d4d36bf555d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3459620276d6fe861b2abfaee0613d4d36bf555d",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R121",
+      "title": "Typed Claim and Evidence structures back evidence class",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R122",
+      "title": "Synthetic decision data stays separate from calibration",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R123",
+      "title": "Solve DTOs canonical in eg-types, no duplicate copies",
+      "delivery_state": "CLOSED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a4804f87c9718270cd9b1094d800df176d6ad7b3",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R124",
+      "title": "eg-numeric statistical kernel tests compile and run",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R125",
+      "title": "Telemetry binds to ontology entities as BehaviourObservation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

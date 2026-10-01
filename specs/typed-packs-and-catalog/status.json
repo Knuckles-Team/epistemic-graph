@@ -3,97 +3,922 @@
   "spec_id": "EG-TYPED-PACKS",
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
-    "EH-075",
-    "EH-077",
-    "EH-078",
-    "EH-079",
-    "EH-080",
-    "EH-081",
-    "EH-082",
-    "EH-083",
-    "EH-084",
-    "EH-085",
-    "EH-086",
-    "EH-087",
-    "EH-088",
-    "EH-089",
-    "EH-090",
-    "EH-091",
-    "EH-092",
-    "EH-093",
-    "EH-094",
-    "EH-095",
-    "EH-096",
-    "EH-106",
-    "EH-107",
-    "EH-108",
-    "EH-109",
-    "EH-110",
-    "EH-112",
-    "EH-113",
-    "EH-114",
-    "EH-115",
-    "EH-116",
-    "EH-117",
-    "EH-118",
-    "EH-120",
-    "EH-121",
-    "EH-122",
-    "EH-123",
-    "EH-124",
-    "EH-125",
-    "EH-126",
-    "EH-127",
-    "EH-128",
-    "EH-129",
-    "EH-130",
-    "EH-131",
-    "EH-132",
-    "EH-133",
-    "EH-134",
-    "EH-135",
-    "EH-136",
-    "EH-137",
-    "EH-145",
-    "EH-146",
-    "EH-148",
-    "EH-149",
-    "EH-150",
-    "EH-151",
-    "EH-152",
-    "EH-153",
-    "EH-154",
-    "EH-164",
-    "EH-166",
-    "EH-167",
-    "EH-198",
-    "EH-199",
-    "EH-200",
-    "EH-201",
-    "EH-237",
-    "EH-266",
-    "EH-280",
-    "EH-324",
-    "EH-337",
-    "EH-345",
-    "EH-364",
-    "EH-370",
-    "EH-371",
-    "EH-376",
-    "EH-389",
-    "EH-394",
-    "EH-413",
-    "EH-440",
-    "EH-504",
-    "EH-506",
-    "EH-510",
-    "EH-536",
-    "EH-537",
-    "EH-587",
-    "EH-591",
-    "EH-635"
+    "EG-TYPED-PACKS-R001",
+    "EG-TYPED-PACKS-R002",
+    "EG-TYPED-PACKS-R003",
+    "EG-TYPED-PACKS-R004",
+    "EG-TYPED-PACKS-R005",
+    "EG-TYPED-PACKS-R006",
+    "EG-TYPED-PACKS-R007",
+    "EG-TYPED-PACKS-R008",
+    "EG-TYPED-PACKS-R009",
+    "EG-TYPED-PACKS-R010",
+    "EG-TYPED-PACKS-R011",
+    "EG-TYPED-PACKS-R012",
+    "EG-TYPED-PACKS-R013",
+    "EG-TYPED-PACKS-R014",
+    "EG-TYPED-PACKS-R015",
+    "EG-TYPED-PACKS-R016",
+    "EG-TYPED-PACKS-R017",
+    "EG-TYPED-PACKS-R018",
+    "EG-TYPED-PACKS-R019",
+    "EG-TYPED-PACKS-R020",
+    "EG-TYPED-PACKS-R021",
+    "EG-TYPED-PACKS-R022",
+    "EG-TYPED-PACKS-R023",
+    "EG-TYPED-PACKS-R024",
+    "EG-TYPED-PACKS-R025",
+    "EG-TYPED-PACKS-R026",
+    "EG-TYPED-PACKS-R027",
+    "EG-TYPED-PACKS-R028",
+    "EG-TYPED-PACKS-R029",
+    "EG-TYPED-PACKS-R030",
+    "EG-TYPED-PACKS-R031",
+    "EG-TYPED-PACKS-R032",
+    "EG-TYPED-PACKS-R033",
+    "EG-TYPED-PACKS-R034",
+    "EG-TYPED-PACKS-R035",
+    "EG-TYPED-PACKS-R036",
+    "EG-TYPED-PACKS-R037",
+    "EG-TYPED-PACKS-R038",
+    "EG-TYPED-PACKS-R039",
+    "EG-TYPED-PACKS-R040",
+    "EG-TYPED-PACKS-R041",
+    "EG-TYPED-PACKS-R042",
+    "EG-TYPED-PACKS-R043",
+    "EG-TYPED-PACKS-R044",
+    "EG-TYPED-PACKS-R045",
+    "EG-TYPED-PACKS-R046",
+    "EG-TYPED-PACKS-R047",
+    "EG-TYPED-PACKS-R048",
+    "EG-TYPED-PACKS-R049",
+    "EG-TYPED-PACKS-R050",
+    "EG-TYPED-PACKS-R051",
+    "EG-TYPED-PACKS-R052",
+    "EG-TYPED-PACKS-R053",
+    "EG-TYPED-PACKS-R054",
+    "EG-TYPED-PACKS-R055",
+    "EG-TYPED-PACKS-R056",
+    "EG-TYPED-PACKS-R057",
+    "EG-TYPED-PACKS-R058",
+    "EG-TYPED-PACKS-R059",
+    "EG-TYPED-PACKS-R060",
+    "EG-TYPED-PACKS-R061",
+    "EG-TYPED-PACKS-R062",
+    "EG-TYPED-PACKS-R063",
+    "EG-TYPED-PACKS-R064",
+    "EG-TYPED-PACKS-R065",
+    "EG-TYPED-PACKS-R066",
+    "EG-TYPED-PACKS-R067",
+    "EG-TYPED-PACKS-R068",
+    "EG-TYPED-PACKS-R069",
+    "EG-TYPED-PACKS-R070",
+    "EG-TYPED-PACKS-R071",
+    "EG-TYPED-PACKS-R072",
+    "EG-TYPED-PACKS-R073",
+    "EG-TYPED-PACKS-R074",
+    "EG-TYPED-PACKS-R075",
+    "EG-TYPED-PACKS-R076",
+    "EG-TYPED-PACKS-R077",
+    "EG-TYPED-PACKS-R078",
+    "EG-TYPED-PACKS-R079",
+    "EG-TYPED-PACKS-R080",
+    "EG-TYPED-PACKS-R081",
+    "EG-TYPED-PACKS-R082",
+    "EG-TYPED-PACKS-R083",
+    "EG-TYPED-PACKS-R084",
+    "EG-TYPED-PACKS-R085",
+    "EG-TYPED-PACKS-R086",
+    "EG-TYPED-PACKS-R087",
+    "EG-TYPED-PACKS-R088",
+    "EG-TYPED-PACKS-R089",
+    "EG-TYPED-PACKS-R090",
+    "EG-TYPED-PACKS-R091",
+    "EG-TYPED-PACKS-R092",
+    "EG-TYPED-PACKS-R093",
+    "EG-TYPED-PACKS-R094",
+    "EG-TYPED-PACKS-R095",
+    "EG-TYPED-PACKS-R096"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-TYPED-PACKS-R001",
+      "title": "Connector pack contract types and golden digest vectors",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002",
+      "title": "Engine-owned body storage with guarded refcounts and reconciliation",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "dcc5d53c04f935395d3e3394aad8b23c87097f69",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/dcc5d53c04f935395d3e3394aad8b23c87097f69",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R003",
+      "title": "Import boundary enforces archive integrity, importer binding and G1-G21",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R004",
+      "title": "Python ConnectorPackClient with a deterministic import key",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R005",
+      "title": "Acceptance suite for pack mutation, crash, authorization and tenancy",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R006",
+      "title": "Outbox-driven pack projection with a visibility readiness gate",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R007",
+      "title": "Admin-controlled pack importer binding and entry retirement",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R008",
+      "title": "Blob content-addressed store garbage-collection hardening",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R009",
+      "title": "Projection readiness gates reader visibility",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R010",
+      "title": "Import is a single atomic operation, not a staged protocol",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R011",
+      "title": "Incompatible Agent Library storage is refused, not upgraded",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R012",
+      "title": "Pack and agent-layer write methods are local-only in clustered mode",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R013",
+      "title": "Capability IRI validation distinguishes native errors from claims",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R014",
+      "title": "Absent entries become reversible Withdrawn, not retired",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R015",
+      "title": "Importer authority is admin-bound, with environment value as bootstrap only",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R016",
+      "title": "Server pin follows declared contract, not package version",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R017",
+      "title": "Release scope excludes an offline Agent Library upgrade path",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R018",
+      "title": "Body reads use AgentComponent.Content, not a pack-specific method",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R019",
+      "title": "Only SKILL.md is imported as skill content",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R020",
+      "title": "A tenant-profile administrative capability defect is out of EG scope",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R021",
+      "title": "Cross-cutting import-safety defects are release-gate obligations",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R022",
+      "title": "Pack index well-formedness validation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R023",
+      "title": "Pack size bounds across index, entries, archive and body",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R024",
+      "title": "Archive presence, length and digest integrity",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R025",
+      "title": "Archive section layout and offset correctness",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R026",
+      "title": "Section, entry and pack digest recomputation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R027",
+      "title": "Text body UTF-8 validity without a byte-order mark",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R028",
+      "title": "Bounded JSON body and schema validation",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R029",
+      "title": "SKILL.md front-matter validation",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R030",
+      "title": "Tool entries require an input schema",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R031",
+      "title": "Empty description falls back to the entry name",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R032",
+      "title": "Capability, cost, latency and model annotation validation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R033",
+      "title": "Bounded Turtle parsing for ontology and shapes",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R034",
+      "title": "Shape blank-node scoping and SPARQL-backed constraint rejection",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R035",
+      "title": "Step-bounded SHACL cross-validation against the ontology",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R036",
+      "title": "Sibling reference resolution without cycles",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R037",
+      "title": "Server-stamped draft validation before commit",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R038",
+      "title": "Import requires a matching bound importer identity",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R039",
+      "title": "Mass-withdrawal guard requires an explicit admin override",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R040",
+      "title": "Validation stops at a bounded violation count",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R041",
+      "title": "Write-time refusal codes for pack import conflicts",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R042",
+      "title": "Typed capability annotations: provides and requires_capabilities",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R043",
+      "title": "Modality annotations on pack entries",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R044",
+      "title": "EG-computed tool schema digests",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045",
+      "title": "MCP ToolAnnotations hints captured as pack facts",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R046",
+      "title": "Cost annotation on pack entries",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R047",
+      "title": "Latency annotation on pack entries",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R048",
+      "title": "ModelProfile cost, latency, modality and capability facts",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R049",
+      "title": "contract_pin is carried as an opaque SDK claim",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R050",
+      "title": "Per-entry contract_version replaces package-version pinning",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R051",
+      "title": "Composable per-graph schema source sets",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R052",
+      "title": "No pack-specific stand-in for pending schema authority",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R053",
+      "title": "Visible-staleness snapshot for non-pack schema attach",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R054",
+      "title": "One topic per Agent Library outbox consumer",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R055",
+      "title": "Outbox retry never collateral dead-letters unrelated events",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R056",
+      "title": "Owner-layout refusal happens at the manifest read",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R057",
+      "title": "Ontology withdrawal removes a whole source, not per-triple",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R058",
+      "title": "One shared derivation-step budget bounds EL+/RL reasoning",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R059",
+      "title": "Schema attach validates only newly introduced data",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R060",
+      "title": "Manifest-read refusal precedes dependent import paths",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R061",
+      "title": "Bounded schema source catalog: 32 sources, 8 MiB",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R062",
+      "title": "GraphSchema replicates through the existing GraphState route",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R063",
+      "title": "Agent-layer row types affected by a schema bump are enumerated",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R064",
+      "title": "Output-schema digest recorded on tool pins",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R065",
+      "title": "EG does not recompute the SDK's contract-pin normalization",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R066",
+      "title": "OWL/rule classification over model and capability facts",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R067",
+      "title": "Coordinated contract regeneration for new library methods",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R068",
+      "title": "Contract regeneration packages the complete generated set",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R069",
+      "title": "Branch-aware, blob-deduplicated repository indexing",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R070",
+      "title": "Committed contract artifacts match generated content, not size",
+      "delivery_state": "CLOSED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071",
+      "title": "Generated core ontology corpus as GraphSchema authority",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R072",
+      "title": "EG/SDK typed fleet-catalog authority, not SQL tables",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R073",
+      "title": "Raise the core schema source bound to 64 and split world_model",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R074",
+      "title": "Least-privilege, per-pack projection grant with recorded failure",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R075",
+      "title": "Landing gate runs the full integration test suite",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R076",
+      "title": "Signal-killed test binaries are detected and rerun in isolation",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R077",
+      "title": "GraphSchemaClasses exposes canonical class and property names",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R078",
+      "title": "Proven retrieval plan templates keyed by task class and digest",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R079",
+      "title": "Typed OHLCV bar-series contract",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R080",
+      "title": "Exhaustive OpKind/PredKind printer and parser contract",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R081",
+      "title": "Ontology object model migrated into EG's kg/ontology package",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R082",
+      "title": "EG-generated types replace hand-written graph-schema DTOs",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R083",
+      "title": "Schema-drift SHACL rendering and contract store move into EG",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R084",
+      "title": "Request deadlines propagate into long-running pack operations",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085",
+      "title": "Identity domain operations with Argon2id and redacted views",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R086",
+      "title": "Planted derivation-budget and malformed-path cases are refused",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6e04045f6c62c38669a51c43c4498f959fd6881a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6e04045f6c62c38669a51c43c4498f959fd6881a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R087",
+      "title": "Stable error codes for auth-boundary refusals",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R088",
+      "title": "Embedded engine enforces graph-level access control",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "b17a1890684d34e4a70ddc96f0844c36b1a8e06a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b17a1890684d34e4a70ddc96f0844c36b1a8e06a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R089",
+      "title": "Blob-layout table for pack body holder rows",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R090",
+      "title": "Canonical ontology and SHACL artifacts generated from Rust",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R091",
+      "title": "Food composition and nutrient reference types",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R092",
+      "title": "Python client idempotency key excludes the request ID",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R093",
+      "title": "Turtle parser blank-node identities do not collide",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094",
+      "title": "AgentComponent.content serves pack body bytes directly",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R095",
+      "title": "GraphSchema attach exposes snapshot staleness",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f4744679fab0f36cc05448879d76a377f1f0db9e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f4744679fab0f36cc05448879d76a377f1f0db9e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R096",
+      "title": "Connector-pack reprojection with bounded, isolated aggregates",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

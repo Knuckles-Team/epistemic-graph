@@ -4,43 +4,43 @@ The state of every task in this file is `VERIFY` until exact merged-head evidenc
 
 ## Pack contract and admission
 
-- [ ] **P1 — VERIFY:** Freeze the typed pack index, entry, annotation, digest, method/result and golden-vector contract; prove all generated clients share the same bytes and result types (PACK-01/02/10; EH-075, EH-079, EH-093, EH-135, EH-136, EH-198, EH-199).
-- [ ] **P2 — VERIFY:** Prove engine-owned body staging, guarded holder/refcount, orphan reconciliation, exact body read and content model across unchanged, revised, withdrawn and retired members (PACK-03/04; EH-077, EH-083, EH-089, EH-091, EH-127).
-- [ ] **P3 — VERIFY:** Prove Import boundary, importer binding, one atomic owner commit, replay, audit, preflight, cancellation and tenant-scoped lock release; keep methods LocalOnly in clustered mode (PACK-03/11; EH-078, EH-082, EH-085, EH-087, EH-090, EH-095, EH-096, EH-124, EH-536).
-- [ ] **P4 — VERIFY:** Run planted mutation, security, tenancy, crash, SDK and end-to-end connector fixtures. Fix G14 timeout and G15 malformed-path admission if still reproducible (PACK-06/12; EH-080, EH-587).
-- [ ] **P5 — VERIFY:** Execute G1–G21 from `architecture.md` including negative state invariants (PACK-06; EH-106, EH-107, EH-108, EH-109, EH-110, EH-112, EH-113, EH-114, EH-115, EH-116, EH-117, EH-118, EH-120, EH-121, EH-122, EH-123, EH-125, EH-126). Consume the shared EH-119 consistency result from `federated-query-and-reasoning`.
-- [ ] **P6 — VERIFY:** Keep capability, modality, schema digest, MCP hints, cost, latency and model facts as typed annotations; classify native versus foreign claims without inventing a native fact (PACK-09; EH-088, EH-128, EH-129, EH-130, EH-131, EH-132, EH-133, EH-134, EH-200).
+- [ ] **P1 — VERIFY:** Freeze the typed pack index, entry, annotation, digest, method/result and golden-vector contract; prove all generated clients share the same bytes and result types (PACK-01/02/10; EG-TYPED-PACKS-R001, EG-TYPED-PACKS-R004, EG-TYPED-PACKS-R018, EG-TYPED-PACKS-R049, EG-TYPED-PACKS-R050, EG-TYPED-PACKS-R064, EG-TYPED-PACKS-R065).
+- [ ] **P2 — VERIFY:** Prove engine-owned body staging, guarded holder/refcount, orphan reconciliation, exact body read and content model across unchanged, revised, withdrawn and retired members (PACK-03/04; EG-TYPED-PACKS-R002, EG-TYPED-PACKS-R008, EG-TYPED-PACKS-R014, EG-TYPED-PACKS-R016, EG-TYPED-PACKS-R041).
+- [ ] **P3 — VERIFY:** Prove Import boundary, importer binding, one atomic owner commit, replay, audit, preflight, cancellation and tenant-scoped lock release; keep methods LocalOnly in clustered mode (PACK-03/11; EG-TYPED-PACKS-R003, EG-TYPED-PACKS-R007, EG-TYPED-PACKS-R010, EG-TYPED-PACKS-R012, EG-TYPED-PACKS-R015, EG-TYPED-PACKS-R020, EG-TYPED-PACKS-R021, EG-TYPED-PACKS-R038, EG-TYPED-PACKS-R084).
+- [ ] **P4 — VERIFY:** Run planted mutation, security, tenancy, crash, SDK and end-to-end connector fixtures. Fix G14 timeout and G15 malformed-path admission if still reproducible (PACK-06/12; EG-TYPED-PACKS-R005, EG-TYPED-PACKS-R086).
+- [ ] **P5 — VERIFY:** Execute G1–G21 from `architecture.md` including negative state invariants (PACK-06; EG-TYPED-PACKS-R022, EG-TYPED-PACKS-R023, EG-TYPED-PACKS-R024, EG-TYPED-PACKS-R025, EG-TYPED-PACKS-R026, EG-TYPED-PACKS-R027, EG-TYPED-PACKS-R028, EG-TYPED-PACKS-R029, EG-TYPED-PACKS-R030, EG-TYPED-PACKS-R031, EG-TYPED-PACKS-R032, EG-TYPED-PACKS-R033, EG-TYPED-PACKS-R034, EG-TYPED-PACKS-R035, EG-TYPED-PACKS-R036, EG-TYPED-PACKS-R037, EG-TYPED-PACKS-R039, EG-TYPED-PACKS-R040). Consume the shared EG-FEDERATED-QUERY-R001 consistency result from `federated-query-and-reasoning`.
+- [ ] **P6 — VERIFY:** Keep capability, modality, schema digest, MCP hints, cost, latency and model facts as typed annotations; classify native versus foreign claims without inventing a native fact (PACK-09; EG-TYPED-PACKS-R013, EG-TYPED-PACKS-R042, EG-TYPED-PACKS-R043, EG-TYPED-PACKS-R044, EG-TYPED-PACKS-R045, EG-TYPED-PACKS-R046, EG-TYPED-PACKS-R047, EG-TYPED-PACKS-R048, EG-TYPED-PACKS-R066).
 
 ## Projection, schema and catalog
 
-- [ ] **P7 — VERIFY:** Run the first Agent Library outbox consumer with head-state projection, current-record graph attach, visibility CAS and failure/re-drive; prove authorization of the worker's reserved graph write (PACK-07; EH-081, EH-145, EH-146, EH-148, EH-149, EH-150, EH-151, EH-153, EH-370).
-- [ ] **P8 — VERIFY:** Reuse a single bounded schema validator for pack and graph source composition, ensure shape ownership and monotone pack revisions, and expose `GraphSchemaClasses` with committed digest (PACK-08; EH-137, EH-152, EH-164, EH-166, EH-167, EH-337, EH-364, EH-389). Consume EH-355/EH-363 reasoning from `federated-query-and-reasoning`.
-- [ ] **P9 — VERIFY:** Keep ServerRegistry as liveness authority and ConnectorPack/AgentComponent as content authority; remove shadow catalog consumers after typed reads are available (PACK-09; EH-345). Consume EH-377 generated models from `public-engine-contract-and-release`.
-- [ ] **P10 — VERIFY:** Make pack contract regeneration and artifact transfer compare content and digest across `contract/`, Python generated outputs and Rust catalog digest (PACK-10; EH-237, EH-266, EH-324, EH-440). Consume Go/JS signing and Python typed result parity from `public-engine-contract-and-release`.
-- [ ] **P11 — VERIFY:** Run complete Rust integration, root Python, client and release suites, consuming the shared dispatch-decomposition, Python CI and naming gates owned by `public-engine-contract-and-release` (PACK-11/12; EH-371, EH-376, EH-591).
-- [ ] **P12 — BUILD/VERIFY:** Move graph ontology object and schema DTO authority into EG typed models and generated clients; route schema-drift candidate SHACL construction and contract/activation storage through EG while the connector-sync runner retains its drain/apply gate. Remove the prior duplicate DTO and ontology owner only after a generated-type parity and migration test (PACK-08/10; EH-504, EH-506, EH-510).
+- [ ] **P7 — VERIFY:** Run the first Agent Library outbox consumer with head-state projection, current-record graph attach, visibility CAS and failure/re-drive; prove authorization of the worker's reserved graph write (PACK-07; EG-TYPED-PACKS-R006, EG-TYPED-PACKS-R052, EG-TYPED-PACKS-R053, EG-TYPED-PACKS-R054, EG-TYPED-PACKS-R055, EG-TYPED-PACKS-R056, EG-TYPED-PACKS-R057, EG-TYPED-PACKS-R059, EG-TYPED-PACKS-R074).
+- [ ] **P8 — VERIFY:** Reuse a single bounded schema validator for pack and graph source composition, ensure shape ownership and monotone pack revisions, and expose `GraphSchemaClasses` with committed digest (PACK-08; EG-TYPED-PACKS-R051, EG-TYPED-PACKS-R058, EG-TYPED-PACKS-R061, EG-TYPED-PACKS-R062, EG-TYPED-PACKS-R063, EG-TYPED-PACKS-R071, EG-TYPED-PACKS-R073, EG-TYPED-PACKS-R077). Consume EG-FEDERATED-QUERY-R010/EG-FEDERATED-QUERY-R012 reasoning from `federated-query-and-reasoning`.
+- [ ] **P9 — VERIFY:** Keep ServerRegistry as liveness authority and ConnectorPack/AgentComponent as content authority; remove shadow catalog consumers after typed reads are available (PACK-09; EG-TYPED-PACKS-R072). Consume EG-CONTRACT-R005 generated models from `public-engine-contract-and-release`.
+- [ ] **P10 — VERIFY:** Make pack contract regeneration and artifact transfer compare content and digest across `contract/`, Python generated outputs and Rust catalog digest (PACK-10; EG-TYPED-PACKS-R067, EG-TYPED-PACKS-R068, EG-TYPED-PACKS-R070, EG-TYPED-PACKS-R080). Consume Go/JS signing and Python typed result parity from `public-engine-contract-and-release`.
+- [ ] **P11 — VERIFY:** Run complete Rust integration, root Python, client and release suites, consuming the shared dispatch-decomposition, Python CI and naming gates owned by `public-engine-contract-and-release` (PACK-11/12; EG-TYPED-PACKS-R075, EG-TYPED-PACKS-R076, EG-TYPED-PACKS-R087).
+- [ ] **P12 — BUILD/VERIFY:** Move graph ontology object and schema DTO authority into EG typed models and generated clients; route schema-drift candidate SHACL construction and contract/activation storage through EG while the connector-sync runner retains its drain/apply gate. Remove the prior duplicate DTO and ontology owner only after a generated-type parity and migration test (PACK-08/10; EG-TYPED-PACKS-R081, EG-TYPED-PACKS-R082, EG-TYPED-PACKS-R083).
 
 ## Ruled decisions and boundaries
 
 | IDs | Decision or boundary preserved by this spec |
 |---|---|
-| EH-084 | Projection readiness is the atomicity boundary for readers. |
-| EH-085 | Use one `Import` operation; no prepare/commit/abort family. |
-| EH-086, EH-201 | Incompatible Agent Library layout is refused; offline owner-file upgrade is rejected. |
-| EH-087 | Pack and four agent-layer write methods stay LocalOnly. |
-| EH-088 | Foreign capability IRIs remain claims; mistyped native IRIs refuse. |
-| EH-089 | Missing pack members become reversible Withdrawn. |
-| EH-090 | Bind/Unbind is admin controlled; configured importer is bootstrap default. |
-| EH-091 | Server pin follows declared contract and instructions, not package version. |
-| EH-092 | The accepted design includes projection but excludes offline upgrade. |
-| EH-093 | Body read uses `AgentComponent.Content`. |
-| EH-094 | Only `SKILL.md` is imported as skill content. |
-| EH-095 | The AU tiny-profile admin issue is an adjacent consumer fix, not an EG pack write. |
-| EH-096 | Cross-cutting defects affecting safe import are release-gate obligations. |
-| EH-145 | Projection waits for the general outbox reject/re-drive primitive. |
-| EH-146 | Non-pack graph attachment is a stale-visible snapshot until a durable auto-follow design exists. |
-| EH-148–EH-154 | Topic isolation, failure severity, manifest refusal, TBox composition, bounded reasoner, delta validation and owner-layout ordering are architectural corrections described in `architecture.md`. |
-| EH-164, EH-166, EH-167 | Schema source capacity, GraphState replication and agent-row schema migration must be verified against current typed contracts. |
+| EG-TYPED-PACKS-R009 | Projection readiness is the atomicity boundary for readers. |
+| EG-TYPED-PACKS-R010 | Use one `Import` operation; no prepare/commit/abort family. |
+| EG-TYPED-PACKS-R011 | Incompatible Agent Library layout is refused; offline owner-file upgrade is rejected. |
+| EG-TYPED-PACKS-R012 | Pack and four agent-layer write methods stay LocalOnly. |
+| EG-TYPED-PACKS-R013 | Foreign capability IRIs remain claims; mistyped native IRIs refuse. |
+| EG-TYPED-PACKS-R014 | Missing pack members become reversible Withdrawn. |
+| EG-TYPED-PACKS-R015 | Bind/Unbind is admin controlled; configured importer is bootstrap default. |
+| EG-TYPED-PACKS-R016 | Server pin follows declared contract and instructions, not package version. |
+| EG-TYPED-PACKS-R017 | The accepted design includes projection but excludes offline upgrade. |
+| EG-TYPED-PACKS-R018 | Body read uses `AgentComponent.Content`. |
+| EG-TYPED-PACKS-R019 | Only `SKILL.md` is imported as skill content. |
+| EG-TYPED-PACKS-R020 | The AU tiny-profile admin issue is an adjacent consumer fix, not an EG pack write. |
+| EG-TYPED-PACKS-R021 | Cross-cutting defects affecting safe import are release-gate obligations. |
+| EG-TYPED-PACKS-R052 | Projection waits for the general outbox reject/re-drive primitive. |
+| EG-TYPED-PACKS-R053 | Non-pack graph attachment is a stale-visible snapshot until a durable auto-follow design exists. |
+| EG-TYPED-PACKS-R054–EG-TYPED-PACKS-R060 | Topic isolation, failure severity, manifest refusal, TBox composition, bounded reasoner, delta validation and owner-layout ordering are architectural corrections described in `architecture.md`. |
+| EG-TYPED-PACKS-R061, EG-TYPED-PACKS-R062, EG-TYPED-PACKS-R063 | Schema source capacity, GraphState replication and agent-row schema migration must be verified against current typed contracts. |
 
 ## Adjacent rows discovered in the broad catalog crosswalk
 
@@ -48,14 +48,20 @@ These IDs do not create pack behavior. They are retained here so a contributor c
 
 | IDs | Adjacent scope and pack boundary |
 |---|---|
-| EH-280 | Repository ingestion of branch/blob content; may use typed source facts but is not a ConnectorPack import. |
-| EH-394 | Retrieval plan candidates; consumes visible typed skills and schema digest, but solver choice is outside this spec. |
-| EH-413 | Typed OHLCV bars; may be represented in the shared catalog but time-series semantics are separate. |
-| EH-537, EH-560 | Identity method family and governed approval; pack authorization must use the common capability system. |
-| EH-635 | Embedded/served authority parity applies to pack reads when exposed; wider embedded transport expansion is separate. |
-| EH-663, EH-693 | Database schema profiling/context consume committed schema facts; source inference/query design is separate. |
-| EH-706 | Finance leverage model uses typed data; trading and risk semantics are separate. |
-| EH-720, EH-721 | Batch pipelining and SQL plan/result cache are data-plane capabilities, not pack storage. |
+| EG-TYPED-PACKS-R069 | Repository ingestion of branch/blob content; may use typed source facts but is not a ConnectorPack import. |
+| EG-TYPED-PACKS-R078 | Retrieval plan candidates; consumes visible typed skills and schema digest, but solver choice is outside this spec. |
+| EG-TYPED-PACKS-R079 | Typed OHLCV bars; may be represented in the shared catalog but time-series semantics are separate. |
+| EG-TYPED-PACKS-R085, EG-DURABLE-KERNEL-R027 | Identity method family and governed approval; pack authorization must use the common capability system. |
+| EG-TYPED-PACKS-R088 | Embedded/served authority parity applies to pack reads when exposed; wider embedded transport expansion is separate. |
+| EG-UNIFIED-DATA-PLANE-R004, EG-UNIFIED-DATA-PLANE-R029 | Database schema profiling/context consume committed schema facts; source inference/query design is separate. |
+| EG-FINANCE-PRIMITIVES-R010 | Finance leverage model uses typed data; trading and risk semantics are separate. |
+| EG-DURABLE-KERNEL-R040, EG-DURABLE-KERNEL-R041 | Batch pipelining and SQL plan/result cache are data-plane capabilities, not pack storage. |
+
+## Storage, generation and client verification
+
+- [ ] **P13 — VERIFY:** Pin the `OwnerLayout::Blob` body-holder table cardinality, regenerate ontology/SHACL artifacts byte-for-byte from the typed Rust vocabulary, import FoodData Central/FoodOn nutrient reference types through a ChEBI crosswalk, exclude the request ID from the Python client's import idempotency key, isolate Turtle blank-node identities per parse, serve `AgentComponent.content` pack-body bytes directly, surface `GraphSchema` attach staleness, and reproject a connector pack with bounded, isolated, restart-safe aggregates (EG-TYPED-PACKS-R089, EG-TYPED-PACKS-R090, EG-TYPED-PACKS-R091, EG-TYPED-PACKS-R092, EG-TYPED-PACKS-R093, EG-TYPED-PACKS-R094, EG-TYPED-PACKS-R095, EG-TYPED-PACKS-R096).
+
+Requirement IDs in `requirements.md` not mentioned by any task above before this line: none remain — EG-TYPED-PACKS-R089 through EG-TYPED-PACKS-R096 are closed by P13.
 
 ## Done criteria
 
