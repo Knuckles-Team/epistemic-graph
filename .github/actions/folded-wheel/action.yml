@@ -14,24 +14,32 @@ runs:
   using: composite
   steps:
     # All three builds of a pass share one target directory, so the kernels
-    # reuse the dependency crates the server wheel already compiled.
+    # reuse the dependency crates the server wheel already compiled. Start
+    # each pass clean so reproduction cannot reuse primary compiled objects.
     - name: Select the release target directory
+      id: build-environment
       shell: bash
-      run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" >> "$GITHUB_ENV"
+      run: |
+        target="${RUNNER_TEMP:?}/epistemic-graph-release-target"
+        rm -rf -- "$target"
+        mkdir -p "$target"
+        echo "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" >> "$GITHUB_ENV"
+        if [ "${EG_WHEEL_TARGET:-}" = aarch64-unknown-linux-gnu ]; then
+          echo "container=quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc" >> "$GITHUB_OUTPUT"
+          echo "maturin-version=1.15.0" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Build server wheel
-      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      uses: ./.github/actions/release-maturin
       with:
-        target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
           ${{ env.EG_WHEEL_JOBS_ARG }}
           --out dist-${{ inputs.pass }}
           --features ${{ env.MATURIN_FEATURES }}
           ${{ env.EG_WHEEL_MATURIN_ARGS }}
-        # zig gives reproducible glibc-pinned linux cross-builds.
-        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
-        sccache: 'false'
+        container: ${{ steps.build-environment.outputs.container }}
+        maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
 
     # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
     #    Build the pyo3 cdylib kernel (`crates/eg-numeric --features python`) for the
@@ -41,17 +49,16 @@ runs:
     #    `eg-numeric` package on PyPI. The kernel is a distinct maturin target (a pyo3
     #    cdylib), so the engine binary's no-pyo3 / Pi contract is untouched.
     - name: Build eg-numeric kernel (same target)
-      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      uses: ./.github/actions/release-maturin
       with:
-        target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
           ${{ env.EG_WHEEL_JOBS_ARG }}
           --out numdist-${{ inputs.pass }}
           -m crates/eg-numeric/Cargo.toml
           --features python
-        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
-        sccache: 'false'
+        container: ${{ steps.build-environment.outputs.container }}
+        maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
 
     - name: Fold numeric kernel into the epistemic-graph wheel
       shell: bash
@@ -65,17 +72,16 @@ runs:
     #    (each only rewrites the target wheel's RECORD, never the other's
     #    extension member), so one normalize/audit/completeness pass covers both.
     - name: Build eg-pyengine kernel (same target)
-      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      uses: ./.github/actions/release-maturin
       with:
-        target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
           ${{ env.EG_WHEEL_JOBS_ARG }}
           --out enginedist-${{ inputs.pass }}
           -m crates/eg-pyengine/Cargo.toml
           --features python,security
-        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
-        sccache: 'false'
+        container: ${{ steps.build-environment.outputs.container }}
+        maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
 
     - name: Fold pyengine kernel into the epistemic-graph wheel
       shell: bash

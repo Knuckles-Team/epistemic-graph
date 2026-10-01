@@ -208,8 +208,18 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     wheel_pass = WHEEL_PASS_ACTION.read_text(encoding="utf-8")
     for output in ("dist", "numdist", "enginedist"):
         assert f"--out {output}-${{{{ inputs.pass }}}}" in wheel_pass
-    assert wheel_pass.count("sccache: 'false'") == 3
-    assert "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" in wheel_pass
+    assert wheel_pass.count("uses: ./.github/actions/release-maturin") == 3
+    shared = yaml.safe_load(
+        (REPO / ".github/actions/release-maturin/action.yml").read_text()
+    )["runs"]["steps"]
+    assert len(shared) == 1
+    assert shared[0]["uses"] == (
+        "PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b"
+    )
+    assert shared[0]["with"]["sccache"] == "false"
+    assert (
+        "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target"
+    ) in wheel_pass
     for script in (
         "scripts/inject_numeric_kernel.py",
         "scripts/inject_pyengine.py",
@@ -290,5 +300,9 @@ def test_runner_jobs_keep_build_budget_and_bounded_authorization() -> None:
                 assert job == _verified_x86_workflow()["jobs"]["authorize"]
                 assert job["runs-on"] == "ubuntu-latest"
                 assert job.get("timeout-minutes") == 5
+            elif (workflow.name, name) == ("arm64-linker-probe.yml", "probe"):
+                # This compiles tiny fixtures, never the full release workspace.
+                assert job["runs-on"] == "ubuntu-24.04-arm"
+                assert job.get("timeout-minutes") == 10
             else:
                 assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"
