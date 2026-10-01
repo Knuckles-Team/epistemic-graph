@@ -259,14 +259,30 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R035",
       "title": "Share the compiled ontology cache with attached-schema graphs",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bee3dd02e6ed78872fe254af52f1d468fd526e77",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bee3dd02e6ed78872fe254af52f1d468fd526e77",
+          "description": "Implemented on the default branch; exercised by src/server/icv_guard.rs::per_write_policy_cost_after_the_first_compile_is_a_cache_hit"
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R036",
       "title": "Derive HealthAnomaly and Incident facts with conformance checking",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "155bd9b55e81bbd313d4c864797f23e01d47f227",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/155bd9b55e81bbd313d4c864797f23e01d47f227",
+          "description": "Implemented on the default branch; exercised by crates/eg-stream/src/telemetry/tests/conformance.rs::a_service_declared_healthy_but_erroring_is_a_violation"
+        }
+      ]
     }
   ]
 }
