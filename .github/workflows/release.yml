@@ -6,8 +6,9 @@ name: Release
 # freshness, lint, scanner/census analysis, optional feature builds, and
 # benchmarks remain visible but advisory; they do not delay publication.
 #
-# Blocking path: {gates, python-suite, security, lint-and-architecture,
-# tts-piper-inference} -> build -> {docker-image, publish-pypi} -> publish-image.
+# Blocking path: {gates, gates-facade, gates-variants, gates-crates, python-suite,
+# security, lint-and-architecture, tts-piper-inference, language-clients}
+# -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
 # Quality and documentation jobs run independently. `pages` is a separate
 # deploy concern and carries no dependency edge into the release path.
 #
@@ -386,8 +387,8 @@ jobs:
   # Slim-server and raft-cluster variants run after merge (main, tags), not on
   # pull requests: each is a separate cold compile of the whole engine, slim's
   # code paths are already compiled and linted per PR by `Clippy slim-server`,
-  # and `cluster` is not part of the published wheel (MATURIN_FEATURES), so it
-  # reports on main without gating the release build.
+  # and `cluster` is not part of the published wheel (MATURIN_FEATURES). Both
+  # variants must succeed before either release wheel build can start.
   gates-variants:
     timeout-minutes: 360
     name: gates (slim server + raft cluster)
@@ -973,7 +974,7 @@ jobs:
   build:
     timeout-minutes: 360
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
@@ -1192,7 +1193,7 @@ jobs:
 
   build-x86:
     name: wheel linux-x86_64
-    needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')

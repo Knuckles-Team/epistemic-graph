@@ -252,6 +252,18 @@ fn uds_test_state() -> Arc<RwLock<ServerState>> {
 }
 
 #[cfg(unix)]
+async fn wait_for_uds_accept(coord: &ShutdownCoordinator) {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while coord.active_connections() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("server must accept the connection after applying socket permissions");
+    assert_eq!(coord.active_connections(), 1);
+}
+
+#[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept() {
     use std::os::unix::fs::PermissionsExt;
@@ -284,6 +296,10 @@ async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept()
     })
     .await
     .expect("UDS setup must not block the current-thread executor");
+    // connect() can finish while the blocking worker is between bind and chmod.
+    // ConnGuard is created only after setup succeeds and the server accepts this
+    // still-open stream, so acceptance is the readiness condition, not connect.
+    wait_for_uds_accept(&coord).await;
     assert_eq!(
         std::fs::metadata(&path)
             .expect("socket metadata")

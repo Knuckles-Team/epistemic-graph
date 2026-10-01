@@ -43,7 +43,20 @@ class ReleasePublication(unittest.TestCase):
         )
         self.assertTrue(all(leg["runner"] != "self-hosted" for leg in legs))
         self.assertEqual(jobs["build"]["needs"], jobs["build-x86"]["needs"])
-        self.assertEqual(len(jobs["build-x86"]["needs"]), 8)
+        self.assertEqual(
+            set(jobs["build-x86"]["needs"]),
+            {
+                "gates",
+                "gates-facade",
+                "gates-variants",
+                "gates-crates",
+                "python-suite",
+                "security",
+                "lint-and-architecture",
+                "tts-piper-inference",
+                "language-clients",
+            },
+        )
         self.assertEqual(
             jobs["build-x86"]["uses"],
             "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93",
