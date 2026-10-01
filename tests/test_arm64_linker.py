@@ -105,14 +105,19 @@ def test_all_three_maturin_containers_select_linker_after_setup():
     builds = [
         step
         for step in action["runs"]["steps"]
-        if step.get("uses", "").startswith("PyO3/maturin-action@")
+        if step.get("uses", "") == "./.github/actions/release-maturin"
     ]
     assert len(builds) == 3
-    for step in builds:
-        assert (
-            step["with"]["before-script-linux"]
-            == "source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'"
-        )
+    shared = yaml.safe_load(
+        (ROOT / ".github/actions/release-maturin/action.yml").read_text()
+    )["runs"]["steps"][0]
+    assert (
+        shared["uses"] == "PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b"
+    )
+    assert (
+        shared["with"]["before-script-linux"]
+        == "source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'"
+    )
 
 
 def test_probe_is_bounded_hosted_and_nonpublishing():
@@ -162,13 +167,15 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
     builds = [
         step
         for step in steps
-        if step.get("uses", "").startswith("PyO3/maturin-action@")
+        if step.get("uses", "") == "./.github/actions/release-maturin"
     ]
     assert len(builds) == 3
-    for step in builds:
-        assert step["with"]["docker-options"] == (
-            '--volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"'
-        )
+    shared = yaml.safe_load(
+        (ROOT / ".github/actions/release-maturin/action.yml").read_text()
+    )["runs"]["steps"][0]
+    assert shared["with"]["docker-options"] == (
+        '--volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"'
+    )
 
 
 @pytest.mark.parametrize(
@@ -198,7 +205,7 @@ def test_only_linux_arm_uses_exact_probed_environment(tmp_path, target):
     else:
         assert outputs.read_text() == ""
     for step in steps:
-        if step.get("uses", "").startswith("PyO3/maturin-action@"):
+        if step.get("uses", "") == "./.github/actions/release-maturin":
             assert (
                 step["with"]["container"]
                 == "${{ steps.build-environment.outputs.container }}"

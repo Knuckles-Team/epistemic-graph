@@ -30,24 +30,16 @@ runs:
         fi
 
     - name: Build server wheel
-      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      uses: ./.github/actions/release-maturin
       with:
-        target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
           ${{ env.EG_WHEEL_JOBS_ARG }}
           --out dist-${{ inputs.pass }}
           --features ${{ env.MATURIN_FEATURES }}
           ${{ env.EG_WHEEL_MATURIN_ARGS }}
-        # zig gives reproducible glibc-pinned linux cross-builds.
-        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
         container: ${{ steps.build-environment.outputs.container }}
         maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
-        before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
-        # Retain the path accepted by the runner ownership adapter. Bind only
-        # this target, not the rest of RUNNER_TEMP or any credential directory.
-        docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
-        sccache: 'false'
 
     # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
     #    Build the pyo3 cdylib kernel (`crates/eg-numeric --features python`) for the
@@ -57,23 +49,16 @@ runs:
     #    `eg-numeric` package on PyPI. The kernel is a distinct maturin target (a pyo3
     #    cdylib), so the engine binary's no-pyo3 / Pi contract is untouched.
     - name: Build eg-numeric kernel (same target)
-      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      uses: ./.github/actions/release-maturin
       with:
-        target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
           ${{ env.EG_WHEEL_JOBS_ARG }}
           --out numdist-${{ inputs.pass }}
           -m crates/eg-numeric/Cargo.toml
           --features python
-        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
         container: ${{ steps.build-environment.outputs.container }}
         maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
-        before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
-        # Retain the path accepted by the runner ownership adapter. Bind only
-        # this target, not the rest of RUNNER_TEMP or any credential directory.
-        docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
-        sccache: 'false'
 
     - name: Fold numeric kernel into the epistemic-graph wheel
       shell: bash
@@ -87,23 +72,16 @@ runs:
     #    (each only rewrites the target wheel's RECORD, never the other's
     #    extension member), so one normalize/audit/completeness pass covers both.
     - name: Build eg-pyengine kernel (same target)
-      uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      uses: ./.github/actions/release-maturin
       with:
-        target: ${{ env.EG_WHEEL_TARGET }}
         args: >-
           --release
           ${{ env.EG_WHEEL_JOBS_ARG }}
           --out enginedist-${{ inputs.pass }}
           -m crates/eg-pyengine/Cargo.toml
           --features python,security
-        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
         container: ${{ steps.build-environment.outputs.container }}
         maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
-        before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
-        # Retain the path accepted by the runner ownership adapter. Bind only
-        # this target, not the rest of RUNNER_TEMP or any credential directory.
-        docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
-        sccache: 'false'
 
     - name: Fold pyengine kernel into the epistemic-graph wheel
       shell: bash
