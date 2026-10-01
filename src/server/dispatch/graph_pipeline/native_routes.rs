@@ -588,6 +588,52 @@ async fn route_graph_audit_and_modality(
     method: Method,
 ) -> Result<Response, Method> {
     #[cfg(feature = "security")]
+    let method = match method {
+        Method::AuditReadEvent { seq } => {
+            return Ok(dispatch_op_audit_read_event(
+                ctx.req_id,
+                ctx.graph_name,
+                ctx.tenant_scope,
+                ctx.persistence.clone(),
+                seq,
+            )
+            .await);
+        }
+        Method::AuditAppend {
+            op,
+            surface,
+            params_sha256,
+            status,
+            request_id,
+            identity_chain,
+        } => {
+            let authority = match crate::server::access::CarrierAuthority::from_verified(
+                ctx.verified_context,
+            ) {
+                Ok(authority) => authority,
+                Err(error) => return Ok(Response::err(ctx.req_id, error)),
+            };
+            let event = crate::redb_store::OperationAuditEvent {
+                tenant: authority.tenant_scope().to_string(),
+                principal: authority.actor_scope().to_string(),
+                op,
+                surface,
+                params_sha256,
+                status,
+                request_id,
+                identity_chain,
+            };
+            return Ok(dispatch_op_audit_append(
+                ctx.req_id,
+                ctx.graph_name,
+                ctx.persistence.clone(),
+                event,
+            )
+            .await);
+        }
+        method => method,
+    };
+    #[cfg(feature = "security")]
     if matches!(method, Method::AuditVerify) {
         return Ok(
             dispatch_op_audit_verify(ctx.req_id, ctx.graph_name, ctx.persistence.clone()).await,

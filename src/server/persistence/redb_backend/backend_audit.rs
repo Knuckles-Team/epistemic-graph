@@ -2,6 +2,41 @@ use super::*;
 use crate::server::persistence::writer_reply::await_writer_reply;
 
 impl RedbBackend {
+    #[cfg(feature = "security")]
+    pub async fn audit_read_event(
+        &self,
+        graph_fname: &str,
+        verified_tenant: &str,
+        seq: u64,
+    ) -> Result<crate::protocol::AuditEventProof, String> {
+        let graph = graph_fname.to_string();
+        let tenant = verified_tenant.to_string();
+        self.read_snapshot(graph_fname, move |shard, _| {
+            crate::redb_store::operation_audit_read(shard, &graph, &tenant, seq)
+        })
+        .await
+    }
+    #[cfg(feature = "security")]
+    pub(crate) async fn audit_append(
+        &self,
+        graph_fname: &str,
+        event: crate::redb_store::OperationAuditEvent,
+    ) -> Result<crate::protocol::AuditAppendReceipt, String> {
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
+        self.enqueue(
+            graph_fname,
+            Cmd::AuditAppend {
+                graph: graph_fname.to_string(),
+                event,
+                reply,
+            },
+            "audit_append",
+        )
+        .await?;
+        tokio::task::spawn_blocking(move || await_writer_reply(&rx, "audit_append"))
+            .await
+            .map_err(|error| format!("audit_append join error: {error}"))??
+    }
     /// TEST-ONLY: flip a byte in the stored audit entry `(graph, seq)` to simulate
     /// tampering, so the verify path can prove detection. Routed through the owner
     /// thread (exclusive file lock).

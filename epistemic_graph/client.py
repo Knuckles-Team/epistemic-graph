@@ -14682,6 +14682,43 @@ class AdminClient:
         (tampering or corruption), never before that point."""
         return (await _gen.security.send_audit_verify(self._client)).payload
 
+    async def audit_append(
+        self,
+        *,
+        op: str,
+        surface: str,
+        params_sha256: str,
+        status: str,
+        request_id: str,
+        identity_chain: bool = False,
+    ) -> dict[str, Any]:
+        """Append a privacy-safe operation outcome under the verified carrier.
+
+        The engine derives tenant and principal. It commits the hash-chain
+        entry and replay receipt before acknowledging this call.
+        """
+        return (
+            await _gen.security.send_audit_append(
+                self._client,
+                {
+                    "op": op,
+                    "surface": surface,
+                    "params_sha256": params_sha256,
+                    "status": status,
+                    "request_id": request_id,
+                    "identity_chain": identity_chain,
+                },
+            )
+        ).payload
+
+    async def audit_read_event(self, seq: int) -> dict[str, Any]:
+        """Read one committed operation event and its chain verification result."""
+        return (
+            await _gen.security.send_audit_read_event(
+                self._client, {"seq": _integer("seq", seq, minimum=0)}
+            )
+        ).payload
+
     async def audit_prove_inclusion(
         self, node_id: str, *, anchor_seq: int | None = None
     ) -> dict[str, Any]:

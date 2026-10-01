@@ -159,6 +159,47 @@ pub(super) async fn dispatch_op_tsdb_ops(
 }
 
 #[cfg(feature = "security")]
+pub(super) async fn dispatch_op_audit_read_event(
+    req_id: u64,
+    graph_name: &str,
+    verified_tenant: &str,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    seq: u64,
+) -> Response {
+    let fname = crate::persist::sanitize(graph_name);
+    match persistence.as_ref().and_then(|p| p.as_redb()) {
+        Some(redb) => match redb.audit_read_event(&fname, verified_tenant, seq).await {
+            Ok(proof) => Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::security::AuditReadEvent>(proof),
+            ),
+            Err(error) => Response::err(req_id, format!("AuditReadEvent error: {error}")),
+        },
+        None => Response::err(req_id, "AuditReadEvent requires durable redb"),
+    }
+}
+
+#[cfg(feature = "security")]
+pub(super) async fn dispatch_op_audit_append(
+    req_id: u64,
+    graph_name: &str,
+    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    event: crate::redb_store::OperationAuditEvent,
+) -> Response {
+    let fname = crate::persist::sanitize(graph_name);
+    match persistence.as_ref().and_then(|p| p.as_redb()) {
+        Some(redb) => match redb.audit_append(&fname, event).await {
+            Ok(receipt) => Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::security::AuditAppend>(receipt),
+            ),
+            Err(error) => Response::err(req_id, format!("AuditAppend error: {error}")),
+        },
+        None => Response::err(req_id, "AuditAppend requires durable redb"),
+    }
+}
+
+#[cfg(feature = "security")]
 pub(super) async fn dispatch_op_audit_verify(
     req_id: u64,
     graph_name: &str,

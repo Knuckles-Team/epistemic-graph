@@ -79,8 +79,6 @@ use super::tenant_catalog::TenantCatalog;
 use crate::protocol::GraphType;
 use crate::redb_store::shard::{Shard, ShardWrite};
 #[cfg(feature = "security")]
-use crate::redb_store::AUDIT;
-#[cfg(feature = "security")]
 use crate::redb_store::PROVENANCE_ANCHOR_MEMBERS;
 use crate::redb_store::{capacity_lease, development_lane};
 use crate::redb_store::{
@@ -88,6 +86,8 @@ use crate::redb_store::{
     CHANGE_BLOBS, CHANGE_CURSORS, CHANGE_ENVELOPES, CHANGE_EVIDENCE, CHANGE_FEATURES,
     CHANGE_LINEAGE, CHANGE_POLICIES, CONTENT_VERSIONS, EDGES, GRAPH_META, LEDGER, NODES, SEMANTIC,
 };
+#[cfg(feature = "security")]
+use crate::redb_store::{AUDIT, AUDIT_REQUESTS};
 use crate::redb_store::{
     RESOURCE_ANTI_AFFINITY, RESOURCE_CONCURRENCY, RESOURCE_DISK_POLICIES, RESOURCE_EXCLUSIVITY,
     RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
@@ -194,7 +194,7 @@ pub(crate) struct RawCapacityLeaseRows {
 /// see this module's doc comment — so the raw image is owner rows only, and an image
 /// still carrying a `mutation` field is refused by `deny_unknown_fields` rather than
 /// silently half-applied.
-pub(crate) const RAW_GRAPH_ROWS_SCHEMA_VERSION: u16 = 2;
+pub(crate) const RAW_GRAPH_ROWS_SCHEMA_VERSION: u16 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -219,6 +219,8 @@ pub(crate) struct RawGraphRows {
     /// `(seq, chained_audit_blob)` — copied verbatim to keep the hash chain valid.
     #[cfg(feature = "security")]
     pub audit: Vec<(u64, Vec<u8>)>,
+    #[cfg(feature = "security")]
+    pub audit_requests: Vec<(String, Vec<u8>)>,
     /// Governed external-change material and typed version/cursor rows.
     pub change: RawChangeRows,
     /// Every `resource_*` row for this graph (BUG-CX-054 class).
@@ -252,6 +254,8 @@ impl Default for RawGraphRows {
             semantic: None,
             #[cfg(feature = "security")]
             audit: Vec::new(),
+            #[cfg(feature = "security")]
+            audit_requests: Vec::new(),
             change: RawChangeRows::default(),
             resource: RawResourceRows::default(),
             development_lane: RawDevelopmentLaneRows::default(),
@@ -366,6 +370,7 @@ impl RawGraphRows {
         #[cfg(feature = "security")]
         {
             count += self.provenance_anchor_members.len();
+            count += self.audit_requests.len();
         }
         count += self.work_item_command_sequence.is_some() as usize;
         count as u64
@@ -458,6 +463,8 @@ pub(crate) struct RawGraphDelta {
     pub semantic: Option<RowChange<Vec<u8>>>,
     #[cfg(feature = "security")]
     pub upsert_audit: Vec<(u64, Vec<u8>)>,
+    #[cfg(feature = "security")]
+    pub replace_audit_requests: Option<Vec<(String, Vec<u8>)>>,
     /// Auxiliary authority changes are rare and small relative to graph rows;
     /// when any changed during bulk copy, replace the graph's set atomically.
     pub replace_change: Option<Box<RawChangeRows>>,
@@ -543,6 +550,10 @@ fn compute_capability_and_resource_delta(
     #[cfg(feature = "security")]
     if bulk.provenance_anchor_members != latest.provenance_anchor_members {
         delta.replace_provenance_anchor_members = Some(latest.provenance_anchor_members.clone());
+    }
+    #[cfg(feature = "security")]
+    if bulk.audit_requests != latest.audit_requests {
+        delta.replace_audit_requests = Some(latest.audit_requests.clone());
     }
     delta.work_item_command_sequence = row_change(
         &bulk.work_item_command_sequence,
@@ -1319,6 +1330,10 @@ pub(crate) fn export_graph_raw(shard: &Shard, graph: &str) -> Result<RawGraphRow
             (sequence, value.to_vec())
         })?,
         #[cfg(feature = "security")]
+        audit_requests: export_rows(&read, AUDIT_REQUESTS, |(_, key), value| {
+            (key.to_string(), value.to_vec())
+        })?,
+        #[cfg(feature = "security")]
         provenance_anchor_members: export_rows(
             &read,
             PROVENANCE_ANCHOR_MEMBERS,
@@ -1365,6 +1380,7 @@ fn clear_graph_scope(write: &impl OwnerPayloadWrite, graph: &str) -> Result<(), 
         // destination audit tail absent from the incoming image goes before the
         // source chain is copied verbatim over it.
         clear_sequence(write, graph, AUDIT)?;
+        clear_two_part(write, graph, AUDIT_REQUESTS)?;
         clear_sequence(write, graph, PROVENANCE_ANCHOR_MEMBERS)?;
     }
     Ok(())
@@ -1387,6 +1403,7 @@ fn insert_graph_scope(
     #[cfg(feature = "security")]
     {
         insert_sequence_bytes(write, graph, AUDIT, &rows.audit)?;
+        insert_two_part_bytes(write, graph, AUDIT_REQUESTS, &rows.audit_requests)?;
         insert_sequence_bytes(
             write,
             graph,
@@ -1466,6 +1483,11 @@ fn apply_capability_and_resource_delta(
     if let Some(rows) = &delta.replace_provenance_anchor_members {
         clear_sequence(write, graph, PROVENANCE_ANCHOR_MEMBERS)?;
         insert_sequence_bytes(write, graph, PROVENANCE_ANCHOR_MEMBERS, rows)?;
+    }
+    #[cfg(feature = "security")]
+    if let Some(rows) = &delta.replace_audit_requests {
+        clear_two_part(write, graph, AUDIT_REQUESTS)?;
+        insert_two_part_bytes(write, graph, AUDIT_REQUESTS, rows)?;
     }
     match &delta.work_item_command_sequence {
         Some(RowChange::Set(sequence)) => {

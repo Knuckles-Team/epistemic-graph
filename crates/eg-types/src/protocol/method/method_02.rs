@@ -279,6 +279,24 @@ $($variants)*
     #[cfg(feature = "security")]
     AuditVerify,
 
+    /// Append one privacy-safe GraphOS operation outcome to the tenant's durable
+    /// hash chain. The verified carrier supplies tenant and principal; no raw
+    /// params, result body, or caller-supplied identity is accepted.
+    #[cfg(feature = "security")]
+    AuditAppend {
+        op: String,
+        surface: String,
+        params_sha256: String,
+        status: String,
+        request_id: String,
+        identity_chain: bool,
+    },
+
+    /// Read one operation-audit event and verify the graph's current chain.
+    /// Gated independently from append by `security:audit`.
+    #[cfg(feature = "security")]
+    AuditReadEvent { seq: u64 },
+
     /// Produce + server-side-verify a Merkle inclusion proof for one node against
     /// a prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) — the
     /// extension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence
