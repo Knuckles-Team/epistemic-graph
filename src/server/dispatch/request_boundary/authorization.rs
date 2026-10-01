@@ -234,6 +234,27 @@ fn check_cross_tenant_scope(
     ))
 }
 
+/// Whether the ledger admits `req`: its policy's action, or -- for an
+/// identity op -- any exact scope of the op's authority (the broker reads the
+/// IdP directory; the LDAP sync provisions). The identity store re-checks the
+/// exact authority, and the provisioning binding, before anything is derived.
+fn ledger_allows(
+    req: &Request,
+    verified_context: &VerifiedRequestContext,
+    action: &str,
+    mutates: bool,
+) -> bool {
+    if let Method::Identity { op, .. } = &req.method {
+        return op
+            .meta()
+            .authority
+            .scopes()
+            .iter()
+            .any(|scope| verified_context.allows_method(scope, mutates));
+    }
+    verified_context.allows_method(action, mutates)
+}
+
 pub(crate) async fn check_scope_and_admin_authority(
     state: &Arc<RwLock<ServerState>>,
     req: &Request,
@@ -250,9 +271,11 @@ pub(crate) async fn check_scope_and_admin_authority(
     check_cross_tenant_scope(req, verified_context, authority)?;
     if !authority.state_machine_authorized
         && !authority.identity_bootstrap
-        && !verified_context.allows_method(action, mutates)
+        && !ledger_allows(req, verified_context, action, mutates)
     {
         crate::metrics::access_denied();
+        #[cfg(feature = "security")]
+        crate::server::denial_sample::offer(verified_context.principal(), action, "SCOPE_DENIED");
         return Err(Response::err(
             req.id,
             format!("ACCESS_DENIED: verified request context lacks required scope '{action}'"),

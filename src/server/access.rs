@@ -47,6 +47,10 @@ pub(crate) struct CarrierAuthority {
     admin: bool,
     can_read: bool,
     can_write: bool,
+    /// IDM-01: the EXACT `identity:read` or `identity:admin` scope -- the
+    /// identity store's SQL relations are visible to nobody else (neither
+    /// `kg:admin` nor `*` implies it).
+    identity_reader: bool,
 }
 
 /// One owner-scoped process-global call (EH-373/EH-374): the server state, the request
@@ -133,6 +137,9 @@ impl CarrierAuthority {
         // received write authority regardless of what it was actually issued.
         let can_read = admin || scopes.iter().any(|scope| scope == "kg:read");
         let can_write = admin || scopes.iter().any(|scope| scope == "kg:write");
+        let identity_reader = scopes
+            .iter()
+            .any(|scope| scope == "identity:read" || scope == "identity:admin");
         Ok(Self {
             log_owner: (
                 context.tenant().to_string(),
@@ -147,6 +154,7 @@ impl CarrierAuthority {
             admin,
             can_read,
             can_write,
+            identity_reader,
         })
     }
 
@@ -198,6 +206,11 @@ impl CarrierAuthority {
 
     pub(crate) fn is_admin(&self) -> bool {
         self.admin
+    }
+
+    /// Whether this carrier may read the identity store's SQL relations.
+    pub(crate) fn is_identity_reader(&self) -> bool {
+        self.identity_reader
     }
 
     /// Coarse read capability (`kg:read` or admin). See the field's doc
@@ -727,6 +740,8 @@ fn check_graph_access_with_policy(
         Ok(())
     } else {
         crate::metrics::access_denied();
+        #[cfg(feature = "security")]
+        crate::server::denial_sample::offer(agent, graph_name, "GRAPH_ACCESS_DENIED");
         Err(format!(
             "ACCESS_DENIED: verified principal lacks {access:?} access to graph '{graph_name}'"
         ))

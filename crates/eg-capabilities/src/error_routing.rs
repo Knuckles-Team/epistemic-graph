@@ -91,6 +91,7 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
     ),
     ("Decide", &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"]),
     ("RbacElevation", &["ELEVATION_"]),
+    ("Identity", &["IDENTITY_"]),
 ];
 const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ("cluster", &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"]),
@@ -154,6 +155,10 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "Decide",
         &["DECISIONS", "UNSUPPORTED_COALITION", "CAPACITY_UNAVAILABLE"],
     ),
+    // IDM-03: the identity store's namespace is fenced off the two older
+    // RBAC writers (identity_store_admin.rs).
+    ("RegisterIdentity", &["IDENTITY_STORE_MANAGED"]),
+    ("RbacAdmin", &["IDENTITY_STORE_NAMESPACE"]),
 ];
 
 fn add_engine_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {

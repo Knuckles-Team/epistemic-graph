@@ -424,6 +424,8 @@ mod change_envelope;
 mod consensus;
 mod elevation;
 mod graph_pipeline;
+#[cfg(feature = "security")]
+mod identity_store;
 mod policy_evolution;
 #[cfg(all(feature = "ast", feature = "redb", feature = "blob", feature = "raft"))]
 pub(crate) use graph_pipeline::plan_held_underfunded_park;
@@ -484,6 +486,8 @@ pub(crate) async fn submit_repository_enrichment_page(
 }
 mod request_boundary;
 mod router;
+#[cfg(test)]
+mod test_support;
 
 /// Create one engine-owned global graph through the same durable lifecycle as
 /// the public `CreateGraph` method.

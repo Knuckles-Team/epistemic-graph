@@ -2032,6 +2032,7 @@ mod tests {
         ("RegisterIdentity", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RbacAdmin", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RbacElevation", "EH-404: native rbac.redb MutationBatch; the elevation ledger is part of the RBAC policy image and shares its snapshot WTX"),
+        ("Identity", "IDM-01: native rbac.redb MutationBatch; the identity store and its RBAC projection are part of the RBAC policy image and share its snapshot WTX"),
         ("RegisterForeignSource", "opaque prepared/committed session-control MutationBatch"),
         ("RegisterUdf", "opaque prepared/committed session-control MutationBatch"),
         ("RegisterContinuousQuery", "opaque prepared/committed session-control MutationBatch"),
