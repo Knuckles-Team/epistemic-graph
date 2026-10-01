@@ -4,27 +4,19 @@
 //! differential-parity requirement (`EG-PYENGINE-PLAN.md` §3.2, "same
 //! exception class") holds for the embedded path too.
 //!
-//! ## What `client.py`'s `_send` actually does (grepped this session)
+//! ## What `client.py`'s `_send` does
 //!
-//! `client.py`'s `_send` (`client.py:13260-13392`) raises a bare built-in
-//! `RuntimeError(err_msg)` (`client.py:13387`) for every engine error
-//! **except one**: a message starting with `RESULT_TOO_LARGE` gets the
-//! dedicated `ResultTooLargeError` (`client.py:2529`,
-//! `client.py:13383-13386`). `grep -n "^class .*Error" epistemic_graph/client.py`
-//! finds exactly four typed exception classes total —
-//! `ResultTooLargeError:2529`, `StaleRouteError:2542`,
-//! `LedgerNotPopulatedError:2561`, `CdcGapError:2578` — and only the first is
-//! raised from a generic string-prefix match. `StaleRouteError` is raised
-//! from a *structured* `{"status": "redirected", "redirect": {...}}` result
-//! body (`client.py:13350-13369`), not a string prefix; `LedgerNotPopulatedError`/
-//! `CdcGapError` are raised by specific sub-client call sites after
-//! inspecting a typed result field (a `populated`/gap marker), not by
-//! `_send`'s generic error path at all. So `INVALID_ARGUMENT:`/
-//! `ACCESS_DENIED:`/`NOT_FOUND:` (the same `"PREFIX: message"` convention
-//! `src/server/dispatch.rs:33` already uses) have **no dedicated class** in
-//! `client.py` today — `map_engine_error` below falls through to the SAME
-//! bare `RuntimeError` `_send` does for them, rather than inventing a
-//! parallel embedded-only taxonomy.
+//! `_send` raises `EngineResponseError(code, detail)` for an engine refusal:
+//! `code` is the stable wire code, `detail` the optional diagnostic text.
+//! `ResultTooLargeError` and `StaleRouteError` are subclasses of it.
+//! `StaleRouteError` is raised from a *structured*
+//! `{"status": "redirected", "redirect": {...}}` result body, not from the
+//! code alone; `LedgerNotPopulatedError`/`CdcGapError` are raised by specific
+//! sub-client call sites after inspecting a typed result field. The embedded
+//! path receives the same refusals as `"CODE: detail"` strings (the
+//! convention the server dispatch uses), so `map_engine_error` below splits
+//! that string and raises the same class with the same arguments. A message
+//! with no leading code stays a plain `RuntimeError`, as in `_send`.
 //!
 //! `resolve_client_error_class` is exposed separately for a domain lane that
 //! needs to raise `StaleRouteError`/`LedgerNotPopulatedError`/`CdcGapError`
@@ -97,19 +89,42 @@ pub(crate) fn resolve_client_error_class<'py>(
 /// that at `lib.rs:159,177,196` before this Wave).
 pub(crate) fn map_engine_error<E: std::fmt::Display>(err: E) -> PyErr {
     let message = err.to_string();
-    if message.starts_with("RESULT_TOO_LARGE") {
-        let mapped = Python::attach(|py| {
-            resolve_client_error_class(py, "ResultTooLargeError")
-                .map(|class| PyErr::from_type(class, (message.clone(),)))
-        });
-        if let Some(mapped) = mapped {
-            return mapped;
-        }
+    let Some((code, detail)) = split_wire_code(&message) else {
+        return PyRuntimeError::new_err(message);
+    };
+    // `_send` raises `EngineResponseError(code, detail)` for every coded
+    // refusal and its `ResultTooLargeError` subclass for that one code; the
+    // embedded path raises the same class with the same two arguments.
+    let class_name = if code == "RESULT_TOO_LARGE" {
+        "ResultTooLargeError"
+    } else {
+        "EngineResponseError"
+    };
+    let mapped = Python::attach(|py| {
+        resolve_client_error_class(py, class_name)
+            .map(|class| PyErr::from_type(class, (code.to_string(), detail.map(str::to_string))))
+    });
+    mapped.unwrap_or_else(|| PyRuntimeError::new_err(message.clone()))
+}
+
+/// Split the engine's `"CODE: detail"` error convention into its stable wire
+/// code and optional diagnostic detail. `None` when the text does not start
+/// with an upper-snake-case code, so an uncoded message stays a plain
+/// `RuntimeError` exactly as `_send` treats a response without a code.
+fn split_wire_code(message: &str) -> Option<(&str, Option<&str>)> {
+    const TOO_LARGE: &str = "RESULT_TOO_LARGE";
+    if message.starts_with(TOO_LARGE) && !message.starts_with("RESULT_TOO_LARGE: ") {
+        let rest = message[TOO_LARGE.len()..].trim_start();
+        return Some((TOO_LARGE, Some(rest).filter(|text| !text.is_empty())));
     }
-    // No dedicated class for INVALID_ARGUMENT/ACCESS_DENIED/NOT_FOUND/
-    // anything else — matches `_send`'s own fallback (`client.py:13387`)
-    // exactly.
-    PyRuntimeError::new_err(message)
+    let (code, detail) = match message.split_once(": ") {
+        Some((code, detail)) => (code, Some(detail).filter(|text| !text.is_empty())),
+        None => (message, None),
+    };
+    let mut chars = code.chars();
+    let starts_upper = chars.next().is_some_and(|c| c.is_ascii_uppercase());
+    let rest_is_code = chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    (starts_upper && rest_is_code).then_some((code, detail))
 }
 
 // No `#[cfg(test)]` module here: this file only compiles under the `python`
