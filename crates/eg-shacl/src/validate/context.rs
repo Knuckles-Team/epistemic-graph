@@ -16,7 +16,9 @@ impl<'a> Validator<'a> {
     }
 
     pub(super) fn parse_shape(&self, term: &Term) -> Result<Shape, String> {
-        crate::parse_work::shape(self.shapes.graph(), term, self.budget)?;
+        // A conservative parse allowance includes list/property traversal.
+        self.budget
+            .charge(self.shapes.graph().len().saturating_add(1))?;
         Ok(self.shapes.parse_shape(term))
     }
 
@@ -75,40 +77,5 @@ impl<'a> Validator<'a> {
             // Complex paths must not silently discard constraints.
             Some(Path::Unsupported) => Err("SHACL property paths must be predicate IRIs".into()),
         }
-    }
-}
-
-/// Charge the candidates actually scanned by the subject/type index.
-pub(super) fn has_class(
-    data: &Graph,
-    value: &Term,
-    class: &NamedNode,
-    budget: &Budget,
-) -> Result<bool, String> {
-    let Some(subject) = as_subject_ref(value) else {
-        return Ok(false);
-    };
-    for candidate in data.objects_for_subject_predicate(subject, nn(vocab::RDF_TYPE)) {
-        budget.charge(1)?;
-        if candidate == class.as_ref().into() {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn class_scan_refuses_exactly_when_candidate_allowance_is_exhausted() {
-        let data = crate::graph_from_turtle("<urn:x> a <urn:A>, <urn:B>, <urn:C> .").unwrap();
-        let node = Term::NamedNode(NamedNode::new_unchecked("urn:x"));
-        let absent = NamedNode::new_unchecked("urn:absent");
-        assert_eq!(has_class(&data, &node, &absent, &Budget::new(3)), Ok(false));
-        assert_eq!(
-            has_class(&data, &node, &absent, &Budget::new(2)),
-            Err(crate::WORK_EXCEEDED.into())
-        );
     }
 }

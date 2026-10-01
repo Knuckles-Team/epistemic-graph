@@ -44,7 +44,7 @@ pub(crate) fn check(graph: &Graph, budget: &Budget) -> Result<(), String> {
 fn annotation(p: &str) -> bool {
     matches!(p, "name" | "description" | "order" | "group" | "defaultValue" | "message" | "severity")
         // A shapes graph can also contain expected validation reports (W3C fixtures).
-        || matches!(p, "shapesGraphWellFormed" | "conforms" | "result" | "focusNode" | "resultPath" | "value" | "sourceShape" | "sourceConstraint" | "sourceConstraintComponent" | "resultSeverity" | "resultMessage" | "detail")
+        || matches!(p, "conforms" | "result" | "focusNode" | "resultPath" | "value" | "sourceShape" | "sourceConstraint" | "sourceConstraintComponent" | "resultSeverity" | "resultMessage" | "detail")
 }
 
 fn supported(p: &str) -> bool {
@@ -92,30 +92,19 @@ fn supported(p: &str) -> bool {
     )
 }
 
-// W3C SHACL syntax summary: only these supported semantic parameters are
-// single-valued. Repeatable constraint parameters must be decoded in full.
-const SINGLE_VALUE_PARAMETERS: &[&str] = &[
-    "path",
-    "deactivated",
-    "datatype",
-    "nodeKind",
-    "minCount",
-    "maxCount",
-    "minInclusive",
-    "maxInclusive",
-    "minExclusive",
-    "maxExclusive",
-    "minLength",
-    "maxLength",
-    "languageIn",
-    "in",
-    "select",
-    "prefix",
-    "namespace",
-];
-
 fn singleton(p: &str) -> bool {
-    SINGLE_VALUE_PARAMETERS.contains(&p)
+    !matches!(
+        p,
+        "targetClass"
+            | "targetNode"
+            | "targetSubjectsOf"
+            | "targetObjectsOf"
+            | "property"
+            | "node"
+            | "sparql"
+            | "declare"
+            | "prefixes"
+    )
 }
 
 fn check_value(p: &str, value: TermRef<'_>) -> Result<(), String> {

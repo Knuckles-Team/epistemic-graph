@@ -163,7 +163,7 @@ impl<'a> Validator<'a> {
         out: &mut Vec<ValidationResult>,
         depth: usize,
     ) -> Result<(), String> {
-        self.budget.charge(constraint_work(c))?;
+        self.budget.charge(constraint_work(c, self.data.len()))?;
         match c {
             Constraint::Datatype(_)
             | Constraint::Class(_)
@@ -173,7 +173,7 @@ impl<'a> Validator<'a> {
             | Constraint::MaxLength(_)
             | Constraint::Pattern { .. }
             | Constraint::LanguageIn(_)
-            | Constraint::In(_) => self.check_simple_constraint(shape, focus, vn, c, out)?,
+            | Constraint::In(_) => self.check_simple_constraint(shape, focus, vn, c, out),
             Constraint::Node(_)
             | Constraint::Not(_)
             | Constraint::And(_)
@@ -200,10 +200,10 @@ impl<'a> Validator<'a> {
         vn: &Term,
         c: &Constraint,
         out: &mut Vec<ValidationResult>,
-    ) -> Result<(), String> {
+    ) {
         match c {
             Constraint::Datatype(dt) => self.check_datatype(shape, focus, vn, dt, out),
-            Constraint::Class(cls) => self.check_class(shape, focus, vn, cls, out)?,
+            Constraint::Class(cls) => self.check_class(shape, focus, vn, cls, out),
             Constraint::NodeKind(k) => self.check_node_kind(shape, focus, vn, *k, out),
             Constraint::Range(kind, bound) => self.check_range(shape, focus, vn, *kind, bound, out),
             Constraint::MinLength(n) => self.check_min_length(shape, focus, vn, *n, out),
@@ -215,7 +215,6 @@ impl<'a> Validator<'a> {
             Constraint::In(list) => self.check_in(shape, focus, vn, list, out),
             _ => unreachable!("non-simple constraint passed to check_simple_constraint"),
         }
-        Ok(())
     }
 
     fn check_datatype(
@@ -246,8 +245,14 @@ impl<'a> Validator<'a> {
         vn: &Term,
         class: &NamedNode,
         out: &mut Vec<ValidationResult>,
-    ) -> Result<(), String> {
-        let ok = context::has_class(self.data, vn, class, self.budget)?;
+    ) {
+        let ok = as_subject_ref(vn).is_some_and(|s| {
+            self.data
+                .objects_for_subject_predicate(s, nn(vocab::RDF_TYPE))
+                .any(|o| {
+                    matches!(o, eg_rdf::oxrdf::TermRef::NamedNode(n) if n.as_str() == class.as_str())
+                })
+        });
         if !ok {
             self.push_violation(
                 shape,
@@ -258,7 +263,6 @@ impl<'a> Validator<'a> {
                 out,
             );
         }
-        Ok(())
     }
 
     fn check_node_kind(
@@ -619,7 +623,8 @@ impl<'a> Validator<'a> {
         constraint_ref: &Term,
         out: &mut Vec<ValidationResult>,
     ) -> Result<(), String> {
-        crate::parse_work::sparql(self.shapes.graph(), constraint_ref, self.budget)?;
+        self.budget
+            .charge(self.shapes.graph().len().saturating_add(1))?;
         let sc = self
             .shapes
             .parse_sparql_constraint(constraint_ref)
@@ -727,8 +732,9 @@ impl<'a> Validator<'a> {
 }
 
 // Membership/string constraints perform work proportional to their operand.
-fn constraint_work(c: &Constraint) -> usize {
+fn constraint_work(c: &Constraint, data_triples: usize) -> usize {
     match c {
+        Constraint::Class(_) => data_triples.saturating_add(1),
         Constraint::In(items) => items.len().saturating_add(1),
         Constraint::LanguageIn(items) => items.len().saturating_add(1),
         Constraint::Pattern { pattern, .. } => pattern.len().saturating_add(1),
