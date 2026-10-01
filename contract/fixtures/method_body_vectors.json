@@ -3904,6 +3904,14 @@
       "request_msgpack": "81a66d6574686f64af4772617068536368656d614c697374"
     },
     {
+      "canonical_len": 50,
+      "canonical_sha256": "d31ca451598cf3d3f189a544cb7ad6819e56f5c517bf1c0ce90972b6b1c50a89",
+      "label": "sample:Identity",
+      "mac": "053dca0b2b6ee7eaa5fc1a4eda5df0c5d0b8266cbe9123fd006f8cbc3c79b086",
+      "method": "Identity",
+      "request_msgpack": "82a66d6574686f64a84964656e74697479a6706172616d7381a26f7082a666616d696c79a6636f6e666967a26f70a3676574"
+    },
+    {
       "canonical_len": 231,
       "canonical_sha256": "9bd3b3d038af640db0e751244215ac9c5a8b15acbc4cd022d4986d10d746ec0f",
       "label": "sample:MutationOutbox.dead_letters",

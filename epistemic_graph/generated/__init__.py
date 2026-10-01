@@ -328,6 +328,7 @@ SEND_BY_METHOD = {
     "HasNodesBatch": graph.send_has_nodes_batch,
     "Health": cluster.send_health,
     "IcvConfigure": reasoning.send_icv_configure,
+    "Identity": security.send_identity,
     "ImportSqliteFile": storage.send_import_sqlite_file,
     "InDegree": graph.send_in_degree,
     "IndexRepository": ingestion.send_index_repository,

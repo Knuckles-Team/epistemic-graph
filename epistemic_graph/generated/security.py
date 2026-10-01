@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     RegisterIdentityRequest = _models.MethodRegisterIdentityParams
     RbacAdminRequest = _models.MethodRbacAdminParams
     RbacElevationRequest = _models.MethodRbacElevationParams
+    IdentityRequest = _models.MethodIdentityParams
     GetIdentityRequest = _models.MethodGetIdentityParams
     CheckAccessRequest = _models.MethodCheckAccessParams
 
@@ -301,6 +302,51 @@ async def send_rbac_elevation(
     return OpaqueResult("RbacElevation", payload)
 
 
+async def send_identity(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        Identity
+    Authorization:
+        identity:admin
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.security.json
+        #/methods/Identity
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodIdentityParams.model_validate(params or {})
+    payload = await client._send(
+        "Identity",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("Identity", payload)
+
+
+def decode_identity(result: OpaqueResult) -> _models.IdentityReply:
+    """Validate this method's result against its contract model."""
+    return decode_result("Identity", models().IdentityReply, result)
+
+
 async def send_get_identity(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -390,6 +436,7 @@ _REQUEST_METHODS = frozenset(
         "RegisterIdentity",
         "RbacAdmin",
         "RbacElevation",
+        "Identity",
         "GetIdentity",
         "CheckAccess",
     }
