@@ -3,41 +3,270 @@
   "spec_id": "EG-UNIFIED-DATA-PLANE",
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
-    "EH-660",
-    "EH-661",
-    "EH-662",
-    "EH-663",
-    "EH-664",
-    "EH-665",
-    "EH-666",
-    "EH-667",
-    "EH-668",
-    "EH-669",
-    "EH-670",
-    "EH-671",
-    "EH-672",
-    "EH-673",
-    "EH-674",
-    "EH-675",
-    "EH-676",
-    "EH-677",
-    "EH-678",
-    "EH-679",
-    "EH-680",
-    "EH-681",
-    "EH-682",
-    "EH-683",
-    "EH-686",
-    "EH-687",
-    "EH-688",
-    "EH-689",
-    "EH-693",
-    "EH-694",
-    "EH-695",
-    "EH-696",
-    "EH-697"
+    "EG-UNIFIED-DATA-PLANE-R001",
+    "EG-UNIFIED-DATA-PLANE-R002",
+    "EG-UNIFIED-DATA-PLANE-R003",
+    "EG-UNIFIED-DATA-PLANE-R004",
+    "EG-UNIFIED-DATA-PLANE-R005",
+    "EG-UNIFIED-DATA-PLANE-R006",
+    "EG-UNIFIED-DATA-PLANE-R007",
+    "EG-UNIFIED-DATA-PLANE-R008",
+    "EG-UNIFIED-DATA-PLANE-R009",
+    "EG-UNIFIED-DATA-PLANE-R010",
+    "EG-UNIFIED-DATA-PLANE-R011",
+    "EG-UNIFIED-DATA-PLANE-R012",
+    "EG-UNIFIED-DATA-PLANE-R013",
+    "EG-UNIFIED-DATA-PLANE-R014",
+    "EG-UNIFIED-DATA-PLANE-R015",
+    "EG-UNIFIED-DATA-PLANE-R016",
+    "EG-UNIFIED-DATA-PLANE-R017",
+    "EG-UNIFIED-DATA-PLANE-R018",
+    "EG-UNIFIED-DATA-PLANE-R019",
+    "EG-UNIFIED-DATA-PLANE-R020",
+    "EG-UNIFIED-DATA-PLANE-R021",
+    "EG-UNIFIED-DATA-PLANE-R022",
+    "EG-UNIFIED-DATA-PLANE-R023",
+    "EG-UNIFIED-DATA-PLANE-R024",
+    "EG-UNIFIED-DATA-PLANE-R025",
+    "EG-UNIFIED-DATA-PLANE-R026",
+    "EG-UNIFIED-DATA-PLANE-R027",
+    "EG-UNIFIED-DATA-PLANE-R028",
+    "EG-UNIFIED-DATA-PLANE-R029",
+    "EG-UNIFIED-DATA-PLANE-R030",
+    "EG-UNIFIED-DATA-PLANE-R031",
+    "EG-UNIFIED-DATA-PLANE-R032",
+    "EG-UNIFIED-DATA-PLANE-R033",
+    "EG-UNIFIED-DATA-PLANE-R034",
+    "EG-UNIFIED-DATA-PLANE-R035",
+    "EG-UNIFIED-DATA-PLANE-R036"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R001",
+      "title": "Record attached-source and native-hosting architecture decisions",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R002",
+      "title": "Unify attached-source registration into one owner-scoped registry",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R003",
+      "title": "Extract typed, hashed catalog graphs per dialect",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R004",
+      "title": "Infer schema structure deterministically from attached catalogs",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R005",
+      "title": "Compile approved relational mappings to named R2RML virtual graphs",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R006",
+      "title": "Push down virtual-graph queries to source SQL",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R007",
+      "title": "Federate attached tables as DataFusion table providers",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R008",
+      "title": "Normalize change capture into a durable, replayable framework",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R009",
+      "title": "Drive consumers from change capture idempotently",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R010",
+      "title": "Maintain an accelerated local copy of attached data",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R011",
+      "title": "Route queries by freshness across native, live, and accelerated paths",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R012",
+      "title": "Govern write-back to attached sources",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R013",
+      "title": "Implement the Postgres attached-source adapter",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R014",
+      "title": "Implement the MySQL and MariaDB attached-source adapters",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R015",
+      "title": "Implement the SQLite file attached-source adapter",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R016",
+      "title": "Implement the Microsoft SQL Server attached-source adapter",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R017",
+      "title": "Implement the ClickHouse attached-source adapter",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R018",
+      "title": "Implement the Oracle and Db2 attached-source adapters",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019",
+      "title": "Implement the MongoDB and DocumentDB attached-source adapter",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020",
+      "title": "Federate Snowflake, BigQuery, DuckDB, and Iceberg sources",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R021",
+      "title": "Bridge Debezium Kafka events into ChangeEnvelope",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R022",
+      "title": "Build a per-dialect conformance harness",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023",
+      "title": "Operate a shared CloudNativePG and MariaDB platform",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R024",
+      "title": "Admit applications to the shared platform with rollback",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R025",
+      "title": "Evaluate a pgrx companion extension through a spike",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026",
+      "title": "Run the Gramps native-hosting pilot phases P0 through P5",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R027",
+      "title": "Fix Postgres compatibility gaps proven by captured traffic",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R028",
+      "title": "Build the Postgres-equivalence differential harness",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R029",
+      "title": "Expose a schema_context query surface",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R030",
+      "title": "Resolve entities across attached applications",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R031",
+      "title": "Enforce consolidation safety across attached applications",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R032",
+      "title": "Run the Immich connector pilot phases I0 through I6",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R033",
+      "title": "Cut over Gramps to EG-backed storage in production",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R034",
+      "title": "Keep eg-core's build, Clippy, and generated contract suite green",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2e6d7617289a1d57dbeec43ef56ffb24852b9182",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2e6d7617289a1d57dbeec43ef56ffb24852b9182",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R035",
+      "title": "Share the compiled ontology cache with attached-schema graphs",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R036",
+      "title": "Derive HealthAnomaly and Incident facts with conformance checking",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

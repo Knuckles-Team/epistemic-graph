@@ -48,7 +48,7 @@ Typed question adapters translate retrieval, lane, enrichment, entity-resolution
 ## 7. Operational and quality rules
 
 Expose metrics for resolution kind, evidence class, abstention reason, solver nodes and gap, stale catalog refusals, record replay failures, calibration coverage, drift, ESS and latency. Do not put raw tenant facts in metric labels. Contract generation, CCCC, KISS, Dupehound and zero-new-pair jscpd are repository quality checks; Rust formatting, Clippy and focused unit/served tests validate behavior. Hosted CI should create its own local tenant, seed fixtures and, when needed, start an ephemeral EG server. A pre-existing deployment, identity provider or secret is not a baseline PR prerequisite.
-# EH-525 and EH-528 implementation seam
+# EG-DECISION-ENGINE-R118 and EG-DECISION-ENGINE-R119 implementation seam
 
 Reuse `crates/eg-numeric/src/risk/reputation.rs` for posterior estimation, `crates/eg-epistemic/src/ranking.rs` for evidence-aware ranking, and `crates/eg-plan/src/exec/reliability.rs` for UQL consumption. The server materialization joins approved, independently labeled decision outcomes under tenant/RLS scope before these pure kernels run; it stores the input revision and calibration policy with the view. Replace request-only reliability authority rather than adding a parallel score table.
 

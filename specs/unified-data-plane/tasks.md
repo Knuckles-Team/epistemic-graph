@@ -1,56 +1,56 @@
 # Delivery tasks and traceability
 
-**State:** PROPOSED. All 45 entries are unchecked and waiting to be built. The EH identifiers preserve issue traceability; this checklist and its linked evidence must be sufficient for a public contributor to understand status. Change a checkbox only with a linked merged commit and test evidence. A checkbox is never acceptance by itself. [Spec](spec.md) · [design](plan.md) · [tests](test-spec.md).
+**State:** PROPOSED. All 33 entries are unchecked and waiting to be built. Each entry's requirement ID, as defined in [requirements.md](requirements.md), preserves traceability; this checklist and its linked evidence must be sufficient for a public contributor to understand status. Change a checkbox only with a linked merged commit and test evidence. A checkbox is never acceptance by itself. [Spec](spec.md) · [design](plan.md) · [tests](test-spec.md).
 
 ## Foundation and understanding
 
-- [ ] **EH-660 / DB-7.0:** Decide attached-source default, consistency, native admission and pgrx boundary by ADR.
-- [ ] **EH-661 / DB-7.1:** Merge source registration, owner scope, secret references, verified outbound checks and five-part adapter contract; depends on EH-373/378/508/660.
-- [ ] **EH-662 / DB-7.2, DB-5.1:** Build versioned typed catalog extraction with OBDA and `schema_context` consumers; depends on EH-661.
-- [ ] **EH-663 / DB-5.2–5.4:** Add bounded profiling, JSON shape, dependency inference and fixed-seed Leiden grouping; depends on EH-662.
-- [ ] **EH-664 / DB-5.5–5.6, DB-7.3:** Approve and version R2RML named virtual graphs; depends on EH-663 and EH-033.
-- [ ] **EH-693 / DB-5.7:** Expose `schema_context` through Graph OS; depends on EH-663/664.
-- [ ] **EH-694 / DB-5.8:** Add cross-app entity proposals, approval and evidence; depends on EH-664/696.
-- [ ] **EH-695 / DB-6.1–6.4:** Define isolation, quotas, compatibility, native admission and rollback; depends on EH-661.
+- [ ] **EG-UNIFIED-DATA-PLANE-R001:** Decide attached-source default, consistency, native admission and pgrx boundary by ADR.
+- [ ] **EG-UNIFIED-DATA-PLANE-R002:** Merge source registration, owner scope, secret references, verified outbound checks and five-part adapter contract; depends on EG-FEDERATED-QUERY-R013.
+- [ ] **EG-UNIFIED-DATA-PLANE-R003:** Build versioned typed catalog extraction with OBDA and `schema_context` consumers; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R004:** Add bounded profiling, JSON shape, dependency inference and fixed-seed Leiden grouping; depends on EG-UNIFIED-DATA-PLANE-R003.
+- [ ] **EG-UNIFIED-DATA-PLANE-R005:** Approve and version R2RML named virtual graphs; depends on EG-UNIFIED-DATA-PLANE-R004 and EG-DECISION-ENGINE-R033.
+- [ ] **EG-UNIFIED-DATA-PLANE-R029:** Expose `schema_context` through Graph OS; depends on EG-UNIFIED-DATA-PLANE-R004.
+- [ ] **EG-UNIFIED-DATA-PLANE-R030:** Add cross-app entity proposals, approval and evidence; depends on EG-UNIFIED-DATA-PLANE-R005.
+- [ ] **EG-UNIFIED-DATA-PLANE-R031:** Define isolation, quotas, compatibility, native admission and rollback; depends on EG-UNIFIED-DATA-PLANE-R002.
 
 ## Query, change and write paths
 
-- [ ] **EH-665 / DB-7.4:** Typed OBDA join/aggregate/order/limit pushdown and explicit fallback; depends on EH-664.
-- [ ] **EH-666 / DB-7.5:** Attached table DataFusion providers and dialect-aware sub-plan pushdown; depends on EH-661.
-- [ ] **EH-667 / DB-7.6, DB-4.4, DB-5.9, DB-3.5:** Durable source-position CDC, replay, lag and drift; depends on EH-661/139.
-- [ ] **EH-668 / DB-7.7:** Idempotent mapped graph, search/vector and event consumers; depends on EH-664/667.
-- [ ] **EH-669 / DB-7.8:** Policy-controlled `eg-lake` accelerated copy; depends on EH-667.
-- [ ] **EH-670 / DB-7.9:** Freshness-aware native/live/accelerated router and EXPLAIN; depends on EH-666/669.
-- [ ] **EH-671 / DB-7.10:** Governed idempotent write-back through SDK/app API and EH-658 audit; depends on EH-661/658/216.
+- [ ] **EG-UNIFIED-DATA-PLANE-R006:** Typed OBDA join/aggregate/order/limit pushdown and explicit fallback; depends on EG-UNIFIED-DATA-PLANE-R005.
+- [ ] **EG-UNIFIED-DATA-PLANE-R007:** Attached table DataFusion providers and dialect-aware sub-plan pushdown; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R008:** Durable source-position CDC, replay, lag and drift; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R009:** Idempotent mapped graph, search/vector and event consumers; depends on EG-UNIFIED-DATA-PLANE-R005.
+- [ ] **EG-UNIFIED-DATA-PLANE-R010:** Policy-controlled `eg-lake` accelerated copy; depends on EG-UNIFIED-DATA-PLANE-R008.
+- [ ] **EG-UNIFIED-DATA-PLANE-R011:** Freshness-aware native/live/accelerated router and EXPLAIN; depends on EG-UNIFIED-DATA-PLANE-R007.
+- [ ] **EG-UNIFIED-DATA-PLANE-R012:** Governed idempotent write-back through SDK/app API and EG-DURABLE-KERNEL-R031 audit; depends on EG-UNIFIED-DATA-PLANE-R002.
 
 ## Dialects and conformance
 
-- [ ] **EH-681 / DB-8.10, DB-2.1:** Build native-source differential and CDC replay conformance harness; depends on EH-661.
-- [ ] **EH-672 / DB-8.1:** Postgres catalog/query/pgoutput/type adapter; depends on EH-661/681.
-- [ ] **EH-673 / DB-8.2:** Separate MySQL and MariaDB query/catalog/binlog/type entries; depends on EH-661/681.
-- [ ] **EH-674 / DB-8.3:** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EH-661/681.
-- [ ] **EH-675 / DB-8.4:** MSSQL catalog/T-SQL/CDC adapter; depends on EH-661/681.
-- [ ] **EH-676 / DB-8.5:** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EH-661/681.
-- [ ] **EH-677 / DB-8.6:** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EH-680.
-- [ ] **EH-678 / DB-8.7:** MongoDB/DocumentDB document catalog and change streams; depends on EH-661/663.
-- [ ] **EH-679 / DB-8.8:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EH-666.
-- [ ] **EH-680 / DB-8.9:** Debezium Kafka-to-`ChangeEnvelope` bridge; depends on EH-667.
+- [ ] **EG-UNIFIED-DATA-PLANE-R022:** Build native-source differential and CDC replay conformance harness; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R013:** Postgres catalog/query/pgoutput/type adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R014:** Separate MySQL and MariaDB query/catalog/binlog/type entries; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R015:** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R016:** MSSQL catalog/T-SQL/CDC adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R017:** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R018:** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EG-UNIFIED-DATA-PLANE-R021.
+- [ ] **EG-UNIFIED-DATA-PLANE-R019:** MongoDB/DocumentDB document catalog and change streams; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R020:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EG-UNIFIED-DATA-PLANE-R007.
+- [ ] **EG-UNIFIED-DATA-PLANE-R021:** Debezium Kafka-to-`ChangeEnvelope` bridge; depends on EG-UNIFIED-DATA-PLANE-R008.
 
 ## Platform and app admission
 
-- [ ] **EH-682 / DB-7.11, DB-4.5, DB-4.7:** Build shared CloudNativePG and MariaDB platform with per-app roles, PITR and restore drill.
-- [ ] **EH-683 / DB-7.12, DB-6.5:** Admit three apps including MariaDB with rollback and retire each ingest connector only after parity; depends on EH-682/672/673/668.
-- [ ] **EH-696 / Immich I0–I6:** Generated API client, MCP tools, registration, incremental per-user ingest, naming, approved links and operations. Implement I0–I6 as defined in [spec.md](spec.md).
+- [ ] **EG-UNIFIED-DATA-PLANE-R023:** Build shared CloudNativePG and MariaDB platform with per-app roles, PITR and restore drill.
+- [ ] **EG-UNIFIED-DATA-PLANE-R024:** Admit three apps including MariaDB with rollback and retire each ingest connector only after parity; depends on EG-UNIFIED-DATA-PLANE-R023.
+- [ ] **EG-UNIFIED-DATA-PLANE-R032 / Immich I0–I6:** Generated API client, MCP tools, registration, incremental per-user ingest, naming, approved links and operations. Implement I0–I6 as defined in [spec.md](spec.md).
 
 ## Native hosting and app admission
 
-Native storage and wire work (EH-684/EH-685/EH-690–EH-692/EH-717–EH-722) is implemented and evidenced by `durable-graph-kernel`; the one-way Ghostfolio import EH-714 is implemented and evidenced by `finance-primitives`. This spec consumes their exact-head test receipts before app admission, without duplicating those work items.
+Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-DURABLE-KERNEL-R034–EG-DURABLE-KERNEL-R036/EG-DURABLE-KERNEL-R037–EG-DURABLE-KERNEL-R042) is implemented and evidenced by `durable-graph-kernel`; the one-way Ghostfolio import EG-FINANCE-PRIMITIVES-R012 is implemented and evidenced by `finance-primitives`. This spec consumes their exact-head test receipts before app admission, without duplicating those work items.
 
-- [ ] **EH-686 / DB-9.4:** Separate pgrx companion spike and go/no-go ADR; depends on EH-660.
-- [ ] **EH-687 / Gramps P0–P5:** Baseline, real-Postgres control, unmodified EG replay, pilot fixes, restores and OBDA understanding; depends on EH-692/689. Implement P0–P5 and their exit artifacts as defined in [spec.md](spec.md) and [test-spec.md](test-spec.md).
-- [ ] **EH-688 / DB-1.1–1.21:** Fix Postgres features only when captured app traffic proves need; include B-tree indexes, collation, regex, bytea, sequences, savepoints, locks, notify, triggers/functions, JSONB, isolation, startup, SQLSTATE, schemas, constraints, types, materialized views, large objects and timezone; depends on EH-687.
-- [ ] **EH-689 / DB-2.1–2.4:** Differential Postgres regression, generated and captured-traffic corpora with reviewed deviations and no ratchet; depends on EH-681.
-- [ ] **EH-697 / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback; depends on EH-687/690/691 and every P0–P5 acceptance artifact.
+- [ ] **EG-UNIFIED-DATA-PLANE-R025:** Separate pgrx companion spike and go/no-go ADR; depends on EG-UNIFIED-DATA-PLANE-R001.
+- [ ] **EG-UNIFIED-DATA-PLANE-R026 / Gramps P0–P5:** Baseline, real-Postgres control, unmodified EG replay, pilot fixes, restores and OBDA understanding; depends on EG-DURABLE-KERNEL-R036. Implement P0–P5 and their exit artifacts as defined in [spec.md](spec.md) and [test-spec.md](test-spec.md).
+- [ ] **EG-UNIFIED-DATA-PLANE-R027:** Fix Postgres features only when captured app traffic proves need; include B-tree indexes, collation, regex, bytea, sequences, savepoints, locks, notify, triggers/functions, JSONB, isolation, startup, SQLSTATE, schemas, constraints, types, materialized views, large objects and timezone; depends on EG-UNIFIED-DATA-PLANE-R026.
+- [ ] **EG-UNIFIED-DATA-PLANE-R028:** Differential Postgres regression, generated and captured-traffic corpora with reviewed deviations and no ratchet; depends on EG-UNIFIED-DATA-PLANE-R022.
+- [ ] **EG-UNIFIED-DATA-PLANE-R033 / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback; depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.
 
 ## Completion record for each row
 

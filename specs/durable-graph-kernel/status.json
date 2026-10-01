@@ -3,51 +3,781 @@
   "spec_id": "EG-DURABLE-KERNEL",
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
-    "EH-138",
-    "EH-139",
-    "EH-140",
-    "EH-147",
-    "EH-159",
-    "EH-160",
-    "EH-169",
-    "EH-178",
-    "EH-181",
-    "EH-185",
-    "EH-191",
-    "EH-256",
-    "EH-286",
-    "EH-287",
-    "EH-288",
-    "EH-290",
-    "EH-353",
-    "EH-374",
-    "EH-375",
-    "EH-384",
-    "EH-390",
-    "EH-404",
-    "EH-446",
-    "EH-508",
-    "EH-534",
-    "EH-535",
-    "EH-560",
-    "EH-639",
-    "EH-640",
-    "EH-649",
-    "EH-658",
-    "EH-684",
-    "EH-685",
-    "EH-690",
-    "EH-691",
-    "EH-692",
-    "EH-717",
-    "EH-718",
-    "EH-719",
-    "EH-720",
-    "EH-721",
-    "EH-722",
-    "RF-025"
+    "EG-DURABLE-KERNEL-R001",
+    "EG-DURABLE-KERNEL-R002",
+    "EG-DURABLE-KERNEL-R003",
+    "EG-DURABLE-KERNEL-R004",
+    "EG-DURABLE-KERNEL-R005",
+    "EG-DURABLE-KERNEL-R006",
+    "EG-DURABLE-KERNEL-R007",
+    "EG-DURABLE-KERNEL-R008",
+    "EG-DURABLE-KERNEL-R009",
+    "EG-DURABLE-KERNEL-R010",
+    "EG-DURABLE-KERNEL-R011",
+    "EG-DURABLE-KERNEL-R012",
+    "EG-DURABLE-KERNEL-R013",
+    "EG-DURABLE-KERNEL-R014",
+    "EG-DURABLE-KERNEL-R015",
+    "EG-DURABLE-KERNEL-R016",
+    "EG-DURABLE-KERNEL-R017",
+    "EG-DURABLE-KERNEL-R018",
+    "EG-DURABLE-KERNEL-R019",
+    "EG-DURABLE-KERNEL-R020",
+    "EG-DURABLE-KERNEL-R021",
+    "EG-DURABLE-KERNEL-R022",
+    "EG-DURABLE-KERNEL-R023",
+    "EG-DURABLE-KERNEL-R024",
+    "EG-DURABLE-KERNEL-R025",
+    "EG-DURABLE-KERNEL-R026",
+    "EG-DURABLE-KERNEL-R027",
+    "EG-DURABLE-KERNEL-R028",
+    "EG-DURABLE-KERNEL-R029",
+    "EG-DURABLE-KERNEL-R030",
+    "EG-DURABLE-KERNEL-R031",
+    "EG-DURABLE-KERNEL-R032",
+    "EG-DURABLE-KERNEL-R033",
+    "EG-DURABLE-KERNEL-R034",
+    "EG-DURABLE-KERNEL-R035",
+    "EG-DURABLE-KERNEL-R036",
+    "EG-DURABLE-KERNEL-R037",
+    "EG-DURABLE-KERNEL-R038",
+    "EG-DURABLE-KERNEL-R039",
+    "EG-DURABLE-KERNEL-R040",
+    "EG-DURABLE-KERNEL-R041",
+    "EG-DURABLE-KERNEL-R042",
+    "EG-DURABLE-KERNEL-R043",
+    "EG-DURABLE-KERNEL-R044",
+    "EG-DURABLE-KERNEL-R045",
+    "EG-DURABLE-KERNEL-R046",
+    "EG-DURABLE-KERNEL-R047",
+    "EG-DURABLE-KERNEL-R048",
+    "EG-DURABLE-KERNEL-R049",
+    "EG-DURABLE-KERNEL-R050",
+    "EG-DURABLE-KERNEL-R051",
+    "EG-DURABLE-KERNEL-R052",
+    "EG-DURABLE-KERNEL-R053",
+    "EG-DURABLE-KERNEL-R054",
+    "EG-DURABLE-KERNEL-R055",
+    "EG-DURABLE-KERNEL-R056",
+    "EG-DURABLE-KERNEL-R057",
+    "EG-DURABLE-KERNEL-R058",
+    "EG-DURABLE-KERNEL-R059",
+    "EG-DURABLE-KERNEL-R060",
+    "EG-DURABLE-KERNEL-R061",
+    "EG-DURABLE-KERNEL-R062",
+    "EG-DURABLE-KERNEL-R063",
+    "EG-DURABLE-KERNEL-R064",
+    "EG-DURABLE-KERNEL-R065",
+    "EG-DURABLE-KERNEL-R066",
+    "EG-DURABLE-KERNEL-R067",
+    "EG-DURABLE-KERNEL-R068",
+    "EG-DURABLE-KERNEL-R069"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-DURABLE-KERNEL-R001",
+      "title": "Outbox head-only attempt accounting and rewind",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R002",
+      "title": "Outbox consumers get per-class topics and reject-driven rebuild",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R003",
+      "title": "Owner-store layout lineage registry with typed upgrade refusal",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R004",
+      "title": "Outbox attempt accounting is scoped to the head row",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R005",
+      "title": "Outbox delivery state remains local to the owning node",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R006",
+      "title": "Engine startup does not block on one store's lazy open",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R007",
+      "title": "Host binary exposes a storage inspect and upgrade command",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R008",
+      "title": "Raft unit tests pass under cluster features and run in CI",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R009",
+      "title": "Native raft commands are sealed as their bare method",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R010",
+      "title": "jscpd clone gate runs on every commit",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011",
+      "title": "Clippy and targeted tests cover the full and all-features builds",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R012",
+      "title": "Raft native command sealing and placement routing are correct",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R013",
+      "title": "Raft cluster test failures capture a causal trace automatically",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R014",
+      "title": "Raft cluster tests pass reliably under load",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R015",
+      "title": "Raft heartbeat flush and batch dispatch avoid head-of-line blocking",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R016",
+      "title": "Raft durability writes are batched to reduce commit latency",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "92943a9ed1bbb3c36a2fd289164071f108cf8a39",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/92943a9ed1bbb3c36a2fd289164071f108cf8a39",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R017",
+      "title": "Correctness-gated benchmark compares EG against HelixDB",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R018",
+      "title": "UDF registry and response-dedup cache are tenant-scoped",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R019",
+      "title": "Graph lifecycle idempotency keys are tenant-scoped",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R020",
+      "title": "Bounded background scrub detects node corruption between restarts",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c770cbdc20a67f24b97c71a0751b4ff12086e208",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c770cbdc20a67f24b97c71a0751b4ff12086e208",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R021",
+      "title": "Store-authority binding validates once per write transaction",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "0d025fe8cce73caa50f18b21160579500add6645",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0d025fe8cce73caa50f18b21160579500add6645",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R022",
+      "title": "Just-in-time RBAC elevation requires two-person approval",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R023",
+      "title": "UQL enforces a read-only guarantee at compile time and by test",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024",
+      "title": "External graph and database backends become EG federation sources",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "bfa1cabd8494accef2ae87892bdd63d8358eec93",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bfa1cabd8494accef2ae87892bdd63d8358eec93",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R025",
+      "title": "Raft admin follows the current leader and traces are leader-agnostic",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R026",
+      "title": "Auth modes share one principal and RBAC evaluation path",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R027",
+      "title": "Schema repair uses a reserved two-person approval lease",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028",
+      "title": "WorkItem lifecycle test uses a consistent verified tenant",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "0296193fa29165a4189a4a1c6ccc7de5ea41cce1",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0296193fa29165a4189a4a1c6ccc7de5ea41cce1",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R029",
+      "title": "Universal read-RLS gate checks the current TsScan dispatch path",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "47d487411e60032581fc5c666c874bf309a7cc4b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/47d487411e60032581fc5c666c874bf309a7cc4b",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030",
+      "title": "Reserved RBAC elevation lease kind cannot be issued generically",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "ba6c4d2d7f80139020572c6f5d8e72d4fecdcad0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ba6c4d2d7f80139020572c6f5d8e72d4fecdcad0",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R031",
+      "title": "Audit append supports tenant-scoped idempotent reservation",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R032",
+      "title": "Native primary-key fast path bypasses the SQL planner",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R033",
+      "title": "Hot-store engine choice is evaluated against captured workloads",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R034",
+      "title": "Cross-store atomicity is proven and scoped to mixed transactions",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R035",
+      "title": "PostgreSQL wire protocol reaches operational and dump/restore parity",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R036",
+      "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037",
+      "title": "Workload classifier routes point operations around the SQL planner",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R038",
+      "title": "KV namespaces declare an explicit, enforced durability class",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039",
+      "title": "In-memory data structures rebuild from the redb durability log",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R040",
+      "title": "Pipelined requests commit as a single batch",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041",
+      "title": "SQL plan cache keyed by statement digest and schema version",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042",
+      "title": "Benchmark gate defines and proves performance superiority claims",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R043",
+      "title": "MutationBatch is the sole persistent write envelope across stores",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1d83cf4b704fdfc2120d9444e9486cfbc4fb7687",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R044",
+      "title": "Upload cursor identifiers are never reused after a restart",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R045",
+      "title": "A single owner-manifest lineage check governs format upgrades",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R046",
+      "title": "Polygon interior/touch predicates are correct for shared boundaries",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R047",
+      "title": "Ring-buffer eviction test matches whole entry identifiers",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R048",
+      "title": "Dispatch-ordering guard test reliably locates its target function",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cfb0a1279595cf3fe54af8b2f57bbec7060020cb",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cfb0a1279595cf3fe54af8b2f57bbec7060020cb",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R049",
+      "title": "Idempotent retry of CreateGraph and DeleteGraph succeeds",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ceec541457209235ce3d0e0526506bf2428dc845",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ceec541457209235ce3d0e0526506bf2428dc845",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R050",
+      "title": "Blob garbage collection enforces a grace period before deletion",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R051",
+      "title": "BlobRef and BlobUnref are holder-scoped and idempotent",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R052",
+      "title": "Outbox delivery is organized by semantic class topics",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R053",
+      "title": "AVX2 kernel paths are exercised on AVX2-capable hardware",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R054",
+      "title": "Placement and consensus routing tests pass after command sealing changes",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R055",
+      "title": "Durable-store registry classifies every .redb literal in the codebase",
+      "delivery_state": "CLOSED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c143146d7855279515d8ba74ac06f5462aff4a41",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c143146d7855279515d8ba74ac06f5462aff4a41",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R056",
+      "title": "Mutation durability classification is correct under every feature build",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5bf5b719de7e4564250504a5e294cdebbef399b7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5bf5b719de7e4564250504a5e294cdebbef399b7",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R057",
+      "title": "Sealed record classes are protected by a create-only write guard",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R058",
+      "title": "Source-batch publication waiter cancellation is deterministic",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R059",
+      "title": "Garbage collection preserves chunks shared with a direct reference",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R060",
+      "title": "Unsupported legacy graph-data layouts are not silently migrated",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R061",
+      "title": "Test threading avoids unbounded channels and dead-time joins",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R062",
+      "title": "Abandoned uploads are reclaimed after an idle TTL",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R063",
+      "title": "Version-2 control-state rows are lifted losslessly on read",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R064",
+      "title": "Compiled shape memoization is benchmarked against parsing per write",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R065",
+      "title": "Signed dispatch commit recovers correctly after an ack-lost fault window",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R066",
+      "title": "Published contract metadata matches BlobRef/BlobUnref idempotent behavior",
+      "delivery_state": "CLOSED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b8814b4560d11534d3a2c228e3d6053428e6d31b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b8814b4560d11534d3a2c228e3d6053428e6d31b",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R067",
+      "title": "Trace capture isolates each test's events from concurrent noise",
+      "delivery_state": "CLOSED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R068",
+      "title": "Channel-group leave returns its own result, not a replayed join result",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R069",
+      "title": "Scrub cursor fixture reliably tests the no-key encryption state",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

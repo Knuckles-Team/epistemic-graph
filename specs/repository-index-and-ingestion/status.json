@@ -3,17 +3,143 @@
   "spec_id": "EG-REPO-INGEST",
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
-    "EH-168",
-    "EH-498",
-    "EH-503",
-    "EH-524",
-    "EH-533",
-    "EH-557",
-    "EH-636",
-    "EH-638",
-    "RF-031"
+    "EG-REPO-INGEST-R001",
+    "EG-REPO-INGEST-R002",
+    "EG-REPO-INGEST-R003",
+    "EG-REPO-INGEST-R004",
+    "EG-REPO-INGEST-R005",
+    "EG-REPO-INGEST-R006",
+    "EG-REPO-INGEST-R007",
+    "EG-REPO-INGEST-R008",
+    "EG-REPO-INGEST-R009",
+    "EG-REPO-INGEST-R010",
+    "EG-REPO-INGEST-R011"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-REPO-INGEST-R001",
+      "title": "Reconcile mode re-admits stranded semantic intents",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002",
+      "title": "SourceIngest is sole owner of migrated ingestion capabilities",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R003",
+      "title": "EG is sole home for remaining migrated ingestion modules",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R004",
+      "title": "Derived series maintained incrementally with lineage",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "290b3cfb9b55bad221c7d63ef25f0ea7d3b9e028",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/290b3cfb9b55bad221c7d63ef25f0ea7d3b9e028",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R005",
+      "title": "Replay-protection nonces commit in batches for throughput",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R006",
+      "title": "Native ingestion commits fast; heavy enrichment deferred",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3fd09ccd23754f636824a157dc43e5d9ca440b9e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3fd09ccd23754f636824a157dc43e5d9ca440b9e",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R007",
+      "title": "Large ingestion batches refuse atomically with a stable code",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "9a9a184567ecdd64f92730c24124ddca02906623",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9a9a184567ecdd64f92730c24124ddca02906623",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R008",
+      "title": "Oversized batches return a stable code for retry",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R009",
+      "title": "Repository hydration links into the specification bridge",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "a13974941fb3f516b8f0a0051f9ad03a43c3c7a3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a13974941fb3f516b8f0a0051f9ad03a43c3c7a3",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R010",
+      "title": "Tree-sitter grammar coverage expands to 18 more languages",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R011",
+      "title": "Ingestion community detection uses pure Leiden",
+      "delivery_state": "CLOSED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b5fe3c140c212d2c32d80074c72e7913103554a7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b5fe3c140c212d2c32d80074c72e7913103554a7",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    }
+  ]
 }

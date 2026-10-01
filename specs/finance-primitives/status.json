@@ -3,21 +3,153 @@
   "spec_id": "EG-FINANCE-PRIMITIVES",
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
-    "EH-517",
-    "EH-530",
-    "EH-632",
-    "EH-698",
-    "EH-699",
-    "EH-700",
-    "EH-702",
-    "EH-703",
-    "EH-704",
-    "EH-706",
-    "EH-712",
-    "EH-714",
-    "EH-715"
+    "EG-FINANCE-PRIMITIVES-R001",
+    "EG-FINANCE-PRIMITIVES-R002",
+    "EG-FINANCE-PRIMITIVES-R003",
+    "EG-FINANCE-PRIMITIVES-R004",
+    "EG-FINANCE-PRIMITIVES-R005",
+    "EG-FINANCE-PRIMITIVES-R006",
+    "EG-FINANCE-PRIMITIVES-R007",
+    "EG-FINANCE-PRIMITIVES-R008",
+    "EG-FINANCE-PRIMITIVES-R009",
+    "EG-FINANCE-PRIMITIVES-R010",
+    "EG-FINANCE-PRIMITIVES-R011",
+    "EG-FINANCE-PRIMITIVES-R012",
+    "EG-FINANCE-PRIMITIVES-R013",
+    "EG-FINANCE-PRIMITIVES-R014",
+    "EG-FINANCE-PRIMITIVES-R015",
+    "EG-FINANCE-PRIMITIVES-R016",
+    "EG-FINANCE-PRIMITIVES-R017"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R001",
+      "title": "Cross-host BacktestRun digest and Pine parity for finance-core",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "84627265edaa53999e338cd166d0416101610538",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/84627265edaa53999e338cd166d0416101610538",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002",
+      "title": "Rehome generic finance evaluation kernels into eg-numeric",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "7532999ace51379bc6f03b4ab04d2c9c05deeb84",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7532999ace51379bc6f03b4ab04d2c9c05deeb84",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R003",
+      "title": "Compute PBO from a BacktestRun's own CSCV splits",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004",
+      "title": "finance-v1 asset, account, and strategy record types",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R005",
+      "title": "Deterministic fixed-point portfolio accounting",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R006",
+      "title": "Point-in-time corporate actions and exchange session calendars",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R007",
+      "title": "Versioned StrategySpec evaluator with DCA, trend, rebalancing",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R008",
+      "title": "Strategy backtests sealed through BacktestRun",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R009",
+      "title": "Calibrated abstaining recommendations with scorecards",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R010",
+      "title": "Leverage risk module with margin, sizing, live-order boundary",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011",
+      "title": "Finance alerts published through the finance outbox",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R012",
+      "title": "Optional one-way Ghostfolio activity import",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013",
+      "title": "Golden accounting and risk fixtures with full provenance",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R014",
+      "title": "finance-v1 thin instrument and signal module",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R015",
+      "title": "AnalysisSnapshot records with share.read control leases",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R016",
+      "title": "Incremental deterministic indicator kernels with Pine parity",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R017",
+      "title": "BacktestRun provenance record with mandatory fields",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }
