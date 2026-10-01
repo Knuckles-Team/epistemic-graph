@@ -93,9 +93,11 @@ pub fn pinned_agent_builder(target: &ValidatedHttpJsonTarget) -> ureq::AgentBuil
     let pinned_addresses = target.addresses.clone();
     ureq::AgentBuilder::new()
         .try_proxy_from_env(false)
-        .resolver(move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
-            Ok(pinned_addresses.clone())
-        })
+        .resolver(
+            move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
+                Ok(pinned_addresses.clone())
+            },
+        )
         .https_only(target.https_only)
         .redirects(0)
 }
