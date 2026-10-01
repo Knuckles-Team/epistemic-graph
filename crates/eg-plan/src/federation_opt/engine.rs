@@ -236,7 +236,8 @@ mod tests {
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = listener.local_addr().unwrap().to_string();
-        let server = std::thread::spawn(move || {
+        let (done, served_counts) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
             let fixture = crate::fixture::build();
             let ctx = PlanCtx::new(&fixture.view, &fixture.semantic);
             let mut served = Vec::new();
@@ -266,7 +267,7 @@ mod tests {
                     .unwrap();
                 stream.write_all(&encoded).unwrap();
             }
-            served
+            done.send(served).unwrap();
         });
 
         let mut spec = remote("MATCH (:Doc) |> WHERE year > 2023");
@@ -297,6 +298,9 @@ mod tests {
             .unwrap();
         assert_eq!(selected.ids(), vec!["d2", "d4"]);
         assert_eq!(limited.ids(), full.ids()[..2]);
-        assert_eq!(server.join().unwrap(), vec![full.len(), 2, 2]);
+        let served = served_counts
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the peer served all three requests");
+        assert_eq!(served, vec![full.len(), 2, 2]);
     }
 }

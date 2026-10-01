@@ -153,9 +153,9 @@ fn from_spec<'a>(spec: &'a ForeignSourceSpec, name: Option<&'a str>) -> Box<dyn 
         } => Box::new(super::http::HttpRemote::new(
             url, json_path, field_map, identity,
         )),
-        ForeignSourceSpec::RemoteEngine { .. } => Box::new(super::engine::EngineRemote::new(
-            spec, identity,
-        )),
+        ForeignSourceSpec::RemoteEngine { .. } => {
+            Box::new(super::engine::EngineRemote::new(spec, identity))
+        }
         other => Box::new(Opaque {
             source: OpaqueSource::Spec(crate::federation::source_for(other)),
             identity,

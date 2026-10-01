@@ -357,12 +357,25 @@ fn read_remote_response(stream: &mut std::net::TcpStream) -> Result<Vec<u8>, Str
 impl RemoteEngineSource<'_> {
     pub(crate) fn from_spec(spec: &ForeignSourceSpec) -> Option<RemoteEngineSource<'_>> {
         let ForeignSourceSpec::RemoteEngine {
-            endpoint, graph, secret, context, uql, cypher, id_field,
-        } = spec else {
+            endpoint,
+            graph,
+            secret,
+            context,
+            uql,
+            cypher,
+            id_field,
+        } = spec
+        else {
             return None;
         };
         Some(RemoteEngineSource {
-            endpoint, graph, secret, context, uql, cypher, id_field,
+            endpoint,
+            graph,
+            secret,
+            context,
+            uql,
+            cypher,
+            id_field,
         })
     }
 
