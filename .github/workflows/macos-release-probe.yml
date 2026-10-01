@@ -24,6 +24,7 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
+      RUSTUP_TOOLCHAIN: '1.96.0'
       EG_WHEEL_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
