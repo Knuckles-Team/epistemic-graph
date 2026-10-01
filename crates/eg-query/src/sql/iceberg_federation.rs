@@ -330,7 +330,7 @@ impl TableFunctionImpl for IcebergFunc {
 /// batches into a `MemTable`.
 #[derive(Debug)]
 pub struct IcebergTableProvider {
-    table: iceberg::Table,
+    table: iceberg::table::Table,
     snapshot_id: Option<i64>,
     schema: SchemaRef,
     // `RwLock`, not a plain field: `columns_projected` is unknowable at construction
