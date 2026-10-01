@@ -67,6 +67,19 @@ class ReleasePublication(unittest.TestCase):
             jobs["publish-image"]["needs"], ["docker-image", "publish-pypi"]
         )
 
+    def test_storage_crash_processes_do_not_overlap_sibling_file_tests(self):
+        steps = self.workflow["jobs"]["gates-crates"]["steps"]
+        commands = [step.get("run", "") for step in steps]
+        storage = (
+            "python3 scripts/cargo_test_rescue.py cargo test --locked "
+            "-p eg-storage --all-features --no-fail-fast -- --test-threads=1"
+        )
+        self.assertEqual(commands.count(storage), 1)
+        workspace = next(command for command in commands if "--workspace" in command)
+        self.assertIn("--exclude eg-storage ", workspace)
+        self.assertNotIn("--test-threads=1", workspace)
+        self.assertLess(commands.index(storage), commands.index(workspace))
+
     def test_same_run_artifacts_and_no_blind_skip(self):
         jobs = self.workflow["jobs"]
         for name in ("docker-image", "publish-pypi", "publish-image"):
