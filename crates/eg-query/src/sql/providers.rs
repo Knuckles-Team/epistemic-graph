@@ -502,9 +502,16 @@ impl TableProvider for EdgesTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(classify_filters_pushdown(filters, |f| {
-            edge_column_eq(f).is_some()
-        }))
+        Ok(filters
+            .iter()
+            .map(|f| {
+                if edge_column_eq(f).is_some() {
+                    TableProviderFilterPushDown::Inexact
+                } else {
+                    TableProviderFilterPushDown::Unsupported
+                }
+            })
+            .collect())
     }
 
     async fn scan(
@@ -876,9 +883,16 @@ impl TableProvider for NodesTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(classify_filters_pushdown(filters, |f| {
-            self.registry.indexable_eq(f).is_some()
-        }))
+        Ok(filters
+            .iter()
+            .map(|f| {
+                if self.registry.indexable_eq(f).is_some() {
+                    TableProviderFilterPushDown::Inexact
+                } else {
+                    TableProviderFilterPushDown::Unsupported
+                }
+            })
+            .collect())
     }
 
     async fn scan(
