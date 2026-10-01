@@ -334,6 +334,28 @@ fn dispatch_kind(kind: Kind, flag: bool, other: bool) -> u8 {
 }
 """
 
+# A wholly NEW arm (Kind::L, absent from DISPATCH_BASE -- not a modification
+# of an existing arm the way DISPATCH_NON_ARM_GROWTH is) whose own body
+# branches internally: cyclomatic grows by more than the "one more variant,
+# one more decision point" DISPATCH_MORE_ARMS costs, because the new arm's
+# nested if/else adds real decision points on top of plain dispatch, so
+# residual (cyclomatic - arms) rises even though only one arm was added. This
+# is EH-469's own wording: a NEW arm is scored by its BODY's complexity, not
+# credited for free just because it is "one more arm".
+DISPATCH_NEW_ARM_NESTED_BRANCHING = DISPATCH_BASE.replace(
+    "kind: Kind)", "kind: Kind, flag: bool)"
+).replace(
+    "Kind::K => 11,",
+    """Kind::K => 11,
+        Kind::L => {
+            if flag {
+                12
+            } else {
+                13
+            }
+        }""",
+)
+
 
 # ---------------------------------------------------------------------------
 # The five required cases
@@ -402,6 +424,35 @@ def test_exempt_function_adding_exhaustive_arms_passes(tmp_path):
     assert after_row.cyclomatic > before_row.cyclomatic  # more arms, raw grew
     assert after_row.residual == before_row.residual  # but nothing else did
     assert findings == []
+
+
+def test_exempt_function_adding_arm_with_nested_branching_fails(tmp_path):
+    """EH-469: a NEW arm (not an existing one modified, unlike
+    ``test_exempt_function_growing_non_arm_complexity_fails`` above) whose own
+    body carries real branching must still fail -- the gate scores an added
+    arm by its BODY's complexity, not by treating "one more arm" as free
+    regardless of what is inside it. Contrast with
+    ``test_exempt_function_adding_exhaustive_arms_passes``: there, the added
+    arms are plain dispatch (bodies with no branching of their own) and pass;
+    here the added arm nests an if/else and must not."""
+    mod = _module()
+    before, after, findings = _judge(
+        mod,
+        tmp_path,
+        "before.rs",
+        DISPATCH_BASE,
+        "after.rs",
+        DISPATCH_NEW_ARM_NESTED_BRANCHING,
+    )
+    (before_row,) = before["dispatch_kind"]
+    (after_row,) = after["dispatch_kind"]
+    assert before_row.exempt is True and after_row.exempt is True
+    # Exactly one arm was added (11 -> 12), but the new arm's nested if/else
+    # costs more than the "one arm, one decision point" DISPATCH_MORE_ARMS
+    # costs, so the residual (cyclomatic discounted by arm count) still rises.
+    assert after_row.residual > before_row.residual
+    assert len(findings) == 1
+    assert findings[0][0] == "WORSE"
 
 
 def test_new_over_cap_function_fails(tmp_path):

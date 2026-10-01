@@ -11,24 +11,25 @@ use std::cell::Cell;
 use std::path::PathBuf;
 
 use eg_storage::SEMANTIC_SOURCE_PROGRESS;
-use eg_transaction::OutboxClaimBudget;
+use eg_transaction::{OutboxClaimBudget, OutboxWrite, OutboxWriteReply};
 use eg_types::contract::Nonce;
 use eg_types::mutation_batch::MutationOutboxLease;
+use eg_types::mutation_outbox::RewindTarget;
 use eg_types::semantic_index::{
     SemanticAnnIndexManifest, SemanticBinding, SemanticBindingState, SemanticDeadLetter,
     SemanticDeadLetterDraft, SemanticDigest, SemanticExpectedEntity, SemanticGenerationAggregate,
     SemanticGenerationArtifact, SemanticGenerationCheckpoint, SemanticGenerationCheckpointDraft,
     SemanticGenerationCheckpointUpdate, SemanticGenerationDependency, SemanticGenerationMember,
     SemanticGraphProjectionManifest, SemanticGraphProjectionManifestDraft, SemanticIndexFilter,
-    SemanticLexicalIndexManifest, SemanticSourceProgress, SemanticSqlSourceIdentity, SemanticStage,
-    SemanticStageArtifact, SemanticStageIntent, SemanticStageIntentDraft, SemanticStageOutcome,
-    SemanticStagePredecessor, SemanticStageReceipt, SemanticStageScope, SemanticStageTransition,
-    SemanticVector,
+    SemanticLexicalIndexManifest, SemanticQueueClass, SemanticSourceProgress,
+    SemanticSqlSourceIdentity, SemanticStage, SemanticStageArtifact, SemanticStageIntent,
+    SemanticStageIntentDraft, SemanticStageOutcome, SemanticStagePredecessor, SemanticStageReceipt,
+    SemanticStageScope, SemanticStageTransition, SemanticVector,
 };
 
 use super::tests::{
-    completed_sql_source_artifact, open_store, pending_binding, sql_source_identity, tmp_dir,
-    BINDING, TENANT,
+    completed_sql_source_artifact, open_store, pending_binding, source_commit_intent,
+    sql_source_identity, tmp_dir, BINDING, TENANT,
 };
 use super::{SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt};
 
@@ -797,4 +798,278 @@ fn a_binding_filter_is_proved_from_durable_source_progress() {
         ..filter(entity, None)
     };
     assert!(codes.binding_matches_filter(&unbounded).is_err());
+}
+
+/// Close every store handle while transferring directory cleanup to the reopened fixture.
+fn reopen_pipeline(mut pipeline: Pipeline) -> Pipeline {
+    let dir = std::mem::take(&mut pipeline.dir);
+    let binding = pipeline.binding.clone();
+    let identity = pipeline.identity.clone();
+    let clock = Cell::new(pipeline.now() + 10_000);
+    drop(pipeline);
+    Pipeline {
+        codes: open_store(&dir),
+        dir,
+        binding,
+        identity,
+        clock,
+    }
+}
+
+fn class_route(class: SemanticQueueClass) -> (&'static str, &'static str) {
+    match class {
+        SemanticQueueClass::Fast => (
+            "semantic-pipeline#fast",
+            "engine.semantic-index.stage-intent.fast.v1",
+        ),
+        SemanticQueueClass::Medium => (
+            "semantic-pipeline#medium",
+            "engine.semantic-index.stage-intent.medium.v1",
+        ),
+        SemanticQueueClass::SlowHeavy => (
+            "semantic-pipeline#slow-heavy",
+            "engine.semantic-index.stage-intent.slow-heavy.v1",
+        ),
+    }
+}
+
+/// Assert the real producer's canonical transport and exact per-class routing.
+fn claim_class(
+    pipeline: &Pipeline,
+    class: SemanticQueueClass,
+    expected: &[(SemanticStage, u32)],
+) -> Vec<MutationOutboxLease> {
+    let mut budget = OutboxClaimBudget::new(32, 5_000, pipeline.now()).unwrap();
+    let outcome = pipeline
+        .codes
+        .claim_stage_class(CONSUMER, class, &mut budget)
+        .unwrap();
+    assert!(outcome.dead_lettered.is_empty());
+    assert_eq!(outcome.claims.len(), expected.len());
+    let (consumer, topic) = class_route(class);
+    for (lease, (stage, attempt)) in outcome.claims.iter().zip(expected) {
+        let intent = pipeline
+            .codes
+            .parse_stage_lease(lease, CONSUMER, pipeline.now())
+            .unwrap();
+        assert_eq!(intent.stage, *stage);
+        assert_eq!(intent.stage.queue_class(), class);
+        assert_eq!(lease.consumer, consumer);
+        assert_eq!(lease.record.intent.topic, topic);
+        assert_eq!(lease.attempt, *attempt);
+    }
+    outcome.claims
+}
+
+fn assert_class_head(pipeline: &Pipeline, class: SemanticQueueClass, attempt: u32) {
+    let (consumer, topic) = class_route(class);
+    let status = pipeline
+        .codes
+        .stage_status(consumer, pipeline.now())
+        .unwrap();
+    assert_eq!(status.topic.as_deref(), Some(topic));
+    assert_eq!(status.head.unwrap().attempt, attempt);
+    assert_eq!(status.dead_lettered, 0);
+}
+
+fn release_class(pipeline: &Pipeline, leases: &[MutationOutboxLease]) {
+    for lease in leases {
+        pipeline.codes.release_stage_lease(lease).unwrap();
+    }
+}
+
+fn enqueue_medium_behind_fast_rows(pipeline: &mut Pipeline) {
+    pipeline.identity = sql_source_identity(&pipeline.binding, 92);
+    pipeline.enqueue_s1();
+    let first = claim_class(
+        pipeline,
+        SemanticQueueClass::Fast,
+        &[(SemanticStage::SourceCommit, 1)],
+    );
+    let intent = pipeline
+        .codes
+        .validate_stage_lease(&first[0], CONSUMER, pipeline.now())
+        .unwrap();
+    for seed in [93, 94] {
+        let poison =
+            source_commit_intent(&pipeline.binding, &format!("poison-{seed}"), digest(seed));
+        pipeline
+            .codes
+            .enqueue_stage_intent(&poison, pipeline.now())
+            .unwrap();
+    }
+    let (completed, artifact) = pipeline.s1_completion(&intent);
+    assert!(
+        !pipeline
+            .complete(&first[0], &completed, &artifact, None)
+            .unwrap()
+            .replayed
+    );
+}
+
+fn rewind_slow_class(pipeline: &Pipeline) {
+    let reply = pipeline
+        .codes
+        .outbox_operator_write(OutboxWrite::Rewind {
+            consumer: class_route(SemanticQueueClass::SlowHeavy).0.to_string(),
+            to: RewindTarget::Start,
+            now_ms: pipeline.now(),
+        })
+        .unwrap();
+    let OutboxWriteReply::Rewound(receipt) = reply else {
+        panic!("expected a rewind receipt")
+    };
+    assert!(receipt.completed);
+    assert_eq!(receipt.deleted_deliveries, 1);
+}
+
+fn exhaust_fast_head(
+    pipeline: &Pipeline,
+    mut fast: Vec<MutationOutboxLease>,
+) -> MutationOutboxLease {
+    for attempt in 2..=eg_transaction::max_delivery_attempts() {
+        release_class(pipeline, &fast);
+        fast = claim_class(
+            pipeline,
+            SemanticQueueClass::Fast,
+            &[
+                (SemanticStage::SourceCommit, attempt),
+                (SemanticStage::SourceCommit, 0),
+            ],
+        );
+        assert_class_head(pipeline, SemanticQueueClass::Medium, 1);
+        assert_class_head(pipeline, SemanticQueueClass::SlowHeavy, 1);
+    }
+    release_class(pipeline, &fast);
+    let mut budget = OutboxClaimBudget::new(32, 5_000, pipeline.now()).unwrap();
+    let mut exhausted = pipeline
+        .codes
+        .claim_stage_class(CONSUMER, SemanticQueueClass::Fast, &mut budget)
+        .unwrap();
+    assert_eq!(
+        exhausted.dead_lettered,
+        vec![eg_transaction::OutboxPosition {
+            sequence: fast[0].record.commit_sequence.unwrap(),
+            created_at_ms: fast[0].record.created_at_ms,
+            batch_id: fast[0].record.batch_id.clone(),
+            ordinal: fast[0].record.ordinal,
+        }]
+    );
+    assert_eq!(exhausted.claims.len(), 1);
+    let successor = exhausted.claims.pop().unwrap();
+    assert_eq!(successor.record, fast[1].record);
+    assert_eq!(successor.attempt, 1);
+    assert_class_head(pipeline, SemanticQueueClass::Medium, 1);
+    assert_class_head(pipeline, SemanticQueueClass::SlowHeavy, 1);
+    successor
+}
+
+fn assert_replayed_lease(before: &MutationOutboxLease, after: &MutationOutboxLease) {
+    assert_eq!(after.record, before.record);
+    assert_eq!(after.consumer, before.consumer);
+    assert_eq!(after.lease_epoch, before.lease_epoch + 1);
+}
+
+#[test]
+fn producer_classes_isolate_fast_exhaustion_and_replay_after_reopen() {
+    let mut pipeline = Pipeline::start("pipeline-three-classes");
+    // Produce the one-entity checkpoints before admitting other entities.
+    let lexical = pipeline.run_through_lexical();
+    let (lease, intent) = pipeline.claim();
+    let (vector, artifact, s5) = pipeline.vector_completion(&intent, lexical);
+    let original = pipeline
+        .complete(&lease, &vector, &artifact, Some(&s5))
+        .unwrap();
+    assert!(!original.replayed);
+    rewind_slow_class(&pipeline);
+    let slow = claim_class(
+        &pipeline,
+        SemanticQueueClass::SlowHeavy,
+        &[(SemanticStage::Vector, 1), (SemanticStage::AnnIndex, 0)],
+    );
+    enqueue_medium_behind_fast_rows(&mut pipeline);
+    let fast = claim_class(
+        &pipeline,
+        SemanticQueueClass::Fast,
+        &[
+            (SemanticStage::SourceCommit, 1),
+            (SemanticStage::SourceCommit, 0),
+        ],
+    );
+    let medium = claim_class(
+        &pipeline,
+        SemanticQueueClass::Medium,
+        &[(SemanticStage::GraphProjection, 1)],
+    );
+    assert!(fast[0].record.commit_sequence < medium[0].record.commit_sequence);
+    let fast = exhaust_fast_head(&pipeline, fast);
+
+    let pipeline = reopen_pipeline(pipeline);
+    let fast_replay = claim_class(
+        &pipeline,
+        SemanticQueueClass::Fast,
+        &[(SemanticStage::SourceCommit, 2)],
+    );
+    let medium_replay = claim_class(
+        &pipeline,
+        SemanticQueueClass::Medium,
+        &[(SemanticStage::GraphProjection, 2)],
+    );
+    let slow_replay = claim_class(
+        &pipeline,
+        SemanticQueueClass::SlowHeavy,
+        &[(SemanticStage::Vector, 2), (SemanticStage::AnnIndex, 0)],
+    );
+    assert_replayed_lease(&fast, &fast_replay[0]);
+    assert_replayed_lease(&medium[0], &medium_replay[0]);
+    for (before, after) in slow.iter().zip(&slow_replay) {
+        assert_replayed_lease(before, after);
+    }
+    // Replaying the already-stored S4 must acknowledge, not rebuild a checkpoint
+    // whose authoritative entity membership has since grown.
+    let replayed = pipeline
+        .complete(&slow_replay[0], &vector, &artifact, Some(&s5))
+        .unwrap();
+    assert!(replayed.replayed);
+    assert_eq!(replayed.batch_id, original.batch_id);
+    assert_eq!(replayed.target_version, original.target_version);
+    let medium_intent = pipeline
+        .codes
+        .validate_stage_lease(&medium_replay[0], CONSUMER, pipeline.now())
+        .unwrap();
+    let (completed, graph) = pipeline.graph_completion(&medium_intent);
+    assert!(
+        !pipeline
+            .complete(&medium_replay[0], &completed, &graph, None)
+            .unwrap()
+            .replayed
+    );
+    assert_eq!(
+        pipeline.progress().completed_stage,
+        Some(SemanticStage::GraphProjection)
+    );
+    release_class(&pipeline, &slow_replay[1..]);
+    let next = claim_class(
+        &pipeline,
+        SemanticQueueClass::SlowHeavy,
+        &[(SemanticStage::AnnIndex, 1)],
+    );
+    assert_eq!(
+        pipeline
+            .codes
+            .validate_stage_lease(&next[0], CONSUMER, pipeline.now())
+            .unwrap(),
+        s5
+    );
+    claim_class(
+        &pipeline,
+        SemanticQueueClass::Medium,
+        &[(SemanticStage::LexicalIndex, 1)],
+    );
+    let status = pipeline
+        .codes
+        .stage_status(class_route(SemanticQueueClass::Fast).0, pipeline.now())
+        .unwrap();
+    assert_eq!(status.head.unwrap().attempt, 2);
+    assert_eq!(status.dead_lettered, 1);
 }
