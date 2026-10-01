@@ -30,5 +30,5 @@ jobs:
           manylinux: '2_28'
           maturin-version: '1.15.0'
           before-script-linux: source scripts/probe_arm64_linker.sh
-          args: --release --jobs 1 --bindings bin -m .ci-arm64-link-probe/Cargo.toml --out /tmp/eg-arm64-link-probe-wheel
+          args: --release --jobs 1 --bindings bin -m Cargo.toml --out /tmp/eg-arm64-link-probe-wheel
           sccache: 'false'

@@ -133,3 +133,16 @@ lto = "thin"
 codegen-units = 1
 panic = "unwind"
 TOML
+cat > .ci-arm64-link-probe/pyproject.toml <<'TOML'
+[build-system]
+requires = ["maturin==1.15.0"]
+build-backend = "maturin"
+[project]
+name = "eg-arm64-link-probe"
+version = "0.0.0"
+[tool.maturin]
+bindings = "bin"
+TOML
+# The action's build follows this sourced hook in the same shell. Isolate
+# both Cargo and Python metadata from the real release project.
+cd .ci-arm64-link-probe
