@@ -66,3 +66,4 @@ Requirement IDs in `requirements.md` not mentioned by any task above before this
 ## Done criteria
 
 Mark a PACK requirement `LANDED` only with an exact merged EG commit. Mark it `ACCEPTED` only after the mapped tests in `test-spec.md`, generated contract receipt, security proof, configured quality gates and served-path verification pass on that commit. A ruled decision row is documented rather than implemented again. A queued adjacent row cannot be closed through this spec.
+- [ ] **P14 (EG-TYPED-PACKS-R097):** Publish the human-resources, legal, medical and government vocabularies as typed domain packs with validation, import and round-trip tests, then confirm callers read the packs.

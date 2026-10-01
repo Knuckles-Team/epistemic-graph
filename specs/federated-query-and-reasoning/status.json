@@ -844,9 +844,10 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R058",
-      "title": "Natural language produces only a previewed, reviewed UQL candidate",
+      "title": "Natural language runs only as disclosed, read-only typed UQL",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "The served natural-language result returns rows without the UQL that was executed, and no plan-only operation is exposed to callers."
     },
     {
       "id": "EG-FEDERATED-QUERY-R059",
