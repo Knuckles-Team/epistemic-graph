@@ -55,19 +55,40 @@ cat > "$probe_dir/layout.ld" <<'LD'
 ENTRY(_start)
 SECTIONS {
   . = 0x10000;
-  .text.start : { *(.text.start) }
+  .text.start ALIGN(0x10000) : { *(.text.start) }
   . = 0x10010000;
   .text.far : { *(.text.far) }
   . = 0x20010000;
   .text.other : { *(.text.other) }
+  .dynamic ALIGN(0x10000) : { *(.dynamic) }
 }
 LD
 cc -c "$probe_dir/start.s" -o "$probe_dir/start.o"
 cc -c "$probe_dir/far.s" -o "$probe_dir/far.o"
 linker="$(rustc --print sysroot)/lib/rustlib/aarch64-unknown-linux-gnu/bin/gcc-ld/ld.lld"
 "$linker" -pie --no-dynamic-linker -T "$probe_dir/layout.ld" "$probe_dir/start.o" "$probe_dir/far.o" -o "$probe_dir/far-call"
+# Keep writable dynamic metadata off executable pages, including 64 KiB ARM
+# pages; otherwise a valid thunk can jump into a page remapped without execute.
+readelf -l "$probe_dir/far-call"
 readelf -h "$probe_dir/far-call"
 readelf -sW "$probe_dir/far-call" | grep __AArch64ADRPThunk_
+/opt/python/cp313-cp313/bin/python - "$probe_dir/far-call" <<'PYTHON'
+import struct
+import sys
+with open(sys.argv[1], 'rb') as elf:
+    header = elf.read(64)
+    offset = struct.unpack_from('<Q', header, 32)[0]
+    size, count = struct.unpack_from('<HH', header, 54)
+    loads = []
+    for index in range(count):
+        elf.seek(offset + index * size)
+        kind, flags, _, address, _, _, memory, _ = struct.unpack('<IIQQQQQQ', elf.read(56))
+        if kind == 1:
+            loads.append((address // 65536, (address + memory + 65535) // 65536, flags))
+    for left, right in zip(loads, loads[1:]):
+        assert left[1] <= right[0], ('overlapping 64 KiB LOAD pages', left, right)
+print('Sparse PIE segment permissions occupy separate pages')
+PYTHON
 "$probe_dir/far-call"
 # Also exercise real large input sections, not just linker-script address gaps.
 # Based on the section placement exercised by LLVM 22.1.2's
