@@ -290,5 +290,9 @@ def test_runner_jobs_keep_build_budget_and_bounded_authorization() -> None:
                 assert job == _verified_x86_workflow()["jobs"]["authorize"]
                 assert job["runs-on"] == "ubuntu-latest"
                 assert job.get("timeout-minutes") == 5
+            elif (workflow.name, name) == ("arm64-linker-probe.yml", "probe"):
+                # This compiles tiny fixtures, never the full release workspace.
+                assert job["runs-on"] == "ubuntu-24.04-arm"
+                assert job.get("timeout-minutes") == 10
             else:
                 assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"

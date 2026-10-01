@@ -1,0 +1,34 @@
+name: Native ARM64 linker probe
+'on':
+  pull_request:
+    paths:
+      - '.github/workflows/arm64-linker-probe.yml'
+      - '.github/actions/folded-wheel/action.yml'
+      - 'scripts/configure_arm64_linker.sh'
+      - 'scripts/probe_arm64_linker.sh'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    env:
+      CARGO_BUILD_JOBS: '1'
+      RUSTUP_TOOLCHAIN: '1.96.0'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Preserve the release path-remap environment
+        run: python3 scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target aarch64-unknown-linux-gnu
+      - name: Probe bundled LLD inside the original manylinux image
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        with:
+          target: aarch64-unknown-linux-gnu
+          container: quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc
+          manylinux: '2_28'
+          maturin-version: '1.15.0'
+          before-script-linux: source scripts/probe_arm64_linker.sh
+          args: --release --jobs 1 --bindings bin -m .ci-arm64-link-probe/Cargo.toml --out /tmp/eg-arm64-link-probe-wheel
+          sccache: 'false'
