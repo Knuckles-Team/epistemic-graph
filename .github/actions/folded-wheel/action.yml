@@ -17,12 +17,17 @@ runs:
     # reuse the dependency crates the server wheel already compiled. Start
     # each pass clean so reproduction cannot reuse primary compiled objects.
     - name: Select the release target directory
+      id: build-environment
       shell: bash
       run: |
-        target="${GITHUB_WORKSPACE:?}/target/epistemic-graph-release"
+        target="${RUNNER_TEMP:?}/epistemic-graph-release-target"
         rm -rf -- "$target"
         mkdir -p "$target"
-        echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target/epistemic-graph-release" >> "$GITHUB_ENV"
+        echo "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" >> "$GITHUB_ENV"
+        if [ "${EG_WHEEL_TARGET:-}" = aarch64-unknown-linux-gnu ]; then
+          echo "container=quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc" >> "$GITHUB_OUTPUT"
+          echo "maturin-version=1.15.0" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Build server wheel
       uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
@@ -36,9 +41,11 @@ runs:
           ${{ env.EG_WHEEL_MATURIN_ARGS }}
         # zig gives reproducible glibc-pinned linux cross-builds.
         manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
+        container: ${{ steps.build-environment.outputs.container }}
+        maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
         before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
-        # Keep the target under the checkout so the action also repairs its
-        # ownership, and explicitly share it between disposable containers.
+        # Retain the path accepted by the runner ownership adapter. Bind only
+        # this target, not the rest of RUNNER_TEMP or any credential directory.
         docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
         sccache: 'false'
 
@@ -60,9 +67,11 @@ runs:
           -m crates/eg-numeric/Cargo.toml
           --features python
         manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
+        container: ${{ steps.build-environment.outputs.container }}
+        maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
         before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
-        # Keep the target under the checkout so the action also repairs its
-        # ownership, and explicitly share it between disposable containers.
+        # Retain the path accepted by the runner ownership adapter. Bind only
+        # this target, not the rest of RUNNER_TEMP or any credential directory.
         docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
         sccache: 'false'
 
@@ -88,9 +97,11 @@ runs:
           -m crates/eg-pyengine/Cargo.toml
           --features python,security
         manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
+        container: ${{ steps.build-environment.outputs.container }}
+        maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
         before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
-        # Keep the target under the checkout so the action also repairs its
-        # ownership, and explicitly share it between disposable containers.
+        # Retain the path accepted by the runner ownership adapter. Bind only
+        # this target, not the rest of RUNNER_TEMP or any credential directory.
         docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
         sccache: 'false'
 

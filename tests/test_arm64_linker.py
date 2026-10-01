@@ -140,12 +140,12 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
         (ROOT / ".github/actions/folded-wheel/action.yml").read_text()
     )
     steps = action["runs"]["steps"]
-    target = tmp_path / "target/epistemic-graph-release"
+    target = tmp_path / "epistemic-graph-release-target"
     env_file = tmp_path / "github-env"
     env_file.touch()
     environment = {
         **os.environ,
-        "GITHUB_WORKSPACE": str(tmp_path),
+        "RUNNER_TEMP": str(tmp_path),
         "GITHUB_ENV": str(env_file),
     }
     # Execute the actual selector twice: a primary artifact must not survive
@@ -169,3 +169,41 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
         assert step["with"]["docker-options"] == (
             '--volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"'
         )
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "aarch64-apple-darwin"],
+)
+def test_only_linux_arm_uses_exact_probed_environment(tmp_path, target):
+    action = yaml.safe_load(
+        (ROOT / ".github/actions/folded-wheel/action.yml").read_text()
+    )
+    steps = action["runs"]["steps"]
+    outputs = tmp_path / "outputs"
+    outputs.touch()
+    environment = {
+        **os.environ,
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_ENV": str(tmp_path / "env"),
+        "GITHUB_OUTPUT": str(outputs),
+        "EG_WHEEL_TARGET": target,
+    }
+    subprocess.run(["bash", "-eu", "-c", steps[0]["run"]], env=environment, check=True)
+    if target == "aarch64-unknown-linux-gnu":
+        assert outputs.read_text().splitlines() == [
+            "container=quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc",
+            "maturin-version=1.15.0",
+        ]
+    else:
+        assert outputs.read_text() == ""
+    for step in steps:
+        if step.get("uses", "").startswith("PyO3/maturin-action@"):
+            assert (
+                step["with"]["container"]
+                == "${{ steps.build-environment.outputs.container }}"
+            )
+            assert (
+                step["with"]["maturin-version"]
+                == "${{ steps.build-environment.outputs.maturin-version }}"
+            )
