@@ -254,6 +254,10 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "ApplyLedger",
     "ApplyMultisigMutation",
     "ApplyMutation",
+    // The tenant-scoped operation-audit append commits its own admitted group
+    // directly against the graph's audit-chain and idempotency tables; it owns
+    // no parallel entry in the generic graph mutation-applier classifier.
+    "AuditAppend",
     "ClearLedger",
     "CompactNodesByType",
     "CreateGraph",
