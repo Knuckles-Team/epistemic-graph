@@ -795,58 +795,81 @@ fn read_lane_is_bounded_under_a_read_flood() {
     );
 }
 
-/// Concurrency stress: while many WRITE permits saturate the global pool, a burst
-/// of concurrent READS on the SAME hot graph must ALL be admitted (never BUSY),
-/// proving an interactive read survives under maximum write load on the firehose
-/// graph. Mirrors the live K=4 ingestion symptom at the admission layer.
+/// Concurrent readers share the reserved lane while writers hold both normal
+/// pools. Test-only FIFO pacing prevents a read flood from exhausting the lane;
+/// admission itself remains nonblocking and may legitimately return BUSY under
+/// read overload (covered by `read_lane_is_bounded_under_a_read_flood`).
 #[tokio::test(flavor = "multi_thread")]
 async fn reads_survive_under_max_write_load_on_hot_graph() {
     let sem = Arc::new(Semaphore::new(8));
     let read_sem = Arc::new(Semaphore::new(8));
     let pg_map = Arc::new(dashmap::DashMap::new());
-    let pg_limit = 4; // a quarter, like the live default
+    let pg_limit = 4;
     let graph = "__commons__";
+    let graph_sem = Arc::new(Semaphore::new(pg_limit));
+    pg_map.insert(graph.to_string(), graph_sem.clone());
 
-    // Saturate the global pool: hold all 8 write permits for the test duration.
+    // Keep both normal pools saturated until every reader has completed.
     let writers: Vec<_> = (0..8)
         .map(|_| sem.clone().try_acquire_owned().unwrap())
         .collect();
-    assert_eq!(sem.available_permits(), 0, "writers saturate the pool");
+    let graph_writers: Vec<_> = (0..pg_limit)
+        .map(|_| graph_sem.clone().try_acquire_owned().unwrap())
+        .collect();
+    let assert_writes_saturated = || {
+        assert_eq!(sem.available_permits(), 0);
+        assert_eq!(graph_sem.available_permits(), 0);
+        assert!(matches!(
+            admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, true),
+            Admission::Busy
+        ));
+    };
+    assert_writes_saturated();
 
-    // Fire a burst of concurrent reads on the SAME hot graph; every one must be
-    // admitted (via the reserved lane), holding its permit briefly then releasing.
-    let mut tasks = Vec::new();
+    let pacing = Arc::new(Semaphore::new(8));
+    let mut tasks = tokio::task::JoinSet::new();
     for _ in 0..200usize {
         let sem = sem.clone();
         let read_sem = read_sem.clone();
         let pg_map = pg_map.clone();
-        tasks.push(tokio::spawn(async move {
-            // Retry briefly: the reserved lane is small, so concurrent reads share
-            // it — but each holds its slot only momentarily, so all make progress
-            // without ever being permanently starved.
-            for _ in 0..1000 {
-                match admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false) {
-                    Admission::Granted { read, .. } => {
-                        assert!(read.is_some(), "served by reserved lane under saturation");
-                        tokio::task::yield_now().await; // hold briefly, then drop
-                        return true;
-                    }
-                    Admission::Busy => tokio::task::yield_now().await,
+        let pacing = pacing.clone();
+        tasks.spawn(async move {
+            let turn = pacing.acquire_owned().await.unwrap();
+            match admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false) {
+                Admission::Granted {
+                    global,
+                    per_graph,
+                    read,
+                } => {
+                    assert!(global.is_none());
+                    assert!(per_graph.is_none());
+                    assert!(read.is_some(), "served by reserved lane under saturation");
+                    tokio::task::yield_now().await;
+                    // Release the real slot before allowing the next paced read.
+                    drop(read);
                 }
+                Admission::Busy => panic!("paced read denied while writers saturate normal pools"),
             }
-            false
-        }));
+            drop(turn);
+        });
     }
-    let mut ok = 0usize;
-    for t in tasks {
-        if t.await.unwrap() {
-            ok += 1;
+    // A real-time watchdog bounds the entire burst, rather than counting polls
+    // whose scheduling says nothing about whether a permit holder has run.
+    let completed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let mut completed = 0;
+        while let Some(result) = tasks.join_next().await {
+            result.unwrap();
+            completed += 1;
         }
-    }
-    assert_eq!(
-        ok, 200,
-        "every interactive read completed under max write load"
-    );
+        completed
+    })
+    .await
+    .expect("all reserved-lane reads must complete within the watchdog");
+    assert_eq!(completed, 200);
+    assert_eq!(read_sem.available_permits(), 8);
+    assert_eq!(pacing.available_permits(), 8);
+    assert_writes_saturated();
+    drop(graph_writers);
     drop(writers);
 }
 
