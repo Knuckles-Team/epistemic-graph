@@ -103,7 +103,7 @@ def packaging_fixture(root: Path) -> tuple[Path, Path]:
         "#!/usr/bin/env python3\nimport json,os,sys\n"
         'with open(os.environ["EG_PROBE_RUSTC_LOG"],"a") as log:\n'
         ' log.write(json.dumps(sys.argv[2:])+"\\n")\n'
-        "os.execv(sys.argv[1], sys.argv[1:])\n"
+        "os.execvp(sys.argv[1], sys.argv[1:])\n"
     )
     wrapper.chmod(0o755)
     os.environ["RUSTC_WRAPPER"] = str(wrapper)
