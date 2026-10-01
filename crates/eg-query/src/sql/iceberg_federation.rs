@@ -27,8 +27,8 @@
 //! flags for this SQL surface, without requiring the caller to be inside any particular
 //! runtime shape. [`IcebergTableProvider::scan`] repeats the same bridge so a later
 //! DataFusion-supplied projection/filter set reaches the REAL `iceberg` crate scan
-//! planner (genuine manifest-level file pruning + column projection — not a
-//! pre-materialized full scan re-filtered in memory), then hands the resulting Arrow
+//! planner (manifest-level file pruning + column projection, with DataFusion retaining
+//! an exact residual filter), then hands the resulting Arrow
 //! batches to a `MemTable` for DataFusion to serve, exactly the "materialize once,
 //! delegate to `MemTable`" idiom `UserTableProvider` already uses in this crate
 //! (`crate::tables::provider`).
@@ -96,13 +96,14 @@ pub const ICEBERG_FEDERATION_OAUTH2_URI_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_FED
 /// Optional fixed bearer token, an alternative to the credential flow.
 pub const ICEBERG_FEDERATION_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_FEDERATION_TOKEN";
 
-/// Real, observable pushdown counters for one `iceberg(...)` scan (P1's proof shape:
+/// Observable pushdown counters for the most recent `iceberg(...)` scan (P1's proof shape:
 /// "scan metrics show `files_skipped>0` ... and `columns_projected < columns_total`").
 /// Filled from the `iceberg` crate's OWN manifest planner — [`total_data_files`] is the
-/// current snapshot's summary count (`total-data-files`), [`files_scanned`] is the number
-/// of `FileScanTask`s the SAME planner actually produced under the pushed-down
-/// projection/predicate. NOT a row-count heuristic: a query with a selective filter that
-/// still opens every file (no partition/stat alignment) legitimately reports
+/// selected snapshot's summary count (`total-data-files`), [`files_scanned`] is the number
+/// of `FileScanTask`s the SAME planner produced under the pushed-down
+/// projection/predicate. It counts planned files, not necessarily files opened when
+/// a LIMIT stops the reader early. A selective filter that
+/// still plans every file (no partition/stat alignment) legitimately reports
 /// `files_skipped == 0`, and this type says so rather than fabricating a number.
 #[derive(Clone, Debug, Default)]
 pub struct IcebergPushdownStats {
@@ -250,8 +251,9 @@ fn literal_i64_opt(e: &Expr, ctx: &str) -> DfResult<i64> {
     )))
 }
 
-/// Connect, load the table, run the (optionally snapshot-pinned) scan, and materialize
-/// the resulting batches + real pushdown stats. Pulled out of [`IcebergFunc`]'s
+/// Connect and load only metadata needed for planning. The data scan waits for
+/// DataFusion's projection and filters in [`IcebergTableProvider::scan`]. Pulled out of
+/// [`IcebergFunc`]'s
 /// `TableFunctionImpl` impl (which can only return `Arc<dyn TableProvider>`, no side
 /// channel) so a test can assert on [`IcebergPushdownStats`] directly instead of
 /// scraping `EXPLAIN` text or downcasting a trait object.
@@ -267,7 +269,7 @@ pub fn build_iceberg_provider(
 
     let config = IcebergCatalogConfig::from_env()?;
     let ident_for_err = ident_str.to_string();
-    let (schema, batches, stats) = block_on_iceberg(async move {
+    let (table, schema, total_data_files) = block_on_iceberg(async move {
         let catalog = config.connect().await?;
         let table = catalog.load_table(&table_ident).await.map_err(|e| {
             // Typed, named error — NEVER an empty result (P1's negative case): a
@@ -278,50 +280,30 @@ pub fn build_iceberg_provider(
             )
         })?;
 
-        let total_data_files: u64 = table
-            .metadata()
-            .current_snapshot()
+        let total_data_files: u64 = snapshot_id
+            .and_then(|id| table.metadata().snapshot_by_id(id))
+            .or_else(|| table.metadata().current_snapshot())
             .and_then(|s| s.summary().additional_properties.get("total-data-files"))
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
 
-        let mut builder = table.scan().select_all();
-        if let Some(sid) = snapshot_id {
-            builder = builder.snapshot_id(sid);
-        }
-        let scan = builder.build()?;
-        let files_scanned = scan
-            .plan_files()
-            .await?
-            .try_collect::<Vec<_>>()
-            .await?
-            .len() as u64;
-        let batches: Vec<RecordBatch> = scan.to_arrow().await?.try_collect().await?;
-
         let arrow_schema =
             iceberg::arrow::schema_to_arrow_schema(table.metadata().current_schema())?;
-        let columns_total = arrow_schema.fields().len();
-        let stats = IcebergPushdownStats {
-            total_data_files,
-            files_scanned,
-            columns_total,
-            columns_projected: columns_total,
-        };
-        Ok((arrow_schema, batches, stats))
+        Ok((table, arrow_schema, total_data_files))
     })?;
-
-    tracing::info!(
-        table = %ident_str,
-        total_data_files = stats.total_data_files,
-        files_scanned = stats.files_scanned,
-        files_skipped = stats.files_skipped(),
-        "iceberg federation scan (GOC-77 W03 pushdown proof)"
-    );
+    let columns_total = schema.fields().len();
 
     Ok(Arc::new(IcebergTableProvider {
+        table,
+        snapshot_id,
         schema: Arc::new(schema),
-        batches,
-        stats: std::sync::RwLock::new(stats),
+        stats: std::sync::RwLock::new(IcebergPushdownStats {
+            total_data_files,
+            // Before the first scan no pruning has been observed.
+            files_scanned: total_data_files,
+            columns_total,
+            columns_projected: columns_total,
+        }),
     }))
 }
 
@@ -343,15 +325,14 @@ impl TableFunctionImpl for IcebergFunc {
     }
 }
 
-/// A materialized federated Iceberg read (see the module doc for why materialize-then-
-/// `MemTable` rather than a bespoke lazy `ExecutionPlan`). Column projection is applied
-/// here, in `scan`, against the ALREADY-fetched batches (Arrow `project` — cheap, no
-/// second network round trip); this crate's own `UserTableProvider` does the same
-/// "prune, then delegate to `MemTable::scan`" thing for its non-indexed fallback path.
+/// A metadata-only provider. Each DataFusion `scan` plans a real Iceberg scan
+/// with the supplied projection and compatible predicates before materializing
+/// batches into a `MemTable`.
 #[derive(Debug)]
 pub struct IcebergTableProvider {
+    table: iceberg::Table,
+    snapshot_id: Option<i64>,
     schema: SchemaRef,
-    batches: Vec<RecordBatch>,
     // `RwLock`, not a plain field: `columns_projected` is unknowable at construction
     // time — DataFusion only tells a `TableFunctionImpl` the table's NAME/args, never
     // the query's projection (that only reaches `TableProvider::scan`, an `&self`
@@ -363,10 +344,8 @@ pub struct IcebergTableProvider {
 
 impl IcebergTableProvider {
     /// Real pushdown counters (P1's proof shape) — [`total_data_files`]/
-    /// [`files_scanned`] are fixed at construction (the `iceberg` crate's REAL
-    /// manifest planner already ran); `columns_projected` reflects the MOST RECENT
-    /// `scan()` call's DataFusion-supplied projection, so read this AFTER running the
-    /// query under test.
+    /// File and projection counts reflect the most recent `scan()` call. Read
+    /// this after running a query under test.
     pub fn pushdown_stats(&self) -> IcebergPushdownStats {
         self.stats
             .read()
@@ -411,13 +390,73 @@ impl TableProvider for IcebergTableProvider {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DfResult<Arc<dyn ExecutionPlan>> {
-        let _ = filters; // already folded into `self.batches` at construction time (see module doc)
-        {
+        let projected_schema = match projection {
+            Some(indices) => Arc::new(self.schema.project(indices)?),
+            None => self.schema.clone(),
+        };
+        let columns = projection.map(|indices| {
+            indices
+                .iter()
+                .map(|&index| self.schema.field(index).name().clone())
+                .collect::<Vec<_>>()
+        });
+        let predicates = filters
+            .iter()
+            .filter_map(|filter| iceberg_predicate_for(filter, &self.schema))
+            .reduce(Predicate::and);
+        let table = self.table.clone();
+        let snapshot_id = self.snapshot_id;
+        // A pushed limit is safe only when no residual filter can discard rows.
+        let read_limit = if filters.is_empty() { limit } else { None };
+        let (batches, files_scanned) = block_on_iceberg(async move {
+            let mut builder = table.scan();
+            if let Some(columns) = columns {
+                builder = builder.select(columns);
+            }
+            if let Some(predicate) = predicates {
+                builder = builder.with_filter(predicate);
+            }
+            if let Some(id) = snapshot_id {
+                builder = builder.snapshot_id(id);
+            }
+            let scan = builder.build()?;
+            let files_scanned = scan
+                .plan_files()
+                .await?
+                .try_collect::<Vec<_>>()
+                .await?
+                .len() as u64;
+            let mut stream = scan.to_arrow().await?;
+            let mut batches = Vec::new();
+            let mut rows = 0;
+            while let Some(batch) = stream.try_next().await? {
+                let remaining = read_limit.map(|max| max.saturating_sub(rows));
+                let batch = batch.slice(
+                    0,
+                    remaining.unwrap_or(batch.num_rows()).min(batch.num_rows()),
+                );
+                rows += batch.num_rows();
+                batches.push(batch);
+                if read_limit.is_some_and(|max| rows >= max) {
+                    break;
+                }
+            }
+            Ok((batches, files_scanned))
+        })?;
+        let stats = {
             let mut stats = self.stats.write().expect("pushdown stats lock poisoned");
-            stats.columns_projected = projection.map(|p| p.len()).unwrap_or(stats.columns_total);
-        }
-        let mem = MemTable::try_new(self.schema.clone(), vec![self.batches.clone()])?;
-        mem.scan(state, projection, &[], limit).await
+            stats.files_scanned = files_scanned;
+            stats.columns_projected = projected_schema.fields().len();
+            stats.clone()
+        };
+        tracing::info!(
+            total_data_files = stats.total_data_files,
+            files_scanned = stats.files_scanned,
+            files_skipped = stats.files_skipped(),
+            "iceberg federation scan"
+        );
+        let mem = MemTable::try_new(projected_schema, vec![batches])?;
+        mem.scan(state, None, &[], read_limit).await
     }
 }
 
