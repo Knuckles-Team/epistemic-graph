@@ -380,7 +380,7 @@ impl TableProvider for IcebergTableProvider {
         &self,
         state: &dyn Session,
         projection: Option<&Vec<usize>>,
-        filters: &[Expr],
+        pushed_exprs: &[Expr],
         limit: Option<usize>,
     ) -> DfResult<Arc<dyn ExecutionPlan>> {
         let projected_schema = match projection {
@@ -393,14 +393,14 @@ impl TableProvider for IcebergTableProvider {
                 .map(|&index| self.schema.field(index).name().clone())
                 .collect::<Vec<_>>()
         });
-        let predicates = filters
+        let predicates = pushed_exprs
             .iter()
             .filter_map(|filter| iceberg_predicate_for(filter, &self.schema))
             .reduce(Predicate::and);
         let table = self.table.clone();
         let snapshot_id = self.snapshot_id;
         // A pushed limit is safe only when no residual filter can discard rows.
-        let read_limit = if filters.is_empty() { limit } else { None };
+        let read_limit = if pushed_exprs.is_empty() { limit } else { None };
         let (batches, files_scanned) = block_on_iceberg(async move {
             let mut builder = table.scan();
             if let Some(columns) = columns {
