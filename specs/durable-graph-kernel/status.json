@@ -457,14 +457,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "99a339d078d844b1ee54014fb32d5116b6528c96",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/99a339d078d844b1ee54014fb32d5116b6528c96",
+          "description": "Implemented on the default branch; exercised by src/redb_store.rs::operation_audit_reservation_outcome_replay_and_restart"
         }
       ]
     },
