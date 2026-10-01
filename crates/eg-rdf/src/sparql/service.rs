@@ -11,7 +11,12 @@
 //!  * a `FILTER` is pushed only when the endpoint can decide it from the rows of the
 //!    `SERVICE` pattern alone ([`filter_is_pushable`]) — anything that reads a dataset
 //!    (`EXISTS`), is not deterministic, or names a variable the pattern does not bind
-//!    stays local, because a row the endpoint drops cannot be restored by filtering again.
+//!    stays local, because a row the endpoint drops cannot be restored by filtering again;
+//!  * a bind join runs under one [`ServiceBudget`] covering every request it sends — the
+//!    batches the endpoint answered, the batch it refused, and the fallback to the
+//!    clause's own query.
+
+use std::time::{Duration, Instant};
 
 use spargebra::algebra::{Expression, Function, GraphPattern};
 use spargebra::term::{GroundTerm, NamedNode, NamedNodePattern, Variable};
@@ -30,10 +35,160 @@ use super::{
 pub trait RemoteSparql: Sync {
     /// Evaluate `query` (a complete SPARQL SELECT) against `endpoint`, returning its rows.
     fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String>;
+
+    /// The bounds one bind join against this client's endpoints runs under.
+    fn service_budget(&self) -> ServiceBudget {
+        ServiceBudget::from_env()
+    }
 }
+
+/// Error-code prefix of a bind join stopped by its budget:
+/// `SERVICE_BUDGET_EXCEEDED:<dimension>: …`.
+pub const SERVICE_BUDGET_EXCEEDED: &str = "SERVICE_BUDGET_EXCEEDED";
 
 /// Distinct join keys one `VALUES` batch carries.
 const BIND_BATCH_KEYS: usize = 100;
+
+/// Bounds on one `SERVICE` bind join as a whole. The per-batch key cap bounds a single
+/// request; this bounds the operation — every batch, and the fallback to the clause's
+/// own query when the endpoint refuses a batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceBudget {
+    /// Distinct join keys a bind join may ship; above it the clause's own query is sent.
+    pub max_keys: usize,
+    /// Requests the operation may send, refused batches and the fallback included.
+    pub max_requests: usize,
+    /// Rows the operation may receive, summed over every answered request.
+    pub max_rows: usize,
+    /// Wall-clock time after which no further request is sent.
+    pub max_wall: Duration,
+}
+
+impl Default for ServiceBudget {
+    fn default() -> Self {
+        Self {
+            max_keys: 10_000,
+            max_requests: 256,
+            max_rows: 250_000,
+            max_wall: Duration::from_millis(60_000),
+        }
+    }
+}
+
+impl ServiceBudget {
+    /// The defaults, each overridable by the federation limits
+    /// `EPISTEMIC_GRAPH_FEDERATION_MAX_{BIND_KEYS,REQUESTS,ROWS,WALL_MS}`.
+    pub fn from_env() -> Self {
+        use eg_types::runtime_limit::positive_from_env;
+        let d = Self::default();
+        let wall_ms = u64::try_from(d.max_wall.as_millis()).unwrap_or(u64::MAX);
+        Self {
+            max_keys: positive_from_env("EPISTEMIC_GRAPH_FEDERATION_MAX_BIND_KEYS", d.max_keys),
+            max_requests: positive_from_env(
+                "EPISTEMIC_GRAPH_FEDERATION_MAX_REQUESTS",
+                d.max_requests,
+            ),
+            max_rows: positive_from_env("EPISTEMIC_GRAPH_FEDERATION_MAX_ROWS", d.max_rows),
+            max_wall: Duration::from_millis(positive_from_env(
+                "EPISTEMIC_GRAPH_FEDERATION_MAX_WALL_MS",
+                wall_ms,
+            )),
+        }
+    }
+}
+
+/// What the endpoint said to one accounted request.
+enum Answer {
+    Rows(Vec<Solution>),
+    Rejected(String),
+}
+
+/// What one bind join has spent. A budget refusal is the outer `Err` and ends the
+/// operation: it is never answered by sending yet another request.
+struct ServiceMeter {
+    budget: ServiceBudget,
+    requests: usize,
+    rows: usize,
+    started: Instant,
+}
+
+impl ServiceMeter {
+    fn new(budget: ServiceBudget) -> Self {
+        Self {
+            budget,
+            requests: 0,
+            rows: 0,
+            started: Instant::now(),
+        }
+    }
+
+    fn refusal(dimension: &str, limit: impl std::fmt::Display) -> String {
+        format!(
+            "{SERVICE_BUDGET_EXCEEDED}:{dimension}: the SERVICE join exceeded its limit of {limit}"
+        )
+    }
+
+    /// One request: counted before it is sent — so a refused request still counts — and
+    /// its rows counted when it answers.
+    fn request(&mut self, target: &Target<'_>, pattern: &GraphPattern) -> Result<Answer, String> {
+        if self.requests >= self.budget.max_requests {
+            return Err(Self::refusal("requests", self.budget.max_requests));
+        }
+        if self.started.elapsed() > self.budget.max_wall {
+            return Err(Self::refusal("wall_ms", self.budget.max_wall.as_millis()));
+        }
+        self.requests += 1;
+        let result = match target.select(pattern) {
+            Ok(result) => result,
+            Err(error) => return Ok(Answer::Rejected(error)),
+        };
+        self.rows = self.rows.saturating_add(result.len());
+        if self.rows > self.budget.max_rows {
+            return Err(Self::refusal("rows", self.budget.max_rows));
+        }
+        Ok(Answer::Rows(result))
+    }
+
+    /// Every batch's rows, or `None` as soon as the endpoint refuses one.
+    fn run_batches(
+        &mut self,
+        target: &Target<'_>,
+        batches: &[GraphPattern],
+    ) -> Result<Option<Vec<Solution>>, String> {
+        let mut rows = Vec::new();
+        for batch in batches {
+            match self.request(target, batch)? {
+                Answer::Rows(more) => rows.extend(more),
+                Answer::Rejected(_) => return Ok(None),
+            }
+        }
+        Ok(Some(rows))
+    }
+
+    /// The remote side of `call`'s bind join over `local`: the key batches when the keys
+    /// can be shipped within the key budget, and the clause's own query when they cannot
+    /// or the endpoint refuses a batch — every request under this one meter.
+    fn metered_join(
+        &mut self,
+        call: &ServiceCall<'_>,
+        target: &Target<'_>,
+        local: &[Solution],
+    ) -> Result<Vec<Solution>, String> {
+        let max_keys = self.budget.max_keys;
+        let keys = call
+            .bind_keys(local)
+            .filter(|keys| keys.rows.len() <= max_keys);
+        if let Some(keys) = keys {
+            if let Some(rows) = self.run_batches(target, &call.batches(&keys))? {
+                return Ok(rows);
+            }
+        }
+        match self.request(target, call.pattern)? {
+            Answer::Rows(rows) => Ok(rows),
+            Answer::Rejected(error) => Err(error),
+        }
+    }
+}
 
 /// The distinct local join keys of a bind join, as `VALUES` rows over `variables`.
 struct BindKeys {
@@ -55,15 +210,6 @@ impl Target<'_> {
             .map(|result| result.solutions)
             .map_err(|e| format!("eg-rdf SPARQL: SERVICE failed: {e}"))
     }
-}
-
-/// Every batch's rows, or `None` as soon as the endpoint refuses one.
-fn bind(target: &Target<'_>, batches: &[GraphPattern]) -> Option<Vec<Solution>> {
-    let mut rows = Vec::new();
-    for batch in batches {
-        rows.extend(target.select(batch).ok()?);
-    }
-    Some(rows)
 }
 
 /// One `SERVICE [SILENT] <endpoint> { pattern }` clause.
@@ -168,7 +314,7 @@ impl<'q> ServiceCall<'q> {
 
     /// `local ⋈ SERVICE`: ship the distinct local join keys in `VALUES` batches, falling
     /// back to the clause's own query when the keys cannot be shipped or the endpoint
-    /// refuses a batch.
+    /// refuses a batch. One budget covers every request of the operation.
     pub(super) fn eval_bind_join(
         &self,
         ctx: &Ctx,
@@ -181,15 +327,10 @@ impl<'q> ServiceCall<'q> {
         Ok(hash_join(local, &remote))
     }
 
-    /// The remote side of a bind join: the key batches, else the clause's own query.
+    /// The remote side of a bind join, metered as one operation.
     fn join_rows(&self, ctx: &Ctx, local: &[Solution]) -> Result<Vec<Solution>, String> {
         let target = self.target(ctx)?;
-        if let Some(keys) = self.bind_keys(local) {
-            if let Some(rows) = bind(&target, &self.batches(&keys)) {
-                return Ok(rows);
-            }
-        }
-        target.select(self.pattern)
+        ServiceMeter::new(target.client.service_budget()).metered_join(self, &target, local)
     }
 
     /// The distinct local join keys. `None` when they cannot be shipped: no shared

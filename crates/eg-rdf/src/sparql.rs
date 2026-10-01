@@ -44,7 +44,7 @@ use bool_builtins::{eval_bool_str_relation, term_type_test};
 // EH-197 — witness proofs for SELECT rows (child module: it reuses the private
 // pattern matcher and join rather than re-implementing them).
 mod proof;
-// SERVICE delegation: pushdown eligibility and the fallback to the clause's own query.
+// SERVICE delegation: pushdown eligibility, fallback and the bind-join budget.
 mod service;
 #[cfg(test)]
 mod service_tests;
@@ -52,8 +52,8 @@ mod service_tests;
 #[cfg(test)]
 mod multivalue_tests;
 pub use proof::{execute_explained, MAX_WITNESS_STEPS};
-pub use service::RemoteSparql;
 use service::ServiceCall;
+pub use service::{RemoteSparql, ServiceBudget, SERVICE_BUDGET_EXCEEDED};
 
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
 pub type Solution = HashMap<String, Binding>;

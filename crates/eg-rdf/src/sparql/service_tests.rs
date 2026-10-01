@@ -12,8 +12,8 @@ use spargebra::Query;
 
 use super::service::{filter_is_pushable, service_values_rows};
 use super::{
-    execute, parse_query, view_of_turtle, Binding, Dataset, Projection, RemoteSparql, Solution,
-    SparqlResult,
+    execute, parse_query, view_of_turtle, Binding, Dataset, Projection, RemoteSparql,
+    ServiceBudget, Solution, SparqlResult, SERVICE_BUDGET_EXCEEDED,
 };
 
 const PREFIX: &str = "PREFIX ex: <http://example.org/>\n";
@@ -28,6 +28,7 @@ struct Endpoint {
     refuse_at: Option<usize>,
     /// Sleep this long before answering.
     delay: Duration,
+    budget: ServiceBudget,
 }
 
 impl Endpoint {
@@ -38,11 +39,17 @@ impl Endpoint {
             refuse_words: &[],
             refuse_at: None,
             delay: Duration::ZERO,
+            budget: ServiceBudget::default(),
         }
     }
 
     fn refusing(mut self, words: &'static [&'static str]) -> Self {
         self.refuse_words = words;
+        self
+    }
+
+    fn within(mut self, budget: ServiceBudget) -> Self {
+        self.budget = budget;
         self
     }
 
@@ -67,6 +74,10 @@ impl RemoteSparql for Endpoint {
         }
         let dataset = Dataset::new(&self.view, Vec::new());
         execute(&dataset, query, &Projection::raw(), None).map(super::QueryOutcome::into_table)
+    }
+
+    fn service_budget(&self) -> ServiceBudget {
+        self.budget
     }
 }
 
@@ -319,7 +330,7 @@ fn a_pushed_limit_reaches_the_endpoint() {
     assert!(sent[0].contains("LIMIT 1"), "{}", sent[0]);
 }
 
-// ── the bind join ──────────────────────────────────────────────────────────────────
+// ── the bind join and its budget ───────────────────────────────────────────────────
 
 const JOIN: &str = "SELECT ?p ?score WHERE {
     ?p ex:name ?name .
@@ -333,6 +344,10 @@ fn subjects(n: usize, predicate: &str) -> String {
         turtle.push_str(&format!("ex:s{i} ex:{predicate} \"{i}\" .\n"));
     }
     turtle
+}
+
+fn budget() -> ServiceBudget {
+    ServiceBudget::default()
 }
 
 #[test]
@@ -384,4 +399,131 @@ fn service_values_rows_deduplicate_and_reject_blank_nodes() {
     let mut typed_unknown = Solution::new();
     typed_unknown.insert("name".into(), Binding::Literal("42".into()));
     assert!(service_values_rows(&[typed_unknown], &keys).is_none());
+}
+
+/// 205 local keys are three `VALUES` batches (100 + 100 + 5).
+fn join_205(endpoint: &Endpoint, query: &str) -> Result<Vec<Solution>, String> {
+    run(&view_of_turtle(&subjects(205, "name")), endpoint, query)
+}
+
+fn refused(outcome: Result<Vec<Solution>, String>, dimension: &str) {
+    let error = outcome.expect_err("the budget refuses the join");
+    assert!(
+        error.starts_with(&format!("{SERVICE_BUDGET_EXCEEDED}:{dimension}:")),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_bind_join_within_its_budget_sends_every_batch() {
+    let endpoint = Endpoint::over(&subjects(205, "score"));
+    let rows = join_205(&endpoint, JOIN).unwrap();
+    assert_eq!(rows.len(), 205);
+    assert_eq!(endpoint.queries().len(), 3);
+}
+
+#[test]
+fn the_request_budget_bounds_the_whole_bind_join() {
+    let endpoint = Endpoint::over(&subjects(205, "score")).within(ServiceBudget {
+        max_requests: 2,
+        ..budget()
+    });
+    refused(join_205(&endpoint, JOIN), "requests");
+    assert_eq!(endpoint.queries().len(), 2, "the third batch is never sent");
+}
+
+#[test]
+fn the_row_budget_bounds_the_whole_bind_join() {
+    let endpoint = Endpoint::over(&subjects(205, "score")).within(ServiceBudget {
+        max_rows: 150,
+        ..budget()
+    });
+    refused(join_205(&endpoint, JOIN), "rows");
+    assert_eq!(
+        endpoint.queries().len(),
+        2,
+        "100 rows fit, 200 do not: nothing is sent after the refusal"
+    );
+}
+
+#[test]
+fn the_key_budget_sends_the_original_query_instead_of_batches() {
+    let endpoint = Endpoint::over(&subjects(205, "score")).within(ServiceBudget {
+        max_keys: 50,
+        ..budget()
+    });
+    let rows = join_205(&endpoint, JOIN).unwrap();
+    assert_eq!(rows.len(), 205);
+    let sent = endpoint.queries();
+    assert_eq!(sent.len(), 1);
+    assert!(!sent[0].contains("VALUES"), "{}", sent[0]);
+}
+
+#[test]
+fn the_wall_budget_stops_a_slow_bind_join_between_requests() {
+    let mut endpoint = Endpoint::over(&subjects(205, "score")).within(ServiceBudget {
+        max_wall: Duration::from_millis(200),
+        ..budget()
+    });
+    endpoint.delay = Duration::from_millis(250);
+    refused(join_205(&endpoint, JOIN), "wall_ms");
+    assert_eq!(
+        endpoint.queries().len(),
+        1,
+        "the first batch outlived the wall budget: no second request"
+    );
+}
+
+/// The endpoint answers the first batch (100 rows), refuses the second, and answers the
+/// fallback to the original query (205 rows): three requests and 305 rows in all.
+fn refusing_the_second_batch(budget: ServiceBudget) -> Endpoint {
+    let mut endpoint = Endpoint::over(&subjects(205, "score")).within(budget);
+    endpoint.refuse_at = Some(1);
+    endpoint
+}
+
+#[test]
+fn the_budget_counts_the_refused_batch_the_answered_batch_and_the_fallback() {
+    let exact = refusing_the_second_batch(ServiceBudget {
+        max_requests: 3,
+        max_rows: 305,
+        ..budget()
+    });
+    let rows = join_205(&exact, JOIN).unwrap();
+    assert_eq!(rows.len(), 205, "the fallback's rows, joined");
+    assert_eq!(exact.queries().len(), 3);
+
+    let one_request_short = refusing_the_second_batch(ServiceBudget {
+        max_requests: 2,
+        ..budget()
+    });
+    refused(join_205(&one_request_short, JOIN), "requests");
+    assert_eq!(
+        one_request_short.queries().len(),
+        2,
+        "the refused batch was a request: the fallback is not sent"
+    );
+
+    let one_row_short = refusing_the_second_batch(ServiceBudget {
+        max_rows: 304,
+        ..budget()
+    });
+    refused(join_205(&one_row_short, JOIN), "rows");
+    assert_eq!(
+        one_row_short.queries().len(),
+        3,
+        "the answered batch's 100 rows still count beside the fallback's 205"
+    );
+}
+
+#[test]
+fn silent_turns_a_budget_refusal_into_the_join_identity_without_another_request() {
+    let endpoint = Endpoint::over(&subjects(205, "score")).within(ServiceBudget {
+        max_requests: 2,
+        ..budget()
+    });
+    let rows = join_205(&endpoint, &JOIN.replace("SERVICE", "SERVICE SILENT")).unwrap();
+    assert_eq!(rows.len(), 205, "every local row passes through");
+    assert_eq!(column(&rows, "score")[0], "-");
+    assert_eq!(endpoint.queries().len(), 2);
 }
