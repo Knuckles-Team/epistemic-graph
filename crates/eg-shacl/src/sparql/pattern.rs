@@ -1,4 +1,4 @@
-use eg_rdf::oxrdf::{NamedNode, NamedOrBlankNodeRef, Term};
+use eg_rdf::oxrdf::{Graph, NamedNode, NamedOrBlankNodeRef, Term};
 use spargebra::algebra::{Expression, GraphPattern};
 use spargebra::term::{NamedNodePattern, TermPattern, TriplePattern};
 
@@ -12,7 +12,6 @@ pub(super) fn eval_pattern(
     pattern: &GraphPattern,
     init: &Solution,
 ) -> Result<Vec<Solution>, String> {
-    let _frame = ctx.budget.enter()?;
     match pattern {
         GraphPattern::Bgp { .. }
         | GraphPattern::Join { .. }
@@ -60,8 +59,8 @@ fn eval_bgp(
 ) -> Result<Vec<Solution>, String> {
     let mut accumulated = vec![init.clone()];
     for pattern in patterns {
-        let matches = match_triple_pattern(ctx, pattern)?;
-        accumulated = hash_join(ctx, &accumulated, &matches)?;
+        let matches = match_triple_pattern(ctx.active, pattern);
+        accumulated = hash_join(&accumulated, &matches);
     }
     Ok(accumulated)
 }
@@ -74,7 +73,7 @@ fn eval_join(
 ) -> Result<Vec<Solution>, String> {
     let left_rows = eval_pattern(ctx, left, init)?;
     let right_rows = eval_pattern(ctx, right, init)?;
-    hash_join(ctx, &left_rows, &right_rows)
+    Ok(hash_join(&left_rows, &right_rows))
 }
 
 fn eval_left_join(
@@ -90,12 +89,6 @@ fn eval_left_join(
     for left_row in &left_rows {
         let mut matched = false;
         for right_row in &right_rows {
-            ctx.budget.charge(
-                left_row
-                    .len()
-                    .saturating_add(right_row.len())
-                    .saturating_add(1),
-            )?;
             let Some(merged) = merge(left_row, right_row) else {
                 continue;
             };
@@ -105,7 +98,6 @@ fn eval_left_join(
             }
         }
         if !matched {
-            ctx.budget.charge(left_row.len().saturating_add(1))?;
             output.push(left_row.clone());
         }
     }
@@ -147,7 +139,6 @@ fn eval_union(
 ) -> Result<Vec<Solution>, String> {
     let mut left_rows = eval_pattern(ctx, left, init)?;
     let mut right_rows = eval_pattern(ctx, right, init)?;
-    ctx.budget.charge(right_rows.len())?;
     left_rows.append(&mut right_rows);
     Ok(left_rows)
 }
@@ -167,7 +158,7 @@ fn eval_pattern_transform(
         GraphPattern::Project { inner, variables } => eval_project(ctx, inner, variables, init),
         GraphPattern::Distinct { inner } => {
             let rows = eval_pattern(ctx, inner, init)?;
-            dedup(ctx, rows)
+            Ok(dedup(rows))
         }
         GraphPattern::Reduced { inner } | GraphPattern::OrderBy { inner, .. } => {
             eval_pattern(ctx, inner, init)
@@ -212,10 +203,6 @@ fn eval_project(
     init: &Solution,
 ) -> Result<Vec<Solution>, String> {
     let rows = eval_pattern(ctx, inner, init)?;
-    let work = rows.iter().fold(0usize, |n, row| {
-        n.saturating_add(row.len().saturating_mul(variables.len().saturating_add(1)))
-    });
-    ctx.budget.charge(work)?;
     let keep: Vec<&str> = variables.iter().map(|variable| variable.as_str()).collect();
     Ok(rows
         .into_iter()
@@ -235,7 +222,6 @@ fn eval_slice(
     init: &Solution,
 ) -> Result<Vec<Solution>, String> {
     let rows = eval_pattern(ctx, inner, init)?;
-    ctx.budget.charge(rows.len())?;
     let iter = rows.into_iter().skip(start);
     Ok(match length {
         Some(length) => iter.take(length).collect(),
@@ -282,7 +268,6 @@ fn eval_graph(
         }
     }
     let rows = eval_pattern(&ctx.with_active(ctx.shapes), inner, init)?;
-    ctx.budget.charge(rows.len())?;
     Ok(rows
         .into_iter()
         .map(|mut row| {
@@ -292,23 +277,20 @@ fn eval_graph(
         .collect())
 }
 
-fn dedup(ctx: &Ctx, rows: Vec<Solution>) -> Result<Vec<Solution>, String> {
+fn dedup(rows: Vec<Solution>) -> Vec<Solution> {
     let mut output: Vec<Solution> = Vec::with_capacity(rows.len());
     for row in rows {
-        ctx.budget
-            .charge(output.len().saturating_mul(row.len().saturating_add(1)))?;
         if !output.contains(&row) {
             output.push(row);
         }
     }
-    Ok(output)
+    output
 }
 
 /// Every graph triple whose shape matches `pattern`.
-fn match_triple_pattern(ctx: &Ctx, pattern: &TriplePattern) -> Result<Vec<Solution>, String> {
+fn match_triple_pattern(graph: &Graph, pattern: &TriplePattern) -> Vec<Solution> {
     let mut output = Vec::new();
-    for triple in ctx.active.iter() {
-        ctx.budget.charge(1)?;
+    for triple in graph.iter() {
         let mut solution = Solution::new();
         let subject: Term = match triple.subject {
             NamedOrBlankNodeRef::NamedNode(node) => Term::NamedNode(node.into_owned()),
@@ -329,7 +311,7 @@ fn match_triple_pattern(ctx: &Ctx, pattern: &TriplePattern) -> Result<Vec<Soluti
         }
         output.push(solution);
     }
-    Ok(output)
+    output
 }
 
 fn bind_term(pattern: &TermPattern, actual: &Term, solution: &mut Solution) -> bool {
@@ -380,20 +362,14 @@ fn merge(left: &Solution, right: &Solution) -> Option<Solution> {
     Some(output)
 }
 
-fn hash_join(ctx: &Ctx, left: &[Solution], right: &[Solution]) -> Result<Vec<Solution>, String> {
+fn hash_join(left: &[Solution], right: &[Solution]) -> Vec<Solution> {
     let mut output = Vec::new();
     for left_row in left {
         for right_row in right {
-            ctx.budget.charge(
-                left_row
-                    .len()
-                    .saturating_add(right_row.len())
-                    .saturating_add(1),
-            )?;
             if let Some(merged) = merge(left_row, right_row) {
                 output.push(merged);
             }
         }
     }
-    Ok(output)
+    output
 }

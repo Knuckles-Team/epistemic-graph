@@ -24,7 +24,6 @@ pub(super) fn eval_term(
     expression: &Expression,
     solution: &Solution,
 ) -> Result<Option<Term>, String> {
-    let _frame = ctx.budget.enter()?;
     match expression {
         Expression::NamedNode(_) | Expression::Literal(_) | Expression::Variable(_) => {
             eval_term_atomic(expression, solution)
