@@ -31,6 +31,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use super::index::SecondaryIndexLookup;
 use super::schema::{ArrayElemType, Cell, ColumnType, TableSchema};
 use super::store::TableStore;
+use crate::sql::filter_shape::{classify_pushdown, column_eq_literal};
 use crate::sql::providers::NodesTableProvider;
 
 /// The Arrow `DataType` a [`ColumnType`] materializes as. Scalar legacy types keep
@@ -463,17 +464,7 @@ fn decimal_scaled_value(value: &serde_json::Value, scale: u32) -> Option<i128> {
 /// anything else: a different column, a non-equality predicate, or a non-integer
 /// literal.
 fn serial_column_eq(expr: &Expr, serial_col: &str) -> Option<i64> {
-    let Expr::BinaryExpr(be) = expr else {
-        return None;
-    };
-    if be.op != Operator::Eq {
-        return None;
-    }
-    let (col, lit) = match (be.left.as_ref(), be.right.as_ref()) {
-        (Expr::Column(c), Expr::Literal(v, _)) => (c, v),
-        (Expr::Literal(v, _), Expr::Column(c)) => (c, v),
-        _ => return None,
-    };
+    let (col, lit) = column_eq_literal(expr)?;
     if col.name != serial_col {
         return None;
     }
@@ -503,14 +494,7 @@ fn integer_literal_i64(lit: &ScalarValue) -> Option<i64> {
 /// column still reaches `scan`, which delegates to `NodesTableProvider`'s own
 /// equality-index pushdown over the full-scanned batch — see the module doc.
 fn is_equality_shape(expr: &Expr) -> bool {
-    let Expr::BinaryExpr(be) = expr else {
-        return false;
-    };
-    be.op == Operator::Eq
-        && matches!(
-            (be.left.as_ref(), be.right.as_ref()),
-            (Expr::Column(_), Expr::Literal(..)) | (Expr::Literal(..), Expr::Column(_))
-        )
+    column_eq_literal(expr).is_some()
 }
 
 /// A scalar literal that can be represented by the declared user-table type.
@@ -713,16 +697,9 @@ impl TableProvider for UserTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(filters
-            .iter()
-            .map(|f| {
-                if is_equality_shape(f) || is_secondary_shape(f) {
-                    TableProviderFilterPushDown::Inexact
-                } else {
-                    TableProviderFilterPushDown::Unsupported
-                }
-            })
-            .collect())
+        Ok(classify_pushdown(filters, |f| {
+            is_equality_shape(f) || is_secondary_shape(f)
+        }))
     }
 
     async fn scan(

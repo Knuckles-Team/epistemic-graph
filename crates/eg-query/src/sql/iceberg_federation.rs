@@ -81,6 +81,8 @@ use iceberg::{Catalog, CatalogBuilder, TableIdent};
 use iceberg_catalog_rest::RestCatalogBuilder;
 use iceberg_storage_opendal::OpenDalResolvingStorageFactory;
 
+use super::filter_shape::classify_pushdown;
+
 /// REST catalog base URI (required; unset ⇒ `iceberg(...)` errors, never silently empty).
 pub const ICEBERG_FEDERATION_CATALOG_URI_ENV: &str =
     "EPISTEMIC_GRAPH_ICEBERG_FEDERATION_CATALOG_URI";
@@ -370,16 +372,9 @@ impl TableProvider for IcebergTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        let mut pushdown = Vec::with_capacity(filters.len());
-        for candidate in filters {
-            let recognized = iceberg_predicate_for(candidate, &self.schema).is_some();
-            pushdown.push(if recognized {
-                TableProviderFilterPushDown::Inexact
-            } else {
-                TableProviderFilterPushDown::Unsupported
-            });
-        }
-        Ok(pushdown)
+        Ok(classify_pushdown(filters, |candidate| {
+            iceberg_predicate_for(candidate, &self.schema).is_some()
+        }))
     }
 
     async fn scan(

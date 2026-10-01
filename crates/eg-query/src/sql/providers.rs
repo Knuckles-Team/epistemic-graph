@@ -26,12 +26,14 @@ use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::ScalarValue;
 use datafusion::datasource::MemTable;
 use datafusion::error::Result as DfResult;
-use datafusion::logical_expr::{Expr, Operator, TableProviderFilterPushDown, TableType};
+use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use eg_core::graph::GraphView;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::Direction;
 use serde_json::Value;
+
+use super::filter_shape::{classify_pushdown, column_eq_literal};
 
 /// Widening lattice for an inferred column type. `Null` means "seen only null /
 /// not yet seen"; anything wider wins on conflict, collapsing to `Utf8` for
@@ -373,17 +375,7 @@ impl EdgeEquality {
 /// scan (see `EdgesTableProvider::supports_filters_pushdown`'s doc for the
 /// `Inexact`-vs-`Unsupported` classification this mirrors).
 fn edge_column_eq(expr: &Expr) -> Option<(String, IndexKey)> {
-    let Expr::BinaryExpr(be) = expr else {
-        return None;
-    };
-    if be.op != Operator::Eq {
-        return None;
-    }
-    let (col, lit) = match (be.left.as_ref(), be.right.as_ref()) {
-        (Expr::Column(c), Expr::Literal(v, _)) => (c, v),
-        (Expr::Literal(v, _), Expr::Column(c)) => (c, v),
-        _ => return None,
-    };
+    let (col, lit) = column_eq_literal(expr)?;
     if !matches!(col.name.as_str(), "src" | "dst") {
         return None;
     }
@@ -480,16 +472,7 @@ impl TableProvider for EdgesTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(filters
-            .iter()
-            .map(|f| {
-                if edge_column_eq(f).is_some() {
-                    TableProviderFilterPushDown::Inexact
-                } else {
-                    TableProviderFilterPushDown::Unsupported
-                }
-            })
-            .collect())
+        Ok(classify_pushdown(filters, |f| edge_column_eq(f).is_some()))
     }
 
     async fn scan(
@@ -772,17 +755,7 @@ impl PushdownRegistry {
     /// from a `col = literal` / `literal = col` equality on an indexable column;
     /// `None` for anything else. The one place a predicate's pushability is decided.
     fn indexable_eq(&self, expr: &Expr) -> Option<(String, IndexKey)> {
-        let Expr::BinaryExpr(be) = expr else {
-            return None;
-        };
-        if be.op != Operator::Eq {
-            return None;
-        }
-        let (col, lit) = match (be.left.as_ref(), be.right.as_ref()) {
-            (Expr::Column(c), Expr::Literal(v, _)) => (c, v),
-            (Expr::Literal(v, _), Expr::Column(c)) => (c, v),
-            _ => return None,
-        };
+        let (col, lit) = column_eq_literal(expr)?;
         if !self.is_indexable_column(&col.name) {
             return None;
         }
@@ -861,16 +834,9 @@ impl TableProvider for NodesTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        Ok(filters
-            .iter()
-            .map(|f| {
-                if self.registry.indexable_eq(f).is_some() {
-                    TableProviderFilterPushDown::Inexact
-                } else {
-                    TableProviderFilterPushDown::Unsupported
-                }
-            })
-            .collect())
+        Ok(classify_pushdown(filters, |f| {
+            self.registry.indexable_eq(f).is_some()
+        }))
     }
 
     async fn scan(
