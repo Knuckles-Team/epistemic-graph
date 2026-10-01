@@ -54,7 +54,6 @@ use tokio::sync::RwLock;
 
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
-use eg_plan::federation_ssrf::ValidatedHttpJsonTarget;
 
 /// Comma-separated peer engine base-URLs, e.g.
 /// `https://eg-eu.example:7900,https://eg-us.example:7900` (CONCEPT:EG-KG.ontology.federation-client).
@@ -236,7 +235,10 @@ impl PeerAllowlist {
         self.check_target(peer_url).map(|_| ())
     }
 
-    fn check_target(&self, peer_url: &str) -> Result<ValidatedHttpJsonTarget, String> {
+    fn check_target(
+        &self,
+        peer_url: &str,
+    ) -> Result<eg_plan::federation_ssrf::ValidatedHttpJsonTarget, String> {
         use eg_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
         validate_outbound_http_target(peer_url, &self.allow, OutboundAllowPolicy::PublicHttps)
     }
