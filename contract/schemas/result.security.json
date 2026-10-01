@@ -105,6 +105,72 @@
         }
       ]
     },
+    "AuditAppendReceipt": {
+      "description": "Commit-before-ack reference for one operation audit event. An idempotent\nretry returns the original sequence and hash.",
+      "properties": {
+        "entry_sha256": {
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "seq",
+        "entry_sha256",
+        "replayed"
+      ],
+      "type": "object"
+    },
+    "AuditEventProof": {
+      "description": "One operation event bound to a verified hash chain. `chain_verified` is\nfalse when any entry in the graph's chain fails verification.",
+      "properties": {
+        "chain_entries": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chain_verified": {
+          "type": "boolean"
+        },
+        "entry_sha256": {
+          "type": "string"
+        },
+        "event_line": {
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "previous_sha256": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "seq",
+        "entry_sha256",
+        "previous_sha256",
+        "event_line",
+        "chain_verified",
+        "chain_entries"
+      ],
+      "type": "object"
+    },
     "AuditReport": {
       "description": "Outcome of walking a graph's tamper-evident hash-chained audit log\n(CONCEPT:EG-KG.sharding.row-level-security, `Method::AuditVerify`). `ok` is true when every entry's stored\nhash matches the recomputed chain hash AND the sequence is contiguous from 0;\n`first_broken_seq` carries the position of the first detected break.",
       "properties": {
@@ -541,6 +607,18 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "methods": {
+    "AuditAppend": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AuditAppendReceipt"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "AuditProveInclusion": {
       "bodies": {
         "result": {
@@ -548,6 +626,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/MerkleInclusionReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "AuditReadEvent": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AuditEventProof"
           }
         }
       },

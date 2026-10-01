@@ -20596,6 +20596,82 @@
         },
         {
           "additionalProperties": false,
+          "description": "Append one privacy-safe GraphOS operation outcome to the tenant's durable\nhash chain. The verified carrier supplies tenant and principal; no raw\nparams, result body, or caller-supplied identity is accepted.",
+          "properties": {
+            "method": {
+              "const": "AuditAppend",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "identity_chain": {
+                  "type": "boolean"
+                },
+                "op": {
+                  "type": "string"
+                },
+                "params_sha256": {
+                  "type": "string"
+                },
+                "request_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "surface": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "surface",
+                "params_sha256",
+                "status",
+                "request_id",
+                "identity_chain"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one operation-audit event and verify the graph's current chain.\nGated independently from append by `security:audit`.",
+          "properties": {
+            "method": {
+              "const": "AuditReadEvent",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "seq": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "seq"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Produce + server-side-verify a Merkle inclusion proof for one node against\na prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) — the\nextension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence\nreach the ANCHORED NODES' CONTENT, not just the ordering of mutations. A\nperiodic engine job Merkle-hashes the target graph's `:ToolCall`/\n`:RunTrace` provenance-node window and folds the root into this SAME\nhash chain as one more entry (`audit::provenance_anchor_line`); this\nmethod re-hashes `node_id`'s CURRENT durable content and walks the\nanchor-time sibling path up to that chain-protected root — a mismatch\n(`MerkleInclusionReport.verified == false`) proves the node's durable\nbytes changed after anchoring, whether by raw tampering or an ordinary\nlater overwrite. `anchor_seq` selects a specific anchor by its\naudit-chain seq; `None` uses the target graph's most recent anchor.\nErrors when the graph has no anchor yet or `anchor_seq` names an entry\nthat is not one; `included == false` (not an error) means `node_id`\nsimply was not part of that anchor's window. Returns\n`Raw(MerkleInclusionReport)`.",
           "properties": {
             "method": {
@@ -49553,6 +49629,53 @@
       ],
       "type": "object"
     },
+    "AuditAppend": {
+      "additionalProperties": false,
+      "description": "Append one privacy-safe GraphOS operation outcome to the tenant's durable\nhash chain. The verified carrier supplies tenant and principal; no raw\nparams, result body, or caller-supplied identity is accepted.",
+      "properties": {
+        "method": {
+          "const": "AuditAppend",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "identity_chain": {
+              "type": "boolean"
+            },
+            "op": {
+              "type": "string"
+            },
+            "params_sha256": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "surface": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "surface",
+            "params_sha256",
+            "status",
+            "request_id",
+            "identity_chain"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "AuditProveInclusion": {
       "additionalProperties": false,
       "description": "Produce + server-side-verify a Merkle inclusion proof for one node against\na prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) — the\nextension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence\nreach the ANCHORED NODES' CONTENT, not just the ordering of mutations. A\nperiodic engine job Merkle-hashes the target graph's `:ToolCall`/\n`:RunTrace` provenance-node window and folds the root into this SAME\nhash chain as one more entry (`audit::provenance_anchor_line`); this\nmethod re-hashes `node_id`'s CURRENT durable content and walks the\nanchor-time sibling path up to that chain-protected root — a mismatch\n(`MerkleInclusionReport.verified == false`) proves the node's durable\nbytes changed after anchoring, whether by raw tampering or an ordinary\nlater overwrite. `anchor_seq` selects a specific anchor by its\naudit-chain seq; `None` uses the target graph's most recent anchor.\nErrors when the graph has no anchor yet or `anchor_seq` names an entry\nthat is not one; `included == false` (not an error) means `node_id`\nsimply was not part of that anchor's window. Returns\n`Raw(MerkleInclusionReport)`.",
@@ -49578,6 +49701,35 @@
           },
           "required": [
             "node_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "AuditReadEvent": {
+      "additionalProperties": false,
+      "description": "Read one operation-audit event and verify the graph's current chain.\nGated independently from append by `security:audit`.",
+      "properties": {
+        "method": {
+          "const": "AuditReadEvent",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "seq"
           ],
           "type": "object"
         }
