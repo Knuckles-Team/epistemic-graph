@@ -294,24 +294,26 @@ def test_runner_jobs_keep_build_budget_and_bounded_authorization() -> None:
     for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
         doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
         for name, job in doc["jobs"].items():
-            if "uses" in job:  # reusable-workflow call: GitHub rejects a timeout here
-                continue
-            if (workflow.name, name) == ("eg-release-x86.yml", "authorize"):
-                assert job == _verified_x86_workflow()["jobs"]["authorize"]
-                assert job["runs-on"] == "ubuntu-latest"
-                assert job.get("timeout-minutes") == 5
-            elif (workflow.name, name) == ("arm64-linker-probe.yml", "probe"):
-                # This compiles tiny fixtures, never the full release workspace.
-                assert job["runs-on"] == "ubuntu-24.04-arm"
-                assert job.get("timeout-minutes") == 10
-            elif (workflow.name, name) == ("macos-release-probe.yml", "probe"):
-                assert job["runs-on"] == "${{ matrix.runner }}"
-                assert job.get("timeout-minutes") == 15
-                assert {
-                    row["runner"] for row in job["strategy"]["matrix"]["include"]
-                } == {
-                    "macos-14",
-                    "macos-15-intel",
-                }
-            else:
-                assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"
+            _assert_runner_budget(workflow, name, job)
+
+
+def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
+    if "uses" in job:  # reusable-workflow call: GitHub rejects a timeout here
+        return
+    if (workflow.name, name) == ("eg-release-x86.yml", "authorize"):
+        assert job == _verified_x86_workflow()["jobs"]["authorize"]
+        assert job["runs-on"] == "ubuntu-latest"
+        assert job.get("timeout-minutes") == 5
+    elif (workflow.name, name) == ("arm64-linker-probe.yml", "probe"):
+        # This compiles tiny fixtures, never the full release workspace.
+        assert job["runs-on"] == "ubuntu-24.04-arm"
+        assert job.get("timeout-minutes") == 10
+    elif (workflow.name, name) == ("macos-release-probe.yml", "probe"):
+        assert job["runs-on"] == "${{ matrix.runner }}"
+        assert job.get("timeout-minutes") == 15
+        assert {row["runner"] for row in job["strategy"]["matrix"]["include"]} == {
+            "macos-14",
+            "macos-15-intel",
+        }
+    else:
+        assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"

@@ -152,48 +152,52 @@ def packaging_probe(root: Path) -> None:
             ],
             project,
         )
-        calls = [json.loads(line) for line in log.read_text().splitlines()]
-        print(
-            json.dumps(
-                {"mode": mode, "seconds": durations[mode], "rustc_calls": calls}
-            ),
-            flush=True,
-        )
-        if mode == "batched":
-            assert not [call for call in calls if "--crate-name" in call], calls
-        (wheel,) = (root / mode).glob("*.whl")
-        print("packaged_wheel=" + wheel.name, flush=True)
-        with zipfile.ZipFile(wheel) as archive:
-            tools = [
-                name for name in archive.namelist() if ".data/scripts/tool" in name
-            ]
-            assert len(tools) == 5, tools
-            for name in tools:
-                dest = root / mode / Path(name).name
-                payload = archive.read(name)
-                if mode == "batched":
-                    original = (
-                        root
-                        / "batch-target"
-                        / os.environ["EG_WHEEL_TARGET"]
-                        / "release"
-                        / Path(name).name
-                    ).read_bytes()
-                    assert payload == original
-                    print(
-                        json.dumps(
-                            {
-                                "binary": Path(name).name,
-                                "sha256": hashlib.sha256(payload).hexdigest(),
-                                "matches_stripped_cargo_output": True,
-                            }
-                        ),
-                        flush=True,
-                    )
-                dest.write_bytes(payload)
-                dest.chmod(0o755)
-                run([str(dest)], root)
+        report_packaging_calls(log, mode, durations[mode])
+        verify_packaged_tools(root, mode)
     print(json.dumps({"five_binary_packaging_seconds": durations}), flush=True)
+
+
+def report_packaging_calls(log: Path, mode: str, seconds: float) -> None:
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    print(
+        json.dumps({"mode": mode, "seconds": seconds, "rustc_calls": calls}),
+        flush=True,
+    )
+    if mode == "batched":
+        assert not [call for call in calls if "--crate-name" in call], calls
+
+
+def verify_packaged_tools(root: Path, mode: str) -> None:
+    (wheel,) = (root / mode).glob("*.whl")
+    print("packaged_wheel=" + wheel.name, flush=True)
+    with zipfile.ZipFile(wheel) as archive:
+        tools = [name for name in archive.namelist() if ".data/scripts/tool" in name]
+        assert len(tools) == 5, tools
+        for name in tools:
+            dest = root / mode / Path(name).name
+            payload = archive.read(name)
+            if mode == "batched":
+                original = (
+                    root
+                    / "batch-target"
+                    / os.environ["EG_WHEEL_TARGET"]
+                    / "release"
+                    / Path(name).name
+                ).read_bytes()
+                assert payload == original
+                print(
+                    json.dumps(
+                        {
+                            "binary": Path(name).name,
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                            "matches_stripped_cargo_output": True,
+                        }
+                    ),
+                    flush=True,
+                )
+            dest.write_bytes(payload)
+            dest.chmod(0o755)
+            run([str(dest)], root)
 
 
 def abi3_probe(root: Path) -> None:
