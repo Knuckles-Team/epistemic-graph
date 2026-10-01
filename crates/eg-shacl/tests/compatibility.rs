@@ -26,7 +26,9 @@ fn shapes_graph_well_formed_is_report_metadata() {
 #[test]
 fn indexed_class_checks_do_not_charge_the_whole_data_graph() {
     let shapes = format!("{PREFIX} ex:S sh:targetClass ex:A ; sh:class ex:A .");
-    assert_engines_conform(&shapes, &class_instances(4000));
+    let data = class_instances(4000);
+    assert!(validate_turtle(&shapes, &data).unwrap().conforms);
+    assert!(validate_icv_turtle(&shapes, &data).unwrap().conforms);
 }
 
 #[test]
@@ -87,7 +89,9 @@ fn unrelated_metadata_does_not_multiply_indexed_shape_parse_cost() {
     for i in 0..4000 {
         shapes.push_str(&format!("ex:metadata{i} ex:label \"metadata\" .\n"));
     }
-    assert_engines_conform(&shapes, &class_instances(4000));
+    let data = class_instances(4000);
+    assert!(validate_turtle(&shapes, &data).unwrap().conforms);
+    assert!(validate_icv_turtle(&shapes, &data).unwrap().conforms);
 }
 
 #[test]
@@ -130,9 +134,4 @@ fn class_instances(count: usize) -> String {
     (0..count)
         .map(|i| format!("<urn:ex:n{i}> a <urn:ex:A> .\n"))
         .collect()
-}
-
-fn assert_engines_conform(shapes: &str, data: &str) {
-    assert!(validate_turtle(shapes, data).unwrap().conforms);
-    assert!(validate_icv_turtle(shapes, data).unwrap().conforms);
 }
