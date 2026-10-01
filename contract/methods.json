@@ -25236,9 +25236,9 @@
       ],
       "id": "AuditAppend",
       "is_wire_callable": true,
-      "note": "tenant-bound operation audit append with request-id/op idempotency and no raw params",
+      "note": "tenant-bound operation audit append with request-id/op idempotency and no raw params; writes its own audit-chain entry directly (see src/redb_store/audit.rs::operation_audit_append), not through the generic per-mutation audit_line() dispatch, like EdgeIndex above",
       "policy": {
-        "audited": true,
+        "audited": false,
         "authz_action": "security:audit-write",
         "durability_domain": "GraphRedb",
         "emits_cdc": false,

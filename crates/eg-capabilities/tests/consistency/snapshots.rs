@@ -16,6 +16,7 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "ApplyLedger",
     "ApplyMultisigMutation",
     "ApplyMutation",
+    "AuditAppend",
     "BatchUpdate",
     "BeginTxn",
     "BindQueue",
