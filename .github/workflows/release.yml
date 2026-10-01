@@ -1162,6 +1162,15 @@ jobs:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
 
+      - name: Retain Mac prebuild measurements
+        if: ${{ always() && endsWith(matrix.target, '-apple-darwin') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-build-metrics-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/eg-macos-build-metrics
+          if-no-files-found: warn
+          retention-days: 7
+
   # NOTE (CONCEPT:EG-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
   # existed only because the deployment tiers produced DIFFERENT binaries that all shared
@@ -1180,6 +1189,7 @@ jobs:
   #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
   #    Tag-gated: optional feature and benchmark feedback runs independently
   #    and cannot delay this image build.
+
   build-x86:
     name: wheel linux-x86_64
     needs: [gates, gates-facade, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]

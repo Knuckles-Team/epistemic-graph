@@ -87,6 +87,7 @@ def packaging_fixture(root: Path) -> tuple[Path, Path]:
         '[package]\nname="eg-mac-probe"\nversion="0.1.0"\nedition="2021"\n'
         '[profile.release]\nopt-level=3\nlto="thin"\ncodegen-units=1\n'
         'panic="unwind"\nstrip=true\n'
+        "[features]\nfull=[]\nast-extended=[]\n"
     )
     (project / "pyproject.toml").write_text(
         '[build-system]\nrequires=["maturin==1.15.0"]\nbuild-backend="maturin"\n'
@@ -120,19 +121,13 @@ def packaging_probe(root: Path) -> None:
         if mode == "batched":
             os.environ["CARGO_TARGET_DIR"] = str(root / "batch-target")
             run(["cargo", "generate-lockfile", "--offline"], project)
+            os.environ["EG_WHEEL_JOBS_ARG"] = "--jobs 2"
+            os.environ["MATURIN_FEATURES"] = "full,ast-extended"
             durations["prebuild"] = run(
                 [
-                    "/usr/bin/time",
-                    "-l",
-                    "cargo",
-                    "build",
-                    "--release",
-                    "--locked",
-                    "--bins",
-                    "--jobs",
-                    "2",
-                    "--target",
-                    os.environ["EG_WHEEL_TARGET"],
+                    "bash",
+                    str(Path(__file__).resolve().with_name("prebuild_macos_bins.sh")),
+                    "primary",
                 ],
                 project,
             )
@@ -144,6 +139,8 @@ def packaging_probe(root: Path) -> None:
                 "--release",
                 "--jobs",
                 "2",
+                "--features",
+                "full,ast-extended",
                 "--target",
                 os.environ["EG_WHEEL_TARGET"],
                 "--out",
@@ -200,6 +197,23 @@ def verify_packaged_tools(root: Path, mode: str) -> None:
             run([str(dest)], root)
 
 
+def failed_prebuild_probe(root: Path) -> None:
+    project = root / "package"
+    (project / "src/lib.rs").write_text("deliberately invalid Rust syntax\n")
+    command = [
+        "bash",
+        str(Path(__file__).resolve().with_name("prebuild_macos_bins.sh")),
+        "reproduction",
+    ]
+    result = subprocess.run(command, cwd=project, check=False, timeout=60)
+    assert result.returncode == 101
+    metrics = Path(os.environ["RUNNER_TEMP"]) / "eg-macos-build-metrics"
+    assert (metrics / "reproduction/exit-status.txt").read_text().strip() == "101"
+    assert (metrics / "reproduction/build.log").stat().st_size > 0
+    assert list((metrics / "primary/cargo-timings").glob("*.html"))
+    print("actual_prebuild_wrapper_exit_and_reports_verified", flush=True)
+
+
 def abi3_probe(root: Path) -> None:
     project = root / "abi3"
     (project / "src").mkdir(parents=True)
@@ -254,6 +268,7 @@ def main() -> None:
         linker_probe(root)
         packaging_probe(root)
         abi3_probe(root)
+        failed_prebuild_probe(root)
 
 
 if __name__ == "__main__":

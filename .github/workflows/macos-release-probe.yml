@@ -5,6 +5,7 @@ name: Native macOS release probe
       - '.github/workflows/macos-release-probe.yml'
       - 'scripts/configure_macos_linker.sh'
       - 'scripts/probe_macos_release.py'
+      - 'scripts/prebuild_macos_bins.sh'
       - '.github/actions/folded-wheel/action.yml'
       - '.github/workflows/release.yml'
   workflow_dispatch: {}

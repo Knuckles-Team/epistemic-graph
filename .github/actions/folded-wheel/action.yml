@@ -41,11 +41,7 @@ runs:
     - name: Prebuild all shipped macOS executable targets
       if: ${{ endsWith(env.EG_WHEEL_TARGET, '-apple-darwin') }}
       shell: bash
-      run: >-
-        cargo build --release --locked --bins
-        --target "$EG_WHEEL_TARGET"
-        --features "$MATURIN_FEATURES"
-        ${{ env.EG_WHEEL_JOBS_ARG }}
+      run: bash scripts/prebuild_macos_bins.sh '${{ inputs.pass }}'
 
     - name: Build server wheel
       uses: ./.github/actions/release-maturin
