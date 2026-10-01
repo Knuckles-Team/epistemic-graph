@@ -3,67 +3,747 @@
   "spec_id": "EG-FEDERATED-QUERY",
   "owner_repo": "epistemic-graph",
   "requirement_ids": [
-    "EH-119",
-    "EH-144",
-    "EH-156",
-    "EH-157",
-    "EH-196",
-    "EH-197",
-    "EH-315",
-    "EH-351",
-    "EH-352",
-    "EH-355",
-    "EH-356",
-    "EH-363",
-    "EH-373",
-    "EH-378",
-    "EH-387",
-    "EH-392",
-    "EH-393",
-    "EH-400",
-    "EH-415",
-    "EH-434",
-    "EH-435",
-    "EH-437",
-    "EH-438",
-    "EH-439",
-    "EH-441",
-    "EH-447",
-    "EH-449",
-    "EH-450",
-    "EH-451",
-    "EH-521",
-    "EH-523",
-    "EH-526",
-    "EH-527",
-    "EH-529",
-    "EH-532",
-    "EH-559",
-    "EH-562",
-    "EH-563",
-    "EH-564",
-    "EH-565",
-    "EH-566",
-    "EH-569",
-    "EH-570",
-    "EH-571",
-    "EH-572",
-    "EH-573",
-    "EH-574",
-    "EH-575",
-    "EH-576",
-    "EH-577",
-    "EH-578",
-    "EH-579",
-    "EH-580",
-    "EH-581",
-    "EH-583",
-    "EH-584",
-    "EH-659",
-    "RF-007",
-    "RF-019"
+    "EG-FEDERATED-QUERY-R001",
+    "EG-FEDERATED-QUERY-R002",
+    "EG-FEDERATED-QUERY-R003",
+    "EG-FEDERATED-QUERY-R004",
+    "EG-FEDERATED-QUERY-R005",
+    "EG-FEDERATED-QUERY-R006",
+    "EG-FEDERATED-QUERY-R007",
+    "EG-FEDERATED-QUERY-R008",
+    "EG-FEDERATED-QUERY-R009",
+    "EG-FEDERATED-QUERY-R010",
+    "EG-FEDERATED-QUERY-R011",
+    "EG-FEDERATED-QUERY-R012",
+    "EG-FEDERATED-QUERY-R013",
+    "EG-FEDERATED-QUERY-R014",
+    "EG-FEDERATED-QUERY-R015",
+    "EG-FEDERATED-QUERY-R016",
+    "EG-FEDERATED-QUERY-R017",
+    "EG-FEDERATED-QUERY-R018",
+    "EG-FEDERATED-QUERY-R019",
+    "EG-FEDERATED-QUERY-R020",
+    "EG-FEDERATED-QUERY-R021",
+    "EG-FEDERATED-QUERY-R022",
+    "EG-FEDERATED-QUERY-R023",
+    "EG-FEDERATED-QUERY-R024",
+    "EG-FEDERATED-QUERY-R025",
+    "EG-FEDERATED-QUERY-R026",
+    "EG-FEDERATED-QUERY-R027",
+    "EG-FEDERATED-QUERY-R028",
+    "EG-FEDERATED-QUERY-R029",
+    "EG-FEDERATED-QUERY-R030",
+    "EG-FEDERATED-QUERY-R031",
+    "EG-FEDERATED-QUERY-R032",
+    "EG-FEDERATED-QUERY-R033",
+    "EG-FEDERATED-QUERY-R034",
+    "EG-FEDERATED-QUERY-R035",
+    "EG-FEDERATED-QUERY-R036",
+    "EG-FEDERATED-QUERY-R037",
+    "EG-FEDERATED-QUERY-R038",
+    "EG-FEDERATED-QUERY-R039",
+    "EG-FEDERATED-QUERY-R040",
+    "EG-FEDERATED-QUERY-R041",
+    "EG-FEDERATED-QUERY-R042",
+    "EG-FEDERATED-QUERY-R043",
+    "EG-FEDERATED-QUERY-R044",
+    "EG-FEDERATED-QUERY-R045",
+    "EG-FEDERATED-QUERY-R046",
+    "EG-FEDERATED-QUERY-R047",
+    "EG-FEDERATED-QUERY-R048",
+    "EG-FEDERATED-QUERY-R049",
+    "EG-FEDERATED-QUERY-R050",
+    "EG-FEDERATED-QUERY-R051",
+    "EG-FEDERATED-QUERY-R052",
+    "EG-FEDERATED-QUERY-R053",
+    "EG-FEDERATED-QUERY-R054",
+    "EG-FEDERATED-QUERY-R055",
+    "EG-FEDERATED-QUERY-R056",
+    "EG-FEDERATED-QUERY-R057",
+    "EG-FEDERATED-QUERY-R058",
+    "EG-FEDERATED-QUERY-R059",
+    "EG-FEDERATED-QUERY-R060",
+    "EG-FEDERATED-QUERY-R061",
+    "EG-FEDERATED-QUERY-R062",
+    "EG-FEDERATED-QUERY-R063",
+    "EG-FEDERATED-QUERY-R064",
+    "EG-FEDERATED-QUERY-R065",
+    "EG-FEDERATED-QUERY-R066",
+    "EG-FEDERATED-QUERY-R067",
+    "EG-FEDERATED-QUERY-R068",
+    "EG-FEDERATED-QUERY-R069",
+    "EG-FEDERATED-QUERY-R070",
+    "EG-FEDERATED-QUERY-R071"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "EG-FEDERATED-QUERY-R001",
+      "title": "Bounded derivation steps in EL+/RL and tableau reasoning",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R002",
+      "title": "Rejection reasons stay out of the core kernel row schema",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R003",
+      "title": "Derivation-step budget is enforced once, not duplicated per path",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R004",
+      "title": "Reasoning projection rebuilds after any skipped event",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R005",
+      "title": "UQL VALIDATE SHAPE stage",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R006",
+      "title": "Proof-carrying results for SPARQL and rule-derived queries",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R007",
+      "title": "Semantic-index reconciliation tombstones only on a complete proof",
+      "delivery_state": "CLOSED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be0f1acb05c6dac79fdd497f0482d627857ab84d",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R008",
+      "title": "Edge-native text and vector search with stable identity",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R009",
+      "title": "Durable user-managed graph-index lifecycle",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R010",
+      "title": "Tableau reasoning stays bounded on the shipped core schema",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/57a12eb0663234434748a756b16d7ba1aaa2d8fa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R011",
+      "title": "EL+/RL reasoning is sound against the shipped ontology corpus",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R012",
+      "title": "Tableau honors AllDisjointClasses and core disjointness facts",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R013",
+      "title": "Foreign-source resolution is scoped to the owning principal",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f4a5f7434b2d93941f8e2b0164253829f63cc643",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f4a5f7434b2d93941f8e2b0164253829f63cc643",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R014",
+      "title": "Explicit grant-based sharing of a registered foreign source",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R015",
+      "title": "Read-only enforcement at the shared SQL execution path",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a1bb9fb9503ec96f7ce5467ca3b8a466072a0dfa",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R016",
+      "title": "UQL AS OF uses Unix-second timestamps, not ISO dates",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R017",
+      "title": "Dependency tracking covers edge-type and embedding generations",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R018",
+      "title": "Class-level volatility drives invalidation and cache freshness",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R019",
+      "title": "Per-bar signal-state advancement with revisable trend records",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R020",
+      "title": "One query-text method surface, with the legacy method retired",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R021",
+      "title": "Full UQL predicate algebra with SQL-consistent evaluation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R022",
+      "title": "UQL source clauses are first-class, with typed empty-result cases",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R023",
+      "title": "Every query modality has a published UQL spelling",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R024",
+      "title": "Traversal syntax compiles to one canonical Expand encoding",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R025",
+      "title": "Typed parameter binding end-to-end through the Python client",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R026",
+      "title": "UQL documentation is test-verified with an embedded grammar",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R027",
+      "title": "EXPLAIN, PROFILE and RETURN support multi-stage UQL programs",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R028",
+      "title": "KnowledgeSet is reachable from UQL",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R029",
+      "title": "UQL text from graph-exploration clients matches the grammar",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R030",
+      "title": "TSSCAN preserves per-series row identity and full precision",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R031",
+      "title": "Contribution attribution kernels exposed through UQL ATTRIBUTE",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R032",
+      "title": "Probabilistic impact propagation with cone-scoped recomputation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R033",
+      "title": "Barrier-hit and time-to-exhaustion derivations, one shared CDF",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R034",
+      "title": "Motif and discord search over time series, batch and streaming",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R035",
+      "title": "Filtered text search evaluates within the filtered candidate set",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R036",
+      "title": "Bounded, observable graph reopen after a restart",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R037",
+      "title": "Rolling window statistics are both O(1) and numerically exact",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "0d27d08dba1acff85dca4da72a09bc3be489292d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0d27d08dba1acff85dca4da72a09bc3be489292d",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R038",
+      "title": "Federation optimizer: cost-aware pushdown, freshness-aware cache",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039",
+      "title": "Mixed traversal and vector queries return k or a typed shortfall",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040",
+      "title": "Filter-aware index scans for filtered vector and text search",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R041",
+      "title": "Federation optimizer core drives pushdown decisions for every query",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R042",
+      "title": "OBDA pushes per-predicate scans and semi-join reduction to SQL sources",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R043",
+      "title": "SQL foreign-source connections share the one outbound SSRF guard",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R044",
+      "title": "UQL EXPLAIN and PROFILE surface federation trace and budget hints",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R045",
+      "title": "Foreign rows carry typed columns for filter and projection pushdown",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c190f20c7cc83ee2a6a2d814f534e89dc156f7c6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c190f20c7cc83ee2a6a2d814f534e89dc156f7c6",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R046",
+      "title": "OBDA pushes SPARQL LIMIT, ORDER, aggregates and same-source joins",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R047",
+      "title": "Federation enforces per-source parallelism caps and rate limits",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R048",
+      "title": "Join ordering across foreign sources uses learned, provenanced statistics",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R049",
+      "title": "Foreign query fragment cache is freshness-aware and owner-salted",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "8085d36dccc1b209f4d95bf1425ccc0139ccb0a6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8085d36dccc1b209f4d95bf1425ccc0139ccb0a6",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R050",
+      "title": "SPARQL SERVICE uses bind joins and pushes FILTER/LIMIT",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R051",
+      "title": "Iceberg scans prune manifests using the final pushed predicates",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "745a058b069581fd42d05b0ab1a8626ef697764a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/745a058b069581fd42d05b0ab1a8626ef697764a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R052",
+      "title": "RemoteEngine sources receive pushed key filters and bounded LIMIT",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "736682904bd6599544c20926f148fdc67c796cfe",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/736682904bd6599544c20926f148fdc67c796cfe",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R053",
+      "title": "Trino, Cypher and Spark sources are typed ForeignSourceSpec kinds",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e403447bbe8dea9ede3eddbe0ca23aa602b6bca6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e403447bbe8dea9ede3eddbe0ca23aa602b6bca6",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R054",
+      "title": "SPARQL SERVICE and peer federation share the one outbound SSRF guard",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R055",
+      "title": "SPARQL evaluation binds every value of a multi-valued property",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R056",
+      "title": "Causal-impact p-values reuse the shared numeric tail functions",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "b3612697c5ec19861506d63510a2f19c9ea0a48d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b3612697c5ec19861506d63510a2f19c9ea0a48d",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R057",
+      "title": "SQL provider module stays within the repository's file-size limit",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "318890c51ab837bbd639c805a5ddf053c9b25edd",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/318890c51ab837bbd639c805a5ddf053c9b25edd",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058",
+      "title": "Natural language produces only a previewed, reviewed UQL candidate",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R059",
+      "title": "Semantic index lifecycle is fenced, durable and restart-safe",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "46e5f5d027872a9c6dddb5545a589e4c2ca8c24a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/46e5f5d027872a9c6dddb5545a589e4c2ca8c24a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R060",
+      "title": "Leiden community detection supports a Constant Potts Model quality function",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R061",
+      "title": "One grammar table drives UQL docs, prompts and error messages",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R062",
+      "title": "Streaming memory test measures only its own allocations",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "b48279402e5666568e9c7429b782847bfebfd8f4",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b48279402e5666568e9c7429b782847bfebfd8f4",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R063",
+      "title": "Leiden provides stable community naming and a connectivity check",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R064",
+      "title": "UQL lexer supports its full token set and structured diagnostics",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R065",
+      "title": "Named UQL sub-plans compile to an ordered plan DAG",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R066",
+      "title": "SPARQL evaluator is split into modules within the file-size limit",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "525fab303e06977fbce90ef63cc916ecf73f4229",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/525fab303e06977fbce90ef63cc916ecf73f4229",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R067",
+      "title": "UQL RETURN exposes multiple named score channels per row",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R068",
+      "title": "UQL supports WITH PROOF for proof-carrying results",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R069",
+      "title": "SQL pushdown batches key lookups and shares rendering with OBDA",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R070",
+      "title": "UQL execution budgets are enforced and reported in EXPLAIN/PROFILE",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R071",
+      "title": "HTTP foreign sources support templated pagination and key placeholders",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6c828a0017a1237bd82d84284237ac1fc0c4af5a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    }
+  ]
 }

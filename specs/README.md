@@ -10,7 +10,10 @@ Delivery status is recorded here with exact merged revision and test evidence.
 
 Create `specs/<stable-id>/` with `spec.md` (user outcome, requirements, acceptance), `plan.md`
 (architecture, reuse, interfaces, live wiring, decisions), `test-spec.md` (positive, negative,
-integration, quality and release proof), and `tasks.md` (ordered implementation and verification), plus `status.json` (machine-readable delivery, acceptance, and public receipts).
+integration, quality and release proof), `tasks.md` (ordered implementation and verification),
+`requirements.md` (the definition of every requirement ID the spec owns), plus `status.json`
+(machine-readable delivery, acceptance, and public receipts, including one `requirements` array
+entry per requirement ID with its own `delivery_state` and evidence).
 Start from [`_template/`](_template/). Keep status and evidence explicit; a planned or tested item
 is not a landed item. Put durable evidence links in the spec directory, never local scratch output.
 This follows GitHub Spec Kit's specify/plan/tasks flow with an explicit test contract. The tracked [constitution](../.specify/memory/constitution.md) records this repository's governing principles.
@@ -34,7 +37,10 @@ or `IN REVIEW` may describe current work, but they do not prove delivery.
 `LANDED` requires a public merged-head receipt for the exact owning-repository revision.
 `ACCEPTED` additionally requires the checked-in test and consumer or release receipts.
 Record public issue, PR, check, and commit links in the owner spec and evidence array.
-An obligation can be landed while acceptance remains open.
+An obligation can be landed while acceptance remains open. Each requirement ID tracked in a
+spec's `requirements` array in `status.json` counts as delivered only once that array's
+`delivery_state` for the ID is backed by a merged-head commit on the owning repository's
+default branch, not a branch, a local run, or a planned task.
 
 ## Graph OS owner map
 
@@ -60,7 +66,7 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 
 ## Local specifications
 
-- [`unified-data-plane`](unified-data-plane/spec.md) — Train 9 EG owner contract; PROPOSED.
+- [`unified-data-plane`](unified-data-plane/spec.md) — EG attached-source, dialect and app-admission owner contract; PROPOSED.
 - [`EG-DECISION-ENGINE`](decision-engine/spec.md) — governed decision and calibration engine contract.
 - [`EG-DURABLE-KERNEL`](durable-graph-kernel/spec.md) — durable graph state and recovery contract.
 - [`EG-IDENTITY-001`](engine-identity-and-scope/spec.md) — issuer, identity, scope, and audit contract.

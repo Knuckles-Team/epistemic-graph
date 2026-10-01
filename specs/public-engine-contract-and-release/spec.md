@@ -16,7 +16,7 @@ A contributor must be able to change an engine method once and regenerate the sa
 
 The current repository includes a generated method catalog, error catalog, Python typed models, Go and JavaScript codec clients and a package contract receipt. Their presence establishes a partial source baseline only. No release acceptance is claimed here.
 
-[PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3) merged its Train 4 source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/epistemic-graph/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The EH-592 wheel and consumer proof, EH-655 duplication gate, EH-656 hooks, and exact-revision release acceptance remain open under this spec's test contract.
+[PR #3](https://github.com/Knuckles-Team/epistemic-graph/pull/3) merged a source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/epistemic-graph/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The EG-CONTRACT-R014 wheel and consumer proof, EG-CONTRACT-R022 duplication gate, EG-CONTRACT-R023 hooks, and exact-revision release acceptance remain open under this spec's test contract.
 
 ## Normative requirements
 
@@ -43,15 +43,17 @@ External applications consume only the published public catalog and clients. The
 
 ## Stable obligation coverage
 
-| Train | IDs and disposition in this spec |
+| Group | IDs and disposition in this spec |
 |---|---|
-| T3 | EH-192 strict models; EH-372 signed Go/JS vectors. Verify exact default-branch source and package evidence. |
-| T4 | EH-249 Agent Library served-Python substrate; EH-377 generated Python convergence; EH-383 codec WASM; EH-430 dispatch gate; EH-433 correct tree selection; EH-468 root Python CI suite; EH-592 error catalog; EH-643 generated client parity; EH-644 compiler dispatch census; EH-645 feature matrix; EH-646 current dispatch reachability; EH-647 component naming; EH-650 client lifecycle; EH-655 duplicate scan; EH-656 full tree hygiene. |
-| T5 | EH-593 contract packaging and `is_wire_callable`; EH-519 bounded CI fanout; EH-520 and EH-561 KISS parser/config compatibility. |
-| Cross-cutting | EH-366 wheel privacy; EH-469 complexity scoring. |
+| Client contract baseline | EG-CONTRACT-R001 strict models; EG-CONTRACT-R004 signed Go/JS vectors. Verify exact default-branch source and package evidence. |
+| Consumer convergence and tree hygiene | EG-CONTRACT-R002 Agent Library served-Python substrate; EG-CONTRACT-R005 generated Python convergence; EG-CONTRACT-R006 codec WASM; EG-CONTRACT-R007 dispatch gate; EG-CONTRACT-R008 correct tree selection; EG-CONTRACT-R009 root Python CI suite; EG-CONTRACT-R014 error catalog; EG-CONTRACT-R016 generated client parity; EG-CONTRACT-R017 compiler dispatch census; EG-CONTRACT-R018 feature matrix; EG-CONTRACT-R019 current dispatch reachability; EG-CONTRACT-R020 component naming; EG-CONTRACT-R021 client lifecycle; EG-CONTRACT-R022 duplicate scan; EG-CONTRACT-R023 full tree hygiene. |
+| Packaging and tooling compatibility | EG-CONTRACT-R015 contract packaging and `is_wire_callable`; EG-CONTRACT-R011 bounded CI fanout; EG-CONTRACT-R012 and EG-CONTRACT-R013 KISS parser/config compatibility. |
+| Cross-cutting | EG-CONTRACT-R003 wheel privacy; EG-CONTRACT-R010 complexity scoring. |
 
-Adjacent EG capabilities specify their own semantics. This spec governs their published method/error projection and release proof.
+Adjacent EG capabilities specify their own semantics. This spec governs their published method/error projection and release proof. This table groups the obligations tracked when this spec was last reviewed; [requirements.md](requirements.md) is the authoritative full set.
 
 ## Completion criteria
 
 All EG-C requirements have linked implementation commits, focused tests and an exact revision release matrix in [tasks.md](tasks.md). The published wheel and both embedded client codecs share one contract digest. Unknown/invalid payloads and policy failures have typed error parity. Hosted gates pass without private environment dependencies. Only then set **ACCEPTED**.
+
+Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
