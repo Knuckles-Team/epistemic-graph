@@ -71,8 +71,9 @@ fn validate_shapes_union(
     )?;
     let shape_triples = shape_union.triples;
     let shape_graph = shape_union.ntriples;
-    // Preserve the existing pack-specific path refusal and its precedence.
-    // The shared SHACL engine now also refuses these paths directly.
+    // The ICV parser represents unsupported paths but ignores them during
+    // evaluation. A pack must refuse one rather than silently drop a declared
+    // constraint (G15): this build supports only predicate paths.
     const SH_PATH: &str = "http://www.w3.org/ns/shacl#path";
     if shape_triples.iter().any(|triple| {
         triple.predicate.as_str() == SH_PATH
@@ -104,7 +105,12 @@ fn validate_shapes_union(
             "shapes union is not a supported ICV policy",
         )
     })?;
-    let report = eg_shacl::validate_icv_turtle(&shape_graph, ontology).map_err(shacl_refusal)?;
+    let report = eg_shacl::validate_icv_turtle(&shape_graph, ontology).map_err(|_| {
+        (
+            PackViolationCode::ShapesInvalid,
+            "SHACL validation could not evaluate the shapes union",
+        )
+    })?;
     if !report.conforms {
         return Err((
             PackViolationCode::ShaclViolation,
@@ -112,20 +118,6 @@ fn validate_shapes_union(
         ));
     }
     Ok(())
-}
-
-fn shacl_refusal(error: String) -> Refusal {
-    if eg_shacl::is_resource_refusal(&error) {
-        (
-            PackViolationCode::ValidationBudgetExceeded,
-            "SHACL validation exceeds the deterministic evaluation budget",
-        )
-    } else {
-        (
-            PackViolationCode::ShapesInvalid,
-            "SHACL validation could not evaluate the shapes union",
-        )
-    }
 }
 
 fn parse_union(
