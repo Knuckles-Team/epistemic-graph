@@ -204,9 +204,7 @@ pub use eg_types::rdf_report::LoadReport;
 pub use lowering::{load_triples, lower_triples, register_named_graph, LoweredTripleGraph};
 #[cfg(feature = "json-ld")]
 pub use parsing::parse_jsonld;
-pub use parsing::{
-    from_nquads, from_trig, parse_nquads, parse_ntriples, parse_trig, parse_turtle, turtle_triples,
-};
+pub use parsing::{from_nquads, from_trig, parse_nquads, parse_ntriples, parse_trig, parse_turtle};
 #[cfg(feature = "rdf-xml")]
 pub use parsing::{from_rdfxml, parse_rdfxml};
 #[cfg(feature = "json-ld")]

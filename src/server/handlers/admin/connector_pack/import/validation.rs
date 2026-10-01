@@ -561,7 +561,115 @@ fn parse_rdf_bounded(
 }
 
 #[cfg(all(feature = "owl", feature = "shacl"))]
-use eg_pack_validation::validate_unions as validate_rdf_unions;
+fn validate_rdf_unions(
+    ontologies: &[String],
+    shapes: &[String],
+) -> Result<(), (PackViolationCode, &'static str)> {
+    if ontologies.is_empty() && shapes.is_empty() {
+        return Ok(());
+    }
+    let ontology = eg_rdf::pack::scoped_union(ontologies).map_err(|_| {
+        (
+            PackViolationCode::OntologyInvalid,
+            "an ontology file is not valid Turtle",
+        )
+    })?;
+    let triples = ontology.triples;
+    if triples.len() > 100_000 {
+        return Err((
+            PackViolationCode::ValidationBudgetExceeded,
+            "ontology union exceeds the triple validation budget",
+        ));
+    }
+    // G14 (EH-119, EH-355 ruling (c)): the EL+/RL classification and then the
+    // full-ABox tableau, each inside one deterministic step budget -- the same
+    // verdict on every host, and the same budget the schema attach uses.
+    const MAX_REASONING_STEPS: u64 = 10_000_000;
+    match eg_rdf::tableau::check_pack_ontology(&triples, MAX_REASONING_STEPS) {
+        Ok(()) => {}
+        Err(eg_rdf::tableau::BoundedCheckRefusal::Inconsistent { .. }) => {
+            return Err((
+                PackViolationCode::OntologyInconsistent,
+                "ontology union is inconsistent: an unsatisfiable class or individual",
+            ));
+        }
+        Err(eg_rdf::tableau::BoundedCheckRefusal::BudgetExceeded { .. }) => {
+            return Err((
+                PackViolationCode::ValidationBudgetExceeded,
+                "ontology reasoning exceeds the deterministic step budget",
+            ));
+        }
+    }
+    if shapes.is_empty() {
+        return Ok(());
+    }
+    validate_shapes_union(shapes, &ontology.ntriples, triples.len())
+}
+
+/// G15/G16 over the file-scoped shapes union, against the ontology union.
+#[cfg(all(feature = "owl", feature = "shacl"))]
+fn validate_shapes_union(
+    shapes: &[String],
+    ontology: &str,
+    ontology_triples: usize,
+) -> Result<(), (PackViolationCode, &'static str)> {
+    let shape_union = eg_rdf::pack::scoped_union(shapes).map_err(|_| {
+        (
+            PackViolationCode::ShapesInvalid,
+            "a shapes file is not valid Turtle",
+        )
+    })?;
+    let shape_triples = shape_union.triples;
+    let shape_graph = shape_union.ntriples;
+    // The ICV parser represents unsupported paths but ignores them during
+    // evaluation. A pack must refuse one rather than silently drop a declared
+    // constraint (G15): this build supports only predicate paths.
+    const SH_PATH: &str = "http://www.w3.org/ns/shacl#path";
+    if shape_triples.iter().any(|triple| {
+        triple.predicate.as_str() == SH_PATH
+            && !matches!(&triple.object, eg_rdf::oxrdf::Term::NamedNode(_))
+    }) {
+        return Err((
+            PackViolationCode::ShapesInvalid,
+            "SHACL property paths must be predicate IRIs",
+        ));
+    }
+    const MAX_SHACL_STEPS: usize = 10_000_000;
+    if shape_triples.len().saturating_mul(ontology_triples.max(1)) > MAX_SHACL_STEPS {
+        return Err((
+            PackViolationCode::ValidationBudgetExceeded,
+            "SHACL validation exceeds the deterministic evaluation budget",
+        ));
+    }
+    if shapes
+        .iter()
+        .any(|document| document.to_ascii_uppercase().contains("SERVICE"))
+    {
+        return Err((
+            PackViolationCode::ShapesInvalid,
+            "SHACL SPARQL SERVICE constraints are forbidden",
+        ));
+    }
+    eg_shacl::IcvPolicy::from_turtle(&shape_graph).map_err(|_| {
+        (
+            PackViolationCode::ShapesInvalid,
+            "shapes union is not a supported ICV policy",
+        )
+    })?;
+    let report = eg_shacl::validate_icv_turtle(&shape_graph, ontology).map_err(|_| {
+        (
+            PackViolationCode::ShapesInvalid,
+            "SHACL validation could not evaluate the shapes union",
+        )
+    })?;
+    if !report.conforms {
+        return Err((
+            PackViolationCode::ShaclViolation,
+            "ontology union does not conform to the shapes union",
+        ));
+    }
+    Ok(())
+}
 
 #[cfg(not(all(feature = "owl", feature = "shacl")))]
 fn validate_rdf_unions(

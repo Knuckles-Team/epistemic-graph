@@ -17,15 +17,7 @@ fn collect_parsed<T, E: std::fmt::Display>(
 
 /// Parse a Turtle document into oxrdf triples.
 pub fn parse_turtle(doc: &str) -> Result<Vec<Triple>, String> {
-    turtle_triples(doc).collect()
-}
-
-/// Stream the same Turtle parser used by [`parse_turtle`], so bounded callers
-/// can refuse input before collecting an entire graph.
-pub fn turtle_triples(doc: &str) -> impl Iterator<Item = Result<Triple, String>> + '_ {
-    TurtleParser::new()
-        .for_reader(doc.as_bytes())
-        .map(|item| item.map_err(|error| format!("turtle parse: {error}")))
+    collect_parsed("turtle", TurtleParser::new().for_reader(doc.as_bytes()))
 }
 
 /// Parse an N-Triples document into oxrdf triples.

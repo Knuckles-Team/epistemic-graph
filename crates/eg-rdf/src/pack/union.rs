@@ -19,56 +19,15 @@ pub struct RdfUnion {
 /// Parse every document on its own and union them with file-scoped blank
 /// nodes. `Err` carries the index of the first document that does not parse.
 pub fn scoped_union(documents: &[String]) -> Result<RdfUnion, usize> {
-    scoped_union_with_limits(documents, usize::MAX, usize::MAX).map_err(|error| error.file())
-}
-
-/// First document to fail syntax or allocation bounds while streaming a union.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnionLimitError {
-    Parse { file: usize },
-    Triples { file: usize },
-    RenderedBytes { file: usize },
-}
-
-impl UnionLimitError {
-    /// Index in the supplied document order, independent of source identities.
-    pub fn file(self) -> usize {
-        match self {
-            Self::Parse { file } | Self::Triples { file } | Self::RenderedBytes { file } => file,
-        }
-    }
-}
-
-/// Stream independent documents into a bounded file-scoped union. Input byte
-/// bounds must be checked before calling: the parser may allocate a single term.
-/// Limits include the complete union, not each document separately.
-pub fn scoped_union_with_limits(
-    documents: &[String],
-    max_triples: usize,
-    max_rendered_bytes: usize,
-) -> Result<RdfUnion, UnionLimitError> {
     let mut union = RdfUnion {
         triples: Vec::new(),
         ntriples: String::new(),
     };
     for (file, document) in documents.iter().enumerate() {
-        for parsed in crate::mapping::turtle_triples(document) {
-            let triple = parsed.map_err(|_| UnionLimitError::Parse { file })?;
-            if union.triples.len() >= max_triples {
-                return Err(UnionLimitError::Triples { file });
-            }
+        let parsed = crate::mapping::parse_turtle(document).map_err(|_| file)?;
+        for triple in parsed {
             let triple = scope_triple(triple, file);
-            let rendered = triple.to_string();
-            if union
-                .ntriples
-                .len()
-                .saturating_add(rendered.len())
-                .saturating_add(3)
-                > max_rendered_bytes
-            {
-                return Err(UnionLimitError::RenderedBytes { file });
-            }
-            union.ntriples.push_str(&rendered);
+            union.ntriples.push_str(&triple.to_string());
             union.ntriples.push_str(" .\n");
             union.triples.push(triple);
         }

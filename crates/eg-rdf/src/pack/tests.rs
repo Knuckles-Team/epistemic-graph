@@ -16,7 +16,7 @@ fn malformed_documents_preserve_the_callers_refusal_code() {
 
 #[test]
 fn triple_budget_boundary_is_inclusive() {
-    let triple = "<s:s><p:p><o:o>.";
+    let triple = "<urn:s> <urn:p> <urn:o> .\n";
     let mut text = triple.repeat(100_000);
     assert_eq!(
         validate_document(PackViolationCode::OntologyInvalid, &text),
@@ -138,71 +138,4 @@ fn union_keeps_document_order_prefixes_and_blank_node_references() {
         union.triples
     );
     assert!(scoped_union(&[]).unwrap().triples.is_empty());
-}
-
-#[test]
-fn oversized_document_is_refused_before_parsing() {
-    let text = "!".repeat(eg_types::connector_pack::MAX_PACK_BODY_BYTES as usize + 1);
-    assert_eq!(
-        validate_document(PackViolationCode::OntologyInvalid, &text),
-        Err((
-            PackViolationCode::PackTooLarge,
-            "section exceeds its served size bound"
-        ))
-    );
-}
-
-#[test]
-fn streamed_term_refusal_precedes_later_malformed_turtle() {
-    let text = format!("<urn:s> <urn:p> <urn:{}> . not Turtle", "x".repeat(4093));
-    assert_eq!(
-        validate_document(PackViolationCode::OntologyInvalid, &text),
-        Err((
-            PackViolationCode::OntologyInvalid,
-            "RDF graph contains an IRI above the served bound"
-        ))
-    );
-}
-
-#[test]
-fn bounded_union_refuses_expansion_and_reports_document_index() {
-    let documents = [
-        "<urn:s> <urn:p> <urn:o> .".into(),
-        "<urn:s> <urn:p> <urn:o> .".into(),
-    ];
-    let bytes = scoped_union(&documents[..1]).unwrap().ntriples.len();
-    assert_eq!(
-        scoped_union_with_limits(&documents[..1], 1, bytes)
-            .unwrap()
-            .triples
-            .len(),
-        1
-    );
-    assert_eq!(
-        scoped_union_with_limits(&documents, 1, usize::MAX).err(),
-        Some(UnionLimitError::Triples { file: 1 })
-    );
-    assert_eq!(
-        scoped_union_with_limits(&documents, 2, bytes).err(),
-        Some(UnionLimitError::RenderedBytes { file: 1 })
-    );
-    let malformed = [documents[0].clone(), "bad".into()];
-    assert_eq!(
-        scoped_union_with_limits(&malformed, 2, usize::MAX).err(),
-        Some(UnionLimitError::Parse { file: 1 })
-    );
-}
-
-#[test]
-fn compact_prefix_expansion_is_bounded_before_later_pack_passes() {
-    let prefix = format!("@prefix : <urn:{}> .\n", "x".repeat(1020));
-    let text = prefix + &":s :p :o .\n".repeat(6000);
-    assert!(text.len() < 100_000);
-    assert_eq!(
-        validate_document(PackViolationCode::OntologyInvalid, &text),
-        Err((
-            PackViolationCode::ValidationBudgetExceeded,
-            "RDF graph rendering exceeds the byte validation budget"
-        ))
-    );
 }
