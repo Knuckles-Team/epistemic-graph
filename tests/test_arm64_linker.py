@@ -123,9 +123,49 @@ def test_probe_is_bounded_hosted_and_nonpublishing():
     assert job["runs-on"] == "ubuntu-24.04-arm"
     assert job["timeout-minutes"] == 10
     assert workflow["permissions"] == {"contents": "read"}
-    step = job["steps"][-1]
+    step = next(
+        step
+        for step in job["steps"]
+        if step.get("uses", "").startswith("PyO3/maturin-action@")
+    )
     assert step["with"]["container"].endswith(
         "@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc"
     )
     assert step["with"]["maturin-version"] == "1.15.0"
     assert all("upload" not in step.get("uses", "") for step in job["steps"])
+
+
+def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
+    action = yaml.safe_load(
+        (ROOT / ".github/actions/folded-wheel/action.yml").read_text()
+    )
+    steps = action["runs"]["steps"]
+    target = tmp_path / "target/epistemic-graph-release"
+    env_file = tmp_path / "github-env"
+    env_file.touch()
+    environment = {
+        **os.environ,
+        "GITHUB_WORKSPACE": str(tmp_path),
+        "GITHUB_ENV": str(env_file),
+    }
+    # Execute the actual selector twice: a primary artifact must not survive
+    # the reproduction pass, while the directory/path stays consistent.
+    for _ in range(2):
+        target.mkdir(parents=True, exist_ok=True)
+        marker = target / "previous-pass-artifact"
+        marker.write_text("must not be reused")
+        subprocess.run(
+            ["bash", "-eu", "-c", steps[0]["run"]], env=environment, check=True
+        )
+        assert target.is_dir() and not marker.exists()
+    assert env_file.read_text().splitlines() == [f"CARGO_TARGET_DIR={target}"] * 2
+    builds = [
+        step
+        for step in steps
+        if step.get("uses", "").startswith("PyO3/maturin-action@")
+    ]
+    assert len(builds) == 3
+    for step in builds:
+        assert step["with"]["docker-options"] == (
+            '--volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"'
+        )

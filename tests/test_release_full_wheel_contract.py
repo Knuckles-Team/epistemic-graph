@@ -209,7 +209,9 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     for output in ("dist", "numdist", "enginedist"):
         assert f"--out {output}-${{{{ inputs.pass }}}}" in wheel_pass
     assert wheel_pass.count("sccache: 'false'") == 3
-    assert "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" in wheel_pass
+    assert (
+        "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target/epistemic-graph-release"
+    ) in wheel_pass
     for script in (
         "scripts/inject_numeric_kernel.py",
         "scripts/inject_pyengine.py",

@@ -20,6 +20,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+      - name: Create the shared intra-pass target
+        run: |
+          target="$GITHUB_WORKSPACE/target/epistemic-graph-release"
+          mkdir -p "$target"
+          echo "CARGO_TARGET_DIR=$target" >> "$GITHUB_ENV"
       - name: Preserve the release path-remap environment
         run: python3 scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target aarch64-unknown-linux-gnu
       - name: Probe bundled LLD inside the original manylinux image
@@ -31,4 +36,11 @@ jobs:
           maturin-version: '1.15.0'
           before-script-linux: source scripts/probe_arm64_linker.sh
           args: --release --jobs 1 --bindings bin -m Cargo.toml --out /tmp/eg-arm64-link-probe-wheel
+          docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
           sccache: 'false'
+      - name: Verify compiled output survives in a fresh container
+        run: |
+          docker run --rm --network none --read-only \
+            --mount "type=bind,source=$CARGO_TARGET_DIR,target=$CARGO_TARGET_DIR,readonly" \
+            quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc \
+            sh -eu -c 'test -d "$1/aarch64-unknown-linux-gnu/release/.fingerprint"; "$1/aarch64-unknown-linux-gnu/release/eg-arm64-link-probe"' sh "$CARGO_TARGET_DIR"

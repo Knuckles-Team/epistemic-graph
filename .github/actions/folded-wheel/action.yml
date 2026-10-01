@@ -14,10 +14,15 @@ runs:
   using: composite
   steps:
     # All three builds of a pass share one target directory, so the kernels
-    # reuse the dependency crates the server wheel already compiled.
+    # reuse the dependency crates the server wheel already compiled. Start
+    # each pass clean so reproduction cannot reuse primary compiled objects.
     - name: Select the release target directory
       shell: bash
-      run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" >> "$GITHUB_ENV"
+      run: |
+        target="${GITHUB_WORKSPACE:?}/target/epistemic-graph-release"
+        rm -rf -- "$target"
+        mkdir -p "$target"
+        echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target/epistemic-graph-release" >> "$GITHUB_ENV"
 
     - name: Build server wheel
       uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
@@ -32,6 +37,9 @@ runs:
         # zig gives reproducible glibc-pinned linux cross-builds.
         manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
         before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
+        # Keep the target under the checkout so the action also repairs its
+        # ownership, and explicitly share it between disposable containers.
+        docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
         sccache: 'false'
 
     # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
@@ -53,6 +61,9 @@ runs:
           --features python
         manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
         before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
+        # Keep the target under the checkout so the action also repairs its
+        # ownership, and explicitly share it between disposable containers.
+        docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
         sccache: 'false'
 
     - name: Fold numeric kernel into the epistemic-graph wheel
@@ -78,6 +89,9 @@ runs:
           --features python,security
         manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
         before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
+        # Keep the target under the checkout so the action also repairs its
+        # ownership, and explicitly share it between disposable containers.
+        docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
         sccache: 'false'
 
     - name: Fold pyengine kernel into the epistemic-graph wheel
