@@ -40,6 +40,19 @@ bash scripts/check_no_pyo3.sh               # the no-PyO3 gate
 uvx pre-commit run --config .config/pre-commit.yaml --all-files
 ```
 
+Run the storage crate separately when testing the workspace:
+
+```bash
+cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
+```
+
+Its crash-stage tests spawn child processes that can briefly inherit another
+thread's read-only database lock before exec. Serial test scheduling isolates
+that process lifecycle while retaining every storage test and crash stage.
+Exclude `eg-storage` from a separate parallel `cargo test --workspace` invocation;
+CI uses these same two steps. Do not retry or accept lock errors in place of the
+asserted storage error.
+
 The complexity (cccc) and KISS gates have written, measured terms of acceptance
 in [`docs/quality-gate-terms.md`](docs/quality-gate-terms.md) — what they accept,
 why, and what the remaining backlog is. Read it before changing a threshold.
