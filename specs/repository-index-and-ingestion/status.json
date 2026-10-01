@@ -32,7 +32,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "admit_sql_source_dirty_reconcile exists and is heavily tested for crash/reopen and tombstone-after-snapshot reconciliation, but no 'retire a topic' operation exists anywhere, and no test retires a topic with pending stranded intents and confirms reconcile-mode re-admission as the requirement specifi"
+      "remaining": "admit_sql_source_dirty_reconcile exists and is heavily tested for crash/reopen and tombstone-after-snapshot reconciliation, but no 'retire a topic' operation exists anywhere, and no test retires a topic with pending stranded intents and confirms reconcile-mode re-admission as the requirement …"
     },
     {
       "id": "EG-REPO-INGEST-R002",
@@ -47,7 +47,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "SourceIngest exists on main as a real method wired through dispatch/access/mutation/audit, but none of the 14 named legacy capabilities (envelope_ingest, change_envelope, evidence_spine, semantic_event_model, object_centric_derivation, process_conformance, embedding_admission, gpu_slot_scheduler, pr"
+      "remaining": "SourceIngest exists on main as a real method wired through dispatch/access/mutation/audit, but none of the 14 named legacy capabilities (envelope_ingest, change_envelope, evidence_spine, semantic_event_model, object_centric_derivation, process_conformance, embedding_admission, gpu_slot_scheduler …"
     },
     {
       "id": "EG-REPO-INGEST-R003",
@@ -96,7 +96,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "Native admission/budget/deferred-enrichment pipeline and a background drain worker exist on main, but no bounded on-demand enrichment path for a unit a query needs, and no end-to-end commit-latency benchmark against real public repositories was found; private tracking confirms served/enrichment and "
+      "remaining": "Native admission/budget/deferred-enrichment pipeline and a background drain worker exist on main, but no bounded on-demand enrichment path for a unit a query needs, and no end-to-end commit-latency benchmark against real public repositories was found; private tracking confirms served/enrichment and …"
     },
     {
       "id": "EG-REPO-INGEST-R007",

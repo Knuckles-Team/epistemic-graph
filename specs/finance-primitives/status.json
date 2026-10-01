@@ -53,7 +53,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still "
+      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -156,7 +156,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in crates/eg-types/s"
+      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",

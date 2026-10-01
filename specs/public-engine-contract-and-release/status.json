@@ -137,7 +137,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "Main dropped the pinned-binaryen wasm-opt reduction in favor of a Rust-only build; committed module is 9,483,622 B (vs prior ~6.2MB optimized target) and no declared size-budget assertion exists anywhere in the script or its tests. Determinism (byte-identical client copies) is proven; size budget is"
+      "remaining": "Main dropped the pinned-binaryen wasm-opt reduction in favor of a Rust-only build; committed module is 9,483,622 B (vs prior ~6.2MB optimized target) and no declared size-budget assertion exists anywhere in the script or its tests. Determinism (byte-identical client copies) is proven; size budget …"
     },
     {
       "id": "EG-CONTRACT-R007",
@@ -186,7 +186,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "Residual scoring (cyclomatic minus trivial arm count) already exists on main and a 'trivial new arm passes' test exists, but the specific 'newly added arm with nested branching still fails' gate fixture is only on unmerged origin/feat/gate-tools (5305979f75c); main's closest test grows an existing a"
+      "remaining": "Residual scoring (cyclomatic minus trivial arm count) already exists on main and a 'trivial new arm passes' test exists, but the specific 'newly added arm with nested branching still fails' gate fixture is only on unmerged origin/feat/gate-tools (5305979f75c); main's closest test grows an existing …"
     },
     {
       "id": "EG-CONTRACT-R011",

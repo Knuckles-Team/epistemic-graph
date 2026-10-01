@@ -74,7 +74,7 @@
       "title": "Semantic workers use one identity across queue classes",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME "
+      "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME …"
     }
   ]
 }

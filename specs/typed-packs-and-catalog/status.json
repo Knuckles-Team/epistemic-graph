@@ -415,7 +415,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "Overlap, uncovered-byte gaps and checked-arithmetic offset overflow are planted and tested with MALFORMED_SECTIONS; no planted case exercises a compressed archive specifically -- PackArchiveRef/PackSection carry no compression flag, so uncompressed storage is a structural property of the format rath"
+      "remaining": "Overlap, uncovered-byte gaps and checked-arithmetic offset overflow are planted and tested with MALFORMED_SECTIONS; no planted case exercises a compressed archive specifically -- PackArchiveRef/PackSection carry no compression flag, so uncompressed storage is a structural property of the format …"
     },
     {
       "id": "EG-TYPED-PACKS-R026",

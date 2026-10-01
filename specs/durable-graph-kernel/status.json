@@ -144,7 +144,7 @@
       "title": "Engine startup does not block on one store's lazy open",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated functiona"
+      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated …"
     },
     {
       "id": "EG-DURABLE-KERNEL-R007",
@@ -376,7 +376,7 @@
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ],
-      "remaining": "A generic ForeignSourceSpec federation mechanism exists (RemoteEngine/HttpJson/Sql kinds), but none of the specifically named legacy backends (fanout, PostgreSQL/AGE, Neo4j/Cypher transpiler, FalkorDB, mirror target, brain_guarded, Trino, Spark) have been migrated in; that work is actively in-progre"
+      "remaining": "A generic ForeignSourceSpec federation mechanism exists (RemoteEngine/HttpJson/Sql kinds), but none of the specifically named legacy backends (fanout, PostgreSQL/AGE, Neo4j/Cypher transpiler, FalkorDB, mirror target, brain_guarded, Trino, Spark) have been migrated in; that work is actively …"
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",
@@ -665,7 +665,7 @@
       "title": "Outbox delivery is organized by semantic class topics",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "The outbox architecture fully supports per-topic subscription/indexing (topic is a first-class subscribe/claim parameter), and head-only attempt accounting is tested, but no test on main exercises two distinct message-class topics simultaneously to confirm topic separation leaves attempt accounting/"
+      "remaining": "The outbox architecture fully supports per-topic subscription/indexing (topic is a first-class subscribe/claim parameter), and head-only attempt accounting is tested, but no test on main exercises two distinct message-class topics simultaneously to confirm topic separation leaves attempt …"
     },
     {
       "id": "EG-DURABLE-KERNEL-R053",

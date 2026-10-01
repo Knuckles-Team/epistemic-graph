@@ -1393,7 +1393,7 @@
       "title": "AgentGraph templates carry topology facts for standard shapes",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "Only the fan-out/join shape is represented and SHACL-tested in this repo; the other five standard shapes (single, pipeline, supervisor-to-workers, critique-loop, council) are not defined or tested here. Per private notes the reference-template catalog lives in agent-utilities (decide/topology/templa"
+      "remaining": "Only the fan-out/join shape is represented and SHACL-tested in this repo; the other five standard shapes (single, pipeline, supervisor-to-workers, critique-loop, council) are not defined or tested here. Per private notes the reference-template catalog lives in agent-utilities …"
     },
     {
       "id": "EG-DECISION-ENGINE-R107",
@@ -1468,7 +1468,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "Topology inputs are computed inside graph.assemble()'s AssemblyRequest.requirements.topology path, not exposed as a separate standalone typed Decide question; no dispatch-level 'Topology' Decide method found. AU-side consumer convergence (topology.py asking the question directly, deleting the old he"
+      "remaining": "Topology inputs are computed inside graph.assemble()'s AssemblyRequest.requirements.topology path, not exposed as a separate standalone typed Decide question; no dispatch-level 'Topology' Decide method found. AU-side consumer convergence (topology.py asking the question directly, deleting the old …"
     },
     {
       "id": "EG-DECISION-ENGINE-R112",
@@ -1490,7 +1490,7 @@
       "title": "EG commits capacity acquisition atomically with synthesis evidence",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "EG supplies the capacity-headroom premise and an AcquireCapacity/ReleaseCapacity primitive, but the evaluate-→commit-→publish-with-synthesis_evidence orchestration, the all-or-nothing acquisition sequencing, and the 'exactly one further re-decide on denial' rule are implemented in graph-os (graph_os"
+      "remaining": "EG supplies the capacity-headroom premise and an AcquireCapacity/ReleaseCapacity primitive, but the evaluate-→commit-→publish-with-synthesis_evidence orchestration, the all-or-nothing acquisition sequencing, and the 'exactly one further re-decide on denial' rule are implemented in graph-os …"
     },
     {
       "id": "EG-DECISION-ENGINE-R114",
@@ -1505,7 +1505,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "EG attaches typed SubagentFallback/allowance facts to the committed topology plan and this is tested. Whether the caller's subagent-allowance negotiation (AU repo: agent_utilities/layers/{contracts,negotiation}.py) actually reads this field, rather than computing its own estimate, cannot be verified"
+      "remaining": "EG attaches typed SubagentFallback/allowance facts to the committed topology plan and this is tested. Whether the caller's subagent-allowance negotiation (AU repo: agent_utilities/layers/{contracts,negotiation}.py) actually reads this field, rather than computing its own estimate, cannot be …"
     },
     {
       "id": "EG-DECISION-ENGINE-R115",
@@ -1520,7 +1520,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "EG defines the StopRule fact type on TopologyFacts, but its own doc comment states 'Evaluating it is execution, not decision' -- i.e. the evaluate-only/narrow-only continuation decision point and the automatic ReleaseCapacity-on-narrow behavior are implemented in AU (au.swarm.continue, decide/consum"
+      "remaining": "EG defines the StopRule fact type on TopologyFacts, but its own doc comment states 'Evaluating it is execution, not decision' -- i.e. the evaluate-only/narrow-only continuation decision point and the automatic ReleaseCapacity-on-narrow behavior are implemented in AU (au.swarm.continue …"
     },
     {
       "id": "EG-DECISION-ENGINE-R116",
@@ -1549,7 +1549,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "All named SeriesFunc kernels (Lag/Diff/Ret/Logret/Rmean/Rstd/Rsum/Rmin/Rmax/Rrank/Rcorr/Zscore/Ewma/Wsum) and a FeatureSkill report (rolling IC, icir, n_eff, bootstrap CI) are on main with unit tests, but PromQL-function parity, a Python-reference-golden comparison, and the Rust/served/combined-tip "
+      "remaining": "All named SeriesFunc kernels (Lag/Diff/Ret/Logret/Rmean/Rstd/Rsum/Rmin/Rmax/Rrank/Rcorr/Zscore/Ewma/Wsum) and a FeatureSkill report (rolling IC, icir, n_eff, bootstrap CI) are on main with unit tests, but PromQL-function parity, a Python-reference-golden comparison, and the Rust/served/combined-tip …"
     },
     {
       "id": "EG-DECISION-ENGINE-R118",
@@ -1564,7 +1564,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "BayesFuse evidence fusion has not been moved to a domain-neutral eg-epistemic module (still only lives under finance/signal_models.rs in eg-types/eg-compute/src/server); immutable admission-backed source binding for the ranking subject is tracked as still open on the unmerged branch per status notes"
+      "remaining": "BayesFuse evidence fusion has not been moved to a domain-neutral eg-epistemic module (still only lives under finance/signal_models.rs in eg-types/eg-compute/src/server); immutable admission-backed source binding for the ranking subject is tracked as still open on the unmerged branch per status …"
     },
     {
       "id": "EG-DECISION-ENGINE-R119",

@@ -126,7 +126,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "rebuild_after_skipped/reject_invalid implement the full-rebuild-on-skipped-event path (recovery.rs, citing X10/PX10b item 7) and a unit test proves a rebuilt index is exempt from the watermark check, but no integration test that injects a dead-lettered/invalid wake-up and confirms the rebuild comple"
+      "remaining": "rebuild_after_skipped/reject_invalid implement the full-rebuild-on-skipped-event path (recovery.rs, citing X10/PX10b item 7) and a unit test proves a rebuilt index is exempt from the watermark check, but no integration test that injects a dead-lettered/invalid wake-up and confirms the rebuild …"
     },
     {
       "id": "EG-FEDERATED-QUERY-R005",
@@ -569,7 +569,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "The reopen fix (diff-only commits instead of one commit per node) and the pre-existing PARTIAL_MATERIALIZATION/MaterializationPhase readiness signal (src/server/dispatch/graph_pipeline/graph_access.rs) are both present, but no restart-scale integration test (750/1,500/3,000 docs) measuring bounded r"
+      "remaining": "The reopen fix (diff-only commits instead of one commit per node) and the pre-existing PARTIAL_MATERIALIZATION/MaterializationPhase readiness signal (src/server/dispatch/graph_pipeline/graph_access.rs) are both present, but no restart-scale integration test (750/1,500/3,000 docs) measuring bounded …"
     },
     {
       "id": "EG-FEDERATED-QUERY-R037",
@@ -945,7 +945,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "DFS compile order (uql/tests/program.rs::let_from_join_builds_a_dag_in_first_reference_order), FUSE inlining, and re-parseable DAG printing are on main and tested. But serving EXPLAIN/PROFILE for a DAG is NOT typed-refused: crates/eg-plan/src/uql/serve/dag.rs implements real per-node EXPLAIN/PROFILE"
+      "remaining": "DFS compile order (uql/tests/program.rs::let_from_join_builds_a_dag_in_first_reference_order), FUSE inlining, and re-parseable DAG printing are on main and tested. But serving EXPLAIN/PROFILE for a DAG is NOT typed-refused: crates/eg-plan/src/uql/serve/dag.rs implements real per-node …"
     },
     {
       "id": "EG-FEDERATED-QUERY-R066",
