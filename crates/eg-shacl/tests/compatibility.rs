@@ -26,7 +26,9 @@ fn shapes_graph_well_formed_is_report_metadata() {
 #[test]
 fn indexed_class_checks_do_not_charge_the_whole_data_graph() {
     let shapes = format!("{PREFIX} ex:S sh:targetClass ex:A ; sh:class ex:A .");
-    let data = class_instances(4000);
+    let data = (0..4000)
+        .map(|i| format!("<urn:ex:n{i}> a <urn:ex:A> .\n"))
+        .collect::<String>();
     assert!(validate_turtle(&shapes, &data).unwrap().conforms);
     assert!(validate_icv_turtle(&shapes, &data).unwrap().conforms);
 }
@@ -89,7 +91,9 @@ fn unrelated_metadata_does_not_multiply_indexed_shape_parse_cost() {
     for i in 0..4000 {
         shapes.push_str(&format!("ex:metadata{i} ex:label \"metadata\" .\n"));
     }
-    let data = class_instances(4000);
+    let data = (0..4000)
+        .map(|i| format!("<urn:ex:n{i}> a <urn:ex:A> .\n"))
+        .collect::<String>();
     assert!(validate_turtle(&shapes, &data).unwrap().conforms);
     assert!(validate_icv_turtle(&shapes, &data).unwrap().conforms);
 }
@@ -128,10 +132,4 @@ fn icv_does_not_label_a_repeated_parameter_failure_with_the_first_parameter() {
     assert!(!report.conforms);
     assert_eq!(report.violations.len(), 1);
     assert!(!report.violations[0].witness.contains("?value a <urn:ex:A>"));
-}
-
-fn class_instances(count: usize) -> String {
-    (0..count)
-        .map(|i| format!("<urn:ex:n{i}> a <urn:ex:A> .\n"))
-        .collect()
 }
