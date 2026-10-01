@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Small native-container probes, not a substitute for the complete wheel gate.
 set -euo pipefail
-source scripts/configure_arm64_linker.sh aarch64-unknown-linux-gnu
+# The shared release-maturin action has already configured the linker.
 probe_dir="$(mktemp -d /tmp/eg-arm64-link-probe.XXXXXX)"
 trap 'rm -rf "$probe_dir"' EXIT
 IFS=$'\x1f' read -r -a flags <<< "$CARGO_ENCODED_RUSTFLAGS"

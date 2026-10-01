@@ -115,7 +115,7 @@ def test_all_three_maturin_containers_select_linker_after_setup():
         shared["uses"] == "PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b"
     )
     assert (
-        shared["with"]["before-script-linux"]
+        shared["with"]["before-script-linux"].splitlines()[0]
         == "source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'"
     )
 
@@ -131,12 +131,15 @@ def test_probe_is_bounded_hosted_and_nonpublishing():
     step = next(
         step
         for step in job["steps"]
-        if step.get("uses", "").startswith("PyO3/maturin-action@")
+        if step.get("uses", "") == "./.github/actions/release-maturin"
     )
     assert step["with"]["container"].endswith(
         "@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc"
     )
     assert step["with"]["maturin-version"] == "1.15.0"
+    assert step["with"]["prepare-script"] == "scripts/probe_arm64_linker.sh"
+    assert job["env"]["EG_WHEEL_TARGET"] == "aarch64-unknown-linux-gnu"
+    assert job["env"]["EG_WHEEL_MANYLINUX"] == "2_28"
     assert all("upload" not in step.get("uses", "") for step in job["steps"])
 
 
@@ -214,3 +217,26 @@ def test_only_linux_arm_uses_exact_probed_environment(tmp_path, target):
                 step["with"]["maturin-version"]
                 == "${{ steps.build-environment.outputs.maturin-version }}"
             )
+
+
+def test_preparation_is_optional_and_cannot_replace_linker_preflight():
+    action = yaml.safe_load(
+        (ROOT / ".github/actions/release-maturin/action.yml").read_text()
+    )
+    assert action["inputs"]["prepare-script"]["default"] == ""
+    step = action["runs"]["steps"][0]
+    assert step["env"]["CARGO_EG_PREPARE_SCRIPT"] == "${{ inputs.prepare-script }}"
+    hook = step["with"]["before-script-linux"]
+    assert hook.index("configure_arm64_linker.sh") < hook.index(
+        'source "$CARGO_EG_PREPARE_SCRIPT"'
+    )
+    release = yaml.safe_load(
+        (ROOT / ".github/actions/folded-wheel/action.yml").read_text()
+    )
+    builds = [
+        step
+        for step in release["runs"]["steps"]
+        if step.get("uses") == "./.github/actions/release-maturin"
+    ]
+    assert len(builds) == 3
+    assert all("prepare-script" not in step["with"] for step in builds)

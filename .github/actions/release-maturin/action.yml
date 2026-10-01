@@ -10,17 +10,27 @@ inputs:
   maturin-version:
     description: Verified Maturin override; empty retains the existing selection.
     required: false
+  prepare-script:
+    description: Optional repository script sourced after mandatory linker setup.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
     - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+      env:
+        CARGO_EG_PREPARE_SCRIPT: ${{ inputs.prepare-script }}
       with:
         target: ${{ env.EG_WHEEL_TARGET }}
         args: ${{ inputs.args }}
         manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
         container: ${{ inputs.container }}
         maturin-version: ${{ inputs.maturin-version }}
-        before-script-linux: source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
+        before-script-linux: |
+          source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
+          if [ -n "${CARGO_EG_PREPARE_SCRIPT:-}" ]; then
+            source "$CARGO_EG_PREPARE_SCRIPT"
+          fi
         # This path is accepted by the deployed ownership adapter. Share only
         # build output; never mount other temporary or credential directories.
         docker-options: --volume "${{ env.CARGO_TARGET_DIR }}:${{ env.CARGO_TARGET_DIR }}"
