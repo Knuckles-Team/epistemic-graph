@@ -1,11 +1,12 @@
 name: Native macOS release probe
 'on':
-  push:
-    branches: [codex/macos-release-fixes]
+  pull_request:
     paths:
       - '.github/workflows/macos-release-probe.yml'
       - 'scripts/configure_macos_linker.sh'
       - 'scripts/probe_macos_release.py'
+      - '.github/actions/folded-wheel/action.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch: {}
 permissions:
   contents: read

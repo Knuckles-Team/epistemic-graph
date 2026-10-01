@@ -304,5 +304,14 @@ def test_runner_jobs_keep_build_budget_and_bounded_authorization() -> None:
                 # This compiles tiny fixtures, never the full release workspace.
                 assert job["runs-on"] == "ubuntu-24.04-arm"
                 assert job.get("timeout-minutes") == 10
+            elif (workflow.name, name) == ("macos-release-probe.yml", "probe"):
+                assert job["runs-on"] == "${{ matrix.runner }}"
+                assert job.get("timeout-minutes") == 15
+                assert {
+                    row["runner"] for row in job["strategy"]["matrix"]["include"]
+                } == {
+                    "macos-14",
+                    "macos-15-intel",
+                }
             else:
                 assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"

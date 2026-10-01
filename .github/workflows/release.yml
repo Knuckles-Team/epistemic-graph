@@ -1074,6 +1074,24 @@ jobs:
         shell: bash
         run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "${{ matrix.target }}"
 
+      - name: Select the verified native Mach-O linker
+        if: ${{ endsWith(matrix.target, '-apple-darwin') }}
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.rust-toolchain.outputs.channel }}
+        run: |
+          case "$EG_WHEEL_TARGET" in
+            aarch64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=11.0 ;;
+            x86_64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=10.12 ;;
+          esac
+          source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
+          python - <<'PYENV'
+          import os
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              for key in ("SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "RUSTUP_TOOLCHAIN", "CARGO_ENCODED_RUSTFLAGS"):
+                  output.write(f"{key}={os.environ[key]}\n")
+          PYENV
+
       # Each pass builds the server wheel plus the eg-numeric and eg-pyengine
       # kernels, folds them in, then normalizes, privacy-audits and checks the
       # result (.github/actions/folded-wheel). Tag releases publish the primary
