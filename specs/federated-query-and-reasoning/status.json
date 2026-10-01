@@ -747,28 +747,28 @@
     {
       "id": "EG-FEDERATED-QUERY-R051",
       "title": "Iceberg scans prune manifests using the final pushed predicates",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "745a058b069581fd42d05b0ab1a8626ef697764a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/745a058b069581fd42d05b0ab1a8626ef697764a",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "b5c387e25505738c9d2185b2f8f14a1e2e01d6f3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b5c387e25505738c9d2185b2f8f14a1e2e01d6f3",
+          "description": "Implemented on the default branch."
         }
       ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R052",
       "title": "RemoteEngine sources receive pushed key filters and bounded LIMIT",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "736682904bd6599544c20926f148fdc67c796cfe",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/736682904bd6599544c20926f148fdc67c796cfe",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "70c5421663b9bed2570b3e143cf3470636353c5f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/70c5421663b9bed2570b3e143cf3470636353c5f",
+          "description": "Implemented on the default branch."
         }
       ]
     },
