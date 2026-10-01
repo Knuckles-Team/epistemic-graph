@@ -81,28 +81,6 @@ impl Inferred {
     }
 }
 
-/// The ONE `TableProviderFilterPushDown` classifier every custom `TableProvider` in
-/// this module (and `iceberg_federation`'s) shares: `Inexact` when `is_pushable`
-/// recognizes the filter, `Unsupported` otherwise. `Inexact`, never `Exact` — every
-/// caller's own pushdown is a row-reduction optimization that DataFusion still
-/// re-verifies with an ordinary `Filter` above the scan, so correctness never
-/// depends on the pushdown path being exhaustive.
-pub(crate) fn classify_filters_pushdown(
-    filters: &[&Expr],
-    mut is_pushable: impl FnMut(&Expr) -> bool,
-) -> Vec<TableProviderFilterPushDown> {
-    filters
-        .iter()
-        .map(|f| {
-            if is_pushable(f) {
-                TableProviderFilterPushDown::Inexact
-            } else {
-                TableProviderFilterPushDown::Unsupported
-            }
-        })
-        .collect()
-}
-
 /// The fixed column names `infer_nodes` always emits (`id` at the front, `props` at
 /// the back) — reserved so a same-named node PROPERTY never produces a second Arrow
 /// `Field` with the same name (DataFusion rejects a schema with a duplicate

@@ -370,7 +370,6 @@ impl TableProvider for IcebergTableProvider {
         &self,
         filters: &[&Expr],
     ) -> DfResult<Vec<TableProviderFilterPushDown>> {
-        use super::providers::classify_filters_pushdown;
         Ok(classify_filters_pushdown(filters, |f| {
             iceberg_predicate_for(f, &self.schema).is_some()
         }))
@@ -451,6 +450,27 @@ impl TableProvider for IcebergTableProvider {
         let mem = MemTable::try_new(projected_schema, vec![batches])?;
         mem.scan(state, None, &[], read_limit).await
     }
+}
+
+/// The ONE `TableProviderFilterPushDown` classifier for this provider: `Inexact`
+/// when `is_pushable` recognizes the filter, `Unsupported` otherwise. `Inexact`,
+/// never `Exact` — the pushdown above is a row-reduction optimization that
+/// DataFusion still re-verifies with an ordinary `Filter` above the scan, so
+/// correctness never depends on the pushdown path being exhaustive.
+fn classify_filters_pushdown(
+    filters: &[&Expr],
+    mut is_pushable: impl FnMut(&Expr) -> bool,
+) -> Vec<TableProviderFilterPushDown> {
+    filters
+        .iter()
+        .map(|f| {
+            if is_pushable(f) {
+                TableProviderFilterPushDown::Inexact
+            } else {
+                TableProviderFilterPushDown::Unsupported
+            }
+        })
+        .collect()
 }
 
 /// Best-effort DataFusion `Expr` -> iceberg `Predicate` translation for the pushdown
