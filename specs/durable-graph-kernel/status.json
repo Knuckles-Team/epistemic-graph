@@ -662,9 +662,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R052",
       "title": "Outbox delivery is organized by semantic class topics",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "The outbox architecture fully supports per-topic subscription/indexing (topic is a first-class subscribe/claim parameter), and head-only attempt accounting is tested, but no test on main exercises two distinct message-class topics simultaneously to confirm topic separation leaves attempt …"
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9871859d4e0cc01f0a5a2f1f07584da056cf424e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/41#issuecomment-5939908410",
+          "description": "Merged by pull request 41; required CI run 36912559244 passed on the merged head (145 kernel tests, 1 doc test, 86 semantic tests). Scoped to this requirement's cross-topic and real-producer regression; not an acceptance audit of the whole specification."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R053",
