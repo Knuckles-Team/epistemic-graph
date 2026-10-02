@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,67 @@ def gate():
 
 def test_current_only_architecture_gate(gate) -> None:
     gate.main()
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new"),
+    [
+        (
+            "exec/dispatch.rs",
+            "Op::Foreign { name } => "
+            "crate::federation_opt::foreign_named(op, name, ctx),",
+            "Op::Foreign { name } => match ctx.foreign {\n"
+            "    Some(_) => crate::federation_opt::foreign_named(op, name, ctx),\n"
+            "    None => Ok(input),\n"
+            "},",
+        ),
+        (
+            "federation_opt/run.rs",
+            "return Ok(fuse_foreign(\n"
+            "            input,\n"
+            "            super::foreign_source_rows(source, ctx.foreign)?,\n"
+            "            join,\n"
+            "        ));",
+            "return match ctx.foreign {\n"
+            "    Some(registry) => Ok(fuse_foreign(\n"
+            "        input,\n"
+            "        super::foreign_source_rows(source, Some(registry))?, join,\n"
+            "    )),\n"
+            "    None => Ok(input),\n"
+            "};",
+        ),
+    ],
+    ids=["foreign-dispatch", "foreign-scan-missing-registry"],
+)
+def test_live_foreign_pass_through_is_rejected(
+    tmp_path: Path, monkeypatch, relative: str, old: str, new: str
+) -> None:
+    module = _gate_module()
+    plan = Path("crates/eg-plan/src")
+    shutil.copytree(ROOT / plan, tmp_path / plan)
+    read_tree = module.read_module_tree
+
+    def isolated_tree(path, *, root_dir):
+        # Keep main()'s real entry points and compiler traversal. Only the plan
+        # family reads private copies; no tracked Rust source is ever mutated.
+        root = tmp_path if Path(path).is_relative_to(plan) else root_dir
+        return read_tree(path, root_dir=root)
+
+    monkeypatch.setattr(module, "read_module_tree", isolated_tree)
+    child = tmp_path / plan / relative
+    original = child.read_text(encoding="utf-8")
+    assert original.count(old) == 1, "live FOREIGN mutation anchor drifted"
+    module.main()
+
+    child.write_text(original.replace(old, new, 1), encoding="utf-8")
+    module.tree.cache_clear()
+    with pytest.raises(SystemExit, match="FOREIGN retains an input pass-through"):
+        module.main()
+
+    child.write_text(original, encoding="utf-8")
+    module.tree.cache_clear()
+    module.main()
+    assert (ROOT / plan / relative).read_text(encoding="utf-8") == original
 
 
 _PROTOCOL = """\
