@@ -552,6 +552,9 @@ from .policy_evolution import (
 )
 from .rdf_report import (
     DatalogReasoningResult,
+    OntologyClassView,
+    OntologyInspection,
+    OntologyPropertyView,
     OwlExplainResult,
     OwlPropertyFact,
     OwlPropertyFactPremisesItem,
@@ -9735,6 +9738,13 @@ class MethodShaclValidate(BaseModel):
     params: MethodShaclValidateParams
 
 
+class MethodOntologyInspect(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["OntologyInspect"]
+    params: MethodOntologyInspectParams
+
+
 class MethodIcvConfigure(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10647,6 +10657,7 @@ Method = Annotated[
     | MethodOwlExplain
     | MethodRunRules
     | MethodShaclValidate
+    | MethodOntologyInspect
     | MethodIcvConfigure
     | MethodShexValidate
     | MethodCdcRead
@@ -12951,6 +12962,13 @@ class MethodObserveScreenParams(BaseModel):
     obs_msgpack: bytes
 
 
+class MethodOntologyInspectParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    documents: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+
 class MethodOutDegreeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13501,6 +13519,7 @@ class MethodShaclValidateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     data_graph: str | None = None
+    data_triples: list[RdfTriple] | None = None
     shapes: str | None = None
 
 
@@ -16304,6 +16323,36 @@ class RbacPolicyListing(BaseModel):
 
     grants: list[Grant]
     roles: list[Role]
+
+
+class RdfObjectIri(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    iri: str
+    kind: Literal["iri"]
+
+
+class RdfObjectLiteral(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    datatype: str | None = None
+    kind: Literal["literal"]
+    language: str | None = None
+    lexical: str
+
+
+RdfObject = Annotated[
+    RdfObjectIri | RdfObjectLiteral,
+    Field(discriminator="kind"),
+]
+
+
+class RdfTriple(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    object: RdfObject
+    predicate: str
+    subject: str
 
 
 class RebalanceExecution(BaseModel):
@@ -24595,6 +24644,8 @@ __all__ = [
     "MethodObserveDevelopmentLaneParams",
     "MethodObserveScreen",
     "MethodObserveScreenParams",
+    "MethodOntologyInspect",
+    "MethodOntologyInspectParams",
     "MethodOutDegree",
     "MethodOutDegreeParams",
     "MethodOwlExplain",
@@ -24955,9 +25006,12 @@ __all__ = [
     "ObjectiveTerm",
     "ObjectiveValue",
     "ObservationRef",
+    "OntologyClassView",
     "OntologyGapMiningResult",
     "OntologyGapRow",
+    "OntologyInspection",
     "OntologyMatch",
+    "OntologyPropertyView",
     "Op",
     "OpAsOf",
     "OpAsOfBody",
@@ -25310,6 +25364,10 @@ __all__ = [
     "RbacElevationOpRevoke",
     "RbacGrantRemoval",
     "RbacPolicyListing",
+    "RdfObject",
+    "RdfObjectIri",
+    "RdfObjectLiteral",
+    "RdfTriple",
     "RebalanceExecution",
     "RebalanceMove",
     "RebalancePlanReport",
