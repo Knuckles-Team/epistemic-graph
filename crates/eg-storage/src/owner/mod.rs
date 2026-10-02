@@ -29,4 +29,6 @@ pub(crate) use registry::{
 #[cfg(test)]
 mod blob_shared_tests;
 #[cfg(test)]
+pub(crate) mod lineage_fixtures;
+#[cfg(test)]
 mod tests;

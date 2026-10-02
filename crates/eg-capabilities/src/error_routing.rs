@@ -154,6 +154,17 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "Decide",
         &["DECISIONS", "UNSUPPORTED_COALITION", "CAPACITY_UNAVAILABLE"],
     ),
+    (
+        "AuditAppend",
+        &[
+            "AUDIT_CLASS_REQUIRED",
+            "AUDIT_CLASS_UNKNOWN",
+            "AUDIT_IDEMPOTENCY_CONFLICT",
+            "AUDIT_RESERVATION_MISMATCH",
+            "AUDIT_RESERVATION_REQUIRED",
+            "AUDIT_WRITER_UNAVAILABLE",
+        ],
+    ),
 ];
 
 fn add_engine_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {

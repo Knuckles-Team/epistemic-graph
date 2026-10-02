@@ -8,7 +8,10 @@
 use super::domain::{AgentLibraryOwner, GraphShardOwner};
 use super::identity::PhysicalStoreIdentity;
 use super::layout::{layout_digest_over, OwnerLayout};
-use super::lineage::{AGENT_LIBRARY_BEFORE_MCP_CATALOG, GRAPH_SHARD_BEFORE_ENRICHMENT};
+use super::lineage::{
+    AGENT_LIBRARY_BEFORE_MCP_CATALOG, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
+    GRAPH_SHARD_BEFORE_ENRICHMENT,
+};
 use super::persisted_layout::LayoutPredecessor;
 use super::registry::predecessor_evidence;
 use super::sql_checkpoint_upgrade::{
@@ -37,28 +40,54 @@ mod commit;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum UpgradeTarget {
     AgentLibrary,
-    GraphShard,
+    GraphShard(GraphShardSource),
+}
+
+/// The graph-shard generation an offline upgrade starts from. Every one ends
+/// at the current layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphShardSource {
+    /// Before the repository-enrichment tables.
+    BeforeEnrichment,
+    /// Lacking only the operation audit-append idempotency index.
+    BeforeAuditRequests,
+}
+
+impl GraphShardSource {
+    fn declared_generation(self) -> &'static LayoutPredecessor {
+        match self {
+            Self::BeforeEnrichment => &GRAPH_SHARD_BEFORE_ENRICHMENT,
+            Self::BeforeAuditRequests => &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
+        }
+    }
+
+    fn frozen_digest(self) -> [u8; 32] {
+        match self {
+            Self::BeforeEnrichment => super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
+            Self::BeforeAuditRequests => super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
+        }
+    }
 }
 
 impl UpgradeTarget {
     fn layout(self) -> OwnerLayout {
         match self {
             Self::AgentLibrary => OwnerLayout::AgentLibrary,
-            Self::GraphShard => OwnerLayout::GraphShard,
+            Self::GraphShard(_) => OwnerLayout::GraphShard,
         }
     }
 
     fn predecessor(self) -> &'static LayoutPredecessor {
         match self {
             Self::AgentLibrary => &AGENT_LIBRARY_BEFORE_MCP_CATALOG,
-            Self::GraphShard => &GRAPH_SHARD_BEFORE_ENRICHMENT,
+            Self::GraphShard(source) => source.declared_generation(),
         }
     }
 
     fn pinned(self) -> [u8; 32] {
         match self {
             Self::AgentLibrary => super::lineage::AGENT_LIBRARY_PRE_MCP_CATALOG_DIGEST,
-            Self::GraphShard => super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
+            Self::GraphShard(source) => source.frozen_digest(),
         }
     }
 }
@@ -97,18 +126,21 @@ pub fn inspect_agent_library_mcp_catalog_upgrade(
     )
 }
 
-pub fn inspect_graph_shard_enrichment_upgrade(
+/// Inspect a graph shard of the generation `source` names. A file of any
+/// other generation, the current one included, is refused.
+pub fn inspect_graph_shard_upgrade(
     path: &Path,
     expected_physical_identity: PhysicalStoreIdentity,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
     options: GraphShardInspectionOptions,
+    source: GraphShardSource,
 ) -> Result<ValidatedGraphShardUpgrade, String> {
     inspect_layout_upgrade(
         path,
         expected_physical_identity,
         private_integrity,
         options,
-        UpgradeTarget::GraphShard,
+        UpgradeTarget::GraphShard(source),
     )
 }
 
@@ -158,10 +190,17 @@ pub fn upgrade_agent_library_mcp_catalog(
     upgrade_layout(token, UpgradeTarget::AgentLibrary)
 }
 
-pub fn upgrade_graph_shard_enrichment(
+/// Bring an inspected graph shard to the current layout in one durable
+/// commit: every existing row is kept and each table its generation lacked is
+/// created empty. The token carries the generation it was inspected as.
+pub fn upgrade_graph_shard(
     token: ValidatedGraphShardUpgrade,
 ) -> Result<(StorageKernel, GraphShardUpgradeReport), String> {
-    upgrade_layout(token, UpgradeTarget::GraphShard)
+    let target = token.target;
+    if target.layout() != OwnerLayout::GraphShard {
+        return Err("owner layout upgrade token targets another store".into());
+    }
+    upgrade_layout(token, target)
 }
 
 fn upgrade_layout(
@@ -209,7 +248,7 @@ fn upgrade_layout(
             token.source.private_integrity,
             options,
         )?,
-        UpgradeTarget::GraphShard => StorageKernel::open_owner_with::<GraphShardOwner>(
+        UpgradeTarget::GraphShard(_) => StorageKernel::open_owner_with::<GraphShardOwner>(
             &token.source.path,
             current.physical_identity,
             token.source.private_integrity,

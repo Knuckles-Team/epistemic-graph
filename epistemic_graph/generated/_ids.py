@@ -380,6 +380,8 @@ METHOD_IDS = frozenset(
         "GraphSchemaClasses",
         "GetLedger",
         "AuditVerify",
+        "AuditAppend",
+        "AuditReadEvent",
         "AuditProveInclusion",
         "RegisterIdentity",
         "RbacAdmin",

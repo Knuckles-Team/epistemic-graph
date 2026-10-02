@@ -122,6 +122,15 @@ macro_rules! writer_command_arms {
             let _ = reply.send(crate::redb_store::verify_audit(shard, &graph));
             false
         }
+        #[cfg(feature = "security")]
+        Cmd::AuditAppend { graph, event, reply } => {
+            flush(pending);
+            let result = crate::redb_store::operation_audit_append(
+                shard, &mut pending.audit_tail, &graph, &event,
+            );
+            let _ = reply.send(result);
+            false
+        }
         #[cfg(all(test, feature = "security"))]
         Cmd::TestTamperAudit { graph, seq, reply } => {
             flush(pending);

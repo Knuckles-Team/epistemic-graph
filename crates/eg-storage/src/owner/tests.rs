@@ -78,10 +78,11 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // transaction) MINUS the eight `mutation_*` tables of the shard's retired
     // private ledger, which RF-RULING-004 gives to `MutationKernel` alone:
     // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53, plus EH-384's file-wide
-    // `storage_scrub_cursor` = 54, plus Train 4's four repository-enrichment
+    // `storage_scrub_cursor` = 54, plus the four repository-enrichment
     // tables (`repository_enrichment_budgets`, `_policy_revisions`,
-    // `_supersessions`, `_parks`) = 58.
-    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 58);
+    // `_supersessions`, `_parks`) = 58, plus the tenant-scoped operation
+    // audit-append idempotency index `audit_requests` = 59.
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 59);
     assert_eq!(owner_layouts().len(), 18);
 }
 
@@ -156,7 +157,9 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // 145 -> 149: four repository-enrichment authority rows in GraphShard.
     // 149 -> 151: the two served MCP catalog rows in AgentLibrary. All six
     // are DomainService, so SharedService remains the two CAS tables.
-    assert_eq!((names.len(), service, shared), (151, 149, 2));
+    // 151 -> 152: the tenant-scoped operation audit-append idempotency index
+    // `audit_requests` in GraphShard, also DomainService: service 150 = 149 + 1.
+    assert_eq!((names.len(), service, shared), (152, 150, 2));
 }
 
 #[test]
@@ -823,7 +826,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // 163 -> 167: the graph shard's four `repository_enrichment_*` tables.
     // 167 -> 169: the Agent Library's `mcp_catalog_configs` and
     // `mcp_catalog_scopes`, both durable mutation tables.
-    assert_eq!(names.len(), 169);
+    // 169 -> 170: the graph shard's tenant-scoped operation audit-append
+    // idempotency index `audit_requests`, also a durable mutation table.
+    assert_eq!(names.len(), 170);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

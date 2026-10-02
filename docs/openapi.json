@@ -20620,6 +20620,82 @@
           },
           {
             "additionalProperties": false,
+            "description": "Append one privacy-safe operation audit event to the tenant's durable\nhash chain: a reservation (`status = \"reserved\"`) before a governed\neffect, then the terminal outcome linked to it. The verified carrier\nsupplies tenant and principal; no raw params, result body, or\ncaller-supplied identity is accepted.\n\n`audit_class` is the class the operation declares (`event` or\n`identity_chain`). It may be absent on the wire only so that the engine,\nnot the decoder, refuses it: an absent, empty or `none` class is refused\nwith `AUDIT_CLASS_REQUIRED`, any other undefined class with\n`AUDIT_CLASS_UNKNOWN`, and neither writes anything.",
+            "properties": {
+              "method": {
+                "const": "AuditAppend",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_class": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "op": {
+                    "type": "string"
+                  },
+                  "params_sha256": {
+                    "type": "string"
+                  },
+                  "request_id": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "surface": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "op",
+                  "surface",
+                  "params_sha256",
+                  "status",
+                  "request_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read one operation-audit event and verify the graph's current chain.\nGated independently from append by `security:audit`.",
+            "properties": {
+              "method": {
+                "const": "AuditReadEvent",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "seq": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "seq"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "Produce + server-side-verify a Merkle inclusion proof for one node against\na prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) \u2014 the\nextension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence\nreach the ANCHORED NODES' CONTENT, not just the ordering of mutations. A\nperiodic engine job Merkle-hashes the target graph's `:ToolCall`/\n`:RunTrace` provenance-node window and folds the root into this SAME\nhash chain as one more entry (`audit::provenance_anchor_line`); this\nmethod re-hashes `node_id`'s CURRENT durable content and walks the\nanchor-time sibling path up to that chain-protected root \u2014 a mismatch\n(`MerkleInclusionReport.verified == false`) proves the node's durable\nbytes changed after anchoring, whether by raw tampering or an ordinary\nlater overwrite. `anchor_seq` selects a specific anchor by its\naudit-chain seq; `None` uses the target graph's most recent anchor.\nErrors when the graph has no anchor yet or `anchor_seq` names an entry\nthat is not one; `included == false` (not an error) means `node_id`\nsimply was not part of that anchor's window. Returns\n`Raw(MerkleInclusionReport)`.",
             "properties": {
               "method": {
@@ -49574,6 +49650,53 @@
         ],
         "type": "object"
       },
+      "Req_AuditAppend": {
+        "additionalProperties": false,
+        "description": "Append one privacy-safe operation audit event to the tenant's durable\nhash chain: a reservation (`status = \"reserved\"`) before a governed\neffect, then the terminal outcome linked to it. The verified carrier\nsupplies tenant and principal; no raw params, result body, or\ncaller-supplied identity is accepted.\n\n`audit_class` is the class the operation declares (`event` or\n`identity_chain`). It may be absent on the wire only so that the engine,\nnot the decoder, refuses it: an absent, empty or `none` class is refused\nwith `AUDIT_CLASS_REQUIRED`, any other undefined class with\n`AUDIT_CLASS_UNKNOWN`, and neither writes anything.",
+        "properties": {
+          "method": {
+            "const": "AuditAppend",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "audit_class": {
+                "default": "",
+                "type": "string"
+              },
+              "op": {
+                "type": "string"
+              },
+              "params_sha256": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "surface": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "op",
+              "surface",
+              "params_sha256",
+              "status",
+              "request_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
       "Req_AuditProveInclusion": {
         "additionalProperties": false,
         "description": "Produce + server-side-verify a Merkle inclusion proof for one node against\na prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) \u2014 the\nextension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence\nreach the ANCHORED NODES' CONTENT, not just the ordering of mutations. A\nperiodic engine job Merkle-hashes the target graph's `:ToolCall`/\n`:RunTrace` provenance-node window and folds the root into this SAME\nhash chain as one more entry (`audit::provenance_anchor_line`); this\nmethod re-hashes `node_id`'s CURRENT durable content and walks the\nanchor-time sibling path up to that chain-protected root \u2014 a mismatch\n(`MerkleInclusionReport.verified == false`) proves the node's durable\nbytes changed after anchoring, whether by raw tampering or an ordinary\nlater overwrite. `anchor_seq` selects a specific anchor by its\naudit-chain seq; `None` uses the target graph's most recent anchor.\nErrors when the graph has no anchor yet or `anchor_seq` names an entry\nthat is not one; `included == false` (not an error) means `node_id`\nsimply was not part of that anchor's window. Returns\n`Raw(MerkleInclusionReport)`.",
@@ -49599,6 +49722,35 @@
             },
             "required": [
               "node_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_AuditReadEvent": {
+        "additionalProperties": false,
+        "description": "Read one operation-audit event and verify the graph's current chain.\nGated independently from append by `security:audit`.",
+        "properties": {
+          "method": {
+            "const": "AuditReadEvent",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "seq": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "seq"
             ],
             "type": "object"
           }
@@ -114254,6 +114406,82 @@
           },
           {
             "additionalProperties": false,
+            "description": "Append one privacy-safe operation audit event to the tenant's durable\nhash chain: a reservation (`status = \"reserved\"`) before a governed\neffect, then the terminal outcome linked to it. The verified carrier\nsupplies tenant and principal; no raw params, result body, or\ncaller-supplied identity is accepted.\n\n`audit_class` is the class the operation declares (`event` or\n`identity_chain`). It may be absent on the wire only so that the engine,\nnot the decoder, refuses it: an absent, empty or `none` class is refused\nwith `AUDIT_CLASS_REQUIRED`, any other undefined class with\n`AUDIT_CLASS_UNKNOWN`, and neither writes anything.",
+            "properties": {
+              "method": {
+                "const": "AuditAppend",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "audit_class": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "op": {
+                    "type": "string"
+                  },
+                  "params_sha256": {
+                    "type": "string"
+                  },
+                  "request_id": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "surface": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "op",
+                  "surface",
+                  "params_sha256",
+                  "status",
+                  "request_id"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Read one operation-audit event and verify the graph's current chain.\nGated independently from append by `security:audit`.",
+            "properties": {
+              "method": {
+                "const": "AuditReadEvent",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "seq": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "seq"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "Produce + server-side-verify a Merkle inclusion proof for one node against\na prior provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, feature `security`) \u2014 the\nextension that lets [`AuditVerify`](Method::AuditVerify)'s tamper-evidence\nreach the ANCHORED NODES' CONTENT, not just the ordering of mutations. A\nperiodic engine job Merkle-hashes the target graph's `:ToolCall`/\n`:RunTrace` provenance-node window and folds the root into this SAME\nhash chain as one more entry (`audit::provenance_anchor_line`); this\nmethod re-hashes `node_id`'s CURRENT durable content and walks the\nanchor-time sibling path up to that chain-protected root \u2014 a mismatch\n(`MerkleInclusionReport.verified == false`) proves the node's durable\nbytes changed after anchoring, whether by raw tampering or an ordinary\nlater overwrite. `anchor_seq` selects a specific anchor by its\naudit-chain seq; `None` uses the target graph's most recent anchor.\nErrors when the graph has no anchor yet or `anchor_seq` names an entry\nthat is not one; `included == false` (not an error) means `node_id`\nsimply was not part of that anchor's window. Returns\n`Raw(MerkleInclusionReport)`.",
             "properties": {
               "method": {
@@ -144599,6 +144827,86 @@
           }
         ]
       },
+      "ResDef_Security_AuditAppendReceipt": {
+        "description": "Commit-before-ack reference for one operation audit event. An idempotent\nretry returns the original sequence and hash.\n\n`reservation_seq` is the sequence of the reservation this event belongs\nto (its own, for a reservation). `outcome_seq` is the sequence of the\nterminal outcome linked to that reservation, and is absent while the\nreservation is still pending -- which is how a caller that was interrupted\nbetween reserving and recording the outcome finds, by replaying its\nreservation, that the outcome is still owed.",
+        "properties": {
+          "entry_sha256": {
+            "type": "string"
+          },
+          "graph": {
+            "type": "string"
+          },
+          "outcome_seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "reservation_seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "graph",
+          "seq",
+          "entry_sha256",
+          "replayed",
+          "reservation_seq"
+        ],
+        "type": "object"
+      },
+      "ResDef_Security_AuditEventProof": {
+        "description": "One operation event bound to a verified hash chain. `chain_verified` is\nfalse when any entry in the graph's chain fails verification.",
+        "properties": {
+          "chain_entries": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "chain_verified": {
+            "type": "boolean"
+          },
+          "entry_sha256": {
+            "type": "string"
+          },
+          "event_line": {
+            "type": "string"
+          },
+          "graph": {
+            "type": "string"
+          },
+          "previous_sha256": {
+            "type": "string"
+          },
+          "seq": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "graph",
+          "seq",
+          "entry_sha256",
+          "previous_sha256",
+          "event_line",
+          "chain_verified",
+          "chain_entries"
+        ],
+        "type": "object"
+      },
       "ResDef_Security_AuditReport": {
         "description": "Outcome of walking a graph's tamper-evident hash-chained audit log\n(CONCEPT:EG-KG.sharding.row-level-security, `Method::AuditVerify`). `ok` is true when every entry's stored\nhash matches the recomputed chain hash AND the sequence is contiguous from 0;\n`first_broken_seq` carries the position of the first detected break.",
         "properties": {
@@ -156319,8 +156627,16 @@
         "$ref": "#/components/schemas/ResDef_Reasoning_SparqlResult",
         "x-encoding": "Raw"
       },
+      "Res_security_AuditAppend": {
+        "$ref": "#/components/schemas/ResDef_Security_AuditAppendReceipt",
+        "x-encoding": "Raw"
+      },
       "Res_security_AuditProveInclusion": {
         "$ref": "#/components/schemas/ResDef_Security_MerkleInclusionReport",
+        "x-encoding": "Raw"
+      },
+      "Res_security_AuditReadEvent": {
+        "$ref": "#/components/schemas/ResDef_Security_AuditEventProof",
         "x-encoding": "Raw"
       },
       "Res_security_AuditVerify": {
@@ -157089,7 +157405,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 456 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 458 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -187852,6 +188168,93 @@
         "x-txn-participation": "Snapshot"
       }
     },
+    "/rpc/security/AuditAppend": {
+      "post": {
+        "operationId": "AuditAppend",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_AuditAppend"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_security_AuditAppend"
+                }
+              }
+            },
+            "description": "`AuditAppend` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "tenant-bound operation audit: a reservation and its linked outcome with request-id/op idempotency and no raw params; requires a declared audit class and a durable writer (AUDIT_CLASS_REQUIRED, AUDIT_CLASS_UNKNOWN, AUDIT_WRITER_UNAVAILABLE); writes its own audit-chain entry directly (see src/redb_store/operation_audit.rs::operation_audit_append), not through the generic per-mutation audit_line() dispatch, like EdgeIndex above",
+        "tags": [
+          "security"
+        ],
+        "x-audited": false,
+        "x-authz-action": "security:audit-write",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "ACCESS_DENIED",
+          "AUDIT_CLASS_REQUIRED",
+          "AUDIT_CLASS_UNKNOWN",
+          "AUDIT_IDEMPOTENCY_CONFLICT",
+          "AUDIT_RESERVATION_MISMATCH",
+          "AUDIT_RESERVATION_REQUIRED",
+          "AUDIT_WRITER_UNAVAILABLE",
+          "AUTHENTICATION_REQUIRED",
+          "AUTH_AUDIENCE_MISMATCH",
+          "AUTH_POLICY_VERSION_MISMATCH",
+          "AUTH_TENANT_MISMATCH",
+          "BUSY",
+          "CANCELLED",
+          "CAPACITY_DENIED",
+          "CONFLICT",
+          "CORRUPT_MUTATION_LEDGER",
+          "ENGINE_DEADLINE_EXCEEDED",
+          "ENGINE_INTERNAL_METHOD",
+          "ENGINE_RESOURCE_EXHAUSTED",
+          "ENGINE_UNAVAILABLE",
+          "IDEMPOTENCY_CONFLICT",
+          "INTERNAL",
+          "INVALID_ARGUMENT",
+          "METHOD_NOT_YET_SERVED",
+          "NODE_MISMATCH",
+          "OPERATION_REDIRECTED",
+          "POLICY_NATIVE_AUTHORITY_REQUIRED",
+          "READ_ONLY",
+          "REDIRECTED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
+          "TIMEOUT"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
+      }
+    },
     "/rpc/security/AuditProveInclusion": {
       "post": {
         "operationId": "AuditProveInclusion",
@@ -187888,6 +188291,82 @@
           }
         },
         "summary": "provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry",
+        "tags": [
+          "security"
+        ],
+        "x-audited": false,
+        "x-authz-action": "security:audit",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "None",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "ACCESS_DENIED",
+          "AUTHENTICATION_REQUIRED",
+          "AUTH_AUDIENCE_MISMATCH",
+          "AUTH_POLICY_VERSION_MISMATCH",
+          "AUTH_TENANT_MISMATCH",
+          "BUSY",
+          "CANCELLED",
+          "CAPACITY_DENIED",
+          "ENGINE_DEADLINE_EXCEEDED",
+          "ENGINE_INTERNAL_METHOD",
+          "ENGINE_RESOURCE_EXHAUSTED",
+          "ENGINE_UNAVAILABLE",
+          "INTERNAL",
+          "INVALID_ARGUMENT",
+          "METHOD_NOT_YET_SERVED",
+          "NODE_MISMATCH",
+          "OPERATION_REDIRECTED",
+          "POLICY_NATIVE_AUTHORITY_REQUIRED",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
+          "TIMEOUT"
+        ],
+        "x-idempotent": true,
+        "x-mutates": false,
+        "x-replay-class": "NotReplayable",
+        "x-stability": "stable",
+        "x-txn-participation": "Snapshot"
+      }
+    },
+    "/rpc/security/AuditReadEvent": {
+      "post": {
+        "operationId": "AuditReadEvent",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_AuditReadEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_security_AuditReadEvent"
+                }
+              }
+            },
+            "description": "`AuditReadEvent` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "read one privacy-safe operation event with a full-chain verification result",
         "tags": [
           "security"
         ],

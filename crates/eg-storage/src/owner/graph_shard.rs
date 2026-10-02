@@ -50,6 +50,8 @@ pub(crate) const SEMANTIC_STORE: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("semantic_store");
 pub(crate) const AUDIT_CHAIN: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("audit_chain");
+pub(crate) const AUDIT_REQUESTS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("audit_requests");
 pub(crate) const PROVENANCE_ANCHOR_MEMBERS: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("provenance_anchor_members");
 pub(crate) const GRAPH_META: TableDefinition<'static, &str, &[u8]> =
@@ -243,6 +245,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::REPOSITORY_ENRICHMENT_POLICY_REVISIONS);
         $visit!(shard::REPOSITORY_ENRICHMENT_SUPERSESSIONS);
         $visit!(shard::REPOSITORY_ENRICHMENT_PARKS);
+        $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITIES);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS);
         $visit!(shard::NATIVE_WORK_ITEM_AUTHORITY);
@@ -268,6 +271,12 @@ pub(crate) use visit_graph_shard_tables;
 /// The frozen pre-enrichment census is shared with lineage; current layouts
 /// insert only their new tables at the explicit enrichment slot. A change to
 /// any common name must update the pinned predecessor digest deliberately.
+///
+/// The slot holds EVERY table added since that frozen census, in the order the
+/// layouts added them -- the repository-enrichment tables, then the operation
+/// audit-append idempotency index. A later table is therefore named by the
+/// invocation of the layout that has it and never by this shared body, so a
+/// historical table set cannot pick it up.
 macro_rules! graph_shard_table_names {
     ($($enrichment:expr),* $(,)?) => { &[
     "nodes",
@@ -335,6 +344,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = graph_shard_table_names!(
     "repository_enrichment_policy_revisions",
     "repository_enrichment_supersessions",
     "repository_enrichment_parks",
+    "audit_requests",
 );
 
 /// The eight tables of the shard's retired private mutation ledger.
@@ -412,6 +422,7 @@ fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
         | "development_lane_repository_branch_index"
         | "development_lane_invocations" => Some("(&str,&str,&str)"),
         "nodes"
+        | "audit_requests"
         | "resource_reservations"
         | "resource_hosts"
         | "resource_exclusivity"
