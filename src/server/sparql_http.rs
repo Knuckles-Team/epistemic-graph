@@ -487,101 +487,21 @@ impl ServiceClient {
             Some(Self { allow })
         }
     }
-
-    /// SSRF guard: the endpoint's scheme must be http/https, its bare host must be in the
-    /// allowlist, and it must not resolve to a loopback/link-local/private/unspecified
-    /// address UNLESS that exact host string is itself an allowlisted IP literal (an
-    /// operator opt-in for an internal endpoint).
-    fn check_endpoint(&self, endpoint: &str) -> Result<(), String> {
-        let rest = endpoint
-            .strip_prefix("https://")
-            .or_else(|| endpoint.strip_prefix("http://"))
-            .ok_or_else(|| format!("endpoint must be http(s): '{endpoint}'"))?;
-        // Strip any path/query/fragment, then split an optional `:port`.
-        let authority = rest
-            .split(['/', '?', '#'])
-            .next()
-            .unwrap_or("")
-            .rsplit('@') // drop any userinfo
-            .next()
-            .unwrap_or("");
-        let (host, port): (&str, u16) = match authority.rsplit_once(':') {
-            // Guard against IPv6 literals `[::1]:80` — only treat the tail as a port if numeric.
-            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => {
-                (h, p.parse().unwrap_or(0))
-            }
-            _ => (
-                authority,
-                if endpoint.starts_with("https://") {
-                    443
-                } else {
-                    80
-                },
-            ),
-        };
-        let host = host.trim_start_matches('[').trim_end_matches(']');
-        if host.is_empty() {
-            return Err(format!("endpoint has no host: '{endpoint}'"));
-        }
-        let host_lc = host.to_ascii_lowercase();
-        let allowed = self.allow.iter().any(|a| {
-            *a == host_lc
-                || *a == format!("{host_lc}:{port}")
-                || *a == format!("http://{host_lc}")
-                || *a == format!("https://{host_lc}")
-                || *a == format!("http://{host_lc}:{port}")
-                || *a == format!("https://{host_lc}:{port}")
-        });
-        if !allowed {
-            return Err(format!("SSRF guard: host '{host}' not in allowlist"));
-        }
-        // Resolve + reject internal ranges (unless the host itself is an allowlisted IP).
-        use std::net::ToSocketAddrs;
-        let host_is_allowlisted_literal = host.parse::<std::net::IpAddr>().is_ok();
-        let addrs = (host, port)
-            .to_socket_addrs()
-            .map_err(|e| format!("SSRF guard: cannot resolve '{host}': {e}"))?;
-        for sa in addrs {
-            if is_blocked_ip(&sa.ip()) && !host_is_allowlisted_literal {
-                return Err(format!(
-                    "SSRF guard: host '{host}' resolves to internal address {}",
-                    sa.ip()
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-
-/// An internal (SSRF-sensitive) IP: loopback, unspecified, link-local, or RFC-1918 /
-/// unique-local private space.
-#[cfg(feature = "sparql-service")]
-fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_unspecified()
-                || v4.is_private()
-                || v4.is_link_local()
-                || v4.octets()[0] == 0
-        }
-        std::net::IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                // link-local fe80::/10
-                || (v6.segments()[0] & 0xffc0) == 0xfe80
-                // unique-local fc00::/7
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
-        }
-    }
 }
 
 #[cfg(feature = "sparql-service")]
 impl eg_rdf::sparql::RemoteSparql for ServiceClient {
     fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String> {
+        use eg_plan::federation_ssrf::{
+            pinned_agent_builder, validate_outbound_http_target, OutboundAllowPolicy,
+        };
         use std::io::Read;
-        self.check_endpoint(endpoint)?;
-        let agent = ureq::AgentBuilder::new()
+        let target = validate_outbound_http_target(
+            endpoint,
+            &self.allow,
+            OutboundAllowPolicy::ExplicitOnly,
+        )?;
+        let agent = pinned_agent_builder(&target)
             .timeout_connect(std::time::Duration::from_secs(Self::CONNECT_TIMEOUT_SECS))
             .timeout_read(std::time::Duration::from_secs(Self::READ_TIMEOUT_SECS))
             .build();
@@ -590,12 +510,12 @@ impl eg_rdf::sparql::RemoteSparql for ServiceClient {
             .set("Content-Type", "application/sparql-query")
             .set("Accept", "application/sparql-results+json")
             .send_string(query)
-            .map_err(|e| format!("POST {endpoint} failed: {e}"))?;
+            .map_err(|_| "SPARQL SERVICE request failed".to_string())?;
         let mut body = String::new();
         resp.into_reader()
             .take(Self::MAX_RESPONSE_BYTES)
             .read_to_string(&mut body)
-            .map_err(|e| format!("reading {endpoint} response: {e}"))?;
+            .map_err(|_| "SPARQL SERVICE response read failed".to_string())?;
         parse_results_json(&body)
     }
 }
@@ -1311,27 +1231,29 @@ mod tests {
         );
     }
 
-    /// The SSRF guard: allowlist required, internal-address resolutions refused, and an
-    /// explicitly-listed public host permitted.
     #[cfg(feature = "sparql-service")]
     #[test]
-    fn ssrf_guard_blocks_and_allows() {
-        // Empty / unset allowlist ⇒ no client (fail-closed).
-        std::env::remove_var(SERVICE_ALLOW_ENV);
-        assert!(ServiceClient::from_env().is_none());
-        // A non-http scheme and a non-allowlisted host are refused.
-        let c = ServiceClient {
-            allow: vec!["sparql.example.org".to_string()],
-        };
-        assert!(c.check_endpoint("ftp://sparql.example.org/x").is_err());
-        assert!(c.check_endpoint("http://evil.example.com/sparql").is_err());
-        // A loopback literal that is NOT allowlisted is refused.
-        assert!(c.check_endpoint("http://127.0.0.1:8080/sparql").is_err());
-        // Blocked-range classification.
-        assert!(is_blocked_ip(&"10.1.2.3".parse().unwrap()));
-        assert!(is_blocked_ip(&"192.168.0.1".parse().unwrap()));
-        assert!(is_blocked_ip(&"169.254.1.1".parse().unwrap()));
-        assert!(is_blocked_ip(&"::1".parse().unwrap()));
-        assert!(!is_blocked_ip(&"8.8.8.8".parse().unwrap()));
+    fn service_destination_uses_single_federation_gate() {
+        use eg_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
+        let allow = vec!["127.0.0.1".to_string()];
+        let accepted = validate_outbound_http_target(
+            "http://127.0.0.1:8080/sparql",
+            &allow,
+            OutboundAllowPolicy::ExplicitOnly,
+        );
+        assert!(accepted.is_ok());
+        for refused in [
+            "ftp://127.0.0.1/sparql",
+            "http://100.64.1.1/sparql",
+            "http://[2002::1]/sparql",
+            "http://[2001::1]/sparql",
+        ] {
+            assert!(validate_outbound_http_target(
+                refused,
+                &allow,
+                OutboundAllowPolicy::ExplicitOnly,
+            )
+            .is_err());
+        }
     }
 }
