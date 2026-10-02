@@ -15,6 +15,11 @@ if [[ "${1:-}" == --verify ]]; then
   shift
 fi
 root="${1:-$HOME/.local/share/eg-scanners}"
+# The fork probe changes cwd; keep tool paths absolute without creating ROOT.
+case "$root" in
+  /*) ;;
+  *) root="$(pwd -P)/$root" ;;
+esac
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 version_matches() {
@@ -28,7 +33,7 @@ crate_valid() {
   local name="$1" bin="$2" expected="$3"
   version_matches "$root/$name/bin/$bin" "$expected" || return 1
   if [[ "$name" == kiss ]]; then
-    python3 "$script_dir/kiss_fork.py" "$root/$name/bin/$bin" || return 1
+    python3 "$script_dir/kiss_fork.py" "$root/$name/bin/$bin" >&2 || return 1
   fi
 }
 

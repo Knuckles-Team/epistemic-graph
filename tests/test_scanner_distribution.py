@@ -412,10 +412,14 @@ def test_scanner_cache_rejects_wrong_version_and_upstream_kiss(tmp_path):
     assert _run_scanner_installer(tmp_path).returncode != 0
 
 
-def test_scanner_installer_repairs_partial_cache_and_propagates_failure(tmp_path):
+@pytest.mark.parametrize("relative", [False, True])
+def test_scanner_installer_repairs_partial_cache_and_propagates_failure(
+    tmp_path, monkeypatch, relative
+):
     import os
 
-    root = tmp_path / "cache"
+    monkeypatch.chdir(tmp_path)
+    root = Path("relative cache") if relative else tmp_path / "cache"
     _scanner_cache(root)
     missing = root / "cccc/bin/cccc"
     tools = tmp_path / "tools"
@@ -443,3 +447,40 @@ def test_scanner_installer_repairs_partial_cache_and_propagates_failure(tmp_path
     _fake_scanner(missing, "cccc 0.0.0")
     assert _run_scanner_installer(root, verify=False, env=env).returncode == 0
     assert _run_scanner_installer(root).returncode == 0
+
+
+def test_scanner_installer_stdout_contains_only_bootstrap_path_entries(tmp_path):
+    _scanner_cache(tmp_path)
+    result = _run_scanner_installer(tmp_path, verify=False)
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [
+        str(tmp_path / directory)
+        for directory in (
+            "cccc/bin",
+            "kiss/bin",
+            "dupehound/bin",
+            "arch-lint/bin",
+            "npm/node_modules/.bin",
+        )
+    ]
+    assert "kiss fork probe:" in result.stderr
+    verified = _run_scanner_installer(tmp_path)
+    assert verified.returncode == 0
+    assert verified.stdout == ""
+    assert "kiss fork probe:" in verified.stderr
+
+
+def test_scanner_installer_supports_relative_roots_without_verify_creation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    root = Path("relative cache")
+    missing = _run_scanner_installer(root)
+    assert missing.returncode != 0
+    assert not root.exists()
+    _scanner_cache(root)
+    for verify in (True, False):
+        result = _run_scanner_installer(root, verify=verify)
+        assert result.returncode == 0, result.stderr
+        if not verify:
+            assert all(Path(line).is_absolute() for line in result.stdout.splitlines())
