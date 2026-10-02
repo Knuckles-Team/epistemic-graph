@@ -818,11 +818,8 @@ jobs:
       # advisory and are not a release security boundary.
       # The four native scanners are built from source by `cargo install`
       # (15.7 min measured on run 35740545815, under CARGO_BUILD_JOBS=1). The
-      # built toolchain is cached under the hash of scripts/install_scanners.sh
-      # (the one place the pins live), and "Verify scanner versions" below still
-      # runs on every run,
-      # so a cache entry that does not hold exactly the pinned tools fails the
-      # job instead of being trusted.
+      # Cache identity covers the installer and fork probe. Restored tools are
+      # checked before reuse; only a complete validated toolchain is saved.
       - name: Restore pinned scanner toolchain
         id: scanner-cache
         # restore + an explicit save (below) rather than actions/cache: its
@@ -831,17 +828,38 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/epistemic-graph-scanners
-          key: eg-scanners-${{ runner.os }}-${{ hashFiles('scripts/install_scanners.sh') }}
+          key: eg-scanners-v2-${{ runner.os }}-${{ hashFiles('scripts/install_scanners.sh', 'scripts/kiss_fork.py') }}
+
+      - name: Validate restored scanner toolchain
+        id: scanner-restored
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if bash scripts/install_scanners.sh --verify "$RUNNER_TEMP/epistemic-graph-scanners"; then
+            echo 'valid=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'valid=false' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Provision pinned scanner toolchain
-        if: ${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}
+        id: scanner-provision
+        if: ${{ !cancelled() && steps.scanner-restored.outputs.valid != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/install_scanners.sh "$RUNNER_TEMP/epistemic-graph-scanners"
 
+      - name: Validate complete scanner cache
+        id: scanner-validated
+        if: ${{ !cancelled() && (steps.scanner-restored.outputs.valid == 'true' || steps.scanner-provision.outcome == 'success') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/install_scanners.sh --verify "$RUNNER_TEMP/epistemic-graph-scanners"
+
       - name: Save pinned scanner toolchain
-        if: ${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.scanner-validated.outcome == 'success' && steps.scanner-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/epistemic-graph-scanners
