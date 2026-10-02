@@ -216,17 +216,21 @@ impl IdentityStore {
     }
 
     fn holds_no_credential_or_directory_state(&self) -> bool {
-        self.passwords.is_empty()
-            && self.api_keys.is_empty()
-            && self.one_time.is_empty()
-            && self.totp.is_empty()
-            && self.recovery.is_empty()
-            && self.webauthn.is_empty()
-            && self.idps.is_empty()
-            && self.links.is_empty()
-            && self.link_roles.is_empty()
-            && self.link_claims.is_empty()
-            && self.directory_groups.is_empty()
+        [
+            self.passwords.is_empty(),
+            self.api_keys.is_empty(),
+            self.one_time.is_empty(),
+            self.totp.is_empty(),
+            self.recovery.is_empty(),
+            self.webauthn.is_empty(),
+            self.idps.is_empty(),
+            self.links.is_empty(),
+            self.link_roles.is_empty(),
+            self.link_claims.is_empty(),
+            self.directory_groups.is_empty(),
+        ]
+        .into_iter()
+        .all(|empty| empty)
     }
 
     fn seed_builtins(&mut self) {
