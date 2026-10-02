@@ -106,7 +106,7 @@
       ]
     },
     "AuditAppendReceipt": {
-      "description": "Commit-before-ack reference for one operation audit event. An idempotent\nretry returns the original sequence and hash.",
+      "description": "Commit-before-ack reference for one operation audit event. An idempotent\nretry returns the original sequence and hash.\n\n`reservation_seq` is the sequence of the reservation this event belongs\nto (its own, for a reservation). `outcome_seq` is the sequence of the\nterminal outcome linked to that reservation, and is absent while the\nreservation is still pending -- which is how a caller that was interrupted\nbetween reserving and recording the outcome finds, by replaying its\nreservation, that the outcome is still owed.",
       "properties": {
         "entry_sha256": {
           "type": "string"
@@ -114,8 +114,21 @@
         "graph": {
           "type": "string"
         },
+        "outcome_seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "replayed": {
           "type": "boolean"
+        },
+        "reservation_seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "seq": {
           "format": "uint64",
@@ -127,7 +140,8 @@
         "graph",
         "seq",
         "entry_sha256",
-        "replayed"
+        "replayed",
+        "reservation_seq"
       ],
       "type": "object"
     },

@@ -403,7 +403,7 @@
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |
-| `AuditAppend` | true | GraphRedb | `security:audit-write` | true | false | false | Atomic | tenant-bound operation audit append with request-id/op idempotency and no raw params; writes its own audit-chain entry directly (see src/redb_store/audit.rs::operation_audit_append), not through the generic per-mutation audit_line() dispatch, like EdgeIndex above |
+| `AuditAppend` | true | GraphRedb | `security:audit-write` | true | false | false | Atomic | tenant-bound operation audit: a reservation and its linked outcome with request-id/op idempotency and no raw params; requires a declared audit class and a durable writer (AUDIT_CLASS_REQUIRED, AUDIT_CLASS_UNKNOWN, AUDIT_WRITER_UNAVAILABLE); writes its own audit-chain entry directly (see src/redb_store/operation_audit.rs::operation_audit_append), not through the generic per-mutation audit_line() dispatch, like EdgeIndex above |
 | `AuditReadEvent` | false | None | `security:audit` | true | false | false | Snapshot | read one privacy-safe operation event with a full-chain verification result |
 | `AuditProveInclusion` | false | None | `security:audit` | true | false | false | Snapshot | provenance anchoring: Merkle inclusion proof for one node against a prior PROVENANCE_ANCHOR audit-chain entry |
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |

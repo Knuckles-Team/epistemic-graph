@@ -1315,7 +1315,9 @@ class AuditAppendReceipt(BaseModel):
 
     entry_sha256: str
     graph: str
+    outcome_seq: Annotated[int, Field(ge=0)] | None = None
     replayed: bool
+    reservation_seq: Annotated[int, Field(ge=0)]
     seq: Annotated[int, Field(ge=0)]
 
 
@@ -10896,7 +10898,7 @@ class MethodAsrParams(BaseModel):
 class MethodAuditAppendParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    identity_chain: bool
+    audit_class: str | None = None
     op: str
     params_sha256: str
     request_id: str

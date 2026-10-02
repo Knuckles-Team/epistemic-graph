@@ -14690,12 +14690,23 @@ class AdminClient:
         params_sha256: str,
         status: str,
         request_id: str,
-        identity_chain: bool = False,
+        audit_class: str,
     ) -> dict[str, Any]:
-        """Append a privacy-safe operation outcome under the verified carrier.
+        """Append a privacy-safe operation audit event under the verified carrier.
+
+        Reserve before a governed effect with ``status="reserved"``, then close
+        the reservation with the outcome (``ok``, ``error`` or ``denied``) under
+        the same ``request_id``. ``audit_class`` is the class the operation
+        declares (``event`` or ``identity_chain``); an empty or ``none`` class
+        is refused with ``AUDIT_CLASS_REQUIRED`` and an undefined one with
+        ``AUDIT_CLASS_UNKNOWN``. An unavailable durable writer is refused with
+        ``AUDIT_WRITER_UNAVAILABLE``. No refusal writes anything.
 
         The engine derives tenant and principal. It commits the hash-chain
-        entry and replay receipt before acknowledging this call.
+        entry and replay receipt before acknowledging this call. The receipt's
+        ``outcome_seq`` is ``None`` while a reservation has no linked outcome,
+        so replaying a reservation after an interruption shows whether its
+        outcome is still owed.
         """
         return (
             await _gen.security.send_audit_append(
@@ -14706,7 +14717,7 @@ class AdminClient:
                     "params_sha256": params_sha256,
                     "status": status,
                     "request_id": request_id,
-                    "identity_chain": identity_chain,
+                    "audit_class": audit_class,
                 },
             )
         ).payload

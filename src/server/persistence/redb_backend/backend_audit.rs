@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "security")]
+use crate::redb_store::audit_writer_unavailable;
 use crate::server::persistence::writer_reply::await_writer_reply;
 
 impl RedbBackend {
@@ -16,6 +18,14 @@ impl RedbBackend {
         })
         .await
     }
+    /// Append one operation audit event through the graph's shard writer.
+    ///
+    /// The writer's own answer -- a receipt, or a refusal of the event -- is
+    /// returned as it is. Every way of NOT getting an answer (the writer thread
+    /// is gone, it dropped the reply, it stopped answering) is the one declared
+    /// refusal `AUDIT_WRITER_UNAVAILABLE`: the caller is never told the event
+    /// was appended, and a retry under the same request identity settles
+    /// whether it was.
     #[cfg(feature = "security")]
     pub(crate) async fn audit_append(
         &self,
@@ -32,10 +42,12 @@ impl RedbBackend {
             },
             "audit_append",
         )
-        .await?;
+        .await
+        .map_err(audit_writer_unavailable)?;
         tokio::task::spawn_blocking(move || await_writer_reply(&rx, "audit_append"))
             .await
-            .map_err(|error| format!("audit_append join error: {error}"))??
+            .map_err(|error| audit_writer_unavailable(format!("join error: {error}")))?
+            .map_err(audit_writer_unavailable)?
     }
     /// TEST-ONLY: flip a byte in the stored audit entry `(graph, seq)` to simulate
     /// tampering, so the verify path can prove detection. Routed through the owner

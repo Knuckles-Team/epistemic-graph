@@ -21,6 +21,13 @@ pub struct AuditReport {
 
 /// Commit-before-ack reference for one operation audit event. An idempotent
 /// retry returns the original sequence and hash.
+///
+/// `reservation_seq` is the sequence of the reservation this event belongs
+/// to (its own, for a reservation). `outcome_seq` is the sequence of the
+/// terminal outcome linked to that reservation, and is absent while the
+/// reservation is still pending -- which is how a caller that was interrupted
+/// between reserving and recording the outcome finds, by replaying its
+/// reservation, that the outcome is still owed.
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -29,6 +36,8 @@ pub struct AuditAppendReceipt {
     pub seq: u64,
     pub entry_sha256: String,
     pub replayed: bool,
+    pub reservation_seq: u64,
+    pub outcome_seq: Option<u64>,
 }
 
 /// One operation event bound to a verified hash chain. `chain_verified` is

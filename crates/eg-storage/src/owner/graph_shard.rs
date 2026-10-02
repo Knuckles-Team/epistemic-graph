@@ -210,7 +210,6 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::LEDGER);
         $visit!(shard::SEMANTIC_STORE);
         $visit!(shard::AUDIT_CHAIN);
-        $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::PROVENANCE_ANCHOR_MEMBERS);
         $visit!(shard::GRAPH_META);
         $visit!(shard::WORK_ITEM_COMMAND_SEQUENCE);
@@ -246,6 +245,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::REPOSITORY_ENRICHMENT_POLICY_REVISIONS);
         $visit!(shard::REPOSITORY_ENRICHMENT_SUPERSESSIONS);
         $visit!(shard::REPOSITORY_ENRICHMENT_PARKS);
+        $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITIES);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS);
         $visit!(shard::NATIVE_WORK_ITEM_AUTHORITY);
@@ -271,6 +271,12 @@ pub(crate) use visit_graph_shard_tables;
 /// The frozen pre-enrichment census is shared with lineage; current layouts
 /// insert only their new tables at the explicit enrichment slot. A change to
 /// any common name must update the pinned predecessor digest deliberately.
+///
+/// The slot holds EVERY table added since that frozen census, in the order the
+/// layouts added them -- the repository-enrichment tables, then the operation
+/// audit-append idempotency index. A later table is therefore named by the
+/// invocation of the layout that has it and never by this shared body, so a
+/// historical table set cannot pick it up.
 macro_rules! graph_shard_table_names {
     ($($enrichment:expr),* $(,)?) => { &[
     "nodes",
@@ -278,7 +284,6 @@ macro_rules! graph_shard_table_names {
     "ledger",
     "semantic_store",
     "audit_chain",
-    "audit_requests",
     "provenance_anchor_members",
     "graph_meta",
     "work_item_command_sequence",
@@ -339,6 +344,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = graph_shard_table_names!(
     "repository_enrichment_policy_revisions",
     "repository_enrichment_supersessions",
     "repository_enrichment_parks",
+    "audit_requests",
 );
 
 /// The eight tables of the shard's retired private mutation ledger.

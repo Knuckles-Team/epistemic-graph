@@ -152,6 +152,8 @@ pub(crate) mod checkpoint;
 pub(crate) mod control;
 pub(crate) mod crossmodal;
 pub(crate) mod dump;
+#[cfg(feature = "security")]
+pub(crate) mod operation_audit;
 pub(crate) mod resource;
 pub(crate) mod work_item;
 
@@ -161,9 +163,8 @@ pub(crate) mod work_item;
 // durable machinery through `crate::redb_store`, never through a second store.
 #[cfg(feature = "security")]
 pub(crate) use audit::{
-    append_audit_entry, operation_audit_append, operation_audit_read, prove_inclusion,
-    provenance_anchor_commit, provenance_leaf_hashes, verify_audit, AuditTailCache,
-    OperationAuditEvent, ProvenanceAnchorCache,
+    append_audit_entry, prove_inclusion, provenance_anchor_commit, provenance_leaf_hashes,
+    verify_audit, AuditTailCache, ProvenanceAnchorCache,
 };
 #[cfg(any(test, feature = "embedded"))]
 pub(crate) use checkpoint::apply_checkpoint;
@@ -193,6 +194,10 @@ pub(crate) use dump::{
 };
 pub(crate) use dump::{
     decode_meta_record, encode_meta_record, encode_meta_with_incarnation, new_incarnation_id,
+};
+#[cfg(feature = "security")]
+pub(crate) use operation_audit::{
+    audit_writer_unavailable, operation_audit_append, operation_audit_read, OperationAuditEvent,
 };
 #[cfg(any(test, feature = "server"))]
 pub(crate) use resource::{read_resource_reservation, read_resource_reservation_status};
@@ -644,7 +649,7 @@ mod security_tests {
             params_sha256: "a".repeat(64),
             status: "reserved".into(),
             request_id: "request-a".into(),
-            identity_chain: false,
+            audit_class: "event".into(),
         };
         let reserved = operation_audit_append(&db, &mut tail, "g", &event).unwrap();
         assert!(!reserved.replayed);

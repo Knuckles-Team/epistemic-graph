@@ -195,7 +195,15 @@ pub(super) async fn dispatch_op_audit_append(
             ),
             Err(error) => Response::err(req_id, format!("AuditAppend error: {error}")),
         },
-        None => Response::err(req_id, "AuditAppend requires durable redb"),
+        None => Response::err(
+            req_id,
+            format!(
+                "AuditAppend error: {}",
+                crate::redb_store::audit_writer_unavailable(
+                    "this server has no durable audit store"
+                )
+            ),
+        ),
     }
 }
 

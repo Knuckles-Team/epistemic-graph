@@ -35,7 +35,6 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
         ("ledger", "(&str,u64)", "&str"),
         ("semantic_store", "&str", "&[u8]"),
         ("audit_chain", "(&str,u64)", "&[u8]"),
-        ("audit_requests", "(&str,&str)", "&[u8]"),
         ("provenance_anchor_members", "(&str,u64)", "&[u8]"),
         ("graph_meta", "&str", "&[u8]"),
         ("work_item_command_sequence", "&str", "u64"),
@@ -83,6 +82,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
             "&[u8]",
         ),
         ("repository_enrichment_parks", "&str", "&[u8]"),
+        ("audit_requests", "(&str,&str)", "&[u8]"),
         ("work_item_claim_capabilities", "(&str,&str)", "&[u8]"),
         (
             "work_item_claim_capability_invocations",

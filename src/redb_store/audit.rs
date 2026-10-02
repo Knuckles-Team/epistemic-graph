@@ -41,68 +41,25 @@ use super::shard::{Shard, ShardWrite};
 #[cfg(feature = "security")]
 pub(crate) type AuditTailCache = std::collections::HashMap<String, (u64, crate::audit::Hash)>;
 
-/// Validated, privacy-safe fields for a served operation outcome. Tenant and
-/// principal are derived from the verified carrier, not from method params.
-#[cfg(feature = "security")]
-#[derive(Clone, Debug)]
-pub(crate) struct OperationAuditEvent {
-    pub tenant: String,
-    pub principal: String,
-    pub op: String,
-    pub surface: String,
-    pub params_sha256: String,
-    pub status: String,
-    pub request_id: String,
-    pub identity_chain: bool,
-}
-
-#[cfg(feature = "security")]
-impl OperationAuditEvent {
-    pub(crate) fn validate(&self) -> Result<(), String> {
-        fn token(value: &str, max: usize) -> bool {
-            !value.is_empty()
-                && value.len() <= max
-                && value
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"._:-/".contains(&b))
-        }
-        if !token(&self.tenant, 128)
-            || !token(&self.principal, 256)
-            || !token(&self.op, 128)
-            || !token(&self.surface, 32)
-            || !token(&self.request_id, 128)
-            || !matches!(self.status.as_str(), "reserved" | "ok" | "error" | "denied")
-            || self.params_sha256.len() != 64
-            || !self.params_sha256.bytes().all(|b| b.is_ascii_hexdigit())
-        {
-            return Err("invalid privacy-safe audit event fields".to_string());
-        }
-        Ok(())
-    }
-}
-
-#[cfg(feature = "security")]
-#[derive(serde::Serialize, serde::Deserialize)]
-struct AuditRequestRecord {
-    fingerprint: crate::audit::Hash,
-    context_fingerprint: crate::audit::Hash,
-    seq: u64,
-    entry_hash: crate::audit::Hash,
-}
-
 /// A maintenance admission id unique per ATTEMPT, shared by every caller on
 /// this writer thread that needs one. `admit_maintenance` resolves a repeated
 /// id to a REPLAY and skips the write entirely (`shard::drain_batch`'s doc on
 /// `drain_id`), so an id derived only from stable content would make a
 /// SECOND, logically distinct attempt with the same content replay instead of
-/// admitting -- see [`anchor_op_id`] below and this module's
-/// `operation_audit_append`, whose own `AUDIT_REQUESTS` check is the precise
-/// idempotency; this id only has to admit a live write every time so that
-/// check can run. The wall clock separates two runs of the same counter value
-/// across a restart -- a process id alone does not, because the operating
-/// system reuses one.
+/// admitting -- see [`anchor_op_id`] below and
+/// [`super::operation_audit::operation_audit_append`], whose own
+/// `AUDIT_REQUESTS` check is the precise idempotency; this id only has to admit
+/// a live write every time so that check can run. The wall clock separates two
+/// runs of the same counter value across a restart -- a process id alone does
+/// not, because the operating system reuses one.
+///
+/// The id names this node's own ledger receipt and nothing else. It is never
+/// written into an audit line, a chain hash or an idempotency row, so replicas
+/// that apply the same commands hold identical audit rows while each keeps its
+/// own receipt ids -- the same arrangement as every coalesced shard drain
+/// (`shard::drain_batch`).
 #[cfg(feature = "security")]
-fn fresh_attempt_id(prefix: &str) -> String {
+pub(super) fn fresh_attempt_id(prefix: &str) -> String {
     static ATTEMPT: AtomicU64 = AtomicU64::new(0);
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -112,190 +69,6 @@ fn fresh_attempt_id(prefix: &str) -> String {
         "{prefix}:{stamp}:{}",
         ATTEMPT.fetch_add(1, Ordering::Relaxed)
     )
-}
-
-/// Append the event and its replay index in one admitted graph group. A retry
-/// with the same request identity and payload returns its original receipt;
-/// changed payload under that identity fails closed.
-#[cfg(feature = "security")]
-pub(crate) fn operation_audit_append(
-    shard: &Shard,
-    tail: &mut AuditTailCache,
-    graph: &str,
-    event: &OperationAuditEvent,
-) -> Result<crate::protocol::AuditAppendReceipt, String> {
-    use sha2::{Digest, Sha256};
-    event.validate()?;
-    let request_identity = format!(
-        "{}\0{}\0{}\0{}",
-        event.tenant, event.principal, event.request_id, event.op
-    );
-    let phase = if event.status == "reserved" {
-        "reserve"
-    } else {
-        "outcome"
-    };
-    let key = hex::encode(Sha256::digest(format!("{request_identity}\0{phase}")));
-    let reserve_key = hex::encode(Sha256::digest(format!("{request_identity}\0reserve")));
-    let context_fingerprint: crate::audit::Hash = Sha256::digest(format!(
-        "{}\0{}\0{}\0{}\0{}\0{}\0{}",
-        event.tenant,
-        event.principal,
-        event.request_id,
-        event.op,
-        event.surface,
-        event.params_sha256,
-        event.identity_chain,
-    ))
-    .into();
-    let line = format!(
-        "OP_AUDIT|v1|tenant={}|principal={}|op={}|surface={}|params_sha256={}|status={}|request_id={}|identity={}",
-        event.tenant,
-        event.principal,
-        event.op,
-        event.surface,
-        event.params_sha256,
-        event.status,
-        event.request_id,
-        u8::from(event.identity_chain),
-    );
-    let fingerprint: crate::audit::Hash = Sha256::digest(line.as_bytes()).into();
-    let mut staged_tail = tail.clone();
-    let members = shard.graph_members(&[graph])?;
-    // Unique per ATTEMPT, like `anchor_op_id` below and for the same reason:
-    // `admit_maintenance` resolves a repeated batch id to a REPLAY and skips
-    // the write entirely (`shard::drain_batch`'s doc on `drain_id`), so a
-    // content-derived id would make the SECOND call of a genuine duplicate
-    // request -- exactly the case this function exists to answer -- never
-    // reach the `AUDIT_REQUESTS` idempotency check below at all. That check,
-    // keyed by `key`/`reserve_key`, is this function's own, more precise
-    // idempotency; the admission id only needs to admit a live write every
-    // time so that check can run.
-    let op_id = fresh_attempt_id(&format!("operation_audit/{key}"));
-    let (group, batches) = shard.admit_maintenance(&members, &op_id)?;
-    let write = ShardWrite::open(shard, &group, &members, &batches)?;
-    let applied = (|| {
-        let mut requests = write.graph(graph)?.open_scoped_table(AUDIT_REQUESTS)?;
-        if phase == "outcome" {
-            let reservation = requests
-                .get((graph, reserve_key.as_str()))?
-                .ok_or_else(|| "AUDIT_RESERVATION_REQUIRED".to_string())?;
-            let record: AuditRequestRecord =
-                rmp_serde::from_slice(reservation.value()).map_err(|e| e.to_string())?;
-            if record.context_fingerprint != context_fingerprint {
-                return Err("AUDIT_RESERVATION_MISMATCH".to_string());
-            }
-        }
-        if let Some(row) = requests.get((graph, key.as_str()))? {
-            let record: AuditRequestRecord =
-                rmp_serde::from_slice(row.value()).map_err(|e| e.to_string())?;
-            if record.fingerprint != fingerprint {
-                return Err("AUDIT_IDEMPOTENCY_CONFLICT".to_string());
-            }
-            return Ok((record.seq, record.entry_hash, true));
-        }
-        let mut audit = write.graph(graph)?.open_scoped_table(AUDIT)?;
-        let (seq, entry_hash) =
-            append_audit_entry_with_line(&mut audit, &mut staged_tail, graph, line.as_bytes())?;
-        let record = AuditRequestRecord {
-            fingerprint,
-            context_fingerprint,
-            seq,
-            entry_hash,
-        };
-        let encoded = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
-        requests.insert((graph, key.as_str()), encoded.as_slice())?;
-        Ok((seq, entry_hash, false))
-    })();
-    let (seq, hash, replayed) = match (applied, write.finish()) {
-        (Ok(value), Ok(())) => value,
-        (Err(error), _) | (_, Err(error)) => {
-            shard.mutations().abort_group(group)?;
-            return Err(error);
-        }
-    };
-    shard.commit_drain(group, &batches, 0)?;
-    *tail = staged_tail;
-    Ok(crate::protocol::AuditAppendReceipt {
-        graph: graph.to_string(),
-        seq,
-        entry_sha256: hex::encode(hash),
-        replayed,
-    })
-}
-
-/// Fetch one operation event and verify the entire graph chain before giving
-/// the caller a proof status. This is an operator read, so the O(history)
-/// verification is explicit; appends remain O(log history) on a cold tail.
-#[cfg(feature = "security")]
-pub(crate) fn operation_audit_read(
-    shard: &Shard,
-    graph: &str,
-    verified_tenant: &str,
-    seq: u64,
-) -> Result<crate::protocol::AuditEventProof, String> {
-    let handle = shard.graph(graph)?;
-    let read = shard.read(&handle)?;
-    let audit = read.scoped_owner_table(AUDIT)?;
-    let entry = audit
-        .get((graph, seq))?
-        .ok_or_else(|| "AUDIT_EVENT_NOT_FOUND".to_string())?;
-    let (previous, hash, line) = crate::audit::decode_entry(entry.value())
-        .ok_or_else(|| "AUDIT_EVENT_CORRUPT".to_string())?;
-    let event_line = std::str::from_utf8(line).map_err(|_| "AUDIT_EVENT_CORRUPT")?;
-    if !event_line.starts_with(&format!("OP_AUDIT|v1|tenant={verified_tenant}|")) {
-        return Err("AUDIT_EVENT_NOT_FOUND".to_string());
-    }
-    let proof = crate::protocol::AuditEventProof {
-        graph: graph.to_string(),
-        seq,
-        entry_sha256: hex::encode(hash),
-        previous_sha256: hex::encode(previous),
-        event_line: event_line.to_string(),
-        chain_verified: false,
-        chain_entries: 0,
-    };
-    drop(entry);
-    drop(audit);
-    drop(read);
-    let report = verify_audit(shard, graph)?;
-    Ok(crate::protocol::AuditEventProof {
-        chain_verified: report.ok,
-        chain_entries: report.entries,
-        ..proof
-    })
-}
-
-#[cfg(all(test, feature = "security"))]
-mod operation_event_tests {
-    use super::OperationAuditEvent;
-
-    fn valid() -> OperationAuditEvent {
-        OperationAuditEvent {
-            tenant: "tenant-1".into(),
-            principal: "svc:graph-os".into(),
-            op: "graph.nodes.write".into(),
-            surface: "http".into(),
-            params_sha256: "a".repeat(64),
-            status: "ok".into(),
-            request_id: "req-1".into(),
-            identity_chain: false,
-        }
-    }
-
-    #[test]
-    fn operation_audit_accepts_only_bounded_privacy_safe_fields() {
-        assert!(valid().validate().is_ok());
-        let mut event = valid();
-        event.op = "graph.nodes.write|params=secret".into();
-        assert!(event.validate().is_err());
-        let mut event = valid();
-        event.params_sha256 = "raw params".into();
-        assert!(event.validate().is_err());
-        let mut event = valid();
-        event.request_id = "x".repeat(129);
-        assert!(event.validate().is_err());
-    }
 }
 
 /// Append ONE tamper-evident audit-chain entry for a durable mutation, inside the

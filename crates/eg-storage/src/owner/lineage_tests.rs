@@ -69,7 +69,7 @@ fn graph_shard_before_policy_revisions_matches_the_previous_pin() {
         .collect();
     assert_eq!(
         digest,
-        "28aec2d33f14f13de4b6d6b28eed24ed6315bb1a792c308ca5e8412616b5d27c"
+        "95ef6158378d0aaa4df732937cb0f1e08d6d0d104724de10bacbe110f146dcb6"
     );
 }
 

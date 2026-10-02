@@ -20596,7 +20596,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Append one privacy-safe GraphOS operation outcome to the tenant's durable\nhash chain. The verified carrier supplies tenant and principal; no raw\nparams, result body, or caller-supplied identity is accepted.",
+          "description": "Append one privacy-safe operation audit event to the tenant's durable\nhash chain: a reservation (`status = \"reserved\"`) before a governed\neffect, then the terminal outcome linked to it. The verified carrier\nsupplies tenant and principal; no raw params, result body, or\ncaller-supplied identity is accepted.\n\n`audit_class` is the class the operation declares (`event` or\n`identity_chain`). It may be absent on the wire only so that the engine,\nnot the decoder, refuses it: an absent, empty or `none` class is refused\nwith `AUDIT_CLASS_REQUIRED`, any other undefined class with\n`AUDIT_CLASS_UNKNOWN`, and neither writes anything.",
           "properties": {
             "method": {
               "const": "AuditAppend",
@@ -20605,8 +20605,9 @@
             "params": {
               "additionalProperties": false,
               "properties": {
-                "identity_chain": {
-                  "type": "boolean"
+                "audit_class": {
+                  "default": "",
+                  "type": "string"
                 },
                 "op": {
                   "type": "string"
@@ -20629,8 +20630,7 @@
                 "surface",
                 "params_sha256",
                 "status",
-                "request_id",
-                "identity_chain"
+                "request_id"
               ],
               "type": "object"
             }
@@ -49631,7 +49631,7 @@
     },
     "AuditAppend": {
       "additionalProperties": false,
-      "description": "Append one privacy-safe GraphOS operation outcome to the tenant's durable\nhash chain. The verified carrier supplies tenant and principal; no raw\nparams, result body, or caller-supplied identity is accepted.",
+      "description": "Append one privacy-safe operation audit event to the tenant's durable\nhash chain: a reservation (`status = \"reserved\"`) before a governed\neffect, then the terminal outcome linked to it. The verified carrier\nsupplies tenant and principal; no raw params, result body, or\ncaller-supplied identity is accepted.\n\n`audit_class` is the class the operation declares (`event` or\n`identity_chain`). It may be absent on the wire only so that the engine,\nnot the decoder, refuses it: an absent, empty or `none` class is refused\nwith `AUDIT_CLASS_REQUIRED`, any other undefined class with\n`AUDIT_CLASS_UNKNOWN`, and neither writes anything.",
       "properties": {
         "method": {
           "const": "AuditAppend",
@@ -49640,8 +49640,9 @@
         "params": {
           "additionalProperties": false,
           "properties": {
-            "identity_chain": {
-              "type": "boolean"
+            "audit_class": {
+              "default": "",
+              "type": "string"
             },
             "op": {
               "type": "string"
@@ -49664,8 +49665,7 @@
             "surface",
             "params_sha256",
             "status",
-            "request_id",
-            "identity_chain"
+            "request_id"
           ],
           "type": "object"
         }

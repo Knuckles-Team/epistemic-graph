@@ -3,9 +3,9 @@
     "contract/errors.json": "4448a46b059f457e134f9ca6ac72a32c8c19f157d4136133953cf38915a73781",
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
-    "contract/fixtures/method_body_vectors.json": "ae2b7b0aaee00ee7dbff65cf4cf19d73e355b88d6cdeac0f3ed8612e535392bc",
-    "contract/methods.json": "0c1956cbdff5345a3571c35c1417c9f1a22fd82a85480ee1077a4dea885e2cb0",
-    "contract/schemas/method.request.json": "4228931fc0f0fb3399d2a891d7836d452937258d588be9076af870e71d2cb068",
+    "contract/fixtures/method_body_vectors.json": "524c57c40c0b8d7474da135fedbf2b60080ecf49a85f10379a2b8e72871496a7",
+    "contract/methods.json": "d7782269e1d5f3918512f37e13a3b83619542c412f9bfca275cd542b437084ee",
+    "contract/schemas/method.request.json": "351c86d0a7510d516a5ffa353f3bda94994c04f05e6980d4b9f4d6aa7364801f",
     "contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "contract/schemas/result.compute.json": "7efab38024b5f7bcc9839cbf0c61ec664e044f74074f69c514b8cf613642e30f",
     "contract/schemas/result.coordination.json": "4abbbcbf340c67f94980937f6e820e7e9a4ea66b3d2f513e3347957bcc8eb693",
@@ -13,13 +13,13 @@
     "contract/schemas/result.ingestion.json": "912a99d4c86afb6a736d5842cc3221c4ae0d21a15fa4b70df7ac7a89f52b234d",
     "contract/schemas/result.messaging.json": "b5798d40e87de71ec35952a00f10cbd89b2b7fb6b1094122b8f244787b5e83b1",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "94d73a614e35cb27737ed761864f9a8f53c3ec414ad1cd0d574e9ea46c4d8646",
+    "contract/schemas/result.query.json": "938d8077bf21438b45bbc9aec9d728753dad6d18201d0269cffeceffc38021cd",
     "contract/schemas/result.reasoning.json": "ab1821fc6a34cc047fcd3c11c57e6777f9268aec89148d27acb4ca715425152a",
-    "contract/schemas/result.security.json": "cbab46751202b28a7ee1e5ce6fc7dd8bbe0fbf1e308dbf5bd219262c7a239bb6",
+    "contract/schemas/result.security.json": "866c391057228e34a73b3ce06f6eaf526208c7089088c35836a7200ec765d9ac",
     "contract/schemas/result.storage.json": "c355f18c7a0e9779d3b2a6925aadef3d119207812b78928a122eec40f1243798",
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
-    "crates/eg-capabilities/generated/method_catalog.rs": "d812d8b3ff17677c4ac8eb5eeee22d17c83183e551c44a166b027e082b638795",
-    "docs/capabilities.generated.md": "08e9c9ec33a15e476020fda18343e37458ec732bcc816ef4b0f6f1dd717fbde0",
+    "crates/eg-capabilities/generated/method_catalog.rs": "4feef353c5cd24498bc90e7420033bb8a2a14cc265d8eb936d9753781fcd1bc0",
+    "docs/capabilities.generated.md": "f5fb423332b4c491125b87d0225292b801f17614ab6bd15ecc0251ffb749e7ed",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
     "epistemic_graph/contract/errors.json": "4448a46b059f457e134f9ca6ac72a32c8c19f157d4136133953cf38915a73781",
     "epistemic_graph/generated/__init__.py": "1f8aade5c5b3842b1ea1971066eb16e493d95e8b6023276dda855784d84ced0a",
@@ -41,7 +41,7 @@
     "epistemic_graph/generated/ingestion.py": "2735ad462eb460209318ecd6e898b2e1de81cc92388ac37f27fb149afacfbc5f",
     "epistemic_graph/generated/managed_index.py": "2359e4b871d4ef359c189ac8debb077fbc04cda00280d42bc6a84aacf3da04d1",
     "epistemic_graph/generated/messaging.py": "0c00d8d93ed7fba40eeeb572c14c7354eaa33693e8acda369942ee9598907e1f",
-    "epistemic_graph/generated/models.py": "010cb5028da54fb4267d0d4cd3aeb9a6e3c91f405fc86d84e17e5fc8766dcda5",
+    "epistemic_graph/generated/models.py": "670ca791cee1d09fcfd91c1a633ba80fe0d76972462e367d3787189d1772b3af",
     "epistemic_graph/generated/policy_evolution.py": "c9a836d2777c9ce2991236db4656966598d0de3463a574f1b5b05780c9be2205",
     "epistemic_graph/generated/query.py": "85db01171e8f4278b841872939cbed7d47d76415b5516b67dd83eaa8e16b3201",
     "epistemic_graph/generated/rdf_report.py": "bc08753b679e92d53723a14e6c0d2c3237431299dd765a0097f5a273606e35a5",
@@ -54,7 +54,7 @@
     "epistemic_graph/generated/transactions.py": "f4f7307094f8915f8672a2546d66981b36477e6182d9aec7a2293bf3cb951f71",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "7b64234a947de6ea388cc866d9dbd3e43582575d9ff5b594e70a9ae3ef455d4e",
+  "contract_digest": "21307c48ddf4da22901dfcbc1134ca47b7f48f0e56ca1bbc277c49ba46edbd40",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -633,5 +633,5 @@
     "schematized": 445,
     "unclassified": 0
   },
-  "source_tree_oid": "b0d765d20b459d9722a674cc5f8a43a112b09394e91ab49a295d17d4c367fd02"
+  "source_tree_oid": "91291de267b50d55e20d5e1126a5b2fef20d885f015bae8741b60d94bbec27a6"
 }

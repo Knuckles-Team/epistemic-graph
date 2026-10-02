@@ -321,7 +321,7 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
             params_sha256: "a".repeat(64),
             status: "reserved".to_string(),
             request_id: "request-1".to_string(),
-            identity_chain: false,
+            audit_class: "event".to_string(),
         },
         NativeMutationDomain::GraphState,
     );
