@@ -53,18 +53,6 @@ time its owner paused, losing the state it owns.
 - `crates/eg-query/src/sql/spill.rs`: the spill worker's command loop (the
   worker owns the spill file writer).
 
-## deadline-on-the-operation
-
-**Invariant.** The joined thread runs one future under `tokio::time::timeout`,
-so it always finishes within that deadline plus teardown, and the join is
-prompt by construction. Putting the deadline on the join instead would abandon
-a live runtime thread that still holds the operation's resources, and it would
-report a bare timeout instead of the operation's own error.
-
-**Sites.**
-- `crates/eg-query/src/sql/iceberg_federation.rs`: `block_on_iceberg`
-  (`ICEBERG_FEDERATION_TIMEOUT` bounds the catalog or table future).
-
 ## enclosing-deadline
 
 **Invariant.** The unbounded wait runs entirely inside an enclosing deadline

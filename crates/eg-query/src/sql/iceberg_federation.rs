@@ -20,12 +20,15 @@
 //!
 //! `TableFunctionImpl::call_with_args` is a SYNC DataFusion callback but the REST catalog
 //! client is async (`reqwest`), so the one-shot catalog connect + `load_table` (needed to
-//! learn the Arrow schema DataFusion's planner requires up front) runs on a throwaway
-//! OS thread with its OWN single-use Tokio runtime, joined back synchronously
-//! ([`block_on_iceberg`]) — this sidesteps the documented "nested `block_on` panics on a
+//! learn the Arrow schema DataFusion's planner requires up front) runs on a Tokio runtime
+//! the provider OWNS ([`FederationRuntime`]) and is waited for from the sync caller over
+//! a channel — this sidesteps the documented "nested `block_on` panics on a
 //! current-thread runtime" hazard the module doc at the top of `sql/exec.rs` already
 //! flags for this SQL surface, without requiring the caller to be inside any particular
-//! runtime shape. [`IcebergTableProvider::scan`] repeats the same bridge so a later
+//! runtime shape. The same runtime serves every later scan: the `iceberg` crate keeps a
+//! handle to the runtime a table was loaded on and spawns that table's manifest and file
+//! tasks there, so the runtime has to live as long as the table does — the provider holds
+//! both. [`IcebergTableProvider::scan`] runs on it so a later
 //! DataFusion-supplied projection/filter set reaches the REAL `iceberg` crate scan
 //! planner (manifest-level file pruning + column projection, with DataFusion retaining
 //! an exact residual filter), then hands the resulting Arrow
@@ -170,9 +173,15 @@ impl IcebergCatalogConfig {
         props
     }
 
-    async fn connect(&self) -> iceberg::Result<iceberg_catalog_rest::RestCatalog> {
+    /// Connect, naming `runtime` as the runtime every table this catalog loads spawns
+    /// its tasks on (the builder would otherwise capture whichever runtime calls it).
+    async fn connect(
+        &self,
+        runtime: iceberg::Runtime,
+    ) -> iceberg::Result<iceberg_catalog_rest::RestCatalog> {
         RestCatalogBuilder::default()
             .with_storage_factory(Arc::new(OpenDalResolvingStorageFactory::new()))
+            .with_runtime(runtime)
             .load("eg-federation", self.catalog_props())
             .await
     }
@@ -184,43 +193,98 @@ impl IcebergCatalogConfig {
 /// slow. Finite so a catalog that never answers is an error, not a hung query.
 const ICEBERG_FEDERATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
-/// Bridge one async iceberg-crate future to a sync caller (see the module doc for why:
-/// `TableFunctionImpl::call_with_args` is sync and `TableProvider::scan` runs inside
-/// whatever runtime DataFusion's own executor already occupies, so this ALWAYS runs the
-/// future on a fresh, throwaway single-use runtime on its OWN OS thread rather than
-/// risking a nested `block_on` on the caller's runtime).
-fn block_on_iceberg<F, T>(fut: F) -> DfResult<T>
-where
-    F: std::future::Future<Output = iceberg::Result<T>> + Send + 'static,
-    T: Send + 'static,
-{
-    // The `JoinHandle::join` entry forbids an unbounded join because a wedged
-    // worker takes its joiner with it. The deadline belongs on the OPERATION,
-    // not the join: bounding the catalog/table future inside the runtime makes
-    // a stalled iceberg call a DataFusion error with a cause, and leaves this
-    // join prompt in every case -- which a deadline on the join itself could
-    // not do, since it would abandon a live runtime thread holding the scan.
-    // Invariant `deadline-on-the-operation`: docs/architecture/liveness_invariants.md.
-    #[allow(clippy::disallowed_methods)]
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
+/// How much longer than [`ICEBERG_FEDERATION_TIMEOUT`] a sync caller waits for the
+/// answer of a call that is itself bounded by that timeout.
+const ICEBERG_FEDERATION_ANSWER_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The Tokio runtime one provider's catalog and table calls run on.
+///
+/// The `iceberg` crate does not own a runtime: a table keeps a handle to the runtime it
+/// was loaded on and spawns its manifest and data-file tasks there on every scan. A
+/// runtime dropped after the load would cancel those tasks, so this one is owned by the
+/// provider that holds the table and serves both the load and every scan. It is shut
+/// down without blocking when the provider goes away, which is safe from inside another
+/// runtime — where DataFusion usually drops a provider.
+#[derive(Debug)]
+struct FederationRuntime {
+    handle: tokio::runtime::Handle,
+    iceberg: iceberg::Runtime,
+    owned: Option<tokio::runtime::Runtime>,
+}
+
+impl FederationRuntime {
+    fn start() -> DfResult<Arc<Self>> {
+        let owned = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .worker_threads(2)
+            .thread_name("eg-iceberg-federation")
             .build()
             .map_err(|e| DataFusionError::Execution(format!("iceberg federation runtime: {e}")))?;
-        rt.block_on(async move {
-            match tokio::time::timeout(ICEBERG_FEDERATION_TIMEOUT, fut).await {
-                Ok(result) => result
-                    .map_err(|e| DataFusionError::Execution(format!("iceberg federation: {e}"))),
-                Err(_) => Err(DataFusionError::Execution(format!(
-                    "iceberg federation: the catalog did not answer within {}s",
-                    ICEBERG_FEDERATION_TIMEOUT.as_secs()
-                ))),
-            }
-        })
-    })
-    .join()
-    .map_err(|_| DataFusionError::Execution("iceberg federation: worker thread panicked".into()))?
+        Ok(Arc::new(Self {
+            handle: owned.handle().clone(),
+            iceberg: iceberg::Runtime::new(&owned),
+            owned: Some(owned),
+        }))
+    }
+
+    /// Run `future` on this runtime and wait for it from a SYNC caller. The caller may
+    /// itself be a runtime thread: it waits on a channel, never in a nested `block_on`.
+    fn block_on<F, T>(&self, future: F) -> DfResult<T>
+    where
+        F: std::future::Future<Output = iceberg::Result<T>> + Send + 'static,
+        T: Send + 'static,
+    {
+        let (answer, answered) = std::sync::mpsc::sync_channel(1);
+        self.handle.spawn(async move {
+            // The receiver is gone only when the caller stopped waiting.
+            let _ = answer.send(within_federation_timeout(future).await);
+        });
+        answered
+            .recv_timeout(ICEBERG_FEDERATION_TIMEOUT + ICEBERG_FEDERATION_ANSWER_GRACE)
+            .map_err(|_| {
+                DataFusionError::Execution(
+                    "iceberg federation: the catalog call ended without an answer".into(),
+                )
+            })?
+    }
+
+    /// Run `future` on this runtime and await it from an ASYNC caller on any runtime.
+    async fn run<F, T>(&self, future: F) -> DfResult<T>
+    where
+        F: std::future::Future<Output = iceberg::Result<T>> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.handle
+            .spawn(within_federation_timeout(future))
+            .await
+            .map_err(|e| DataFusionError::Execution(format!("iceberg federation: {e}")))?
+    }
+}
+
+impl Drop for FederationRuntime {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.owned.take() {
+            runtime.shutdown_background();
+        }
+    }
+}
+
+/// Bound one catalog/table future by [`ICEBERG_FEDERATION_TIMEOUT`]. The deadline is on
+/// the OPERATION, so a stalled iceberg call is a DataFusion error with a cause rather
+/// than a wait nothing ends.
+async fn within_federation_timeout<F, T>(future: F) -> DfResult<T>
+where
+    F: std::future::Future<Output = iceberg::Result<T>>,
+{
+    match tokio::time::timeout(ICEBERG_FEDERATION_TIMEOUT, future).await {
+        Ok(result) => {
+            result.map_err(|e| DataFusionError::Execution(format!("iceberg federation: {e}")))
+        }
+        Err(_) => Err(DataFusionError::Execution(format!(
+            "iceberg federation: the catalog did not answer within {}s",
+            ICEBERG_FEDERATION_TIMEOUT.as_secs()
+        ))),
+    }
 }
 
 /// `iceberg('namespace.table'[, snapshot_id])` — see the module doc.
@@ -268,33 +332,22 @@ pub fn build_iceberg_provider(
     })?;
 
     let config = IcebergCatalogConfig::from_env()?;
-    let ident_for_err = ident_str.to_string();
-    let (table, schema, total_data_files) = block_on_iceberg(async move {
-        let catalog = config.connect().await?;
-        let table = catalog.load_table(&table_ident).await.map_err(|e| {
-            // Typed, named error — NEVER an empty result (P1's negative case): a
-            // dropped/nonexistent table surfaces its identity in the message.
-            iceberg::Error::new(
-                e.kind(),
-                format!("iceberg federated table '{ident_for_err}' unavailable: {e}"),
-            )
-        })?;
-
-        let total_data_files: u64 = snapshot_id
-            .and_then(|id| table.metadata().snapshot_by_id(id))
-            .or_else(|| table.metadata().current_snapshot())
-            .and_then(|s| s.summary().additional_properties.get("total-data-files"))
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-
-        let arrow_schema =
-            iceberg::arrow::schema_to_arrow_schema(table.metadata().current_schema())?;
-        Ok((table, arrow_schema, total_data_files))
-    })?;
+    let runtime = FederationRuntime::start()?;
+    let loading = load_table(
+        config,
+        runtime.iceberg.clone(),
+        table_ident,
+        ident_str.to_string(),
+    );
+    let table = runtime.block_on(loading)?;
+    let schema = iceberg::arrow::schema_to_arrow_schema(table.metadata().current_schema())
+        .map_err(|e| DataFusionError::Execution(format!("iceberg federation: {e}")))?;
+    let total_data_files = total_data_files(&table, snapshot_id);
     let columns_total = schema.fields().len();
 
     Ok(Arc::new(IcebergTableProvider {
         table,
+        runtime,
         snapshot_id,
         schema: Arc::new(schema),
         stats: std::sync::RwLock::new(IcebergPushdownStats {
@@ -305,6 +358,34 @@ pub fn build_iceberg_provider(
             columns_projected: columns_total,
         }),
     }))
+}
+
+/// Connect to the catalog and load `table_ident`, binding the table to `runtime`.
+async fn load_table(
+    config: IcebergCatalogConfig,
+    runtime: iceberg::Runtime,
+    table_ident: TableIdent,
+    ident_for_err: String,
+) -> iceberg::Result<iceberg::table::Table> {
+    let catalog = config.connect(runtime).await?;
+    catalog.load_table(&table_ident).await.map_err(|e| {
+        // Typed, named error — NEVER an empty result (P1's negative case): a
+        // dropped/nonexistent table surfaces its identity in the message.
+        iceberg::Error::new(
+            e.kind(),
+            format!("iceberg federated table '{ident_for_err}' unavailable: {e}"),
+        )
+    })
+}
+
+/// The data-file count the selected snapshot's summary records (`0` when it has none).
+fn total_data_files(table: &iceberg::table::Table, snapshot_id: Option<i64>) -> u64 {
+    snapshot_id
+        .and_then(|id| table.metadata().snapshot_by_id(id))
+        .or_else(|| table.metadata().current_snapshot())
+        .and_then(|s| s.summary().additional_properties.get("total-data-files"))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
 }
 
 impl TableFunctionImpl for IcebergFunc {
@@ -331,6 +412,9 @@ impl TableFunctionImpl for IcebergFunc {
 #[derive(Debug)]
 pub struct IcebergTableProvider {
     table: iceberg::table::Table,
+    /// The runtime `table` was loaded on and spawns its scan tasks on; kept for as long
+    /// as the table is.
+    runtime: Arc<FederationRuntime>,
     snapshot_id: Option<i64>,
     schema: SchemaRef,
     // `RwLock`, not a plain field: `columns_projected` is unknowable at construction
@@ -393,49 +477,19 @@ impl TableProvider for IcebergTableProvider {
                 .map(|&index| self.schema.field(index).name().clone())
                 .collect::<Vec<_>>()
         });
-        let predicates = pushed_exprs
-            .iter()
-            .filter_map(|filter| iceberg_predicate_for(filter, &self.schema))
-            .reduce(Predicate::and);
-        let table = self.table.clone();
-        let snapshot_id = self.snapshot_id;
-        // A pushed limit is safe only when no residual filter can discard rows.
-        let read_limit = if pushed_exprs.is_empty() { limit } else { None };
-        let (batches, files_scanned) = block_on_iceberg(async move {
-            let mut builder = table.scan();
-            if let Some(columns) = columns {
-                builder = builder.select(columns);
-            }
-            if let Some(predicate) = predicates {
-                builder = builder.with_filter(predicate);
-            }
-            if let Some(id) = snapshot_id {
-                builder = builder.snapshot_id(id);
-            }
-            let scan = builder.build()?;
-            let files_scanned = scan
-                .plan_files()
-                .await?
-                .try_collect::<Vec<_>>()
-                .await?
-                .len() as u64;
-            let mut stream = scan.to_arrow().await?;
-            let mut batches = Vec::new();
-            let mut rows = 0;
-            while let Some(batch) = stream.try_next().await? {
-                let remaining = read_limit.map(|max| max.saturating_sub(rows));
-                let batch = batch.slice(
-                    0,
-                    remaining.unwrap_or(batch.num_rows()).min(batch.num_rows()),
-                );
-                rows += batch.num_rows();
-                batches.push(batch);
-                if read_limit.is_some_and(|max| rows >= max) {
-                    break;
-                }
-            }
-            Ok((batches, files_scanned))
-        })?;
+        let request = ScanRequest {
+            columns,
+            predicate: pushed_exprs
+                .iter()
+                .filter_map(|filter| iceberg_predicate_for(filter, &self.schema))
+                .reduce(Predicate::and),
+            snapshot_id: self.snapshot_id,
+            // A pushed limit is safe only when no residual filter can discard rows.
+            limit: if pushed_exprs.is_empty() { limit } else { None },
+        };
+        let read_limit = request.limit;
+        let reading = read_table(self.table.clone(), request);
+        let (batches, files_scanned) = self.runtime.run(reading).await?;
         let stats = {
             let mut stats = self.stats.write().expect("pushdown stats lock poisoned");
             stats.files_scanned = files_scanned;
@@ -451,6 +505,58 @@ impl TableProvider for IcebergTableProvider {
         let mem = MemTable::try_new(projected_schema, vec![batches])?;
         mem.scan(state, None, &[], read_limit).await
     }
+}
+
+/// What one DataFusion scan asks of the table.
+struct ScanRequest {
+    /// The projected column names (`None` = every column).
+    columns: Option<Vec<String>>,
+    /// The conjunction of the pushed filters the table format can evaluate.
+    predicate: Option<Predicate>,
+    snapshot_id: Option<i64>,
+    /// Stop reading after this many rows.
+    limit: Option<usize>,
+}
+
+/// Plan `request` against `table` and read it: the batches, and the number of data files
+/// the manifest planner kept.
+async fn read_table(
+    table: iceberg::table::Table,
+    request: ScanRequest,
+) -> iceberg::Result<(Vec<arrow::record_batch::RecordBatch>, u64)> {
+    let mut builder = table.scan();
+    if let Some(columns) = request.columns {
+        builder = builder.select(columns);
+    }
+    if let Some(predicate) = request.predicate {
+        builder = builder.with_filter(predicate);
+    }
+    if let Some(id) = request.snapshot_id {
+        builder = builder.snapshot_id(id);
+    }
+    let scan = builder.build()?;
+    let files_scanned = scan
+        .plan_files()
+        .await?
+        .try_collect::<Vec<_>>()
+        .await?
+        .len() as u64;
+    let mut stream = scan.to_arrow().await?;
+    let mut batches = Vec::new();
+    let mut rows = 0;
+    while let Some(batch) = stream.try_next().await? {
+        let remaining = request.limit.map(|max| max.saturating_sub(rows));
+        let batch = batch.slice(
+            0,
+            remaining.unwrap_or(batch.num_rows()).min(batch.num_rows()),
+        );
+        rows += batch.num_rows();
+        batches.push(batch);
+        if request.limit.is_some_and(|max| rows >= max) {
+            break;
+        }
+    }
+    Ok((batches, files_scanned))
 }
 
 /// Best-effort DataFusion `Expr` -> iceberg `Predicate` translation for the pushdown
@@ -533,6 +639,32 @@ mod tests {
         }
         let err = IcebergCatalogConfig::from_env().unwrap_err();
         assert!(err.to_string().contains(ICEBERG_FEDERATION_CATALOG_URI_ENV));
+    }
+
+    #[test]
+    fn the_runtime_bridges_a_sync_caller_and_drops_inside_another_runtime() {
+        let runtime = FederationRuntime::start().unwrap();
+        assert_eq!(runtime.block_on(async { Ok(7) }).unwrap(), 7);
+        let failed = runtime.block_on(async {
+            Err::<(), _>(iceberg::Error::new(
+                iceberg::ErrorKind::Unexpected,
+                "catalog refused",
+            ))
+        });
+        assert!(failed.unwrap_err().to_string().contains("catalog refused"));
+
+        // A caller that is itself a runtime thread: the sync bridge waits on a channel
+        // (no nested `block_on`), the async bridge awaits across runtimes, and dropping
+        // the owner there must not panic the way dropping a Tokio runtime does.
+        let caller = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        caller.block_on(async move {
+            assert_eq!(runtime.block_on(async { Ok(8) }).unwrap(), 8);
+            assert_eq!(runtime.run(async { Ok(9) }).await.unwrap(), 9);
+            drop(runtime);
+        });
     }
 
     #[test]
