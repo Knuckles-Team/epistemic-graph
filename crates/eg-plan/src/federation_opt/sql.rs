@@ -74,6 +74,9 @@ impl<'a> SqlRemote<'a> {
 }
 
 impl RemoteFetch for SqlRemote<'_> {
+    fn parallel_safe(&self) -> Option<&(dyn RemoteFetch + Sync)> {
+        Some(self)
+    }
     fn capabilities(&self) -> SourceCapabilities {
         let Some(dialect) = self.dialect else {
             return SourceCapabilities::fetch_only();
