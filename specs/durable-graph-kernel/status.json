@@ -459,14 +459,14 @@
       "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "af130e39588680020f6bc5a6b7cf6e9eea93aa3e",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/af130e39588680020f6bc5a6b7cf6e9eea93aa3e",
-          "description": "Published on a branch, not yet merged; reservation, outcome, replay, audit-class refusal, interrupted-reservation and writer-unavailable tests pass there"
+          "commit": "2cc878fb893865d803c42c1fe4cbc72b25974a8d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/44",
+          "description": "Partial slice merged by pull request 44: reservation, outcome, replay, audit-class refusal, interrupted-reservation and writer-unavailable behaviour, with the audit refusals declared and served as their own codes. CI run 37034615432 passed on the tested integration tree 634fe3f5d3da5937aec8f1f418efe28ba8d4b9cf."
         }
       ],
-      "remaining": "Not merged. Existing graph shards need the offline layout upgrade before they open, and no operator entry point runs that upgrade yet. The per-attempt admission id is generated inside replicated apply; nothing in CI exercises the append through the replicated path."
+      "remaining": "Existing graph shards need the offline layout upgrade before they open, and no operator entry point runs that upgrade yet. The per-attempt admission id is generated inside replicated apply, and nothing in CI exercises the append through the replicated path."
     },
     {
       "id": "EG-DURABLE-KERNEL-R032",
