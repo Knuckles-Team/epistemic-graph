@@ -63,13 +63,7 @@ fn initialize_runs_once_and_only_for_the_first_run_authority() {
 #[test]
 fn local_initialize_requires_the_first_admin_credential() {
     let mut store = IdentityStore::default();
-    let op = IdentityOp::Config(ConfigOp::Initialize {
-        request: InitializeRequest {
-            mode: AuthMode::Local,
-            admin_username: Some("root".to_string()),
-            admin_password: Secret::default(),
-        },
-    });
+    let op = crate::test_support::identity::bootstrap_local_op();
     assert_eq!(
         store.clone().apply(&op, &broker(), &ctx_at(NOW)),
         Err(IdentityRefusal::Unstamped)

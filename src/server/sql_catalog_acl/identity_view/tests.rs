@@ -25,13 +25,7 @@ fn store() -> IdentityStore {
         scopes: [IDENTITY_AUTHENTICATE_SCOPE.to_string()].into(),
     });
     stamp.password_hash = Some("$argon2id$v=19$m=1024,t=1,p=1$c2FsdA$aGFzaA".to_string());
-    let op = IdentityOp::Config(ConfigOp::Initialize {
-        request: InitializeRequest {
-            mode: AuthMode::Local,
-            admin_username: Some("root".to_string()),
-            admin_password: Secret::default(),
-        },
-    });
+    let op = eg_types::test_support::identity::bootstrap_local_op();
     let ctx = ApplyContext {
         now_ms: 1_800_000_000_000,
         classifier: &eg_capabilities::scopes::ScopeRegistry,

@@ -165,6 +165,8 @@ pub struct WebauthnCredential {
     pub session_token: Secret,
     /// base64url.
     pub credential_id: String,
+    /// A caller-chosen label for this credential (a security key's name).
+    pub name: String,
     /// The COSE public key, base64url.
     pub public_key_cose: String,
     pub sign_count: u32,
@@ -172,7 +174,6 @@ pub struct WebauthnCredential {
     pub aaguid: Option<String>,
     #[serde(default)]
     pub transports: Vec<String>,
-    pub name: String,
 }
 
 /// `verify_webauthn`: graph-os verified an assertion by `credential_id`;

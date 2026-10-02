@@ -25,9 +25,10 @@ pub struct UserView {
     pub display_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    /// Whether this is the engine's built-in bootstrap principal.
+    pub is_bootstrap: bool,
     pub kind: UserKind,
     pub status: UserStatus,
-    pub is_bootstrap: bool,
     pub source: String,
     pub roles: BTreeSet<String>,
     pub has_password: bool,
