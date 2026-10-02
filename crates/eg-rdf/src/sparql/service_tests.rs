@@ -11,6 +11,8 @@ use spargebra::algebra::{Expression, GraphPattern};
 use spargebra::Query;
 
 use super::service::{filter_is_pushable, service_values_rows};
+
+mod oracle;
 use super::{
     execute, parse_query, view_of_turtle, Binding, Dataset, Projection, RemoteSparql,
     ServiceBudget, Solution, SparqlResult, SERVICE_BUDGET_EXCEEDED,
@@ -171,7 +173,7 @@ fn a_filter_over_the_service_rows_is_sent_and_reapplied_locally() {
         &endpoint,
         "SELECT ?s ?score WHERE {
             SERVICE <http://remote/e> { ?s ex:score ?score }
-            FILTER (?score > 1)
+            FILTER (isIRI(?s) && ?s = ex:b)
         }",
     )
     .unwrap();
@@ -206,33 +208,86 @@ fn pushable(filter: &str) -> bool {
     filter_is_pushable(&expr, &remote)
 }
 
+/// Every filter of `filters` is pushable, or every one is not; `why` names the rule.
+fn assert_pushable(filters: &[&str], expected: bool, why: &str) {
+    for filter in filters {
+        assert_eq!(pushable(filter), expected, "{filter}: {why}");
+    }
+}
+
 #[test]
 fn only_filters_the_endpoint_can_decide_from_the_service_rows_are_pushable() {
-    for filter in [
-        "?score > 1",
-        "?s = ex:a",
-        "?score IN (1, 2)",
-        "bound(?score) && strstarts(str(?s), \"http://example.org/\")",
-        "!(?score < 2) || isIRI(?s)",
-        "if(?score > 1, ?score + 1, ?score * 2) >= 3",
-    ] {
-        assert!(pushable(filter), "{filter} reads only the SERVICE rows");
-    }
-    for filter in [
+    let sound = [
+        "bound(?score)",
+        "isIRI(?s)",
+        "isBlank(?s) || isIRI(?s)",
+        "isLiteral(?score) && bound(?s)",
+        "isIRI(?s) && ?s = ex:a",
+        "ex:a = ?s && isIRI(?s)",
+        "isIRI(?s) && sameTerm(?s, ex:a)",
+        "isIRI(?s) && ?s IN (ex:a, ex:b) && isLiteral(?score)",
+        "(isIRI(?s) && ?s = ex:a) || isBlank(?s)",
+    ];
+    assert_pushable(&sound, true, "true at the endpoint whenever true locally");
+    let not_decidable_from_the_rows = [
         "EXISTS { ?s <urn:localFlag> ?x }",
         "NOT EXISTS { ?s <urn:localFlag> ?x }",
-        "?score > 1 && EXISTS { ?s <urn:localFlag> ?x }",
+        "isIRI(?s) && EXISTS { ?s <urn:localFlag> ?x }",
         "coalesce(EXISTS { ?s ex:name ?n }, false)",
-        "?elsewhere > 1",
         "bound(?elsewhere)",
+        "isIRI(?elsewhere)",
         "rand() < 0.5",
         "str(now()) > \"2000\"",
         "isIRI(iri(str(?score)))",
         "<http://example.org/extension>(?score)",
         "datatype(?score) = <http://www.w3.org/2001/XMLSchema#integer>",
-    ] {
-        assert!(!pushable(filter), "{filter} must stay local");
-    }
+    ];
+    assert_pushable(
+        &not_decidable_from_the_rows,
+        false,
+        "reads a dataset, is not deterministic, or names a variable the pattern lacks",
+    );
+    let compares_what_was_erased = [
+        "?score > 1",
+        "?score = 1",
+        "?score != 1",
+        "?score IN (1, 2)",
+        "sameTerm(?score, \"1\"@en)",
+        "?score + 1 = 2",
+        "?s = ex:a",
+        "sameTerm(?s, ex:a)",
+        "?s IN (ex:a, ex:b)",
+        "isIRI(?score) && ?s = ex:a",
+        "isIRI(?s) || ?s = ex:a",
+        "isIRI(?s) && ?s = \"a\"",
+        "isIRI(?s) && ?s IN (ex:a, \"a\")",
+        "isIRI(?s) && ?s = ?score",
+        "isLiteral(?s) && ?s = ex:a",
+        "strstarts(str(?s), \"http://example.org/\")",
+        "contains(?score, \"1\")",
+        "ucase(?score) = \"1\"",
+        "strlen(?score) = 1",
+        "isIRI(str(?s))",
+        "isNumeric(?score)",
+    ];
+    assert_pushable(
+        &compares_what_was_erased,
+        false,
+        "a language tag, a datatype, or the IRI/literal distinction is gone locally",
+    );
+    let negates = [
+        "!bound(?score)",
+        "!isIRI(?s)",
+        "!(isIRI(?s) && ?s = ex:a)",
+        "isIRI(?s) && ?s != ex:a",
+        "isIRI(?s) && ?s NOT IN (ex:a)",
+        "if(bound(?score), isIRI(?s), isBlank(?s))",
+    ];
+    assert_pushable(
+        &negates,
+        false,
+        "an unbound or dropped binding makes the two sides disagree under negation",
+    );
 }
 
 // ── SILENT and the fallback to the clause's own query ──────────────────────────────
@@ -248,7 +303,7 @@ fn a_refused_filter_pushdown_falls_back_to_the_original_query_under_silent_too()
             &format!(
                 "SELECT ?s ?score WHERE {{
                     {clause} <http://remote/e> {{ ?s ex:score ?score }}
-                    FILTER (?score > 1)
+                    FILTER (isIRI(?s) && ?s = ex:b)
                 }}"
             ),
         )
@@ -292,26 +347,32 @@ fn a_refused_limit_pushdown_falls_back_to_the_original_query_under_silent_too() 
 #[test]
 fn silent_hushes_only_the_failure_of_the_original_query() {
     let local = view_of_turtle(FLAGGED_LOCALLY);
-    let query = |clause: &str| {
+    let query = |clause: &str, filter: &str| {
         format!(
             "SELECT ?s WHERE {{
                 {clause} <http://remote/e> {{ ?s ex:score ?score }}
-                FILTER (!bound(?score) || ?score > 1)
+                FILTER ({filter})
             }}"
         )
     };
+    // A filter that is sent: narrowed, then original, and only then the SILENT empty
+    // solution — which this filter rejects locally.
     let down = Endpoint::over(REMOTE_SCORES).refusing(&["SELECT"]);
-    let rows = run(&local, &down, &query("SERVICE SILENT")).unwrap();
-    assert_eq!(
-        column(&rows, "s"),
-        vec!["-"],
-        "the SILENT empty solution, kept by the local filter"
-    );
+    let rows = run(&local, &down, &query("SERVICE SILENT", "isIRI(?s)")).unwrap();
+    assert!(rows.is_empty(), "{rows:?}");
     assert_eq!(down.queries().len(), 2, "narrowed, then original");
 
+    // A filter that stays local: the original query alone, and its SILENT empty
+    // solution kept by the local filter.
     let down = Endpoint::over(REMOTE_SCORES).refusing(&["SELECT"]);
-    let error = run(&local, &down, &query("SERVICE")).unwrap_err();
+    let rows = run(&local, &down, &query("SERVICE SILENT", "!bound(?score)")).unwrap();
+    assert_eq!(column(&rows, "s"), vec!["-"], "the SILENT empty solution");
+    assert_eq!(down.queries().len(), 1);
+
+    let down = Endpoint::over(REMOTE_SCORES).refusing(&["SELECT"]);
+    let error = run(&local, &down, &query("SERVICE", "isIRI(?s)")).unwrap_err();
     assert!(error.contains("SERVICE failed"), "{error}");
+    assert_eq!(down.queries().len(), 2, "narrowed, then original");
 }
 
 #[test]

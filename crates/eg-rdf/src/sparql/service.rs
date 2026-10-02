@@ -8,10 +8,10 @@
 //!
 //!  * it is sent without `SILENT`; when the endpoint refuses it, the clause's own query is
 //!    sent, and only that final attempt's failure becomes the `SILENT` join identity;
-//!  * a `FILTER` is pushed only when the endpoint can decide it from the rows of the
-//!    `SERVICE` pattern alone ([`filter_is_pushable`]) — anything that reads a dataset
-//!    (`EXISTS`), is not deterministic, or names a variable the pattern does not bind
-//!    stays local, because a row the endpoint drops cannot be restored by filtering again;
+//!  * a `FILTER` is pushed only when the endpoint provably keeps every row the local
+//!    filter keeps ([`filter_is_pushable`]) — a row the endpoint drops cannot be restored
+//!    by filtering again, and the rows that come back have lost their language tags and
+//!    datatypes, so almost every comparison stays local;
 //!  * a bind join runs under one [`ServiceBudget`] covering every request it sends — the
 //!    batches the endpoint answered, the batch it refused, and the fallback to the
 //!    clause's own query.
@@ -293,8 +293,8 @@ impl<'q> ServiceCall<'q> {
         }
     }
 
-    /// The clause's pattern narrowed by `expr`, when sending the filter to the endpoint
-    /// cannot drop a row the local filter keeps.
+    /// The clause's pattern narrowed by `expr`, when the endpoint provably keeps every row
+    /// the local filter keeps ([`filter_is_pushable`]).
     fn pushed_filter(&self, expr: &Expression) -> Option<GraphPattern> {
         filter_is_pushable(expr, self.pattern).then(|| GraphPattern::Filter {
             expr: expr.clone(),
@@ -441,81 +441,142 @@ pub(super) fn build_service_query(inner: &GraphPattern) -> String {
 
 // ── FILTER pushdown eligibility ────────────────────────────────────────────────────
 
-/// Built-ins whose value depends only on their arguments. Everything else stays local:
-/// the non-deterministic ones (`RAND`, `NOW`, `UUID`, `STRUUID`, `BNODE`), `IRI` (its
-/// result depends on the evaluating side's base IRI), an extension function (its meaning
-/// is the endpoint's own), and the ones reading a datatype or language tag this
-/// evaluator does not carry.
-const REMOTE_SAFE_FUNCTIONS: &[Function] = &[
-    Function::Str,
-    Function::IsIri,
-    Function::IsBlank,
-    Function::IsLiteral,
-    Function::Contains,
-    Function::StrStarts,
-    Function::StrEnds,
-    Function::StrLen,
-    Function::UCase,
-    Function::LCase,
-];
-
 /// May `expr`, the filter directly over a `SERVICE` clause whose pattern is `remote`, also
 /// be evaluated by the endpoint?
 ///
-/// It may when the endpoint can decide it from each row of `remote` alone: every variable
-/// is in the scope of `remote`, and every operator is on the allow-list below — a
-/// constant, a variable, `BOUND`, a comparison, arithmetic, a logical connective, `IN`,
-/// `IF`, `COALESCE`, or one of [`REMOTE_SAFE_FUNCTIONS`]. `EXISTS` / `NOT EXISTS` never
-/// qualifies: its pattern is matched against the dataset of whichever side evaluates it,
-/// and the endpoint's dataset is not this one. The list is an allow-list, so an operator
-/// added later is local-only until it is reviewed.
+/// # What has to hold
 ///
-/// The local filter is applied to the returned rows regardless, so the endpoint's
-/// evaluation can only narrow the transfer. The endpoint is assumed to evaluate the
-/// allow-listed operators as SPARQL defines them. This evaluator compares lexical forms
-/// without datatypes, so it is more lenient than that in one case: an ill-typed
-/// comparison (a string-typed numeral compared as a number) is a type error at the
-/// endpoint, and a pushed filter then drops the row there.
+/// The local filter runs over the returned rows whether or not the filter was sent, so
+/// sending it is sound exactly when the endpoint keeps every row the local filter keeps:
+/// *local true ⇒ endpoint true*, for every row the pattern can produce. The two sides do
+/// not evaluate the same thing. The endpoint evaluates RDF terms. The local side
+/// evaluates what is left of them after the client boundary ([`RemoteSparql::select`]
+/// returns [`Binding`]s):
+///
+///  * an IRI arrives as `Binding::Node("<iri>")`, a blank node as `Binding::Node("_:id")`;
+///  * a literal arrives as `Binding::Literal(lexical form)` — its language tag and its
+///    datatype are gone;
+///  * a term the client cannot represent (a quoted triple) arrives as no binding at all.
+///
+/// On top of that the local operators are lexical: `=` and `IN` strip the angle brackets
+/// of a node and compare strings, or compare as numbers when both sides parse as one;
+/// `sameTerm`, `CONTAINS`, `STRSTARTS`, `STRENDS`, `STR`, `UCASE`, `LCASE` and `STRLEN`
+/// work on the same strings; the ordering operators parse them as numbers.
+///
+/// # What that rules out
+///
+/// Anything the endpoint may answer `false` or raise a type error for while the local
+/// side answers `true`:
+///
+///  * every comparison involving a literal — `"hello"@en` and `"hello"@fr` are the same
+///    string here and different terms there; `"1"^^xsd:string = 1` is true here and a
+///    type error there; so `=`, `sameTerm`, `<`/`<=`/`>`/`>=`, `IN`, arithmetic and the
+///    string functions are never sent;
+///  * a bare comparison with an IRI — the literal `"urn:x"` equals `<urn:x>` here once
+///    the brackets are stripped, and never there;
+///  * every negation — where the client drops a term, `!bound(?v)` is true here and false
+///    there, and where a variable is unbound `!isIRI(?v)` is true here and an error there;
+///  * `EXISTS` / `NOT EXISTS` (matched against the evaluating side's dataset), the
+///    non-deterministic built-ins, `IRI`, extension functions, `IF`, `COALESCE`.
+///
+/// # What is left, and why it is sound
+///
+/// A filter is sent when it is built from the forms below with `&&` and `||` only.
+///
+///  * `bound(?v)`, `isIRI(?v)`, `isBlank(?v)`, `isLiteral(?v)` on a variable of `remote`.
+///    Each is true here only for a binding of that kind — present, `Node("<…>")`,
+///    `Node("_:…")`, `Literal` — and the boundary produces that binding only from a
+///    bound term, an IRI, a blank node and a literal respectively.
+///  * `?v = <iri>`, `<iri> = ?v`, `sameTerm` of the two, and `?v IN (<iri>, …)` with only
+///    IRIs listed — but only as a conjunct beside `isIRI(?v)` for the same variable. The
+///    conjunction is true here only when the binding is `Node("<x>")` and `x` is the
+///    constant, so the term is that IRI and both conjuncts are true at the endpoint; the
+///    guard is what excludes the literal `"urn:x"`.
+///  * `a && b`: true here only when both are, so both are true there. `a || b`: true here
+///    only when one is, so that one is true there, and a true operand decides a SPARQL
+///    `||` even when the other raises an error.
+///
+/// The forms are an allow-list: an operator not named here is local-only.
 pub(super) fn filter_is_pushable(expr: &Expression, remote: &GraphPattern) -> bool {
-    expr_is_remote_safe(expr, &collect_vars(remote))
+    holds_at_endpoint(expr, &collect_vars(remote))
 }
 
-fn expr_is_remote_safe(expr: &Expression, scope: &[String]) -> bool {
-    let in_scope = |variable: &Variable| scope.iter().any(|name| name == variable.as_str());
+/// `expr` is a disjunction of conjunctions of the sound forms.
+fn holds_at_endpoint(expr: &Expression, scope: &[String]) -> bool {
+    if let Expression::Or(a, b) = expr {
+        return holds_at_endpoint(a, scope) && holds_at_endpoint(b, scope);
+    }
+    let conjuncts = conjuncts(expr);
+    let guarded = iri_guarded(&conjuncts);
+    conjuncts
+        .iter()
+        .all(|part| conjunct_holds(part, scope, &guarded))
+}
+
+/// The operands of a (possibly nested) `&&`; any other expression is its own conjunct.
+fn conjuncts(expr: &Expression) -> Vec<&Expression> {
     match expr {
-        Expression::NamedNode(_) | Expression::Literal(_) => true,
-        Expression::Variable(variable) | Expression::Bound(variable) => in_scope(variable),
-        Expression::FunctionCall(function, arguments) => {
-            REMOTE_SAFE_FUNCTIONS.contains(function)
-                && arguments.iter().all(|a| expr_is_remote_safe(a, scope))
-        }
-        other => remote_safe_operands(other)
-            .is_some_and(|operands| operands.iter().all(|o| expr_is_remote_safe(o, scope))),
+        Expression::And(a, b) => [conjuncts(a), conjuncts(b)].concat(),
+        other => vec![other],
     }
 }
 
-/// The operands of an allow-listed operator; `None` for every other expression
-/// (`EXISTS` among them), which therefore stays local.
-fn remote_safe_operands(expr: &Expression) -> Option<Vec<&Expression>> {
-    match expr {
-        Expression::Or(a, b)
-        | Expression::And(a, b)
-        | Expression::Equal(a, b)
-        | Expression::SameTerm(a, b)
-        | Expression::Greater(a, b)
-        | Expression::GreaterOrEqual(a, b)
-        | Expression::Less(a, b)
-        | Expression::LessOrEqual(a, b)
-        | Expression::Add(a, b)
-        | Expression::Subtract(a, b)
-        | Expression::Multiply(a, b)
-        | Expression::Divide(a, b) => Some(vec![a.as_ref(), b.as_ref()]),
-        Expression::UnaryPlus(a) | Expression::UnaryMinus(a) | Expression::Not(a) => {
-            Some(vec![a.as_ref()])
+/// The variables an `isIRI(?v)` conjunct guards.
+fn iri_guarded<'e>(conjuncts: &[&'e Expression]) -> Vec<&'e str> {
+    conjuncts
+        .iter()
+        .copied()
+        .filter_map(|part| match part {
+            Expression::FunctionCall(Function::IsIri, arguments) => variable_of(arguments),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The variable a one-argument call is applied to, when its argument is a bare variable.
+fn variable_of(arguments: &[Expression]) -> Option<&str> {
+    match arguments {
+        [Expression::Variable(variable)] => Some(variable.as_str()),
+        _ => None,
+    }
+}
+
+/// One conjunct: a nested disjunction, a term test on a variable of the pattern, or an
+/// IRI comparison of a variable the same conjunction guards with `isIRI`.
+fn conjunct_holds(part: &Expression, scope: &[String], guarded: &[&str]) -> bool {
+    match part {
+        Expression::Or(..) => holds_at_endpoint(part, scope),
+        Expression::Bound(variable) => in_scope(variable.as_str(), scope),
+        Expression::FunctionCall(function, arguments) => {
+            TERM_KIND_TESTS.contains(function)
+                && variable_of(arguments).is_some_and(|name| in_scope(name, scope))
         }
-        Expression::In(a, list) => Some(std::iter::once(a.as_ref()).chain(list).collect()),
-        Expression::If(a, b, c) => Some(vec![a.as_ref(), b.as_ref(), c.as_ref()]),
-        Expression::Coalesce(list) => Some(list.iter().collect()),
+        other => compared_with_iris(other).is_some_and(|name| guarded.contains(&name)),
+    }
+}
+
+fn in_scope(name: &str, scope: &[String]) -> bool {
+    scope.iter().any(|variable| variable == name)
+}
+
+/// The built-ins that test only the kind of a term, which survives the client boundary.
+const TERM_KIND_TESTS: &[Function] = &[Function::IsIri, Function::IsBlank, Function::IsLiteral];
+
+/// The variable of `?v = <iri>`, `<iri> = ?v`, `sameTerm` of the two, or
+/// `?v IN (<iri>, …)`; `None` for every other expression.
+fn compared_with_iris(expr: &Expression) -> Option<&str> {
+    let is_iri = |operand: &Expression| matches!(operand, Expression::NamedNode(_));
+    match expr {
+        Expression::Equal(a, b) | Expression::SameTerm(a, b) => match (a.as_ref(), b.as_ref()) {
+            (Expression::Variable(variable), iri) | (iri, Expression::Variable(variable)) => {
+                is_iri(iri).then_some(variable.as_str())
+            }
+            _ => None,
+        },
+        Expression::In(operand, list) => match operand.as_ref() {
+            Expression::Variable(variable) => list.iter().all(is_iri).then_some(variable.as_str()),
+            _ => None,
+        },
         _ => None,
     }
 }
