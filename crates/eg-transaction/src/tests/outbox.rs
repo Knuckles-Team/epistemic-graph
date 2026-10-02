@@ -2191,3 +2191,181 @@ fn a_pending_rewind_fences_every_other_delivery_write() {
         .unwrap_err()
         .contains("OUTBOX_REWIND_PENDING"));
 }
+
+/// Interleave two topics in one committed batch: they share scope, sequence,
+/// timestamp and batch id, so only topic/consumer isolation separates them.
+fn two_topic_fixture(path: &std::path::Path) -> (Fixture, OwnedStoreHandle<LedgerOnlyOwner>) {
+    let identity = native_identity("tenant-a", "incarnation:outbox:two-topics");
+    let (fixture, owner) = ledger_fixture(path, identity);
+    let mut value = event_batch(owner.identity(), "mixed", 0, 6);
+    for intent in value.outbox.iter_mut().skip(1).step_by(2) {
+        intent.topic = "engine.projection.audit".to_string();
+    }
+    value
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .unwrap();
+    value.validate().unwrap();
+    apply_batch(&fixture, &owner, &value);
+    for (consumer, topic) in [("class-a", TOPIC), ("class-b", "engine.projection.audit")] {
+        fixture
+            .mutations
+            .outbox_subscribe(&owner, consumer, topic)
+            .unwrap();
+    }
+    (fixture, owner)
+}
+
+fn assert_topic_claims(claims: &[MutationOutboxLease], topic: &str, expected: &[(u32, u32)]) {
+    let actual: Vec<_> = claims
+        .iter()
+        .map(|lease| {
+            assert_eq!(lease.record.intent.topic, topic);
+            assert_eq!(lease.record.batch_id, "mixed");
+            (lease.record.ordinal, lease.attempt)
+        })
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+fn ack_topic_page(
+    fixture: &Fixture,
+    owner: &OwnedStoreHandle<LedgerOnlyOwner>,
+    claims: &[MutationOutboxLease],
+    now: u64,
+) {
+    for lease in claims {
+        let cursor = fixture.mutations.outbox_ack(owner, lease, now).unwrap();
+        assert_eq!(cursor.outbox_ordinal, lease.record.ordinal);
+    }
+}
+
+fn assert_topic_b_attempts(fixture: &Fixture, owner: &OwnedStoreHandle<LedgerOnlyOwner>) {
+    let read = fixture.kernel.read_scope(owner).unwrap();
+    for (ordinal, attempt) in [(1, 1), (3, 0), (5, 0)] {
+        let row = read_delivery_row(&read, owner.identity(), "class-b", "mixed", ordinal).unwrap();
+        assert_eq!(row.attempt, attempt);
+        assert!(row.dead_lettered_at_ms.is_none());
+    }
+    assert_eq!(
+        outbox_status(&read, "class-b", 100).unwrap().dead_lettered,
+        0
+    );
+}
+
+#[test]
+fn two_topics_retry_exhaustion_preserves_other_topic_attempts_and_progress() {
+    let dir = tempfile::tempdir().unwrap();
+    let (fixture, owner) = two_topic_fixture(&dir.path().join("native.redb"));
+    let other = claim_all(&fixture, &owner, "class-b", 3, 10);
+    assert_topic_claims(&other, "engine.projection.audit", &[(1, 1), (3, 0), (5, 0)]);
+    for attempt in 1..=crate::outbox::max_delivery_attempts() {
+        let claims = claim_all(&fixture, &owner, "class-a", 3, 10 + u64::from(attempt));
+        assert_topic_claims(&claims, TOPIC, &[(0, attempt), (2, 0), (4, 0)]);
+        for lease in &claims {
+            fixture.mutations.outbox_release(&owner, lease).unwrap();
+        }
+        assert_topic_b_attempts(&fixture, &owner);
+    }
+    // B can acknowledge its entire stream while A's poison head is unresolved.
+    ack_topic_page(&fixture, &owner, &other, 100);
+    let mut sweep = budget(32, 110);
+    let after = claim_once(&fixture, &owner, "class-a", &mut sweep);
+    assert_eq!(after.dead_lettered.len(), 1);
+    assert_eq!(after.dead_lettered[0].ordinal, 0);
+    assert_topic_claims(&after.claims, TOPIC, &[(2, 1), (4, 0)]);
+    ack_topic_page(&fixture, &owner, &after.claims, 120);
+    assert_topic_b_attempts(&fixture, &owner);
+    let read = fixture.kernel.read_scope(&owner).unwrap();
+    assert_eq!(
+        outbox_cursor(&read, "class-a")
+            .unwrap()
+            .unwrap()
+            .outbox_ordinal,
+        4
+    );
+    assert_eq!(
+        outbox_cursor(&read, "class-b")
+            .unwrap()
+            .unwrap()
+            .outbox_ordinal,
+        5
+    );
+    assert_eq!(
+        outbox_status(&read, "class-a", 120).unwrap().dead_lettered,
+        1
+    );
+    assert_eq!(outbox_status(&read, "class-b", 120).unwrap().pending, 0);
+}
+
+#[test]
+fn two_topics_reject_restart_and_rewind_preserve_independent_replay() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.redb");
+    let identity;
+    {
+        let (fixture, owner) = two_topic_fixture(&path);
+        identity = owner.identity().clone();
+        let first = claim_all(&fixture, &owner, "class-a", 3, 10);
+        let other = claim_all(&fixture, &owner, "class-b", 3, 10);
+        assert_topic_claims(&first, TOPIC, &[(0, 1), (2, 0), (4, 0)]);
+        assert_topic_claims(&other, "engine.projection.audit", &[(1, 1), (3, 0), (5, 0)]);
+        fixture
+            .mutations
+            .outbox_reject(&owner, &first[0], OutboxRejectReason::DomainRefused, 20)
+            .unwrap();
+    }
+    let fixture = Fixture::open::<LedgerOnlyOwner>(&path, "physical:test:ledger-only", None);
+    let owner = bind_scope(&fixture, "tenant-a", identity.clone());
+    // Expired leases replay after reopen; only each topic's current head pays.
+    let replay = claim_all(&fixture, &owner, "class-a", 2, 10_000);
+    let other = claim_all(&fixture, &owner, "class-b", 3, 10_000);
+    assert_topic_claims(&replay, TOPIC, &[(2, 1), (4, 0)]);
+    assert_topic_claims(&other, "engine.projection.audit", &[(1, 2), (3, 0), (5, 0)]);
+    ack_topic_page(&fixture, &owner, &replay, 10_010);
+    let rewind = fixture
+        .mutations
+        .outbox_rewind(&owner, "class-a", OutboxRewindTarget::Start, 10_020)
+        .unwrap();
+    assert!(!rewind.complete);
+    drop(owner);
+    drop(fixture);
+
+    let fixture = Fixture::open::<LedgerOnlyOwner>(&path, "physical:test:ledger-only", None);
+    let owner = bind_scope(&fixture, "tenant-a", identity);
+    let mut sweep = budget(32, 10_030);
+    let deferred = claim_once(&fixture, &owner, "class-a", &mut sweep);
+    assert_eq!(deferred.deferred, Some(OutboxDeferral::RewindPending));
+    assert!(deferred.claims.is_empty());
+    assert!(deferred.dead_lettered.is_empty());
+    // A's persisted rewind fence must not prevent B's still-live acknowledgements.
+    ack_topic_page(&fixture, &owner, &other, 10_040);
+    let done = fixture
+        .mutations
+        .outbox_rewind(&owner, "class-a", OutboxRewindTarget::Start, 10_050)
+        .unwrap();
+    assert!(
+        done.complete,
+        "the three-row rewind fits in one delete page"
+    );
+    assert_eq!(done.deleted, 3, "only A delivery rows are rewound");
+    let replay = claim_all(&fixture, &owner, "class-a", 3, 10_060);
+    assert_topic_claims(&replay, TOPIC, &[(0, 1), (2, 0), (4, 0)]);
+    ack_topic_page(&fixture, &owner, &replay, 10_070);
+    let read = fixture.kernel.read_scope(&owner).unwrap();
+    assert_eq!(
+        outbox_cursor(&read, "class-b")
+            .unwrap()
+            .unwrap()
+            .outbox_ordinal,
+        5
+    );
+    for (ordinal, attempt) in [(1, 2), (3, 0), (5, 0)] {
+        let row = read_delivery_row(&read, owner.identity(), "class-b", "mixed", ordinal).unwrap();
+        assert_eq!(row.attempt, attempt);
+        assert!(row.delivered_at_ms.is_some());
+        assert!(row.dead_lettered_at_ms.is_none());
+    }
+    drop(read);
+    // An idle B claim may prune acknowledged rows; inspect their accounting first.
+    assert!(claim_all(&fixture, &owner, "class-b", 0, 10_080).is_empty());
+}

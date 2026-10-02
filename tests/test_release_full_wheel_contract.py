@@ -294,7 +294,7 @@ def test_runner_jobs_keep_build_budget_and_bounded_authorization() -> None:
     for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
         doc = yaml.safe_load(workflow.read_text(encoding="utf-8"))
         for name, job in doc["jobs"].items():
-            _assert_runner_budget(workflow, name, job)
+            _assert_workflow_job_budget(workflow, name, job)
 
 
 def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
@@ -317,3 +317,20 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         }
     else:
         assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"
+
+
+def _assert_workflow_job_budget(workflow: Path, name: str, job: dict) -> None:
+    if (workflow.name, name) == ("release-publication-recovery.yml", "recover"):
+        # This verifies and publishes existing wheels; it never builds them.
+        assert job["runs-on"] == "ubuntu-latest"
+        assert job.get("timeout-minutes") == 30
+        assert "strategy" not in job
+        assert job["env"]["SOURCE_COMMIT"] == (
+            "7f5179650d87e6f763b129cfeea6dfb4f8b0273b"
+        )
+        assert any(
+            step.get("run") == "python scripts/release_publication_recovery.py prepare"
+            for step in job["steps"]
+        )
+    else:
+        _assert_runner_budget(workflow, name, job)
