@@ -1609,6 +1609,7 @@ components:
       - "crates/eg-ann/src/lib.rs"
     test_roots:
       - "crates/eg-numeric/tests"
+      - "tests/test_numeric_prototype.py"
       - "crates/eg-ann/benches"
     generated_roots: []
     shared_roots: []
