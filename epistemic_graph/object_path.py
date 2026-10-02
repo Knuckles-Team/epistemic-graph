@@ -15,6 +15,66 @@ logger = logging.getLogger(__name__)
 __all__ = ["find_object_path"]
 
 
+def _resolve_path(engine: Any, source_id: str, target_id: str) -> list[str] | None:
+    """Return the shortest node-id path, trying the reverse direction too.
+
+    An edge that only runs one direction in the property graph is still
+    found by reversing a hit from ``target_id -> source_id``.
+    """
+    path = engine.get_shortest_path(source_id, target_id)
+    if path:
+        return path
+    reverse_path = engine.get_shortest_path(target_id, source_id)
+    return list(reversed(reverse_path)) if reverse_path else None
+
+
+def _label_nodes(engine: Any, path: list[str]) -> dict[str, dict[str, Any]]:
+    """Resolve a friendly type/name for every node on the path in one query."""
+    labels: dict[str, dict[str, Any]] = {}
+    try:
+        rows = engine.query_cypher(
+            "MATCH (n) WHERE n.id IN $ids "
+            "RETURN n.id AS id, n.type AS type, n.name AS name",
+            {"ids": path},
+        )
+    except Exception:
+        logger.debug(
+            "Node labeling query failed; path remains valid without labels",
+            exc_info=True,
+        )
+        return labels
+    for row in rows or []:
+        node_id = row.get("id")
+        if node_id:
+            labels[node_id] = {"type": row.get("type"), "name": row.get("name")}
+    return labels
+
+
+def _annotate_hop(engine: Any, a: str, b: str) -> dict[str, Any]:
+    """Look up the relationship type/confidence between two adjacent nodes."""
+    rel, confidence = None, None
+    try:
+        erows = engine.query_cypher(
+            "MATCH (x {id: $a})-[r]-(y {id: $b}) "
+            "RETURN type(r) AS rel, r.confidence AS confidence LIMIT 1",
+            {"a": a, "b": b},
+        )
+        if erows:
+            rel = erows[0].get("rel")
+            confidence = erows[0].get("confidence")
+    except Exception:
+        logger.debug(
+            "Relationship annotation query failed; hop stays unannotated",
+            exc_info=True,
+        )
+    return {"from": a, "to": b, "rel": rel, "confidence": confidence}
+
+
+def _build_hops(engine: Any, path: list[str]) -> list[dict[str, Any]]:
+    """Annotate every adjacent pair on the path with its relationship."""
+    return [_annotate_hop(engine, a, b) for a, b in zip(path, path[1:], strict=False)]
+
+
 def find_object_path(engine: Any, source_id: str, target_id: str) -> dict[str, Any]:
     """Find the shortest path between two objects and annotate each hop.
 
@@ -30,10 +90,7 @@ def find_object_path(engine: Any, source_id: str, target_id: str) -> dict[str, A
             "error": "source and target are the same object",
         }
 
-    path = engine.get_shortest_path(source_id, target_id)
-    if not path:
-        reverse_path = engine.get_shortest_path(target_id, source_id)
-        path = list(reversed(reverse_path)) if reverse_path else None
+    path = _resolve_path(engine, source_id, target_id)
     if not path:
         return {
             "source": source_id,
@@ -42,42 +99,8 @@ def find_object_path(engine: Any, source_id: str, target_id: str) -> dict[str, A
             "path": [],
         }
 
-    # Friendly type/name for every node on the path, resolved in one query.
-    labels: dict[str, dict[str, Any]] = {}
-    try:
-        rows = engine.query_cypher(
-            "MATCH (n) WHERE n.id IN $ids "
-            "RETURN n.id AS id, n.type AS type, n.name AS name",
-            {"ids": path},
-        )
-        for row in rows or []:
-            node_id = row.get("id")
-            if node_id:
-                labels[node_id] = {"type": row.get("type"), "name": row.get("name")}
-    except Exception:
-        logger.debug(
-            "Node labeling query failed; path remains valid without labels",
-            exc_info=True,
-        )
-
-    hops: list[dict[str, Any]] = []
-    for a, b in zip(path, path[1:], strict=False):
-        rel, confidence = None, None
-        try:
-            erows = engine.query_cypher(
-                "MATCH (x {id: $a})-[r]-(y {id: $b}) "
-                "RETURN type(r) AS rel, r.confidence AS confidence LIMIT 1",
-                {"a": a, "b": b},
-            )
-            if erows:
-                rel = erows[0].get("rel")
-                confidence = erows[0].get("confidence")
-        except Exception:
-            logger.debug(
-                "Relationship annotation query failed; hop stays unannotated",
-                exc_info=True,
-            )
-        hops.append({"from": a, "to": b, "rel": rel, "confidence": confidence})
+    labels = _label_nodes(engine, path)
+    hops = _build_hops(engine, path)
 
     return {
         "source": source_id,
