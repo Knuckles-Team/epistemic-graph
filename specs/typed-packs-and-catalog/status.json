@@ -99,7 +99,9 @@
     "EG-TYPED-PACKS-R094",
     "EG-TYPED-PACKS-R095",
     "EG-TYPED-PACKS-R096",
-    "EG-TYPED-PACKS-R097"
+    "EG-TYPED-PACKS-R097",
+    "EG-TYPED-PACKS-R098",
+    "EG-TYPED-PACKS-R099"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -1380,6 +1382,18 @@
     {
       "id": "EG-TYPED-PACKS-R097",
       "title": "Domain vocabularies ship as typed domain packs",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R098",
+      "title": "Ontology inspection method and inline data triples for validation",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R099",
+      "title": "Best-matching prototype by cosine similarity in the numeric kernel",
       "delivery_state": "SPECIFIED",
       "evidence": []
     }
