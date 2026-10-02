@@ -11,6 +11,7 @@ use super::capability::{
     FullFetch, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
 };
 use super::http::PAGE_SIZE;
+use super::limiter;
 use super::remote::RemoteFetch;
 use super::session::FederationSession;
 use super::strategy::{choose_join, BatchSizer, JoinInputs, JoinStrategy};
@@ -222,6 +223,62 @@ impl<'r, 's> Fragment<'r, 's> {
 
     /// Ship `keys` in AIMD-sized batches. `Ok(None)` when the batches kept failing.
     fn bind(&self, keys: &[String], trace: &mut FragmentTrace) -> Result<Option<RowSet>, String> {
+        if self.caps.paging == Paging::Single && keys.len() > 64 {
+            if let Some(remote) = self.remote.parallel_safe() {
+                if self.caps.rate.max_concurrent > 1 {
+                    match self.bind_parallel(remote, keys, trace)? {
+                        Some(rows) => return Ok(Some(rows)),
+                        None => return self.bind_sequential(keys, trace),
+                    }
+                }
+            }
+        }
+        self.bind_sequential(keys, trace)
+    }
+
+    /// Fixed windows are submitted in parallel. If a source rejects any window,
+    /// retry the whole join with AIMD so the adaptive split and fallback semantics
+    /// remain identical; successful speculative rows are never returned partially.
+    fn bind_parallel(
+        &self,
+        remote: &(dyn RemoteFetch + Sync),
+        keys: &[String],
+        trace: &mut FragmentTrace,
+    ) -> Result<Option<RowSet>, String> {
+        let batch_size = self.caps.max_keys().unwrap_or(1).min(32);
+        let mut out = Vec::new();
+        let mut next = 0;
+        while next < keys.len() {
+            let mut requests = Vec::new();
+            for _ in 0..self.caps.rate.max_concurrent {
+                if next >= keys.len() {
+                    break;
+                }
+                let window = &keys[next..keys.len().min(next + batch_size)];
+                let fit = remote.fit_keys(window).clamp(1, window.len());
+                requests.push(RemoteRequest::keys(window[..fit].to_vec()));
+                next += fit;
+            }
+            let results = fetch_round(remote, self.session, self.caps, &requests);
+            account(trace, &results);
+            for attempt in results {
+                match attempt.result {
+                    Ok(rows) => {
+                        out.extend(rows.rows().iter().map(|r| (r.id.clone(), r.score)));
+                    }
+                    Err(e) if is_refusal(&e) => return Err(e),
+                    Err(_) => return Ok(None),
+                }
+            }
+        }
+        Ok(Some(RowSet::from_rows(out)))
+    }
+
+    fn bind_sequential(
+        &self,
+        keys: &[String],
+        trace: &mut FragmentTrace,
+    ) -> Result<Option<RowSet>, String> {
         let mut sizer = BatchSizer::new(self.caps.max_keys().unwrap_or(1));
         let mut out: Vec<(String, Option<f32>)> = Vec::new();
         let mut next = 0;
@@ -297,15 +354,83 @@ impl<'r, 's> Fragment<'r, 's> {
         request: &RemoteRequest,
         trace: &mut FragmentTrace,
     ) -> Result<RowSet, String> {
-        self.session.with_meter(|m| m.charge_request())?;
-        trace.requests += 1;
-        let sent = Instant::now();
-        let rows = self.remote.fetch(request)?;
-        let ms = u64::try_from(sent.elapsed().as_millis()).unwrap_or(u64::MAX);
-        stats::observe_request(&self.remote.fingerprint(), ms);
-        trace.rows_fetched += rows.len();
-        self.session.with_meter(|m| m.charge_rows(rows.len()))?;
+        let attempt = fetch_one(self.remote, self.session, self.caps, request);
+        trace.requests += attempt.requests;
+        trace.rows_fetched += attempt.rows;
+        attempt.result
+    }
+}
+
+/// One charged and source-admitted network call. The permit is held only during fetch,
+/// and the wait for it ends at the query's wall deadline.
+struct Attempt {
+    requests: u32,
+    rows: usize,
+    result: Result<RowSet, String>,
+}
+
+impl Attempt {
+    fn refused(error: String) -> Self {
+        Self {
+            requests: 0,
+            rows: 0,
+            result: Err(error),
+        }
+    }
+}
+
+/// Send one round of requests concurrently; every attempt has finished when this returns.
+fn fetch_round(
+    remote: &(dyn RemoteFetch + Sync),
+    session: &FederationSession,
+    caps: SourceCapabilities,
+    requests: &[RemoteRequest],
+) -> Vec<Attempt> {
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(requests.len());
+        for request in requests {
+            handles.push(scope.spawn(move || fetch_one(remote, session, caps, request)));
+        }
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("foreign request panicked"))
+            .collect()
+    })
+}
+
+/// Add every attempt of one parallel round to the trace. The whole round ran before any
+/// result is read, so a failed batch does not hide the requests and rows of the others.
+fn account(trace: &mut FragmentTrace, attempts: &[Attempt]) {
+    trace.requests += attempts.iter().map(|a| a.requests).sum::<u32>();
+    trace.rows_fetched += attempts.iter().map(|a| a.rows).sum::<usize>();
+}
+
+fn fetch_one(
+    remote: &dyn RemoteFetch,
+    session: &FederationSession,
+    caps: SourceCapabilities,
+    request: &RemoteRequest,
+) -> Attempt {
+    if let Err(e) = session.with_meter(|m| m.charge_request()) {
+        return Attempt::refused(e);
+    }
+    let deadline = session.with_meter(|m| m.deadline());
+    let Some(_permit) = limiter::acquire(remote.fingerprint(), caps.rate, deadline) else {
+        return Attempt::refused(session.with_meter(|m| m.wall_refusal()));
+    };
+    let sent = Instant::now();
+    let result = remote.fetch(request);
+    let ms = u64::try_from(sent.elapsed().as_millis()).unwrap_or(u64::MAX);
+    stats::observe_request(&remote.fingerprint(), ms);
+    let rows = result.as_ref().map_or(0, RowSet::len);
+    let result = result.and_then(|rows| {
+        session.with_meter(|m| m.charge_rows(rows.len()))?;
         Ok(rows)
+    });
+    Attempt {
+        requests: 1,
+        rows,
+        result,
     }
 }
 

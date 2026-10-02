@@ -19,7 +19,7 @@ use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
 use super::budget::RESULT_INCOMPLETE;
 use super::capability::{
-    FullFetch, KeyLookup, LimitPushdown, Paging, RemoteRequest, SourceCapabilities,
+    FullFetch, KeyLookup, LimitPushdown, Paging, RemoteRequest, SourceCapabilities, SourceRate,
 };
 use super::remote::{Identity, RemoteFetch};
 use crate::rowset::RowSet;
@@ -144,6 +144,9 @@ fn limit_value(p: Placeholders, request: &RemoteRequest) -> usize {
 }
 
 impl RemoteFetch for HttpRemote<'_> {
+    fn parallel_safe(&self) -> Option<&(dyn RemoteFetch + Sync)> {
+        Some(self)
+    }
     fn capabilities(&self) -> SourceCapabilities {
         let Ok(&p) = self.placeholders.as_ref() else {
             return SourceCapabilities::fetch_only();
@@ -167,6 +170,7 @@ impl RemoteFetch for HttpRemote<'_> {
             } else {
                 FullFetch::Allowed
             },
+            rate: SourceRate::new(2, 4),
         }
     }
 
