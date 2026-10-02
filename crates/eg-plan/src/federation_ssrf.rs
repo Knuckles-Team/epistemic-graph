@@ -19,10 +19,20 @@ const MAX_HTTP_JSON_ADDRESSES: usize = 8;
 /// The validated, DNS-pinned transport target. No URL/host is retained here, keeping it
 /// out of `Debug`/error paths and reducing the chance that embedded query credentials are
 /// reflected by a future caller.
-pub(crate) struct ValidatedHttpJsonTarget {
-    pub(crate) addresses: Vec<std::net::SocketAddr>,
+pub struct ValidatedHttpJsonTarget {
+    /// Every DNS answer passed the destination gate. Pin this list in the HTTP resolver.
+    pub addresses: Vec<std::net::SocketAddr>,
     /// `false` is only possible for an exact-allowlisted internal HTTP target.
-    pub(crate) https_only: bool,
+    pub https_only: bool,
+}
+
+/// Whether the caller requires an explicit destination grant, even for public HTTPS.
+#[derive(Debug, Clone, Copy)]
+pub enum OutboundAllowPolicy {
+    /// Public HTTPS is admitted; sensitive addresses need an exact allowlist entry.
+    PublicHttps,
+    /// Every destination needs an exact allowlist entry (SPARQL SERVICE).
+    ExplicitOnly,
 }
 
 /// Parse and validate a federation URL without reflecting it in any error. Public
@@ -31,6 +41,22 @@ pub(crate) struct ValidatedHttpJsonTarget {
 /// allowlist. Explicitly allowlisted internal endpoints may use HTTP for a local trusted
 /// tunnel/test service; HTTP to a public destination remains forbidden.
 pub(crate) fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTarget, String> {
+    let allow = std::env::var(HTTP_JSON_FEDERATION_ALLOW_ENV).unwrap_or_default();
+    if allow.len() > MAX_HTTP_JSON_ALLOWLIST_BYTES {
+        return Err("federation: destination allowlist is too large".to_string());
+    }
+    let allow: Vec<_> = allow.split(',').take(1024).map(str::to_string).collect();
+    validate_outbound_http_target(url, &allow, OutboundAllowPolicy::PublicHttps)
+}
+
+/// The shared destination gate for HTTP/JSON, SPARQL SERVICE, and peer fan-out.
+/// Callers must disable implicit proxies and redirects and pin `addresses` in their
+/// HTTP client's resolver; validating a URL and then resolving it again is unsafe.
+pub fn validate_outbound_http_target(
+    url: &str,
+    allow: &[String],
+    policy: OutboundAllowPolicy,
+) -> Result<ValidatedHttpJsonTarget, String> {
     validate_http_json_url_shape(url)?;
 
     let (is_https, rest) = split_http_scheme(url)?;
@@ -42,7 +68,10 @@ pub(crate) fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTa
     let default_port = if is_https { 443 } else { 80 };
     let (host, port) = parse_http_authority(authority, default_port)?;
     let host = normalize_http_host(host)?;
-    let allowlisted = http_json_target_allowlisted(&host, port, is_https);
+    let allowlisted = target_allowlisted(&host, port, is_https, allow);
+    if matches!(policy, OutboundAllowPolicy::ExplicitOnly) && !allowlisted {
+        return Err("federation: destination is not allowed".to_string());
+    }
 
     let addresses = resolve_http_json_addresses(&host, port)?;
     check_http_json_ssrf(&addresses, allowlisted, is_https)?;
@@ -51,6 +80,26 @@ pub(crate) fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTa
         addresses,
         https_only: is_https,
     })
+}
+
+/// The ONE pinned-transport `ureq` agent builder for every federation HTTP caller
+/// (CONCEPT:EG-KG.query.query-federation, EH-563 FO-05). Resolves once in
+/// [`validate_outbound_http_target`] / [`validate_http_json_target`], then pins that
+/// exact address list in the client's resolver -- closing the validate-then-resolve DNS
+/// rebinding gap -- disables the implicit environment proxy (which would otherwise route
+/// a pinned request through an unvalidated hop) and refuses redirects (a redirect target
+/// was never vetted). Callers add their own timeouts and finish with `.build()`.
+pub fn pinned_agent_builder(target: &ValidatedHttpJsonTarget) -> ureq::AgentBuilder {
+    let pinned_addresses = target.addresses.clone();
+    ureq::AgentBuilder::new()
+        .try_proxy_from_env(false)
+        .resolver(
+            move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
+                Ok(pinned_addresses.clone())
+            },
+        )
+        .https_only(target.https_only)
+        .redirects(0)
 }
 
 /// Reject a URL with disallowed bytes/shape before any scheme/authority
@@ -188,6 +237,11 @@ fn http_json_target_allowlisted(host: &str, port: u16, is_https: bool) -> bool {
     if raw.len() > MAX_HTTP_JSON_ALLOWLIST_BYTES {
         return false;
     }
+    let allow: Vec<_> = raw.split(',').take(1024).map(str::to_string).collect();
+    target_allowlisted(host, port, is_https, &allow)
+}
+
+fn target_allowlisted(host: &str, port: u16, is_https: bool, allow: &[String]) -> bool {
     let scheme = if is_https { "https" } else { "http" };
     let authority_host = if host.contains(':') {
         format!("[{host}]")
@@ -197,7 +251,7 @@ fn http_json_target_allowlisted(host: &str, port: u16, is_https: bool) -> bool {
     let authority = format!("{authority_host}:{port}");
     let origin = format!("{scheme}://{authority}");
     let scheme_host = format!("{scheme}://{authority_host}");
-    raw.split(',').take(1024).any(|entry| {
+    allow.iter().take(1024).any(|entry| {
         let entry = entry.trim().to_ascii_lowercase();
         entry == host
             || entry == authority_host
@@ -339,7 +393,10 @@ fn check_sql_host(host_port: &str, default_port: u16) -> Result<(), String> {
 mod http_json_security_tests {
     #[cfg(feature = "federation-sql")]
     use super::check_sql_dsn;
-    use super::{is_ssrf_sensitive_ip, parse_http_authority, validate_http_json_target};
+    use super::{
+        is_ssrf_sensitive_ip, parse_http_authority, validate_http_json_target,
+        validate_outbound_http_target, OutboundAllowPolicy,
+    };
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -374,6 +431,30 @@ mod http_json_security_tests {
             .expect("unsupported scheme must fail");
         assert!(!error.contains(secret));
         assert!(!error.contains("example.invalid"));
+    }
+
+    #[test]
+    fn explicit_service_grant_is_exact_and_pins_every_resolution() {
+        let allow = vec!["127.0.0.1:7900".to_string()];
+        let target = validate_outbound_http_target(
+            "http://127.0.0.1:7900/sparql",
+            &allow,
+            OutboundAllowPolicy::ExplicitOnly,
+        )
+        .expect("explicit internal endpoint");
+        assert!(!target.https_only);
+        assert_eq!(target.addresses.len(), 1);
+        for endpoint in [
+            "http://127.0.0.1:7901/sparql",
+            "http://100.64.0.1:7900/sparql",
+            "http://[2002::1]:7900/sparql",
+        ] {
+            assert!(
+                validate_outbound_http_target(endpoint, &allow, OutboundAllowPolicy::ExplicitOnly)
+                    .is_err(),
+                "{endpoint}"
+            );
+        }
     }
 
     #[cfg(feature = "federation-sql")]

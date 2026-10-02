@@ -135,7 +135,7 @@ impl BatchSizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::federation_opt::capability::{KeyLookup, LimitPushdown, Paging};
+    use crate::federation_opt::capability::{KeyLookup, LimitPushdown, Paging, SourceRate};
 
     fn caps(full_fetch: FullFetch) -> SourceCapabilities {
         SourceCapabilities {
@@ -143,6 +143,7 @@ mod tests {
             limit: LimitPushdown::Unsupported,
             paging: Paging::Single,
             full_fetch,
+            rate: SourceRate::new(4, 0),
         }
     }
 
