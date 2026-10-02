@@ -90,6 +90,24 @@ struct AuditRequestRecord {
     entry_hash: crate::audit::Hash,
 }
 
+/// One operation-audit append's maintenance admission id, unique per ATTEMPT --
+/// the same requirement and the same shape as [`anchor_op_id`] below. `key`
+/// still identifies the request for the `AUDIT_REQUESTS` idempotency check
+/// inside the write; it must not also identify the admission attempt, or a
+/// second attempt with the same key would never reach that check.
+#[cfg(feature = "security")]
+fn operation_audit_op_id(key: &str) -> String {
+    static ATTEMPT: AtomicU64 = AtomicU64::new(0);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_nanos())
+        .unwrap_or(0);
+    format!(
+        "operation_audit/{key}:{stamp}:{}",
+        ATTEMPT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 /// Append the event and its replay index in one admitted graph group. A retry
 /// with the same request identity and payload returns its original receipt;
 /// changed payload under that identity fails closed.
@@ -138,10 +156,16 @@ pub(crate) fn operation_audit_append(
     let fingerprint: crate::audit::Hash = Sha256::digest(line.as_bytes()).into();
     let mut staged_tail = tail.clone();
     let members = shard.graph_members(&[graph])?;
-    // Stable across replicas: the native Raft command carries the same sealed
-    // event to every applier, and the maintenance admission ID must not depend
-    // on the local clock or process counter.
-    let op_id = format!("operation_audit/{key}");
+    // Unique per ATTEMPT, like `anchor_op_id` below and for the same reason:
+    // `admit_maintenance` resolves a repeated batch id to a REPLAY and skips
+    // the write entirely (`shard::drain_batch`'s doc on `drain_id`), so a
+    // content-derived id would make the SECOND call of a genuine duplicate
+    // request -- exactly the case this function exists to answer -- never
+    // reach the `AUDIT_REQUESTS` idempotency check below at all. That check,
+    // keyed by `key`/`reserve_key`, is this function's own, more precise
+    // idempotency; the admission id only needs to admit a live write every
+    // time so that check can run.
+    let op_id = operation_audit_op_id(&key);
     let (group, batches) = shard.admit_maintenance(&members, &op_id)?;
     let write = ShardWrite::open(shard, &group, &members, &batches)?;
     let applied = (|| {
