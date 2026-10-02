@@ -19,7 +19,7 @@ use super::model::{
     ApiKeyRecord, ExternalIdentity, OneTimeToken, PasswordCredential, SessionRecord, TotpRecord,
     WebauthnRecord,
 };
-use super::ops::{IdentityOp, OpAuthority};
+use super::ops::IdentityOp;
 use super::requests_provision::DirectoryGroup;
 use super::scope::ScopeClassifier;
 use super::stamp::IdentityStamp;
@@ -28,6 +28,7 @@ use super::IdentityRefusal;
 
 mod access_ops;
 mod auth;
+mod authority;
 mod external;
 mod import;
 mod invariants;
@@ -234,37 +235,12 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
-        self.authorize(op, stamp)?;
+        self.authorize(op, stamp, ctx.classifier)?;
         let reply = self.dispatch(op, stamp, ctx)?;
         if reshapes_authority(op) {
             self.validate(ctx.classifier)?;
         }
         Ok(reply)
-    }
-
-    /// Whether the stamped actor holds the exact authority `op` needs. The
-    /// boundary calls this BEFORE deriving (argon2id, unsealing), so an
-    /// unauthorized caller never makes the engine do that work.
-    pub fn authorize(&self, op: &IdentityOp, stamp: &IdentityStamp) -> Result<(), IdentityRefusal> {
-        let actor = &stamp.actor;
-        let authority = op.meta().authority;
-        let holds_one = authority.scopes().iter().any(|scope| actor.holds(scope));
-        let standing = match authority {
-            OpAuthority::SelfService => self.is_active(&actor.principal_id),
-            OpAuthority::SelfOrAdmin => self.self_or_admin(actor),
-            OpAuthority::Admin
-            | OpAuthority::Read
-            | OpAuthority::Broker
-            | OpAuthority::FirstRun
-            | OpAuthority::Directory
-            | OpAuthority::Provision => !(authority.direct_only() && actor.delegated),
-        };
-        let allowed = holds_one && standing;
-        if allowed {
-            Ok(())
-        } else {
-            Err(IdentityRefusal::NotAuthorized)
-        }
     }
 
     fn dispatch(
@@ -293,14 +269,6 @@ impl IdentityStore {
 
     fn require_initialized(&self) -> Result<&IdentityConfig, IdentityRefusal> {
         self.config.as_ref().ok_or(IdentityRefusal::NotInitialized)
-    }
-
-    /// `identity:admin` from a direct actor, or `identity:self` from an
-    /// active principal (the op then acts only on the actor's own records).
-    fn self_or_admin(&self, actor: &super::stamp::IdentityActor) -> bool {
-        let admin = actor.holds(super::ops::IDENTITY_ADMIN_SCOPE) && !actor.delegated;
-        admin
-            || (actor.holds(super::ops::IDENTITY_SELF_SCOPE) && self.is_active(&actor.principal_id))
     }
 
     pub(crate) fn is_active(&self, principal_id: &str) -> bool {

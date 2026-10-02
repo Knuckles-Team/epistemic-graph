@@ -11,6 +11,7 @@ mod factors;
 mod modes;
 mod provision;
 mod recovery;
+mod revocation;
 mod tokens;
 mod verdicts;
 

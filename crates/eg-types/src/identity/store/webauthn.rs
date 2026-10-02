@@ -6,7 +6,7 @@
 
 use super::super::audit::IdentityEvent;
 use super::super::model::WebauthnRecord;
-use super::super::ops::{MfaOp, IDENTITY_ADMIN_SCOPE};
+use super::super::ops::MfaOp;
 use super::super::requests::{WebauthnCredential, WebauthnUse};
 use super::super::requests_admin::ObjectRef;
 use super::super::stamp::IdentityStamp;
@@ -67,7 +67,7 @@ impl IdentityStore {
             MfaOp::VerifyWebauthn { request } => Ok(IdentityReply::Authenticate(
                 self.verify_webauthn(request, stamp, now_ms)?,
             )),
-            MfaOp::RemoveWebauthn { request } => self.remove_webauthn(request, stamp, now_ms),
+            MfaOp::RemoveWebauthn { request } => self.remove_webauthn(request, stamp, ctx),
             MfaOp::EnrollTotp { .. }
             | MfaOp::ConfirmTotp { .. }
             | MfaOp::VerifyTotp { .. }
@@ -185,10 +185,11 @@ impl IdentityStore {
         &mut self,
         request: &ObjectRef,
         stamp: &IdentityStamp,
-        now_ms: u64,
+        ctx: &ApplyContext<'_>,
     ) -> Result<IdentityReply, IdentityRefusal> {
+        let now_ms = ctx.now_ms;
         let actor = &stamp.actor;
-        let admin = actor.holds(IDENTITY_ADMIN_SCOPE) && !actor.delegated;
+        let admin = self.administers(actor, ctx.classifier);
         let owner = self
             .webauthn
             .get(&request.id)

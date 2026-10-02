@@ -13,7 +13,27 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use eg_types::identity::{IdentityStore, UserKind};
+use eg_types::identity::{IdentityActor, IdentityStore, UserKind};
+
+use super::auth::VerifiedRequestContext;
+
+/// The identity actor of a verified request: its principal, whether it is
+/// delegated, and its EXACT `identity:*` scopes (wildcards and aggregates
+/// excluded). Every identity authority check -- the op families and the SQL
+/// relations -- starts from this one value.
+pub(crate) fn identity_actor(context: &VerifiedRequestContext) -> IdentityActor {
+    let claims = context.claims();
+    IdentityActor {
+        principal_id: claims.principal.clone(),
+        delegated: !claims.delegation.is_empty(),
+        scopes: claims
+            .scopes
+            .iter()
+            .filter(|scope| scope.starts_with("identity:") && !scope.ends_with(":*"))
+            .cloned()
+            .collect(),
+    }
+}
 
 type Views = RwLock<HashMap<PathBuf, Arc<IdentityStore>>>;
 

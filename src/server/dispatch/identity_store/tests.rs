@@ -12,6 +12,7 @@ use super::super::test_support::{
     bootstrapped_state as state, send as send_method, state as unbootstrapped_state, verified,
 };
 
+mod revocation;
 mod stale_verdict;
 
 fn context(principal: &str, scopes: &[&str]) -> VerifiedRequestContext {

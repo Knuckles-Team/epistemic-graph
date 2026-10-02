@@ -5,8 +5,9 @@
 //! builds its ephemeral projection through `project_read_store`; this module
 //! adds the identity store's REDACTED relations to it -- read-only by
 //! construction, because the projection is discarded after the statement and
-//! writes never reach it -- and only for a caller holding the EXACT
-//! `identity:read` or `identity:admin` scope. The relation names carry the
+//! writes never reach it -- and only for a caller the store says may read the
+//! directory now: the EXACT `identity:read` or `identity:admin` scope, still
+//! backed by the store for a principal it owns. The relation names carry the
 //! reserved prefix [`IDENTITY_RELATION_PREFIX`], which no tenant table may use.
 //!
 //! The projection reads the snapshot the engine owning `persist_dir`
@@ -53,12 +54,17 @@ pub(super) fn add_identity_relations(
     authority: &CarrierAuthority,
     persist_dir: &Path,
 ) -> Result<(), String> {
-    if !authority.is_identity_reader() {
-        return Ok(());
-    }
     let Some(store) = published(persist_dir) else {
         return Ok(());
     };
+    // The store decides, against its CURRENT state: a reader it owns that was
+    // disabled or lost the role sees nothing, whatever its token still says.
+    if !store.reads_directory(
+        authority.identity_actor(),
+        &eg_capabilities::scopes::ScopeRegistry,
+    ) {
+        return Ok(());
+    }
     for relation in store.sql_relations() {
         let name = format!("{IDENTITY_RELATION_PREFIX}{}", relation.name);
         let columns: Vec<Column> = relation

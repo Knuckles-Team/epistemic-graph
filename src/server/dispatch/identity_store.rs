@@ -13,13 +13,14 @@
 
 use std::sync::Arc;
 
-use eg_types::identity::{IdentityActor, IdentityOp, IdentityStamp};
+use eg_types::identity::{IdentityOp, IdentityStamp};
 use eg_types::result_contract::security::Identity as IdentityResult;
 use tokio::sync::RwLock;
 
 use super::elevation::ElevationStampAuthority;
 use super::{ServerState, VerifiedRequestContext};
 use crate::protocol::{Method, Response, ResultPayload};
+use crate::server::identity_view::identity_actor;
 
 mod exposure;
 #[cfg(test)]
@@ -31,22 +32,6 @@ mod stamp;
 const UNSTAMPED: &str = "IDENTITY_UNSTAMPED: an identity op must carry its boundary-derived stamp";
 /// Refusal for a stamp whose actor is not the verified caller's.
 const FORGED: &str = "IDENTITY_FORGED_STAMP: the stamp does not name the verified caller";
-
-/// The actor of a verified request: its principal, whether it is delegated,
-/// and its EXACT `identity:*` scopes (wildcards and aggregates excluded).
-pub(crate) fn identity_actor(context: &VerifiedRequestContext) -> IdentityActor {
-    let claims = context.claims();
-    IdentityActor {
-        principal_id: claims.principal.clone(),
-        delegated: !claims.delegation.is_empty(),
-        scopes: claims
-            .scopes
-            .iter()
-            .filter(|scope| scope.starts_with("identity:") && !scope.ends_with(":*"))
-            .cloned()
-            .collect(),
-    }
-}
 
 /// Stamp an external identity op; a replicated one keeps its stamp.
 pub(crate) async fn stamp_identity(
@@ -70,7 +55,7 @@ pub(crate) async fn stamp_identity(
         )
     };
     store
-        .authorize(op, &derived)
+        .authorize(op, &derived, &eg_capabilities::scopes::ScopeRegistry)
         .map_err(|refusal| refusal.to_string())?;
     let mut owned = op.clone();
     let now_ms = super::authoritative_now_ms();
