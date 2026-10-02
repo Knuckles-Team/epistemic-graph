@@ -373,8 +373,8 @@ impl<'r, 's> Fragment<'r, 's> {
     }
 }
 
-/// One charged and source-admitted network call. The permit is held only during fetch;
-/// the query's budget is checked again after waiting for a global rate slot.
+/// One charged and source-admitted network call. The permit is held only during fetch,
+/// and the wait for it ends at the query's wall deadline.
 struct Attempt {
     requests: u32,
     rows: usize,
@@ -400,10 +400,10 @@ fn fetch_one(
     if let Err(e) = session.with_meter(|m| m.charge_request()) {
         return Attempt::refused(e);
     }
-    let _permit = limiter::acquire(remote.fingerprint(), caps.rate);
-    if let Err(e) = session.with_meter(|m| m.check_wall()) {
-        return Attempt::refused(e);
-    }
+    let deadline = session.with_meter(|m| m.deadline());
+    let Some(_permit) = limiter::acquire(remote.fingerprint(), caps.rate, deadline) else {
+        return Attempt::refused(session.with_meter(|m| m.wall_refusal()));
+    };
     let sent = Instant::now();
     let result = remote.fetch(request);
     let ms = u64::try_from(sent.elapsed().as_millis()).unwrap_or(u64::MAX);
