@@ -34,6 +34,7 @@ mod invariants;
 mod mfa;
 mod modes;
 mod provision;
+mod recovery;
 mod sessions;
 mod throttle;
 mod tokens;

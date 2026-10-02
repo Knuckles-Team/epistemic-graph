@@ -7,10 +7,10 @@ use super::super::model::TotpRecord;
 use super::super::ops::MfaOp;
 use super::super::stamp::IdentityStamp;
 use super::super::views::{AuthenticateOutcome, AuthenticateResult, IdentityReply};
-use super::super::{IdentityRefusal, RECOVERY_CODES_PER_SET};
+use super::super::IdentityRefusal;
 use super::sessions::PendingSession;
 use super::throttle::account_key;
-use super::{ApplyContext, IdentityStore, RecoveryCode};
+use super::{ApplyContext, IdentityStore};
 
 impl IdentityStore {
     pub(super) fn apply_mfa(
@@ -183,54 +183,5 @@ impl IdentityStore {
             store.audit_event(stamp, now_ms, IdentityEvent::MfaVerified, Some(&principal));
             Ok(store.second_factor_ok(principal))
         })
-    }
-
-    fn set_recovery_codes(
-        &mut self,
-        stamp: &IdentityStamp,
-        now_ms: u64,
-    ) -> Result<IdentityReply, IdentityRefusal> {
-        if stamp.token_hashes.len() != RECOVERY_CODES_PER_SET + 1 {
-            return Err(IdentityRefusal::InvalidRequest);
-        }
-        let principal = self.session_subject(stamp, now_ms, PendingSession::AllowEnrollment)?;
-        let codes = stamp
-            .token_hashes
-            .iter()
-            .skip(1)
-            .map(|hash| RecoveryCode {
-                code_hash: hash.clone(),
-                used_at_ms: None,
-            })
-            .collect();
-        self.recovery.insert(principal.clone(), codes);
-        self.audit_event(
-            stamp,
-            now_ms,
-            IdentityEvent::RecoveryCodesSet,
-            Some(&principal),
-        );
-        Ok(IdentityReply::Done { changed: true })
-    }
-
-    fn consume_recovery(
-        &mut self,
-        stamp: &IdentityStamp,
-        now_ms: u64,
-    ) -> Result<AuthenticateResult, IdentityRefusal> {
-        let (hash, principal) = self.pending_session_principal(stamp, now_ms)?;
-        let code_hash = stamp.token_hash(1)?;
-        let code = self.recovery.get_mut(&principal).and_then(|codes| {
-            codes
-                .iter_mut()
-                .find(|code| code.code_hash == code_hash && code.used_at_ms.is_none())
-        });
-        let Some(code) = code else {
-            return Ok(self.second_factor_failed(stamp, &principal, now_ms));
-        };
-        code.used_at_ms = Some(now_ms);
-        self.complete_session(&hash, "recovery", now_ms);
-        self.audit_event(stamp, now_ms, IdentityEvent::MfaVerified, Some(&principal));
-        Ok(self.second_factor_ok(principal))
     }
 }

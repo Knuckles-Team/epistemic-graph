@@ -10,6 +10,7 @@ mod auth;
 mod factors;
 mod modes;
 mod provision;
+mod recovery;
 mod tokens;
 mod verdicts;
 
