@@ -71,7 +71,8 @@
     "EG-DURABLE-KERNEL-R066",
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
-    "EG-DURABLE-KERNEL-R069"
+    "EG-DURABLE-KERNEL-R069",
+    "EG-DURABLE-KERNEL-R070"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -909,6 +910,20 @@
           "commit": "be291021dfdce44e0eefa42fc80611bf2eb0ecf9",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be291021dfdce44e0eefa42fc80611bf2eb0ecf9",
           "description": "Implemented on the default branch; exercised by src/server/persistence/redb_backend/scrub_api_tests.rs::scrub_cursor_survives_reopen_and_the_walk_skips_nothing"
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070",
+      "title": "Operator command inspects and applies registered offline store upgrades",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "1b976462b17affc8f70cdfba03bead7c817eef16",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1b976462b17affc8f70cdfba03bead7c817eef16",
+          "description": "Implementation commit is published on the branch feat/operator-store-upgrade; not yet merged to the default branch. Exercised by src/server/persistence/store_upgrade/tests.rs and crates/eg-storage/src/owner/offline_upgrade/tests.rs."
         }
       ]
     }
