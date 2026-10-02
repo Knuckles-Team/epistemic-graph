@@ -89,3 +89,12 @@ def test_exact_aggregate_limit_is_accepted() -> None:
 def test_invalid_containers_are_refused(rows) -> None:
     with pytest.raises((ValueError, TypeError)):
         numeric.best_cosine_prototype([1.0], rows)
+
+
+@pytest.mark.parametrize(
+    ("query", "rows"),
+    [([1.0, 0.0], [[1e-300]]), ([1e-300], [[1.0, 0.0]])],
+)
+def test_norm_underflow_does_not_hide_shape_errors(query, rows) -> None:
+    with pytest.raises(ValueError, match="shape mismatch"):
+        numeric.best_cosine_prototype(query, rows)

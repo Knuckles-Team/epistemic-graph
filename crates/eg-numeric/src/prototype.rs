@@ -7,28 +7,30 @@ use ndarray::ArrayView1;
 
 /// Return the first prototype with the largest strictly positive cosine score.
 /// Empty and zero-norm vectors score zero. A nonzero, mismatched row has the
-/// same shape error as `linalg::dot`, reached only after the norm guards.
+/// same shape error as `linalg::dot`. Only actual zero rows are exempt from
+/// shape validation: an underflowed norm must not hide a nonzero ragged row.
 /// Norms and dot products retain the existing kernel's IEEE arithmetic:
 /// NaN scores never win; overflowing or underflowing norms are not rescaled.
 pub fn best_cosine_prototype(
     query: &[f64],
     prototypes: &[Vec<f64>],
 ) -> Result<Option<(usize, f64)>> {
-    if query.is_empty() {
+    if query.iter().all(|value| *value == 0.0) {
         return Ok(None);
     }
     let query_norm = linalg::norm(ArrayView1::from(query));
     let mut best: Option<(usize, f64)> = None;
     for (index, prototype) in prototypes.iter().enumerate() {
-        if prototype.is_empty() {
+        if prototype.iter().all(|value| *value == 0.0) {
             continue;
         }
+        // Validate shape before a nonzero vector's norm can underflow to zero.
+        let dot = linalg::dot(ArrayView1::from(query), ArrayView1::from(prototype))?;
         let prototype_norm = linalg::norm(ArrayView1::from(prototype));
         if query_norm == 0.0 || prototype_norm == 0.0 {
             continue;
         }
-        let score = linalg::dot(ArrayView1::from(query), ArrayView1::from(prototype))?
-            / (query_norm * prototype_norm);
+        let score = dot / (query_norm * prototype_norm);
         if score > best.map_or(0.0, |(_, prior)| prior) {
             best = Some((index, score));
         }
@@ -107,5 +109,18 @@ mod tests {
             Some((1, 1.0))
         );
         assert!(best_cosine_prototype(&[f64::NAN, 0.0], &[vec![1.0]]).is_err());
+    }
+
+    #[test]
+    fn norm_underflow_does_not_hide_nonzero_shape_errors() {
+        for (query, row) in [
+            (vec![1.0, 0.0], vec![1e-300]),
+            (vec![1e-300], vec![1.0, 0.0]),
+        ] {
+            assert!(matches!(
+                best_cosine_prototype(&query, &[row]),
+                Err(crate::NumericError::Shape(_))
+            ));
+        }
     }
 }
