@@ -259,7 +259,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "Elimination is enforced architecturally (eliminated options are never tokenized or scored: crates/eg-numeric/src/decision/scorer/legal.rs LegalSet::derive, scorer/forward.rs EncodedState::encode), confirmed by the passing negative test crates/eg-numeric/tests/decision/scorer.rs::an_eliminated_option_is_never_scored_and_moves_nothing. But no test asserts that execution enforces this invariant independently of the head at the decision-ladder/act-rule level, as the requirement's verification column requires; the only negative test is at the scorer layer."
     },
     {
       "id": "EG-DECISION-ENGINE-R010",
@@ -361,17 +361,16 @@
     {
       "id": "EG-DECISION-ENGINE-R018",
       "title": "Unknown facts never default to zero in the solver",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/assemble/tests/topology.rs::an_unknown_p95_under_a_deadline_is_an_unknown_fact_not_zero"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R019",
@@ -671,17 +670,16 @@
     {
       "id": "EG-DECISION-ENGINE-R046",
       "title": "Swarm topology decisions via the decision ladder",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "2d087761c9645d65efc35177f542b3140ff9c4e9",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2d087761c9645d65efc35177f542b3140ff9c4e9",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/assemble/tests/topology.rs::demand_sizes_the_fan_out_and_the_plan_leases_it"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R047",
@@ -1119,17 +1117,16 @@
     {
       "id": "EG-DECISION-ENGINE-R082",
       "title": "Single-pass option-marker scoring head for Decide",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-numeric/tests/decision/scorer.rs::one_encode_serves_several_questions_exactly"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R083",
@@ -1151,7 +1148,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "Conformal-primary calibration with reported ECE and empirical coverage, falling back to temperature scaling, is real and passing (crates/eg-numeric/tests/decision/scorer_promotion.rs::a_scorer_fit_is_reproducible_and_conformally_calibrated, ::an_abstention_is_returned_when_the_calibrated_coverage_bound_fails). The verification column requires measuring this across option sets of varying size; every decision fixture uses a fixed 3-option universe, so that part is unproven."
     },
     {
       "id": "EG-DECISION-ENGINE-R085",
@@ -1163,32 +1160,30 @@
     {
       "id": "EG-DECISION-ENGINE-R086",
       "title": "DecisionFit promotion protocol reports nine metrics",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-numeric/tests/decision/scorer_promotion.rs::the_promotion_protocol_measures_every_metric_and_passes_a_sound_scorer"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R087",
       "title": "Scorer always receives a bounded shortlist, never a full catalog",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-numeric/tests/decision/scorer.rs::the_shortlist_bounds_what_is_scored_and_breaks_ties_by_option_order"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R088",
@@ -1203,7 +1198,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "Belief-as-of-t is computed by a bespoke per-feature-clock recomputation (crates/eg-numeric/src/decision/trajectory.rs, src/server/handlers/decide/stat_belief.rs) rather than by reusing the existing bitemporal AS OF query mechanism the requirement asks for. The passing test (src/server/handlers/decide/stat_tests/scorer_tests.rs::a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts, which exercises the belief_is_recorded_and_replayed and belief_slices_are_refused_without_a_head_or_in_the_future helpers) checks internal replay-consistency and refusal cases, not equivalence with a direct bitemporal AS OF query at the same points."
     },
     {
       "id": "EG-DECISION-ENGINE-R089",
@@ -1221,17 +1216,16 @@
     {
       "id": "EG-DECISION-ENGINE-R091",
       "title": "Resident scorer is bit-reproducible via fixed-point arithmetic",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "4952a2edced4da700c7c0ede776b90756e10194b",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4952a2edced4da700c7c0ede776b90756e10194b",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-numeric/tests/decision/scorer.rs::the_golden_vector_is_bit_identical_across_hosts"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R092",
@@ -1319,32 +1313,30 @@
     {
       "id": "EG-DECISION-ENGINE-R100",
       "title": "Retrieval decisions join cited evidence with independent outcomes",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "e429630278b867a9718a12b0e77d9ecbc6d1fec4",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e429630278b867a9718a12b0e77d9ecbc6d1fec4",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/stat_tests/retrieval_tests.rs::outcomes_teach_nothing_until_an_independent_verdict_joins_them"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R101",
       "title": "Query-side embedding adapter head promoted via DecisionEval",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "e429630278b867a9718a12b0e77d9ecbc6d1fec4",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e429630278b867a9718a12b0e77d9ecbc6d1fec4",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/stat_tests/learning_tests.rs::an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R102",
@@ -1408,22 +1400,21 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "The typed topology contract, the record-version bump to 3, and the AssemblyRequirements/template-facts fields are real and tested (crates/eg-types/src/decision/topology/tests.rs::a_topology_request_is_sealed_as_the_topology_version, ::a_plain_record_serializes_no_topology_key_and_stays_at_base_version, both passing), and Python bindings were regenerated. No v1 golden fixtures were added for the new topology record version as the requirement explicitly asks: tests/fixtures/decision/assembly_golden.json has no topology entry."
     },
     {
       "id": "EG-DECISION-ENGINE-R108",
       "title": "Publish-time topology-shape validation fails closed",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/topology_shape/tests.rs::every_planted_shape_defect_is_refused_by_name"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R109",
@@ -1438,7 +1429,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "The OWL entailment that actually derives TopologyAdmission lives in src/server/handlers/decide/topology_schema.rs::entail (tested and passing: topology_schema module tests::a_task_admits_its_stated_class_and_that_class_s_subclasses_only), not in crates/eg-compute/src/assemble/topology/admissible.rs as the requirement names; that file only filters an already-entailed admissions list and does not itself take the schema digest as a derivation input. No test varies the composed schema digest to show the derived admissibility changing accordingly, as the verification column requires."
     },
     {
       "id": "EG-DECISION-ENGINE-R110",
@@ -1453,7 +1444,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "The topology model's one-hot shape, demand, lease, deadline and capacity rows over precomputed tables are real, and its brute-force oracle test passes (crates/eg-compute/src/assemble/tests/topology.rs::the_brute_force_oracle_agrees_with_every_plan). That oracle covers only nine fixed cases on one two-slot template with widths 1..=4, not a general property test up to twenty variables as the requirement asks; the repository's only n<=20 property-test oracle (crates/eg-compute/src/assemble/tests/oracle.rs) is unrelated to topology."
     },
     {
       "id": "EG-DECISION-ENGINE-R111",
@@ -1473,17 +1464,16 @@
     {
       "id": "EG-DECISION-ENGINE-R112",
       "title": "Capacity premise derives headroom observations by priority",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c0edc96d1e10b3a0b5291efb36142ce904da7c4e",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/assemble/tests/topology.rs::headroom_below_demand_abstains_naming_the_cell_lease"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R113",
