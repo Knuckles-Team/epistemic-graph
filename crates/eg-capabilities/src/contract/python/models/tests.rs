@@ -183,3 +183,35 @@ fn generated_python_is_ruff_clean_and_formatter_stable() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A variant that is itself a tagged union (an internally tagged enum wrapping
+/// another) renders as a nested union whose member classes carry BOTH tags and
+/// the member's own fields -- not as one class holding the outer tag alone,
+/// which would refuse every real body.
+#[test]
+fn a_variant_that_is_a_tagged_union_renders_members_carrying_both_tags() {
+    let (_, _, space) = space();
+    let rendered = Surfaces::new(&space.definitions).package_text();
+    let member = "\nclass IdentityOpUserCreate(BaseModel):";
+    let start = rendered
+        .find(member)
+        .expect("the nested member class is rendered");
+    let class = rendered[start..].split("\n\n\n").next().unwrap_or_default();
+    for field in [
+        "family: Literal[\"user\"]",
+        "op: Literal[\"create\"]",
+        "request: CreateUserRequest",
+    ] {
+        assert!(class.contains(field), "{field} is missing from:\n{class}");
+    }
+    assert!(rendered.contains("\nIdentityOpUser = Annotated["));
+    assert!(!rendered.contains("\nclass IdentityOpUser(BaseModel):"));
+    let names = member_classes("IdentityOp", &space.definitions["IdentityOp"]);
+    for name in [
+        "IdentityOpUserCreate",
+        "IdentityOpUser",
+        "IdentityOpConfigGet",
+    ] {
+        assert!(names.iter().any(|emitted| emitted == name), "{name}");
+    }
+}
