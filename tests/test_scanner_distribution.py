@@ -336,3 +336,110 @@ def test_scanner_job_reports_every_step_after_a_failure():
     for step in steps:
         if "run" in step:
             assert str(step.get("if", "")).startswith("${{ !cancelled()"), step["name"]
+
+
+def test_scanner_cache_requires_validation_before_save():
+    steps = _workflow()["jobs"]["scanner-quality"]["steps"]
+    by_id = {step["id"]: step for step in steps if "id" in step}
+    restore = by_id["scanner-cache"]
+    assert restore["with"]["key"].startswith("eg-scanners-v2-")
+    assert "scripts/kiss_fork.py" in restore["with"]["key"]
+    assert "--verify" in by_id["scanner-restored"]["run"]
+    provision = by_id["scanner-provision"]
+    assert "steps.scanner-restored.outputs.valid != 'true'" in provision["if"]
+    assert "cache-hit" not in provision["if"]
+    validated = by_id["scanner-validated"]
+    assert "steps.scanner-provision.outcome == 'success'" in validated["if"]
+    assert "--verify" in validated["run"]
+    save = next(
+        step for step in steps if step.get("name") == "Save pinned scanner toolchain"
+    )
+    assert "steps.scanner-validated.outcome == 'success'" in save["if"]
+    assert "steps.scanner-cache.outputs.cache-hit != 'true'" in save["if"]
+    assert steps.index(validated) < steps.index(save)
+
+
+def _fake_scanner(path: Path, version: str, *, probe_ok: bool = True) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'#!/bin/sh\nif [ "$1" = --version ]; then echo "{version}"; exit 0; fi\n'
+        f"exit {0 if probe_ok else 1}\n"
+    )
+    path.chmod(0o755)
+
+
+def _scanner_cache(root: Path) -> dict[str, str]:
+    versions = {
+        "cccc/bin/cccc": "cccc 1.6.0",
+        "kiss/bin/kiss": "kiss 0.4.12",
+        "dupehound/bin/dupehound": "dupehound 0.1.2",
+        "arch-lint/bin/arch-lint": "arch-lint 0.5.0",
+        "npm/node_modules/.bin/jscpd": "cpd 5.0.16",
+        "npm/node_modules/.bin/depcruise": "18.2.0",
+    }
+    for relative, version in versions.items():
+        _fake_scanner(root / relative, version)
+    return versions
+
+
+def _run_scanner_installer(root: Path, *, verify: bool = True, env=None):
+    import subprocess
+
+    args = ["bash", str(REPO / "scripts/install_scanners.sh")]
+    if verify:
+        args.append("--verify")
+    return subprocess.run(
+        [*args, str(root)], capture_output=True, text=True, env=env, timeout=15
+    )
+
+
+def test_scanner_cache_accepts_complete_tools_and_rejects_missing(tmp_path):
+    versions = _scanner_cache(tmp_path)
+    assert _run_scanner_installer(tmp_path).returncode == 0
+    for relative, version in versions.items():
+        (tmp_path / relative).unlink()
+        assert _run_scanner_installer(tmp_path).returncode != 0, relative
+        _fake_scanner(tmp_path / relative, version)
+
+
+def test_scanner_cache_rejects_wrong_version_and_upstream_kiss(tmp_path):
+    versions = _scanner_cache(tmp_path)
+    for relative, version in versions.items():
+        _fake_scanner(tmp_path / relative, "wrong version")
+        assert _run_scanner_installer(tmp_path).returncode != 0, relative
+        _fake_scanner(tmp_path / relative, version)
+    _fake_scanner(tmp_path / "kiss/bin/kiss", "kiss 0.4.12", probe_ok=False)
+    assert _run_scanner_installer(tmp_path).returncode != 0
+
+
+def test_scanner_installer_repairs_partial_cache_and_propagates_failure(tmp_path):
+    import os
+
+    root = tmp_path / "cache"
+    _scanner_cache(root)
+    missing = root / "cccc/bin/cccc"
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    cargo = tools / "cargo"
+    cargo.write_text("#!/bin/sh\nexit 42\n")
+    cargo.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tools}:{os.environ['PATH']}"}
+    assert _run_scanner_installer(root, verify=False, env=env).returncode == 0
+    missing.unlink()
+    assert _run_scanner_installer(root, verify=False, env=env).returncode == 42
+    assert _run_scanner_installer(root).returncode != 0
+    cargo.write_text("#!/bin/sh\nexit 0\n")
+    assert _run_scanner_installer(root, verify=False, env=env).returncode != 0
+    cargo.write_text(
+        '#!/bin/sh\n[ "$1" = install ] || exit 2\n'
+        'case " $* " in *" --force "*) ;; *) exit 3 ;; esac\n'
+        'while [ "$1" != --root ]; do shift; done\nshift\n'
+        'mkdir -p "$1/bin"\n'
+        'printf \'#!/bin/sh\\necho "cccc 1.6.0"\\n\' > "$1/bin/cccc"\n'
+        'chmod +x "$1/bin/cccc"\n'
+    )
+    assert _run_scanner_installer(root, verify=False, env=env).returncode == 0
+    assert _run_scanner_installer(root).returncode == 0
+    _fake_scanner(missing, "cccc 0.0.0")
+    assert _run_scanner_installer(root, verify=False, env=env).returncode == 0
+    assert _run_scanner_installer(root).returncode == 0
