@@ -90,20 +90,26 @@ struct AuditRequestRecord {
     entry_hash: crate::audit::Hash,
 }
 
-/// One operation-audit append's maintenance admission id, unique per ATTEMPT --
-/// the same requirement and the same shape as [`anchor_op_id`] below. `key`
-/// still identifies the request for the `AUDIT_REQUESTS` idempotency check
-/// inside the write; it must not also identify the admission attempt, or a
-/// second attempt with the same key would never reach that check.
+/// A maintenance admission id unique per ATTEMPT, shared by every caller on
+/// this writer thread that needs one. `admit_maintenance` resolves a repeated
+/// id to a REPLAY and skips the write entirely (`shard::drain_batch`'s doc on
+/// `drain_id`), so an id derived only from stable content would make a
+/// SECOND, logically distinct attempt with the same content replay instead of
+/// admitting -- see [`anchor_op_id`] below and this module's
+/// `operation_audit_append`, whose own `AUDIT_REQUESTS` check is the precise
+/// idempotency; this id only has to admit a live write every time so that
+/// check can run. The wall clock separates two runs of the same counter value
+/// across a restart -- a process id alone does not, because the operating
+/// system reuses one.
 #[cfg(feature = "security")]
-fn operation_audit_op_id(key: &str) -> String {
+fn fresh_attempt_id(prefix: &str) -> String {
     static ATTEMPT: AtomicU64 = AtomicU64::new(0);
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|since| since.as_nanos())
         .unwrap_or(0);
     format!(
-        "operation_audit/{key}:{stamp}:{}",
+        "{prefix}:{stamp}:{}",
         ATTEMPT.fetch_add(1, Ordering::Relaxed)
     )
 }
@@ -165,7 +171,7 @@ pub(crate) fn operation_audit_append(
     // keyed by `key`/`reserve_key`, is this function's own, more precise
     // idempotency; the admission id only needs to admit a live write every
     // time so that check can run.
-    let op_id = operation_audit_op_id(&key);
+    let op_id = fresh_attempt_id(&format!("operation_audit/{key}"));
     let (group, batches) = shard.admit_maintenance(&members, &op_id)?;
     let write = ShardWrite::open(shard, &group, &members, &batches)?;
     let applied = (|| {
@@ -498,25 +504,13 @@ pub(crate) fn verify_audit(
 #[cfg(feature = "security")]
 pub(crate) type ProvenanceAnchorCache = HashMap<String, (u64, crate::audit::Hash)>;
 
-/// One provenance-anchor write's operation id, unique per ATTEMPT.
-///
-/// Not derived from the graph and root alone: `admit_maintenance` resolves a
-/// repeated batch id to a REPLAY and skips it, so a stable id would silently drop
-/// the second anchor of a graph whose window changed back and forth. See
-/// `shard::drain_batch`'s doc on `drain_id`. The wall clock separates two runs of
-/// the same counter value across a restart -- a process id alone does not, because
-/// the operating system reuses one.
+/// One provenance-anchor write's operation id, unique per ATTEMPT: a stable
+/// id derived only from the graph and root would silently drop the second
+/// anchor of a graph whose window changed back and forth (see
+/// [`fresh_attempt_id`] above for why).
 #[cfg(feature = "security")]
 fn anchor_op_id(graph: &str) -> String {
-    static ATTEMPT: AtomicU64 = AtomicU64::new(0);
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_nanos())
-        .unwrap_or(0);
-    format!(
-        "provenance_anchor/{graph}:{stamp}:{}",
-        ATTEMPT.fetch_add(1, Ordering::Relaxed)
-    )
+    fresh_attempt_id(&format!("provenance_anchor/{graph}"))
 }
 
 /// Read the CURRENT durable content of each of `node_ids` and hash it into a
