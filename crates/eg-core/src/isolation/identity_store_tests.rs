@@ -1,4 +1,4 @@
-//! IDM-01/IDM-03: the identity store over the RBAC image.
+//! The identity store over the RBAC image.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

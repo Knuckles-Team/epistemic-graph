@@ -1,4 +1,4 @@
-//! A bounded, rate-limited sample of authorization denials (IDM-03).
+//! A bounded, rate-limited sample of authorization denials.
 //!
 //! Metrics count every denial; this keeps a durable SAMPLE of who was denied
 //! what, so an operator can see the shape of refused traffic without the

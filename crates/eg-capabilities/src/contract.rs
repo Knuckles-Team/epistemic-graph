@@ -336,7 +336,7 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
         bytes: scopes.clone(),
     });
     // The packaged copy is what agent-utilities generates its session-scope
-    // allowlist from (IDM-05); both are digested, so neither can drift.
+    // allowlist from; both are digested, so neither can drift.
     out.push(Artifact {
         path: "epistemic_graph/contract/scopes.json".to_string(),
         bytes: scopes,
@@ -344,7 +344,7 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out
 }
 
-/// `contract/scopes.json` -- the scope registry (IDM-05), sorted by scope.
+/// `contract/scopes.json` -- the scope registry, sorted by scope.
 fn scopes_json() -> Vec<u8> {
     let scopes: Vec<serde_json::Value> = crate::scopes::SCOPES
         .iter()

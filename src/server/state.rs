@@ -456,7 +456,7 @@ impl ServerState {
     /// A field built empty uses its type's `Default` (every such type's `Default`
     /// is its `new()`); only the fields with a non-default starting value are spelled
     /// out.
-    /// Publish this engine's identity store to the SQL projection (IDM-01).
+    /// Publish this engine's identity store to the SQL projection.
     /// Called after every write that can change the store.
     #[cfg(feature = "security")]
     pub(crate) fn publish_identity_view(&self) {

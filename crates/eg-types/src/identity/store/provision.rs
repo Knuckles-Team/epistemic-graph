@@ -1,4 +1,4 @@
-//! Directory provisioning (IDM-14 store side): SCIM `Users` / `Groups` and
+//! Directory provisioning, store side: SCIM `Users` / `Groups` and
 //! the LDAP group sync.
 //!
 //! Every op is bound to ONE identity provider: a principal holding

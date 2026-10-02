@@ -1,4 +1,4 @@
-//! Class invariants (IDM-05), checked over the whole store after every op
+//! Scope-class invariants, checked over the whole store after every op
 //! that can change who holds which scope. A violation refuses the op as a
 //! whole; the engine then keeps the previous store.
 

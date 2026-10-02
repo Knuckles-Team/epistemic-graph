@@ -1,4 +1,4 @@
-//! IDM-01: the identity store as read-only SQL relations in the one
+//! The identity store as read-only SQL relations in the one
 //! authorized projection -- visible only to exact identity readers, secrets
 //! never projected, the namespace reserved.
 

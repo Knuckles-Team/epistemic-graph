@@ -1,4 +1,4 @@
-//! The published snapshot of each engine's identity store (IDM-01/IDM-02).
+//! The published snapshot of each engine's identity store.
 //!
 //! The engine publishes its store, keyed by its persistence directory, after
 //! every write that changes it. Two readers consume the snapshot where they

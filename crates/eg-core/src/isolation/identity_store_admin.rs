@@ -1,4 +1,4 @@
-//! The identity store over the RBAC image (IDM-01, IDM-03).
+//! The identity store over the RBAC image.
 //!
 //! An identity op is applied to a CLONE of the store; a refusal therefore
 //! changes nothing. An accepted op that changed the store is projected into

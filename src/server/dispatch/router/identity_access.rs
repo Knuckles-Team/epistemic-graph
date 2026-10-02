@@ -67,7 +67,7 @@ pub(super) async fn dispatch_identity_and_access_methods(
             )
             .await
         }
-        // ── The identity store (IDM-01..04) ───────────────────────────────
+        // ── The identity store ─────────────────────────────────────────────
         #[cfg(feature = "security")]
         Method::Identity { op, stamp } => {
             crate::server::dispatch::identity_store::dispatch_identity(
@@ -209,7 +209,7 @@ async fn dispatch_check_access(
 struct IdentityRegistrationMode<'a> {
     bootstrap: bool,
     state_machine_authorized: bool,
-    /// Who registered, for the identity audit entry (IDM-03).
+    /// Who registered, for the identity store's own audit entry.
     actor: &'a str,
 }
 

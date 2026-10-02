@@ -570,7 +570,7 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
 }
 
 /// A control-plane op whose writes live in the rbac.redb authorization image
-/// (EH-404 elevations, IDM-01 identity): each write is hash-chain audited in
+/// (role elevations, the identity store): each write is hash-chain audited in
 /// that image, and a replayed write is refused rather than answered
 /// idempotently. Reads are snapshot reads.
 fn control_redb_op_policy(mutates: bool, authz_action: &'static str) -> MethodPolicy {

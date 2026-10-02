@@ -41,15 +41,15 @@ pub enum IdentityEvent {
     IdpChanged,
     IdentityLinked,
     IdentityUnlinked,
-    /// A `RegisterIdentity` outside the store (IDM-03).
+    /// A `RegisterIdentity` outside the store, recorded in its audit trail.
     RbacIdentityRegistered,
-    /// An `RbacAdmin` role or grant change (IDM-03).
+    /// An `RbacAdmin` role or grant change, recorded in the store's audit trail.
     RbacPolicyChanged,
-    /// A sampled authorization denial (IDM-03 durable denial sample).
+    /// A sampled authorization denial, drained into the durable audit trail.
     AccessDenied,
     /// An administrator's SQL dump was merged.
     Imported,
-    /// EH-560 governed changes.
+    /// Governed changes (proposals requiring two-person approval).
     ChangeProposed,
     ChangeApproved,
     ChangeRevoked,

@@ -1,5 +1,5 @@
-//! The identity store inside the one authorized SQL projection (IDM-01,
-//! operator ruling: "standard SQL tables to store users").
+//! The identity store inside the one authorized SQL projection (operator
+//! ruling: "standard SQL tables to store users").
 //!
 //! Every served SQL read (native `Sql`, the wire protocols, KnowledgeStream)
 //! builds its ephemeral projection through `project_read_store`; this module

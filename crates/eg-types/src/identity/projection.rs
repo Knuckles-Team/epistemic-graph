@@ -1,5 +1,5 @@
 //! Effective authority of a principal, and its projection into the RBAC
-//! image (IDM-03).
+//! image.
 //!
 //! effective roles  = direct roles ∪ group roles ∪ IdP-mapped roles
 //! effective scopes = ⋃ effective roles → role scopes, filtered by the registry

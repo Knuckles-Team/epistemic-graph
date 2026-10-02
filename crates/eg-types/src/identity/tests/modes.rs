@@ -1,4 +1,4 @@
-//! First run and the mode state machine (IDM-04).
+//! First run and the mode state machine.
 
 use super::*;
 

@@ -2144,7 +2144,7 @@ fn project_read_store(
     if let Some(read_only) = read_only {
         relations::add_relations(projection.store(), read_only.materialize()?)?;
     }
-    // IDM-01: the identity store's redacted relations, for identity readers.
+    // The identity store's redacted relations, for identity readers.
     #[cfg(feature = "security")]
     identity_view::add_identity_relations(&projection, authority, persist_dir)?;
     Ok(projection)

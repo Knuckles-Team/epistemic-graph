@@ -1,4 +1,4 @@
-//! IDM-01 through the real request boundary: the actor is stamped from the
+//! The identity store through the real request boundary: the actor is stamped from the
 //! verified context, exact identity scopes are required, every secret is
 //! hashed and cleared before apply, and the floors refuse weak secrets.
 

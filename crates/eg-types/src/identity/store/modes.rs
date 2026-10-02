@@ -1,4 +1,4 @@
-//! First-run initialization, the mode state machine and policy (IDM-04).
+//! First-run initialization, the mode state machine and policy.
 
 use std::collections::{BTreeMap, BTreeSet};
 

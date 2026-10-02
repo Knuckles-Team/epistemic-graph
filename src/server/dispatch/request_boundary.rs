@@ -330,7 +330,7 @@ async fn dispatch_preamble_checks(
         return Err(Response::err(req.id, refusal));
     }
 
-    // IDM-01: after the ledger's scope check, before consensus routing --
+    // After the ledger's scope check, before consensus routing --
     // stamp the actor, check the op's exact identity authority, derive every
     // hash/verdict/sealed value and clear every plaintext secret, so the
     // replicated command never carries one.

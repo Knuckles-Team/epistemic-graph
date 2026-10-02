@@ -1,4 +1,4 @@
-//! Class invariants (IDM-05) and the RBAC projection (IDM-03).
+//! Scope-class invariants and the RBAC projection.
 
 use super::*;
 use crate::acl::{GrantEffect, RbacAction, ResourceSelector};

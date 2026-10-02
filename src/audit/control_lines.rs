@@ -99,7 +99,7 @@ fn telemetry_derive_audit_line(method: &Method) -> Option<String> {
     Some(format!("TELEMETRY_DERIVE|{from_ms}|{to_ms}"))
 }
 
-/// IDM-01/IDM-03: defense-in-depth markers. The durable record of each is
+/// Defense-in-depth markers. The durable record of each is
 /// the identity store's hash-chained trail, written in the same rbac.redb
 /// image as the change. The line names the op and its target, never a
 /// secret (every secret field was cleared at the request boundary).

@@ -1,4 +1,4 @@
-//! The identity store's cryptography, all at the request boundary (IDM-01):
+//! The identity store's cryptography, all at the request boundary:
 //! argon2id for passwords, domain-separated SHA-256 for high-entropy tokens,
 //! sealing of TOTP secrets, and RFC 6238 TOTP verification.
 //!

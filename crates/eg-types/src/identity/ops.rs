@@ -1,4 +1,4 @@
-//! The `Method::Identity` operation family (IDM-01).
+//! The `Method::Identity` operation family: the identity store's ops.
 //!
 //! Grouped into eight families so each dispatcher stays a small exhaustive
 //! match. On the wire an op is one object carrying both tags:
@@ -251,7 +251,7 @@ pub enum TokenOp {
     },
 }
 
-/// Second factors: TOTP, recovery codes and WebAuthn (IDM-09).
+/// Second factors: TOTP, recovery codes and WebAuthn.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]

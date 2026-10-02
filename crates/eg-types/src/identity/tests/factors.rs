@@ -1,5 +1,5 @@
-//! WebAuthn second factors (IDM-09) and the signed-out password reset
-//! (IDM-19). Every refusal is tested both ways.
+//! WebAuthn second factors and the signed-out password reset. Every
+//! refusal is tested both ways.
 
 use super::auth::{outcome, sign_in, verdict, with_password};
 use super::*;

@@ -1,4 +1,4 @@
-//! Directory provisioning (IDM-14 wire shapes): SCIM `Users` / `Groups` and
+//! Directory provisioning wire shapes: SCIM `Users` / `Groups` and
 //! the LDAP group sync push subjects and directory groups into the store.
 //!
 //! A directory group is NOT an engine group and grants nothing by itself:

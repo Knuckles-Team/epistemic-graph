@@ -446,7 +446,7 @@ $($variants)*
         actor: Option<crate::rbac_elevation::ElevationActor>,
     },
 
-    /// The engine-owned identity store (IDM-01..04): principals, credentials,
+    /// The engine-owned identity store: principals, credentials,
     /// sessions, second factors, roles, groups, identity providers and the
     /// auth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary
     /// (the verified actor plus every hash, verdict and sealed value the op

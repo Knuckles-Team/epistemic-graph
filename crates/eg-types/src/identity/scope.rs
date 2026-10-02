@@ -1,4 +1,4 @@
-//! Scope classes (IDM-05) and the store invariants they carry.
+//! Scope classes and the store invariants they carry.
 //!
 //! The scope REGISTRY (every scope and its class) lives in `eg-capabilities`,
 //! generated alongside the capability ledger; this crate sits below it, so

@@ -1,5 +1,6 @@
-//! The engine-owned identity store (IDENTITY-AND-AUTH-MODES-DESIGN §3, rows
-//! IDM-01..05).
+//! The engine-owned identity store: principals, credentials, sessions,
+//! tokens, second factors, roles, groups, identity providers, audit and
+//! the login throttle.
 //!
 //! EG is the sole durable authority for who a principal is. This module holds
 //! the pure data model and the pure transitions of that store: users and their
@@ -100,7 +101,7 @@ pub const ADMINISTRATORS_GROUP: &str = "administrators";
 /// Built-in approver groups (the only way to hold an approver-class scope).
 pub const ELEVATION_APPROVERS_GROUP: &str = "elevation-approvers";
 pub const LIVE_ORDER_APPROVERS_GROUP: &str = "live-order-approvers";
-/// EH-560: approvers of governed schema repairs.
+/// Approvers of governed schema repairs.
 pub const SCHEMA_APPROVERS_GROUP: &str = "schema-approvers";
 /// Built-in roles seeded at initialize.
 pub const ADMIN_ROLE: &str = "admin";

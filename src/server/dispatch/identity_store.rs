@@ -1,4 +1,4 @@
-//! `Method::Identity` (IDM-01..04): the engine-owned identity store.
+//! `Method::Identity`: dispatch for the engine-owned identity store.
 //!
 //! Two steps, both on the request path:
 //!

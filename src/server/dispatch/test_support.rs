@@ -1,5 +1,5 @@
-//! Request-boundary fixtures shared by the identity-family dispatch tests
-//! (IDM-01, EH-560): a verified context with explicit scopes and delegation,
+//! Request-boundary fixtures shared by the identity store and role-elevation
+//! dispatch tests: a verified context with explicit scopes and delegation,
 //! and one dispatch through the real boundary.
 
 use std::sync::Arc;

@@ -1,4 +1,4 @@
-//! WebAuthn second factors (IDM-09). graph-os verifies every attestation and
+//! WebAuthn second factors. graph-os verifies every attestation and
 //! assertion signature with a vetted library; the store keeps only the
 //! PUBLIC credential, binds it to the principal a live session proves, and
 //! enforces the signature counter (a counter that does not move forward is

@@ -47,7 +47,7 @@ pub(crate) struct CarrierAuthority {
     admin: bool,
     can_read: bool,
     can_write: bool,
-    /// IDM-01: the EXACT `identity:read` or `identity:admin` scope -- the
+    /// The EXACT `identity:read` or `identity:admin` scope -- the
     /// identity store's SQL relations are visible to nobody else (neither
     /// `kg:admin` nor `*` implies it).
     identity_reader: bool,

@@ -1,4 +1,4 @@
-//! The durable denial sample (IDM-03).
+//! The durable denial sample.
 //!
 //! Every authorization denial already counts in metrics. The denial paths
 //! also OFFER a sample here -- an in-memory, bounded, rate-limited sampler,
@@ -52,7 +52,7 @@ pub(crate) async fn flush(state: &Arc<RwLock<ServerState>>) {
 }
 
 /// The periodic writer, one per engine. It also publishes the loaded
-/// identity store to the SQL projection once at startup (IDM-01).
+/// identity store to the SQL projection once at startup.
 pub fn spawn_flusher(state: Arc<RwLock<ServerState>>) {
     tokio::spawn(async move {
         state.read().await.publish_identity_view();

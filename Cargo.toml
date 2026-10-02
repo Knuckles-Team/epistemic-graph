@@ -1827,7 +1827,7 @@ futures = { version = "0.3", optional = true }
 # (feature `mysql-wire`, included in the main build, CONCEPT:EG-076). Pure Rust; the
 # mysql_native_password specification mandates SHA-1 specifically.
 sha1 = { version = "0.10", optional = true }
-# IDM-01 identity store (feature `security`): argon2id password and one-time
+# The identity store (feature `security`): argon2id password and one-time
 # code hashing at the request boundary. RustCrypto, pure Rust, no default
 # features (no OS RNG coupling -- salts come from the engine's `rand`). SHA-1
 # above is reused for RFC 6238 TOTP, whose default HMAC is HMAC-SHA1.

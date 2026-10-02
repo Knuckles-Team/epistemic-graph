@@ -1,5 +1,5 @@
-//! The scope registry (IDM-05): every scope the engine or a domain app
-//! authorizes, with its class.
+//! The scope registry: every scope the engine or a domain app authorizes,
+//! with its class.
 //!
 //! This table is the ONE source of truth for scope names. Every capability
 //! ledger action and every op-level action must be registered here (the rot

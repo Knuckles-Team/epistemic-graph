@@ -1,4 +1,4 @@
-//! The auth-mode singleton and its state machine (§2.1, §2.3; IDM-04).
+//! The auth-mode singleton and its state machine.
 //!
 //! The mode is durable engine state, changed only by `transition` with an
 //! epoch compare-and-set. The legal edges are a table; the per-edge

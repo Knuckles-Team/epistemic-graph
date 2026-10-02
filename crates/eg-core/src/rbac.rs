@@ -34,11 +34,12 @@ pub struct RbacPolicy {
     /// rest of the authorization state. Omitted from the image while empty.
     #[serde(default, skip_serializing_if = "ElevationLedger::is_empty")]
     elevations: ElevationLedger,
-    /// The engine-owned identity store (IDM-01..05). Part of the SAME image,
-    /// so a store change and its RBAC projection are one durable write
-    /// (IDM-03). Omitted while empty, so an engine that never uses it keeps
-    /// its bytes. Not part of the policy digest: its authority reaches RBAC
-    /// only through the projected roles, grants and identities, which are.
+    /// The engine-owned identity store. Part of the SAME image, so a store
+    /// change and its RBAC projection are one durable write, with the change
+    /// recorded in the store's own audit trail. Omitted while empty, so an
+    /// engine that never uses it keeps its bytes. Not part of the policy
+    /// digest: its authority reaches RBAC only through the projected roles,
+    /// grants and identities, which are.
     #[serde(default, skip_serializing_if = "IdentityStore::is_empty")]
     identity: IdentityStore,
 }

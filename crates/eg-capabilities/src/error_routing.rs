@@ -155,7 +155,7 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "Decide",
         &["DECISIONS", "UNSUPPORTED_COALITION", "CAPACITY_UNAVAILABLE"],
     ),
-    // IDM-03: the identity store's namespace is fenced off the two older
+    // The identity store's namespace is fenced off the two older
     // RBAC writers (identity_store_admin.rs).
     ("RegisterIdentity", &["IDENTITY_STORE_MANAGED"]),
     ("RbacAdmin", &["IDENTITY_STORE_NAMESPACE"]),
