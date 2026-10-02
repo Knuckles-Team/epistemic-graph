@@ -22,14 +22,22 @@ use tracing::info;
 use epistemic_graph::server;
 use epistemic_graph::server::ServerState;
 
+#[cfg(feature = "security")]
+mod operator_command;
 #[cfg(feature = "full")]
 mod performance_probe;
 mod server_startup;
+use server_startup::run_fuseki_startup_health_check;
 
 #[derive(Parser, Debug)]
 #[command(name = "epistemic-graph-server")]
 #[command(about = "Tokio-native epistemic graph service")]
 struct Args {
+    /// Offline operator command, run instead of the service.
+    #[cfg(feature = "security")]
+    #[command(subcommand)]
+    command: Option<operator_command::OperatorCommand>,
+
     /// Run one bounded, stdin-driven G-37 performance scenario and exit.
     #[arg(long, hide = true)]
     exact_performance_probe: bool,
@@ -349,6 +357,8 @@ fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<Stri
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "security")]
+    operator_command::exit_if_requested(Args::parse().command);
     // Explicit, hardware-sized multi-thread runtime (CONCEPT:EG-KG.storage.nonblocking-checkpoint — A4). The
     // The runtime itself is an automatic capacity consumer. Resolve through the
     // shared cgroup-aware seam before building it; a CPU-limited pod must not
@@ -669,29 +679,6 @@ async fn spawn_policy_export_listener(
         );
     }
     Ok(())
-}
-fn run_fuseki_startup_health_check() {
-    // ── Fuseki SERVICE-federation startup health-check (CA-12, feature `sparql-fuseki`) ──
-    // Best-effort and LOGGED, not enforced (matches the lane's W03 completion evidence:
-    // "Startup log shows reachability result", not "startup refuses to serve"). Runs the
-    // SAME guarded `sparql_http::ServiceClient` the live `SERVICE <ep> {…}` dispatch path
-    // uses, so a green log line here is real evidence the federation path works, not a
-    // separate check that could pass while the real path is broken. No-op unless BOTH
-    // `EPISTEMIC_GRAPH_FUSEKI_HEALTH_CHECK_ENDPOINT` (which endpoint to probe) and
-    // `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` (the fail-closed allowlist) are set.
-    #[cfg(feature = "sparql-fuseki")]
-    {
-        let outcome = epistemic_graph::server::sparql_service::startup_health_check();
-        match outcome {
-            epistemic_graph::server::sparql_service::HealthCheckOutcome::Reachable { .. } => {
-                info!("{}", outcome.summary());
-            }
-            epistemic_graph::server::sparql_service::HealthCheckOutcome::NotConfigured => {
-                tracing::debug!("{}", outcome.summary());
-            }
-            _ => tracing::warn!("{}", outcome.summary()),
-        }
-    }
 }
 async fn spawn_federated_listener(
     _state: &Arc<tokio::sync::RwLock<ServerState>>,

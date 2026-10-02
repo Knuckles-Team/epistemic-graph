@@ -145,6 +145,23 @@ persisted layout in place (leaving a timestamped backup) with:
 migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
 ```
 
+A store written by an earlier build in a layout that has a registered offline upgrade
+is not upgraded at startup either: the engine refuses to start, with that store's
+`*_FORMAT_UPGRADE_REQUIRED` error and the command to run. With the engine stopped,
+inspect the data directory and then apply the upgrades in place, before starting the
+engine again (a deployment job runs the same two commands ahead of the engine):
+
+```bash
+epistemic-graph-server store-upgrade inspect "${GRAPH_SERVICE_PERSIST_DIR:?}"
+epistemic-graph-server store-upgrade apply "${GRAPH_SERVICE_PERSIST_DIR:?}" --confirm
+```
+
+`inspect` writes nothing and exits `0` (nothing to do), `10` (upgrade available),
+`20` (a store this build neither opens nor upgrades) or `30` (a store could not be
+read, as after an unclean shutdown). `apply` is safe to run on every deployment: with
+nothing to upgrade it changes no store and exits `0`. The upgrades and the full
+procedure are listed in [owner-store formats](owner-store-formats.md).
+
 Restore validates all aggregate counts against the copied stores. Coordinator
 receipt/idempotency/child links must remain internally bound, and private prepared
 plans must remain authenticated ciphertext. Backup and restore command output exposes
