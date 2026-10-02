@@ -747,30 +747,32 @@
     {
       "id": "EG-FEDERATED-QUERY-R051",
       "title": "Iceberg scans prune manifests using the final pushed predicates",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "merged_head",
+          "kind": "branch",
           "result": "passed",
           "commit": "b5c387e25505738c9d2185b2f8f14a1e2e01d6f3",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b5c387e25505738c9d2185b2f8f14a1e2e01d6f3",
-          "description": "Implemented on the default branch."
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
-      ]
+      ],
+      "remaining": "An independent reviewer found no test fixture that exercises an effective LIMIT pushed down to the Iceberg scan together with a residual (non-partition) filter present at the same time; the code only skips the pushed LIMIT when a residual filter is present, but that interaction and the plain-LIMIT-with-no-filter case are not proven by a fixture. Add that coverage before claiming this requirement delivered."
     },
     {
       "id": "EG-FEDERATED-QUERY-R052",
       "title": "RemoteEngine sources receive pushed key filters and bounded LIMIT",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "merged_head",
+          "kind": "branch",
           "result": "passed",
           "commit": "70c5421663b9bed2570b3e143cf3470636353c5f",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/70c5421663b9bed2570b3e143cf3470636353c5f",
-          "description": "Implemented on the default branch."
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
-      ]
+      ],
+      "remaining": "An independent reviewer found that the peer-engine pushdown test only proves pushdown against an enforcing mock peer; it is not a proof that a real served engine enforces authentication/authorization on these pushed requests. A served-authentication proof is still needed before this requirement can be marked delivered."
     },
     {
       "id": "EG-FEDERATED-QUERY-R053",

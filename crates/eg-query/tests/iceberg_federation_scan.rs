@@ -10,7 +10,7 @@
 //! table load) and the S3-compatible object store holding the table's files (`HEAD` and
 //! ranged `GET`). Nothing is mocked inside the provider: it uses its real REST client and
 //! its real object-store client against that server.
-#![cfg(feature = "iceberg-federation")]
+#![cfg(all(feature = "sql", feature = "iceberg-federation"))]
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
