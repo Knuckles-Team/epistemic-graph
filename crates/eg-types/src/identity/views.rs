@@ -40,22 +40,44 @@ pub struct UserView {
 }
 
 impl UserView {
+    /// Redact a stored principal. The record and the credential facts are
+    /// taken apart field by field, so a field added to either is a compile
+    /// error here until someone decides whether a reader may see it.
     pub(crate) fn of(user: &UserRecord, factors: CredentialFacts) -> Self {
+        let UserRecord {
+            principal_id,
+            username,
+            display_name,
+            email,
+            kind,
+            status,
+            is_bootstrap,
+            source,
+            roles,
+            created_at_ms,
+            disabled_at_ms: _,
+            last_login_at_ms,
+        } = user.clone();
+        let CredentialFacts {
+            has_password,
+            totp_enrolled,
+            recovery_codes_left,
+        } = factors;
         Self {
-            principal_id: user.principal_id.clone(),
-            username: user.username.clone(),
-            display_name: user.display_name.clone(),
-            email: user.email.clone(),
-            kind: user.kind,
-            status: user.status,
-            is_bootstrap: user.is_bootstrap,
-            source: user.source.clone(),
-            roles: user.roles.clone(),
-            has_password: factors.has_password,
-            totp_enrolled: factors.totp_enrolled,
-            recovery_codes_left: factors.recovery_codes_left,
-            created_at_ms: user.created_at_ms,
-            last_login_at_ms: user.last_login_at_ms,
+            principal_id,
+            username,
+            display_name,
+            email,
+            kind,
+            status,
+            is_bootstrap,
+            source,
+            roles,
+            has_password,
+            totp_enrolled,
+            recovery_codes_left,
+            created_at_ms,
+            last_login_at_ms,
         }
     }
 }
@@ -125,7 +147,7 @@ pub enum AuthenticateOutcome {
     /// A group requires MFA and none is enrolled; no session was opened.
     MfaEnrollmentRequired,
     /// The password must be changed first; no session was opened.
-    PasswordChangeRequired,
+    CredentialChangeRequired,
 }
 
 /// The answer to `authenticate` / `external_login` / a second factor.

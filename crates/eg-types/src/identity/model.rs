@@ -119,7 +119,7 @@ impl SessionRecord {
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum TokenPurpose {
-    PasswordReset,
+    CredentialReset,
     EmailVerify,
     Invite,
     LinkClaim,

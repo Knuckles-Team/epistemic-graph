@@ -340,6 +340,24 @@ pub enum IdpOp {
     },
 }
 
+/// Evaluate `$body` with `$op` bound to the op of whichever family
+/// `$identity_op` holds. The one exhaustive list of the families: a family
+/// added to [`IdentityOp`] fails to compile here until it is handled.
+macro_rules! in_family {
+    ($identity_op:expr, $op:ident => $body:expr) => {
+        match $identity_op {
+            IdentityOp::Config($op) => $body,
+            IdentityOp::User($op) => $body,
+            IdentityOp::Credential($op) => $body,
+            IdentityOp::Session($op) => $body,
+            IdentityOp::Token($op) => $body,
+            IdentityOp::Mfa($op) => $body,
+            IdentityOp::Access($op) => $body,
+            IdentityOp::Idp($op) => $body,
+        }
+    };
+}
+
 /// Every identity operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "family", rename_all = "snake_case")]
@@ -358,16 +376,7 @@ pub enum IdentityOp {
 impl IdentityOp {
     /// The op's static facts.
     pub fn meta(&self) -> OpMeta {
-        match self {
-            Self::Config(op) => op.meta(),
-            Self::User(op) => op.meta(),
-            Self::Credential(op) => op.meta(),
-            Self::Session(op) => op.meta(),
-            Self::Token(op) => op.meta(),
-            Self::Mfa(op) => op.meta(),
-            Self::Access(op) => op.meta(),
-            Self::Idp(op) => op.meta(),
-        }
+        in_family!(self, op => op.meta())
     }
 
     pub fn is_mutation(&self) -> bool {

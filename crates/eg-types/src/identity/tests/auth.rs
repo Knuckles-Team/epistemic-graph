@@ -215,7 +215,7 @@ fn a_forced_change_opens_no_session_until_a_new_password_is_supplied() {
     );
     assert_eq!(
         outcome(first.unwrap()).outcome,
-        AuthenticateOutcome::PasswordChangeRequired
+        AuthenticateOutcome::CredentialChangeRequired
     );
     assert!(store.session_principal("p", NOW).is_none());
     let mut with_new = verdict(Some(&alice), true, "q");

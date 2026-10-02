@@ -1,6 +1,7 @@
 //! Field validation shared by every identity record.
 
 use super::{IdentityRefusal, MIN_TOKEN_CHARS};
+use crate::contract::bounded_text_or;
 
 /// Longest username (after normalization).
 pub const MAX_USERNAME_BYTES: usize = 64;
@@ -40,11 +41,7 @@ pub fn validate_principal_id(principal_id: &str) -> Result<(), IdentityRefusal> 
 
 /// A bounded, non-empty, control-free text field.
 pub(crate) fn bounded(value: &str, max: usize) -> Result<(), IdentityRefusal> {
-    if crate::contract::bounded_control_free_text(value, max) {
-        Ok(())
-    } else {
-        Err(IdentityRefusal::InvalidRequest)
-    }
+    bounded_text_or(value, max, IdentityRefusal::InvalidRequest)
 }
 
 /// An optional bounded text field.

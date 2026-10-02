@@ -322,11 +322,7 @@ impl std::fmt::Display for ElevationRefusal {
 impl std::error::Error for ElevationRefusal {}
 
 fn bounded_text(value: &str, max: usize) -> Result<(), ElevationRefusal> {
-    if crate::contract::bounded_control_free_text(value, max) {
-        Ok(())
-    } else {
-        Err(ElevationRefusal::InvalidRequest)
-    }
+    crate::contract::bounded_text_or(value, max, ElevationRefusal::InvalidRequest)
 }
 
 /// Validate an elevation id (also used by approve/revoke).

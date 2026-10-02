@@ -253,7 +253,7 @@ impl IdentityStore {
                 .is_some_and(|u| u.status == UserStatus::PendingReset);
         if must_change {
             let Some(hash) = stamp.password_hash.clone() else {
-                return Ok(self.outcome(principal, AuthenticateOutcome::PasswordChangeRequired));
+                return Ok(self.outcome(principal, AuthenticateOutcome::CredentialChangeRequired));
             };
             self.store_password(principal, &hash, false, ctx.now_ms);
         }

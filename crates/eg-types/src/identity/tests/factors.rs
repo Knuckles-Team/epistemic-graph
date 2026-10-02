@@ -242,7 +242,7 @@ fn a_reset_link_answers_uniformly_and_redeems_once() {
     redeem.password_hash = Some("$argon2id$reset".to_string());
     let op = IdentityOp::Token(TokenOp::RedeemOneTime {
         request: TokenRedeem {
-            purpose: TokenPurpose::PasswordReset,
+            purpose: TokenPurpose::CredentialReset,
             token: Secret::default(),
             new_password: Secret::default(),
             link: None,

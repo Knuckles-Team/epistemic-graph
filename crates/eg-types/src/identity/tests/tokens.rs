@@ -43,7 +43,7 @@ fn a_one_time_token_is_spent_once_for_its_own_purpose_only() {
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
     let (op, stamp) = issue(TokenPurpose::AdminReset, Some(&alice), "t1");
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
-    let (wrong, stamp_wrong) = redeem(TokenPurpose::PasswordReset, "t1");
+    let (wrong, stamp_wrong) = redeem(TokenPurpose::CredentialReset, "t1");
     assert_eq!(
         apply_kept(&mut store, &wrong, &stamp_wrong, NOW),
         Err(IdentityRefusal::TokenSpent)
@@ -92,9 +92,9 @@ fn an_expired_token_is_spent() {
     let mut store = store_in(AuthMode::Local);
     with_admin_session(&mut store);
     let alice = create(&mut store, "alice", UserKind::Human).unwrap();
-    let (op, stamp) = issue(TokenPurpose::PasswordReset, Some(&alice), "t2");
+    let (op, stamp) = issue(TokenPurpose::CredentialReset, Some(&alice), "t2");
     apply_kept(&mut store, &op, &stamp, NOW).unwrap();
-    let (op, stamp) = redeem(TokenPurpose::PasswordReset, "t2");
+    let (op, stamp) = redeem(TokenPurpose::CredentialReset, "t2");
     assert_eq!(
         apply_kept(&mut store, &op, &stamp, NOW + 31 * 60 * 1000),
         Err(IdentityRefusal::TokenSpent)

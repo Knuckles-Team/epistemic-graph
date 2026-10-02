@@ -29,7 +29,7 @@ fn reset_throttle_key(username: &str) -> String {
 /// Which purposes must name a principal.
 fn purpose_names_principal(purpose: TokenPurpose) -> bool {
     match purpose {
-        TokenPurpose::PasswordReset
+        TokenPurpose::CredentialReset
         | TokenPurpose::EmailVerify
         | TokenPurpose::LinkClaim
         | TokenPurpose::AdminReset => true,
@@ -128,12 +128,12 @@ impl IdentityStore {
             return Ok(IdentityReply::ResetDelivery(ResetDelivery { email: None }));
         };
         self.one_time.retain(|_, token| {
-            token.purpose != TokenPurpose::PasswordReset
+            token.purpose != TokenPurpose::CredentialReset
                 || token.principal_id.as_deref() != Some(principal.as_str())
         });
         self.insert_one_time(OneTimeToken {
             token_hash: hash,
-            purpose: TokenPurpose::PasswordReset,
+            purpose: TokenPurpose::CredentialReset,
             principal_id: Some(principal),
             expires_at_ms: now_ms.saturating_add(request.ttl_ms),
             used_at_ms: None,
@@ -222,7 +222,7 @@ impl IdentityStore {
         let hash = stamp.token_hash(0)?.to_string();
         let principal = self.spend_token(&hash, request.purpose, now_ms)?;
         match (request.purpose, principal) {
-            (TokenPurpose::PasswordReset | TokenPurpose::AdminReset, Some(principal)) => {
+            (TokenPurpose::CredentialReset | TokenPurpose::AdminReset, Some(principal)) => {
                 let new_hash = stamp.new_password_hash()?.to_string();
                 self.store_password(&principal, &new_hash, false, now_ms);
                 self.revoke_principal_sessions(&principal, now_ms, "password_reset");
@@ -256,7 +256,7 @@ impl IdentityStore {
                 Ok(IdentityReply::Done { changed: true })
             }
             (
-                TokenPurpose::PasswordReset | TokenPurpose::AdminReset | TokenPurpose::LinkClaim,
+                TokenPurpose::CredentialReset | TokenPurpose::AdminReset | TokenPurpose::LinkClaim,
                 None,
             ) => Err(IdentityRefusal::InvalidRequest),
         }

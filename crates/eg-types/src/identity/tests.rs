@@ -204,6 +204,18 @@ fn the_wire_op_carries_both_tags_and_refuses_unknown_fields() {
     assert!(serde_json::from_value::<IdentityOp>(extra).is_err());
 }
 
+/// A refusal is served as its wire token, and the served boundary keeps only
+/// tokens the engine declares: an undeclared one would reach the caller as an
+/// unclassified internal error.
+#[test]
+fn every_refusal_is_reported_as_a_declared_wire_code() {
+    for refusal in IdentityRefusal::ALL {
+        let code = refusal.to_string();
+        assert!(code.starts_with("IDENTITY_"), "{code}");
+        assert!(crate::contract::declared_error_code(&code), "{code}");
+    }
+}
+
 #[test]
 fn a_secret_never_prints() {
     let secret = Secret::new("hunter2hunter2");

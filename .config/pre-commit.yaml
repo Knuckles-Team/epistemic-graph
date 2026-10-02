@@ -99,12 +99,7 @@ repos:
   hooks:
   - id: bandit
     args: ["--skip", "B101,B404,B603"]
-    # `epistemic_graph/generated/**` is machine-rendered from the contract:
-    # a generated enum member like `PASSWORD_RESET = "password_reset"` is a
-    # wire tag, not a hardcoded credential, and B105
-    # cannot tell the two apart. Never hand-edit the exclusion away from the
-    # file itself -- fix the generator's source rows instead.
-    exclude: ^(tests/|test/|scripts/|script/|__tests__/|epistemic_graph/generated/)
+    exclude: ^(tests/|test/|scripts/|script/|__tests__/)
 - repo: local
   hooks:
   - id: dependency-readiness
