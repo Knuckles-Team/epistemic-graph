@@ -374,6 +374,7 @@ METHOD_IDS = frozenset(
         "OwlReasonDistributed",
         "OwlExplain",
         "ShaclValidate",
+        "OntologyInspect",
         "IcvConfigure",
         "GraphSchema",
         "GraphSchemaList",

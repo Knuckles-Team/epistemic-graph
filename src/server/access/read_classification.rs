@@ -304,6 +304,12 @@ pub(super) const REASON_GRAPH_SCHEMA_CONTROL_STATE: &str =
 // (`owl:read`); the request graph's read authority is the whole scope.
 pub(super) const REASON_GRAPH_SCHEMA_VOCABULARY: &str =
     "GraphSchemaClasses reads the declared class/property IRIs of the request graph's composed schema and the key of the source declaring each -- schema vocabulary behind owl:read, never a GraphView/core.analysis_snapshot() row read and never a source document";
+// `OntologyInspect` parses caller-supplied documents or the request graph's
+// composed GraphSchema source documents -- schema, not data. Its `validation:read`
+// scope is the one `ShaclValidate` already needs to apply those same composed
+// shapes; no GraphView or row is ever constructed.
+pub(super) const REASON_ONTOLOGY_SCHEMA_DOCUMENTS: &str =
+    "OntologyInspect parses caller-supplied Turtle or the request graph's composed GraphSchema source documents behind validation:read (the scope ShaclValidate needs to apply the same composed shapes) -- schema documents, never a GraphView/core.analysis_snapshot() row read";
 // RF-ADR-009: status reads one source-partition marker keyed by the verified
 // tenant, graph, connector and stream. The marker is ingestion control state,
 // not a caller-visible graph row; its `source:ingest` capability and verified
@@ -361,6 +367,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("GraphSchemaList", REASON_GRAPH_SCHEMA_CONTROL_STATE),
     // REASON_GRAPH_SCHEMA_VOCABULARY
     ("GraphSchemaClasses", REASON_GRAPH_SCHEMA_VOCABULARY),
+    // REASON_ONTOLOGY_SCHEMA_DOCUMENTS
+    ("OntologyInspect", REASON_ONTOLOGY_SCHEMA_DOCUMENTS),
     // REASON_SOURCE_INGESTION_MARKER
     ("SourceIngestStatus", REASON_SOURCE_INGESTION_MARKER),
     // REASON_SERVER_LIFECYCLE

@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 456,
+  "method_count": 457,
   "methods": [
     {
       "consumer_profiles": [
@@ -24675,6 +24675,64 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.reasoning.json#/methods/ShaclValidate",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "reasoning",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [],
+      "id": "OntologyInspect",
+      "is_wire_callable": true,
+      "note": "the vocabulary, SHACL targets and canonical digest of inline documents or the composed GraphSchema sources, so orchestration callers need no RDF parser; reads schema, never graph rows",
+      "policy": {
+        "audited": false,
+        "authz_action": "validation:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/OntologyInspect"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/OntologyInspect",
         "selected_by": null
       },
       "stability": "stable"

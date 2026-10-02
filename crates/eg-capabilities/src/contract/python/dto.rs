@@ -19,6 +19,7 @@ pub(super) const SHARED_DTO_RESULT_MODELS: &[(&str, &str)] = &[
     ("OwlExplain", "OwlExplainResult"),
     ("RunDatalogReasoning", "DatalogReasoningResult"),
     ("ShaclValidate", "ShaclValidationReport"),
+    ("OntologyInspect", "OntologyInspection"),
 ];
 
 /// Schema-specific digest projections rendered as model methods. Framing and

@@ -327,9 +327,30 @@ $($variants)*
         /// graph's composed GraphSchema authority.
         #[serde(default)]
         shapes: Option<String>,
-        /// The data graph as a Turtle document; empty ⇒ use the request's live graph.
+        /// The data graph as a Turtle document; empty ⇒ use the request's live graph
+        /// (unless `data_triples` is given).
         #[serde(default)]
         data_graph: String,
+        /// The data graph as typed triples, for callers that must not build
+        /// RDF text. Mutually exclusive with a non-empty `data_graph`; at most
+        /// `MAX_TYPED_TRIPLES`. Omitted on the wire when empty.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        data_triples: Vec<crate::ontology_inspection::RdfTriple>,
+    },
+
+    /// Inspect ontology/shapes documents: the named classes, object and
+    /// datatype properties with their labels, domains and ranges, the SHACL target
+    /// classes, the distinct triple count and the canonical digest. Inspects the
+    /// inline Turtle `documents` when given (at most `MAX_INSPECT_DOCUMENTS`);
+    /// otherwise the request graph's composed GraphSchema sources named by
+    /// `source_ids`, or every composed source when that is empty too. Giving both
+    /// is refused. Returns a `Json` `OntologyInspection`. Read-only; the engine is
+    /// the only RDF parser, so a caller never needs one. Handler gated `shacl`.
+    OntologyInspect {
+        #[serde(default)]
+        documents: Vec<String>,
+        #[serde(default)]
+        source_ids: Vec<String>,
     },
 
 

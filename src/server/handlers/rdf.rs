@@ -28,6 +28,12 @@ mod sparql;
 mod triples;
 #[cfg(any(feature = "shacl", feature = "shex"))]
 mod validation;
+// Typed triples in and a typed vocabulary out, so orchestration callers never
+// parse or build RDF text.
+#[cfg(feature = "shacl")]
+mod inspect;
+#[cfg(feature = "shacl")]
+mod typed_triples;
 
 pub(in crate::server) use dispatch::try_handle;
 #[cfg(feature = "owl")]
