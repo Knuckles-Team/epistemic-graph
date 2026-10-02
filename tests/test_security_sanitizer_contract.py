@@ -72,7 +72,12 @@ def test_compressed_text_has_a_bounded_expanded_size(tmp_path) -> None:
     ]
 
 
-@pytest.mark.parametrize("contents", [b"not gzip", gzip.compress(b"valid")[:-4]])
+# Workers import this module independently; fixture bytes and IDs must be stable.
+@pytest.mark.parametrize(
+    "contents",
+    [b"not gzip", gzip.compress(b"valid", mtime=0)[:-4]],
+    ids=["not-gzip", "truncated-gzip"],
+)
 def test_invalid_compressed_text_fails_closed(tmp_path, contents: bytes) -> None:
     sanitizer = _sanitizer()
     report = tmp_path / "report.json.gz"
