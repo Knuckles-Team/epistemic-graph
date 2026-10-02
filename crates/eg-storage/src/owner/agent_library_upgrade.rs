@@ -45,8 +45,8 @@ enum UpgradeTarget {
 
 /// The graph-shard generation an offline upgrade starts from. Every one ends
 /// at the current layout.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum GraphShardSource {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphShardSource {
     /// Before the repository-enrichment tables.
     BeforeEnrichment,
     /// Lacking only the operation audit-append idempotency index.
@@ -126,35 +126,21 @@ pub fn inspect_agent_library_mcp_catalog_upgrade(
     )
 }
 
-pub fn inspect_graph_shard_enrichment_upgrade(
+/// Inspect a graph shard of the generation `source` names. A file of any
+/// other generation, the current one included, is refused.
+pub fn inspect_graph_shard_upgrade(
     path: &Path,
     expected_physical_identity: PhysicalStoreIdentity,
     private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
     options: GraphShardInspectionOptions,
+    source: GraphShardSource,
 ) -> Result<ValidatedGraphShardUpgrade, String> {
     inspect_layout_upgrade(
         path,
         expected_physical_identity,
         private_integrity,
         options,
-        UpgradeTarget::GraphShard(GraphShardSource::BeforeEnrichment),
-    )
-}
-
-/// Inspect a graph shard written immediately before the operation
-/// audit-append idempotency index: the layout every existing graph shard has.
-pub fn inspect_graph_shard_audit_requests_upgrade(
-    path: &Path,
-    expected_physical_identity: PhysicalStoreIdentity,
-    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
-    options: GraphShardInspectionOptions,
-) -> Result<ValidatedGraphShardUpgrade, String> {
-    inspect_layout_upgrade(
-        path,
-        expected_physical_identity,
-        private_integrity,
-        options,
-        UpgradeTarget::GraphShard(GraphShardSource::BeforeAuditRequests),
+        UpgradeTarget::GraphShard(source),
     )
 }
 
@@ -204,24 +190,17 @@ pub fn upgrade_agent_library_mcp_catalog(
     upgrade_layout(token, UpgradeTarget::AgentLibrary)
 }
 
-pub fn upgrade_graph_shard_enrichment(
+/// Bring an inspected graph shard to the current layout in one durable
+/// commit: every existing row is kept and each table its generation lacked is
+/// created empty. The token carries the generation it was inspected as.
+pub fn upgrade_graph_shard(
     token: ValidatedGraphShardUpgrade,
 ) -> Result<(StorageKernel, GraphShardUpgradeReport), String> {
-    upgrade_layout(
-        token,
-        UpgradeTarget::GraphShard(GraphShardSource::BeforeEnrichment),
-    )
-}
-
-/// Add the empty audit-append idempotency index to an inspected graph shard,
-/// preserving every existing row, in one durable commit.
-pub fn upgrade_graph_shard_audit_requests(
-    token: ValidatedGraphShardUpgrade,
-) -> Result<(StorageKernel, GraphShardUpgradeReport), String> {
-    upgrade_layout(
-        token,
-        UpgradeTarget::GraphShard(GraphShardSource::BeforeAuditRequests),
-    )
+    let target = token.target;
+    if target.layout() != OwnerLayout::GraphShard {
+        return Err("owner layout upgrade token targets another store".into());
+    }
+    upgrade_layout(token, target)
 }
 
 fn upgrade_layout(

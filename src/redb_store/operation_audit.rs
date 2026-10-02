@@ -366,4 +366,4 @@ pub(crate) fn operation_audit_read(
 
 #[cfg(test)]
 #[path = "operation_audit_tests.rs"]
-mod tests;
+pub(crate) mod tests;

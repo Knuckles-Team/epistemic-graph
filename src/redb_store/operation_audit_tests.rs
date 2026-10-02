@@ -6,7 +6,7 @@ use crate::protocol::{AuditAppendReceipt, Method};
 use crate::redb_store::{commit_ops, DurableCrypto};
 
 const GRAPH: &str = "g";
-const TENANT: &str = "tenant-a";
+pub(crate) const TENANT: &str = "tenant-a";
 
 fn open(dir: &std::path::Path) -> Shard {
     Shard::open(&dir.join("graph-0.redb")).unwrap()
@@ -34,7 +34,9 @@ fn seeded(dir: &std::path::Path) -> (Shard, AuditTailCache) {
     (shard, tail)
 }
 
-fn event(request_id: &str, status: &str) -> OperationAuditEvent {
+/// A valid event of [`TENANT`] with the `event` audit class, shared by every
+/// operation-audit test in the crate.
+pub(crate) fn event(request_id: &str, status: &str) -> OperationAuditEvent {
     OperationAuditEvent {
         tenant: TENANT.into(),
         principal: "svc:caller".into(),

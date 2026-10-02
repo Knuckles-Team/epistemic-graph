@@ -119,52 +119,31 @@ fn earlier_connector_packless_layout_is_not_upgradeable() {
     );
 }
 
-type InspectGraphShard = fn(
-    &Path,
-    PhysicalStoreIdentity,
-    Option<Arc<dyn PrivatePayloadIntegrity>>,
-    GraphShardInspectionOptions,
-) -> Result<ValidatedGraphShardUpgrade, String>;
-type UpgradeGraphShard =
-    fn(ValidatedGraphShardUpgrade) -> Result<(StorageKernel, GraphShardUpgradeReport), String>;
-
 /// One graph-shard generation that has an offline upgrade: the manifest and
-/// census its build recorded, how the registry names it, and the upgrade that
-/// accepts it.
+/// census its build recorded, and the tables the upgrade must create.
 struct GraphGeneration {
     recorded: &'static str,
-    target: UpgradeTarget,
-    inspect: InspectGraphShard,
-    upgrade: UpgradeGraphShard,
-    /// The tables the upgrade must create.
+    source: GraphShardSource,
     added: &'static [&'static str],
 }
 
-const BEFORE_ENRICHMENT_GENERATION: GraphGeneration = GraphGeneration {
-    recorded: BEFORE_ENRICHMENT,
-    target: UpgradeTarget::GraphShard(GraphShardSource::BeforeEnrichment),
-    inspect: inspect_graph_shard_enrichment_upgrade,
-    upgrade: upgrade_graph_shard_enrichment,
-    added: &[
-        "repository_enrichment_budgets",
-        "repository_enrichment_policy_revisions",
-        "repository_enrichment_supersessions",
-        "repository_enrichment_parks",
-        "audit_requests",
-    ],
-};
-
-const BEFORE_AUDIT_REQUESTS_GENERATION: GraphGeneration = GraphGeneration {
-    recorded: BEFORE_AUDIT_REQUESTS,
-    target: UpgradeTarget::GraphShard(GraphShardSource::BeforeAuditRequests),
-    inspect: inspect_graph_shard_audit_requests_upgrade,
-    upgrade: upgrade_graph_shard_audit_requests,
-    added: &["audit_requests"],
-};
-
-const GRAPH_GENERATIONS: [&GraphGeneration; 2] = [
-    &BEFORE_ENRICHMENT_GENERATION,
-    &BEFORE_AUDIT_REQUESTS_GENERATION,
+const GRAPH_GENERATIONS: [GraphGeneration; 2] = [
+    GraphGeneration {
+        recorded: BEFORE_ENRICHMENT,
+        source: GraphShardSource::BeforeEnrichment,
+        added: &[
+            "repository_enrichment_budgets",
+            "repository_enrichment_policy_revisions",
+            "repository_enrichment_supersessions",
+            "repository_enrichment_parks",
+            "audit_requests",
+        ],
+    },
+    GraphGeneration {
+        recorded: BEFORE_AUDIT_REQUESTS,
+        source: GraphShardSource::BeforeAuditRequests,
+        added: &["audit_requests"],
+    },
 ];
 
 const NODE_KEY: (&str, &str) = ("graph-a", "node-a");
@@ -179,7 +158,8 @@ impl GraphGeneration {
     /// proven byte-identical in manifest and census to the recorded build
     /// before any row is added.
     fn create_with_rows(&self, path: &Path) {
-        create_predecessor_owner_file(path, self.identity(), self.target.predecessor()).unwrap();
+        let predecessor = self.source.declared_generation();
+        create_predecessor_owner_file(path, self.identity(), predecessor).unwrap();
         assert_eq!(
             RecordedLayout::read(path),
             RecordedLayout::parse(self.recorded)
@@ -200,7 +180,7 @@ impl GraphGeneration {
     }
 
     fn inspect(&self, path: &Path) -> Result<ValidatedGraphShardUpgrade, String> {
-        (self.inspect)(path, self.identity(), None, options(path))
+        inspect_graph_shard_upgrade(path, self.identity(), None, options(path), self.source)
     }
 
     fn open(&self, path: &Path) -> Result<StorageKernel, String> {
@@ -236,24 +216,25 @@ fn assert_rows_survived_and_tables_were_added(path: &Path, added: &[&str]) {
 /// the ones the recorded build persisted, and hash to its frozen digest.
 #[test]
 fn frozen_graph_predecessor_contracts_match_the_recorded_manifests() {
-    for generation in GRAPH_GENERATIONS {
+    for generation in &GRAPH_GENERATIONS {
         let recorded = RecordedLayout::parse(generation.recorded).manifest();
-        assert_eq!(recorded.layout_digest, generation.target.pinned());
-        let contracts = contracts_for(&recorded, generation.target).unwrap();
+        let target = UpgradeTarget::GraphShard(generation.source);
+        assert_eq!(recorded.layout_digest, generation.source.frozen_digest());
+        let contracts = contracts_for(&recorded, target).unwrap();
         assert_eq!(contracts, recorded.tables);
         assert_eq!(
             layout_digest_over(OwnerLayout::GraphShard, &contracts),
-            generation.target.pinned()
+            generation.source.frozen_digest()
         );
     }
 }
 
 /// A store at each recorded layout is refused by the ordinary open, upgraded
-/// in place by its explicit offline upgrade with every row kept, gains the
+/// in place by the explicit offline upgrade with every row kept, gains the
 /// tables it lacked, and then opens normally. The upgrade does not run twice.
 #[test]
 fn graph_upgrades_preserve_rows_add_the_missing_tables_and_run_once() {
-    for generation in GRAPH_GENERATIONS {
+    for generation in &GRAPH_GENERATIONS {
         let directory = private_local_tempdir();
         let path = directory.path().join("graph-0.redb");
         generation.create_with_rows(&path);
@@ -263,8 +244,11 @@ fn graph_upgrades_preserve_rows_add_the_missing_tables_and_run_once() {
             "{refusal}"
         );
         let token = generation.inspect(&path).unwrap();
-        let (kernel, report) = (generation.upgrade)(token).unwrap();
-        assert_eq!(report.previous_layout_digest, generation.target.pinned());
+        let (kernel, report) = upgrade_graph_shard(token).unwrap();
+        assert_eq!(
+            report.previous_layout_digest,
+            generation.source.frozen_digest()
+        );
         assert_eq!(
             report.current_layout_digest,
             OwnerLayout::GraphShard.digest()
@@ -280,22 +264,26 @@ fn graph_upgrades_preserve_rows_add_the_missing_tables_and_run_once() {
     }
 }
 
-/// Each offline upgrade accepts only its own generation: neither admits the
-/// other's file, and neither can be finished with the other's token.
+/// An inspection accepts only the generation it names, and a graph upgrade is
+/// not finished with another store's token.
 #[test]
-fn a_graph_upgrade_refuses_a_file_or_token_of_another_generation() {
-    let [older, newer] = GRAPH_GENERATIONS;
+fn a_graph_upgrade_refuses_another_generation_and_another_stores_token() {
+    let [older, newer] = &GRAPH_GENERATIONS;
     let directory = private_local_tempdir();
     let old_path = directory.path().join("graph-0.redb");
     let new_path = directory.path().join("graph-1.redb");
     older.create_with_rows(&old_path);
     newer.create_with_rows(&new_path);
-    assert!((newer.inspect)(&old_path, older.identity(), None, options(&old_path)).is_err());
-    assert!((older.inspect)(&new_path, newer.identity(), None, options(&new_path)).is_err());
-    let token = newer.inspect(&new_path).unwrap();
-    assert!((older.upgrade)(token).is_err());
-    assert!(
-        newer.open(&new_path).is_err(),
-        "a refused token must not upgrade"
-    );
+    for (path, wrong) in [(&old_path, newer.source), (&new_path, older.source)] {
+        let inspected =
+            inspect_graph_shard_upgrade(path, older.identity(), None, options(path), wrong);
+        assert!(inspected.is_err(), "{wrong:?}");
+    }
+    let library = directory.path().join("agent_library.redb");
+    create_predecessor_owner_file(&library, identity(), &AGENT_LIBRARY_BEFORE_MCP_CATALOG).unwrap();
+    let token =
+        inspect_agent_library_mcp_catalog_upgrade(&library, identity(), None, options(&library))
+            .unwrap();
+    assert!(upgrade_graph_shard(token).is_err());
+    assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&library, identity(), None).is_err());
 }

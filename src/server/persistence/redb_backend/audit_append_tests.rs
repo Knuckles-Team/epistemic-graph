@@ -3,25 +3,11 @@
 
 use super::*;
 use crate::protocol::Method;
-use crate::redb_store::OperationAuditEvent;
+use crate::redb_store::operation_audit::tests::{event, TENANT};
 use crate::server::persistence::PersistenceBackend;
 
 const GRAPH: &str = "audit_append_graph";
-const TENANT: &str = "tenant-a";
 const REFUSAL: &str = "AUDIT_WRITER_UNAVAILABLE: ";
-
-fn event(request_id: &str, status: &str) -> OperationAuditEvent {
-    OperationAuditEvent {
-        tenant: TENANT.into(),
-        principal: "svc:caller".into(),
-        op: "graph.nodes.write".into(),
-        surface: "http".into(),
-        params_sha256: "a".repeat(64),
-        status: status.into(),
-        request_id: request_id.into(),
-        audit_class: "event".into(),
-    }
-}
 
 /// A backend whose graph exists because one ordinary audited write created
 /// it: that write is audit-chain entry 0.
