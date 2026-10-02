@@ -158,7 +158,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetL
 
 ## `Identity`
 
-IDM-01..04 engine-owned identity store, runtime-conditional: reads are identity:read/identity:authenticate; writes need the op's EXACT identity:* scope (never implied by kg:admin or *) from the boundary-stamped actor; every secret is hashed, verified or sealed at the request boundary and cleared before replication; the store and its full RBAC projection share one rbac.redb WTX with a hash-chained identity audit trail
+the engine-owned identity store (users, credentials, sessions, tokens, MFA, API keys, roles, groups, identity providers), runtime-conditional: reads are identity:read/identity:authenticate; writes need the op's EXACT identity:* scope (never implied by kg:admin or *) from the boundary-stamped actor; every secret is hashed, verified or sealed at the request boundary and cleared before replication; the store and its full RBAC projection share one rbac.redb WTX with a hash-chained identity audit trail
 
 | Property | Value |
 |---|---|
@@ -192,7 +192,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Iden
 
 ## `RbacAdmin`
 
-runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata; IDM-03: each write appends a hash-chained identity-audit entry in that WTX, and the identity store's idm: namespace is refused
+runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata; each write also appends a hash-chained entry to the identity store's own audit trail in that WTX, and the identity store's idm: namespace is refused
 
 | Property | Value |
 |---|---|
@@ -270,7 +270,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Rbac
 
 ## `RegisterIdentity`
 
-RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX; IDM-03: each registration appends a hash-chained identity-audit entry in that same WTX, and a principal owned by the identity store is refused
+RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX; each registration also appends a hash-chained entry to the identity store's own audit trail in that same WTX, and a principal owned by the identity store is refused
 
 | Property | Value |
 |---|---|

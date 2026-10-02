@@ -14263,7 +14263,7 @@
             "type": "object"
           },
           {
-            "description": "Second factors: TOTP, recovery codes and WebAuthn (IDM-09).",
+            "description": "Second factors: TOTP, recovery codes and WebAuthn.",
             "oneOf": [
               {
                 "properties": {
@@ -27882,7 +27882,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The engine-owned identity store (IDM-01..04): principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
+            "description": "The engine-owned identity store: principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
             "properties": {
               "method": {
                 "const": "Identity",
@@ -50755,6 +50755,7 @@
             "type": "string"
           },
           "name": {
+            "description": "A caller-chosen label for this credential (a security key's name).",
             "type": "string"
           },
           "public_key_cose": {
@@ -50780,9 +50781,9 @@
         "required": [
           "session_token",
           "credential_id",
+          "name",
           "public_key_cose",
-          "sign_count",
-          "name"
+          "sign_count"
         ],
         "type": "object"
       },
@@ -60382,7 +60383,7 @@
       },
       "Req_Identity": {
         "additionalProperties": false,
-        "description": "The engine-owned identity store (IDM-01..04): principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
+        "description": "The engine-owned identity store: principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
         "properties": {
           "method": {
             "const": "Identity",
@@ -110064,7 +110065,7 @@
             "type": "object"
           },
           {
-            "description": "Second factors: TOTP, recovery codes and WebAuthn (IDM-09).",
+            "description": "Second factors: TOTP, recovery codes and WebAuthn.",
             "oneOf": [
               {
                 "properties": {
@@ -123959,7 +123960,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "The engine-owned identity store (IDM-01..04): principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
+            "description": "The engine-owned identity store: principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
             "properties": {
               "method": {
                 "const": "Identity",
@@ -147647,6 +147648,7 @@
             "type": "string"
           },
           "name": {
+            "description": "A caller-chosen label for this credential (a security key's name).",
             "type": "string"
           },
           "public_key_cose": {
@@ -147672,9 +147674,9 @@
         "required": [
           "session_token",
           "credential_id",
+          "name",
           "public_key_cose",
-          "sign_count",
-          "name"
+          "sign_count"
         ],
         "type": "object"
       },
@@ -150000,17 +150002,17 @@
           },
           {
             "const": "rbac_identity_registered",
-            "description": "A `RegisterIdentity` outside the store (IDM-03).",
+            "description": "A `RegisterIdentity` outside the store, recorded in its audit trail.",
             "type": "string"
           },
           {
             "const": "rbac_policy_changed",
-            "description": "An `RbacAdmin` role or grant change (IDM-03).",
+            "description": "An `RbacAdmin` role or grant change, recorded in the store's audit trail.",
             "type": "string"
           },
           {
             "const": "access_denied",
-            "description": "A sampled authorization denial (IDM-03 durable denial sample).",
+            "description": "A sampled authorization denial, drained into the durable audit trail.",
             "type": "string"
           },
           {
@@ -150020,7 +150022,7 @@
           },
           {
             "const": "change_proposed",
-            "description": "EH-560 governed changes.",
+            "description": "Governed changes (proposals requiring two-person approval).",
             "type": "string"
           },
           {
@@ -151036,6 +151038,7 @@
             "type": "boolean"
           },
           "is_bootstrap": {
+            "description": "Whether this is the engine's built-in bootstrap principal.",
             "type": "boolean"
           },
           "kind": {
@@ -151050,6 +151053,7 @@
             ]
           },
           "principal_id": {
+            "description": "The store's stable key (never the mutable, normalized `username`).",
             "type": "string"
           },
           "recovery_codes_left": {
@@ -151080,9 +151084,9 @@
         "required": [
           "principal_id",
           "username",
+          "is_bootstrap",
           "kind",
           "status",
-          "is_bootstrap",
           "source",
           "roles",
           "has_password",
@@ -194365,7 +194369,7 @@
             "description": "Typed engine error (one of `x-error-set`)."
           }
         },
-        "summary": "IDM-01..04 engine-owned identity store, runtime-conditional: reads are identity:read/identity:authenticate; writes need the op's EXACT identity:* scope (never implied by kg:admin or *) from the boundary-stamped actor; every secret is hashed, verified or sealed at the request boundary and cleared before replication; the store and its full RBAC projection share one rbac.redb WTX with a hash-chained identity audit trail",
+        "summary": "the engine-owned identity store (users, credentials, sessions, tokens, MFA, API keys, roles, groups, identity providers), runtime-conditional: reads are identity:read/identity:authenticate; writes need the op's EXACT identity:* scope (never implied by kg:admin or *) from the boundary-stamped actor; every secret is hashed, verified or sealed at the request boundary and cleared before replication; the store and its full RBAC projection share one rbac.redb WTX with a hash-chained identity audit trail",
         "tags": [
           "security"
         ],
@@ -194471,7 +194475,7 @@
             "description": "Typed engine error (one of `x-error-set`)."
           }
         },
-        "summary": "runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata; IDM-03: each write appends a hash-chained identity-audit entry in that WTX, and the identity store's idm: namespace is refused",
+        "summary": "runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata; each write also appends a hash-chained entry to the identity store's own audit trail in that WTX, and the identity store's idm: namespace is refused",
         "tags": [
           "security"
         ],
@@ -194648,7 +194652,7 @@
             "description": "Typed engine error (one of `x-error-set`)."
           }
         },
-        "summary": "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX; IDM-03: each registration appends a hash-chained identity-audit entry in that same WTX, and a principal owned by the identity store is refused",
+        "summary": "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX; each registration also appends a hash-chained entry to the identity store's own audit trail in that same WTX, and a principal owned by the identity store is refused",
         "tags": [
           "security"
         ],

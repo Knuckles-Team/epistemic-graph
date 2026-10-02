@@ -657,17 +657,17 @@
         },
         {
           "const": "rbac_identity_registered",
-          "description": "A `RegisterIdentity` outside the store (IDM-03).",
+          "description": "A `RegisterIdentity` outside the store, recorded in its audit trail.",
           "type": "string"
         },
         {
           "const": "rbac_policy_changed",
-          "description": "An `RbacAdmin` role or grant change (IDM-03).",
+          "description": "An `RbacAdmin` role or grant change, recorded in the store's audit trail.",
           "type": "string"
         },
         {
           "const": "access_denied",
-          "description": "A sampled authorization denial (IDM-03 durable denial sample).",
+          "description": "A sampled authorization denial, drained into the durable audit trail.",
           "type": "string"
         },
         {
@@ -677,7 +677,7 @@
         },
         {
           "const": "change_proposed",
-          "description": "EH-560 governed changes.",
+          "description": "Governed changes (proposals requiring two-person approval).",
           "type": "string"
         },
         {
@@ -1693,6 +1693,7 @@
           "type": "boolean"
         },
         "is_bootstrap": {
+          "description": "Whether this is the engine's built-in bootstrap principal.",
           "type": "boolean"
         },
         "kind": {
@@ -1707,6 +1708,7 @@
           ]
         },
         "principal_id": {
+          "description": "The store's stable key (never the mutable, normalized `username`).",
           "type": "string"
         },
         "recovery_codes_left": {
@@ -1737,9 +1739,9 @@
       "required": [
         "principal_id",
         "username",
+        "is_bootstrap",
         "kind",
         "status",
-        "is_bootstrap",
         "source",
         "roles",
         "has_password",

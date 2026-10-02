@@ -14239,7 +14239,7 @@
           "type": "object"
         },
         {
-          "description": "Second factors: TOTP, recovery codes and WebAuthn (IDM-09).",
+          "description": "Second factors: TOTP, recovery codes and WebAuthn.",
           "oneOf": [
             {
               "properties": {
@@ -27858,7 +27858,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "The engine-owned identity store (IDM-01..04): principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
+          "description": "The engine-owned identity store: principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
           "properties": {
             "method": {
               "const": "Identity",
@@ -50731,6 +50731,7 @@
           "type": "string"
         },
         "name": {
+          "description": "A caller-chosen label for this credential (a security key's name).",
           "type": "string"
         },
         "public_key_cose": {
@@ -50756,9 +50757,9 @@
       "required": [
         "session_token",
         "credential_id",
+        "name",
         "public_key_cose",
-        "sign_count",
-        "name"
+        "sign_count"
       ],
       "type": "object"
     },
@@ -60361,7 +60362,7 @@
     },
     "Identity": {
       "additionalProperties": false,
-      "description": "The engine-owned identity store (IDM-01..04): principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
+      "description": "The engine-owned identity store: principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
       "properties": {
         "method": {
           "const": "Identity",
