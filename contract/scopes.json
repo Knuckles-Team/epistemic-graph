@@ -1,0 +1,1050 @@
+{
+  "generator": "eg-capabilities/gen_contract",
+  "registry_version": 1,
+  "scopes": [
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:backup"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:cluster"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "admin:cluster-read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:connector-pack"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:decision-eval"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:decision-fit"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:decision-log"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:fleet-catalog"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:outbox"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:policy-evolution-store"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "admin:sqlite-file"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:assemble-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:component-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:component-write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:decision-evaluate"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:decision-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:decision-write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:graph-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:graph-write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:library-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:library-write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:pack-control"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:pack-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:template-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "agent:template-write"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "analytics:worker"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "asr:transcribe"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "blob:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "blob:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "blob:write"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "broker:ack"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "broker:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "broker:consume"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "broker:publish"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "capacity:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "capacity:lease"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "capacity:read"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "capacity:throttle"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "cdc:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "cdc:read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "cep:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "cep:read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "channel:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "channel:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "channel:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "cluster:placement-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "cluster:topology-read"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "compute:datascience"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "compute:finance"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "compute:graph-algo"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "compute:parse"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "compute:semantic"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "compute:solve"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "compute:vision"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "connector:write-back"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "connector:write-back-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "distcompute:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "edge:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "edge:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "explain:read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "federation:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "domain",
+      "owner": "finance",
+      "scope": "finance:alerts"
+    },
+    {
+      "approver_group": "live-order-approvers",
+      "class": "approver",
+      "owner": "finance",
+      "scope": "finance:approve-live-order"
+    },
+    {
+      "approver_group": null,
+      "class": "domain",
+      "owner": "finance",
+      "scope": "finance:backfill"
+    },
+    {
+      "approver_group": null,
+      "class": "domain",
+      "owner": "finance",
+      "scope": "finance:propose-order"
+    },
+    {
+      "approver_group": null,
+      "class": "domain",
+      "owner": "finance",
+      "scope": "finance:track"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "graph-os",
+      "scope": "fleet:events"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "gap:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "gap:write"
+    },
+    {
+      "approver_group": "schema-approvers",
+      "class": "approver",
+      "owner": "engine",
+      "scope": "governance:approve-schema-repair"
+    },
+    {
+      "approver_group": null,
+      "class": "domain",
+      "owner": "engine",
+      "scope": "governance:propose"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "governance:read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "graph:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "graph:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "graph:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "graphlearn:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "identity:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "identity:authenticate"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "identity:provision"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "identity:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "identity:self"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "ingest:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "ingest:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "jobs:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "kg:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "kg:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "kg:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "kv:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "kv:write"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "lane:cleanup"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "lane:quota"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "lane:read"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "lane:reserve"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "lease:read"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "lease:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "ledger:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "ledger:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "ledger:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "matview:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "matview:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "memory:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "memory:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "mining:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "mining:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "modality:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "modality:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "node:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "node:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "node:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "owl:read"
+    },
+    {
+      "approver_group": null,
+      "class": "domain",
+      "owner": "engine",
+      "scope": "policy:capture-write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "quantum:run"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "query:cypher"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "query:decide"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "query:graphql"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "query:nl"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "query:sql"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "query:stream"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "query:unified"
+    },
+    {
+      "approver_group": "elevation-approvers",
+      "class": "approver",
+      "owner": "engine",
+      "scope": "rbac:approve-elevation"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "rbac:elevation"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "rbac:elevation-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "rdf:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "rdf:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "reasoning:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "reasoning:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "record:retire"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "registry:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "registry:write"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "resource:host"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "resource:read"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "resource:reserve"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "scene:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "scene:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "security:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "security:audit"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "security:bootstrap"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "security:check"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "semantic:binding-read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "semantic:binding-write"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "semantic:source-admit"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "semantic:stage-claim"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "semantic:stage-complete"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "semantic:stage-read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "service:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "service:control"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "source:ingest"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "sparql:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "statechart:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "stream:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "stream:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "stream:write"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "telemetry",
+      "scope": "telemetry:derive"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "telemetry",
+      "scope": "telemetry:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "timeseries:read"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "timeseries:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "txn:control"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "txn:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "txn:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "engine",
+      "scope": "udf:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "udf:exec"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "validation:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "viz:render"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "graph-os",
+      "scope": "webui:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "webui:maintainer"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "webui:reader"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "webui:user"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "work:claim"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "work:claim-capability"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "work:delegate"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "work:offer-write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "work:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "work:submit"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "work:write"
+    }
+  ]
+}

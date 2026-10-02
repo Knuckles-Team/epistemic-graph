@@ -1,6 +1,6 @@
 # Security API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 8 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 9 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AuditProveInclusion`
 
@@ -156,9 +156,43 @@ _No parameters._
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetLedger`, `contract/schemas/result.security.json#/methods/GetLedger`.
 
+## `Identity`
+
+the engine-owned identity store (users, credentials, sessions, tokens, MFA, API keys, roles, groups, identity providers), runtime-conditional: reads are identity:read/identity:authenticate; writes need the op's EXACT identity:* scope (never implied by kg:admin or *) from the boundary-stamped actor; every secret is hashed, verified or sealed at the request boundary and cleared before replication; the store and its full RBAC projection share one rbac.redb WTX with a hash-chained identity audit trail
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `identity:admin` |
+| Mutates | `true` |
+| Durability domain | `ControlRedb` |
+| Idempotent | `false` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `IDENTITY_ALREADY_INITIALIZED`, `IDENTITY_BAD_CREDENTIAL`, `IDENTITY_BUILT_IN`, `IDENTITY_CLASS_VIOLATION`, `IDENTITY_COLLISION`, `IDENTITY_EPOCH_CONFLICT`, `IDENTITY_FORGED_STAMP`, `IDENTITY_FULL`, `IDENTITY_ILLEGAL_TRANSITION`, `IDENTITY_INVALID`, `IDENTITY_KIND_MISMATCH`, `IDENTITY_NOT_AUTHORIZED`, `IDENTITY_NOT_FOUND`, `IDENTITY_NOT_INITIALIZED`, `IDENTITY_PASSWORD_REUSED`, `IDENTITY_PRECONDITION_FAILED`, `IDENTITY_REPLAY`, `IDENTITY_STALE_CREDENTIAL`, `IDENTITY_STAMP_FAILED`, `IDENTITY_STORE_MANAGED`, `IDENTITY_STORE_NAMESPACE`, `IDENTITY_SYSTEM_BOOTSTRAP_PENDING`, `IDENTITY_TOKEN_SPENT`, `IDENTITY_UNKNOWN_SCOPE`, `IDENTITY_UNSTAMPED`, `IDENTITY_WEAK_PASSWORD`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+| Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `IdentityOp` | yes |  |
+| `stamp` | one of: `IdentityStamp` \| null | no |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `IdentityReply` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/Identity`, `contract/schemas/result.security.json#/methods/Identity`.
+
 ## `RbacAdmin`
 
-runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata
+runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata; each write also appends a hash-chained entry to the identity store's own audit trail in that WTX, and the identity store's idm: namespace is refused
 
 | Property | Value |
 |---|---|
@@ -167,12 +201,12 @@ runtime-conditional: List is a read; role and grant updates share one rbac.redb 
 | Mutates | `true` |
 | Durability domain | `ControlRedb` |
 | Idempotent | `true` |
-| Audited | `false` |
+| Audited | `true` |
 | Emits CDC | `false` |
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
 | Consumer profiles | `python` |
-| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `IDENTITY_STORE_NAMESPACE`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
 | Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
 **Request parameters**
@@ -236,7 +270,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Rbac
 
 ## `RegisterIdentity`
 
-RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX
+RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX; each registration also appends a hash-chained entry to the identity store's own audit trail in that same WTX, and a principal owned by the identity store is refused
 
 | Property | Value |
 |---|---|
@@ -245,12 +279,12 @@ RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX
 | Mutates | `true` |
 | Durability domain | `ControlRedb` |
 | Idempotent | `true` |
-| Audited | `false` |
+| Audited | `true` |
 | Emits CDC | `false` |
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
 | Consumer profiles | `python` |
-| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `IDENTITY_STORE_MANAGED`, `IDENTITY_STORE_NAMESPACE`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
 | Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
 **Request parameters**

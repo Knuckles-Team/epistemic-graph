@@ -8,6 +8,7 @@
 pub mod change_envelope;
 pub mod contract_wave;
 pub mod decision;
+pub mod identity;
 pub mod method_bodies;
 pub mod repository_index;
 pub mod source_ingestion;

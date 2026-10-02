@@ -330,7 +330,42 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out.extend(python::artifacts(catalog));
     out.extend(vectors::artifacts());
     out.extend(method_bodies::artifacts());
+    let scopes = scopes_json();
+    out.push(Artifact {
+        path: "contract/scopes.json".to_string(),
+        bytes: scopes.clone(),
+    });
+    // The packaged copy is what agent-utilities generates its session-scope
+    // allowlist from; both are digested, so neither can drift.
+    out.push(Artifact {
+        path: "epistemic_graph/contract/scopes.json".to_string(),
+        bytes: scopes,
+    });
     out
+}
+
+/// `contract/scopes.json` -- the scope registry, sorted by scope.
+fn scopes_json() -> Vec<u8> {
+    let scopes: Vec<serde_json::Value> = crate::scopes::SCOPES
+        .iter()
+        .map(|entry| {
+            let approver_group = crate::scopes::APPROVER_GROUPS
+                .iter()
+                .find(|(scope, _)| *scope == entry.scope)
+                .map(|(_, group)| *group);
+            serde_json::json!({
+                "scope": entry.scope,
+                "class": crate::scopes::class_name(entry.class),
+                "owner": entry.owner,
+                "approver_group": approver_group,
+            })
+        })
+        .collect();
+    pretty(&serde_json::json!({
+        "registry_version": 1,
+        "generator": "eg-capabilities/gen_contract",
+        "scopes": scopes,
+    }))
 }
 
 /// Render every committed contract artifact, receipt last.

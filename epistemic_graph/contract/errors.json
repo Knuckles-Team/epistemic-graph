@@ -585,6 +585,162 @@
     },
     {
       "class": "server",
+      "code": "IDENTITY_ALREADY_INITIALIZED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_BAD_CREDENTIAL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_BUILT_IN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_CLASS_VIOLATION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_COLLISION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_EPOCH_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_FORGED_STAMP",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_FULL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_ILLEGAL_TRANSITION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_KIND_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_NOT_AUTHORIZED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_NOT_FOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_NOT_INITIALIZED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_PASSWORD_REUSED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_PRECONDITION_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_REPLAY",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_STALE_CREDENTIAL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_STAMP_FAILED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_STORE_MANAGED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_STORE_NAMESPACE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_SYSTEM_BOOTSTRAP_PENDING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_TOKEN_SPENT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_UNKNOWN_SCOPE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_UNSTAMPED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "IDENTITY_WEAK_PASSWORD",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "IMPORTER_MISMATCH",
       "http_status_hint": 400,
       "retryable": false

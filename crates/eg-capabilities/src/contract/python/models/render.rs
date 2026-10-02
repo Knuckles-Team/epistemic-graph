@@ -67,8 +67,43 @@ pub(in super::super) fn member_classes(name: &str, node: &Value) -> Vec<String> 
         return Vec::new();
     }
     tagged_variants(node)
-        .map(|(tag, variants)| variant_classes(name, tag, &variants))
+        .map(|(tag, variants)| emitted_names(name, tag, &variants))
         .unwrap_or_default()
+}
+
+/// Every name a tagged union's variants are emitted under: each variant's own
+/// name, preceded -- when the variant is itself a tagged union -- by the names
+/// of its members.
+fn emitted_names(name: &str, tag: &str, variants: &[&Value]) -> Vec<String> {
+    let mut names = Vec::new();
+    for (class, variant) in variant_classes(name, tag, variants)
+        .into_iter()
+        .zip(variants)
+    {
+        if let Some((inner_tag, inner)) = tagged_variants(variant) {
+            names.extend(emitted_names(&class, inner_tag, &inner));
+        }
+        names.push(class);
+    }
+    names
+}
+
+/// One member of a variant that is itself a tagged union, carrying the outer
+/// variant's own fields (its tag) as well as its own: an internally tagged
+/// enum that wraps another puts both tags on one wire object.
+fn member_with_outer_fields(outer: &Value, member: &Value) -> Value {
+    let mut merged = member.clone();
+    let outer_properties = outer.get("properties").and_then(Value::as_object);
+    for (field, schema) in outer_properties.into_iter().flatten() {
+        merged["properties"][field] = schema.clone();
+    }
+    let mut required: BTreeSet<&str> = BTreeSet::new();
+    for node in [outer, member] {
+        let listed = node.get("required").and_then(Value::as_array);
+        required.extend(listed.into_iter().flatten().filter_map(Value::as_str));
+    }
+    merged["required"] = required.into_iter().map(Value::from).collect();
+    merged
 }
 
 /// `{Union}{PascalTag}` for each variant of a tagged union.
@@ -126,11 +161,27 @@ impl Renderer<'_> {
         let mut text = String::new();
         let names = variant_classes(name, tag, variants);
         for (class, variant) in names.iter().zip(variants) {
-            text.push_str(&self.object_class(class, variant));
+            text.push_str(&self.variant(class, variant));
         }
         let (discriminator, _) = field_identifier(tag);
         push_union_alias(&mut text, name, &discriminator, &names);
         text
+    }
+
+    /// One variant of a tagged union: a class -- or, when the variant is itself
+    /// a tagged union, a nested union under the variant's name whose every
+    /// member class carries both tags, so the outer discriminator still selects
+    /// it and the inner one selects within it.
+    fn variant(&mut self, class: &str, variant: &Value) -> String {
+        let Some((inner_tag, inner)) = tagged_variants(variant) else {
+            return self.object_class(class, variant);
+        };
+        let members: Vec<Value> = inner
+            .iter()
+            .map(|member| member_with_outer_fields(variant, member))
+            .collect();
+        let members: Vec<&Value> = members.iter().collect();
+        self.tagged_union(class, inner_tag, &members)
     }
 
     fn object_class(&mut self, name: &str, node: &Value) -> String {
