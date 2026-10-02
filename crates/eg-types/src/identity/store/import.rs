@@ -157,11 +157,18 @@ impl IdentityStore {
         Ok(true)
     }
 
-    fn import_group_role(&mut self, row: &DumpRow, _now_ms: u64) -> Result<bool, IdentityRefusal> {
+    /// `role_id` from a group/user role-grant dump row, refusing a role the
+    /// store does not know.
+    fn required_known_role(&self, row: &DumpRow) -> Result<String, IdentityRefusal> {
         let role_id = required(row, "role_id")?;
         if !self.roles.contains_key(&role_id) {
             return Err(IdentityRefusal::NotFound);
         }
+        Ok(role_id)
+    }
+
+    fn import_group_role(&mut self, row: &DumpRow, _now_ms: u64) -> Result<bool, IdentityRefusal> {
+        let role_id = self.required_known_role(row)?;
         let group = self
             .groups
             .get_mut(&required(row, "group_id")?)
@@ -204,10 +211,7 @@ impl IdentityStore {
     }
 
     fn import_user_role(&mut self, row: &DumpRow, _now_ms: u64) -> Result<bool, IdentityRefusal> {
-        let role_id = required(row, "role_id")?;
-        if !self.roles.contains_key(&role_id) {
-            return Err(IdentityRefusal::NotFound);
-        }
+        let role_id = self.required_known_role(row)?;
         let user = self
             .users
             .get_mut(&required(row, "principal_id")?)

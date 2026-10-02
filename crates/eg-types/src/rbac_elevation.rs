@@ -322,8 +322,7 @@ impl std::fmt::Display for ElevationRefusal {
 impl std::error::Error for ElevationRefusal {}
 
 fn bounded_text(value: &str, max: usize) -> Result<(), ElevationRefusal> {
-    let clean = !value.trim().is_empty() && !value.chars().any(char::is_control);
-    if clean && value.len() <= max {
+    if crate::contract::bounded_control_free_text(value, max) {
         Ok(())
     } else {
         Err(ElevationRefusal::InvalidRequest)

@@ -106,6 +106,23 @@ impl IdentityStore {
         Ok((hash.to_string(), session.principal_id.clone()))
     }
 
+    /// The common entry of every second-factor verification (TOTP,
+    /// WebAuthn): resolve the pending session's `(hash, principal)`, answer
+    /// the already-built throttled outcome if the account backoff is
+    /// running, or else hand both to `verify` for the factor's own check.
+    pub(super) fn with_second_factor_gate(
+        &mut self,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+        verify: impl FnOnce(&mut Self, String, String) -> Result<AuthenticateResult, IdentityRefusal>,
+    ) -> Result<AuthenticateResult, IdentityRefusal> {
+        let (hash, principal) = self.pending_session_principal(stamp, now_ms)?;
+        if let Some(throttled) = self.second_factor_throttled(&principal, now_ms) {
+            return Ok(throttled);
+        }
+        verify(self, hash, principal)
+    }
+
     /// Mark a pending session complete by `method`.
     pub(super) fn complete_session(&mut self, hash: &str, method: &str, now_ms: u64) {
         if let Some(session) = self.sessions.get_mut(hash) {
@@ -155,19 +172,17 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<AuthenticateResult, IdentityRefusal> {
-        let (hash, principal) = self.pending_session_principal(stamp, now_ms)?;
-        if let Some(throttled) = self.second_factor_throttled(&principal, now_ms) {
-            return Ok(throttled);
-        }
-        let confirmed = self.totp_confirmed(&principal);
-        let Some(step) = stamp.totp_step.filter(|_| confirmed) else {
-            return Ok(self.second_factor_failed(stamp, &principal, now_ms));
-        };
-        self.accept_step(&principal, step)?;
-        self.complete_session(&hash, "totp", now_ms);
-        self.clear_throttle(&account_key(&principal));
-        self.audit_event(stamp, now_ms, IdentityEvent::MfaVerified, Some(&principal));
-        Ok(self.second_factor_ok(principal))
+        self.with_second_factor_gate(stamp, now_ms, |store, hash, principal| {
+            let confirmed = store.totp_confirmed(&principal);
+            let Some(step) = stamp.totp_step.filter(|_| confirmed) else {
+                return Ok(store.second_factor_failed(stamp, &principal, now_ms));
+            };
+            store.accept_step(&principal, step)?;
+            store.complete_session(&hash, "totp", now_ms);
+            store.clear_throttle(&account_key(&principal));
+            store.audit_event(stamp, now_ms, IdentityEvent::MfaVerified, Some(&principal));
+            Ok(store.second_factor_ok(principal))
+        })
     }
 
     fn set_recovery_codes(

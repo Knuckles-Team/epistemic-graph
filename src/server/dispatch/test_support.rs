@@ -17,9 +17,22 @@ pub(super) fn verified(
     scopes: &[&str],
     delegation: &[&str],
 ) -> VerifiedRequestContext {
+    let agent = delegation.last().copied().unwrap_or(principal);
+    verified_as(principal, agent, scopes, delegation)
+}
+
+/// [`verified`], with the effective agent named explicitly rather than
+/// derived from `principal`/`delegation` -- for a caller whose own principal
+/// naming convention (e.g. a `"user:"`-prefixed test principal) would
+/// otherwise leak into the agent id.
+pub(super) fn verified_as(
+    principal: &str,
+    agent: &str,
+    scopes: &[&str],
+    delegation: &[&str],
+) -> VerifiedRequestContext {
     static KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let key = KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let agent = delegation.last().copied().unwrap_or(principal);
     VerifiedRequestContext::from_verified_claims(
         RequestContextClaims {
             principal: principal.to_string(),

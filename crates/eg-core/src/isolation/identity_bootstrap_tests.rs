@@ -7,7 +7,7 @@
 //! * after it, a direct `identity:admin` may register or repair the System
 //!   identity without replacing the agent's other roles.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use super::identity_store_tests::{agent, apply, bootstrapped, seeded, stamp, SYSTEM_AGENT};
 use super::{AgentIdentity, AgentRole, IdentityStoreError, IsolationLayer};
@@ -138,15 +138,7 @@ fn a_real_principal_is_never_the_seed() {
     let mut role_only = bootstrapped();
     initialize(&mut role_only, AuthMode::None).unwrap();
     assert!(role_only.rbac().identity_store().holds_only_seed());
-    let role = IdentityOp::Access(AccessOp::UpsertRole {
-        request: RoleUpsert {
-            role_id: "reports".to_string(),
-            name: "reports".to_string(),
-            description: None,
-            scopes: BTreeSet::from(["kg:read".to_string()]),
-            graph_grants: Vec::new(),
-        },
-    });
+    let role = super::identity_store_tests::reports_role(Vec::new());
     apply(&mut role_only, role, &stamp(IDENTITY_ADMIN_SCOPE)).unwrap();
     assert!(!role_only.rbac().identity_store().holds_only_seed());
 }

@@ -76,6 +76,21 @@ pub(super) fn bootstrapped() -> IsolationLayer {
 
 pub(super) const SYSTEM_AGENT: &str = "engine-root";
 
+/// The `reports` role fixture every bootstrap/store test upserts to prove a
+/// real role closes the System bootstrap's seed state; `graph_grants` is the
+/// one field callers vary (a read grant on [`GRAPH`], or none at all).
+pub(super) fn reports_role(graph_grants: Vec<RoleGraphGrant>) -> IdentityOp {
+    IdentityOp::Access(AccessOp::UpsertRole {
+        request: RoleUpsert {
+            role_id: "reports".to_string(),
+            name: "reports".to_string(),
+            description: None,
+            scopes: BTreeSet::from(["kg:read".to_string()]),
+            graph_grants,
+        },
+    })
+}
+
 /// A bootstrapped layer whose store is initialized (`none` mode) with `alice`
 /// holding a role that may read [`GRAPH`].
 pub(super) fn seeded() -> IsolationLayer {
@@ -88,19 +103,11 @@ pub(super) fn seeded() -> IsolationLayer {
         },
     });
     apply(&mut layer, init, &stamp(IDENTITY_AUTHENTICATE_SCOPE)).unwrap();
-    let role = IdentityOp::Access(AccessOp::UpsertRole {
-        request: RoleUpsert {
-            role_id: "reports".to_string(),
-            name: "reports".to_string(),
-            description: None,
-            scopes: BTreeSet::from(["kg:read".to_string()]),
-            graph_grants: vec![RoleGraphGrant {
-                resource: ResourceSelector::Graph(GRAPH.to_string()),
-                action: RbacAction::Read,
-                effect: GrantEffect::Allow,
-            }],
-        },
-    });
+    let role = reports_role(vec![RoleGraphGrant {
+        resource: ResourceSelector::Graph(GRAPH.to_string()),
+        action: RbacAction::Read,
+        effect: GrantEffect::Allow,
+    }]);
     apply(&mut layer, role, &stamp(IDENTITY_ADMIN_SCOPE)).unwrap();
     let mut create = stamp(IDENTITY_ADMIN_SCOPE);
     create.minted_principal_id = Some("usr:alice".to_string());

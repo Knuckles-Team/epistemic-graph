@@ -39,6 +39,21 @@ fn join(principal: &str, group: &str) -> IdentityOp {
     })
 }
 
+/// Creates `alice` in `store` and binds her to a fresh `reader` role granting
+/// `kg:read` -- the RBAC-projection and SQL-dump fixtures' shared setup.
+fn bind_alice_as_reader(store: &mut IdentityStore) -> String {
+    apply_kept(store, &role("reader", &["kg:read"]), &admin(), NOW).unwrap();
+    let alice = create(store, "alice", UserKind::Human).unwrap();
+    apply_kept(
+        store,
+        &bind(&alice, "reader", BindingChange::Add),
+        &admin(),
+        NOW,
+    )
+    .unwrap();
+    alice
+}
+
 #[test]
 fn an_unregistered_scope_cannot_be_put_on_a_role() {
     let mut store = store_in(AuthMode::Local);
@@ -167,15 +182,7 @@ fn a_built_in_group_keeps_its_roles_and_a_built_in_role_cannot_be_removed() {
 #[test]
 fn the_projection_is_the_full_rbac_identity_and_follows_every_removal() {
     let mut store = store_in(AuthMode::Local);
-    apply_kept(&mut store, &role("reader", &["kg:read"]), &admin(), NOW).unwrap();
-    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
-    apply_kept(
-        &mut store,
-        &bind(&alice, "reader", BindingChange::Add),
-        &admin(),
-        NOW,
-    )
-    .unwrap();
+    let alice = bind_alice_as_reader(&mut store);
     let projection = store.rbac_projection();
     let identity = &projection.identities[&alice];
     assert!(identity.roles.contains(&rbac_role_name("reader")));
@@ -293,15 +300,7 @@ fn a_privileged_mapping_rule_must_say_so() {
 fn the_sql_relations_carry_no_secret_and_a_dump_restores_the_structure() {
     let mut store = store_in(AuthMode::Local);
     with_admin_session(&mut store);
-    apply_kept(&mut store, &role("reader", &["kg:read"]), &admin(), NOW).unwrap();
-    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
-    apply_kept(
-        &mut store,
-        &bind(&alice, "reader", BindingChange::Add),
-        &admin(),
-        NOW,
-    )
-    .unwrap();
+    let alice = bind_alice_as_reader(&mut store);
     let text = serde_json::to_string(
         &store
             .sql_relations()

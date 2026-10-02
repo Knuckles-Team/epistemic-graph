@@ -4,7 +4,6 @@
 //! chokepoint at once.
 
 use super::*;
-use crate::acl::RequestContextClaims;
 use crate::isolation::AccessLevel;
 use crate::protocol::{GraphType, Request};
 use eg_types::rbac_elevation::{
@@ -25,23 +24,7 @@ fn state() -> Arc<RwLock<super::super::ServerState>> {
 }
 
 fn context(agent: &str, scopes: &[&str], delegation: &[&str]) -> VerifiedRequestContext {
-    static KEY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let key = KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    VerifiedRequestContext::from_verified_claims(
-        RequestContextClaims {
-            principal: format!("user:{agent}"),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: agent.to_string(),
-            roles: Vec::new(),
-            scopes: scopes.iter().map(|scope| scope.to_string()).collect(),
-            policy_version: "policy-test".to_string(),
-            delegation: delegation.iter().map(|hop| hop.to_string()).collect(),
-            node: None,
-            priority: None,
-        },
-        format!("elevation-test-{key}"),
-    )
+    super::super::test_support::verified_as(&format!("user:{agent}"), agent, scopes, delegation)
 }
 
 /// Dispatch one elevation op as `agent` holding `scopes`, carrying `forged`

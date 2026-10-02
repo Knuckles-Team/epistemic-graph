@@ -18,6 +18,7 @@ use super::requests_provision::{DirectoryGroup, ProvisionedUser};
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct UserView {
+    /// The store's stable key (never the mutable, normalized `username`).
     pub principal_id: String,
     pub username: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

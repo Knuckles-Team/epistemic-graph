@@ -40,8 +40,7 @@ pub fn validate_principal_id(principal_id: &str) -> Result<(), IdentityRefusal> 
 
 /// A bounded, non-empty, control-free text field.
 pub(crate) fn bounded(value: &str, max: usize) -> Result<(), IdentityRefusal> {
-    let clean = !value.trim().is_empty() && !value.chars().any(char::is_control);
-    if clean && value.len() <= max {
+    if crate::contract::bounded_control_free_text(value, max) {
         Ok(())
     } else {
         Err(IdentityRefusal::InvalidRequest)

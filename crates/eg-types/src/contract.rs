@@ -14,6 +14,7 @@ mod server_error_code;
 mod uql_error_code;
 
 pub(crate) use bounded_writer::BoundedWriter;
+pub(crate) use collections::bounded_control_free_text;
 pub use collections::{BoundedVec, RecordBytes};
 pub use crypto::{Digest256, Ed25519Signature, Nonce};
 pub use engine_error_code::EngineErrorCode;

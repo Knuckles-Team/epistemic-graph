@@ -159,26 +159,24 @@ impl IdentityStore {
         stamp: &IdentityStamp,
         now_ms: u64,
     ) -> Result<AuthenticateResult, IdentityRefusal> {
-        let (hash, principal) = self.pending_session_principal(stamp, now_ms)?;
-        if let Some(throttled) = self.second_factor_throttled(&principal, now_ms) {
-            return Ok(throttled);
-        }
-        let record = self
-            .webauthn
-            .get_mut(&request.credential_id)
-            .filter(|record| record.principal_id == principal);
-        let Some(record) = record else {
-            return Ok(self.second_factor_failed(stamp, &principal, now_ms));
-        };
-        if !counter_moves_forward(record.sign_count, request.new_sign_count) {
-            return Err(IdentityRefusal::Replay);
-        }
-        record.sign_count = request.new_sign_count;
-        record.last_used_at_ms = Some(now_ms);
-        self.complete_session(&hash, "webauthn", now_ms);
-        self.clear_throttle(&account_key(&principal));
-        self.audit_event(stamp, now_ms, IdentityEvent::MfaVerified, Some(&principal));
-        Ok(self.second_factor_ok(principal))
+        self.with_second_factor_gate(stamp, now_ms, |store, hash, principal| {
+            let record = store
+                .webauthn
+                .get_mut(&request.credential_id)
+                .filter(|record| record.principal_id == principal);
+            let Some(record) = record else {
+                return Ok(store.second_factor_failed(stamp, &principal, now_ms));
+            };
+            if !counter_moves_forward(record.sign_count, request.new_sign_count) {
+                return Err(IdentityRefusal::Replay);
+            }
+            record.sign_count = request.new_sign_count;
+            record.last_used_at_ms = Some(now_ms);
+            store.complete_session(&hash, "webauthn", now_ms);
+            store.clear_throttle(&account_key(&principal));
+            store.audit_event(stamp, now_ms, IdentityEvent::MfaVerified, Some(&principal));
+            Ok(store.second_factor_ok(principal))
+        })
     }
 
     /// Remove a credential: an administrator any, a principal only its own
