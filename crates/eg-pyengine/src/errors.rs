@@ -14,9 +14,12 @@
 //! code alone; `LedgerNotPopulatedError`/`CdcGapError` are raised by specific
 //! sub-client call sites after inspecting a typed result field. The embedded
 //! path receives the same refusals as `"CODE: detail"` strings (the
-//! convention the server dispatch uses), so `map_engine_error` below splits
-//! that string and raises the same class with the same arguments. A message
-//! with no leading code stays a plain `RuntimeError`, as in `_send`.
+//! convention the server dispatch uses), so `map_engine_error` below
+//! normalizes that string the same way the server does before the socket
+//! transport ever sees it (see "Classifying a refusal" below) and raises the
+//! same class with the same two arguments — never a plain `RuntimeError` for
+//! a message that merely lacks a leading code, because `_send` never sees
+//! one of those either.
 //!
 //! `resolve_client_error_class` is exposed separately for a domain lane that
 //! needs to raise `StaleRouteError`/`LedgerNotPopulatedError`/`CdcGapError`
@@ -24,6 +27,26 @@
 //! populated flag, a gap cursor) — that is a per-domain judgment call about
 //! *when* one of those applies, not a string-prefix convention this shared
 //! function can decide for every caller.
+//!
+//! ## Classifying a refusal the SAME way the socket transport does
+//!
+//! The server never puts raw, unclassified text on the wire: every response
+//! passes through `eg_core::protocol::Response::err`, which keeps a
+//! `"CODE: detail"` prefix (or a bare code) only when `CODE` is one of the
+//! engine's *declared* refusal codes, and otherwise folds the whole thing
+//! into `INTERNAL` with a fixed `"unclassified engine refusal"` detail —
+//! discarding the original text rather than exposing an unregistered token,
+//! or something that merely looks like `RESULT_TOO_LARGE`, as if it were a
+//! real declared code. `_raise_send_error` in `client.py` then reads that
+//! already-normalized `error`/`error_detail` pair straight off the wire, so
+//! an uncoded refusal from the server is never a plain `RuntimeError` there
+//! — it is `EngineResponseError("INTERNAL", "unclassified engine refusal")`.
+//! `map_engine_error` below calls that SAME `Response::err` (via
+//! `classify_engine_refusal`) rather than re-implementing its decision, so
+//! the embedded path cannot drift from it: an uncoded message, an
+//! unregistered uppercase-looking prefix, and a `RESULT_TOO_LARGE`-lookalike
+//! all classify to `INTERNAL` on both transports, and a real declared code
+//! keeps its own detail on both.
 //!
 //! ## Cheap by construction (`EG-PYENGINE-PLAN.md` §12.1)
 //!
@@ -40,6 +63,7 @@
 
 use std::sync::OnceLock;
 
+use eg_core::protocol::Response;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::sync::OnceLockExt;
@@ -88,13 +112,12 @@ pub(crate) fn resolve_client_error_class<'py>(
 /// prototype's `add_node`/`create_graph`/`get_node_properties` did exactly
 /// that at `lib.rs:159,177,196` before this Wave).
 pub(crate) fn map_engine_error<E: std::fmt::Display>(err: E) -> PyErr {
-    let message = err.to_string();
-    let Some((code, detail)) = split_wire_code(&message) else {
-        return PyRuntimeError::new_err(message);
-    };
-    // `_send` raises `EngineResponseError(code, detail)` for every coded
-    // refusal and its `ResultTooLargeError` subclass for that one code; the
-    // embedded path raises the same class with the same two arguments.
+    let (code, detail) = classify_engine_refusal(err.to_string());
+    // `_raise_send_error` in `client.py` raises `ResultTooLargeError` for
+    // exactly the one declared `RESULT_TOO_LARGE` code and
+    // `EngineResponseError` for every other declared code (including the
+    // `INTERNAL` fallback `Response::err` assigns to anything undeclared) —
+    // the same two-way split, driven by the same normalized code, here.
     let class_name = if code == "RESULT_TOO_LARGE" {
         "ResultTooLargeError"
     } else {
@@ -102,35 +125,96 @@ pub(crate) fn map_engine_error<E: std::fmt::Display>(err: E) -> PyErr {
     };
     let mapped = Python::attach(|py| {
         resolve_client_error_class(py, class_name)
-            .map(|class| PyErr::from_type(class, (code.to_string(), detail.map(str::to_string))))
+            .map(|class| PyErr::from_type(class, (code.clone(), detail.clone())))
     });
-    mapped.unwrap_or_else(|| PyRuntimeError::new_err(message.clone()))
+    mapped.unwrap_or_else(|| {
+        PyRuntimeError::new_err(
+            detail.map_or_else(|| code.clone(), |detail| format!("{code}: {detail}")),
+        )
+    })
 }
 
-/// Split the engine's `"CODE: detail"` error convention into its stable wire
-/// code and optional diagnostic detail. `None` when the text does not start
-/// with an upper-snake-case code, so an uncoded message stays a plain
-/// `RuntimeError` exactly as `_send` treats a response without a code.
-fn split_wire_code(message: &str) -> Option<(&str, Option<&str>)> {
-    const TOO_LARGE: &str = "RESULT_TOO_LARGE";
-    if message.starts_with(TOO_LARGE) && !message.starts_with("RESULT_TOO_LARGE: ") {
-        let rest = message[TOO_LARGE.len()..].trim_start();
-        return Some((TOO_LARGE, Some(rest).filter(|text| !text.is_empty())));
+/// The exact `(code, detail)` `eg_core::protocol::Response::err` would place
+/// on the wire for this refusal text. The single source of truth
+/// `map_engine_error` and its own tests both derive from — calling the
+/// authoritative shared normalization directly rather than re-implementing
+/// its "is this a declared code" decision as a local prefix heuristic (the
+/// bug this replaces: a previous `split_wire_code` here treated ANY
+/// capitalized-looking prefix as a code and special-cased only an exact
+/// `"RESULT_TOO_LARGE: "` prefix, so an unregistered uppercase token and a
+/// `RESULT_TOO_LARGE`-lookalike both classified differently here than on the
+/// socket transport).
+fn classify_engine_refusal(message: String) -> (String, Option<String>) {
+    let normalized = Response::err(0, message);
+    let code = normalized.error.unwrap_or_else(|| "INTERNAL".to_string());
+    (code, normalized.error_detail)
+}
+
+#[cfg(test)]
+mod tests {
+    //! `classify_engine_refusal` calls straight into
+    //! `eg_core::protocol::Response::err` and touches no pyo3/GIL state, so
+    //! — unlike `map_engine_error` itself, which needs `Python::attach` and
+    //! cannot run inside a `cargo test` binary built in `extension-module`
+    //! mode (see `lib.rs`'s `mod tests` doc comment for the full reasoning,
+    //! unchanged by this Wave) — it is safe to exercise directly here. This
+    //! is the Rust half of the transport-parity proof for `EG-PYENGINE-
+    //! PLAN.md` §3.2's "same exception class" requirement; the full
+    //! exception type/code/detail parity across both transports is
+    //! `tests/parity/test_parity_errors.py`.
+    use super::classify_engine_refusal;
+
+    #[test]
+    fn an_uncoded_message_normalizes_to_internal_unclassified() {
+        assert_eq!(
+            classify_engine_refusal("graph 'missing' not found".to_string()),
+            (
+                "INTERNAL".to_string(),
+                Some("unclassified engine refusal".to_string())
+            ),
+        );
     }
-    let (code, detail) = match message.split_once(": ") {
-        Some((code, detail)) => (code, Some(detail).filter(|text| !text.is_empty())),
-        None => (message, None),
-    };
-    let mut chars = code.chars();
-    let starts_upper = chars.next().is_some_and(|c| c.is_ascii_uppercase());
-    let rest_is_code = chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
-    (starts_upper && rest_is_code).then_some((code, detail))
-}
 
-// No `#[cfg(test)]` module here: this file only compiles under the `python`
-// feature (`extension-module` mode, dlopen'd BY Python), which — per
-// `lib.rs`'s own test-module doc — cannot attach a Python interpreter inside
-// a `cargo test` binary. The pyo3-layer proof for this crate is the
-// maturin-built wheel + `tests/test_engine_smoke.py`, not `cargo test
-// --features python`; see `lib.rs`'s `mod tests` doc comment for the full
-// reasoning (unchanged by this Wave).
+    #[test]
+    fn an_unregistered_uppercase_token_is_not_treated_as_a_declared_code() {
+        assert_eq!(
+            classify_engine_refusal("NOT_A_REAL_CODE: boom".to_string()),
+            (
+                "INTERNAL".to_string(),
+                Some("unclassified engine refusal".to_string())
+            ),
+        );
+    }
+
+    #[test]
+    fn a_result_too_large_lookalike_is_not_the_real_refusal() {
+        assert_eq!(
+            classify_engine_refusal("RESULT_TOO_LARGEISH: not real".to_string()),
+            (
+                "INTERNAL".to_string(),
+                Some("unclassified engine refusal".to_string())
+            ),
+        );
+    }
+
+    #[test]
+    fn the_real_result_too_large_code_keeps_its_detail() {
+        assert_eq!(
+            classify_engine_refusal(
+                "RESULT_TOO_LARGE: 50000 nodes exceeds the configured cap".to_string()
+            ),
+            (
+                "RESULT_TOO_LARGE".to_string(),
+                Some("50000 nodes exceeds the configured cap".to_string())
+            ),
+        );
+    }
+
+    #[test]
+    fn a_real_registered_code_keeps_its_own_detail() {
+        assert_eq!(
+            classify_engine_refusal("GRAPH_NOT_FOUND: kg".to_string()),
+            ("GRAPH_NOT_FOUND".to_string(), Some("kg".to_string())),
+        );
+    }
+}
