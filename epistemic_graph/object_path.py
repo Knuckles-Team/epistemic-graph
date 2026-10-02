@@ -29,7 +29,12 @@ def _resolve_path(engine: Any, source_id: str, target_id: str) -> list[str] | No
 
 
 def _label_nodes(engine: Any, path: list[str]) -> dict[str, dict[str, Any]]:
-    """Resolve a friendly type/name for every node on the path in one query."""
+    """Resolve a friendly type/name for every node on the path in one query.
+
+    Labeling is best-effort: the query itself, the row iteration (a lazy
+    iterator can raise mid-walk), and reading a single malformed row must
+    all leave the path valid but unannotated rather than failing it.
+    """
     labels: dict[str, dict[str, Any]] = {}
     try:
         rows = engine.query_cypher(
@@ -37,16 +42,15 @@ def _label_nodes(engine: Any, path: list[str]) -> dict[str, dict[str, Any]]:
             "RETURN n.id AS id, n.type AS type, n.name AS name",
             {"ids": path},
         )
+        for row in rows or []:
+            node_id = row.get("id")
+            if node_id:
+                labels[node_id] = {"type": row.get("type"), "name": row.get("name")}
     except Exception:
         logger.debug(
             "Node labeling query failed; path remains valid without labels",
             exc_info=True,
         )
-        return labels
-    for row in rows or []:
-        node_id = row.get("id")
-        if node_id:
-            labels[node_id] = {"type": row.get("type"), "name": row.get("name")}
     return labels
 
 
