@@ -97,19 +97,7 @@ fn store_with_ann() -> IdentityStore {
         delegated: false,
         scopes: [IDENTITY_ADMIN_SCOPE.to_string()].into(),
     });
-    let create = IdentityOp::User(UserOp::Create {
-        request: CreateUserRequest {
-            username: "ann".to_string(),
-            kind: UserKind::Human,
-            principal_id: Some("principal:ann".to_string()),
-            display_name: None,
-            email: None,
-            roles: std::collections::BTreeSet::new(),
-            groups: [ADMINISTRATORS_GROUP.to_string()].into(),
-            password: Secret::default(),
-            must_change: false,
-        },
-    });
+    let create = eg_types::test_support::identity::create_administrator_op("ann", "principal:ann");
     apply(&mut store, &create, &admin);
     store
 }

@@ -19,19 +19,7 @@ fn a_token() -> VerifiedRequestContext {
 }
 
 fn create_ann() -> IdentityOp {
-    IdentityOp::User(UserOp::Create {
-        request: CreateUserRequest {
-            username: "ann".to_string(),
-            kind: UserKind::Human,
-            principal_id: Some(ANN.to_string()),
-            display_name: None,
-            email: None,
-            roles: std::collections::BTreeSet::new(),
-            groups: [ADMINISTRATORS_GROUP.to_string()].into(),
-            password: Secret::default(),
-            must_change: false,
-        },
-    })
+    eg_types::test_support::identity::create_administrator_op("ann", ANN)
 }
 
 fn set_status(status: UserStatus) -> IdentityOp {

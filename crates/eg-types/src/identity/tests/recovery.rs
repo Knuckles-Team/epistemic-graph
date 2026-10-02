@@ -2,7 +2,7 @@
 //! present. They are never a factor of their own: a session that still owes
 //! its FIRST enrolment can neither issue itself codes nor complete with one.
 
-use super::auth::{apply_verdict, outcome, sign_in, with_password};
+use super::auth::{apply_verdict, join_ops, outcome, require_mfa_in_ops, sign_in, with_password};
 use super::*;
 
 const CODES: [&str; RECOVERY_CODES_PER_SET] = [
@@ -62,23 +62,8 @@ fn owes_second_factor(store: &mut IdentityStore, session: &str) -> bool {
 /// `alice`, in a group that requires a second factor.
 fn alice_in_a_group_requiring_mfa(store: &mut IdentityStore) -> String {
     let alice = with_password(store, "alice");
-    let group = IdentityOp::Access(AccessOp::UpsertGroup {
-        request: GroupUpsert {
-            group_id: "ops".to_string(),
-            name: "ops".to_string(),
-            roles: BTreeSet::new(),
-            mfa_required: true,
-        },
-    });
-    apply_kept(store, &group, &admin(), NOW).unwrap();
-    let join = IdentityOp::Access(AccessOp::ChangeMembership {
-        request: GroupMembershipChange {
-            group_id: "ops".to_string(),
-            principal_id: alice.clone(),
-            change: BindingChange::Add,
-        },
-    });
-    apply_kept(store, &join, &admin(), NOW).unwrap();
+    require_mfa_in_ops(store);
+    join_ops(store, &alice);
     alice
 }
 
@@ -216,23 +201,8 @@ fn codes_that_outlive_their_factor_complete_nothing() {
         },
     });
     apply_kept(&mut store, &remove, &admin(), NOW).unwrap();
-    let group = IdentityOp::Access(AccessOp::UpsertGroup {
-        request: GroupUpsert {
-            group_id: "ops".to_string(),
-            name: "ops".to_string(),
-            roles: BTreeSet::new(),
-            mfa_required: true,
-        },
-    });
-    apply_kept(&mut store, &group, &admin(), NOW).unwrap();
-    let join = IdentityOp::Access(AccessOp::ChangeMembership {
-        request: GroupMembershipChange {
-            group_id: "ops".to_string(),
-            principal_id: alice.clone(),
-            change: BindingChange::Add,
-        },
-    });
-    apply_kept(&mut store, &join, &admin(), NOW).unwrap();
+    require_mfa_in_ops(&mut store);
+    join_ops(&mut store, &alice);
     let reply = apply_verdict(
         &mut store,
         &sign_in("alice"),

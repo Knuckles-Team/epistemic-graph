@@ -307,10 +307,9 @@ fn an_enrolled_factor_holds_the_session_until_a_fresh_step_verifies() {
     );
 }
 
-#[test]
-fn a_group_can_require_mfa_for_its_members() {
-    let mut store = store_in(AuthMode::Local);
-    let alice = with_password(&mut store, "alice");
+/// Create (or keep) the group `ops`, which requires a second factor of its
+/// members.
+pub(super) fn require_mfa_in_ops(store: &mut IdentityStore) {
     let group = IdentityOp::Access(AccessOp::UpsertGroup {
         request: GroupUpsert {
             group_id: "ops".to_string(),
@@ -319,7 +318,26 @@ fn a_group_can_require_mfa_for_its_members() {
             mfa_required: true,
         },
     });
-    apply_kept(&mut store, &group, &admin(), NOW).unwrap();
+    apply_kept(store, &group, &admin(), NOW).unwrap();
+}
+
+/// Make `principal` a member of `ops`.
+pub(super) fn join_ops(store: &mut IdentityStore, principal: &str) {
+    let join = IdentityOp::Access(AccessOp::ChangeMembership {
+        request: GroupMembershipChange {
+            group_id: "ops".to_string(),
+            principal_id: principal.to_string(),
+            change: BindingChange::Add,
+        },
+    });
+    apply_kept(store, &join, &admin(), NOW).unwrap();
+}
+
+#[test]
+fn a_group_can_require_mfa_for_its_members() {
+    let mut store = store_in(AuthMode::Local);
+    let alice = with_password(&mut store, "alice");
+    require_mfa_in_ops(&mut store);
     let before = apply_verdict(
         &mut store,
         &sign_in("alice"),
@@ -327,14 +345,7 @@ fn a_group_can_require_mfa_for_its_members() {
         NOW,
     );
     assert_eq!(outcome(before.unwrap()).outcome, AuthenticateOutcome::Ok);
-    let join = IdentityOp::Access(AccessOp::ChangeMembership {
-        request: GroupMembershipChange {
-            group_id: "ops".to_string(),
-            principal_id: alice.clone(),
-            change: BindingChange::Add,
-        },
-    });
-    apply_kept(&mut store, &join, &admin(), NOW).unwrap();
+    join_ops(&mut store, &alice);
     let after = apply_verdict(
         &mut store,
         &sign_in("alice"),
