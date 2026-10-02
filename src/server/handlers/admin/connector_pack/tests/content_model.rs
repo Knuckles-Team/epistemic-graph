@@ -2,7 +2,7 @@
 
 use eg_types::agent_component::AgentComponentEntry;
 use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::connector_pack::{PackImportResult, PackViolationCode};
+use eg_types::connector_pack::{PackDispositionCounts, PackImportResult, PackViolationCode};
 
 use super::{
     bind, build_pack, build_pack_with_server, head_of, import, imported, ok, server, skill, tool,
@@ -79,6 +79,8 @@ async fn a_package_release_with_identical_content_is_unchanged() {
     let pack = build_pack(CONNECTOR, &[tool(CONNECTOR, "a", "Tool a.")]);
     let first = imported(&served, &pack, None).await;
     let original_server = current_server(&served).await;
+    let tool_id = component(CONNECTOR, "tool", "a");
+    let original_tool = current_component(&served, &tool_id).await;
     let mut release = pack.clone();
     release.0.server_package_version = "9.9.9".to_string();
     match ok(
@@ -102,6 +104,82 @@ async fn a_package_release_with_identical_content_is_unchanged() {
     assert_eq!(
         released_server.entry_revision,
         original_server.entry_revision
+    );
+    let released_tool = current_component(&served, &tool_id).await;
+    assert_eq!(released_tool.entry_revision, original_tool.entry_revision);
+    assert_eq!(
+        released_tool.definition_digest,
+        original_tool.definition_digest
+    );
+    assert_eq!(
+        released_tool.provenance.pinned_component().unwrap(),
+        original_tool.provenance.pinned_component().unwrap()
+    );
+}
+
+/// R016/R050: fresh imports cannot hide package-dependent pins behind the
+/// same-store `Unchanged` fast path. Both stores independently publish content.
+#[tokio::test]
+async fn package_versions_produce_equal_pins_in_independent_stores() {
+    let original_store = Served::new();
+    let release_store = Served::new();
+    bind(&original_store, CONNECTOR, ADMIN).await;
+    bind(&release_store, CONNECTOR, ADMIN).await;
+    let pack = build_pack(CONNECTOR, &[tool(CONNECTOR, "a", "Tool a.")]);
+    let mut release = pack.clone();
+    release.0.server_package_version = "9.9.9".to_string();
+    let original_receipt = imported(&original_store, &pack, None).await;
+    let release_receipt = imported(&release_store, &release, None).await;
+    assert_eq!(original_receipt.pack_digest, release_receipt.pack_digest);
+    for receipt in [&original_receipt, &release_receipt] {
+        assert_eq!(receipt.previous_pack_digest, None);
+        assert_eq!(
+            receipt.counts,
+            PackDispositionCounts {
+                published: 2,
+                ..Default::default()
+            }
+        );
+    }
+
+    let original_server = current_server(&original_store).await;
+    let release_server = current_server(&release_store).await;
+    let tool_id = component(CONNECTOR, "tool", "a");
+    let original_tool = current_component(&original_store, &tool_id).await;
+    let release_tool = current_component(&release_store, &tool_id).await;
+    for entry in [
+        &original_server,
+        &release_server,
+        &original_tool,
+        &release_tool,
+    ] {
+        assert_eq!(entry.entry_revision, 1);
+        assert_eq!(entry.lifecycle, AgentLibraryLifecycle::Published);
+    }
+    let original_pin = original_tool.provenance.pinned_component().unwrap();
+    let release_pin = release_tool.provenance.pinned_component().unwrap();
+    assert_eq!(original_pin.component_id, original_server.component_id);
+    assert_eq!(
+        original_pin.definition_digest,
+        original_server.definition_digest
+    );
+    assert_eq!(release_pin.component_id, release_server.component_id);
+    assert_eq!(
+        release_pin.definition_digest,
+        release_server.definition_digest
+    );
+    assert_eq!(
+        (
+            &original_server.component_id,
+            &original_server.definition_digest,
+            original_pin
+        ),
+        (
+            &release_server.component_id,
+            &release_server.definition_digest,
+            release_pin
+        ),
+        "package provenance must not change independently constructed server or dependent pins"
     );
 }
 
@@ -129,6 +207,9 @@ async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
     assert_ne!(changed.0.pack_digest, pack.0.pack_digest);
     let second = imported(&served, &changed, Some(head_of(&first))).await;
     assert_ne!(second.pack_digest, first.pack_digest);
+    assert_eq!(second.pack_digest, changed.0.pack_digest);
+    assert_eq!(second.previous_pack_digest, Some(first.pack_digest));
+    assert!(second.binding_revision > first.binding_revision);
 
     let revised = current_server(&served).await;
     assert_eq!(revised.component_id, original.component_id);
@@ -138,6 +219,18 @@ async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
     let pin = dependent.provenance.pinned_component().unwrap();
     assert_eq!(pin.component_id, revised.component_id);
     assert_eq!(pin.definition_digest, revised.definition_digest);
+    assert_eq!(
+        dependent.entry_revision, 2,
+        "the changed server pin revises its tool"
+    );
+    assert_eq!(
+        second.counts,
+        PackDispositionCounts {
+            revised: 2,
+            ..Default::default()
+        },
+        "server content and the dependent server pin both changed"
+    );
 }
 
 #[tokio::test]
