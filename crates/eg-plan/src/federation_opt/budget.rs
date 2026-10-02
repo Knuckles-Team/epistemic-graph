@@ -1,6 +1,6 @@
 //! The per-query network budget and its typed refusals (design §4.5).
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Error-code prefix of a budget refusal: `FEDERATION_BUDGET_EXCEEDED:<dimension>: …`.
 pub const BUDGET_EXCEEDED: &str = "FEDERATION_BUDGET_EXCEEDED";
@@ -104,12 +104,30 @@ impl BudgetMeter {
         if self.requests >= self.budget.max_requests {
             return Err(refusal("requests", self.budget.max_requests));
         }
-        let elapsed = self.started.elapsed().as_millis();
-        if elapsed > u128::from(self.budget.max_wall_ms) {
-            return Err(refusal("wall_ms", self.budget.max_wall_ms));
-        }
+        self.check_wall()?;
         self.requests += 1;
         Ok(())
+    }
+
+    /// The wall budget, checked when a request is charged.
+    pub(crate) fn check_wall(&self) -> Result<(), String> {
+        if self.started.elapsed().as_millis() > u128::from(self.budget.max_wall_ms) {
+            return Err(refusal("wall_ms", self.budget.max_wall_ms));
+        }
+        Ok(())
+    }
+
+    /// The instant the wall budget runs out: no wait for a source may outlast it. A budget
+    /// too large to represent as an instant is a year away.
+    pub(crate) fn deadline(&self) -> Instant {
+        self.started
+            .checked_add(Duration::from_millis(self.budget.max_wall_ms))
+            .unwrap_or_else(|| self.started + Duration::from_secs(365 * 24 * 60 * 60))
+    }
+
+    /// The refusal of a request that could not start before [`Self::deadline`].
+    pub(crate) fn wall_refusal(&self) -> String {
+        refusal("wall_ms", self.budget.max_wall_ms)
     }
 
     /// Account rows received.
