@@ -293,6 +293,10 @@ pub(crate) const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("
 // table const is always defined (so the layout is stable) but only WRITTEN/READ under
 // `security`.
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit_chain");
+/// Per-graph idempotency index for application audit appends. It commits with
+/// the corresponding hash-chain entry and contains only a digest and receipt.
+pub(crate) const AUDIT_REQUESTS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("audit_requests");
 // Provenance-anchor MEMBER list (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring): `(graph,
 // audit_seq) -> msgpack Vec<(node_id, leaf_hash_bytes)>` for the `:ToolCall`/`:RunTrace`
 // window folded into the audit-chain entry at that exact `seq` (a
@@ -454,6 +458,7 @@ impl eg_storage::OwnerPayloadRetirement<GraphShardOwner> for GraphShardRetiremen
         retire_scoped_table(write, LEDGER)?;
         retire_scoped_table(write, SEMANTIC)?;
         retire_scoped_table(write, AUDIT)?;
+        retire_scoped_table(write, AUDIT_REQUESTS)?;
         retire_scoped_table(write, PROVENANCE_ANCHOR_MEMBERS)?;
         retire_scoped_table(write, WORK_ITEM_COMMAND_SEQUENCE)?;
         retire_scoped_table(write, RESOURCE_RESERVATIONS)?;

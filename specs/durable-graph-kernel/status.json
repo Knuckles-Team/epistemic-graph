@@ -456,16 +456,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "af130e39588680020f6bc5a6b7cf6e9eea93aa3e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/af130e39588680020f6bc5a6b7cf6e9eea93aa3e",
+          "description": "Published on a branch, not yet merged; reservation, outcome, replay, audit-class refusal, interrupted-reservation and writer-unavailable tests pass there"
         }
-      ]
+      ],
+      "remaining": "Not merged. Existing graph shards need the offline layout upgrade before they open, and no operator entry point runs that upgrade yet. The per-attempt admission id is generated inside replicated apply; nothing in CI exercises the append through the replicated path."
     },
     {
       "id": "EG-DURABLE-KERNEL-R032",

@@ -152,6 +152,8 @@ pub(crate) mod checkpoint;
 pub(crate) mod control;
 pub(crate) mod crossmodal;
 pub(crate) mod dump;
+#[cfg(feature = "security")]
+pub(crate) mod operation_audit;
 pub(crate) mod resource;
 pub(crate) mod work_item;
 
@@ -192,6 +194,10 @@ pub(crate) use dump::{
 };
 pub(crate) use dump::{
     decode_meta_record, encode_meta_record, encode_meta_with_incarnation, new_incarnation_id,
+};
+#[cfg(feature = "security")]
+pub(crate) use operation_audit::{
+    audit_writer_unavailable, operation_audit_append, operation_audit_read, OperationAuditEvent,
 };
 #[cfg(any(test, feature = "server"))]
 pub(crate) use resource::{read_resource_reservation, read_resource_reservation_status};
@@ -613,6 +619,83 @@ mod security_tests {
         let broken = verify_audit(&db, "g").unwrap();
         assert!(!broken.ok, "tamper undetected");
         assert_eq!(broken.first_broken_seq, Some(1), "wrong break position");
+    }
+
+    #[cfg(feature = "security")]
+    #[test]
+    fn operation_audit_reservation_outcome_replay_and_restart() {
+        let dir = tempdir();
+        let db = open_db(&dir);
+        let mut tail = AuditTailCache::new();
+        let mut ops = vec![(
+            "g".to_string(),
+            add_node_method("seed", serde_json::json!({})),
+        )];
+        commit_ops(
+            &db,
+            &mut ops,
+            &mut Vec::new(),
+            &next_drain_id("audit-seed"),
+            0,
+            DurableCrypto::none(),
+            &mut tail,
+        )
+        .unwrap();
+        let mut event = OperationAuditEvent {
+            tenant: "tenant-a".into(),
+            principal: "svc:graph-os".into(),
+            op: "graph.nodes.write".into(),
+            surface: "http".into(),
+            params_sha256: "a".repeat(64),
+            status: "reserved".into(),
+            request_id: "request-a".into(),
+            audit_class: "event".into(),
+        };
+        let reserved = operation_audit_append(&db, &mut tail, "g", &event).unwrap();
+        assert!(!reserved.replayed);
+        assert_eq!(
+            operation_audit_append(&db, &mut tail, "g", &event)
+                .unwrap()
+                .seq,
+            reserved.seq
+        );
+        event.status = "ok".into();
+        let outcome = operation_audit_append(&db, &mut tail, "g", &event).unwrap();
+        assert!(!outcome.replayed);
+        assert_eq!(
+            operation_audit_append(&db, &mut tail, "g", &event)
+                .unwrap()
+                .seq,
+            outcome.seq
+        );
+        event.status = "error".into();
+        assert!(operation_audit_append(&db, &mut tail, "g", &event)
+            .unwrap_err()
+            .contains("AUDIT_IDEMPOTENCY_CONFLICT"));
+        assert!(
+            operation_audit_read(&db, "g", "tenant-a", outcome.seq)
+                .unwrap()
+                .chain_verified
+        );
+        assert!(operation_audit_read(&db, "g", "tenant-b", outcome.seq).is_err());
+        drop(db);
+        let reopened = open_db(&dir);
+        let mut cold_tail = AuditTailCache::new();
+        event.status = "ok".into();
+        assert!(
+            operation_audit_append(&reopened, &mut cold_tail, "g", &event)
+                .unwrap()
+                .replayed
+        );
+        let proof = operation_audit_read(&reopened, "g", "tenant-a", reserved.seq).unwrap();
+        assert!(proof.chain_verified);
+        assert!(proof.event_line.contains("status=reserved"));
+        event.request_id = "never-reserved".into();
+        assert!(
+            operation_audit_append(&reopened, &mut cold_tail, "g", &event)
+                .unwrap_err()
+                .contains("AUDIT_RESERVATION_REQUIRED")
+        );
     }
 
     /// CONCEPT:EG-KG.storage.embedded-store — the O(1) tail-cache append produces an IDENTICAL, verifiable

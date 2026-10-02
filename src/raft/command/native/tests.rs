@@ -313,6 +313,18 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     assert!(unique.iter().all(|name| !name.is_empty()));
 
     assert_native_round_trip(Method::ClearLedger, NativeMutationDomain::GraphState);
+    #[cfg(feature = "security")]
+    assert_native_round_trip(
+        Method::AuditAppend {
+            op: "graph.nodes.write".to_string(),
+            surface: "http".to_string(),
+            params_sha256: "a".repeat(64),
+            status: "reserved".to_string(),
+            request_id: "request-1".to_string(),
+            audit_class: "event".to_string(),
+        },
+        NativeMutationDomain::GraphState,
+    );
     #[cfg(feature = "shacl")]
     assert_native_round_trip(
         Method::GraphSchema {

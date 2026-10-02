@@ -98,6 +98,42 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "AUDIT_CLASS_REQUIRED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "AUDIT_CLASS_UNKNOWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "AUDIT_IDEMPOTENCY_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "AUDIT_RESERVATION_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "AUDIT_RESERVATION_REQUIRED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "AUDIT_WRITER_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "auth",
       "code": "AUTHENTICATION_REQUIRED",
       "http_status_hint": 401,

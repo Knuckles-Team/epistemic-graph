@@ -1,11 +1,11 @@
 //! The one durable write of an inspected Agent Library or GraphShard layout.
 
 use super::{
-    successor, validate_census, validate_descriptor, validate_predecessor, UpgradeTarget,
-    ValidatedOwnerLayoutUpgrade,
+    successor, validate_census, validate_descriptor, validate_predecessor, GraphShardSource,
+    UpgradeTarget, ValidatedOwnerLayoutUpgrade,
 };
 use crate::owner::graph_shard::{
-    REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS,
+    AUDIT_REQUESTS, REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS,
     REPOSITORY_ENRICHMENT_POLICY_REVISIONS, REPOSITORY_ENRICHMENT_SUPERSESSIONS,
 };
 use crate::owner::registry::{predecessor_evidence, MCP_CATALOG_CONFIGS, MCP_CATALOG_SCOPES};
@@ -67,20 +67,40 @@ fn open_successor_tables(write: &WriteTransaction, target: UpgradeTarget) -> Res
                 .open_table(MCP_CATALOG_SCOPES)
                 .map_err(|error| error.to_string())?;
         }
-        UpgradeTarget::GraphShard => {
-            write
-                .open_table(REPOSITORY_ENRICHMENT_BUDGETS)
-                .map_err(|error| error.to_string())?;
-            write
-                .open_table(REPOSITORY_ENRICHMENT_POLICY_REVISIONS)
-                .map_err(|error| error.to_string())?;
-            write
-                .open_table(REPOSITORY_ENRICHMENT_SUPERSESSIONS)
-                .map_err(|error| error.to_string())?;
-            write
-                .open_table(REPOSITORY_ENRICHMENT_PARKS)
-                .map_err(|error| error.to_string())?;
-        }
+        UpgradeTarget::GraphShard(source) => open_graph_shard_tables(write, source)?,
     }
+    Ok(())
+}
+
+/// Create, empty, every table the current graph shard has that `source`
+/// lacked. Every graph upgrade ends at the current layout, so the operation
+/// audit-append idempotency index is created for all of them; the
+/// repository-enrichment tables only for the generation that predates them.
+fn open_graph_shard_tables(
+    write: &WriteTransaction,
+    source: GraphShardSource,
+) -> Result<(), String> {
+    if source == GraphShardSource::BeforeEnrichment {
+        open_enrichment_tables(write)?;
+    }
+    write
+        .open_table(AUDIT_REQUESTS)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn open_enrichment_tables(write: &WriteTransaction) -> Result<(), String> {
+    write
+        .open_table(REPOSITORY_ENRICHMENT_BUDGETS)
+        .map_err(|error| error.to_string())?;
+    write
+        .open_table(REPOSITORY_ENRICHMENT_POLICY_REVISIONS)
+        .map_err(|error| error.to_string())?;
+    write
+        .open_table(REPOSITORY_ENRICHMENT_SUPERSESSIONS)
+        .map_err(|error| error.to_string())?;
+    write
+        .open_table(REPOSITORY_ENRICHMENT_PARKS)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }

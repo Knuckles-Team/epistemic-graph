@@ -1,7 +1,54 @@
 use super::*;
+#[cfg(feature = "security")]
+use crate::redb_store::audit_writer_unavailable;
 use crate::server::persistence::writer_reply::await_writer_reply;
 
 impl RedbBackend {
+    #[cfg(feature = "security")]
+    pub async fn audit_read_event(
+        &self,
+        graph_fname: &str,
+        verified_tenant: &str,
+        seq: u64,
+    ) -> Result<crate::protocol::AuditEventProof, String> {
+        let graph = graph_fname.to_string();
+        let tenant = verified_tenant.to_string();
+        self.read_snapshot(graph_fname, move |shard, _| {
+            crate::redb_store::operation_audit_read(shard, &graph, &tenant, seq)
+        })
+        .await
+    }
+    /// Append one operation audit event through the graph's shard writer.
+    ///
+    /// The writer's own answer -- a receipt, or a refusal of the event -- is
+    /// returned as it is. Every way of NOT getting an answer (the writer thread
+    /// is gone, it dropped the reply, it stopped answering) is the one declared
+    /// refusal `AUDIT_WRITER_UNAVAILABLE`: the caller is never told the event
+    /// was appended, and a retry under the same request identity settles
+    /// whether it was.
+    #[cfg(feature = "security")]
+    pub(crate) async fn audit_append(
+        &self,
+        graph_fname: &str,
+        event: crate::redb_store::OperationAuditEvent,
+    ) -> Result<crate::protocol::AuditAppendReceipt, String> {
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
+        self.enqueue(
+            graph_fname,
+            Cmd::AuditAppend {
+                graph: graph_fname.to_string(),
+                event,
+                reply,
+            },
+            "audit_append",
+        )
+        .await
+        .map_err(audit_writer_unavailable)?;
+        tokio::task::spawn_blocking(move || await_writer_reply(&rx, "audit_append"))
+            .await
+            .map_err(|error| audit_writer_unavailable(format!("join error: {error}")))?
+            .map_err(audit_writer_unavailable)?
+    }
     /// TEST-ONLY: flip a byte in the stored audit entry `(graph, seq)` to simulate
     /// tampering, so the verify path can prove detection. Routed through the owner
     /// thread (exclusive file lock).

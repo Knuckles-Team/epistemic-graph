@@ -82,6 +82,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
             "&[u8]",
         ),
         ("repository_enrichment_parks", "&str", "&[u8]"),
+        ("audit_requests", "(&str,&str)", "&[u8]"),
         ("work_item_claim_capabilities", "(&str,&str)", "&[u8]"),
         (
             "work_item_claim_capability_invocations",

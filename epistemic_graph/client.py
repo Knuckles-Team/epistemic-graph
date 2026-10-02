@@ -14682,6 +14682,54 @@ class AdminClient:
         (tampering or corruption), never before that point."""
         return (await _gen.security.send_audit_verify(self._client)).payload
 
+    async def audit_append(
+        self,
+        *,
+        op: str,
+        surface: str,
+        params_sha256: str,
+        status: str,
+        request_id: str,
+        audit_class: str,
+    ) -> dict[str, Any]:
+        """Append a privacy-safe operation audit event under the verified carrier.
+
+        Reserve before a governed effect with ``status="reserved"``, then close
+        the reservation with the outcome (``ok``, ``error`` or ``denied``) under
+        the same ``request_id``. ``audit_class`` is the class the operation
+        declares (``event`` or ``identity_chain``); an empty or ``none`` class
+        is refused with ``AUDIT_CLASS_REQUIRED`` and an undefined one with
+        ``AUDIT_CLASS_UNKNOWN``. An unavailable durable writer is refused with
+        ``AUDIT_WRITER_UNAVAILABLE``. No refusal writes anything.
+
+        The engine derives tenant and principal. It commits the hash-chain
+        entry and replay receipt before acknowledging this call. The receipt's
+        ``outcome_seq`` is ``None`` while a reservation has no linked outcome,
+        so replaying a reservation after an interruption shows whether its
+        outcome is still owed.
+        """
+        return (
+            await _gen.security.send_audit_append(
+                self._client,
+                {
+                    "op": op,
+                    "surface": surface,
+                    "params_sha256": params_sha256,
+                    "status": status,
+                    "request_id": request_id,
+                    "audit_class": audit_class,
+                },
+            )
+        ).payload
+
+    async def audit_read_event(self, seq: int) -> dict[str, Any]:
+        """Read one committed operation event and its chain verification result."""
+        return (
+            await _gen.security.send_audit_read_event(
+                self._client, {"seq": _integer("seq", seq, minimum=0)}
+            )
+        ).payload
+
     async def audit_prove_inclusion(
         self, node_id: str, *, anchor_seq: int | None = None
     ) -> dict[str, Any]:
