@@ -157,6 +157,7 @@ mod tests {
 
     use super::{EngineRemote, RemoteFetch, RemoteRequest};
     use crate::exec::{execute, PlanCtx};
+    use crate::federation_opt::engine_peer_tests::verified_claims;
     use crate::federation_opt::remote::Identity;
 
     fn remote(query: &str) -> ForeignSourceSpec {
@@ -237,6 +238,13 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let endpoint = listener.local_addr().unwrap().to_string();
         let (done, served_counts) = std::sync::mpsc::sync_channel(1);
+        let ForeignSourceSpec::RemoteEngine {
+            secret: signing_secret,
+            ..
+        } = remote("")
+        else {
+            unreachable!()
+        };
         std::thread::spawn(move || {
             let fixture = crate::fixture::build();
             let ctx = PlanCtx::new(&fixture.view, &fixture.semantic);
@@ -248,7 +256,10 @@ mod tests {
                 let mut body = vec![0; u32::from_be_bytes(header) as usize];
                 stream.read_exact(&mut body).unwrap();
                 let request: Request = rmp_serde::from_slice(&body).unwrap();
-                assert!(request.auth_token.starts_with("eg2."));
+                assert!(
+                    verified_claims(&signing_secret, &request).is_some(),
+                    "the peer serves only a request whose envelope verifies"
+                );
                 let Method::Uql { text, params } = request.method else {
                     panic!("the peer must receive UQL");
                 };

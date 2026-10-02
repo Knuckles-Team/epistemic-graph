@@ -36,6 +36,8 @@ mod trace;
 #[cfg(test)]
 mod bounds_tests;
 #[cfg(test)]
+mod engine_peer_tests;
+#[cfg(test)]
 mod tests;
 
 pub use budget::{FederationBudget, BUDGET_EXCEEDED, REQUIRES_KEYS, RESULT_INCOMPLETE};
