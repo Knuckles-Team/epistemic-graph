@@ -193,16 +193,16 @@ pub(super) async fn dispatch_op_audit_append(
                 req_id,
                 ResultPayload::of::<eg_types::result_contract::security::AuditAppend>(receipt),
             ),
-            Err(error) => Response::err(req_id, format!("AuditAppend error: {error}")),
+            // No method-name prefix: the error is already either a bare
+            // declared code (`AUDIT_CLASS_REQUIRED`) or `CODE: detail`
+            // (`AUDIT_WRITER_UNAVAILABLE: cause`), the same shape
+            // `Response::err` expects from every other declared operation.
+            // A prefix here shifts the `": "` split and defeats recognition.
+            Err(error) => Response::err(req_id, error),
         },
         None => Response::err(
             req_id,
-            format!(
-                "AuditAppend error: {}",
-                crate::redb_store::audit_writer_unavailable(
-                    "this server has no durable audit store"
-                )
-            ),
+            crate::redb_store::audit_writer_unavailable("this server has no durable audit store"),
         ),
     }
 }
