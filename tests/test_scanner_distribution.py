@@ -437,6 +437,8 @@ def test_scanner_installer_repairs_partial_cache_and_propagates_failure(
     cargo.write_text(
         '#!/bin/sh\n[ "$1" = install ] || exit 2\n'
         'case " $* " in *" --force "*) ;; *) exit 3 ;; esac\n'
+        'case " $* " in *" --config net.git-fetch-with-cli=true "*) ;;\n'
+        "  *) exit 4 ;; esac\n"
         'while [ "$1" != --root ]; do shift; done\nshift\n'
         'mkdir -p "$1/bin"\n'
         'printf \'#!/bin/sh\\necho "cccc 1.6.0"\\n\' > "$1/bin/cccc"\n'

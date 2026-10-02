@@ -58,7 +58,9 @@ install_crate() {
   if crate_valid "$name" "$bin" "$expected"; then
     return
   fi
-  cargo install --locked --force "$@" --root "$root/$name"
+  # Use Cargo's supported Git CLI transport for pinned Git dependencies.
+  # This override is scoped to this install; auth/proxy/trust config is unchanged.
+  cargo install --config net.git-fetch-with-cli=true --locked --force "$@" --root "$root/$name"
   crate_valid "$name" "$bin" "$expected"
 }
 
