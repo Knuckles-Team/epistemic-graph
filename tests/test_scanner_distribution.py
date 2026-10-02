@@ -229,21 +229,39 @@ def test_ci_uses_central_exact_python_version():
     assert (REPO / ".python-version").read_text(encoding="utf-8") == "3.12\n"
     workflows = sorted(path.name for path in (REPO / ".github/workflows").glob("*.yml"))
     setup_steps = [
-        (filename, step)
+        (filename, name, step)
         for filename in workflows
-        for job in _workflow(filename)["jobs"].values()
+        for name, job in _workflow(filename)["jobs"].items()
         for step in job.get("steps", [])
         if step.get("uses", "").startswith("actions/setup-python@")
     ]
     assert setup_steps
-    assert all(
-        step.get("with", {}).get("python-version-file") == ".python-version"
-        and "python-version" not in step.get("with", {})
-        for _, step in setup_steps
-    )
+    for filename, name, step in setup_steps:
+        _assert_python_source(filename, name, step)
 
     root_hygiene = (REPO / "scripts/check_root_hygiene.py").read_text(encoding="utf-8")
     assert '".python-version"' in root_hygiene
+
+
+def _assert_python_source(filename: str, name: str, step: dict) -> None:
+    settings = step.get("with", {})
+    assert "python-version" not in settings
+    if (filename, name) == ("release-publication-recovery.yml", "recover"):
+        assert settings.get("python-version-file") == ".frozen-source/.python-version"
+        _assert_frozen_python_checkout(_workflow(filename)["jobs"][name]["steps"], step)
+    else:
+        assert settings.get("python-version-file") == ".python-version"
+
+
+def _assert_frozen_python_checkout(steps: list[dict], setup: dict) -> None:
+    frozen = [
+        item for item in steps if item.get("with", {}).get("path") == ".frozen-source"
+    ]
+    assert len(frozen) == 1
+    assert frozen[0]["uses"].startswith("actions/checkout@")
+    assert frozen[0]["with"]["ref"] == "7f5179650d87e6f763b129cfeea6dfb4f8b0273b"
+    assert frozen[0]["with"]["persist-credentials"] is False
+    assert steps.index(frozen[0]) < steps.index(setup)
 
 
 def test_advisory_gate_wires_exact_cargo_deny_version_check():

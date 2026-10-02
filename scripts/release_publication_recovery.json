@@ -1,0 +1,57 @@
+{
+  "repository": "Knuckles-Team/epistemic-graph",
+  "repository_id": 1248541673,
+  "owner_id": 119072828,
+  "actor_id": 8661571,
+  "run_id": 36889097785,
+  "run_attempt": 1,
+  "source": "7f5179650d87e6f763b129cfeea6dfb4f8b0273b",
+  "tag": "v2.27.0",
+  "tag_object": "783075941d89bb70269130cf632442b80785b431",
+  "version": "2.27.0",
+  "contract_commit": "4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6",
+  "required_jobs": [
+    110459857026,
+    110459857083,
+    110460645531,
+    110460645750,
+    110460645797,
+    110460645848,
+    110460645866,
+    110460646000,
+    110460646107,
+    110489401599
+  ],
+  "artifacts": [
+    {
+      "id": 11196548715,
+      "name": "wheel-linux-x86_64",
+      "archive_sha256": "af41a8c684b897e4eeb67c248c2bf2de8a1cd3ae68a55b4a73d345121a158ba8",
+      "job_id": 110489463714,
+      "filename": "epistemic_graph-2.27.0-py3-none-manylinux_2_28_x86_64.whl",
+      "bytes": 213191365,
+      "sha256": "b8c805e54c68f57623c8a99f76ad25e2bc0f3d23b9056fc7c0434f8c1c0b36d3",
+      "receipt_sha256": "a885b1b52e04824286a841532ca35d310893fa92b413e6686ed8427bb549940f"
+    },
+    {
+      "id": 11193437546,
+      "name": "wheel-linux-aarch64",
+      "archive_sha256": "2bc9a25188928e0c86fd1a095e4d9e41454bf93fe9132394fece97248a25e3e0",
+      "job_id": 110489401339,
+      "filename": "epistemic_graph-2.27.0-py3-none-manylinux_2_28_aarch64.whl",
+      "bytes": 192548525,
+      "sha256": "4ab0b88c70348a7c99ceee392b84e887154efc5d332e362f29bf321a5e3e0ff3",
+      "receipt_sha256": "a885b1b52e04824286a841532ca35d310893fa92b413e6686ed8427bb549940f"
+    },
+    {
+      "id": 11193049469,
+      "name": "wheel-windows-x86_64",
+      "archive_sha256": "ddf079faa74bbff8f62c67fd8f962f8314f6711e07b0532b1be5311a2eedb34a",
+      "job_id": 110489401420,
+      "filename": "epistemic_graph-2.27.0-py3-none-win_amd64.whl",
+      "bytes": 225361283,
+      "sha256": "88cf9acd0a32edd22ae495e523120ad3e0e445bbd2b06d5962e1f5a2b3d55286",
+      "receipt_sha256": "1572833fdd347968b29046535dbb08162b5ca0326dafe7254bb739b90aeb3d1f"
+    }
+  ]
+}
