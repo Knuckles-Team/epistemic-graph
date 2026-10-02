@@ -67,3 +67,5 @@ Requirement IDs in `requirements.md` not mentioned by any task above before this
 
 Mark a PACK requirement `LANDED` only with an exact merged EG commit. Mark it `ACCEPTED` only after the mapped tests in `test-spec.md`, generated contract receipt, security proof, configured quality gates and served-path verification pass on that commit. A ruled decision row is documented rather than implemented again. A queued adjacent row cannot be closed through this spec.
 - [ ] **P14 (EG-TYPED-PACKS-R097):** Publish the human-resources, legal, medical and government vocabularies as typed domain packs with validation, import and round-trip tests, then confirm callers read the packs.
+- [ ] **P15 (EG-TYPED-PACKS-R098):** Serve the OntologyInspect method and inline data triples on ShaclValidate, regenerate the wire contract and every generated client, and prove both through handler, classification and Python client tests.
+- [ ] **P16 (EG-TYPED-PACKS-R099):** Add the prototype-matching kernel and its bounded Python binding to the numeric extension with Rust unit tests and installed-binding parity and bounds tests.
