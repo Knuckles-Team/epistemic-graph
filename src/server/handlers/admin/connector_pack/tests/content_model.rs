@@ -1,10 +1,12 @@
 //! The content model (pack design §3.5, review B3): identity follows content.
 
+use eg_types::agent_component::AgentComponentEntry;
 use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::connector_pack::{PackImportResult, PackViolationCode};
 
 use super::{
-    bind, build_pack, head_of, import, imported, ok, skill, tool, Content, Served, ADMIN, TENANT,
+    bind, build_pack, build_pack_with_server, head_of, import, imported, ok, server, skill, tool,
+    Content, Served, ADMIN, TENANT,
 };
 
 const CONNECTOR: &str = "content-model";
@@ -14,9 +16,22 @@ fn component(connector: &str, kind: &str, name: &str) -> String {
 }
 
 async fn current_revision(served: &Served, id: &str) -> (u64, AgentLibraryLifecycle) {
-    let store = served.state.write().await.ensure_agent_library().unwrap();
-    let entry = store.current_component(TENANT, id).unwrap().unwrap();
+    let entry = current_component(served, id).await;
     (entry.entry_revision, entry.lifecycle)
+}
+
+async fn current_component(served: &Served, id: &str) -> AgentComponentEntry {
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    store.current_component(TENANT, id).unwrap().unwrap()
+}
+
+async fn current_server(served: &Served) -> AgentComponentEntry {
+    let id = eg_types::connector_pack::pack_component_id(
+        CONNECTOR,
+        eg_types::connector_pack::PackEntryKind::McpServer,
+        CONNECTOR,
+    );
+    current_component(served, &id).await
 }
 
 #[tokio::test]
@@ -63,6 +78,7 @@ async fn a_package_release_with_identical_content_is_unchanged() {
     bind(&served, CONNECTOR, ADMIN).await;
     let pack = build_pack(CONNECTOR, &[tool(CONNECTOR, "a", "Tool a.")]);
     let first = imported(&served, &pack, None).await;
+    let original_server = current_server(&served).await;
     let mut release = pack.clone();
     release.0.server_package_version = "9.9.9".to_string();
     match ok(
@@ -78,6 +94,65 @@ async fn a_package_release_with_identical_content_is_unchanged() {
         }
         other => panic!("a package release must be Unchanged: {other:?}"),
     }
+    let released_server = current_server(&served).await;
+    assert_eq!(
+        released_server.definition_digest,
+        original_server.definition_digest
+    );
+    assert_eq!(
+        released_server.entry_revision,
+        original_server.entry_revision
+    );
+}
+
+/// EG-TYPED-PACKS-R016: vary exactly one declared server field while keeping
+/// its component identity and package version fixed. Rebuild honest sections
+/// and archive digests, then exercise the served import and persisted pin.
+async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
+    let served = Served::new();
+    bind(&served, CONNECTOR, ADMIN).await;
+    let entries = [tool(CONNECTOR, "a", "Tool a.")];
+    let pack = build_pack(CONNECTOR, &entries);
+    let first = imported(&served, &pack, None).await;
+    let original = current_server(&served).await;
+    assert_eq!(original.entry_revision, 1);
+
+    let mut changed_server = server(CONNECTOR);
+    let mut body: serde_json::Value = serde_json::from_slice(&changed_server.body).unwrap();
+    body[field] = serde_json::json!(value);
+    changed_server.body = serde_json::to_vec(&body).unwrap();
+    let changed = build_pack_with_server(CONNECTOR, &changed_server, &entries);
+    assert_eq!(
+        changed.0.server_package_version,
+        pack.0.server_package_version
+    );
+    assert_ne!(changed.0.pack_digest, pack.0.pack_digest);
+    let second = imported(&served, &changed, Some(head_of(&first))).await;
+    assert_ne!(second.pack_digest, first.pack_digest);
+
+    let revised = current_server(&served).await;
+    assert_eq!(revised.component_id, original.component_id);
+    assert_eq!(revised.entry_revision, 2);
+    assert_ne!(revised.definition_digest, original.definition_digest);
+    let dependent = current_component(&served, &component(CONNECTOR, "tool", "a")).await;
+    let pin = dependent.provenance.pinned_component().unwrap();
+    assert_eq!(pin.component_id, revised.component_id);
+    assert_eq!(pin.definition_digest, revised.definition_digest);
+}
+
+#[tokio::test]
+async fn a_server_contract_version_change_revises_its_pin() {
+    assert_server_contract_change_revises_pin("contract_version", "2").await;
+}
+
+#[tokio::test]
+async fn a_server_name_change_revises_its_pin() {
+    assert_server_contract_change_revises_pin("name", "Renamed server").await;
+}
+
+#[tokio::test]
+async fn a_server_instructions_change_revises_its_pin() {
+    assert_server_contract_change_revises_pin("instructions", "Revised instructions.").await;
 }
 
 /// A served engine with `CONNECTOR` bound and four tools `a`..`d` imported.

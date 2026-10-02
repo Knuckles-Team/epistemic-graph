@@ -310,10 +310,19 @@ fn lay_out(archive: &mut Vec<u8>, content: &Content) -> PackEntry {
 /// A complete, digest-honest pack: its index (archive blob digest still to be
 /// filled by the upload) and its archive bytes.
 pub(super) fn build_pack(connector: &str, entries: &[Content]) -> (ConnectorPackIndex, Vec<u8>) {
+    build_pack_with_server(connector, &server(connector), entries)
+}
+
+/// Use the same archive and digest layout for a changed server contract.
+pub(super) fn build_pack_with_server(
+    connector: &str,
+    server_content: &Content,
+    entries: &[Content],
+) -> (ConnectorPackIndex, Vec<u8>) {
     let mut ordered = entries.to_vec();
     ordered.sort_by(|left, right| left.uri.cmp(&right.uri));
     let mut archive = Vec::new();
-    let server = lay_out(&mut archive, &server(connector));
+    let server = lay_out(&mut archive, server_content);
     let entries: Vec<PackEntry> = ordered
         .iter()
         .map(|content| lay_out(&mut archive, content))
