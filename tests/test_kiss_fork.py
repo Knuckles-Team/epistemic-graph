@@ -67,6 +67,6 @@ def test_ci_installs_and_probes_exactly_the_pinned_fork_rev() -> None:
     assert "--version 0.4.12" not in install
     verify = steps["Verify scanner versions"]["run"]
     assert 'python3 scripts/kiss_fork.py "$(command -v kiss)"' in verify
-    # The toolchain cache is keyed on the installer, so a new pin rebuilds it.
+    # Both installer pins and fork validation changes invalidate the cache.
     key = steps["Restore pinned scanner toolchain"]["with"]["key"]
-    assert "hashFiles('scripts/install_scanners.sh')" in key
+    assert "hashFiles('scripts/install_scanners.sh', 'scripts/kiss_fork.py')" in key
