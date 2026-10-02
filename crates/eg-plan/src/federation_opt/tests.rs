@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
-use super::capability::{KeyLookup, LimitPushdown, RemoteRequest, SourceCapabilities};
+use super::capability::{KeyLookup, LimitPushdown, RemoteRequest, SourceCapabilities, SourceRate};
 use super::remote::{Identity, RemoteFetch};
 use super::run::Fragment;
 use super::stats::fingerprint;
@@ -411,6 +411,137 @@ fn failing_key_lookups_fall_back_to_the_naive_fetch() {
         super::stats::lookup(&source.identity.fingerprint).expect("the failure is remembered");
     assert_eq!(learned.key_lookup_failures, 1);
     assert_eq!(learned.full_samples, 1);
+}
+
+struct Concurrent {
+    identity: Identity,
+    active: AtomicUsize,
+    peak: AtomicUsize,
+    /// A key batch carrying this key is refused.
+    poison: Option<&'static str>,
+    /// What actually crossed: fetches received, and rows returned.
+    calls: AtomicUsize,
+    rows: AtomicUsize,
+}
+
+impl Concurrent {
+    fn new() -> Self {
+        Self::tagged("fo09-concurrency", None)
+    }
+
+    fn tagged(tag: &str, poison: Option<&'static str>) -> Self {
+        Self {
+            identity: Identity {
+                label: "concurrent".into(),
+                fingerprint: fingerprint(tag.as_bytes()),
+            },
+            active: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+            poison,
+            calls: AtomicUsize::new(0),
+            rows: AtomicUsize::new(0),
+        }
+    }
+
+    /// The requested keys, or the whole 200-row catalog when none are named; a batch
+    /// carrying the poisoned key is refused.
+    fn answer(&self, request: &RemoteRequest) -> Result<RowSet, String> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self
+            .poison
+            .is_some_and(|key| request.keys.iter().any(|k| k == key))
+        {
+            return Err("concurrent: this batch is refused".into());
+        }
+        let ids = if request.keys.is_empty() {
+            catalog(200)
+        } else {
+            request.keys.clone()
+        };
+        self.rows.fetch_add(ids.len(), Ordering::SeqCst);
+        Ok(RowSet::from_ids(ids))
+    }
+}
+
+impl RemoteFetch for Concurrent {
+    fn capabilities(&self) -> SourceCapabilities {
+        let mut caps = SourceCapabilities::single_full_fetch(
+            KeyLookup::Batched { max_keys: 32 },
+            LimitPushdown::Unsupported,
+        );
+        caps.rate = SourceRate::new(2, 0);
+        caps
+    }
+
+    fn identity(&self) -> &Identity {
+        &self.identity
+    }
+
+    fn parallel_safe(&self) -> Option<&(dyn RemoteFetch + Sync)> {
+        Some(self)
+    }
+
+    fn fetch(&self, request: &RemoteRequest) -> Result<RowSet, String> {
+        let current = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(current, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(15));
+        self.active.fetch_sub(1, Ordering::SeqCst);
+        self.answer(request)
+    }
+}
+
+#[test]
+fn parallel_batches_share_a_source_cap_across_queries() {
+    let source = Concurrent::new();
+    let sessions = [FederationSession::from_env(), FederationSession::from_env()];
+    let input = local(128);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = sessions
+            .iter()
+            .map(|session| {
+                let source = &source;
+                let input = &input;
+                scope.spawn(move || Fragment::new(source, session).join(input).unwrap())
+            })
+            .collect();
+        for handle in handles {
+            let read = handle.join().unwrap();
+            assert_eq!(read.rows, input, "parallel batches retain exact join rows");
+            assert_eq!(read.trace.requests, 4);
+        }
+    });
+    let peak = source.peak.load(Ordering::SeqCst);
+    assert_eq!(
+        peak, 2,
+        "parallel batches use but never exceed the source cap"
+    );
+}
+
+/// The first batch of the first parallel round is refused while the batch beside it is
+/// answered; the sequential retries of that batch are refused too, and the fragment
+/// falls back to a full fetch. The trace must count all of it.
+#[test]
+fn a_failed_parallel_round_counts_every_request_and_row_it_made() {
+    let source = Concurrent::tagged("accounting-parallel-round", Some("x5"));
+    let session = FederationSession::from_env();
+    let read = Fragment::new(&source, &session).join(&local(128)).unwrap();
+
+    assert_eq!(read.trace.strategy, FetchStrategy::FallbackFullFetch);
+    assert_eq!(read.rows.len(), 200, "the fallback's rows");
+    let calls = source.calls.load(Ordering::SeqCst);
+    let rows = source.rows.load(Ordering::SeqCst);
+    assert!(
+        calls > 3 && rows > 200,
+        "a parallel round with an answered batch, retries and the fallback: {calls} / {rows}"
+    );
+    assert_eq!(
+        read.trace.requests as usize, calls,
+        "every request the source received is in the trace"
+    );
+    assert_eq!(
+        read.trace.rows_fetched, rows,
+        "every row the source returned is in the trace"
+    );
 }
 
 #[test]
