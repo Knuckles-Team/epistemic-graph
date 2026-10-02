@@ -44,10 +44,16 @@ use bool_builtins::{eval_bool_str_relation, term_type_test};
 // EH-197 — witness proofs for SELECT rows (child module: it reuses the private
 // pattern matcher and join rather than re-implementing them).
 mod proof;
+// SERVICE delegation: pushdown eligibility, fallback and the bind-join budget.
+mod service;
+#[cfg(test)]
+mod service_tests;
 // EH-583 — multi-valued literal properties bind every value.
 #[cfg(test)]
 mod multivalue_tests;
 pub use proof::{execute_explained, MAX_WITNESS_STEPS};
+use service::ServiceCall;
+pub use service::{RemoteSparql, ServiceBudget, SERVICE_BUDGET_EXCEEDED};
 
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
 pub type Solution = HashMap<String, Binding>;
@@ -268,17 +274,6 @@ fn merge_views<'v>(views: impl Iterator<Item = &'v GraphView>) -> GraphView {
             .extend(v.schema_node_ids.iter().cloned());
     }
     out
-}
-
-/// A remote SPARQL endpoint the evaluator can delegate a `SERVICE` clause to
-/// (CONCEPT:EG-KG.query.sparql-service-federation-client). This is the SEAM: `eg-rdf` owns the algebra + the SILENT / join
-/// semantics but knows NOTHING about HTTP — the facade supplies a `ureq`-backed impl
-/// (feature `sparql-service`), keeping the Pi/crate-DAG contract intact (no HTTP dep
-/// enters this pure-Rust crate). `select` runs one remote SELECT and returns its
-/// solution table; `Err` carries a human-readable failure (routed by SILENT).
-pub trait RemoteSparql: Sync {
-    /// Evaluate `query` (a complete SPARQL SELECT) against `endpoint`, returning its rows.
-    fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String>;
 }
 
 /// The active evaluation context: the dataset, the graph the current scans resolve
@@ -762,7 +757,12 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             name,
             inner,
             silent,
-        } => eval_service(ctx, name, inner, *silent),
+        } => ServiceCall {
+            name,
+            pattern: inner,
+            silent: *silent,
+        }
+        .eval(ctx),
     }
 }
 
@@ -772,7 +772,10 @@ fn eval_pattern_filter(
     expr: &Expression,
     inner: &GraphPattern,
 ) -> Result<Vec<Solution>, String> {
-    let inner_sols = eval_pattern(ctx, inner)?;
+    let inner_sols = match ServiceCall::of(inner) {
+        Some(call) => call.eval_filtered(ctx, expr)?,
+        None => eval_pattern(ctx, inner)?,
+    };
     Ok(inner_sols
         .into_iter()
         .filter(|s| eval_filter(ctx, expr, s))
@@ -786,6 +789,9 @@ fn eval_pattern_join(
     right: &GraphPattern,
 ) -> Result<Vec<Solution>, String> {
     let l = eval_pattern(ctx, left)?;
+    if let Some(call) = ServiceCall::of(right) {
+        return call.eval_bind_join(ctx, &l);
+    }
     let r = eval_pattern(ctx, right)?;
     Ok(hash_join(&l, &r))
 }
@@ -825,15 +831,7 @@ fn eval_pattern_project(
     inner: &GraphPattern,
     variables: &[Variable],
 ) -> Result<Vec<Solution>, String> {
-    let projected: std::collections::HashSet<&str> = variables.iter().map(|v| v.as_str()).collect();
-    Ok(eval_pattern(ctx, inner)?
-        .into_iter()
-        .map(|s| {
-            s.into_iter()
-                .filter(|(k, _)| projected.contains(k.as_str()))
-                .collect()
-        })
-        .collect())
+    Ok(project_solutions(eval_pattern(ctx, inner)?, variables))
 }
 
 /// GROUP BY + aggregates (CONCEPT:EG-KG.query.sparql-completeness). `Group` produces one solution per
@@ -929,13 +927,27 @@ fn eval_pattern_slice(
     start: usize,
     length: Option<usize>,
 ) -> Result<Vec<Solution>, String> {
-    let all = eval_pattern(ctx, inner)?;
+    let all = match (start, length) {
+        (0, Some(limit)) => service::eval_limited(ctx, inner, limit)?,
+        _ => eval_pattern(ctx, inner)?,
+    };
     let end = length.map(|l| start + l).unwrap_or(all.len());
     Ok(all
         .into_iter()
         .skip(start)
         .take(end.saturating_sub(start))
         .collect())
+}
+
+fn project_solutions(rows: Vec<Solution>, variables: &[Variable]) -> Vec<Solution> {
+    let projected: std::collections::HashSet<&str> = variables.iter().map(|v| v.as_str()).collect();
+    rows.into_iter()
+        .map(|s| {
+            s.into_iter()
+                .filter(|(k, _)| projected.contains(k.as_str()))
+                .collect()
+        })
+        .collect()
 }
 
 /// MINUS (CONCEPT:EG-KG.ontology.minus): set-difference. Keep each LEFT solution that is NOT
@@ -966,74 +978,6 @@ fn eval_pattern_order_by(
     let mut sols = eval_pattern(ctx, inner)?;
     sort_solutions(ctx, &mut sols, expression);
     Ok(sols)
-}
-
-/// Evaluate a `SERVICE <ep> { inner }` clause (CONCEPT:EG-KG.query.sparql-service-federation-client) by delegating `inner` to a
-/// remote SPARQL endpoint through `ctx.service`.
-///
-/// SILENT semantics: on ANY failure — a variable endpoint, no bound client, or a remote
-/// HTTP/parse error — `silent` returns ONE empty solution (the join identity, so the
-/// enclosing join passes the local side through unchanged); otherwise the error propagates.
-/// Only a CONSTANT-IRI endpoint is supported (a `?var` endpoint is a failure per the rule).
-fn eval_service(
-    ctx: &Ctx,
-    name: &NamedNodePattern,
-    inner: &GraphPattern,
-    silent: bool,
-) -> Result<Vec<Solution>, String> {
-    // One empty solution = the neutral element for a join (pass-through under SILENT).
-    let hushed = |e: String| -> Result<Vec<Solution>, String> {
-        if silent {
-            Ok(vec![Solution::new()])
-        } else {
-            Err(e)
-        }
-    };
-    let endpoint = match name {
-        NamedNodePattern::NamedNode(n) => n.as_str(),
-        // A variable endpoint (`SERVICE ?ep { … }`) is unsupported: it requires binding the
-        // endpoint from an earlier pattern, which this evaluator does not resolve.
-        NamedNodePattern::Variable(_) => {
-            return hushed("eg-rdf SPARQL: SERVICE with a variable endpoint is unsupported".into());
-        }
-    };
-    let client = match ctx.service {
-        Some(c) => c,
-        // Fail-closed: no client bound (feature off / allowlist empty) ⇒ SERVICE is disabled.
-        None => {
-            return hushed(format!(
-                "eg-rdf SPARQL: SERVICE <{endpoint}> requires a remote client (feature `sparql-service`); none bound"
-            ));
-        }
-    };
-    let remote_query = build_service_query(inner);
-    match client.select(endpoint, &remote_query) {
-        Ok(res) => Ok(res.solutions),
-        Err(e) => hushed(format!("eg-rdf SPARQL: SERVICE <{endpoint}> failed: {e}")),
-    }
-}
-
-/// Build the SPARQL SELECT text sent to a remote SERVICE endpoint (CONCEPT:EG-KG.query.sparql-service-federation-client): wrap
-/// `inner` in a `SELECT` projecting its in-scope variables and render it with spargebra's
-/// `Display` (which emits valid SPARQL 1.1). The projected vars are what the enclosing join
-/// binds on, so the remote side returns exactly the columns the local pattern needs.
-fn build_service_query(inner: &GraphPattern) -> String {
-    let mut variables: Vec<Variable> = Vec::new();
-    inner.on_in_scope_variable(|v| {
-        if !variables.contains(v) {
-            variables.push(v.clone());
-        }
-    });
-    let pattern = GraphPattern::Project {
-        inner: Box::new(inner.clone()),
-        variables,
-    };
-    Query::Select {
-        dataset: None,
-        pattern,
-        base_iri: None,
-    }
-    .to_string()
 }
 
 /// Stable-sort solutions by an `ORDER BY` comparator list (CONCEPT:EG-KG.ontology.order-by-values-exists). Each
@@ -4215,7 +4159,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
             panic!()
         };
         let inner = find_service_inner(&pattern).expect("a SERVICE node");
-        let remote = build_service_query(&inner);
+        let remote = service::build_service_query(&inner);
         assert!(
             parse_query(&remote).is_ok(),
             "generated remote query must parse: {remote}"

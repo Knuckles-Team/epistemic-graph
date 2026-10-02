@@ -308,17 +308,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R020",
       "title": "Bounded background scrub detects node corruption between restarts",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "461f8c84eb44b2edcf2ff75df0b6b37fe8d2d018",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/461f8c84eb44b2edcf2ff75df0b6b37fe8d2d018",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by src/redb_store/scrub.rs::tests::bounded_passes_resume_from_the_cursor_and_skip_nothing"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R021",
@@ -333,7 +332,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "Store-authority binding validates once per write transaction via ValidatedWrite/begin_write (crates/eg-storage/src/physical/root.rs, write_authority.rs) and a correctness test exists (crates/eg-transaction/src/tests/write_authority.rs::a_group_commit_validates_store_authority_exactly_once). The verification column requires a commit-latency benchmark showing per-commit overhead drop to a small constant cost; no benches/ directory or criterion/#[bench] exists for this in eg-storage or eg-transaction, so that proof is absent."
     },
     {
       "id": "EG-DURABLE-KERNEL-R022",
@@ -726,17 +725,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R057",
       "title": "Sealed record classes are protected by a create-only write guard",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "5c2ab50088c49261a6588380ef0d7c13d49e129c",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5c2ab50088c49261a6588380ef0d7c13d49e129c",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by tests/sealed_record_guard.rs::generic_writes_cannot_change_or_remove_a_sealed_record"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R058",
