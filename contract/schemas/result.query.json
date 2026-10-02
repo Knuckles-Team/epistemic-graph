@@ -39344,6 +39344,15 @@
       "additionalProperties": false,
       "description": "The boundary's verdict on a password candidate.",
       "properties": {
+        "generation": {
+          "description": "The generation of the stored credential the candidate was verified\nagainst (`None`: no credential was stored, or the username is\nunknown). The verdict is void unless this is still the principal's\ncredential generation when the op is applied.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "matched": {
           "type": "boolean"
         },
@@ -50844,7 +50853,7 @@
     "TokenPurpose": {
       "description": "What a one-time token is for. A token redeems only for its purpose.",
       "enum": [
-        "password_reset",
+        "credential_reset",
         "email_verify",
         "invite",
         "link_claim",

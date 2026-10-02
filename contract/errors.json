@@ -687,6 +687,12 @@
     },
     {
       "class": "server",
+      "code": "IDENTITY_STALE_CREDENTIAL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "IDENTITY_STAMP_FAILED",
       "http_status_hint": 400,
       "retryable": false

@@ -1357,7 +1357,7 @@ class AuthenticateOutcome(str, Enum):
     THROTTLED = "throttled"
     MFA_REQUIRED = "mfa_required"
     MFA_ENROLLMENT_REQUIRED = "mfa_enrollment_required"
-    PASSWORD_CHANGE_REQUIRED = "password_change_required"
+    CREDENTIAL_CHANGE_REQUIRED = "credential_change_required"
 
 
 class AuthenticateRequest(BaseModel):
@@ -6089,52 +6089,552 @@ class IdentityConfig(BaseModel):
     registration_policy: RegistrationPolicy
 
 
-class IdentityOpConfig(BaseModel):
+class IdentityOpConfigInitialize(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["config"]
+    op: Literal["initialize"]
+    request: InitializeRequest
 
 
-class IdentityOpUser(BaseModel):
+class IdentityOpConfigTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+    op: Literal["transition"]
+    request: ModeTransition
+
+
+class IdentityOpConfigUpdatePolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+    op: Literal["update_policy"]
+    request: PolicyUpdate
+
+
+class IdentityOpConfigGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+    op: Literal["get"]
+
+
+class IdentityOpConfigAudit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+    op: Literal["audit"]
+    request: ListQuery
+
+
+class IdentityOpConfigExportSql(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+    op: Literal["export_sql"]
+
+
+class IdentityOpConfigImportSql(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+    op: Literal["import_sql"]
+    request: SqlDump
+
+
+class IdentityOpConfigRepairSystemIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["config"]
+    op: Literal["repair_system_identity"]
+    request: ObjectRef
+
+
+IdentityOpConfig = Annotated[
+    IdentityOpConfigInitialize
+    | IdentityOpConfigTransition
+    | IdentityOpConfigUpdatePolicy
+    | IdentityOpConfigGet
+    | IdentityOpConfigAudit
+    | IdentityOpConfigExportSql
+    | IdentityOpConfigImportSql
+    | IdentityOpConfigRepairSystemIdentity,
+    Field(discriminator="op"),
+]
+
+
+class IdentityOpUserCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["user"]
+    op: Literal["create"]
+    request: CreateUserRequest
 
 
-class IdentityOpCredential(BaseModel):
+class IdentityOpUserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["user"]
+    op: Literal["update"]
+    request: UserUpdate
+
+
+class IdentityOpUserSetStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["user"]
+    op: Literal["set_status"]
+    request: UserStatusChange
+
+
+class IdentityOpUserUnlock(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["user"]
+    op: Literal["unlock"]
+    request: ObjectRef
+
+
+class IdentityOpUserGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["user"]
+    op: Literal["get"]
+    request: ObjectRef
+
+
+class IdentityOpUserList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["user"]
+    op: Literal["list"]
+    request: ListQuery
+
+
+class IdentityOpUserResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["user"]
+    op: Literal["resolve"]
+    request: ObjectRef
+
+
+IdentityOpUser = Annotated[
+    IdentityOpUserCreate
+    | IdentityOpUserUpdate
+    | IdentityOpUserSetStatus
+    | IdentityOpUserUnlock
+    | IdentityOpUserGet
+    | IdentityOpUserList
+    | IdentityOpUserResolve,
+    Field(discriminator="op"),
+]
+
+
+class IdentityOpCredentialSetPassword(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["credential"]
+    op: Literal["set_password"]
+    request: PasswordSet
 
 
-class IdentityOpSession(BaseModel):
+class IdentityOpCredentialChangePassword(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+    op: Literal["change_password"]
+    request: PasswordChange
+
+
+class IdentityOpCredentialAuthenticate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+    op: Literal["authenticate"]
+    request: AuthenticateRequest
+
+
+class IdentityOpCredentialExternalLogin(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+    op: Literal["external_login"]
+    request: ExternalLogin
+
+
+class IdentityOpCredentialBootstrapSession(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["credential"]
+    op: Literal["bootstrap_session"]
+    request: SessionTouch
+
+
+IdentityOpCredential = Annotated[
+    IdentityOpCredentialSetPassword
+    | IdentityOpCredentialChangePassword
+    | IdentityOpCredentialAuthenticate
+    | IdentityOpCredentialExternalLogin
+    | IdentityOpCredentialBootstrapSession,
+    Field(discriminator="op"),
+]
+
+
+class IdentityOpSessionResolve(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["session"]
+    op: Literal["resolve"]
+    request: SessionTouch
 
 
-class IdentityOpToken(BaseModel):
+class IdentityOpSessionRevoke(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["session"]
+    op: Literal["revoke"]
+    request: SessionTouch
+
+
+class IdentityOpSessionRevokeAll(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["session"]
+    op: Literal["revoke_all"]
+    request: ObjectRef
+
+
+class IdentityOpSessionList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["session"]
+    op: Literal["list"]
+    request: ObjectRef
+
+
+IdentityOpSession = Annotated[
+    IdentityOpSessionResolve
+    | IdentityOpSessionRevoke
+    | IdentityOpSessionRevokeAll
+    | IdentityOpSessionList,
+    Field(discriminator="op"),
+]
+
+
+class IdentityOpTokenIssueOneTime(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["token"]
+    op: Literal["issue_one_time"]
+    request: OneTimeTokenIssue
 
 
-class IdentityOpMfa(BaseModel):
+class IdentityOpTokenRedeemOneTime(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["token"]
+    op: Literal["redeem_one_time"]
+    request: TokenRedeem
+
+
+class IdentityOpTokenIssueApiKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["token"]
+    op: Literal["issue_api_key"]
+    request: ApiKeyIssue
+
+
+class IdentityOpTokenVerifyApiKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["token"]
+    op: Literal["verify_api_key"]
+    request: ApiKeyUse
+
+
+class IdentityOpTokenRevokeApiKey(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["token"]
+    op: Literal["revoke_api_key"]
+    request: ObjectRef
+
+
+class IdentityOpTokenIssuePasswordReset(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["token"]
+    op: Literal["issue_password_reset"]
+    request: PasswordResetIssue
+
+
+IdentityOpToken = Annotated[
+    IdentityOpTokenIssueOneTime
+    | IdentityOpTokenRedeemOneTime
+    | IdentityOpTokenIssueApiKey
+    | IdentityOpTokenVerifyApiKey
+    | IdentityOpTokenRevokeApiKey
+    | IdentityOpTokenIssuePasswordReset,
+    Field(discriminator="op"),
+]
+
+
+class IdentityOpMfaEnrollTotp(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["mfa"]
+    op: Literal["enroll_totp"]
+    request: TotpEnroll
 
 
-class IdentityOpAccess(BaseModel):
+class IdentityOpMfaConfirmTotp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["confirm_totp"]
+    request: SessionTouch
+
+
+class IdentityOpMfaVerifyTotp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["verify_totp"]
+    request: SessionTouch
+
+
+class IdentityOpMfaSetRecoveryCodes(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["set_recovery_codes"]
+    request: RecoveryCodesSet
+
+
+class IdentityOpMfaConsumeRecoveryCode(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["consume_recovery_code"]
+    request: SessionTouch
+
+
+class IdentityOpMfaRegisterWebauthn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["register_webauthn"]
+    request: WebauthnCredential
+
+
+class IdentityOpMfaWebauthnCredentials(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["webauthn_credentials"]
+    request: SessionTouch
+
+
+class IdentityOpMfaVerifyWebauthn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["verify_webauthn"]
+    request: WebauthnUse
+
+
+class IdentityOpMfaRemoveWebauthn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["mfa"]
+    op: Literal["remove_webauthn"]
+    request: ObjectRef
+
+
+IdentityOpMfa = Annotated[
+    IdentityOpMfaEnrollTotp
+    | IdentityOpMfaConfirmTotp
+    | IdentityOpMfaVerifyTotp
+    | IdentityOpMfaSetRecoveryCodes
+    | IdentityOpMfaConsumeRecoveryCode
+    | IdentityOpMfaRegisterWebauthn
+    | IdentityOpMfaWebauthnCredentials
+    | IdentityOpMfaVerifyWebauthn
+    | IdentityOpMfaRemoveWebauthn,
+    Field(discriminator="op"),
+]
+
+
+class IdentityOpAccessUpsertRole(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["access"]
+    op: Literal["upsert_role"]
+    request: RoleUpsert
 
 
-class IdentityOpIdp(BaseModel):
+class IdentityOpAccessRemoveRole(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+    op: Literal["remove_role"]
+    request: ObjectRef
+
+
+class IdentityOpAccessUpsertGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+    op: Literal["upsert_group"]
+    request: GroupUpsert
+
+
+class IdentityOpAccessRemoveGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+    op: Literal["remove_group"]
+    request: ObjectRef
+
+
+class IdentityOpAccessChangeMembership(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+    op: Literal["change_membership"]
+    request: GroupMembershipChange
+
+
+class IdentityOpAccessChangeUserRole(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+    op: Literal["change_user_role"]
+    request: UserRoleChange
+
+
+class IdentityOpAccessListRoles(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+    op: Literal["list_roles"]
+
+
+class IdentityOpAccessListGroups(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["access"]
+    op: Literal["list_groups"]
+
+
+IdentityOpAccess = Annotated[
+    IdentityOpAccessUpsertRole
+    | IdentityOpAccessRemoveRole
+    | IdentityOpAccessUpsertGroup
+    | IdentityOpAccessRemoveGroup
+    | IdentityOpAccessChangeMembership
+    | IdentityOpAccessChangeUserRole
+    | IdentityOpAccessListRoles
+    | IdentityOpAccessListGroups,
+    Field(discriminator="op"),
+]
+
+
+class IdentityOpIdpUpsert(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     family: Literal["idp"]
+    op: Literal["upsert"]
+    request: IdpConfig
+
+
+class IdentityOpIdpRemove(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["remove"]
+    request: ObjectRef
+
+
+class IdentityOpIdpLink(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["link"]
+    request: LinkRequest
+
+
+class IdentityOpIdpUnlink(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["unlink"]
+    request: LinkRequest
+
+
+class IdentityOpIdpList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["list"]
+
+
+class IdentityOpIdpProvision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["provision"]
+    request: ProvisionSubject
+
+
+class IdentityOpIdpListProvisioned(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["list_provisioned"]
+    request: ProvisionedQuery
+
+
+class IdentityOpIdpProvisionGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["provision_group"]
+    request: DirectoryGroup
+
+
+class IdentityOpIdpRemoveDirectoryGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["remove_directory_group"]
+    request: DirectoryGroupRef
+
+
+class IdentityOpIdpListDirectoryGroups(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    family: Literal["idp"]
+    op: Literal["list_directory_groups"]
+    request: DirectoryGroupQuery
+
+
+IdentityOpIdp = Annotated[
+    IdentityOpIdpUpsert
+    | IdentityOpIdpRemove
+    | IdentityOpIdpLink
+    | IdentityOpIdpUnlink
+    | IdentityOpIdpList
+    | IdentityOpIdpProvision
+    | IdentityOpIdpListProvisioned
+    | IdentityOpIdpProvisionGroup
+    | IdentityOpIdpRemoveDirectoryGroup
+    | IdentityOpIdpListDirectoryGroups,
+    Field(discriminator="op"),
+]
 
 
 IdentityOp = Annotated[
@@ -15805,6 +16305,7 @@ class PasswordChange(BaseModel):
 class PasswordCheck(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    generation: Annotated[int, Field(ge=0)] | None = None
     matched: bool
     principal_id: str | None = None
     rehash: str | None = None
@@ -21253,7 +21754,7 @@ Timeframe = Annotated[
 
 
 class TokenPurpose(str, Enum):
-    PASSWORD_RESET = "password_reset"
+    CREDENTIAL_RESET = "credential_reset"
     EMAIL_VERIFY = "email_verify"
     INVITE = "invite"
     LINK_CLAIM = "link_claim"
@@ -24618,13 +25119,70 @@ __all__ = [
     "IdentityEvent",
     "IdentityOp",
     "IdentityOpAccess",
+    "IdentityOpAccessChangeMembership",
+    "IdentityOpAccessChangeUserRole",
+    "IdentityOpAccessListGroups",
+    "IdentityOpAccessListRoles",
+    "IdentityOpAccessRemoveGroup",
+    "IdentityOpAccessRemoveRole",
+    "IdentityOpAccessUpsertGroup",
+    "IdentityOpAccessUpsertRole",
     "IdentityOpConfig",
+    "IdentityOpConfigAudit",
+    "IdentityOpConfigExportSql",
+    "IdentityOpConfigGet",
+    "IdentityOpConfigImportSql",
+    "IdentityOpConfigInitialize",
+    "IdentityOpConfigRepairSystemIdentity",
+    "IdentityOpConfigTransition",
+    "IdentityOpConfigUpdatePolicy",
     "IdentityOpCredential",
+    "IdentityOpCredentialAuthenticate",
+    "IdentityOpCredentialBootstrapSession",
+    "IdentityOpCredentialChangePassword",
+    "IdentityOpCredentialExternalLogin",
+    "IdentityOpCredentialSetPassword",
     "IdentityOpIdp",
+    "IdentityOpIdpLink",
+    "IdentityOpIdpList",
+    "IdentityOpIdpListDirectoryGroups",
+    "IdentityOpIdpListProvisioned",
+    "IdentityOpIdpProvision",
+    "IdentityOpIdpProvisionGroup",
+    "IdentityOpIdpRemove",
+    "IdentityOpIdpRemoveDirectoryGroup",
+    "IdentityOpIdpUnlink",
+    "IdentityOpIdpUpsert",
     "IdentityOpMfa",
+    "IdentityOpMfaConfirmTotp",
+    "IdentityOpMfaConsumeRecoveryCode",
+    "IdentityOpMfaEnrollTotp",
+    "IdentityOpMfaRegisterWebauthn",
+    "IdentityOpMfaRemoveWebauthn",
+    "IdentityOpMfaSetRecoveryCodes",
+    "IdentityOpMfaVerifyTotp",
+    "IdentityOpMfaVerifyWebauthn",
+    "IdentityOpMfaWebauthnCredentials",
     "IdentityOpSession",
+    "IdentityOpSessionList",
+    "IdentityOpSessionResolve",
+    "IdentityOpSessionRevoke",
+    "IdentityOpSessionRevokeAll",
     "IdentityOpToken",
+    "IdentityOpTokenIssueApiKey",
+    "IdentityOpTokenIssueOneTime",
+    "IdentityOpTokenIssuePasswordReset",
+    "IdentityOpTokenRedeemOneTime",
+    "IdentityOpTokenRevokeApiKey",
+    "IdentityOpTokenVerifyApiKey",
     "IdentityOpUser",
+    "IdentityOpUserCreate",
+    "IdentityOpUserGet",
+    "IdentityOpUserList",
+    "IdentityOpUserResolve",
+    "IdentityOpUserSetStatus",
+    "IdentityOpUserUnlock",
+    "IdentityOpUserUpdate",
     "IdentityReply",
     "IdentityReplyAudit",
     "IdentityReplyAuthenticate",

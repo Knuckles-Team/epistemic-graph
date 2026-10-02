@@ -189,7 +189,7 @@
           "type": "string"
         },
         {
-          "const": "password_change_required",
+          "const": "credential_change_required",
           "description": "The password must be changed first; no session was opened.",
           "type": "string"
         }

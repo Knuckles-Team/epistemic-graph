@@ -37752,6 +37752,15 @@
         "additionalProperties": false,
         "description": "The boundary's verdict on a password candidate.",
         "properties": {
+          "generation": {
+            "description": "The generation of the stored credential the candidate was verified\nagainst (`None`: no credential was stored, or the username is\nunknown). The verdict is void unless this is still the principal's\ncredential generation when the op is applied.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "matched": {
             "type": "boolean"
           },
@@ -48906,7 +48915,7 @@
       "ReqDef_TokenPurpose": {
         "description": "What a one-time token is for. A token redeems only for its purpose.",
         "enum": [
-          "password_reset",
+          "credential_reset",
           "email_verify",
           "invite",
           "link_claim",
@@ -133857,6 +133866,15 @@
         "additionalProperties": false,
         "description": "The boundary's verdict on a password candidate.",
         "properties": {
+          "generation": {
+            "description": "The generation of the stored credential the candidate was verified\nagainst (`None`: no credential was stored, or the username is\nunknown). The verdict is void unless this is still the principal's\ncredential generation when the op is applied.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "matched": {
             "type": "boolean"
           },
@@ -145357,7 +145375,7 @@
       "ResDef_Query_TokenPurpose": {
         "description": "What a one-time token is for. A token redeems only for its purpose.",
         "enum": [
-          "password_reset",
+          "credential_reset",
           "email_verify",
           "invite",
           "link_claim",
@@ -149534,7 +149552,7 @@
             "type": "string"
           },
           {
-            "const": "password_change_required",
+            "const": "credential_change_required",
             "description": "The password must be changed first; no session was opened.",
             "type": "string"
           }
@@ -194413,6 +194431,7 @@
           "IDENTITY_PASSWORD_REUSED",
           "IDENTITY_PRECONDITION_FAILED",
           "IDENTITY_REPLAY",
+          "IDENTITY_STALE_CREDENTIAL",
           "IDENTITY_STAMP_FAILED",
           "IDENTITY_STORE_MANAGED",
           "IDENTITY_STORE_NAMESPACE",
@@ -194680,6 +194699,7 @@
           "ENGINE_UNAVAILABLE",
           "IDEMPOTENCY_CONFLICT",
           "IDENTITY_STORE_MANAGED",
+          "IDENTITY_STORE_NAMESPACE",
           "INTERNAL",
           "INVALID_ARGUMENT",
           "METHOD_NOT_YET_SERVED",
