@@ -64,6 +64,11 @@ pub mod redb_backend;
 #[cfg(feature = "redb")]
 pub mod shard_migrate;
 
+// Operator command over the storage kernel's registered offline store-format
+// upgrades (inspect / apply), and the startup refusal that names it.
+#[cfg(feature = "redb")]
+pub mod store_upgrade;
+
 #[cfg(feature = "redb")]
 pub mod tenant_catalog;
 

@@ -38,7 +38,8 @@ use crate::server::access::CarrierAuthority;
 mod ann_maintenance;
 pub use ann_maintenance::sweep_ann_generations;
 
-const SQL_CATALOG_DIR: &str = "sql-catalog";
+/// Directory, under the persistence directory, that holds every SQL catalog file.
+pub(crate) const SQL_CATALOG_DIR: &str = "sql-catalog";
 
 /// One carrier-owned native SQL-owner mutation: compiled at the owner scope's
 /// current version under the verified carrier's idempotency identity.

@@ -28,6 +28,7 @@ pub use codec::{
     CollectionBudget,
 };
 pub use kernel::{MutationOwnerAuthority, StorageKernel, StoreOpenOptions};
+pub use owner::agent_library_upgrade::OwnerLayoutUpgradeReport;
 pub use owner::agent_library_upgrade::{
     inspect_agent_library_mcp_catalog_upgrade, inspect_graph_shard_upgrade,
     upgrade_agent_library_mcp_catalog, upgrade_graph_shard, AgentLibraryInspectionOptions,
@@ -53,6 +54,11 @@ pub use owner::lineage::{
     AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS, AGENT_LIBRARY_BEFORE_MCP_CATALOG, ALL_LAYOUTS,
     BLOB_BEFORE_HOLDERS, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS, GRAPH_SHARD_BEFORE_ENRICHMENT,
     SQL_BEFORE_SOURCE_CHECKPOINTS,
+};
+pub use owner::offline_upgrade::{
+    classify_owner_store_format, offline_upgrades_for, registered_offline_upgrade,
+    InspectedStoreUpgrade, OfflineStoreUpgrade, OfflineUpgradeInspectionOptions, OwnerStoreFormat,
+    OFFLINE_STORE_UPGRADES, OFFLINE_UPGRADE_APPLY_COMMAND, OFFLINE_UPGRADE_INSPECT_COMMAND,
 };
 pub use owner::persisted_layout::{
     create_predecessor_owner_file, refuse_known_predecessor, LayoutPredecessor,
