@@ -38,7 +38,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "The pinned soft-float BacktestRun digest test passes on this single host (crates/eg-compute/src/finance/market/record_tests.rs::a_sealed_backtest_run_digest_is_pinned_across_hosts) and the finance-v1/company_infra-v1 ontology classes have no name overlap. The verification column requires independent builds on two architectures compared for equal digests; no such cross-architecture test or CI infrastructure exists. The Pine companion test (tests/test_finance_pine_companion.py) only checks that the Pine script's declared constants and rules match the same fixture the Rust test checks against, not a live comparison of Pine and Rust signal transitions, which is a materially weaker form of parity than the requirement describes."
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002",
