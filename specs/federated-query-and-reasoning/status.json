@@ -291,32 +291,30 @@
     {
       "id": "EG-FEDERATED-QUERY-R017",
       "title": "Dependency tracking covers edge-type and embedding generations",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "10177f908dd06aaa24f116ffc0b1af920d8d7f94",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/10177f908dd06aaa24f116ffc0b1af920d8d7f94",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-core/tests/dependency_scoped_edges.rs::typed_traversal_is_retired_by_an_edge_of_its_type"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R018",
       "title": "Class-level volatility drives invalidation and cache freshness",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "10177f908dd06aaa24f116ffc0b1af920d8d7f94",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/10177f908dd06aaa24f116ffc0b1af920d8d7f94",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-core/src/freshness.rs::tests::a_foreign_source_is_fresh_only_with_a_recent_watermark_node"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R019",
@@ -335,17 +333,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R020",
       "title": "One query-text method surface, with the legacy method retired",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "bd27155934dc6075be1ad9087628dd5a52b63fed",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bd27155934dc6075be1ad9087628dd5a52b63fed",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-capabilities/tests/contract_registry.rs::retired_methods_never_reappear"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R021",
@@ -434,32 +431,30 @@
     {
       "id": "EG-FEDERATED-QUERY-R027",
       "title": "EXPLAIN, PROFILE and RETURN support multi-stage UQL programs",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "681de5cb1968327c104c71263715d34444d6c729",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/681de5cb1968327c104c71263715d34444d6c729",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-plan/src/uql/tests/serve.rs::a_program_explains_node_by_node"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R028",
       "title": "KnowledgeSet is reachable from UQL",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "681de5cb1968327c104c71263715d34444d6c729",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/681de5cb1968327c104c71263715d34444d6c729",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-plan/tests/knowledge_oracle.rs::uql_structured_and_separate_surfaces_agree_with_knowledge"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R029",
@@ -470,47 +465,44 @@
     {
       "id": "EG-FEDERATED-QUERY-R030",
       "title": "TSSCAN preserves per-series row identity and full precision",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "79fb60a33ee07f7c85e3d837222c83d730ca7e36",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/79fb60a33ee07f7c85e3d837222c83d730ca7e36",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-plan/src/tsdb_scan_tests.rs::tsdb_in_plan_fusion"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R031",
       "title": "Contribution attribution kernels exposed through UQL ATTRIBUTE",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "7940beedc46318a8634f9f72323eac849ec9858d",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7940beedc46318a8634f9f72323eac849ec9858d",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-numeric/src/attribution/tests.rs::exact_matches_brute_force_permutations"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R032",
       "title": "Probabilistic impact propagation with cone-scoped recomputation",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "c06e903d0deff81512b2a478f36cf660d667ef4b",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c06e903d0deff81512b2a478f36cf660d667ef4b",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-plan/src/uql/tests/propagate.rs::the_query_surface_and_the_kernel_agree"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R033",
@@ -544,17 +536,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R035",
       "title": "Filtered text search evaluates within the filtered candidate set",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "4dfe7beb589bfffa6452d2b01b0739b9a2c0ddce",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4dfe7beb589bfffa6452d2b01b0739b9a2c0ddce",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by crates/eg-plan/src/text_tests.rs::filtered_rank_text_equals_the_brute_force_restricted_ranking"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R036",
@@ -989,7 +980,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "WITH PROOF correctly binds premises (crates/eg-plan/src/uql/tests/annotations.rs::a_sparql_source_proves_each_row_with_its_witness, ::a_reason_stage_proves_inferred_membership, both passing). The row-proof wire shape (UqlRow/UqlRowProof in crates/eg-types/src/wire_query_core.rs) and uql/serve/proof.rs carry no source-generation or schema-digest field, unlike EG-FEDERATED-QUERY-R006's OwlExplain contract which does carry one — so WITH PROOF does not bind its results to their source generation as the requirement explicitly demands."
     },
     {
       "id": "EG-FEDERATED-QUERY-R069",
