@@ -7,7 +7,7 @@ use super::super::audit::IdentityEvent;
 use super::super::config::{
     AuthMode, IdentityConfig, ModeTransition, HARD_PASSWORD_MIN_CHARS, NONE_MODE_ACK,
 };
-use super::super::model::{PasswordCredential, UserKind, UserRecord, UserStatus};
+use super::super::model::{UserKind, UserRecord, UserStatus};
 use super::super::ops::ConfigOp;
 use super::super::requests::InitializeRequest;
 use super::super::requests_admin::{ListQuery, PolicyUpdate, RoleGraphGrant, MAX_PAGE};
@@ -164,15 +164,8 @@ impl IdentityStore {
         self.seed_builtins();
         self.seed_bootstrap(username, now_ms);
         if request.mode == AuthMode::Local {
-            self.passwords.insert(
-                BOOTSTRAP_PRINCIPAL.to_string(),
-                PasswordCredential {
-                    hash: stamp.new_password_hash()?.to_string(),
-                    changed_at_ms: now_ms,
-                    must_change: false,
-                    history: Vec::new(),
-                },
-            );
+            let hash = stamp.new_password_hash()?.to_string();
+            self.store_password(BOOTSTRAP_PRINCIPAL, &hash, false, now_ms);
         }
         self.config = Some(IdentityConfig::seeded(request.mode, now_ms));
         self.audit_event(

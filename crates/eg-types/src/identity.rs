@@ -193,6 +193,11 @@ crate::contract::closed_error_codes! {
         /// The boundary did not stamp what this op needs (defense in depth: a
         /// replicated command without its stamp, or a stamp of the wrong kind).
         Unstamped => "IDENTITY_UNSTAMPED",
+        /// The credential changed after the boundary verified a candidate
+        /// against it (it was replaced, or the principal's sessions were
+        /// revoked). The verdict is void and nothing was applied; the caller
+        /// submits the candidate again.
+        StaleCredential => "IDENTITY_STALE_CREDENTIAL",
         /// The token was already used, has expired, or was revoked.
         TokenSpent => "IDENTITY_TOKEN_SPENT",
         /// A TOTP step was already used (replay).

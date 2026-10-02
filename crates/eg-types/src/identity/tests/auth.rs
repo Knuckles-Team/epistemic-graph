@@ -18,15 +18,28 @@ fn sign_in_from(username: &str, ip_prefix: Option<&str>) -> IdentityOp {
     })
 }
 
-pub(super) fn verdict(principal: Option<&str>, matched: bool, session: &str) -> IdentityStamp {
+pub(super) fn verdict(
+    store: &IdentityStore,
+    principal: Option<&str>,
+    matched: bool,
+    session: &str,
+) -> IdentityStamp {
     let mut stamp = broker();
-    stamp.password_check = Some(PasswordCheck {
-        principal_id: principal.map(str::to_string),
-        matched,
-        rehash: None,
-    });
+    stamp.password_check = Some(check_for(store, principal, matched));
     stamp.token_hashes = vec![session.to_string()];
     stamp
+}
+
+/// Apply `op` under the verdict the boundary would stamp against the
+/// store's CURRENT credential: `(principal, matched, session)`.
+pub(super) fn apply_verdict(
+    store: &mut IdentityStore,
+    op: &IdentityOp,
+    (principal, matched, session): (Option<&str>, bool, &str),
+    now_ms: u64,
+) -> Result<IdentityReply, IdentityRefusal> {
+    let stamp = verdict(store, principal, matched, session);
+    apply_kept(store, op, &stamp, now_ms)
 }
 
 pub(super) fn outcome(reply: IdentityReply) -> AuthenticateResult {
@@ -36,18 +49,23 @@ pub(super) fn outcome(reply: IdentityReply) -> AuthenticateResult {
     }
 }
 
-pub(super) fn with_password(store: &mut IdentityStore, username: &str) -> String {
-    let principal = create(store, username, UserKind::Human).unwrap();
+/// An administrator replaces `principal`'s password with `hash`.
+pub(super) fn replace_password(store: &mut IdentityStore, principal: &str, hash: &str) {
     let mut stamp = admin();
-    stamp.password_hash = Some("$argon2id$user".to_string());
+    stamp.password_hash = Some(hash.to_string());
     let op = IdentityOp::Credential(CredentialOp::SetPassword {
         request: PasswordSet {
-            principal_id: principal.clone(),
+            principal_id: principal.to_string(),
             password: Secret::default(),
             must_change: false,
         },
     });
     apply_kept(store, &op, &stamp, NOW).unwrap();
+}
+
+pub(super) fn with_password(store: &mut IdentityStore, username: &str) -> String {
+    let principal = create(store, username, UserKind::Human).unwrap();
+    replace_password(store, &principal, "$argon2id$user");
     principal
 }
 
@@ -55,18 +73,18 @@ pub(super) fn with_password(store: &mut IdentityStore, username: &str) -> String
 fn a_matched_password_opens_a_session_and_a_wrong_one_does_not() {
     let mut store = store_in(AuthMode::Local);
     let alice = with_password(&mut store, "alice");
-    let bad = apply_kept(
+    let bad = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), false, "s0"),
+        (Some(&alice), false, "s0"),
         NOW,
     );
     assert_eq!(outcome(bad.unwrap()).outcome, AuthenticateOutcome::Bad);
     assert!(store.session_principal("s0", NOW).is_none());
-    let good = apply_kept(
+    let good = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "s1"),
+        (Some(&alice), true, "s1"),
         NOW,
     );
     let good = outcome(good.unwrap());
@@ -79,17 +97,11 @@ fn a_matched_password_opens_a_session_and_a_wrong_one_does_not() {
 fn an_unknown_user_answers_exactly_like_a_wrong_password() {
     let mut store = store_in(AuthMode::Local);
     let alice = with_password(&mut store, "alice");
-    let unknown = apply_kept(
-        &mut store,
-        &sign_in("nobody"),
-        &verdict(None, false, "s"),
-        NOW,
-    )
-    .unwrap();
-    let wrong = apply_kept(
+    let unknown = apply_verdict(&mut store, &sign_in("nobody"), (None, false, "s"), NOW).unwrap();
+    let wrong = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), false, "s"),
+        (Some(&alice), false, "s"),
         NOW,
     )
     .unwrap();
@@ -101,10 +113,10 @@ fn a_verdict_stamped_for_another_principal_is_refused() {
     let mut store = store_in(AuthMode::Local);
     with_password(&mut store, "alice");
     assert_eq!(
-        apply_kept(
+        apply_verdict(
             &mut store,
             &sign_in("alice"),
-            &verdict(Some("usr:mallory"), true, "s"),
+            (Some("usr:mallory"), true, "s"),
             NOW
         ),
         Err(IdentityRefusal::Unstamped)
@@ -116,13 +128,13 @@ fn the_lockout_is_atomic_a_correct_guess_after_it_engaged_is_throttled() {
     let mut store = store_in(AuthMode::Local);
     let alice = with_password(&mut store, "alice");
     for attempt in 0..5 {
-        let stamp = verdict(Some(&alice), false, &format!("s{attempt}"));
+        let stamp = verdict(&store, Some(&alice), false, &format!("s{attempt}"));
         apply_kept(&mut store, &sign_in("alice"), &stamp, NOW).unwrap();
     }
-    let correct = apply_kept(
+    let correct = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "ok"),
+        (Some(&alice), true, "ok"),
         NOW,
     );
     let correct = outcome(correct.unwrap());
@@ -130,10 +142,10 @@ fn the_lockout_is_atomic_a_correct_guess_after_it_engaged_is_throttled() {
     assert!(correct.retry_after_ms.unwrap() > 0);
     assert!(store.session_principal("ok", NOW).is_none());
     let later = NOW + 16 * 60 * 1000;
-    let after = apply_kept(
+    let after = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "ok"),
+        (Some(&alice), true, "ok"),
         later,
     );
     assert_eq!(outcome(after.unwrap()).outcome, AuthenticateOutcome::Ok);
@@ -144,16 +156,16 @@ fn an_administrator_can_unlock_a_throttled_account() {
     let mut store = store_in(AuthMode::Local);
     let alice = with_password(&mut store, "alice");
     for attempt in 0..6 {
-        let stamp = verdict(Some(&alice), false, &format!("s{attempt}"));
+        let stamp = verdict(&store, Some(&alice), false, &format!("s{attempt}"));
         apply_kept(&mut store, &sign_in("alice"), &stamp, NOW).unwrap();
     }
     let unlock = IdentityOp::User(UserOp::Unlock {
         request: ObjectRef { id: alice.clone() },
     });
-    let still = apply_kept(
+    let still = apply_verdict(
         &mut store,
         &sign_in_from("alice", None),
-        &verdict(Some(&alice), true, "t"),
+        (Some(&alice), true, "t"),
         NOW,
     );
     assert_eq!(
@@ -161,10 +173,10 @@ fn an_administrator_can_unlock_a_throttled_account() {
         AuthenticateOutcome::Throttled
     );
     apply_kept(&mut store, &unlock, &admin(), NOW).unwrap();
-    let ok = apply_kept(
+    let ok = apply_verdict(
         &mut store,
         &sign_in_from("alice", None),
-        &verdict(Some(&alice), true, "t"),
+        (Some(&alice), true, "t"),
         NOW,
     );
     let ok = outcome(ok.unwrap());
@@ -178,14 +190,14 @@ fn external_mode_signs_in_only_the_break_glass_administrator_locally() {
     let mut json = serde_json::to_value(&store).unwrap();
     json["config"]["mode"] = serde_json::json!("external");
     store = serde_json::from_value(json).unwrap();
-    let user = apply_kept(
+    let user = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "a"),
+        (Some(&alice), true, "a"),
         NOW,
     );
     assert_eq!(outcome(user.unwrap()).outcome, AuthenticateOutcome::Bad);
-    let admin_sign_in = verdict(Some(BOOTSTRAP_PRINCIPAL), true, "b");
+    let admin_sign_in = verdict(&store, Some(BOOTSTRAP_PRINCIPAL), true, "b");
     let admin_reply = apply_kept(&mut store, &sign_in("root-admin"), &admin_sign_in, NOW);
     assert_eq!(
         outcome(admin_reply.unwrap()).outcome,
@@ -207,10 +219,10 @@ fn a_forced_change_opens_no_session_until_a_new_password_is_supplied() {
         },
     });
     apply_kept(&mut store, &op, &reset, NOW).unwrap();
-    let first = apply_kept(
+    let first = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "p"),
+        (Some(&alice), true, "p"),
         NOW,
     );
     assert_eq!(
@@ -218,7 +230,7 @@ fn a_forced_change_opens_no_session_until_a_new_password_is_supplied() {
         AuthenticateOutcome::CredentialChangeRequired
     );
     assert!(store.session_principal("p", NOW).is_none());
-    let mut with_new = verdict(Some(&alice), true, "q");
+    let mut with_new = verdict(&store, Some(&alice), true, "q");
     with_new.password_hash = Some("$argon2id$chosen".to_string());
     let second = apply_kept(&mut store, &sign_in("alice"), &with_new, NOW);
     assert_eq!(outcome(second.unwrap()).outcome, AuthenticateOutcome::Ok);
@@ -267,10 +279,10 @@ fn an_enrolled_factor_holds_the_session_until_a_fresh_step_verifies() {
     let mut store = store_in(AuthMode::Local);
     let alice = with_password(&mut store, "alice");
     totp_session(&mut store, &alice);
-    let first = apply_kept(
+    let first = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "mfa-session"),
+        (Some(&alice), true, "mfa-session"),
         NOW,
     );
     assert_eq!(
@@ -308,10 +320,10 @@ fn a_group_can_require_mfa_for_its_members() {
         },
     });
     apply_kept(&mut store, &group, &admin(), NOW).unwrap();
-    let before = apply_kept(
+    let before = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "x"),
+        (Some(&alice), true, "x"),
         NOW,
     );
     assert_eq!(outcome(before.unwrap()).outcome, AuthenticateOutcome::Ok);
@@ -323,10 +335,10 @@ fn a_group_can_require_mfa_for_its_members() {
         },
     });
     apply_kept(&mut store, &join, &admin(), NOW).unwrap();
-    let after = apply_kept(
+    let after = apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "y"),
+        (Some(&alice), true, "y"),
         NOW,
     );
     assert_eq!(
@@ -339,10 +351,10 @@ fn a_group_can_require_mfa_for_its_members() {
 fn a_revoked_session_resolves_to_nothing() {
     let mut store = store_in(AuthMode::Local);
     let alice = with_password(&mut store, "alice");
-    apply_kept(
+    apply_verdict(
         &mut store,
         &sign_in("alice"),
-        &verdict(Some(&alice), true, "live"),
+        (Some(&alice), true, "live"),
         NOW,
     )
     .unwrap();

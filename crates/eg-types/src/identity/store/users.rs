@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::super::audit::IdentityEvent;
-use super::super::model::{PasswordCredential, UserKind, UserRecord, UserStatus};
+use super::super::model::{UserKind, UserRecord, UserStatus};
 use super::super::ops::UserOp;
 use super::super::requests::{CreateUserRequest, UserStatusChange, UserUpdate};
 use super::super::requests_admin::{ListQuery, MAX_PAGE};
@@ -155,15 +155,7 @@ impl IdentityStore {
             "local",
         );
         if let Some(hash) = &stamp.password_hash {
-            self.passwords.insert(
-                principal_id.clone(),
-                PasswordCredential {
-                    hash: hash.clone(),
-                    changed_at_ms: now_ms,
-                    must_change: request.must_change,
-                    history: Vec::new(),
-                },
-            );
+            self.store_password(&principal_id, hash, request.must_change, now_ms);
         }
         self.audit_event(
             stamp,

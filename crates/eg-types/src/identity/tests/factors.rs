@@ -1,7 +1,7 @@
 //! WebAuthn second factors and the signed-out password reset. Every
 //! refusal is tested both ways.
 
-use super::auth::{outcome, sign_in, verdict, with_password};
+use super::auth::{apply_verdict, outcome, sign_in, with_password};
 use super::*;
 
 const SESSION: &str = "alice-session";
@@ -52,12 +52,7 @@ fn alice_pending_webauthn(store: &mut IdentityStore) -> String {
     let alice = with_password(store, "alice");
     open_session(store, "alice", &alice, SESSION);
     apply_kept(store, &register(CREDENTIAL, 4), &with_session(SESSION), NOW).unwrap();
-    let again = apply_kept(
-        store,
-        &sign_in("alice"),
-        &verdict(Some(&alice), true, "mfa"),
-        NOW,
-    );
+    let again = apply_verdict(store, &sign_in("alice"), (Some(&alice), true, "mfa"), NOW);
     assert_eq!(
         outcome(again.unwrap()).outcome,
         AuthenticateOutcome::MfaRequired,

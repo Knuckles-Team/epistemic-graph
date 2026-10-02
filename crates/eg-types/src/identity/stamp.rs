@@ -78,6 +78,12 @@ pub struct PasswordCheck {
     /// Which principal's stored hash the candidate was verified against
     /// (`None` when the username is unknown and a dummy hash was used).
     pub principal_id: Option<String>,
+    /// The generation of the stored credential the candidate was verified
+    /// against (`None`: no credential was stored, or the username is
+    /// unknown). The verdict is void unless this is still the principal's
+    /// credential generation when the op is applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<u64>,
     pub matched: bool,
     /// A fresh hash of the same candidate when the stored one uses stale
     /// parameters (rehash on login).

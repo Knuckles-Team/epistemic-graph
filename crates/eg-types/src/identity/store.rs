@@ -38,6 +38,7 @@ mod sessions;
 mod throttle;
 mod tokens;
 mod users;
+mod verdict;
 mod webauthn;
 
 pub use throttle::ThrottleEntry;

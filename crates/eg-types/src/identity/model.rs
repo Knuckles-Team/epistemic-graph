@@ -76,6 +76,14 @@ pub struct PasswordCredential {
     /// Previous hashes, newest first, for the reuse check.
     #[serde(default)]
     pub history: Vec<String>,
+    /// Which password this is. It moves whenever the password is replaced
+    /// and whenever the principal's sessions are revoked; a rehash of the
+    /// same password keeps it. The boundary's verdict names the generation
+    /// it verified against, and apply refuses a verdict for any other. A
+    /// record written before the counter existed carries none and reads as
+    /// generation 0.
+    #[serde(default)]
+    pub generation: u64,
 }
 
 /// A server-side session. Only the SHA-256 of the session id is stored.

@@ -86,6 +86,7 @@ closed_error_codes! {
         IdentityPasswordReused => "IDENTITY_PASSWORD_REUSED",
         IdentityPreconditionFailed => "IDENTITY_PRECONDITION_FAILED",
         IdentityReplay => "IDENTITY_REPLAY",
+        IdentityStaleCredential => "IDENTITY_STALE_CREDENTIAL",
         IdentityStampFailed => "IDENTITY_STAMP_FAILED",
         IdentityStoreManaged => "IDENTITY_STORE_MANAGED",
         IdentityStoreNamespace => "IDENTITY_STORE_NAMESPACE",

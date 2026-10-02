@@ -259,12 +259,15 @@ impl IdentityStore {
         for hash in hashes {
             changed |= self.revoke_session(&hash, now_ms, reason);
         }
+        self.void_verdicts(principal_id);
         changed
     }
 
     /// Every session ends (mode transitions): all are dropped, so no token
-    /// minted under the previous mode can be refreshed from one.
+    /// minted under the previous mode can be refreshed from one, and every
+    /// password verdict computed before the transition is void.
     pub(crate) fn revoke_all_sessions(&mut self) {
         self.sessions.clear();
+        self.void_all_verdicts();
     }
 }

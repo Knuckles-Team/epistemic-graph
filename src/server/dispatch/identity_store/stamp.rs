@@ -101,17 +101,19 @@ fn account_of<'a>(
     ))
 }
 
-/// Verify `candidate` against a principal's stored hash.
+/// Verify `candidate` against a principal's stored hash, naming the exact
+/// credential generation it was verified against: the store applies the
+/// verdict only while that is still the principal's credential.
 fn check_candidate(env: &StampEnv<'_>, principal: Option<&str>, candidate: &str) -> PasswordCheck {
-    let stored = principal
-        .and_then(|principal| env.store.credential_of(principal))
-        .map(|credential| credential.hash.as_str());
+    let credential = principal.and_then(|principal| env.store.credential_of(principal));
+    let stored = credential.map(|credential| credential.hash.as_str());
     let matched = secrets::verify_password(candidate, stored);
     let rehash = stored
         .filter(|hash| matched && secrets::is_stale(hash))
         .and_then(|_| secrets::hash_password(candidate).ok());
     PasswordCheck {
         principal_id: principal.map(str::to_string),
+        generation: credential.map(|credential| credential.generation),
         matched,
         rehash,
     }

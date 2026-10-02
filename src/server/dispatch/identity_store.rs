@@ -22,6 +22,8 @@ use super::{ServerState, VerifiedRequestContext};
 use crate::protocol::{Method, Response, ResultPayload};
 
 mod exposure;
+#[cfg(test)]
+mod pause;
 mod secrets;
 mod stamp;
 
@@ -72,6 +74,8 @@ pub(crate) async fn stamp_identity(
         .map_err(|refusal| refusal.to_string())?;
     let mut owned = op.clone();
     let now_ms = super::authoritative_now_ms();
+    #[cfg(test)]
+    let pause = pause::take(state);
     let derived = tokio::task::spawn_blocking(move || {
         let env = stamp::StampEnv {
             store: &store,
@@ -79,7 +83,13 @@ pub(crate) async fn stamp_identity(
             now_ms,
             engine_loopback: exposure::listeners_loopback(),
         };
-        stamp::derive(&mut owned, &mut derived, &env).map(|()| (owned, derived))
+        let outcome = stamp::derive(&mut owned, &mut derived, &env).map(|()| (owned, derived));
+        // The derivation read `store`, a snapshot taken before this point and
+        // outside the engine's write lock. A test holds it here to change the
+        // live store before the verdict is applied.
+        #[cfg(test)]
+        pause::hold(pause);
+        outcome
     })
     .await
     .map_err(|error| format!("IDENTITY_STAMP_FAILED: {error}"))?

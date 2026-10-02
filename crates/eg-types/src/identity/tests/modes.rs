@@ -191,11 +191,7 @@ fn a_delegated_administrator_cannot_transition() {
 fn every_transition_revokes_every_session_and_keeps_every_account() {
     let mut store = store_in(AuthMode::Local);
     let mut sign_in = broker();
-    sign_in.password_check = Some(PasswordCheck {
-        principal_id: Some(BOOTSTRAP_PRINCIPAL.to_string()),
-        matched: true,
-        rehash: None,
-    });
+    sign_in.password_check = Some(check_for(&store, Some(BOOTSTRAP_PRINCIPAL), true));
     sign_in.token_hashes = vec!["session-hash".to_string()];
     let authenticate = IdentityOp::Credential(CredentialOp::Authenticate {
         request: AuthenticateRequest {

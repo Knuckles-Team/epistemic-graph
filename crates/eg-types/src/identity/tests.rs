@@ -11,6 +11,7 @@ mod factors;
 mod modes;
 mod provision;
 mod tokens;
+mod verdicts;
 
 /// A registry fixture with one scope of every class.
 pub(super) struct TestRegistry;
@@ -125,6 +126,23 @@ pub(super) fn create(
     }
 }
 
+/// The verdict the boundary would stamp for `principal`: bound to the
+/// generation of the credential the store holds for it right now.
+pub(super) fn check_for(
+    store: &IdentityStore,
+    principal: Option<&str>,
+    matched: bool,
+) -> PasswordCheck {
+    PasswordCheck {
+        principal_id: principal.map(str::to_string),
+        generation: principal
+            .and_then(|principal| store.credential_of(principal))
+            .map(|credential| credential.generation),
+        matched,
+        rehash: None,
+    }
+}
+
 /// Open a live session `session` for the principal of `username` (its
 /// password verdict is stamped as matched).
 pub(super) fn open_session(
@@ -134,11 +152,7 @@ pub(super) fn open_session(
     session: &str,
 ) {
     let mut stamp = broker();
-    stamp.password_check = Some(PasswordCheck {
-        principal_id: Some(principal.to_string()),
-        matched: true,
-        rehash: None,
-    });
+    stamp.password_check = Some(check_for(store, Some(principal), true));
     stamp.token_hashes = vec![session.to_string()];
     let op = IdentityOp::Credential(CredentialOp::Authenticate {
         request: AuthenticateRequest {

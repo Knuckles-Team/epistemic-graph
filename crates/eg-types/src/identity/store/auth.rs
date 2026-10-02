@@ -44,7 +44,8 @@ impl IdentityStore {
     }
 
     /// Replace a principal's password hash, keeping the previous ones for the
-    /// reuse check.
+    /// reuse check. The credential's generation moves, so a verdict the
+    /// boundary computed against the previous password is void.
     pub(crate) fn store_password(
         &mut self,
         principal_id: &str,
@@ -52,15 +53,15 @@ impl IdentityStore {
         must_change: bool,
         now_ms: u64,
     ) {
-        let mut history = self
-            .passwords
-            .get(principal_id)
-            .map(|credential| {
-                let mut history = vec![credential.hash.clone()];
-                history.extend(credential.history.iter().cloned());
-                history
+        let previous = self.passwords.get(principal_id);
+        let generation = previous.map_or(0, |credential| credential.generation + 1);
+        let mut history: Vec<String> = previous
+            .into_iter()
+            .flat_map(|credential| {
+                std::iter::once(&credential.hash).chain(credential.history.iter())
             })
-            .unwrap_or_default();
+            .cloned()
+            .collect();
         history.truncate(PASSWORD_HISTORY_DEPTH);
         self.passwords.insert(
             principal_id.to_string(),
@@ -69,6 +70,7 @@ impl IdentityStore {
                 changed_at_ms: now_ms,
                 must_change,
                 history,
+                generation,
             },
         );
         if let Some(user) = self.users.get_mut(principal_id) {
@@ -109,8 +111,7 @@ impl IdentityStore {
         now_ms: u64,
     ) -> Result<IdentityReply, IdentityRefusal> {
         let principal = stamp.actor.principal_id.clone();
-        let check = stamp.check()?;
-        if check.principal_id.as_deref() != Some(principal.as_str()) || !check.matched {
+        if !self.current_verdict(stamp, Some(&principal))?.matched {
             return Err(IdentityRefusal::BadCredential);
         }
         let hash = stamp.new_password_hash()?.to_string();
@@ -197,10 +198,7 @@ impl IdentityStore {
             .as_deref()
             .and_then(|name| self.usernames.get(name))
             .cloned();
-        let check = stamp.check()?;
-        if check.principal_id != principal {
-            return Err(IdentityRefusal::Unstamped);
-        }
+        let check = self.current_verdict(stamp, principal.as_deref())?;
         let ip = request.ip_prefix.as_deref();
         if let Some(until) = self.throttle_verdict(principal.as_deref(), ip, ctx.now_ms) {
             self.login_audit(
