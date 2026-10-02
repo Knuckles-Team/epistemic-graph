@@ -259,21 +259,9 @@ impl<'r, 's> Fragment<'r, 's> {
                 requests.push(RemoteRequest::keys(window[..fit].to_vec()));
                 next += fit;
             }
-            let session = self.session;
-            let caps = self.caps;
-            let results = std::thread::scope(|scope| {
-                let handles: Vec<_> = requests
-                    .iter()
-                    .map(|request| scope.spawn(move || fetch_one(remote, session, caps, request)))
-                    .collect();
-                handles
-                    .into_iter()
-                    .map(|h| h.join().expect("foreign request panicked"))
-                    .collect::<Vec<_>>()
-            });
+            let results = fetch_round(remote, self.session, self.caps, &requests);
+            account(trace, &results);
             for attempt in results {
-                trace.requests += attempt.requests;
-                trace.rows_fetched += attempt.rows;
                 match attempt.result {
                     Ok(rows) => {
                         out.extend(rows.rows().iter().map(|r| (r.id.clone(), r.score)));
@@ -389,6 +377,32 @@ impl Attempt {
             result: Err(error),
         }
     }
+}
+
+/// Send one round of requests concurrently; every attempt has finished when this returns.
+fn fetch_round(
+    remote: &(dyn RemoteFetch + Sync),
+    session: &FederationSession,
+    caps: SourceCapabilities,
+    requests: &[RemoteRequest],
+) -> Vec<Attempt> {
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(requests.len());
+        for request in requests {
+            handles.push(scope.spawn(move || fetch_one(remote, session, caps, request)));
+        }
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("foreign request panicked"))
+            .collect()
+    })
+}
+
+/// Add every attempt of one parallel round to the trace. The whole round ran before any
+/// result is read, so a failed batch does not hide the requests and rows of the others.
+fn account(trace: &mut FragmentTrace, attempts: &[Attempt]) {
+    trace.requests += attempts.iter().map(|a| a.requests).sum::<u32>();
+    trace.rows_fetched += attempts.iter().map(|a| a.rows).sum::<usize>();
 }
 
 fn fetch_one(
