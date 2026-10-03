@@ -3916,6 +3916,7 @@ components:
       - "tests/test_generated_artifacts_ledger.py"
       - "tests/test_generated_client_contract.py"
       - "tests/test_generated_graph_schema_contract.py"
+      - "tests/test_generated_lane_claim_contract.py"
       - "tests/test_generated_models.py"
       - "tests/test_generated_semantic_authority_contract.py"
       - "tests/test_generated_write_back_contract.py"

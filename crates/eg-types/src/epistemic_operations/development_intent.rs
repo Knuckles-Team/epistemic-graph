@@ -67,29 +67,51 @@ pub struct WorkItem {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "contract-schema", schemars(transform = super::common::require_marked_nullable_fields))]
 pub struct DevelopmentLaneIntent {
     pub schema_version: DevelopmentLaneIntentSchemaVersion,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub tenant_ref: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub request_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub lane_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub repository_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub base_ref: String,
     pub base_sha: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub branch: String,
     pub host_target_kind: DevelopmentLaneIntentHostTargetKind,
     #[serde(deserialize_with = "deserialize_required_option")]
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true, "x-eg-required-presence" = true)))]
     pub host_target_alias: Option<String>,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub host_ref: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub resource_reservation_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub workspace_ref: String,
     pub worktree_locator: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub owner_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub session_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub fairness_group: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub quota_policy_name: String,
+    #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
     pub quota_policy_version: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-strict-scalar" = true)))]
     pub predicted_disk_bytes: u64,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-strict-scalar" = true)))]
     pub ttl_ms: u64,
+    #[cfg_attr(
+        feature = "contract-schema",
+        schemars(length(min = 67, max = 67), regex(pattern = "^v1:[0-9a-f]{64}$"))
+    )]
     pub input_fingerprint: String,
 }
 

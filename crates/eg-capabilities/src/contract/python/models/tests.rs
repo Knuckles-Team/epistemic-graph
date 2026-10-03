@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 
 use super::super::surfaces::Surfaces;
 use super::*;
+use crate::ConsumerProfile;
 use crate::contract::results::Catalog;
 use crate::contract::schema::method_request_document;
-use crate::ConsumerProfile;
 
 fn space() -> (Value, Catalog, ModelSpace) {
     let document = method_request_document();
@@ -182,4 +182,62 @@ fn generated_python_is_ruff_clean_and_formatter_stable() {
         );
     }
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn lane_claim_schema_preserves_required_nullable_and_bounds() {
+    let (document, _, _) = space();
+    let defs = &document["$defs"];
+    let claim = &defs["ClaimWorkItemRequest"];
+    assert_eq!(claim["properties"]["lease_ms"]["minimum"], 1);
+    assert_eq!(claim["properties"]["max_tenant_in_flight"]["maximum"], 4096);
+    for (name, fields) in [
+        (
+            "ClaimWorkItemRequest",
+            &[
+                "work_item_id",
+                "queue_ref",
+                "resource_class",
+                "fairness_group",
+            ][..],
+        ),
+        ("DevelopmentLaneIntent", &["host_target_alias"][..]),
+    ] {
+        for field in fields {
+            assert!(
+                defs[name]["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!(field))
+            );
+            assert!(defs[name]["properties"][field].to_string().contains("null"));
+        }
+    }
+    let lane = &defs["DevelopmentLaneIntent"]["properties"];
+    assert_eq!(lane["lane_id"]["x-eg-utf8-max-bytes"], 512);
+    assert!(lane["lane_id"].get("maxLength").is_none());
+    assert_eq!(lane["input_fingerprint"]["minLength"], 67);
+    assert_eq!(lane["input_fingerprint"]["maxLength"], 67);
+}
+
+#[test]
+fn field_constraints_survive_nullable_union_and_hoisted_alias() {
+    let document = serde_json::json!({
+        "LaneFixture": {"type": "object", "required": ["alias", "count"], "properties": {
+            "alias": {"type": ["string", "null"], "minLength": 1,
+                "x-eg-utf8-max-bytes": 512, "x-eg-no-control-bytes": true},
+            "count": {"type": "integer", "minimum": 1, "x-eg-strict-scalar": true},
+            "owner": {"type": "string", "x-eg-nonblank": true}
+        }}
+    });
+    let body = render_owned(document.as_object().unwrap(), &|_| true);
+    assert!(body.contains("AfterValidator(_eg_utf8_text(512))"));
+    assert!(body.contains("def _eg_utf8_text(max_bytes):"));
+    assert!(body.contains("AfterValidator(_eg_nonblank)"));
+    assert!(body.contains("strict=True"));
+    assert!(!body.contains("alias: str | None = None"));
+    assert!(!body.contains("ConfigDict(extra=\"forbid\", frozen=True, strict=True"));
+    let mut imports = String::new();
+    super::super::dto::push_dto_imports(&mut imports, &body, &Default::default());
+    assert!(imports.contains("AfterValidator"));
 }
