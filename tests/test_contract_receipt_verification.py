@@ -191,7 +191,10 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
 
 def _qualify_installed_contract(config: dict) -> dict:
     """Bind the tested installed contract bytes to the explicitly selected wheel."""
+    import csv
     import hashlib
+    import io
+    import json
     import sys
     import zipfile
     from importlib import metadata
@@ -204,10 +207,54 @@ def _qualify_installed_contract(config: dict) -> dict:
             wheel_digest.update(chunk)
     wheel_sha = wheel_digest.hexdigest()
     assert wheel_sha == config["wheel_sha256"], "selected wheel SHA-256 mismatch"
+    venv = Path(sys.prefix).resolve()
+    assert venv != Path(sys.base_prefix).resolve(), (
+        "candidate interpreter is not a venv"
+    )
     distribution = metadata.distribution("epistemic-graph")
+    assert Path(distribution.locate_file("")).resolve().is_relative_to(venv), (
+        "distribution location is outside candidate venv"
+    )
+    direct_url = distribution.read_text("direct_url.json")
+    assert not (
+        direct_url and json.loads(direct_url).get("dir_info", {}).get("editable")
+    ), "editable distribution is not an installed-wheel candidate"
+    record_text = distribution.read_text("RECORD")
+    assert record_text is not None, "installed distribution has no RECORD"
+    rows = list(csv.reader(io.StringIO(record_text)))
+    assert all(len(row) == 3 and row[0] for row in rows), "invalid installed RECORD"
+    recorded = {row[0] for row in rows}
+    assert len(recorded) == len(rows), "duplicate installed RECORD path"
+    metadata_entries = [
+        name for name in recorded if name.endswith(".dist-info/METADATA")
+    ]
+    assert len(metadata_entries) == 1, "RECORD must identify distribution metadata"
+    metadata_entry = Path(metadata_entries[0])
+    assert len(metadata_entry.parts) == 2 and not metadata_entry.is_absolute()
+    metadata_path = Path(distribution.locate_file(metadata_entry)).resolve()
+    record_path = Path(
+        distribution.locate_file(metadata_entry.with_name("RECORD"))
+    ).resolve()
+    assert metadata_path.is_relative_to(venv) and record_path.is_relative_to(venv), (
+        "distribution metadata is outside candidate venv"
+    )
+    assert metadata_path.is_file() and record_path.is_file(), (
+        "missing distribution metadata"
+    )
+    assert metadata_entry.with_name("RECORD").as_posix() in recorded
+    assert record_path.read_text(encoding="utf-8") == record_text
+    import epistemic_graph as package
     from epistemic_graph import contract
 
+    package_root = Path(package.__file__).resolve().parent
     root = Path(contract.__file__).resolve().parent
+    assert package_root.is_relative_to(venv) and root.is_relative_to(venv), (
+        "package or contract is outside candidate venv"
+    )
+    assert all(
+        Path(path).resolve().is_relative_to(venv) for path in package.__path__
+    ), "package search path is source-linked outside candidate venv"
+    assert package_root == Path(distribution.locate_file("epistemic_graph")).resolve()
     assert root == Path(distribution.locate_file("epistemic_graph/contract")).resolve()
     assert not root.is_relative_to(Path(config["checkout"]).resolve())
     prefix = "epistemic_graph/contract/"
@@ -218,6 +265,7 @@ def _qualify_installed_contract(config: dict) -> dict:
             if name.startswith(prefix) and not name.endswith("/")
         ]
         assert len(names) == len(set(names)), "duplicate wheel contract entry"
+        assert set(names) <= recorded, "installed RECORD omits contract files"
         assert {
             prefix + name
             for name in ["__init__.py", "receipt.json", "methods.json", "errors.json"]
@@ -232,7 +280,13 @@ def _qualify_installed_contract(config: dict) -> dict:
         assert actual == set(names), "installed contract inventory differs from wheel"
         before = {}
         for name in names:
-            data = root.joinpath(name.removeprefix(prefix)).read_bytes()
+            installed_file = root.joinpath(name.removeprefix(prefix)).resolve()
+            assert installed_file.is_relative_to(
+                root
+            ) and installed_file.is_relative_to(venv), (
+                "contract file is source-linked outside candidate venv"
+            )
+            data = installed_file.read_bytes()
             assert data == archive.read(name), (
                 f"installed bytes differ from wheel: {name}"
             )
@@ -249,6 +303,9 @@ def _qualify_installed_contract(config: dict) -> dict:
     return {
         "interpreter": sys.executable,
         "installed_root": str(root),
+        "venv_root": str(venv),
+        "distribution_metadata": str(metadata_path.parent),
+        "record_contract_files_checked": len(before),
         "distribution_version": distribution.version,
         "wheel_sha256": wheel_sha,
         "contract_digest": config["expected_digest"],
@@ -391,44 +448,182 @@ class ReceiptVerifier(unittest.TestCase):
         self.assertEqual(len(report), 18)
         self.assertTrue(all(case["result"] == "pass" for case in report))
 
-    def test_wheel_binding_on_synthetic_zip_and_module_metadata(self) -> None:
-        """Validate harness binding with synthetic ZIP/module metadata only."""
-        import sys
+    def _synthetic_wheel_binding(self):
+        """Small ZIP, package and real dist-info fixtures; no installation."""
         import zipfile
-        from types import ModuleType, SimpleNamespace
+        from importlib import metadata
+        from types import ModuleType
 
         archive_path = self.root / "synthetic-contract.zip"
+        names = []
         with zipfile.ZipFile(archive_path, "w") as archive:
             for path in self.contract.rglob("*"):
                 if path.is_file() and "__pycache__" not in path.parts:
-                    archive.write(
-                        path, _PREFIX + path.relative_to(self.contract).as_posix()
-                    )
+                    name = _PREFIX + path.relative_to(self.contract).as_posix()
+                    archive.write(path, name)
+                    names.append(name)
+        info = self.root / "epistemic_graph-0.dist-info"
+        info.mkdir()
+        info.joinpath("METADATA").write_text("Name: epistemic-graph\nVersion: 0\n")
+        info.joinpath("RECORD").write_text(
+            "".join(
+                f"{name},,\n"
+                for name in [
+                    *names,
+                    "epistemic_graph/__init__.py",
+                    info.name + "/METADATA",
+                    info.name + "/RECORD",
+                ]
+            )
+        )
+        package_init = self.contract.parent / "__init__.py"
+        package_init.write_text("")
+        package = ModuleType("epistemic_graph")
+        package.__file__ = str(package_init)
+        package.__path__ = [str(package_init.parent)]
+        contract = ModuleType("epistemic_graph.contract")
+        vars(contract).update(self.namespace)
+        package.contract = contract
         config = {
             "wheel_path": str(archive_path),
             "wheel_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
             "expected_digest": self.pin,
             "checkout": str(_ROOT),
         }
-        package = ModuleType("epistemic_graph")
-        contract = ModuleType("epistemic_graph.contract")
-        vars(contract).update(self.namespace)
-        package.contract = contract
-        distribution = SimpleNamespace(
-            locate_file=lambda name: self.root / name, version="synthetic-fixture"
-        )
+        return config, package, metadata.PathDistribution(info)
+
+    def test_wheel_binding_on_synthetic_zip_and_module_metadata(self) -> None:
+        """Validate harness binding with synthetic ZIP/module metadata only."""
+        import sys
+
+        config, package, distribution = self._synthetic_wheel_binding()
         with (
             patch.dict(sys.modules, {"epistemic_graph": package}),
             patch("importlib.metadata.distribution", return_value=distribution),
+            patch.object(sys, "prefix", str(self.root)),
         ):
             with self.assertRaisesRegex(AssertionError, "wheel SHA-256 mismatch"):
                 _qualify_installed_contract({**config, "wheel_sha256": "0" * 64})
             report = _qualify_installed_contract(config)
             self.assertEqual(len(report["cases"]), 18)
             self.assertTrue(report["installed_bytes_unchanged"])
+            self.assertEqual(report["venv_root"], str(self.root))
             self.contract.joinpath("errors.json").write_bytes(b"changed")
             with self.assertRaisesRegex(AssertionError, "installed bytes differ"):
                 _qualify_installed_contract(config)
+
+    def test_editable_distribution_and_missing_record_coverage_rejected(self) -> None:
+        import sys
+
+        config, package, distribution = self._synthetic_wheel_binding()
+        info = self.root / "epistemic_graph-0.dist-info"
+        with (
+            patch.dict(sys.modules, {"epistemic_graph": package}),
+            patch("importlib.metadata.distribution", return_value=distribution),
+            patch.object(sys, "prefix", str(self.root)),
+        ):
+            direct = info / "direct_url.json"
+            direct.write_text(json.dumps({"dir_info": {"editable": True}}))
+            with self.assertRaisesRegex(AssertionError, "editable distribution"):
+                _qualify_installed_contract(config)
+            direct.unlink()
+            record = info / "RECORD"
+            record.write_text(
+                record.read_text().replace(_PREFIX + "methods.json,,\n", "")
+            )
+            with self.assertRaisesRegex(AssertionError, "RECORD omits contract files"):
+                _qualify_installed_contract(config)
+
+    def test_source_linked_contract_file_and_metadata_rejected(self) -> None:
+        import shutil
+        import sys
+
+        config, package, distribution = self._synthetic_wheel_binding()
+        info = self.root / "epistemic_graph-0.dist-info"
+        with (
+            tempfile.TemporaryDirectory(prefix="eg-external-source-") as temp,
+            patch.dict(sys.modules, {"epistemic_graph": package}),
+            patch("importlib.metadata.distribution", return_value=distribution),
+            patch.object(sys, "prefix", str(self.root)),
+        ):
+            outside = Path(temp)
+            artifact = self.contract / "errors.json"
+            artifact.replace(outside / "errors.json")
+            artifact.symlink_to(outside / "errors.json")
+            with self.assertRaisesRegex(
+                AssertionError, "contract file is source-linked"
+            ):
+                _qualify_installed_contract(config)
+            artifact.unlink()
+            (outside / "errors.json").replace(artifact)
+            shutil.copytree(info, outside / "metadata")
+            shutil.rmtree(info)
+            info.symlink_to(outside / "metadata", target_is_directory=True)
+            with self.assertRaisesRegex(
+                AssertionError, "metadata is outside candidate venv"
+            ):
+                _qualify_installed_contract(config)
+
+    def test_other_checkout_exposed_by_site_configuration_is_rejected(self) -> None:
+        """A real .pth expands discovery into another checkout, outside fake venv."""
+        import sys
+
+        config, _, _ = self._synthetic_wheel_binding()
+        venv = self.root / "candidate-venv"
+        site = venv / "lib/site-packages"
+        site.mkdir(parents=True)
+        (site / "other-checkout.pth").write_text(str(self.root) + "\n")
+        # Simulate candidate site initialization without creating/installing a venv.
+        script = (
+            inspect.getsource(_exercise_contract_copies)
+            + "\n"
+            + inspect.getsource(_qualify_installed_contract)
+            + "\n"
+            + "import json, site, sys\n"
+            "from pathlib import Path\n"
+            "sys.prefix = sys.argv[1]\n"
+            "site.addsitedir(sys.argv[2])\n"
+            "import epistemic_graph\n"
+            "from importlib import metadata\n"
+            "package_root = Path(epistemic_graph.__file__).resolve().parent\n"
+            "assert package_root.parent == Path(sys.argv[3])\n"
+            "dist_root = metadata.distribution('epistemic-graph').locate_file('')\n"
+            "assert Path(dist_root).resolve() == Path(sys.argv[4])\n"
+            "print('OTHER_CHECKOUT_DISCOVERED', flush=True)\n"
+            "_qualify_installed_contract(json.load(sys.stdin))\n"
+        )
+        for location in ["outside", "inside"]:
+            with self.subTest(metadata_location=location):
+                expected_dist = self.root
+                expected_error = "distribution location is outside candidate venv"
+                if location == "inside":
+                    info = self.root / "epistemic_graph-0.dist-info"
+                    info.rename(site / info.name)
+                    expected_dist = site
+                    expected_error = "package or contract is outside candidate venv"
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-I",
+                        "-S",
+                        "-B",
+                        "-c",
+                        script,
+                        str(venv),
+                        str(site),
+                        str(self.root),
+                        str(expected_dist),
+                    ],
+                    input=json.dumps(config),
+                    text=True,
+                    capture_output=True,
+                    cwd=venv,
+                    check=False,
+                    timeout=60,
+                )
+                self.assertIn("OTHER_CHECKOUT_DISCOVERED", result.stdout)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected_error, result.stderr)
 
     def test_aggregate_matches_canonical_receipt(self) -> None:
         receipt = json.loads((_ROOT / "contract/receipt.json").read_bytes())
