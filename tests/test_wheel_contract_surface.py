@@ -52,12 +52,19 @@ _SHIPPED_RECEIPT = _PACKAGE / "contract" / "receipt.json"
 # The installed check instead discovers the real package through importlib.resources.
 # Both run with -I from an empty directory, with no checkout on sys.path.
 _CONTRACT_PROBE = """
+import csv
 import hashlib
+import io
 import importlib.util
 import json
 import sys
 from importlib import metadata, resources
 from pathlib import Path
+
+expected = json.load(sys.stdin)
+authoritative_receipt = bytes.fromhex(expected["receipt_hex"])
+expected_schemas = set(expected["schemas"])
+recorded = None
 
 if sys.argv[1]:
     spec = importlib.util.spec_from_file_location(
@@ -73,11 +80,40 @@ else:
     distribution = metadata.distribution("epistemic-graph")
     installed = Path(distribution.locate_file("epistemic_graph/contract")).resolve()
     assert Path(str(root)).resolve() == installed, "package is outside distribution"
-    recorded = {str(path) for path in distribution.files or ()}
-    for name in ("methods.json", "errors.json", "receipt.json"):
-        assert f"epistemic_graph/contract/{name}" in recorded, name
+    record_text = distribution.read_text("RECORD")
+    assert record_text is not None, "installed distribution has no RECORD"
+    recorded = {row[0] for row in csv.reader(io.StringIO(record_text)) if row}
 
-receipt = json.loads(root.joinpath("receipt.json").read_text(encoding="utf-8"))
+assert root.joinpath("receipt.json").read_bytes() == authoritative_receipt, (
+    "installed receipt differs from source authority"
+)
+receipt = json.loads(authoritative_receipt)
+prefix = "epistemic_graph/contract/"
+expected_hashes = {
+    path.removeprefix(prefix): digest
+    for path, digest in receipt["artifact_digests"].items()
+    if path.startswith(prefix)
+}
+assert {"methods.json", "errors.json", "__init__.py"} <= expected_hashes.keys(), (
+    "source receipt omits required package files"
+)
+assert {path for path in expected_hashes if path.startswith("schemas/")} == (
+    expected_schemas
+), "source receipt schema inventory differs from canonical schemas"
+actual_schemas = {
+    path.relative_to(Path(str(root))).as_posix()
+    for path in Path(str(root)).joinpath("schemas").rglob("*") if path.is_file()
+}
+assert actual_schemas == expected_schemas, "filesystem schema inventory mismatch"
+if recorded is not None:
+    expected_files = {prefix + path for path in expected_hashes} | {
+        prefix + "receipt.json"
+    }
+    assert expected_files <= recorded, "RECORD omits expected contract files"
+    assert {path.removeprefix(prefix) for path in recorded
+            if path.startswith(prefix + "schemas/")} == expected_schemas, (
+        "RECORD schema inventory mismatch"
+    )
 module.verify_receipt(receipt["contract_digest"])
 try:
     module.verify_receipt("0" * 64)
@@ -86,13 +122,9 @@ except module.ContractDigestMismatch:
 else:
     raise AssertionError("mismatched receipt digest was accepted")
 
-prefix = "epistemic_graph/contract/"
-for path, digest in receipt["artifact_digests"].items():
-    if path.startswith(prefix):
-        if not sys.argv[1]:
-            assert path in recorded, path
-        data = root.joinpath(path.removeprefix(prefix)).read_bytes()
-        assert hashlib.sha256(data).hexdigest() == digest, path
+for path, digest in expected_hashes.items():
+    data = root.joinpath(path).read_bytes()
+    assert hashlib.sha256(data).hexdigest() == digest, path
 
 methods = json.loads(root.joinpath("methods.json").read_text(encoding="utf-8"))
 json.loads(root.joinpath("errors.json").read_text(encoding="utf-8"))
@@ -165,6 +197,147 @@ def _module_scope_imports(tree: ast.Module) -> set[str]:
     return found
 
 
+class ContractProbeFixtures(unittest.TestCase):
+    """Synthetic distribution/RECORD fixtures, never installed-wheel evidence."""
+
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="eg-contract-negative-")
+        self.addCleanup(temp.cleanup)
+        self.scratch = Path(temp.name)
+        self.site = self.scratch / "fixture-site"
+        self.contract = self.site / "epistemic_graph/contract"
+        self.contract.joinpath("schemas").mkdir(parents=True)
+        self.contract.parent.joinpath("__init__.py").write_text("")
+        schema = "contract/schemas/fixture.json#/methods/Fixture"
+        files = {
+            "__init__.py": (_SHIPPED_RECEIPT.parent / "__init__.py").read_bytes(),
+            "methods.json": json.dumps(
+                {
+                    "method_count": 1,
+                    "methods": [
+                        {
+                            "id": "Fixture",
+                            "is_wire_callable": True,
+                            "request_schema": {"schema": schema},
+                            "result_schema": {"schema": schema},
+                        }
+                    ],
+                }
+            ).encode(),
+            "errors.json": b'{"errors": []}',
+            "schemas/fixture.json": b'{"methods": {"Fixture": {"type": "object"}}}',
+        }
+        for name, data in files.items():
+            self.contract.joinpath(name).write_bytes(data)
+        # Deliberately synthetic, not a generated EG receipt or a real method.
+        receipt = json.dumps(
+            {
+                "contract_digest": "a" * 64,
+                "artifact_digests": {
+                    f"epistemic_graph/contract/{name}": hashlib.sha256(data).hexdigest()
+                    for name, data in files.items()
+                },
+            }
+        ).encode()
+        self.contract.joinpath("receipt.json").write_bytes(receipt)
+        self.expected = {
+            "receipt_hex": receipt.hex(),
+            "schemas": ["schemas/fixture.json"],
+        }
+        info = self.site / "epistemic_graph-0.dist-info"
+        info.mkdir()
+        info.joinpath("METADATA").write_text("Name: epistemic-graph\nVersion: 0\n")
+        self.record = info / "RECORD"
+        self.record.write_text(
+            "".join(
+                f"epistemic_graph/contract/{name},,\n"
+                for name in [*files, "receipt.json"]
+            )
+        )
+
+    def _run_fixture(self) -> subprocess.CompletedProcess[str]:
+        # -I -S excludes checkout and installed packages; only this synthetic site
+        # is injected to exercise the actual installed-distribution probe branch.
+        bootstrap = "import sys; sys.path.insert(0, sys.argv.pop(2))\n"
+        return subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                bootstrap + _CONTRACT_PROBE,
+                "",
+                str(self.site),
+            ],
+            input=json.dumps(self.expected),
+            cwd=self.scratch,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+
+    def _assert_rejected(self, message: str) -> None:
+        result = self._run_fixture()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(message, result.stderr)
+
+    def test_complete_synthetic_distribution_passes_probe(self) -> None:
+        result = self._run_fixture()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["flags"], {"Fixture": True})
+
+    def test_extra_schema_is_rejected_in_filesystem_and_record(self) -> None:
+        original_record = self.record.read_text()
+        extra = self.contract / "schemas/extra.json"
+        for location in ("filesystem", "record", "both"):
+            with self.subTest(location=location):
+                self.record.write_text(original_record)
+                extra.unlink(missing_ok=True)
+                if location != "record":
+                    extra.write_text("{}")
+                if location != "filesystem":
+                    self.record.write_text(
+                        original_record
+                        + "epistemic_graph/contract/schemas/extra.json,,\n"
+                    )
+                self._assert_rejected(
+                    "RECORD schema inventory mismatch"
+                    if location == "record"
+                    else "filesystem schema inventory mismatch"
+                )
+
+    def test_modified_schema_and_manifest_with_same_digest_are_rejected(self) -> None:
+        changed = b'{"methods": {"Fixture": {"type": "string"}}}'
+        self.contract.joinpath("schemas/fixture.json").write_bytes(changed)
+        receipt_path = self.contract / "receipt.json"
+        receipt = json.loads(receipt_path.read_bytes())
+        receipt["artifact_digests"]["epistemic_graph/contract/schemas/fixture.json"] = (
+            hashlib.sha256(changed).hexdigest()
+        )
+        self.assertEqual(receipt["contract_digest"], "a" * 64)
+        receipt_path.write_text(json.dumps(receipt))
+        self._assert_rejected("installed receipt differs from source authority")
+
+    def test_missing_expected_file_or_record_entry_is_rejected(self) -> None:
+        original_record = self.record.read_text()
+        self.record.write_text(
+            original_record.replace("epistemic_graph/contract/errors.json,,\n", "")
+        )
+        self._assert_rejected("RECORD omits expected contract files")
+        self.record.write_text(original_record)
+        self.contract.joinpath("errors.json").unlink()
+        self._assert_rejected("FileNotFoundError")
+
+    def test_removed_manifest_entry_and_file_are_rejected(self) -> None:
+        receipt_path = self.contract / "receipt.json"
+        receipt = json.loads(receipt_path.read_bytes())
+        del receipt["artifact_digests"]["epistemic_graph/contract/errors.json"]
+        receipt_path.write_text(json.dumps(receipt))
+        self.contract.joinpath("errors.json").unlink()
+        self._assert_rejected("installed receipt differs from source authority")
+
+
 class WheelContractSurface(unittest.TestCase):
     def test_contract_data_is_explicitly_included(self) -> None:
         text = _PYPROJECT.read_text(encoding="utf-8")
@@ -224,6 +397,16 @@ class WheelContractSurface(unittest.TestCase):
                     str(package) if staged else "",
                 ],
                 cwd=scratch,
+                input=json.dumps(
+                    {
+                        "receipt_hex": _ROOT_RECEIPT.read_bytes().hex(),
+                        "schemas": sorted(
+                            path.relative_to(_ROOT / "contract").as_posix()
+                            for path in (_ROOT / "contract/schemas").rglob("*")
+                            if path.is_file()
+                        ),
+                    }
+                ),
                 capture_output=True,
                 text=True,
                 check=False,
