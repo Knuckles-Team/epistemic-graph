@@ -3,56 +3,223 @@
 use super::HEADER;
 
 /// `epistemic_graph/contract/__init__.py` -- the ONE entry point a consumer pins.
-///
-/// Deliberately stdlib-only (json + pathlib): a consumer must be able to read and verify
-/// the receipt without importing the client, the transport, or pydantic.
+/// Keep the verifier stdlib-only and the Python literal independently testable.
 pub(super) fn package_contract_module() -> String {
-    let mut out = String::from(HEADER);
-    out.push_str("\"\"\"The shipped engine-contract receipt (RF-RULING-003).\n\n");
-    out.push_str(
-        "`RECEIPT` is the parsed `contract/receipt.json` of the exact engine build this\n",
-    );
-    out.push_str(
-        "package was generated from. `RECEIPT_DIGEST` is the one value a consumer pins:\n",
-    );
-    out.push_str(
-        "it folds the hand-written source digest together with every generated artifact's\n",
-    );
-    out.push_str(
-        "digest, so a change to the wire registry, a schema, the generated client, or the\n",
-    );
-    out.push_str("hand-written transport all move it.\n\n");
-    out.push_str(
-        "Stdlib only on purpose -- verifying the contract must not require importing the\n",
-    );
-    out.push_str("client, the transport, or pydantic.\n\"\"\"\n\n");
-    out.push_str("from __future__ import annotations\n\n");
-    out.push_str("import json\nfrom pathlib import Path\nfrom typing import Any\n\n");
-    out.push_str("__all__ = [\n    \"RECEIPT\",\n    \"RECEIPT_DIGEST\",\n    \"RECEIPT_PATH\",\n    \"ContractDigestMismatch\",\n    \"verify_receipt\",\n]\n\n");
-    out.push_str("RECEIPT_PATH = Path(__file__).with_name(\"receipt.json\")\n\n");
-    out.push_str(
-        "RECEIPT: dict[str, Any] = json.loads(RECEIPT_PATH.read_text(encoding=\"utf-8\"))\n\n",
-    );
-    out.push_str("RECEIPT_DIGEST: str = RECEIPT[\"contract_digest\"]\n\n\n");
-    out.push_str("class ContractDigestMismatch(RuntimeError):\n");
-    out.push_str(
-        "    \"\"\"The installed engine contract is not the one the caller pinned.\"\"\"\n\n\n",
-    );
-    out.push_str("def verify_receipt(expected_digest: str) -> None:\n");
-    out.push_str("    \"\"\"Raise unless the installed contract is exactly `expected_digest`.\n\n");
-    out.push_str(
-        "    A consumer records one digest and calls this at import or start-up: a wheel\n",
-    );
-    out.push_str(
-        "    built from a different engine contract then fails loudly instead of sending a\n",
-    );
-    out.push_str("    request the engine will reject.\n    \"\"\"\n");
-    out.push_str("    if expected_digest != RECEIPT_DIGEST:\n");
-    out.push_str("        raise ContractDigestMismatch(\n");
-    out.push_str(
-        "            f\"pinned engine contract {expected_digest} but this package ships \"\n",
-    );
-    out.push_str("            f\"{RECEIPT_DIGEST}\"\n");
-    out.push_str("        )\n");
-    out
+    format!("{HEADER}{PACKAGE_CONTRACT_MODULE}")
 }
+
+const PACKAGE_CONTRACT_MODULE: &str = r#""""The installed engine-contract receipt and verifier (RF-RULING-003).
+
+RECEIPT and RECEIPT_DIGEST are import-time snapshots. verify_receipt reads fresh
+bytes, authenticates the complete artifact manifest against the caller's trusted
+pin, then hashes only the installed contract files it binds. Repository-only
+artifacts and the hand-written source digest remain authenticated manifest inputs;
+this function does not read their source files or certify the entire wheel.
+
+Stdlib only; verification is explicit, intended for start-up, not each request.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+from epistemic_graph.contract_errors import (
+    ContractArtifactMissing,
+    ContractDigestMismatch,
+)
+
+__all__ = [
+    "RECEIPT",
+    "RECEIPT_DIGEST",
+    "RECEIPT_PATH",
+    "ContractDigestMismatch",
+    "ContractArtifactMissing",
+    "verify_receipt",
+]
+
+RECEIPT_PATH = Path(__file__).with_name("receipt.json")
+_CONTRACT_PREFIX = "epistemic_graph/contract/"
+_ERRORS_ARTIFACT = "epistemic_graph/contract_errors.py"
+
+
+def _read_contained_bytes(relative: str, *, contract_only: bool) -> bytes:
+    """Read a contract or explicit sibling file within its owned package boundary."""
+    try:
+        root = RECEIPT_PATH.parent.parent.resolve()
+        if contract_only:
+            root = root / RECEIPT_PATH.parent.name
+        path = (root / relative).resolve()
+    except FileNotFoundError as exc:
+        raise ContractArtifactMissing(f"missing contract file: {relative}") from exc
+    except (OSError, RuntimeError) as exc:
+        raise ContractDigestMismatch(
+            f"cannot resolve contract file {relative}"
+        ) from exc
+    if not path.is_relative_to(root):
+        raise ContractDigestMismatch(f"contract file leaves package: {relative}")
+    try:
+        return path.read_bytes()
+    except FileNotFoundError as exc:
+        raise ContractArtifactMissing(f"missing contract file: {relative}") from exc
+    except OSError as exc:
+        raise ContractDigestMismatch(f"cannot read contract file: {relative}") from exc
+
+
+def _read_contract_bytes(relative: str) -> bytes:
+    return _read_contained_bytes(relative, contract_only=True)
+
+
+def _read_errors_bytes() -> bytes:
+    return _read_contained_bytes("contract_errors.py", contract_only=False)
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ContractDigestMismatch("duplicate receipt JSON key")
+        value[key] = item
+    return value
+
+
+def _require_hash(value: Any) -> None:
+    if not (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    ):
+        raise ContractDigestMismatch("expected a lowercase SHA-256 hex digest")
+
+
+def _require_safe_path(path: str) -> None:
+    if (
+        not path
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+        or "\\" in path
+        or ":" in path
+        or any(ord(char) < 32 or ord(char) == 127 for char in path)
+    ):
+        raise ContractDigestMismatch("unsafe artifact path in receipt")
+    try:
+        path.encode("utf-8")
+    except UnicodeError as exc:
+        raise ContractDigestMismatch("invalid artifact path encoding") from exc
+
+
+def _validate_receipt(receipt: Any) -> dict[str, Any]:
+    if (
+        not isinstance(receipt, dict)
+        or type(receipt.get("contract_version")) is not int
+    ):
+        raise ContractDigestMismatch("invalid receipt structure")
+    if receipt["contract_version"] != 1:
+        raise ContractDigestMismatch("unsupported contract receipt version")
+    _require_hash(receipt.get("contract_digest"))
+    _require_hash(receipt.get("source_tree_oid"))
+    artifacts = receipt.get("artifact_digests")
+    if not isinstance(artifacts, dict):
+        raise ContractDigestMismatch("invalid artifact manifest")
+    for path, digest in artifacts.items():
+        _require_safe_path(path)
+        _require_hash(digest)
+    if (
+        not {
+            _CONTRACT_PREFIX + "__init__.py",
+            _CONTRACT_PREFIX + "methods.json",
+            _CONTRACT_PREFIX + "errors.json",
+            _ERRORS_ARTIFACT,
+        }
+        <= artifacts.keys()
+    ):
+        raise ContractDigestMismatch("receipt omits required contract artifacts")
+    if {
+        "contract/receipt.json",
+        _CONTRACT_PREFIX + "receipt.json",
+        "crates/eg-capabilities/generated/catalog_digest.rs",
+    } & artifacts.keys():
+        raise ContractDigestMismatch("receipt contains a self-referential artifact")
+    return receipt
+
+
+def _invalid_json_constant(value: str) -> Any:
+    raise ContractDigestMismatch("nonstandard constant in receipt JSON")
+
+
+def _read_receipt() -> dict[str, Any]:
+    data = _read_contract_bytes(RECEIPT_PATH.name)
+    try:
+        receipt = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_unique_object,
+            parse_constant=_invalid_json_constant,
+        )
+    except (UnicodeError, ValueError, RecursionError) as exc:
+        raise ContractDigestMismatch("malformed contract receipt") from exc
+    return _validate_receipt(receipt)
+
+
+def _aggregate_digest(receipt: dict[str, Any]) -> str:
+    """Match contract.rs::contract_digest, including noninstalled artifact entries."""
+    digest = hashlib.sha256()
+    digest.update(receipt["source_tree_oid"].encode("ascii"))
+    digest.update(b"\0")
+    for path, file_digest in sorted(receipt["artifact_digests"].items()):
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(file_digest.encode("ascii"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def verify_receipt(expected_digest: str) -> None:
+    """Authenticate a fresh receipt and its installed contract files, or raise.
+
+    Verification reads no artifact before the complete manifest matches the trusted pin.
+    Extra files are an inventory-gate concern, not a runtime verification input.
+    Each call reads disk again; changing the exported snapshots cannot bypass it.
+    """
+    _require_hash(expected_digest)
+    receipt = _read_receipt()
+    actual_digest = _aggregate_digest(receipt)
+    if actual_digest != receipt["contract_digest"] or actual_digest != expected_digest:
+        raise ContractDigestMismatch(
+            "contract manifest does not match the pinned digest"
+        )
+    if (
+        hashlib.sha256(_read_errors_bytes()).hexdigest()
+        != receipt["artifact_digests"][_ERRORS_ARTIFACT]
+    ):
+        raise ContractDigestMismatch("contract_errors.py artifact digest mismatch")
+    for path, expected_hash in sorted(receipt["artifact_digests"].items()):
+        if path.startswith(_CONTRACT_PREFIX):
+            data = _read_contract_bytes(path.removeprefix(_CONTRACT_PREFIX))
+            if hashlib.sha256(data).hexdigest() != expected_hash:
+                raise ContractDigestMismatch(
+                    f"contract artifact digest mismatch: {path}"
+                )
+
+
+RECEIPT: dict[str, Any] = _read_receipt()
+RECEIPT_DIGEST: str = RECEIPT["contract_digest"]
+"#;
+
+/// Exception identity stays importable even when the receipt prevents contract import.
+pub(super) fn package_contract_errors_module() -> String {
+    format!("{HEADER}{PACKAGE_CONTRACT_ERRORS_MODULE}")
+}
+
+const PACKAGE_CONTRACT_ERRORS_MODULE: &str = r#""""Shared contract exceptions; importing this module never reads a receipt."""
+
+__all__ = ["ContractDigestMismatch", "ContractArtifactMissing"]
+
+
+class ContractDigestMismatch(RuntimeError):
+    """The installed contract cannot be verified against the trusted pin."""
+
+
+class ContractArtifactMissing(ContractDigestMismatch):
+    """The installed receipt or one of its required contract files is missing."""
+"#;

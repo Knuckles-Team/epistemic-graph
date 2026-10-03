@@ -300,10 +300,6 @@ pub(crate) fn normalize(text: String) -> Vec<u8> {
 
 /// Every generated artifact except the receipt, which digests them.
 fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
-    // Consumers need the same closed error vocabulary that the server emits.
-    // Keep the wheel copy generated from the exact bytes of the root contract,
-    // so the receipt binds both and GraphOS can verify its pinned wheel.
-    let error_catalog = errors::catalog_json();
     let mut out = vec![
         Artifact {
             path: "contract/methods.json".to_string(),
@@ -311,11 +307,7 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
         },
         Artifact {
             path: "contract/errors.json".to_string(),
-            bytes: error_catalog.clone(),
-        },
-        Artifact {
-            path: "epistemic_graph/contract/errors.json".to_string(),
-            bytes: error_catalog,
+            bytes: errors::catalog_json(),
         },
         Artifact {
             path: "docs/capabilities.generated.md".to_string(),
@@ -330,7 +322,28 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out.extend(python::artifacts(catalog));
     out.extend(vectors::artifacts());
     out.extend(method_bodies::artifacts());
+    out.extend(package_contract_artifacts(&out));
     out
+}
+
+/// Mirror the canonical discovery surface without rewriting schema references or
+/// method policy. Consumers resolve `contract/schemas/...` within the package.
+/// Scopes need an authoritative classification registry before they can be added;
+/// an `authz_action` string alone does not declare a scope class.
+fn package_contract_artifacts(artifacts: &[Artifact]) -> Vec<Artifact> {
+    artifacts
+        .iter()
+        .filter(|artifact| {
+            matches!(
+                artifact.path.as_str(),
+                "contract/methods.json" | "contract/errors.json"
+            ) || artifact.path.starts_with("contract/schemas/")
+        })
+        .map(|artifact| Artifact {
+            path: format!("epistemic_graph/{}", artifact.path),
+            bytes: artifact.bytes.clone(),
+        })
+        .collect()
 }
 
 /// Render every committed contract artifact, receipt last.
@@ -411,6 +424,7 @@ pub fn write_all(root: &Path) -> std::io::Result<usize> {
 const GENERATED_DIRS: &[&str] = &[
     "contract/fixtures",
     "contract/schemas",
+    "epistemic_graph/contract/schemas",
     "epistemic_graph/generated",
 ];
 
@@ -470,6 +484,65 @@ pub fn check(root: &Path) -> Result<usize, Vec<String>> {
         Ok(artifacts.len())
     } else {
         Err(drift)
+    }
+}
+
+#[cfg(test)]
+mod package_projection_tests {
+    use super::*;
+
+    #[test]
+    fn package_surface_is_complete_identical_and_receipt_bound() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let artifacts = render_all(&root);
+        let by_path: BTreeMap<_, _> = artifacts
+            .iter()
+            .map(|artifact| (artifact.path.as_str(), artifact.bytes.as_slice()))
+            .collect();
+        assert_eq!(by_path.len(), artifacts.len(), "duplicate artifact path");
+        let receipt: serde_json::Value =
+            serde_json::from_slice(by_path["contract/receipt.json"]).unwrap();
+        let mut expected = vec!["contract/methods.json", "contract/errors.json"];
+        expected.extend(
+            by_path
+                .keys()
+                .copied()
+                .filter(|path| path.starts_with("contract/schemas/")),
+        );
+        assert!(expected.len() > 2, "schema projection cannot be empty");
+        for path in expected {
+            let packaged = format!("epistemic_graph/{path}");
+            assert_eq!(by_path[path], by_path[packaged.as_str()], "{path}");
+            for bound in [path, packaged.as_str()] {
+                assert_eq!(
+                    receipt["artifact_digests"][bound].as_str(),
+                    Some(sha256_hex(by_path[bound]).as_str()),
+                    "receipt must bind {bound}"
+                );
+            }
+        }
+        assert_eq!(
+            by_path["contract/receipt.json"],
+            by_path["epistemic_graph/contract/receipt.json"]
+        );
+    }
+
+    #[test]
+    fn projection_does_not_publish_unowned_contract_surfaces() {
+        let artifacts: Vec<_> = [
+            "contract/scopes.json",
+            "contract/receipt.json",
+            "contract/fixtures/example.json",
+            "epistemic_graph/contract/methods.json",
+            "docs/capabilities.generated.md",
+        ]
+        .into_iter()
+        .map(|path| Artifact {
+            path: path.to_string(),
+            bytes: Vec::new(),
+        })
+        .collect();
+        assert!(package_contract_artifacts(&artifacts).is_empty());
     }
 }
 

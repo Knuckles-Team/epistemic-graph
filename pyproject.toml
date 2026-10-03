@@ -240,10 +240,14 @@ strip = true
 # Never carry interpreter caches from a reused checkout into a wheel or sdist.
 # These are source-level Maturin globs, so the checkout itself remains untouched.
 exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
-# The shipped engine-contract receipt (RF-RULING-003): the digest agent-utilities pins.
-# `python-source` already copies the package tree, but this makes the data file an
-# explicit, reviewable part of the wheel contract rather than an implicit glob.
-include = ["epistemic_graph/contract/receipt.json", "epistemic_graph/contract/errors.json"]
+# The generator projects the canonical catalogs and schemas into the package;
+# the receipt binds their exact bytes. Scope classification is not yet declared.
+include = [
+    "epistemic_graph/contract/receipt.json",
+    "epistemic_graph/contract/errors.json",
+    "epistemic_graph/contract/methods.json",
+    "epistemic_graph/contract/schemas/**/*.json",
+]
 # THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-371 — tiers
 # collapsed). `full` = every MAIN feature that builds without an external GPU/robotics
 # toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql
