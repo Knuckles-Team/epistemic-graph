@@ -20,7 +20,7 @@
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
     "crates/eg-capabilities/generated/method_catalog.rs": "4feef353c5cd24498bc90e7420033bb8a2a14cc265d8eb936d9753781fcd1bc0",
     "docs/capabilities.generated.md": "f5fb423332b4c491125b87d0225292b801f17614ab6bd15ecc0251ffb749e7ed",
-    "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
+    "epistemic_graph/contract/__init__.py": "028357ea7c0ac35605ca94b4b2d2e7b4735077766a027519bc336b904bf8b3cf",
     "epistemic_graph/contract/errors.json": "4d8a8bed678a1ad1ee1d6c623f781517effbfcb3aa1d50e7fb0fda7cb928f73b",
     "epistemic_graph/contract/methods.json": "7e0b2661f23de161fa88bff79bd00d9c5f4cab4cf8b1978ec981e4792219dff0",
     "epistemic_graph/contract/schemas/method.request.json": "351c86d0a7510d516a5ffa353f3bda94994c04f05e6980d4b9f4d6aa7364801f",
@@ -36,6 +36,7 @@
     "epistemic_graph/contract/schemas/result.security.json": "866c391057228e34a73b3ce06f6eaf526208c7089088c35836a7200ec765d9ac",
     "epistemic_graph/contract/schemas/result.storage.json": "c355f18c7a0e9779d3b2a6925aadef3d119207812b78928a122eec40f1243798",
     "epistemic_graph/contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
+    "epistemic_graph/contract_errors.py": "45129aa10427f8338ecc1d991c7a519af6028fef2229e0af19ed17d2389b7728",
     "epistemic_graph/generated/__init__.py": "1f8aade5c5b3842b1ea1971066eb16e493d95e8b6023276dda855784d84ced0a",
     "epistemic_graph/generated/_ids.py": "4873eceeb5859221fc5c8116147295d3da258176fa7822b768514cfa659a869b",
     "epistemic_graph/generated/_runtime.py": "7f2d7ced6799e3c52df4719f8dc1079f55faa5c0cf248d6e8d07114ef385da8e",
@@ -68,7 +69,7 @@
     "epistemic_graph/generated/transactions.py": "f4f7307094f8915f8672a2546d66981b36477e6182d9aec7a2293bf3cb951f71",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "58a4bb320136550af3a4b1b251d68d285c21ba009a4478cc411715fa3154fa1f",
+  "contract_digest": "4be3573bda77b9ea853e483c5d7303c4cd5e27e3a621b16d8336240519aff3f4",
   "contract_version": 1,
   "feature_profile": [
     "contract",
