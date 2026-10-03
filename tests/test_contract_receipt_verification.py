@@ -2,14 +2,19 @@
 
 No native generator runs here. Synthetic temporary files test the literal directly;
 the separate parity check remains red until authoritative generation is authorized.
-These are not installed-wheel acceptance tests.
+The opt-in InstalledReceiptQualification class discovers a supplied installed wheel
+and exercises its production verifier on isolated copies outside the checkout.
+It requires explicit wheel SHA-256 and contract pin; fixture tests do not qualify it.
 """
 
 from __future__ import annotations
 
 import hashlib
 import importlib.util
+import inspect
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +38,271 @@ def _fixture_digest(receipt: dict) -> str:
     for name, digest in sorted(receipt["artifact_digests"].items()):
         parts.extend([name, digest])
     return hashlib.sha256(("\0".join(parts) + "\0").encode("utf-8")).hexdigest()
+
+
+def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
+    """Exercise the actual supplied module bytes; never mutate the supplied tree."""
+    import hashlib
+    import importlib.util
+    import json
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    contract_root = Path(contract_root).resolve()
+    prefix = "epistemic_graph/contract/"
+    receipt_bytes = (contract_root / "receipt.json").read_bytes()
+    receipt = json.loads(receipt_bytes)
+    schema = next(
+        path.removeprefix(prefix)
+        for path in sorted(receipt["artifact_digests"])
+        if path.startswith(prefix + "schemas/")
+    )
+    cases = [
+        "valid_pin",
+        "wrong_pin",
+        "missing_methods",
+        "corrupt_methods",
+        "missing_errors",
+        "corrupt_errors",
+        "missing_schema",
+        "corrupt_schema",
+        "missing_receipt_import",
+        "malformed_receipt_import",
+        "missing_receipt_after_import",
+        "malformed_receipt_after_import",
+        "postimport_schema_mutation",
+        "postimport_module_mutation",
+        "coordinated_manifest_tamper",
+        "manifest_entry_removal",
+        "coordinated_digest_tamper",
+        "no_source_fallback",
+    ]
+    results = []
+    original_cwd = Path.cwd()
+    for case in cases:
+        with tempfile.TemporaryDirectory(prefix="eg-wheel-verifier-case-") as temp:
+            scratch = Path(temp)
+            target = scratch / "site/epistemic_graph/contract"
+            shutil.copytree(
+                contract_root,
+                target,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+            )
+            try:
+                os.chdir(scratch)
+                spec = importlib.util.spec_from_file_location(
+                    "eg_installed_contract_case", target / "__init__.py"
+                )
+                assert spec is not None and spec.loader is not None
+                module = importlib.util.module_from_spec(spec)
+                # Fresh import must itself produce a typed receipt error.
+                if case == "missing_receipt_import":
+                    (target / "receipt.json").unlink()
+                elif case == "malformed_receipt_import":
+                    (target / "receipt.json").write_bytes(b"\xff")
+                else:
+                    spec.loader.exec_module(module)
+                    module.verify_receipt(trusted_pin)  # Establish valid baseline.
+                pin = trusted_pin
+                if case == "wrong_pin":
+                    pin = ("0" if trusted_pin[0] != "0" else "1") + trusted_pin[1:]
+                elif case in {"missing_methods", "missing_errors", "missing_schema"}:
+                    name = schema if case == "missing_schema" else case[8:] + ".json"
+                    (target / name).unlink()
+                elif case in {
+                    "corrupt_methods",
+                    "corrupt_errors",
+                    "corrupt_schema",
+                    "postimport_schema_mutation",
+                    "postimport_module_mutation",
+                }:
+                    name = (
+                        "__init__.py"
+                        if case == "postimport_module_mutation"
+                        else schema
+                        if "schema" in case
+                        else case[8:] + ".json"
+                    )
+                    (target / name).write_bytes(
+                        (target / name).read_bytes() + b"broken"
+                    )
+                elif case == "missing_receipt_after_import":
+                    (target / "receipt.json").unlink()
+                elif case == "malformed_receipt_after_import":
+                    (target / "receipt.json").write_bytes(b"{")
+                elif case in {
+                    "coordinated_manifest_tamper",
+                    "manifest_entry_removal",
+                    "coordinated_digest_tamper",
+                }:
+                    changed = json.loads(receipt_bytes)
+                    if case == "manifest_entry_removal":
+                        del changed["artifact_digests"][prefix + schema]
+                    else:
+                        (target / schema).write_bytes(b"{}")
+                        changed["artifact_digests"][prefix + schema] = hashlib.sha256(
+                            b"{}"
+                        ).hexdigest()
+                    if case == "coordinated_digest_tamper":
+                        fields = [changed["source_tree_oid"]]
+                        for path, digest in sorted(changed["artifact_digests"].items()):
+                            fields.extend([path, digest])
+                        changed["contract_digest"] = hashlib.sha256(
+                            ("\0".join(fields) + "\0").encode()
+                        ).hexdigest()
+                    (target / "receipt.json").write_text(json.dumps(changed))
+                elif case == "no_source_fallback":
+                    # Seed tempting repo-relative fallbacks at cwd and package ancestor.
+                    for decoy in [scratch / "contract", target.parents[1] / "contract"]:
+                        decoy.mkdir(parents=True, exist_ok=True)
+                        (decoy / "methods.json").write_bytes(
+                            (target / "methods.json").read_bytes()
+                        )
+                    (target / "methods.json").unlink()
+                expected = (
+                    "ContractArtifactMissing"
+                    if case.startswith("missing_") or (case == "no_source_fallback")
+                    else "ContractDigestMismatch"
+                )
+                try:
+                    if case in {"missing_receipt_import", "malformed_receipt_import"}:
+                        spec.loader.exec_module(module)
+                    else:
+                        module.verify_receipt(pin)
+                except Exception as error:
+                    if case == "valid_pin" or not isinstance(
+                        error, getattr(module, expected)
+                    ):
+                        raise AssertionError(
+                            f"{case}: unexpected error {type(error).__name__}"
+                        ) from error
+                    results.append(
+                        {"case": case, "result": "pass", "error": type(error).__name__}
+                    )
+                else:
+                    assert case == "valid_pin", f"{case}: invalid contract accepted"
+                    results.append({"case": case, "result": "pass", "error": None})
+            finally:
+                os.chdir(original_cwd)
+    return results
+
+
+def _qualify_installed_contract(config: dict) -> dict:
+    """Bind the tested installed contract bytes to the explicitly selected wheel."""
+    import hashlib
+    import sys
+    import zipfile
+    from importlib import metadata
+    from pathlib import Path
+
+    wheel = Path(config["wheel_path"]).resolve()
+    wheel_digest = hashlib.sha256()
+    with wheel.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            wheel_digest.update(chunk)
+    wheel_sha = wheel_digest.hexdigest()
+    assert wheel_sha == config["wheel_sha256"], "selected wheel SHA-256 mismatch"
+    distribution = metadata.distribution("epistemic-graph")
+    from epistemic_graph import contract
+
+    root = Path(contract.__file__).resolve().parent
+    assert root == Path(distribution.locate_file("epistemic_graph/contract")).resolve()
+    assert not root.is_relative_to(Path(config["checkout"]).resolve())
+    prefix = "epistemic_graph/contract/"
+    with zipfile.ZipFile(wheel) as archive:
+        names = [
+            name
+            for name in archive.namelist()
+            if name.startswith(prefix) and not name.endswith("/")
+        ]
+        assert len(names) == len(set(names)), "duplicate wheel contract entry"
+        assert {
+            prefix + name
+            for name in ["__init__.py", "receipt.json", "methods.json", "errors.json"]
+        } <= set(names)
+        actual = {
+            prefix + path.relative_to(root).as_posix()
+            for path in root.rglob("*")
+            if path.is_file()
+            and "__pycache__" not in path.parts
+            and path.suffix not in {".pyc", ".pyo"}
+        }
+        assert actual == set(names), "installed contract inventory differs from wheel"
+        before = {}
+        for name in names:
+            data = root.joinpath(name.removeprefix(prefix)).read_bytes()
+            assert data == archive.read(name), (
+                f"installed bytes differ from wheel: {name}"
+            )
+            before[name] = hashlib.sha256(data).hexdigest()
+    contract.verify_receipt(config["expected_digest"])
+    results = _exercise_contract_copies(root, config["expected_digest"])
+    for name, digest in before.items():
+        assert (
+            hashlib.sha256(
+                root.joinpath(name.removeprefix(prefix)).read_bytes()
+            ).hexdigest()
+            == digest
+        )
+    return {
+        "interpreter": sys.executable,
+        "installed_root": str(root),
+        "distribution_version": distribution.version,
+        "wheel_sha256": wheel_sha,
+        "contract_digest": config["expected_digest"],
+        "receipt_sha256": before[prefix + "receipt.json"],
+        "module_sha256": before[prefix + "__init__.py"],
+        "contract_files_checked": len(before),
+        "installed_bytes_unchanged": True,
+        "cases": results,
+    }
+
+
+class InstalledReceiptQualification(unittest.TestCase):
+    @unittest.skipUnless(
+        os.environ.get("EG_CONTRACT_INSTALLED_PYTHON"),
+        "set installed interpreter and explicit wheel/pin inputs",
+    )
+    def test_production_verifier_against_installed_wheel(self) -> None:
+        required = [
+            "EG_CONTRACT_WHEEL_PATH",
+            "EG_CONTRACT_WHEEL_SHA256",
+            "EG_CONTRACT_EXPECTED_DIGEST",
+        ]
+        for name in required:
+            self.assertTrue(
+                os.environ.get(name), f"required qualification input: {name}"
+            )
+        config = {
+            "wheel_path": str(Path(os.environ["EG_CONTRACT_WHEEL_PATH"]).resolve()),
+            "wheel_sha256": os.environ["EG_CONTRACT_WHEEL_SHA256"],
+            "expected_digest": os.environ["EG_CONTRACT_EXPECTED_DIGEST"],
+            "checkout": str(_ROOT),
+        }
+        script = (
+            inspect.getsource(_exercise_contract_copies)
+            + "\n"
+            + inspect.getsource(_qualify_installed_contract)
+            + "\nimport json, sys\n"
+            + "print(json.dumps(_qualify_installed_contract(json.load(sys.stdin))))\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="eg-installed-qualification-") as temp:
+            result = subprocess.run(
+                [os.environ["EG_CONTRACT_INSTALLED_PYTHON"], "-I", "-B", "-c", script],
+                input=json.dumps(config),
+                text=True,
+                capture_output=True,
+                cwd=temp,
+                check=False,
+                timeout=180,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(len(report["cases"]), 18)
+        self.assertTrue(report["installed_bytes_unchanged"])
+        print("EG_T03_INSTALLED_PROOF=" + json.dumps(report, sort_keys=True))
 
 
 class ReceiptVerifier(unittest.TestCase):
@@ -115,6 +385,50 @@ class ReceiptVerifier(unittest.TestCase):
         self.assertFalse((self.root / "contract").exists())
         self._verify()
         self.assertIsNone(self.namespace["verify_receipt"](self.pin))
+
+    def test_qualification_cases_on_synthetic_source_fixture(self) -> None:
+        report = _exercise_contract_copies(self.contract, self.pin)
+        self.assertEqual(len(report), 18)
+        self.assertTrue(all(case["result"] == "pass" for case in report))
+
+    def test_wheel_binding_on_synthetic_zip_and_module_metadata(self) -> None:
+        """Validate harness binding with synthetic ZIP/module metadata only."""
+        import sys
+        import zipfile
+        from types import ModuleType, SimpleNamespace
+
+        archive_path = self.root / "synthetic-contract.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            for path in self.contract.rglob("*"):
+                if path.is_file() and "__pycache__" not in path.parts:
+                    archive.write(
+                        path, _PREFIX + path.relative_to(self.contract).as_posix()
+                    )
+        config = {
+            "wheel_path": str(archive_path),
+            "wheel_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+            "expected_digest": self.pin,
+            "checkout": str(_ROOT),
+        }
+        package = ModuleType("epistemic_graph")
+        contract = ModuleType("epistemic_graph.contract")
+        vars(contract).update(self.namespace)
+        package.contract = contract
+        distribution = SimpleNamespace(
+            locate_file=lambda name: self.root / name, version="synthetic-fixture"
+        )
+        with (
+            patch.dict(sys.modules, {"epistemic_graph": package}),
+            patch("importlib.metadata.distribution", return_value=distribution),
+        ):
+            with self.assertRaisesRegex(AssertionError, "wheel SHA-256 mismatch"):
+                _qualify_installed_contract({**config, "wheel_sha256": "0" * 64})
+            report = _qualify_installed_contract(config)
+            self.assertEqual(len(report["cases"]), 18)
+            self.assertTrue(report["installed_bytes_unchanged"])
+            self.contract.joinpath("errors.json").write_bytes(b"changed")
+            with self.assertRaisesRegex(AssertionError, "installed bytes differ"):
+                _qualify_installed_contract(config)
 
     def test_aggregate_matches_canonical_receipt(self) -> None:
         receipt = json.loads((_ROOT / "contract/receipt.json").read_bytes())
