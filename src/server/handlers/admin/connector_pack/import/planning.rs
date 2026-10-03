@@ -102,6 +102,7 @@ pub(super) fn prepare(
     let prior_by_uri = members_by_uri(&prior);
     let entries_by_uri = entries_by_uri(&all);
     let mut desired = build_all_desired(
+        store,
         request,
         archive,
         &all,
@@ -257,11 +258,12 @@ impl<'a> PlanCollector<'a> {
             member.entry_digest == *digest && member.lifecycle == AgentLibraryLifecycle::Published
         });
         if unchanged {
-            return current
-                .map(|value| (value, PackDisposition::Unchanged))
-                .ok_or_else(|| {
-                    "CORRUPT_CONNECTOR_PACK: member has no component revision".to_string()
-                });
+            let current = current.as_ref().ok_or_else(|| {
+                "CORRUPT_CONNECTOR_PACK: member has no component revision".to_string()
+            })?;
+            if wanted.pins_match(current) {
+                return Ok((current.clone(), PackDisposition::Unchanged));
+            }
         }
         let revision = current.as_ref().map_or(1, |value| value.entry_revision + 1);
         let mutation = mutation_for(prior);

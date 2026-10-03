@@ -5,8 +5,8 @@ use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::connector_pack::{PackDispositionCounts, PackImportResult, PackViolationCode};
 
 use super::{
-    bind, build_pack, build_pack_with_server, head_of, import, imported, ok, server, skill, tool,
-    Content, Served, ADMIN, TENANT,
+    bind, build_pack, build_pack_with_server, head_of, import, imported, ok,
+    seed_server_only_import, server, skill, tool, Content, Served, ADMIN, TENANT,
 };
 
 const CONNECTOR: &str = "content-model";
@@ -246,6 +246,158 @@ async fn a_server_name_change_revises_its_pin() {
 #[tokio::test]
 async fn a_server_instructions_change_revises_its_pin() {
     assert_server_contract_change_revises_pin("instructions", "Revised instructions.").await;
+}
+
+/// A forward reference chain: top skill -> middle skill -> tool.
+fn reference_chain() -> Vec<Content> {
+    let leaf = tool(CONNECTOR, "leaf", "Original leaf.");
+    let middle = skill(CONNECTOR, "z-middle", &[&leaf]);
+    let mut top = skill(CONNECTOR, "a-top", &[&middle]);
+    top.references[0].kind = eg_types::connector_pack::PackEntryKind::Skill;
+    vec![leaf, middle, top]
+}
+
+async fn chain_components(served: &Served) -> Vec<AgentComponentEntry> {
+    let mut entries = Vec::new();
+    for (kind, name) in [("tool", "leaf"), ("skill", "z-middle"), ("skill", "a-top")] {
+        entries.push(current_component(served, &component(CONNECTOR, kind, name)).await);
+    }
+    entries
+}
+
+async fn assert_repeat_is_unchanged(
+    served: &Served,
+    pack: &(eg_types::connector_pack::ConnectorPackIndex, Vec<u8>),
+    receipt: &eg_types::connector_pack::PackImportReceipt,
+) {
+    let before = chain_components(served).await;
+    let server_before = current_server(served).await;
+    match ok("Import", import(served, pack, Some(head_of(receipt))).await) {
+        PackImportResult::Unchanged {
+            pack_digest,
+            binding_revision,
+        } => {
+            assert_eq!(pack_digest, receipt.pack_digest);
+            assert_eq!(binding_revision, receipt.binding_revision);
+        }
+        other => panic!("repeat must be unchanged: {other:?}"),
+    }
+    assert_eq!(chain_components(served).await, before);
+    assert_eq!(current_server(served).await, server_before);
+}
+
+fn assert_chain_pins(entries: &[AgentComponentEntry]) {
+    for pair in entries.windows(2) {
+        assert_eq!(pair[1].requires.len(), 1);
+        assert_eq!(pair[1].requires[0].component_id, pair[0].component_id);
+        assert_eq!(
+            pair[1].requires[0].definition_digest,
+            pair[0].definition_digest
+        );
+    }
+}
+
+async fn assert_chain_body_holders(served: &Served, entries: &[AgentComponentEntry]) {
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    for entry in entries {
+        for revision in [1, entry.entry_revision] {
+            store
+                .connector_pack_content_pointer(TENANT, &entry.component_id, Some(revision))
+                .expect("historical and revised components retain exact body holders");
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_changed_leaf_revises_transitive_reference_pins_once() {
+    let served = Served::new();
+    bind(&served, CONNECTOR, ADMIN).await;
+    let mut entries = reference_chain();
+    let first = imported(&served, &build_pack(CONNECTOR, &entries), None).await;
+    let before = chain_components(&served).await;
+    let original_server = current_server(&served).await;
+    entries[0] = tool(CONNECTOR, "leaf", "Revised leaf.");
+    let mut changed = build_pack(CONNECTOR, &entries);
+    // Even when another entry changes, retain the actual legacy server pin
+    // across a package release rather than hashing a new package identity.
+    changed.0.server_package_version = "9.9.9".to_string();
+    let second = imported(&served, &changed, Some(head_of(&first))).await;
+    assert_eq!(
+        second.counts,
+        PackDispositionCounts {
+            revised: 3,
+            unchanged: 1,
+            ..Default::default()
+        }
+    );
+    let after = chain_components(&served).await;
+    for (old, new) in before.iter().zip(&after) {
+        assert_eq!(new.component_id, old.component_id);
+        assert_eq!(new.entry_revision, 2);
+        assert_ne!(new.definition_digest, old.definition_digest);
+    }
+    assert_chain_pins(&after);
+    assert_chain_body_holders(&served, &after).await;
+    assert_eq!(current_server(&served).await, original_server);
+    assert_repeat_is_unchanged(&served, &changed, &second).await;
+}
+
+#[tokio::test]
+async fn a_changed_pack_repairs_already_stale_server_and_reference_pins() {
+    let served = Served::new();
+    bind(&served, CONNECTOR, ADMIN).await;
+    let mut entries = reference_chain();
+    entries.push(tool(CONNECTOR, "unrelated", "Original sibling."));
+    let first = imported(&served, &build_pack(CONNECTOR, &entries), None).await;
+    let mut changed_server = server(CONNECTOR);
+    let mut body: serde_json::Value = serde_json::from_slice(&changed_server.body).unwrap();
+    body["contract_version"] = serde_json::json!("2");
+    changed_server.body = serde_json::to_vec(&body).unwrap();
+    let legacy_pack = build_pack_with_server(CONNECTOR, &changed_server, &entries);
+    let legacy = seed_server_only_import(&served, &legacy_pack, &first).await;
+    let server = current_server(&served).await;
+    assert_eq!(server.entry_revision, 2);
+    for entry in chain_components(&served).await {
+        assert_eq!(entry.entry_revision, 1);
+        assert_ne!(
+            entry
+                .provenance
+                .pinned_component()
+                .unwrap()
+                .definition_digest,
+            server.definition_digest
+        );
+    }
+    // Identical heads intentionally short-circuit before planning. An unrelated
+    // content change reaches planning without changing any stale member body.
+    entries[3] = tool(CONNECTOR, "unrelated", "Revised sibling.");
+    let repair = build_pack_with_server(CONNECTOR, &changed_server, &entries);
+    let repaired = imported(&served, &repair, Some(head_of(&legacy))).await;
+    assert_eq!(repaired.previous_pack_digest, Some(legacy.pack_digest));
+    assert_eq!(
+        repaired.counts,
+        PackDispositionCounts {
+            revised: 4,
+            unchanged: 1,
+            ..Default::default()
+        }
+    );
+    let after = chain_components(&served).await;
+    for entry in &after {
+        assert_eq!(entry.entry_revision, 2);
+        assert_eq!(
+            entry
+                .provenance
+                .pinned_component()
+                .unwrap()
+                .definition_digest,
+            server.definition_digest
+        );
+    }
+    assert_chain_pins(&after);
+    assert_chain_body_holders(&served, &after).await;
+    assert_eq!(current_server(&served).await, server);
+    assert_repeat_is_unchanged(&served, &repair, &repaired).await;
 }
 
 /// A served engine with `CONNECTOR` bound and four tools `a`..`d` imported.
