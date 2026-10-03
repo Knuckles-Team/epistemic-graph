@@ -24,6 +24,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TypedDict
+
+
+class _FixtureManifest(TypedDict):
+    contract_version: int
+    source_tree_oid: str
+    artifact_digests: dict[str, str]
+
+
+class _FixtureReceipt(_FixtureManifest, total=False):
+    contract_digest: str
+
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PACKAGE = _ROOT / "epistemic_graph"
@@ -219,7 +231,7 @@ class ContractProbeFixtures(unittest.TestCase):
         for name, data in files.items():
             self.contract.joinpath(name).write_bytes(data)
         # Deliberately synthetic, not a generated EG receipt or a real method.
-        manifest = {
+        manifest: _FixtureReceipt = {
             "contract_version": 1,
             "source_tree_oid": "b" * 64,
             "artifact_digests": {

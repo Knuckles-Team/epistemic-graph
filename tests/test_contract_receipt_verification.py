@@ -18,7 +18,19 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TypedDict
 from unittest.mock import patch
+
+
+class _FixtureManifest(TypedDict):
+    contract_version: int
+    source_tree_oid: str
+    artifact_digests: dict[str, str]
+
+
+class _FixtureReceipt(_FixtureManifest, total=False):
+    contract_digest: str
+
 
 _ROOT = Path(__file__).resolve().parent.parent
 _TEMPLATE = _ROOT / "crates/eg-capabilities/src/contract/python/package.rs"
@@ -41,7 +53,7 @@ def _errors_source() -> str:
     return _literal_source("PACKAGE_CONTRACT_ERRORS_MODULE")
 
 
-def _fixture_digest(receipt: dict) -> str:
+def _fixture_digest(receipt: _FixtureManifest) -> str:
     """Independent expression of the existing NUL-framed aggregate for fixtures."""
     parts = [receipt["source_tree_oid"]]
     for name, digest in sorted(receipt["artifact_digests"].items()):
@@ -91,7 +103,7 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
         "missing_errors_module_after_import",
         "corrupt_errors_module_after_import",
     ]
-    results = []
+    results: list[dict[str, str | None]] = []
     original_cwd = Path.cwd()
     for case in cases:
         with tempfile.TemporaryDirectory(prefix="eg-wheel-verifier-case-") as temp:
@@ -249,7 +261,7 @@ def _qualify_installed_contract(config: dict) -> dict:
         "candidate interpreter is not a venv"
     )
     distribution = metadata.distribution("epistemic-graph")
-    assert Path(distribution.locate_file("")).resolve().is_relative_to(venv), (
+    assert Path(str(distribution.locate_file(""))).resolve().is_relative_to(venv), (
         "distribution location is outside candidate venv"
     )
     direct_url = distribution.read_text("direct_url.json")
@@ -268,9 +280,9 @@ def _qualify_installed_contract(config: dict) -> dict:
     assert len(metadata_entries) == 1, "RECORD must identify distribution metadata"
     metadata_entry = Path(metadata_entries[0])
     assert len(metadata_entry.parts) == 2 and not metadata_entry.is_absolute()
-    metadata_path = Path(distribution.locate_file(metadata_entry)).resolve()
+    metadata_path = Path(str(distribution.locate_file(metadata_entry))).resolve()
     record_path = Path(
-        distribution.locate_file(metadata_entry.with_name("RECORD"))
+        str(distribution.locate_file(metadata_entry.with_name("RECORD")))
     ).resolve()
     assert metadata_path.is_relative_to(venv) and record_path.is_relative_to(venv), (
         "distribution metadata is outside candidate venv"
@@ -291,8 +303,13 @@ def _qualify_installed_contract(config: dict) -> dict:
     assert all(
         Path(path).resolve().is_relative_to(venv) for path in package.__path__
     ), "package search path is source-linked outside candidate venv"
-    assert package_root == Path(distribution.locate_file("epistemic_graph")).resolve()
-    assert root == Path(distribution.locate_file("epistemic_graph/contract")).resolve()
+    assert (
+        package_root == Path(str(distribution.locate_file("epistemic_graph"))).resolve()
+    )
+    assert (
+        root
+        == Path(str(distribution.locate_file("epistemic_graph/contract"))).resolve()
+    )
     assert not root.is_relative_to(Path(config["checkout"]).resolve())
     prefix = "epistemic_graph/contract/"
     with zipfile.ZipFile(wheel) as archive:
@@ -437,7 +454,7 @@ class ReceiptVerifier(unittest.TestCase):
         }
         for name, data in files.items():
             self.contract.joinpath(name).write_bytes(data)
-        self.receipt = {
+        self.receipt: _FixtureReceipt = {
             "contract_version": 1,
             "source_tree_oid": "b" * 64,
             "artifact_digests": {
@@ -550,7 +567,7 @@ class ReceiptVerifier(unittest.TestCase):
         package.__path__ = [str(package_init.parent)]
         contract = ModuleType("epistemic_graph.contract")
         vars(contract).update(self.namespace)
-        package.contract = contract
+        vars(package)["contract"] = contract
         config = {
             "wheel_path": str(archive_path),
             "wheel_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
@@ -731,11 +748,13 @@ class ReceiptVerifier(unittest.TestCase):
 
     def test_invalid_manifest_structure_and_required_entries(self) -> None:
         original = json.dumps(self.receipt)
-        for manifest in [None, [], {}, {"example.json": []}]:
+        invalid_manifests: tuple[object, ...] = (None, [], {}, {"example.json": []})
+        for manifest in invalid_manifests:
             with self.subTest(manifest=manifest):
                 self.receipt = json.loads(original)
-                self.receipt["artifact_digests"] = manifest
-                self._write_receipt()
+                malformed: dict[str, object] = dict(self.receipt)
+                malformed["artifact_digests"] = manifest
+                self.receipt_path.write_text(json.dumps(malformed), encoding="utf-8")
                 self._assert_import_error("ContractDigestMismatch")
         for name in ["__init__.py", "errors.json", "methods.json"]:
             with self.subTest(missing=name):
@@ -972,13 +991,18 @@ class ReceiptVerifier(unittest.TestCase):
             for field in ["source_tree_oid", "contract_digest", "artifact"]:
                 with self.subTest(field=field, value=value):
                     self.receipt = json.loads(original)
+                    malformed: dict[str, object] = dict(self.receipt)
                     if field == "artifact":
-                        self.receipt["artifact_digests"][_PREFIX + "errors.json"] = (
-                            value
+                        artifacts: dict[str, object] = dict(
+                            self.receipt["artifact_digests"]
                         )
+                        artifacts[_PREFIX + "errors.json"] = value
+                        malformed["artifact_digests"] = artifacts
                     else:
-                        self.receipt[field] = value
-                    self._write_receipt()
+                        malformed[field] = value
+                    self.receipt_path.write_text(
+                        json.dumps(malformed), encoding="utf-8"
+                    )
                     self._assert_import_error("ContractDigestMismatch")
             self.receipt = json.loads(original)
             self._write_receipt()
