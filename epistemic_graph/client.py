@@ -12423,7 +12423,8 @@ class RdfClient:
         A caller that owns no RDF syntax sends plain
         ``{"subject", "predicate", "object"}`` triples; the engine builds the RDF
         terms and validates them with ``shapes`` omitted, so the report carries
-        the composed digest of the exact schema snapshot it used.
+        the composed digest of the exact schema snapshot it used. An empty
+        list validates an empty dataset, never the live graph.
         """
         return (
             await _gen.reasoning.send_shacl_validate(

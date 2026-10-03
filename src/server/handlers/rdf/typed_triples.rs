@@ -174,4 +174,31 @@ mod tests {
         )
         .is_err());
     }
+    #[test]
+    fn wire_preserves_absent_versus_explicit_empty_typed_data() {
+        use eg_types::protocol::Method;
+        use serde_json::json;
+
+        for (params, expected) in [
+            (json!({}), None),
+            (json!({"data_triples": []}), Some(vec![])),
+        ] {
+            let method: Method = serde_json::from_value(json!({
+                "method": "ShaclValidate", "params": params
+            }))
+            .unwrap();
+            let Method::ShaclValidate {
+                ref data_triples, ..
+            } = method
+            else {
+                panic!("expected ShaclValidate");
+            };
+            assert_eq!(data_triples, &expected);
+            let serialized = serde_json::to_value(&method).unwrap();
+            assert_eq!(
+                serialized["params"].get("data_triples"),
+                params.get("data_triples")
+            );
+        }
+    }
 }

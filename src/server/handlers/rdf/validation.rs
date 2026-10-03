@@ -8,7 +8,7 @@ use crate::protocol::{Response, ResultPayload};
 #[cfg(feature = "shacl")]
 pub(super) struct ShaclData<'a> {
     pub(super) turtle: &'a str,
-    pub(super) triples: &'a [eg_types::ontology_inspection::RdfTriple],
+    pub(super) triples: Option<&'a [eg_types::ontology_inspection::RdfTriple]>,
 }
 
 /// Validate the request graph (or an inline `data_graph` Turtle document, or typed
@@ -115,11 +115,11 @@ fn load_shacl_data(
     data: &ShaclData<'_>,
 ) -> Result<eg_shacl::Graph, String> {
     let has_turtle = !data.turtle.trim().is_empty();
-    if has_turtle && !data.triples.is_empty() {
+    if has_turtle && data.triples.is_some() {
         return Err("ShaclValidate: give data_graph or data_triples, not both".to_string());
     }
-    if !data.triples.is_empty() {
-        return super::typed_triples::graph_from_typed_triples(data.triples)
+    if let Some(triples) = data.triples {
+        return super::typed_triples::graph_from_typed_triples(triples)
             .map_err(|error| format!("ShaclValidate: bad data_triples: {error}"));
     }
     if has_turtle {

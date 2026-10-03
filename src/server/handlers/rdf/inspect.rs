@@ -118,6 +118,12 @@ fn parsed(
     let mut triples = Vec::new();
     let mut digests = BTreeSet::new();
     for (name, document) in documents {
+        if document.len() > eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES {
+            return Err(format!(
+                "{name} exceeds the maximum of {} bytes",
+                eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES
+            ));
+        }
         let document_triples = eg_rdf::mapping::parse_turtle(document)
             .map_err(|error| format!("{name} is not Turtle: {error}"))?;
         if document_triples.len() > crate::graph::MAX_SCHEMA_DOCUMENT_TRIPLES {
@@ -200,7 +206,7 @@ impl Facts {
             }
             return;
         }
-        let Some(value) = term_value(&triple.object) else {
+        let Some(value) = term_value(predicate, &triple.object) else {
             return;
         };
         let (NamedOrBlankNode::NamedNode(subject), Some(key)) = (
@@ -256,15 +262,15 @@ impl Facts {
     }
 }
 
-/// A named node's IRI or a literal's lexical form; blank nodes carry no value.
-fn term_value(term: &Term) -> Option<String> {
-    if let Term::NamedNode(node) = term {
-        return Some(node.as_str().to_string());
+/// Vocabulary links must remain named terms; only annotations use lexical text.
+fn term_value(predicate: &str, term: &Term) -> Option<String> {
+    match term {
+        Term::NamedNode(node) => Some(node.as_str().to_string()),
+        Term::Literal(literal) if matches!(predicate, RDFS_LABEL | RDFS_COMMENT) => {
+            Some(literal.value().to_string())
+        }
+        _ => None,
     }
-    if let Term::Literal(literal) = term {
-        return Some(literal.value().to_string());
-    }
-    None
 }
 
 fn first(values: &BTreeMap<&'static str, BTreeSet<String>>, key: &str) -> Option<String> {

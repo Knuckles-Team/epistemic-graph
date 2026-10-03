@@ -297,7 +297,7 @@ async fn try_handle_validation(
             let projected = authority.project_core(core);
             let data = super::validation::ShaclData {
                 turtle: data_graph,
-                triples: data_triples,
+                triples: data_triples.as_deref(),
             };
             Some(
                 super::validation::handle_shacl_validate(

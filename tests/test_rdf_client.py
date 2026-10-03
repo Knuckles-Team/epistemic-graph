@@ -81,6 +81,13 @@ async def test_validate_committed_sends_typed_triples_without_shapes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_validate_committed_preserves_explicit_empty_dataset() -> None:
+    fake = _FakeClient({"conforms": True, "results": [], "schema_digests": []})
+    await RdfClient(fake).validate_committed(data_triples=[])
+    assert fake.sent == [("ShaclValidate", {"data_graph": "", "data_triples": []})]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "params",
     [

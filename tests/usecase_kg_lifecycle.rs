@@ -88,7 +88,7 @@ async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: 
             Method::ShaclValidate {
                 shapes: Some(SHAPES.into()),
                 data_graph: data_graph.into(),
-                data_triples: Vec::new(),
+                data_triples: None,
             },
         ),
     ))
@@ -115,7 +115,20 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
     use eg_types::ontology_inspection::{RdfObject, RdfTriple};
 
     let state = state();
+    ok(
+        &state,
+        20,
+        Method::AddTriples {
+            turtle: "<http://ex/live> a <http://ex/Sensor> .".into(),
+            ntriples: String::new(),
+        },
+    )
+    .await;
     let before = rdf_snapshot(&state, 1).await;
+    assert!(
+        !shacl_conforms(&state, 21, "").await,
+        "omitted triples must validate the nonempty, nonconforming live graph"
+    );
     let sensor = RdfTriple {
         subject: "http://ex/inline-only".into(),
         predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type".into(),
@@ -135,6 +148,7 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
     for (id, triples, conforms) in [
         (2, vec![sensor.clone()], false),
         (4, vec![sensor.clone(), unit], true),
+        (8, vec![], true),
     ] {
         let response = Box::pin(dispatch(
             &state,
@@ -144,7 +158,7 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
                 Method::ShaclValidate {
                     shapes: Some(SHAPES.into()),
                     data_graph: String::new(),
-                    data_triples: triples,
+                    data_triples: Some(triples),
                 },
             ),
         ))
@@ -164,7 +178,7 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
             Method::ShaclValidate {
                 shapes: Some(SHAPES.into()),
                 data_graph: "<http://ex/other> a <http://ex/Sensor> .".into(),
-                data_triples: vec![sensor],
+                data_triples: Some(vec![sensor]),
             },
         ),
     ))

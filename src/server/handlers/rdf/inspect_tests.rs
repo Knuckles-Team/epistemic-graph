@@ -145,3 +145,53 @@ fn ambiguous_unknown_and_malformed_requests_are_refused() {
         .unwrap_err()
         .starts_with("documents[0] is not Turtle"));
 }
+
+#[test]
+fn literal_lexical_forms_never_become_named_vocabulary_links() {
+    let view = inline(&[r#"
+        @prefix : <http://ex/> .
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix sh: <http://www.w3.org/ns/shacl#> .
+        :FakeClass a "http://www.w3.org/2002/07/owl#Class" .
+        :FakeOntology a "http://www.w3.org/2002/07/owl#Ontology" .
+        :FakeObject a "http://www.w3.org/2002/07/owl#ObjectProperty" .
+        :FakeDatatype a "http://www.w3.org/2002/07/owl#DatatypeProperty" .
+        :C a owl:Class ; rdfs:subClassOf :Parent, "http://ex/FakeParent" ;
+            rdfs:label "Class label" ; rdfs:comment "Class comment" .
+        :p a owl:ObjectProperty, "http://www.w3.org/2002/07/owl#SymmetricProperty" ;
+            rdfs:domain :C, "http://ex/FakeDomain" ;
+            rdfs:range :Parent, "http://ex/FakeRange" .
+        :s sh:targetClass :C, "http://ex/FakeTarget" .
+    "#])
+    .unwrap();
+    assert!(view.ontologies.is_empty());
+    assert!(view.datatype_properties.is_empty());
+    assert_eq!(view.classes.len(), 1);
+    assert_eq!(view.classes[0].iri, "http://ex/C");
+    assert_eq!(view.classes[0].parents, ["http://ex/Parent"]);
+    assert_eq!(view.classes[0].label.as_deref(), Some("Class label"));
+    assert_eq!(view.classes[0].comment.as_deref(), Some("Class comment"));
+    assert_eq!(view.object_properties.len(), 1);
+    assert_eq!(view.object_properties[0].domains, ["http://ex/C"]);
+    assert_eq!(view.object_properties[0].ranges, ["http://ex/Parent"]);
+    assert!(!view.object_properties[0].symmetric);
+    assert_eq!(view.shape_target_classes, ["http://ex/C"]);
+}
+
+#[test]
+fn inspection_rejects_document_count_and_bytes_before_parsing() {
+    let documents = vec![String::new(); MAX_INSPECT_DOCUMENTS + 1];
+    assert!(inspect(&GraphCore::new(), &documents, &[])
+        .unwrap_err()
+        .contains("documents exceed"));
+    let bytes = eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES;
+    // An over-limit malformed document must fail its byte budget before syntax.
+    let oversized = "!".repeat(bytes + 1);
+    assert!(inline(&[&oversized])
+        .unwrap_err()
+        .contains(&format!("maximum of {bytes} bytes")));
+    let boundary = " ".repeat(bytes);
+    assert_eq!(inline(&[&boundary]).unwrap().triple_count, 0);
+    assert!(inspect(&GraphCore::new(), &documents[..MAX_INSPECT_DOCUMENTS], &[]).is_ok());
+}

@@ -333,9 +333,10 @@ $($variants)*
         data_graph: String,
         /// The data graph as typed triples, for callers that must not build
         /// RDF text. Mutually exclusive with a non-empty `data_graph`; at most
-        /// `MAX_TYPED_TRIPLES`. Omitted on the wire when empty.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        data_triples: Vec<crate::ontology_inspection::RdfTriple>,
+        /// `MAX_TYPED_TRIPLES`. An explicit empty list validates an empty graph;
+        /// omitted/null permits the Turtle or live-graph fallback.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data_triples: Option<Vec<crate::ontology_inspection::RdfTriple>>,
     },
 
     /// Inspect ontology/shapes documents: the named classes, object and
