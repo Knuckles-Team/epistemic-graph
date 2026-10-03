@@ -25,10 +25,11 @@ pub fn parse_turtle(doc: &str) -> Result<Vec<Triple>, String> {
 pub fn parse_turtle_bounded(doc: &str, max_triples: usize) -> Result<Vec<Triple>, String> {
     let mut triples = Vec::new();
     for (index, triple) in TurtleParser::new().for_reader(doc.as_bytes()).enumerate() {
+        let triple = triple.map_err(|error| format!("turtle parse: {error}"))?;
         if index == max_triples {
             return Err(format!("turtle exceeds maximum of {max_triples} triples"));
         }
-        triples.push(triple.map_err(|error| format!("turtle parse: {error}"))?);
+        triples.push(triple);
     }
     Ok(triples)
 }
@@ -106,6 +107,17 @@ mod bounded_tests {
             .unwrap_err()
             .contains("maximum of 0 triples"));
         assert!(parse_turtle_bounded("not Turtle .", 1)
+            .unwrap_err()
+            .starts_with("turtle parse:"));
+    }
+
+    #[test]
+    fn bounded_turtle_reports_syntax_errors_at_the_exact_limit() {
+        let document = "<urn:s> <urn:p> <urn:o> .\nnot Turtle .";
+        assert!(parse_turtle_bounded(document, 1)
+            .unwrap_err()
+            .starts_with("turtle parse:"));
+        assert!(parse_turtle_bounded("not Turtle .", 0)
             .unwrap_err()
             .starts_with("turtle parse:"));
     }
