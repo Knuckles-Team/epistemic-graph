@@ -71,4 +71,3 @@ This page is produced by `scripts/build_status_page.py` from `docs/capabilities.
 ```bash
 python scripts/build_status_page.py --write
 ```
-

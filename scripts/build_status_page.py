@@ -363,7 +363,6 @@ def render() -> str:
     lines.append("```bash")
     lines.append("python scripts/build_status_page.py --write")
     lines.append("```")
-    lines.append("")
     # No trailing blank line: `"\n".join(lines) + "\n"` already terminates the
     # last line, and an extra "" here emitted a trailing BLANK line that
     # `end-of-file-fixer` strips on the very next commit -- after which
