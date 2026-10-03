@@ -1310,11 +1310,34 @@ class AttributionValuePercentileBody(BaseModel):
     p: Annotated[int, Field(ge=0, le=255)]
 
 
+class AuditAppendReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry_sha256: str
+    graph: str
+    outcome_seq: Annotated[int, Field(ge=0)] | None = None
+    replayed: bool
+    reservation_seq: Annotated[int, Field(ge=0)]
+    seq: Annotated[int, Field(ge=0)]
+
+
 class AuditDraw(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     inclusion_probability: UnitRationalWire
     sampled: bool
+
+
+class AuditEventProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chain_entries: Annotated[int, Field(ge=0)]
+    chain_verified: bool
+    entry_sha256: str
+    event_line: str
+    graph: str
+    previous_sha256: str
+    seq: Annotated[int, Field(ge=0)]
 
 
 class AuditReport(BaseModel):
@@ -8103,6 +8126,20 @@ class MethodAuditVerify(BaseModel):
     method: Literal["AuditVerify"]
 
 
+class MethodAuditAppend(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["AuditAppend"]
+    params: MethodAuditAppendParams
+
+
+class MethodAuditReadEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["AuditReadEvent"]
+    params: MethodAuditReadEventParams
+
+
 class MethodAuditProveInclusion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10412,6 +10449,8 @@ Method = Annotated[
     | MethodClearLedger
     | MethodApplyLedger
     | MethodAuditVerify
+    | MethodAuditAppend
+    | MethodAuditReadEvent
     | MethodAuditProveInclusion
     | MethodGetSubgraph
     | MethodFork
@@ -10856,11 +10895,28 @@ class MethodAsrParams(BaseModel):
     op: AsrOp
 
 
+class MethodAuditAppendParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    audit_class: str | None = None
+    op: str
+    params_sha256: str
+    request_id: str
+    status: str
+    surface: str
+
+
 class MethodAuditProveInclusionParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     anchor_seq: Annotated[int, Field(ge=0)] | None = None
     node_id: str
+
+
+class MethodAuditReadEventParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    seq: Annotated[int, Field(ge=0)]
 
 
 class MethodBackupParams(BaseModel):
@@ -22920,7 +22976,9 @@ __all__ = [
     "AttributionValue",
     "AttributionValuePercentile",
     "AttributionValuePercentileBody",
+    "AuditAppendReceipt",
     "AuditDraw",
+    "AuditEventProof",
     "AuditReport",
     "AuthorityContext",
     "AuthorityPolicyWire",
@@ -24033,8 +24091,12 @@ __all__ = [
     "MethodApplyMutationParams",
     "MethodAsr",
     "MethodAsrParams",
+    "MethodAuditAppend",
+    "MethodAuditAppendParams",
     "MethodAuditProveInclusion",
     "MethodAuditProveInclusionParams",
+    "MethodAuditReadEvent",
+    "MethodAuditReadEventParams",
     "MethodAuditVerify",
     "MethodBackup",
     "MethodBackupParams",

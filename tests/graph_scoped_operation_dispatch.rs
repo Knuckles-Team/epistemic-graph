@@ -231,6 +231,114 @@ async fn t05_audit_verify_over_fresh_graph() {
     );
 }
 
+// ── Operation audit append (`Method::AuditAppend`, security feature): every
+// refusal this operation can return must reach the caller as its OWN declared
+// code, not folded into `INTERNAL` by the generic dispatch wrapper. Exercised
+// through the real served `dispatch` path (not `redb_store`/`PersistenceBackend`
+// directly, which `audit_append_tests.rs` already covers at the store layer).
+
+fn audit_append_method(request_id: &str, audit_class: &str, op: &str) -> Method {
+    Method::AuditAppend {
+        op: op.to_string(),
+        surface: "test".to_string(),
+        params_sha256: "0".repeat(64),
+        status: "reserved".to_string(),
+        request_id: request_id.to_string(),
+        audit_class: audit_class.to_string(),
+    }
+}
+
+#[tokio::test]
+async fn t05a_audit_append_without_a_class_reports_the_declared_code() {
+    let state = state();
+    let graph = "cx06-op-audit-class-required";
+    assert!(create_graph(&state, 1, graph).await.error.is_none());
+    let resp = call(
+        &state,
+        2,
+        graph,
+        audit_append_method("req-1", "", "op.test"),
+    )
+    .await;
+    assert_eq!(resp.error.as_deref(), Some("AUDIT_CLASS_REQUIRED"));
+}
+
+#[tokio::test]
+async fn t05b_audit_append_with_an_unknown_class_reports_the_declared_code() {
+    let state = state();
+    let graph = "cx06-op-audit-class-unknown";
+    assert!(create_graph(&state, 1, graph).await.error.is_none());
+    let resp = call(
+        &state,
+        2,
+        graph,
+        audit_append_method("req-1", "not-a-real-class", "op.test"),
+    )
+    .await;
+    assert_eq!(resp.error.as_deref(), Some("AUDIT_CLASS_UNKNOWN"));
+}
+
+#[tokio::test]
+async fn t05c_audit_append_idempotency_conflict_reports_the_declared_code() {
+    let state = state();
+    let graph = "cx06-op-audit-idempotency";
+    assert!(create_graph(&state, 1, graph).await.error.is_none());
+    // The idempotency key is derived from tenant/principal/request_id/op/phase
+    // (see `OperationAuditEvent::request_key`), so both calls below share the
+    // SAME key; only `params_sha256` (part of the stored line, not the key)
+    // differs, which is exactly what `append_once` treats as a conflict.
+    let first = call(
+        &state,
+        2,
+        graph,
+        Method::AuditAppend {
+            op: "op.conflict".to_string(),
+            surface: "test".to_string(),
+            params_sha256: "0".repeat(64),
+            status: "reserved".to_string(),
+            request_id: "req-conflict".to_string(),
+            audit_class: "event".to_string(),
+        },
+    )
+    .await;
+    assert!(first.error.is_none(), "{:?}", first.error);
+    let resp = call(
+        &state,
+        3,
+        graph,
+        Method::AuditAppend {
+            op: "op.conflict".to_string(),
+            surface: "test".to_string(),
+            params_sha256: "1".repeat(64),
+            status: "reserved".to_string(),
+            request_id: "req-conflict".to_string(),
+            audit_class: "event".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(resp.error.as_deref(), Some("AUDIT_IDEMPOTENCY_CONFLICT"));
+}
+
+#[tokio::test]
+async fn t05d_audit_append_with_no_durable_writer_reports_the_declared_code() {
+    common::configure_authority();
+    let isolation = common::current_isolation();
+    let persist_dir = test_support::fresh_dir("cx06-op-audit-writer-unavailable");
+    let (persistence, state) =
+        test_support::redb_state_at(SECRET, isolation, persist_dir.to_str().unwrap());
+    let graph = "cx06-op-audit-writer-unavailable";
+    assert!(create_graph(&state, 1, graph).await.error.is_none());
+    persistence.shutdown();
+    let resp = call(
+        &state,
+        2,
+        graph,
+        audit_append_method("req-1", "event", "op.test"),
+    )
+    .await;
+    assert_eq!(resp.error.as_deref(), Some("AUDIT_WRITER_UNAVAILABLE"));
+}
+
 // ── Time-series (`tsdb` feature) — TsListSeries is a pure read, no fields.
 // OBSERVED: this test harness's `ServerState` has no `tsdb_store` configured
 // (mirrors every other characterization/integration fixture in this repo,

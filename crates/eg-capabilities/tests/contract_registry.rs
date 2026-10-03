@@ -201,9 +201,11 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 455 -> 456: `CheckAccess`, a principal's current access (EH-416).
     // 456 -> 455: EH-524 added `TsDefineSeries`; EH-530 retired `FinanceRollingZscore` and `FinanceEwma` (served as UQL `DERIVE` / SQL `eg_zscore`/`eg_ewma`).
     // 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
+    // 456 -> 458: the tenant-scoped operation audit-append `AuditAppend` and its
+    // paired read `AuditReadEvent`.
     assert_eq!(
         variants.len(),
-        456,
+        458,
         "the wire method census changed; update this exact count deliberately"
     );
 }

@@ -3947,6 +3947,7 @@ components:
       - "tests/test_no_pyo3_and_quant.py"
       - "tests/test_no_version_suffixes.py"
       - "tests/test_obda_client.py"
+      - "tests/test_object_path.py"
       - "tests/test_p2_analytics_gate_contract.py"
       - "tests/test_pb_clients.py"
       - "tests/test_persisted_mutation_contract.py"

@@ -1,6 +1,44 @@
 # Security API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 8 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 10 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+
+## `AuditAppend`
+
+tenant-bound operation audit: a reservation and its linked outcome with request-id/op idempotency and no raw params; requires a declared audit class and a durable writer (AUDIT_CLASS_REQUIRED, AUDIT_CLASS_UNKNOWN, AUDIT_WRITER_UNAVAILABLE); writes its own audit-chain entry directly (see src/redb_store/operation_audit.rs::operation_audit_append), not through the generic per-mutation audit_line() dispatch, like EdgeIndex above
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `security:audit-write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUDIT_CLASS_REQUIRED`, `AUDIT_CLASS_UNKNOWN`, `AUDIT_IDEMPOTENCY_CONFLICT`, `AUDIT_RESERVATION_MISMATCH`, `AUDIT_RESERVATION_REQUIRED`, `AUDIT_WRITER_UNAVAILABLE`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `READ_ONLY`, `REDIRECTED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `audit_class` | string | no |  |
+| `op` | string | yes |  |
+| `params_sha256` | string | yes |  |
+| `request_id` | string | yes |  |
+| `status` | string | yes |  |
+| `surface` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `AuditAppendReceipt` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/AuditAppend`, `contract/schemas/result.security.json#/methods/AuditAppend`.
 
 ## `AuditProveInclusion`
 
@@ -34,6 +72,38 @@ provenance anchoring: Merkle inclusion proof for one node against a prior PROVEN
 | `result` | `MerkleInclusionReport` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/AuditProveInclusion`, `contract/schemas/result.security.json#/methods/AuditProveInclusion`.
+
+## `AuditReadEvent`
+
+read one privacy-safe operation event with a full-chain verification result
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `security:audit` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `POLICY_NATIVE_AUTHORITY_REQUIRED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `seq` | integer (uint64) | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `AuditEventProof` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/AuditReadEvent`, `contract/schemas/result.security.json#/methods/AuditReadEvent`.
 
 ## `AuditVerify`
 

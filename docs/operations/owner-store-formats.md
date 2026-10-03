@@ -3,7 +3,7 @@
 Generated from `crates/eg-storage/src/owner/lineage.rs`; do not edit by hand.
 Regenerate with `cargo run -p eg-storage --example gen_owner_store_formats`.
 
-Every durable owner file records the digest of its exact table layout. A file whose layout is a declared predecessor below is refused on ordinary open with the named error. The SQL, immediate pre-MCP Agent Library, and immediate pre-enrichment GraphShard predecessors have explicit offline, data-preserving upgrades; others move aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.
+Every durable owner file records the digest of its exact table layout. A file whose layout is a declared predecessor below is refused on ordinary open with the named error. The SQL, immediate pre-MCP Agent Library, pre-enrichment GraphShard and immediate pre-audit-request-index GraphShard predecessors have explicit offline, data-preserving upgrades; others move aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.
 
 | Store | Current layout digest | Refused predecessors |
 |---|---|---|
@@ -23,7 +23,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `tenant_catalog` | `01b945d16fa187e69ca3dd5777a27066310b64a8b351380af1ba810f5dcd57aa` | none |
 | `node_info` | `02e5ca262822f4de0a1507780b2e908e605655d3a758e78c2a75f205ffa80347` | none |
 | `cluster_hierarchy` | `0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431` | none |
-| `graph_shard` | `01c219acd2bb2f1d523a1bd85eb08442cca03bfc975d60de2eff2b91e3425793` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
+| `graph_shard` | `952ea729e026deee49d9922dd2577cd1f789860be06b19e981cbb2949cf2a217` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
 | `agent_library` | `e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
 
 ## `BLOB_FORMAT_UPGRADE_REQUIRED`: blob store from before holder-scoped references
@@ -72,6 +72,14 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Refused generation: graph shard before repository enrichment policy revisions
 * Data lost: its graph rows require re-ingestion after moving the file aside; the offline enrichment upgrade only accepts the exact pre-enrichment layout
 * Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
+* Removal step: stop the engine, move `graph-*.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
+
+## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before the operation audit-append idempotency index
+
+* Store file: `graph-*.redb`
+* Refused generation: graph shard before the operation audit-append idempotency index
+* Data lost: its graph rows require the explicit offline audit-request-index layout upgrade before normal open, or re-ingestion after moving the file aside
+* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
 * Removal step: stop the engine, move `graph-*.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
 ## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before connector packs and governed write-back
