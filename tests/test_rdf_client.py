@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from epistemic_graph.client import EpistemicGraphClient, RdfClient
-from epistemic_graph.generated import ContractViolation, models
+from epistemic_graph.generated import ContractViolation, models, reasoning
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -50,6 +50,91 @@ async def test_validate_shacl_sends_both_inline_graphs() -> None:
     # The decoded report carries every model field, the optional digest included.
     assert result == {**report, "composed_digest": None}
     assert fake.sent == [("ShaclValidate", {"shapes": "shapes", "data_graph": "data"})]
+
+
+@pytest.mark.asyncio
+async def test_validate_committed_sends_typed_triples_without_shapes() -> None:
+    digest = "33" * 32
+    report = {
+        "conforms": True,
+        "results": [],
+        "schema_digests": [digest],
+        "composed_digest": digest,
+    }
+    fake = _FakeClient(report)
+    rdf = RdfClient(fake)
+    triples = [
+        {
+            "subject": "http://knuckles.team/kg#a",
+            "predicate": "http://knuckles.team/kg#name",
+            "object": {"kind": "literal", "lexical": "a"},
+        }
+    ]
+
+    result = await rdf.validate_committed(data_triples=triples)
+
+    assert result == report
+    [(method, params)] = fake.sent
+    assert method == "ShaclValidate"
+    assert "shapes" not in (params or {})
+    assert (params or {})["data_triples"][0]["subject"] == "http://knuckles.team/kg#a"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "params",
+    [
+        {
+            "documents": [
+                "<http://example.org/C> a <http://www.w3.org/2002/07/owl#Class> ."
+            ]
+        },
+        {"source_ids": ["core:catalog@1"]},
+        {},
+    ],
+)
+async def test_generated_ontology_sender_preserves_request_and_decodes_report(
+    params,
+) -> None:
+    report = {
+        "schema_digests": ["44" * 32],
+        "triple_count": 1,
+        "ontologies": [],
+        "classes": [{"iri": "http://example.org/C", "parents": []}],
+        "object_properties": [],
+        "datatype_properties": [],
+        "shape_target_classes": [],
+    }
+    fake = _FakeClient(report)
+
+    result = await reasoning.send_ontology_inspect(fake, params)
+
+    assert result.classes[0].iri == "http://example.org/C"
+    assert result.triple_count == 1
+    assert result.schema_digests == report["schema_digests"]
+    assert fake.sent == [("OntologyInspect", params)]
+
+
+@pytest.mark.asyncio
+async def test_generated_inline_validation_sender_sends_no_write_operation() -> None:
+    params = {
+        "shapes": "@prefix sh: <http://www.w3.org/ns/shacl#> .",
+        "data_triples": [
+            {
+                "subject": "http://example.org/item",
+                "predicate": "http://example.org/name",
+                "object": {"kind": "literal", "lexical": "inline only"},
+            }
+        ],
+    }
+    fake = _FakeClient({"conforms": True, "results": [], "schema_digests": []})
+
+    result = await reasoning.send_shacl_validate(fake, params)
+
+    assert result.conforms is True
+    # This proves the client emits only validation. The Rust dispatch regression
+    # separately proves that the server leaves the request graph unchanged.
+    assert fake.sent == [("ShaclValidate", params)]
 
 
 WITNESS = {

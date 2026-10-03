@@ -457,6 +457,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ListChannels
         | Method::GetLedger
         | Method::ShaclValidate { .. }
+        | Method::OntologyInspect { .. }
         | Method::FinanceConvergenceGate { .. }
         | Method::FinanceGlostenMilgromSpread { .. }
         | Method::FinanceCvar { .. }

@@ -12415,6 +12415,22 @@ class RdfClient:
             )
         ).model_dump(mode="json")
 
+    async def validate_committed(
+        self, *, data_triples: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Validate typed triples against the graph's committed GraphSchema shapes.
+
+        A caller that owns no RDF syntax sends plain
+        ``{"subject", "predicate", "object"}`` triples; the engine builds the RDF
+        terms and validates them with ``shapes`` omitted, so the report carries
+        the composed digest of the exact schema snapshot it used.
+        """
+        return (
+            await _gen.reasoning.send_shacl_validate(
+                self._client, {"data_graph": "", "data_triples": data_triples}
+            )
+        ).model_dump(mode="json")
+
     async def icv_configure(
         self,
         shapes: str,
