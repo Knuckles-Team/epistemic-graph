@@ -200,7 +200,7 @@ pub(super) fn check_graph_op_access(
     let Some(entry) = s.registry.get(graph_name) else {
         return Err(Response::err(
             req_id,
-            format!("Graph '{graph_name}' not found"),
+            format!("INVALID_ARGUMENT: Graph '{graph_name}' not found"),
         ));
     };
     check_materialization_valid(&s.registry, req_id, graph_name)?;

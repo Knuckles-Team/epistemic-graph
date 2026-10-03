@@ -34,6 +34,8 @@ from typing import Any
 import msgpack
 import pytest
 
+from epistemic_graph.client import EngineResponseError
+
 _e: Any = None
 for _name in ("epistemic_graph.engine", "engine"):
     try:
@@ -72,17 +74,19 @@ def test_get_node_properties_missing_node_is_none() -> None:
     assert engine.get_node_properties("kg", "nope") is None
 
 
-def test_unknown_graph_raises_key_error() -> None:
+def test_unknown_graph_raises_invalid_argument() -> None:
     engine = _e.Engine(persist_dir=":memory:")
-    with pytest.raises(KeyError):
+    with pytest.raises(EngineResponseError) as exc_info:
         engine.add_node("no-such-graph", "n1", msgpack.packb({}))
+    assert exc_info.value.code == "INVALID_ARGUMENT"
 
 
 def test_duplicate_graph_name_raises() -> None:
     engine = _e.Engine(persist_dir=":memory:")
     engine.create_graph("kg")
-    with pytest.raises(KeyError):
+    with pytest.raises(EngineResponseError) as exc_info:
         engine.create_graph("kg")
+    assert exc_info.value.code == "INVALID_ARGUMENT"
 
 
 def test_two_engines_are_isolated() -> None:
@@ -90,5 +94,6 @@ def test_two_engines_are_isolated() -> None:
     a, b = _e.Engine(persist_dir=":memory:"), _e.Engine(persist_dir=":memory:")
     a.create_graph("kg")
     a.add_node("kg", "n1", msgpack.packb({"v": 1}))
-    with pytest.raises(KeyError):
+    with pytest.raises(EngineResponseError) as exc_info:
         b.add_node("kg", "n1", msgpack.packb({"v": 1}))
+    assert exc_info.value.code == "INVALID_ARGUMENT"
