@@ -1,4 +1,4 @@
-# Status — the Codex
+# Status
 
 > **Generated — do not edit by hand.** Produced by `scripts/build_status_page.py` from `docs/capabilities.md`, `docs/capabilities.generated.md`, and `docs/concept_reservations.yaml`. See "How this page stays honest" at the bottom.
 
@@ -71,3 +71,4 @@ This page is produced by `scripts/build_status_page.py` from `docs/capabilities.
 ```bash
 python scripts/build_status_page.py --write
 ```
+

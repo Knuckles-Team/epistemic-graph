@@ -647,8 +647,8 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     every doc/comment/design-note that so much as names the tool became a
     manufactured leak. Unlike the "Guard Test" incident, adding it to
     ``_GENERIC_IDENTIFIERS`` would not fix this class -- the next commit's
-    author could just as easily be "codex", "sonnet", "opus", or any other
-    tool/model name, each requiring its own reactive exclusion. ``git
+    author could just as easily be another tool or model name, each
+    requiring its own reactive exclusion. ``git
     config``'s two sources remain and already capture the real, stable
     developer identity (proven: this checkout's ``user.name``/``user.email``
     resolve to a real name + email, independent of whatever authored HEAD),

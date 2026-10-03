@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the honesty-first status page (the "Codex") at docs/status.md.
+"""Regenerate the honesty-first status page at docs/status.md.
 
 Extends this repo's existing "Honesty first" framing (docs/index.md) into a
 single, generated page that other pages can link to instead of restating a
@@ -241,7 +241,7 @@ def render() -> str:
     pillars = sorted(set(concept_counts) | set(reserved_counts) | set(PILLAR_LABEL))
 
     lines: list[str] = []
-    lines.append("# Status — the Codex")
+    lines.append("# Status")
     lines.append("")
     lines.append(
         "> **Generated — do not edit by hand.** Produced by "
