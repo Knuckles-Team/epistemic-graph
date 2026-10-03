@@ -23,27 +23,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from collections.abc import Callable
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PACKAGE = _ROOT / "epistemic_graph"
 _PYPROJECT = _ROOT / "pyproject.toml"
 _ROOT_RECEIPT = _ROOT / "contract" / "receipt.json"
-
-
-def _contract_exports(
-    namespace: dict[str, object],
-) -> tuple[str, Callable[[str], object], type[BaseException]]:
-    """Narrow the three executable contract exports used by the smoke test."""
-
-    digest = namespace["RECEIPT_DIGEST"]
-    verify = namespace["verify_receipt"]
-    mismatch = namespace["ContractDigestMismatch"]
-    assert isinstance(digest, str)
-    assert callable(verify)
-    assert isinstance(mismatch, type) and issubclass(mismatch, BaseException)
-    return digest, verify, mismatch
 
 
 _SHIPPED_RECEIPT = _PACKAGE / "contract" / "receipt.json"
@@ -55,7 +40,7 @@ _CONTRACT_PROBE = """
 import csv
 import hashlib
 import io
-import importlib.util
+import importlib
 import json
 import sys
 from importlib import metadata, resources
@@ -67,12 +52,8 @@ expected_schemas = set(expected["schemas"])
 recorded = None
 
 if sys.argv[1]:
-    spec = importlib.util.spec_from_file_location(
-        "eg_contract_probe", Path(sys.argv[1]) / "__init__.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    sys.path.insert(0, str(Path(sys.argv[1]).parent.parent))
+    module = importlib.import_module("epistemic_graph.contract")
     root = resources.files(module)
 else:
     from epistemic_graph import contract as module
@@ -88,6 +69,14 @@ assert root.joinpath("receipt.json").read_bytes() == authoritative_receipt, (
     "installed receipt differs from source authority"
 )
 receipt = json.loads(authoritative_receipt)
+errors_module = "epistemic_graph/contract_errors.py"
+if errors_module in receipt["artifact_digests"]:
+    sibling = Path(str(root)).parent / "contract_errors.py"
+    assert hashlib.sha256(sibling.read_bytes()).hexdigest() == (
+        receipt["artifact_digests"][errors_module]
+    )
+    if recorded is not None:
+        assert errors_module in recorded, "RECORD omits exception module"
 prefix = "epistemic_graph/contract/"
 expected_hashes = {
     path.removeprefix(prefix): digest
@@ -238,6 +227,13 @@ class ContractProbeFixtures(unittest.TestCase):
                 for name, data in files.items()
             },
         }
+        sibling = _PACKAGE / "contract_errors.py"
+        if sibling.is_file():
+            data = sibling.read_bytes()
+            self.contract.parent.joinpath("contract_errors.py").write_bytes(data)
+            manifest["artifact_digests"]["epistemic_graph/contract_errors.py"] = (
+                hashlib.sha256(data).hexdigest()
+            )
         fields = [manifest["source_tree_oid"]]
         for name, digest in sorted(manifest["artifact_digests"].items()):
             fields.extend([name, digest])
@@ -259,6 +255,10 @@ class ContractProbeFixtures(unittest.TestCase):
                 for name in [*files, "receipt.json"]
             )
         )
+
+        if sibling.is_file():
+            with self.record.open("a") as record:
+                record.write("epistemic_graph/contract_errors.py,,\n")
 
     def _run_fixture(self) -> subprocess.CompletedProcess[str]:
         # -I -S excludes checkout and installed packages; only this synthetic site
@@ -395,10 +395,14 @@ class WheelContractSurface(unittest.TestCase):
     def _probe_outside_checkout(self, interpreter: str, *, staged: bool) -> None:
         with tempfile.TemporaryDirectory(prefix="eg-contract-probe-") as temp:
             scratch = Path(temp)
-            package = scratch / "contract"
+            package = scratch / "epistemic_graph/contract"
             flags = ["-I"]
             if staged:
                 shutil.copytree(_SHIPPED_RECEIPT.parent, package)
+                package.parent.joinpath("__init__.py").write_text("")
+                sibling = _PACKAGE / "contract_errors.py"
+                if sibling.is_file():
+                    shutil.copyfile(sibling, package.parent / sibling.name)
                 flags.append("-S")
             result = subprocess.run(
                 [
@@ -483,19 +487,8 @@ class WheelContractSurface(unittest.TestCase):
         self.assertEqual(len(receipt["contract_digest"]), 64)
 
     def test_the_contract_module_is_stdlib_only_and_verifies_the_digest(self) -> None:
-        """Executed in an EMPTY namespace, not imported, so this proves the module needs
-        neither pydantic nor the transport -- exactly the constraint a consumer pinning
-        a
-        digest at start-up depends on."""
-        source = (_PACKAGE / "contract" / "__init__.py").read_text(encoding="utf-8")
-        namespace: dict[str, object] = {
-            "__file__": str(_SHIPPED_RECEIPT.parent / "__init__.py")
-        }
-        exec(compile(source, "epistemic_graph/contract/__init__.py", "exec"), namespace)
-        digest, verify, mismatch = _contract_exports(namespace)
-        verify(digest)  # the matching digest must not raise
-        with self.assertRaises(mismatch):
-            verify("0" * 64)
+        """A neutral package plus both modules load under -I -S, without clients."""
+        self._probe_outside_checkout(sys.executable, staged=True)
 
 
 if __name__ == "__main__":

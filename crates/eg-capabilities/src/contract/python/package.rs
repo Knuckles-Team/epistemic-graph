@@ -26,6 +26,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from epistemic_graph.contract_errors import (
+    ContractArtifactMissing,
+    ContractDigestMismatch,
+)
+
 __all__ = [
     "RECEIPT",
     "RECEIPT_DIGEST",
@@ -37,20 +42,15 @@ __all__ = [
 
 RECEIPT_PATH = Path(__file__).with_name("receipt.json")
 _CONTRACT_PREFIX = "epistemic_graph/contract/"
+_ERRORS_ARTIFACT = "epistemic_graph/contract_errors.py"
 
 
-class ContractDigestMismatch(RuntimeError):
-    """The installed contract cannot be verified against the trusted pin."""
-
-
-class ContractArtifactMissing(ContractDigestMismatch):
-    """The installed receipt or one of its required contract files is missing."""
-
-
-def _read_contract_bytes(relative: str) -> bytes:
-    """Read within the contract directory, refusing escaping symlinks."""
+def _read_contained_bytes(relative: str, *, contract_only: bool) -> bytes:
+    """Read a contract or explicit sibling file within its owned package boundary."""
     try:
-        root = RECEIPT_PATH.parent.parent.resolve() / RECEIPT_PATH.parent.name
+        root = RECEIPT_PATH.parent.parent.resolve()
+        if contract_only:
+            root = root / RECEIPT_PATH.parent.name
         path = (root / relative).resolve()
     except FileNotFoundError as exc:
         raise ContractArtifactMissing(f"missing contract file: {relative}") from exc
@@ -66,6 +66,14 @@ def _read_contract_bytes(relative: str) -> bytes:
         raise ContractArtifactMissing(f"missing contract file: {relative}") from exc
     except OSError as exc:
         raise ContractDigestMismatch(f"cannot read contract file: {relative}") from exc
+
+
+def _read_contract_bytes(relative: str) -> bytes:
+    return _read_contained_bytes(relative, contract_only=True)
+
+
+def _read_errors_bytes() -> bytes:
+    return _read_contained_bytes("contract_errors.py", contract_only=False)
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -122,6 +130,7 @@ def _validate_receipt(receipt: Any) -> dict[str, Any]:
             _CONTRACT_PREFIX + "__init__.py",
             _CONTRACT_PREFIX + "methods.json",
             _CONTRACT_PREFIX + "errors.json",
+            _ERRORS_ARTIFACT,
         }
         <= artifacts.keys()
     ):
@@ -168,7 +177,7 @@ def _aggregate_digest(receipt: dict[str, Any]) -> str:
 def verify_receipt(expected_digest: str) -> None:
     """Authenticate a fresh receipt and its installed contract files, or raise.
 
-    No artifact is opened before the complete manifest matches the trusted pin.
+    Verification reads no artifact before the complete manifest matches the trusted pin.
     Extra files are an inventory-gate concern, not a runtime verification input.
     Each call reads disk again; changing the exported snapshots cannot bypass it.
     """
@@ -179,6 +188,11 @@ def verify_receipt(expected_digest: str) -> None:
         raise ContractDigestMismatch(
             "contract manifest does not match the pinned digest"
         )
+    if (
+        hashlib.sha256(_read_errors_bytes()).hexdigest()
+        != receipt["artifact_digests"][_ERRORS_ARTIFACT]
+    ):
+        raise ContractDigestMismatch("contract_errors.py artifact digest mismatch")
     for path, expected_hash in sorted(receipt["artifact_digests"].items()):
         if path.startswith(_CONTRACT_PREFIX):
             data = _read_contract_bytes(path.removeprefix(_CONTRACT_PREFIX))
@@ -190,4 +204,22 @@ def verify_receipt(expected_digest: str) -> None:
 
 RECEIPT: dict[str, Any] = _read_receipt()
 RECEIPT_DIGEST: str = RECEIPT["contract_digest"]
+"#;
+
+/// Exception identity stays importable even when the receipt prevents contract import.
+pub(super) fn package_contract_errors_module() -> String {
+    format!("{HEADER}{PACKAGE_CONTRACT_ERRORS_MODULE}")
+}
+
+const PACKAGE_CONTRACT_ERRORS_MODULE: &str = r#""""Shared contract exceptions; importing this module never reads a receipt."""
+
+__all__ = ["ContractDigestMismatch", "ContractArtifactMissing"]
+
+
+class ContractDigestMismatch(RuntimeError):
+    """The installed contract cannot be verified against the trusted pin."""
+
+
+class ContractArtifactMissing(ContractDigestMismatch):
+    """The installed receipt or one of its required contract files is missing."""
 "#;

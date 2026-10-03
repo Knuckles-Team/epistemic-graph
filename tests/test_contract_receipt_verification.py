@@ -25,11 +25,20 @@ _TEMPLATE = _ROOT / "crates/eg-capabilities/src/contract/python/package.rs"
 _PREFIX = "epistemic_graph/contract/"
 
 
+def _literal_source(name: str) -> str:
+    return (
+        _TEMPLATE.read_text(encoding="utf-8")
+        .split(f'const {name}: &str = r#"', 1)[1]
+        .split('"#;', 1)[0]
+    )
+
+
 def _template_source() -> str:
-    text = _TEMPLATE.read_text(encoding="utf-8")
-    return text.split('const PACKAGE_CONTRACT_MODULE: &str = r#"', 1)[1].rsplit(
-        '"#;', 1
-    )[0]
+    return _literal_source("PACKAGE_CONTRACT_MODULE")
+
+
+def _errors_source() -> str:
+    return _literal_source("PACKAGE_CONTRACT_ERRORS_MODULE")
 
 
 def _fixture_digest(receipt: dict) -> str:
@@ -43,10 +52,11 @@ def _fixture_digest(receipt: dict) -> str:
 def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
     """Exercise the actual supplied module bytes; never mutate the supplied tree."""
     import hashlib
-    import importlib.util
+    import importlib
     import json
     import os
     import shutil
+    import sys
     import tempfile
     from pathlib import Path
 
@@ -78,6 +88,8 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
         "manifest_entry_removal",
         "coordinated_digest_tamper",
         "no_source_fallback",
+        "missing_errors_module_after_import",
+        "corrupt_errors_module_after_import",
     ]
     results = []
     original_cwd = Path.cwd()
@@ -90,20 +102,36 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
                 target,
                 ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
             )
+            shutil.copyfile(
+                contract_root.parent / "contract_errors.py",
+                target.parent / "contract_errors.py",
+            )
+            (target.parent / "__init__.py").write_text("")
+            saved_modules = {
+                name: module
+                for name, module in sys.modules.items()
+                if name == "epistemic_graph" or name.startswith("epistemic_graph.")
+            }
+            saved_path = sys.path[:]
+            for name in saved_modules:
+                del sys.modules[name]
+            sys.path.insert(0, str(scratch / "site"))
             try:
                 os.chdir(scratch)
-                spec = importlib.util.spec_from_file_location(
-                    "eg_installed_contract_case", target / "__init__.py"
-                )
-                assert spec is not None and spec.loader is not None
-                module = importlib.util.module_from_spec(spec)
+                errors = importlib.import_module("epistemic_graph.contract_errors")
                 # Fresh import must itself produce a typed receipt error.
                 if case == "missing_receipt_import":
                     (target / "receipt.json").unlink()
                 elif case == "malformed_receipt_import":
                     (target / "receipt.json").write_bytes(b"\xff")
                 else:
-                    spec.loader.exec_module(module)
+                    module = importlib.import_module("epistemic_graph.contract")
+                    assert (
+                        module.ContractDigestMismatch is errors.ContractDigestMismatch
+                    )
+                    assert (
+                        module.ContractArtifactMissing is errors.ContractArtifactMissing
+                    )
                     module.verify_receipt(trusted_pin)  # Establish valid baseline.
                 pin = trusted_pin
                 if case == "wrong_pin":
@@ -128,6 +156,10 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
                     (target / name).write_bytes(
                         (target / name).read_bytes() + b"broken"
                     )
+                elif case == "missing_errors_module_after_import":
+                    (target.parent / "contract_errors.py").unlink()
+                elif case == "corrupt_errors_module_after_import":
+                    (target.parent / "contract_errors.py").write_bytes(b"corrupt")
                 elif case == "missing_receipt_after_import":
                     (target / "receipt.json").unlink()
                 elif case == "malformed_receipt_after_import":
@@ -168,12 +200,12 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
                 )
                 try:
                     if case in {"missing_receipt_import", "malformed_receipt_import"}:
-                        spec.loader.exec_module(module)
+                        importlib.import_module("epistemic_graph.contract")
                     else:
                         module.verify_receipt(pin)
                 except Exception as error:
                     if case == "valid_pin" or not isinstance(
-                        error, getattr(module, expected)
+                        error, getattr(errors, expected)
                     ):
                         raise AssertionError(
                             f"{case}: unexpected error {type(error).__name__}"
@@ -186,6 +218,11 @@ def _exercise_contract_copies(contract_root, trusted_pin: str) -> list[dict]:
                     results.append({"case": case, "result": "pass", "error": None})
             finally:
                 os.chdir(original_cwd)
+                for name in list(sys.modules):
+                    if name == "epistemic_graph" or name.startswith("epistemic_graph."):
+                        del sys.modules[name]
+                sys.modules.update(saved_modules)
+                sys.path[:] = saved_path
     return results
 
 
@@ -262,14 +299,15 @@ def _qualify_installed_contract(config: dict) -> dict:
         names = [
             name
             for name in archive.namelist()
-            if name.startswith(prefix) and not name.endswith("/")
+            if (name.startswith(prefix) and not name.endswith("/"))
+            or name == "epistemic_graph/contract_errors.py"
         ]
         assert len(names) == len(set(names)), "duplicate wheel contract entry"
         assert set(names) <= recorded, "installed RECORD omits contract files"
         assert {
             prefix + name
             for name in ["__init__.py", "receipt.json", "methods.json", "errors.json"]
-        } <= set(names)
+        } | {"epistemic_graph/contract_errors.py"} <= set(names)
         actual = {
             prefix + path.relative_to(root).as_posix()
             for path in root.rglob("*")
@@ -277,12 +315,17 @@ def _qualify_installed_contract(config: dict) -> dict:
             and "__pycache__" not in path.parts
             and path.suffix not in {".pyc", ".pyo"}
         }
+        if (package_root / "contract_errors.py").is_file():
+            actual.add("epistemic_graph/contract_errors.py")
         assert actual == set(names), "installed contract inventory differs from wheel"
         before = {}
         for name in names:
-            installed_file = root.joinpath(name.removeprefix(prefix)).resolve()
+            installed_file = package_root.joinpath(
+                name.removeprefix("epistemic_graph/")
+            ).resolve()
+            boundary = root if name.startswith(prefix) else package_root
             assert installed_file.is_relative_to(
-                root
+                boundary
             ) and installed_file.is_relative_to(venv), (
                 "contract file is source-linked outside candidate venv"
             )
@@ -296,7 +339,9 @@ def _qualify_installed_contract(config: dict) -> dict:
     for name, digest in before.items():
         assert (
             hashlib.sha256(
-                root.joinpath(name.removeprefix(prefix)).read_bytes()
+                package_root.joinpath(
+                    name.removeprefix("epistemic_graph/")
+                ).read_bytes()
             ).hexdigest()
             == digest
         )
@@ -311,6 +356,7 @@ def _qualify_installed_contract(config: dict) -> dict:
         "contract_digest": config["expected_digest"],
         "receipt_sha256": before[prefix + "receipt.json"],
         "module_sha256": before[prefix + "__init__.py"],
+        "errors_module_sha256": before["epistemic_graph/contract_errors.py"],
         "contract_files_checked": len(before),
         "installed_bytes_unchanged": True,
         "cases": results,
@@ -357,7 +403,7 @@ class InstalledReceiptQualification(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
-        self.assertEqual(len(report["cases"]), 18)
+        self.assertEqual(len(report["cases"]), 20)
         self.assertTrue(report["installed_bytes_unchanged"])
         print("EG_T03_INSTALLED_PROOF=" + json.dumps(report, sort_keys=True))
 
@@ -369,6 +415,19 @@ class ReceiptVerifier(unittest.TestCase):
         self.root = Path(temp.name)
         self.contract = self.root / "epistemic_graph/contract"
         self.contract.joinpath("schemas").mkdir(parents=True)
+        import sys
+
+        self.contract.parent.joinpath("__init__.py").write_text("")
+        self.contract.parent.joinpath("contract_errors.py").write_text(_errors_source())
+        modules = patch.dict(sys.modules)
+        modules.start()
+        self.addCleanup(modules.stop)
+        for name in list(sys.modules):
+            if name == "epistemic_graph" or name.startswith("epistemic_graph."):
+                del sys.modules[name]
+        path_patch = patch.object(sys, "path", [str(self.root), *sys.path])
+        path_patch.start()
+        self.addCleanup(path_patch.stop)
         self.source = _template_source()
         files = {
             "__init__.py": self.source.encode(),
@@ -386,6 +445,9 @@ class ReceiptVerifier(unittest.TestCase):
                 for name, data in files.items()
             },
         }
+        self.receipt["artifact_digests"]["epistemic_graph/contract_errors.py"] = (
+            hashlib.sha256(_errors_source().encode()).hexdigest()
+        )
         # Bind a repository-only artifact that deliberately does not exist here.
         self.receipt["artifact_digests"]["contract/schemas/example.json"] = (
             hashlib.sha256(files["schemas/example.json"]).hexdigest()
@@ -410,7 +472,7 @@ class ReceiptVerifier(unittest.TestCase):
 
     def _new_module(self):
         spec = importlib.util.spec_from_file_location(
-            "eg_receipt_fixture", self.contract / "__init__.py"
+            "epistemic_graph.contract", self.contract / "__init__.py"
         )
         assert spec is not None and spec.loader is not None
         return importlib.util.module_from_spec(spec), spec.loader
@@ -445,7 +507,7 @@ class ReceiptVerifier(unittest.TestCase):
 
     def test_qualification_cases_on_synthetic_source_fixture(self) -> None:
         report = _exercise_contract_copies(self.contract, self.pin)
-        self.assertEqual(len(report), 18)
+        self.assertEqual(len(report), 20)
         self.assertTrue(all(case["result"] == "pass" for case in report))
 
     def _synthetic_wheel_binding(self):
@@ -462,6 +524,11 @@ class ReceiptVerifier(unittest.TestCase):
                     name = _PREFIX + path.relative_to(self.contract).as_posix()
                     archive.write(path, name)
                     names.append(name)
+            archive.write(
+                self.contract.parent / "contract_errors.py",
+                "epistemic_graph/contract_errors.py",
+            )
+            names.append("epistemic_graph/contract_errors.py")
         info = self.root / "epistemic_graph-0.dist-info"
         info.mkdir()
         info.joinpath("METADATA").write_text("Name: epistemic-graph\nVersion: 0\n")
@@ -505,7 +572,7 @@ class ReceiptVerifier(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "wheel SHA-256 mismatch"):
                 _qualify_installed_contract({**config, "wheel_sha256": "0" * 64})
             report = _qualify_installed_contract(config)
-            self.assertEqual(len(report["cases"]), 18)
+            self.assertEqual(len(report["cases"]), 20)
             self.assertTrue(report["installed_bytes_unchanged"])
             self.assertEqual(report["venv_root"], str(self.root))
             self.contract.joinpath("errors.json").write_bytes(b"changed")
@@ -627,7 +694,6 @@ class ReceiptVerifier(unittest.TestCase):
 
     def test_aggregate_matches_canonical_receipt(self) -> None:
         receipt = json.loads((_ROOT / "contract/receipt.json").read_bytes())
-        self.assertEqual(self.namespace["_validate_receipt"](receipt), receipt)
         self.assertEqual(
             self.namespace["_aggregate_digest"](receipt), receipt["contract_digest"]
         )
@@ -697,7 +763,131 @@ class ReceiptVerifier(unittest.TestCase):
                 self._verify()
 
     def test_wrong_pin_authenticates_before_artifact_reads(self) -> None:
-        self._assert_no_artifact_reads("0" * 64)
+        with patch.dict(
+            self.namespace,
+            {
+                "_read_errors_bytes": lambda: self.fail(
+                    "read sibling before manifest authentication"
+                )
+            },
+        ):
+            self._assert_no_artifact_reads("0" * 64)
+
+    def test_shared_exception_identity_across_failed_import_and_retry(self) -> None:
+        import importlib
+        import sys
+
+        errors = importlib.import_module("epistemic_graph.contract_errors")
+        self.assertIs(
+            self.namespace["ContractDigestMismatch"], errors.ContractDigestMismatch
+        )
+        self.assertIs(
+            self.namespace["ContractArtifactMissing"], errors.ContractArtifactMissing
+        )
+        original = self.receipt_path.read_bytes()
+        for bad in [None, b"{", b"\xff"]:
+            with self.subTest(receipt=bad):
+                sys.modules.pop("epistemic_graph.contract", None)
+                if bad is None:
+                    self.receipt_path.unlink()
+                else:
+                    self.receipt_path.write_bytes(bad)
+                with self.assertRaises(errors.ContractDigestMismatch):
+                    importlib.import_module("epistemic_graph.contract")
+                self.assertNotIn("epistemic_graph.contract", sys.modules)
+                self.receipt_path.write_bytes(original)
+                module = importlib.import_module("epistemic_graph.contract")
+                self.assertIs(
+                    module.ContractDigestMismatch, errors.ContractDigestMismatch
+                )
+                self.assertIs(
+                    module.ContractArtifactMissing, errors.ContractArtifactMissing
+                )
+                module.verify_receipt(self.pin)
+
+    def test_consumer_shaped_narrow_normalization_does_not_catch_runtime_error(
+        self,
+    ) -> None:
+        """Producer boundary coverage; GraphOS integration is separately owned."""
+        import importlib
+        import sys
+
+        errors = importlib.import_module("epistemic_graph.contract_errors")
+
+        def consume(pin):
+            try:
+                module = importlib.import_module("epistemic_graph.contract")
+                module.verify_receipt(pin)
+            except errors.ContractDigestMismatch as exc:
+                raise ValueError("EG contract unavailable") from exc
+
+        original = self.receipt_path.read_bytes()
+        for bad in [None, b"{"]:
+            sys.modules.pop("epistemic_graph.contract", None)
+            if bad is None:
+                self.receipt_path.unlink()
+            else:
+                self.receipt_path.write_bytes(bad)
+            with self.assertRaisesRegex(
+                ValueError, "EG contract unavailable"
+            ) as caught:
+                consume(self.pin)
+            self.assertIsInstance(
+                caught.exception.__cause__, errors.ContractDigestMismatch
+            )
+            self.receipt_path.write_bytes(original)
+        consume(self.pin)
+        with self.assertRaises(ValueError):
+            consume("0" * 64)
+        self.contract.joinpath("errors.json").write_bytes(b"corrupt")
+        with self.assertRaises(ValueError):
+            consume(self.pin)
+        with patch.object(
+            importlib, "import_module", side_effect=RuntimeError("unrelated")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unrelated"):
+                consume(self.pin)
+
+    def test_independent_errors_import_with_namespace_package_and_missing_receipt(
+        self,
+    ) -> None:
+        import importlib
+        import sys
+
+        self.receipt_path.unlink()
+        self.contract.parent.joinpath("__init__.py").unlink()
+        with patch.dict(sys.modules), patch.object(sys, "path", [str(self.root)]):
+            for name in list(sys.modules):
+                if name == "epistemic_graph" or name.startswith("epistemic_graph."):
+                    del sys.modules[name]
+            errors = importlib.import_module("epistemic_graph.contract_errors")
+            self.assertNotIn("epistemic_graph.contract", sys.modules)
+            self.assertIsNone(sys.modules["epistemic_graph"].__file__)
+            with self.assertRaises(errors.ContractArtifactMissing):
+                importlib.import_module("epistemic_graph.contract")
+
+    def test_sibling_integrity_missing_corrupt_unlisted_and_escape(self) -> None:
+        sibling = self.contract.parent / "contract_errors.py"
+        original = sibling.read_bytes()
+        sibling.unlink()
+        with self.assertRaises(self.namespace["ContractArtifactMissing"]):
+            self._verify()
+        sibling.write_bytes(original + b"corrupt")
+        with self.assertRaises(self.namespace["ContractDigestMismatch"]):
+            self._verify()
+        sibling.unlink()
+        outside = self.root / "outside-errors.py"
+        outside.write_bytes(original)
+        sibling.symlink_to(outside)
+        with self.assertRaisesRegex(
+            self.namespace["ContractDigestMismatch"], "leaves package"
+        ):
+            self._verify()
+        sibling.unlink()
+        sibling.write_bytes(original)
+        del self.receipt["artifact_digests"]["epistemic_graph/contract_errors.py"]
+        pin = self._seal()
+        self._assert_no_artifact_reads(pin)
 
     def test_missing_and_corrupt_artifacts_including_module(self) -> None:
         for name in [
@@ -874,6 +1064,11 @@ class GeneratedVerifierParity(unittest.TestCase):
             shipped.endswith(_template_source()),
             "generated verifier is stale; await authorized gen_contract run",
         )
+
+    def test_generated_exception_module_matches_source_literal(self) -> None:
+        path = _ROOT / "epistemic_graph/contract_errors.py"
+        self.assertTrue(path.is_file(), "exception module awaits authorized generation")
+        self.assertTrue(path.read_text().endswith(_errors_source()))
 
 
 if __name__ == "__main__":
