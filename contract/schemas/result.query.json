@@ -30971,8 +30971,18 @@
               "properties": {
                 "data_graph": {
                   "default": "",
-                  "description": "The data graph as a Turtle document; empty ⇒ use the request's live graph.",
+                  "description": "The data graph as a Turtle document; empty ⇒ use the request's live graph\n(unless `data_triples` is given).",
                   "type": "string"
+                },
+                "data_triples": {
+                  "description": "The data graph as typed triples, for callers that must not build\nRDF text. Mutually exclusive with a non-empty `data_graph`; at most\n`MAX_TYPED_TRIPLES`. An explicit empty list validates an empty graph;\nomitted/null permits the Turtle or live-graph fallback.",
+                  "items": {
+                    "$ref": "#/$defs/RdfTriple"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
                 },
                 "shapes": {
                   "default": null,
@@ -30981,6 +30991,41 @@
                     "string",
                     "null"
                   ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Inspect ontology/shapes documents: the named classes, object and\ndatatype properties with their labels, domains and ranges, the SHACL target\nclasses, the distinct triple count and the canonical digest. Inspects the\ninline Turtle `documents` when given (at most `MAX_INSPECT_DOCUMENTS`);\notherwise the request graph's composed GraphSchema sources named by\n`source_ids`, or every composed source when that is empty too. Giving both\nis refused. Returns a `Json` `OntologyInspection`. Read-only; the engine is\nthe only RDF parser, so a caller never needs one. Handler gated `shacl`.",
+          "properties": {
+            "method": {
+              "const": "OntologyInspect",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "documents": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "source_ids": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 }
               },
               "type": "object"
@@ -39978,6 +40023,80 @@
           "type": "object"
         }
       ]
+    },
+    "RdfObject": {
+      "description": "A triple's object: an absolute IRI or a literal. A literal carries at most one\nof `datatype` (an absolute IRI) and `language` (a BCP 47 tag); neither means a\nplain string.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "iri": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "iri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "iri"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "datatype": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "literal",
+              "type": "string"
+            },
+            "language": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lexical": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "lexical"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RdfTriple": {
+      "additionalProperties": false,
+      "description": "One RDF triple as data. `subject` and `predicate` are absolute IRIs.",
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/RdfObject"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "predicate",
+        "object"
+      ],
+      "type": "object"
     },
     "ReceiptNode": {
       "additionalProperties": false,

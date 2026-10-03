@@ -1609,6 +1609,7 @@ components:
       - "crates/eg-ann/src/lib.rs"
     test_roots:
       - "crates/eg-numeric/tests"
+      - "tests/test_numeric_prototype.py"
       - "crates/eg-ann/benches"
     generated_roots: []
     shared_roots: []
@@ -3872,6 +3873,7 @@ components:
       - "tests/test_configure_rust_path_remap.py"
       - "tests/test_connector_pack_planted.py"
       - "tests/test_contract_method_reachability.py"
+      - "tests/test_contract_receipt_verification.py"
       - "tests/test_contract_wave_surface.py"
       - "tests/test_connector_pack_client.py"
       - "tests/test_control_lease_kind_policy.py"

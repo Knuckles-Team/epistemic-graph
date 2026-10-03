@@ -2504,6 +2504,14 @@
       "request_msgpack": "82a66d6574686f64ad4f62736572766553637265656ea6706172616d7381ab6f62735f6d73677061636b90"
     },
     {
+      "canonical_len": 55,
+      "canonical_sha256": "49556ac6f833abf2023033e4c8c0988dd24f7504b2d14b4bc5d6fd8bb53aa54d",
+      "label": "OntologyInspect",
+      "mac": "056d07f11331bf10a1605688c29a5239ac15323591c7ce2cc1ad925f6039408e",
+      "method": "OntologyInspect",
+      "request_msgpack": "82a66d6574686f64af4f6e746f6c6f6779496e7370656374a6706172616d7380"
+    },
+    {
       "canonical_len": 100,
       "canonical_sha256": "ada3bc635179b0a427f60230eace10f7916194fecd1d5a55f3927acca00615a3",
       "label": "OutDegree",
@@ -3101,7 +3109,7 @@
       "label": "ShaclValidate",
       "mac": "f23f8791ebd9c7df5f87e432712ca10c4274a03b076428238fcf203d3db37159",
       "method": "ShaclValidate",
-      "request_msgpack": "82a66d6574686f64ad536861636c56616c6964617465a6706172616d7381a6736861706573c0"
+      "request_msgpack": "82a66d6574686f64ad536861636c56616c6964617465a6706172616d7382ac646174615f747269706c6573c0a6736861706573c0"
     },
     {
       "canonical_len": 125,
