@@ -1,8 +1,10 @@
 """What the published wheel promises: every import it makes is declared, and the engine
 contract it was built from ships inside it.
 
-Pure stdlib and pure static -- it parses `pyproject.toml` and every module under
-`epistemic_graph/` as text. It exists because the generated client added `pydantic` as a
+Stdlib only: static package checks plus an isolated contract-resource probe. The
+staged probe is not wheel-install evidence; set EG_CONTRACT_INSTALLED_PYTHON to an
+already installed candidate's interpreter for the independent installed check.
+It exists because the generated client added `pydantic` as a
 module-scope import of `epistemic_graph/__init__.py`'s own import chain while
 `[project].dependencies` still listed three packages: `pip install epistemic-graph` then
 raised `ModuleNotFoundError` for every consumer, and a dev checkout that already had
@@ -12,9 +14,14 @@ pydantic installed could never notice.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from collections.abc import Callable
 from pathlib import Path
@@ -40,6 +47,80 @@ def _contract_exports(
 
 
 _SHIPPED_RECEIPT = _PACKAGE / "contract" / "receipt.json"
+
+# Load only the contract module for the staged check (-S excludes site packages).
+# The installed check instead discovers the real package through importlib.resources.
+# Both run with -I from an empty directory, with no checkout on sys.path.
+_CONTRACT_PROBE = """
+import hashlib
+import importlib.util
+import json
+import sys
+from importlib import metadata, resources
+from pathlib import Path
+
+if sys.argv[1]:
+    spec = importlib.util.spec_from_file_location(
+        "eg_contract_probe", Path(sys.argv[1]) / "__init__.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    root = resources.files(module)
+else:
+    from epistemic_graph import contract as module
+    root = resources.files("epistemic_graph").joinpath("contract")
+    distribution = metadata.distribution("epistemic-graph")
+    installed = Path(distribution.locate_file("epistemic_graph/contract")).resolve()
+    assert Path(str(root)).resolve() == installed, "package is outside distribution"
+    recorded = {str(path) for path in distribution.files or ()}
+    for name in ("methods.json", "errors.json", "receipt.json"):
+        assert f"epistemic_graph/contract/{name}" in recorded, name
+
+receipt = json.loads(root.joinpath("receipt.json").read_text(encoding="utf-8"))
+module.verify_receipt(receipt["contract_digest"])
+try:
+    module.verify_receipt("0" * 64)
+except module.ContractDigestMismatch:
+    pass
+else:
+    raise AssertionError("mismatched receipt digest was accepted")
+
+prefix = "epistemic_graph/contract/"
+for path, digest in receipt["artifact_digests"].items():
+    if path.startswith(prefix):
+        if not sys.argv[1]:
+            assert path in recorded, path
+        data = root.joinpath(path.removeprefix(prefix)).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == digest, path
+
+methods = json.loads(root.joinpath("methods.json").read_text(encoding="utf-8"))
+json.loads(root.joinpath("errors.json").read_text(encoding="utf-8"))
+documents = {}
+flags = {}
+for row in methods["methods"]:
+    assert isinstance(row["is_wire_callable"], bool), row["id"]
+    assert row["id"] not in flags, row["id"]
+    flags[row["id"]] = row["is_wire_callable"]
+    for key in ("request_schema", "result_schema"):
+        ref = row[key].get("schema")
+        if ref is None:
+            continue
+        path, marker, pointer = ref.partition("#")
+        assert path.startswith("contract/schemas/"), ref
+        assert ".." not in Path(path).parts, ref
+        assert marker and pointer.startswith("/"), ref
+        if path not in documents:
+            documents[path] = json.loads(root.joinpath(
+                path.removeprefix("contract/")
+            ).read_text(encoding="utf-8"))
+        value = documents[path]
+        for segment in pointer[1:].split("/"):
+            value = value[segment.replace("~1", "/").replace("~0", "~")]
+assert len(flags) == methods["method_count"]
+print(json.dumps({"root": str(root), "digest": module.RECEIPT_DIGEST,
+                  "flags": flags, "schema_documents": len(documents)}))
+"""
 
 # Distribution name -> the top-level module it installs, where the two differ. Every
 # current dependency happens to match; the map exists so a future mismatch is a one-line
@@ -85,6 +166,94 @@ def _module_scope_imports(tree: ast.Module) -> set[str]:
 
 
 class WheelContractSurface(unittest.TestCase):
+    def test_contract_data_is_explicitly_included(self) -> None:
+        text = _PYPROJECT.read_text(encoding="utf-8")
+        maturin = text.split("[tool.maturin]", 1)[1].split("\n[", 1)[0]
+        match = re.search(r"^include = (\[.*?\])", maturin, re.M | re.S)
+        assert match is not None, "missing Maturin include list"
+        includes = ast.literal_eval(match.group(1))
+        self.assertTrue(
+            {
+                "epistemic_graph/contract/receipt.json",
+                "epistemic_graph/contract/errors.json",
+                "epistemic_graph/contract/methods.json",
+                "epistemic_graph/contract/schemas/**/*.json",
+            }.issubset(includes)
+        )
+
+    def test_catalogs_and_all_schemas_are_identical_and_receipt_bound(self) -> None:
+        canonical = _ROOT / "contract"
+        schemas = sorted((canonical / "schemas").rglob("*.json"))
+        self.assertTrue(schemas, "canonical schemas must not be empty")
+        receipt = json.loads(_SHIPPED_RECEIPT.read_text(encoding="utf-8"))
+        for source in [canonical / "methods.json", canonical / "errors.json", *schemas]:
+            with self.subTest(path=source.relative_to(_ROOT)):
+                relative = source.relative_to(_ROOT)
+                projected = _PACKAGE / relative
+                self.assertTrue(projected.is_file(), f"run gen_contract: {relative}")
+                self.assertEqual(source.read_bytes(), projected.read_bytes())
+                digest = hashlib.sha256(source.read_bytes()).hexdigest()
+                for path in (source, projected):
+                    self.assertEqual(
+                        receipt["artifact_digests"][path.relative_to(_ROOT).as_posix()],
+                        digest,
+                    )
+        self.assertEqual(
+            {p.relative_to(canonical) for p in schemas},
+            {
+                p.relative_to(_SHIPPED_RECEIPT.parent)
+                for p in (_SHIPPED_RECEIPT.parent / "schemas").rglob("*.json")
+            },
+            "retired package schemas must not linger",
+        )
+
+    def _probe_outside_checkout(self, interpreter: str, *, staged: bool) -> None:
+        with tempfile.TemporaryDirectory(prefix="eg-contract-probe-") as temp:
+            scratch = Path(temp)
+            package = scratch / "contract"
+            flags = ["-I"]
+            if staged:
+                shutil.copytree(_SHIPPED_RECEIPT.parent, package)
+                flags.append("-S")
+            result = subprocess.run(
+                [
+                    interpreter,
+                    *flags,
+                    "-c",
+                    _CONTRACT_PROBE,
+                    str(package) if staged else "",
+                ],
+                cwd=scratch,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            observed = json.loads(result.stdout)
+            self.assertFalse(Path(observed["root"]).resolve().is_relative_to(_ROOT))
+            receipt = json.loads(_ROOT_RECEIPT.read_text(encoding="utf-8"))
+            methods = json.loads((_ROOT / "contract/methods.json").read_text())
+            self.assertEqual(observed["digest"], receipt["contract_digest"])
+            self.assertEqual(
+                observed["flags"],
+                {row["id"]: row["is_wire_callable"] for row in methods["methods"]},
+            )
+            self.assertGreater(observed["schema_documents"], 0)
+
+    def test_staged_contract_resources_load_outside_checkout(self) -> None:
+        """Resource isolation proof only; does not build or install a wheel."""
+        self._probe_outside_checkout(sys.executable, staged=True)
+
+    @unittest.skipUnless(
+        os.environ.get("EG_CONTRACT_INSTALLED_PYTHON"),
+        "set EG_CONTRACT_INSTALLED_PYTHON for independent installed-wheel proof",
+    )
+    def test_installed_contract_resources_load_outside_checkout(self) -> None:
+        self._probe_outside_checkout(
+            os.environ["EG_CONTRACT_INSTALLED_PYTHON"], staged=False
+        )
+
     def test_every_unconditional_import_is_a_declared_dependency(self) -> None:
         declared = _declared_runtime_distributions()
         stdlib = set(sys.stdlib_module_names)
