@@ -124,11 +124,11 @@ fn parsed(
                 eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES
             ));
         }
-        let document_triples = eg_rdf::mapping::parse_turtle(document)
-            .map_err(|error| format!("{name} is not Turtle: {error}"))?;
-        if document_triples.len() > crate::graph::MAX_SCHEMA_DOCUMENT_TRIPLES {
-            return Err(format!("{name} has {} triples", document_triples.len()));
-        }
+        let document_triples = eg_rdf::mapping::parse_turtle_bounded(
+            document,
+            crate::graph::MAX_SCHEMA_DOCUMENT_TRIPLES,
+        )
+        .map_err(|error| format!("{name} is not Turtle: {error}"))?;
         triples.extend(document_triples);
         digests.insert(Digest256::sha256(document.as_bytes()).to_hex());
     }

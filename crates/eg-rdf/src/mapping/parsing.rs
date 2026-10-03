@@ -20,6 +20,19 @@ pub fn parse_turtle(doc: &str) -> Result<Vec<Triple>, String> {
     collect_parsed("turtle", TurtleParser::new().for_reader(doc.as_bytes()))
 }
 
+/// Parse Turtle while refusing to retain more than `max_triples` emitted triples.
+/// The caller must enforce its document byte budget before calling this helper.
+pub fn parse_turtle_bounded(doc: &str, max_triples: usize) -> Result<Vec<Triple>, String> {
+    let mut triples = Vec::new();
+    for (index, triple) in TurtleParser::new().for_reader(doc.as_bytes()).enumerate() {
+        if index == max_triples {
+            return Err(format!("turtle exceeds maximum of {max_triples} triples"));
+        }
+        triples.push(triple.map_err(|error| format!("turtle parse: {error}"))?);
+    }
+    Ok(triples)
+}
+
 /// Parse an N-Triples document into oxrdf triples.
 pub fn parse_ntriples(doc: &str) -> Result<Vec<Triple>, String> {
     collect_parsed("ntriples", NTriplesParser::new().for_reader(doc.as_bytes()))
@@ -75,4 +88,33 @@ pub fn from_trig(doc: &str) -> Result<Vec<Quad>, String> {
 #[cfg(feature = "rdf-xml")]
 pub fn from_rdfxml(doc: &str) -> Result<Vec<Triple>, String> {
     parse_rdfxml(doc)
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use super::*;
+
+    #[test]
+    fn bounded_turtle_accepts_the_limit_and_preserves_syntax_errors() {
+        let document = "<urn:s> <urn:p> <urn:o> .";
+        assert_eq!(
+            parse_turtle_bounded(document, 1).unwrap(),
+            parse_turtle(document).unwrap()
+        );
+        assert!(parse_turtle_bounded("", 0).unwrap().is_empty());
+        assert!(parse_turtle_bounded(document, 0)
+            .unwrap_err()
+            .contains("maximum of 0 triples"));
+        assert!(parse_turtle_bounded("not Turtle .", 1)
+            .unwrap_err()
+            .starts_with("turtle parse:"));
+    }
+
+    #[test]
+    fn bounded_turtle_refuses_before_draining_the_rest_of_the_document() {
+        let document = "<urn:s> <urn:p> <urn:o> .\n<urn:s> <urn:p> <urn:o> .\nnot Turtle .";
+        assert!(parse_turtle_bounded(document, 1)
+            .unwrap_err()
+            .contains("maximum of 1 triples"));
+    }
 }

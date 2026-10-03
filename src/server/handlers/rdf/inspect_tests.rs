@@ -195,3 +195,19 @@ fn inspection_rejects_document_count_and_bytes_before_parsing() {
     assert_eq!(inline(&[&boundary]).unwrap().triple_count, 0);
     assert!(inspect(&GraphCore::new(), &documents[..MAX_INSPECT_DOCUMENTS], &[]).is_ok());
 }
+
+#[test]
+fn inspection_stops_at_the_first_triple_over_budget() {
+    let limit = crate::graph::MAX_SCHEMA_DOCUMENT_TRIPLES;
+    let boundary = format!("@prefix : <x:> .\n{}", ":a :b :c .\n".repeat(limit));
+    assert_eq!(inline(&[&boundary]).unwrap().triple_count, 1);
+    // Stay below the byte bound and place invalid syntax after the over-limit
+    // triple: a parser that eagerly drains the document reports syntax instead.
+    let oversized = format!("{boundary}:a :b :c .\nthis is not Turtle .");
+    assert!(oversized.len() < eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES);
+    let error = inline(&[&oversized]).unwrap_err();
+    assert!(
+        error.contains(&format!("maximum of {limit} triples")),
+        "{error}"
+    );
+}
