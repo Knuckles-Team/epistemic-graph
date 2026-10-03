@@ -230,15 +230,20 @@ class ContractProbeFixtures(unittest.TestCase):
         for name, data in files.items():
             self.contract.joinpath(name).write_bytes(data)
         # Deliberately synthetic, not a generated EG receipt or a real method.
-        receipt = json.dumps(
-            {
-                "contract_digest": "a" * 64,
-                "artifact_digests": {
-                    f"epistemic_graph/contract/{name}": hashlib.sha256(data).hexdigest()
-                    for name, data in files.items()
-                },
-            }
-        ).encode()
+        manifest = {
+            "contract_version": 1,
+            "source_tree_oid": "b" * 64,
+            "artifact_digests": {
+                f"epistemic_graph/contract/{name}": hashlib.sha256(data).hexdigest()
+                for name, data in files.items()
+            },
+        }
+        fields = [manifest["source_tree_oid"]]
+        for name, digest in sorted(manifest["artifact_digests"].items()):
+            fields.extend([name, digest])
+        self.pin = hashlib.sha256(("\0".join(fields) + "\0").encode()).hexdigest()
+        manifest["contract_digest"] = self.pin
+        receipt = json.dumps(manifest).encode()
         self.contract.joinpath("receipt.json").write_bytes(receipt)
         self.expected = {
             "receipt_hex": receipt.hex(),
@@ -277,10 +282,11 @@ class ContractProbeFixtures(unittest.TestCase):
             timeout=60,
         )
 
-    def _assert_rejected(self, message: str) -> None:
+    def _assert_rejected(self, message: str | tuple[str, ...]) -> None:
         result = self._run_fixture()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(message, result.stderr)
+        messages = (message,) if isinstance(message, str) else message
+        self.assertTrue(any(item in result.stderr for item in messages), result.stderr)
 
     def test_complete_synthetic_distribution_passes_probe(self) -> None:
         result = self._run_fixture()
@@ -315,7 +321,7 @@ class ContractProbeFixtures(unittest.TestCase):
         receipt["artifact_digests"]["epistemic_graph/contract/schemas/fixture.json"] = (
             hashlib.sha256(changed).hexdigest()
         )
-        self.assertEqual(receipt["contract_digest"], "a" * 64)
+        self.assertEqual(receipt["contract_digest"], self.pin)
         receipt_path.write_text(json.dumps(receipt))
         self._assert_rejected("installed receipt differs from source authority")
 
@@ -327,7 +333,7 @@ class ContractProbeFixtures(unittest.TestCase):
         self._assert_rejected("RECORD omits expected contract files")
         self.record.write_text(original_record)
         self.contract.joinpath("errors.json").unlink()
-        self._assert_rejected("FileNotFoundError")
+        self._assert_rejected("errors.json")
 
     def test_removed_manifest_entry_and_file_are_rejected(self) -> None:
         receipt_path = self.contract / "receipt.json"
@@ -335,7 +341,13 @@ class ContractProbeFixtures(unittest.TestCase):
         del receipt["artifact_digests"]["epistemic_graph/contract/errors.json"]
         receipt_path.write_text(json.dumps(receipt))
         self.contract.joinpath("errors.json").unlink()
-        self._assert_rejected("installed receipt differs from source authority")
+        self._assert_rejected(
+            (
+                "installed receipt differs from source authority",
+                # Eager production validation may reject before the probe runs.
+                "receipt omits required contract artifacts",
+            )
+        )
 
 
 class WheelContractSurface(unittest.TestCase):
