@@ -1,52 +1,95 @@
 # Epistemic Operations Protocol
 
-`eg-types::epistemic_operations` is the strict Rust projection of the shared
+`eg-types::epistemic_operations` declares the current engine-owned
 Epistemic Operations Protocol. It gives the engine one current-only vocabulary
 for request authority, mutation, ingestion, delegation, artifacts, streamed
 knowledge, analytics jobs, trace outcomes, placement, atomic claims, evidence,
 structured operation results, and native development-lane lease/quota authority.
 
-The authoritative JSON Schema catalog is packaged by agent-utilities. The
-engine does not depend on that Python package at runtime: it ships serde DTOs
-and a generated, digest-pinned manifest. The workspace parity gate proves the
-catalog, generated Pydantic models, manifest, and generated Rust structs have
-identical ordered fields; the engine's standalone gate rechecks manifest
-integrity and Rust field parity without compiling the binary.
+Rust method and DTO declarations are the authority for request/result shapes.
+The canonical contract generator derives schemas, client models, method-body
+vectors and contract receipts from those declarations. Agent Utilities consumes
+the generated public engine client; its retired schema catalog is not an
+alternate authority or a compatibility contract. This is the current hard
+cutover contract under EG-C-01 and EG-C-04.
 
-## Engine projection
+## Engine contract and projections
 
 ```mermaid
 flowchart LR
-    Schema[Authoritative JSON Schemas] --> CrossGate[Cross-repository parity gate]
-    CrossGate --> Manifest[Generated engine manifest]
-    CrossGate --> DTO[eg-types serde DTOs]
-    Manifest --> EngineGate[Standalone source gate]
-    DTO --> EngineGate
-    DTO --> Consumers[server / jobs / query / connector consumers]
+    Rust[Rust method and DTO declarations] --> Generator[Canonical contract generator]
+    Generator --> Schemas[Contract schemas and receipt]
+    Generator --> Clients[Generated client models]
+    Generator --> Vectors[Canonical method-body vectors]
+    Rust --> Engine[Engine validation and execution]
 ```
 
-The DTOs use `#[serde(deny_unknown_fields)]`. Catalog version `1` accepts only
-the current `RequestContext` schema version `"2"` and version `"1"` for the
-other fifteen root schemas. There is no older-version parser, alias, or fallback
-branch. An intentional contract change updates all consumers in one ecosystem
-change.
+Unknown fields are refused. Primitive values are validated without coercing
+strings, booleans or floating-point values into integer fields. Wire enum tags
+remain ordinary strings, including `schema_version: "1"` and lane host target
+kinds `"local"` and `"inventory_alias"`; valid JSON does not require language-
+specific enum objects. Constraint metadata and generated validation must agree
+with the engine's admission rules.
 
-Run the engine-local proof:
+### Development-lane intent bounds
+
+The following opaque text fields contain **1 through 512 UTF-8 bytes**, with
+no byte below `0x20`: `tenant_ref`, `request_id`, `lane_id`, `repository_id`,
+`base_ref`, `branch`, `workspace_ref`, `owner_id`, `session_id`, `fairness_group`,
+`quota_policy_name`, `quota_policy_version`, `host_ref`,
+`resource_reservation_id`, and a non-null `host_target_alias`. The limit counts
+encoded bytes, not Unicode characters. For example, 512 ASCII characters,
+256 copies of `é`, or 128 four-byte Unicode characters reach the limit; one
+additional character in each example is refused. The retired AU limit of
+256 characters does not apply.
+
+`worktree_locator` has the same text bounds and additionally must be a relative
+locator with no backslash, leading slash, empty component, `.` component or
+`..` component. `base_sha` instead requires exactly 40 or 64 lowercase ASCII
+hexadecimal digits. `input_fingerprint` requires exactly `v1:` followed by
+64 lowercase ASCII hexadecimal digits: 67 bytes total, with no trailing
+characters or newline. Other existing lane admission checks, including host
+kind/alias agreement, positive bounded TTL and disk demand, remain in force.
+
+These are the current rules implemented by
+`src/redb_store/development_lane/links.rs`; generated schema/client checks must
+represent the same semantics. JSON Schema `maxLength` alone cannot express a
+UTF-8 byte limit and must not substitute a character bound.
+
+### WorkItem claim bounds
+
+`ClaimWorkItemRequest.lease_ms` is a positive integer.
+`max_tenant_in_flight` is an integer in the inclusive range **1 through 4096**.
+`tenant_ref` and `worker_ref` must not be empty after trimming whitespace.
+Generated request validation must reject invalid values before transport,
+consistently with `src/redb_store/work_item/claim.rs`. It must not normalize an
+invalid request into a different valid request.
+
+Nullable does not mean optional presence. Claim selectors `work_item_id`,
+`queue_ref`, `resource_class`, and `fairness_group`, and lane
+`host_target_alias`, must be present on the wire; their value may be `null`
+where the operation permits it. Generated models must preserve the Rust
+`deserialize_required_option` distinction between explicit null and omission.
+
+The protocol source gate remains an engine-owned check:
 
 ```bash
 python3 scripts/check_epistemic_operations_protocol.py
 ```
 
-This verifies all sixteen schema digests, the full catalog digest, 61 bound
-root/nested objects, both `eg-types` module exports, and the generated Rust
-constants. The workspace cross-repository gate remains the release authority.
+The required cutover target is to bind this gate to the current Rust/generated
+engine contract. That transfer is not implemented at this revision: the checker
+still validates the legacy manifest/catalog and generated Rust digest bindings.
+It must retain meaningful field, version and artifact integrity checks through
+the transfer; a renamed or always-passing check does not establish parity.
+Generated artifacts and signed vectors must be regenerated together and checked
+against the same source revision. This documentation does not establish that
+the checker transfer or generated-client validation is complete.
 
-The live placement route, WorkItem claim, provenance-evidence, placement
-redirect, and development-lane protocol surfaces serialize these generated DTOs
-directly. Lane requests carry `now_ms` only as a deterministic replay field:
-dispatch overwrites/normalizes it from the authoritative engine clock before any
-freshness, expiry, or lease decision. Deployment endpoints remain topology
-configuration and never enter the shared records.
+Lane requests carry `now_ms` only as a deterministic replay field: dispatch
+normalizes it from the authoritative engine clock before freshness, expiry or
+lease decisions. Deployment endpoints remain topology configuration and never
+enter the shared records.
 
 ## Privacy boundary
 

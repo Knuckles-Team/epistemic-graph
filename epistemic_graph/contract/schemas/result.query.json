@@ -5926,49 +5926,59 @@
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-eg-required-presence": true
         },
         "lease_ms": {
           "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "minimum": 1,
+          "type": "integer",
+          "x-eg-strict-scalar": true
         },
         "max_tenant_in_flight": {
           "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "maximum": 4096,
+          "minimum": 1,
+          "type": "integer",
+          "x-eg-strict-scalar": true
         },
         "now_ms": {
           "format": "uint64",
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "x-eg-strict-scalar": true
         },
         "queue_ref": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-eg-required-presence": true
         },
         "resource_class": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-eg-required-presence": true
         },
         "schema_version": {
           "$ref": "#/$defs/ClaimWorkItemRequestSchemaVersion"
         },
         "tenant_ref": {
-          "type": "string"
+          "type": "string",
+          "x-eg-nonblank": true
         },
         "work_item_id": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-eg-required-presence": true
         },
         "worker_ref": {
-          "type": "string"
+          "type": "string",
+          "x-eg-nonblank": true
         }
       },
       "required": [
@@ -5977,7 +5987,11 @@
         "worker_ref",
         "now_ms",
         "lease_ms",
-        "max_tenant_in_flight"
+        "max_tenant_in_flight",
+        "fairness_group",
+        "queue_ref",
+        "resource_class",
+        "work_item_id"
       ],
       "type": "object"
     },
@@ -9016,74 +9030,125 @@
       "additionalProperties": false,
       "properties": {
         "base_ref": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "base_sha": {
           "type": "string"
         },
         "branch": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "fairness_group": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "host_ref": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "host_target_alias": {
+          "minLength": 1,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "x-eg-no-control-bytes": true,
+          "x-eg-required-presence": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "host_target_kind": {
           "$ref": "#/$defs/DevelopmentLaneIntentHostTargetKind"
         },
         "input_fingerprint": {
+          "maxLength": 67,
+          "minLength": 67,
+          "pattern": "^v1:[0-9a-f]{64}$",
           "type": "string"
         },
         "lane_id": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "owner_id": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "predicted_disk_bytes": {
           "format": "uint64",
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "x-eg-strict-scalar": true
         },
         "quota_policy_name": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "quota_policy_version": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "repository_id": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "request_id": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "resource_reservation_id": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "schema_version": {
           "$ref": "#/$defs/DevelopmentLaneIntentSchemaVersion"
         },
         "session_id": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "tenant_ref": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "ttl_ms": {
           "format": "uint64",
           "minimum": 0,
-          "type": "integer"
+          "type": "integer",
+          "x-eg-strict-scalar": true
         },
         "workspace_ref": {
-          "type": "string"
+          "minLength": 1,
+          "type": "string",
+          "x-eg-no-control-bytes": true,
+          "x-eg-utf8-max-bytes": 512
         },
         "worktree_locator": {
           "type": "string"
@@ -9110,7 +9175,8 @@
         "quota_policy_version",
         "predicted_disk_bytes",
         "ttl_ms",
-        "input_fingerprint"
+        "input_fingerprint",
+        "host_target_alias"
       ],
       "type": "object"
     },
@@ -30971,8 +31037,18 @@
               "properties": {
                 "data_graph": {
                   "default": "",
-                  "description": "The data graph as a Turtle document; empty ⇒ use the request's live graph.",
+                  "description": "The data graph as a Turtle document; empty ⇒ use the request's live graph\n(unless `data_triples` is given).",
                   "type": "string"
+                },
+                "data_triples": {
+                  "description": "The data graph as typed triples, for callers that must not build\nRDF text. Mutually exclusive with a non-empty `data_graph`; at most\n`MAX_TYPED_TRIPLES`. An explicit empty list validates an empty graph;\nomitted/null permits the Turtle or live-graph fallback.",
+                  "items": {
+                    "$ref": "#/$defs/RdfTriple"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
                 },
                 "shapes": {
                   "default": null,
@@ -30981,6 +31057,41 @@
                     "string",
                     "null"
                   ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Inspect ontology/shapes documents: the named classes, object and\ndatatype properties with their labels, domains and ranges, the SHACL target\nclasses, the distinct triple count and the canonical digest. Inspects the\ninline Turtle `documents` when given (at most `MAX_INSPECT_DOCUMENTS`);\notherwise the request graph's composed GraphSchema sources named by\n`source_ids`, or every composed source when that is empty too. Giving both\nis refused. Returns a `Json` `OntologyInspection`. Read-only; the engine is\nthe only RDF parser, so a caller never needs one. Handler gated `shacl`.",
+          "properties": {
+            "method": {
+              "const": "OntologyInspect",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "documents": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "source_ids": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
                 }
               },
               "type": "object"
@@ -39978,6 +40089,80 @@
           "type": "object"
         }
       ]
+    },
+    "RdfObject": {
+      "description": "A triple's object: an absolute IRI or a literal. A literal carries at most one\nof `datatype` (an absolute IRI) and `language` (a BCP 47 tag); neither means a\nplain string.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "iri": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "iri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "iri"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "datatype": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "literal",
+              "type": "string"
+            },
+            "language": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lexical": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "lexical"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RdfTriple": {
+      "additionalProperties": false,
+      "description": "One RDF triple as data. `subject` and `predicate` are absolute IRIs.",
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/RdfObject"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "predicate",
+        "object"
+      ],
+      "type": "object"
     },
     "ReceiptNode": {
       "additionalProperties": false,

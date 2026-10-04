@@ -3,24 +3,33 @@ use std::sync::Arc;
 use crate::graph::GraphCore;
 use crate::protocol::{Response, ResultPayload};
 
-/// Validate the request graph (or an inline `data_graph` Turtle document) against
-/// SHACL constraints (CONCEPT:EG-KG.ontology.concept-6), returning a `Json`
-/// `sh:ValidationReport`. Omitted/empty `shapes` means the request graph's
-/// composed GraphSchema shapes. Read-only: an empty `data_graph` exports the
-/// LIVE graph's RDF (the same triples `GetRdf` serializes) and validates that.
+/// The data half of a `ShaclValidate` request: an inline Turtle document, typed
+/// triples, or neither (the live graph).
+#[cfg(feature = "shacl")]
+pub(super) struct ShaclData<'a> {
+    pub(super) turtle: &'a str,
+    pub(super) triples: Option<&'a [eg_types::ontology_inspection::RdfTriple]>,
+}
+
+/// Validate the request graph (or an inline `data_graph` Turtle document, or typed
+/// `data_triples`) against SHACL constraints (CONCEPT:EG-KG.ontology.concept-6),
+/// returning a `Json` `sh:ValidationReport`. Omitted/empty `shapes` means the
+/// request graph's composed GraphSchema shapes. Read-only: with no data given it
+/// exports the LIVE graph's RDF (the same triples `GetRdf` serializes) and
+/// validates that.
 #[cfg(feature = "shacl")]
 pub(super) async fn handle_shacl_validate(
     req_id: u64,
     graph_name: &str,
     core: &Arc<GraphCore>,
     shapes: Option<String>,
-    data_graph: String,
+    data: ShaclData<'_>,
 ) -> Response {
     let shapes = match load_shacl_shapes(core, shapes.as_deref()) {
         Ok(shapes) => shapes,
         Err(error) => return Response::err(req_id, error),
     };
-    let data = match load_shacl_data(graph_name, core, &data_graph) {
+    let data = match load_shacl_data(graph_name, core, &data) {
         Ok(graph) => graph,
         Err(error) => return Response::err(req_id, error),
     };
@@ -103,10 +112,18 @@ fn load_shacl_shapes(core: &GraphCore, shapes: Option<&str>) -> Result<LoadedSha
 fn load_shacl_data(
     graph_name: &str,
     core: &Arc<GraphCore>,
-    data_graph: &str,
+    data: &ShaclData<'_>,
 ) -> Result<eg_shacl::Graph, String> {
-    if !data_graph.trim().is_empty() {
-        return eg_shacl::graph_from_turtle(data_graph)
+    let has_turtle = !data.turtle.trim().is_empty();
+    if has_turtle && data.triples.is_some() {
+        return Err("ShaclValidate: give data_graph or data_triples, not both".to_string());
+    }
+    if let Some(triples) = data.triples {
+        return super::typed_triples::graph_from_typed_triples(triples)
+            .map_err(|error| format!("ShaclValidate: bad data_triples: {error}"));
+    }
+    if has_turtle {
+        return eg_shacl::graph_from_turtle(data.turtle)
             .map_err(|error| format!("ShaclValidate: bad data graph: {error}"));
     }
     let triples = eg_rdf::mapping::export_triples(core, graph_name)
