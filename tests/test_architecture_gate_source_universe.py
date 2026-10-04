@@ -453,3 +453,258 @@ def test_repaired_architecture_gate_passes_on_the_current_tree(gate_name: str) -
     gate = _script(gate_name)
     result = gate.main()
     assert result in (None, 0)
+
+
+_ITEM_POLICY_MACRO = """
+macro_rules! request_policy {
+    ($request:item) => {
+        #[derive(Clone, Debug)]
+        #[serde(deny_unknown_fields)]
+        $request
+    };
+}
+pub(super) use request_policy;
+"""
+_ITEM_POLICY_USE = """
+super::common::request_policy! {
+    pub struct Planted { pub field: String }
+}
+"""
+
+
+def _plant_item_policy(gate, tmp_path, monkeypatch, definition, invocation):
+    family = tmp_path / "epistemic_operations"
+    family.mkdir()
+    (family / "common.rs").write_text(definition, encoding="utf-8")
+    monkeypatch.setattr(gate, "RUST_SOURCE", tmp_path / "epistemic_operations.rs")
+    monkeypatch.setattr(gate, "_rust_source", lambda: invocation)
+
+
+def test_item_macro_policy_is_resolved_from_its_actual_definition(
+    tmp_path, monkeypatch
+):
+    gate = _script("check_epistemic_operations_protocol")
+    _plant_item_policy(
+        gate, tmp_path, monkeypatch, _ITEM_POLICY_MACRO, _ITEM_POLICY_USE
+    )
+    gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "",
+        _ITEM_POLICY_MACRO * 2,
+        _ITEM_POLICY_MACRO.replace("request_policy", "renamed_policy"),
+        _ITEM_POLICY_MACRO.replace("#[serde(deny_unknown_fields)]", ""),
+        _ITEM_POLICY_MACRO.replace("        $request\n", ""),
+        _ITEM_POLICY_MACRO.replace(
+            "        $request\n", "        pub struct Other {}\n        $request\n"
+        ),
+        '#[cfg(feature = "optional")]\n' + _ITEM_POLICY_MACRO,
+        _ITEM_POLICY_MACRO.replace(
+            "#[serde(deny_unknown_fields)]",
+            '#[cfg_attr(feature = "optional", serde(deny_unknown_fields))]',
+        ),
+        _ITEM_POLICY_MACRO.replace("    };\n}", "    };\n    () => {};\n}"),
+        _ITEM_POLICY_MACRO.replace("pub(super) use request_policy;", ""),
+        _ITEM_POLICY_MACRO.replace(
+            "pub(super) use request_policy;",
+            "pub(super) use request_policy; pub(super) use request_policy;",
+        ),
+        _ITEM_POLICY_MACRO.replace(
+            "pub(super) use request_policy;",
+            '#[cfg(feature = "optional")] pub(super) use request_policy;',
+        ),
+        _ITEM_POLICY_MACRO.replace(
+            "pub(super) use request_policy;",
+            "mod hidden { pub(super) use request_policy; }",
+        ),
+        _ITEM_POLICY_MACRO.replace(
+            "#[serde(deny_unknown_fields)]", "// #[serde(deny_unknown_fields)]"
+        ),
+        _ITEM_POLICY_MACRO.replace(
+            "#[serde(deny_unknown_fields)]", '#[doc = "#[serde(deny_unknown_fields)]"]'
+        ),
+        _ITEM_POLICY_MACRO.replace("$request:item", "$request:expr"),
+        "/*" + _ITEM_POLICY_MACRO + "*/",
+    ],
+)
+def test_item_macro_policy_rejects_definition_mutations(
+    tmp_path, monkeypatch, definition
+):
+    gate = _script("check_epistemic_operations_protocol")
+    _plant_item_policy(gate, tmp_path, monkeypatch, definition, _ITEM_POLICY_USE)
+    with pytest.raises(gate.GateError):
+        gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    [
+        _ITEM_POLICY_USE.replace("super::common::", ""),
+        _ITEM_POLICY_USE.replace("super::common::", "super::other::"),
+        _ITEM_POLICY_USE.replace("request_policy", "unknown_policy"),
+        _ITEM_POLICY_USE.replace(
+            "pub field: String }", "pub field: String } pub struct Extra {}"
+        ),
+        "outer! {" + _ITEM_POLICY_USE + "}",
+        _ITEM_POLICY_USE.replace("request_policy", "unknown_policy").replace(
+            "pub struct", "#[serde(deny_unknown_fields)] pub struct"
+        ),
+    ],
+)
+def test_item_macro_policy_rejects_unsupported_invocations(
+    tmp_path, monkeypatch, invocation
+):
+    gate = _script("check_epistemic_operations_protocol")
+    _plant_item_policy(gate, tmp_path, monkeypatch, _ITEM_POLICY_MACRO, invocation)
+    with pytest.raises(gate.GateError):
+        gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+def test_real_required_nullable_requests_remain_closed():
+    gate = _script("check_epistemic_operations_protocol")
+    gate._assert_rust_closed(
+        [
+            {"rust_type": name}
+            for name in ("ClaimWorkItemRequest", "DevelopmentLaneIntent")
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "#[cfg(any())]",
+        "#[custom_transform]",
+        '#[cfg_attr(feature = "optional", custom_transform)]',
+        "#[derive(CustomTransform)]",
+    ],
+)
+def test_item_macro_policy_rejects_item_transforming_attributes(
+    tmp_path, monkeypatch, attribute
+):
+    gate = _script("check_epistemic_operations_protocol")
+    definition = _ITEM_POLICY_MACRO.replace(
+        "        $request", attribute + "\n        $request"
+    )
+    _plant_item_policy(gate, tmp_path, monkeypatch, definition, _ITEM_POLICY_USE)
+    with pytest.raises(gate.GateError):
+        gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize(
+    "invocation",
+    [
+        "unknown! ( #[serde(deny_unknown_fields)] pub struct Planted {} );",
+        "unknown! [ #[serde(deny_unknown_fields)] pub struct Planted {} ];",
+        "unknown! { pub struct Other {} "
+        "#[serde(deny_unknown_fields)] pub struct Planted {} }",
+        "super::common::request_policy! { pub struct Other {} pub struct Planted {} }",
+        "super::common::request_policy! { #[cfg(any())] pub struct Planted {} }",
+    ],
+)
+def test_item_macro_policy_rejects_hidden_item_contexts(
+    tmp_path, monkeypatch, invocation
+):
+    gate = _script("check_epistemic_operations_protocol")
+    _plant_item_policy(gate, tmp_path, monkeypatch, _ITEM_POLICY_MACRO, invocation)
+    with pytest.raises(gate.GateError):
+        gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "// #[serde(deny_unknown_fields)]\npub struct Planted {}",
+        "/* #[serde(deny_unknown_fields)] */\npub struct Planted {}",
+        '#[doc = "#[serde(deny_unknown_fields)]"]\npub struct Planted {}',
+        "#[serde(deny_unknown_fields)] /* pub struct Planted {} */ "
+        "pub struct Planted {} pub struct Planted {}",
+        "// #[serde(deny_unknown_fields)] pub struct Planted {}",
+    ],
+)
+def test_direct_item_policy_rejects_fake_or_ambiguous_closure(monkeypatch, source):
+    gate = _script("check_epistemic_operations_protocol")
+    monkeypatch.setattr(gate, "_rust_source", lambda: source)
+    with pytest.raises(gate.GateError):
+        gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+def test_direct_item_policy_preserves_closure_across_comments(monkeypatch):
+    gate = _script("check_epistemic_operations_protocol")
+    monkeypatch.setattr(
+        gate,
+        "_rust_source",
+        lambda: (
+            "#[serde(deny_unknown_fields)] /* harmless comment */ pub struct Planted {}"
+        ),
+    )
+    gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "#[cfg(any())]\n",
+        '#[cfg_attr(feature = "optional", custom_transform)]\n',
+        "#[custom_transform] /* between attribute and invocation */\n",
+        "#[derive(Clone)]\n",
+    ],
+)
+def test_item_macro_policy_rejects_invocation_attributes(tmp_path, monkeypatch, prefix):
+    gate = _script("check_epistemic_operations_protocol")
+    _plant_item_policy(
+        gate, tmp_path, monkeypatch, _ITEM_POLICY_MACRO, prefix + _ITEM_POLICY_USE
+    )
+    with pytest.raises(gate.GateError):
+        gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "super::super::common::request_policy",
+        "crate::super::common::request_policy",
+        "::super::common::request_policy",
+        "wrong::super::common::request_policy",
+        "super :: super :: common :: request_policy",
+        "super/* path comment */::super::common::request_policy",
+        "r#super::common::request_policy",
+    ],
+)
+def test_item_macro_policy_resolves_the_complete_path(tmp_path, monkeypatch, path):
+    gate = _script("check_epistemic_operations_protocol")
+    invocation = _ITEM_POLICY_USE.replace("super::common::request_policy", path)
+    _plant_item_policy(gate, tmp_path, monkeypatch, _ITEM_POLICY_MACRO, invocation)
+    with pytest.raises(gate.GateError):
+        gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize("prefix", ["", "pub struct Other {}\n", "use other::Thing;\n"])
+def test_item_macro_policy_accepts_complete_path_with_trivia(
+    tmp_path, monkeypatch, prefix
+):
+    gate = _script("check_epistemic_operations_protocol")
+    invocation = prefix + _ITEM_POLICY_USE.replace(
+        "super::common::", "super /* comment */ :: common :: "
+    )
+    _plant_item_policy(gate, tmp_path, monkeypatch, _ITEM_POLICY_MACRO, invocation)
+    gate._assert_rust_closed([{"rust_type": "Planted"}])
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "#[cfg(any())]\nsuper::common::strict_nullable_request!",
+        "super::super::common::strict_nullable_request!",
+    ],
+)
+def test_full_gate_rejects_real_invocation_context_mutations(monkeypatch, replacement):
+    gate = _script("check_epistemic_operations_protocol")
+    source = gate._rust_source().replace(
+        "super::common::strict_nullable_request!", replacement
+    )
+    monkeypatch.setattr(gate, "_rust_source", lambda: source)
+    assert gate.main() == 1

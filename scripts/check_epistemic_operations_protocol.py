@@ -18,6 +18,12 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from rust_lexer import (
+    _balanced_span_from,
+    _delimiter_depths,
+    _rust_code_mask,
+    _rust_comments_mask,
+)
 from rust_module_tree import read_compiler_family
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -273,6 +279,7 @@ def _attribute_block_before(source: str, index: int) -> str:
     is irrelevant and a genuinely absent attribute is still fatal.
     """
 
+    source = _rust_comments_mask(source)
     block: list[str] = []
     cursor = index
     while True:
@@ -307,17 +314,155 @@ def _preceding_attribute_start(head: str) -> int | None:
     return scan - 1
 
 
+def _enclosing_item_delimiters(mask: str, end: int) -> list[tuple[str, int]]:
+    stack: list[tuple[str, int]] = []
+    pairs = {"}": "{", ")": "(", "]": "["}
+    for position, char in enumerate(mask[:end]):
+        if char in "{([":
+            stack.append((char, position))
+        elif char in pairs:
+            if not stack or stack[-1][0] != pairs[char]:
+                raise GateError("unbalanced Rust item context")
+            stack.pop()
+    return stack
+
+
+def _item_macro_invocation(source: str, mask: str, opening: int) -> str:
+    """Read the whole invocation head, including its path and item attributes.
+
+    Walk tokens backward from the delimiter so a qualified path cannot match
+    only a suffix. Only an un-attributed invocation at an item boundary can
+    resolve to the common-module provider.
+    """
+
+    tokens = list(re.finditer(r"::|[A-Za-z_][A-Za-z0-9_]*|[^\s]", mask[:opening]))
+    if not tokens or tokens.pop().group() != "!":
+        raise GateError("unsupported enclosing DTO macro/item context")
+    path: list[str] = []
+    start = opening
+    while tokens:
+        segment = tokens.pop()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", segment.group()) is None:
+            raise GateError("unsupported DTO macro path")
+        path.insert(0, segment.group())
+        start = segment.start()
+        if not tokens or tokens[-1].group() != "::":
+            break
+        tokens.pop()
+        if not tokens:
+            raise GateError("absolute DTO macro paths are unsupported")
+    if len(path) != 3 or path[:2] != ["super", "common"]:
+        raise GateError("unsupported DTO macro path")
+    if _attribute_block_before(source, start).strip():
+        raise GateError("attributed DTO macro invocations are unsupported")
+    if tokens and tokens[-1].group() not in {";", "}"}:
+        raise GateError("DTO macro invocation is not at an item boundary")
+    return path[2]
+
+
+def _item_macro_attributes(source: str, declaration: re.Match[str]) -> str:
+    """Prove a direct declaration or resolve one supported item macro."""
+
+    mask = _rust_code_mask(source)
+    enclosing = _enclosing_item_delimiters(mask, declaration.start())
+    if not enclosing:
+        return ""
+    if len(enclosing) != 1 or enclosing[0][0] != "{":
+        raise GateError("unsupported enclosing DTO macro/item context")
+    opening = enclosing[0][1]
+    name = _item_macro_invocation(source, mask, opening)
+    _only_macro_attributes(
+        _rust_comments_mask(source[opening + 1 : declaration.start()]), name
+    )
+    end = _balanced_span_from(mask, declaration.end() - 1, "{", "}")
+    close = _balanced_span_from(mask, opening, "{", "}")
+    if mask[end + 1 : close].strip():
+        raise GateError(f"unsupported invocation of common::{name}")
+    common = RUST_SOURCE.parent / "epistemic_operations" / "common.rs"
+    return _forwarded_macro_attributes(common.read_text(encoding="utf-8"), name)
+
+
+def _forwarded_macro_attributes(source: str, name: str) -> str:
+    mask = _rust_code_mask(source)
+    source = _rust_comments_mask(source)
+    definitions = list(re.finditer(rf"\bmacro_rules!\s*{re.escape(name)}\b", mask))
+    if len(definitions) != 1:
+        raise GateError(f"missing or ambiguous common::{name} definition")
+    start = definitions[0].start()
+    if _delimiter_depths(mask)[start] != (0, 0, 0) or "#[" in _attribute_block_before(
+        source, start
+    ):
+        raise GateError(f"conditional or attributed common::{name} definition")
+    definition = re.match(
+        rf"macro_rules!\s*{re.escape(name)}\s*\{{\s*"
+        r"\(\s*\$(?P<item>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*item\s*\)\s*=>\s*"
+        r"\{(?P<attributes>[^{}]*?)\$(?P=item)\s*\}\s*;\s*\}",
+        source[start:],
+    )
+    exports = list(re.finditer(rf"pub\(super\)\s+use\s+{re.escape(name)}\s*;", mask))
+    if definition is None or len(exports) != 1:
+        raise GateError(f"unsupported common::{name} definition or export")
+    export_start = exports[0].start()
+    if _delimiter_depths(mask)[export_start] != (
+        0,
+        0,
+        0,
+    ) or "#[" in _attribute_block_before(source, export_start):
+        raise GateError(f"conditional or nested common::{name} export")
+    return _only_macro_attributes(definition.group("attributes"), name)
+
+
+def _supported_forwarded_attribute(attribute: str) -> bool:
+    compact = "".join(attribute.split())
+    if compact in {
+        "#[serde(deny_unknown_fields)]",
+        '#[cfg_attr(feature="contract-schema",derive(schemars::JsonSchema))]',
+        '#[cfg_attr(feature="contract-schema",schemars(transform=super::common::require_marked_nullable_fields))]',
+    }:
+        return True
+    derive = re.fullmatch(r"#\[derive\(([^()]*)\)\]", compact)
+    if derive is None:
+        return False
+    safe_derives = {
+        "Clone",
+        "Copy",
+        "Debug",
+        "PartialEq",
+        "Eq",
+        "Serialize",
+        "Deserialize",
+    }
+    return bool(derive.group(1)) and set(derive.group(1).split(",")) <= safe_derives
+
+
+def _only_macro_attributes(source: str, name: str) -> str:
+    attributes: list[str] = []
+    remaining = source.rstrip()
+    while remaining:
+        start = _preceding_attribute_start(remaining)
+        if start is None or not _supported_forwarded_attribute(remaining[start:]):
+            raise GateError(f"unsupported expansion of common::{name}")
+        attributes.append(remaining[start:])
+        remaining = remaining[:start].rstrip()
+    return "\n".join(reversed(attributes))
+
+
 def _assert_rust_closed(bindings: list[dict[str, Any]]) -> None:
     source = _rust_source()
+    mask = _rust_code_mask(source)
     for binding in bindings:
         rust_type = str(binding["rust_type"])
-        declaration = re.search(
-            rf"\bpub\s+struct\s+{re.escape(rust_type)}\s*\{{", source
+        declarations = list(
+            re.finditer(rf"\bpub\s+struct\s+{re.escape(rust_type)}\s*\{{", mask)
         )
-        if declaration is None:
-            raise GateError(f"Rust {rust_type} is not declared")
+        if len(declarations) != 1:
+            raise GateError(f"Rust {rust_type} is not declared unambiguously")
+        declaration = declarations[0]
         attributes = _attribute_block_before(source, declaration.start())
-        if "#[serde(deny_unknown_fields)]" not in "".join(attributes.split()):
+        attributes += _item_macro_attributes(source, declaration)
+        if "#[serde(deny_unknown_fields)]" not in "".join(
+            _rust_code_mask(attributes).split()
+        ):
             raise GateError(f"Rust {rust_type} must deny unknown fields")
     for match in RUST_OPTION_FIELD_RE.finditer(source):
         if 'deserialize_with = "deserialize_required_option"' not in match.group(

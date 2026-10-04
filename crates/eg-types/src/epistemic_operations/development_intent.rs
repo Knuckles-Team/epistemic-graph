@@ -64,10 +64,7 @@ pub struct WorkItem {
     pub lane_intent: Option<DevelopmentLaneIntent>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "contract-schema", schemars(transform = super::common::require_marked_nullable_fields))]
+super::common::strict_nullable_request! {
 pub struct DevelopmentLaneIntent {
     pub schema_version: DevelopmentLaneIntentSchemaVersion,
     #[cfg_attr(feature = "contract-schema", schemars(length(min = 1), extend("x-eg-utf8-max-bytes" = 512, "x-eg-no-control-bytes" = true)))]
@@ -113,6 +110,7 @@ pub struct DevelopmentLaneIntent {
         schemars(length(min = 67, max = 67), regex(pattern = "^v1:[0-9a-f]{64}$"))
     )]
     pub input_fingerprint: String,
+}
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

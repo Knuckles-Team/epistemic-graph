@@ -96,10 +96,7 @@ pub struct PlacementRouteRequest {
     pub client_epoch: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "contract-schema", schemars(transform = super::common::require_marked_nullable_fields))]
+super::common::strict_nullable_request! {
 pub struct ClaimWorkItemRequest {
     pub schema_version: ClaimWorkItemRequestSchemaVersion,
     #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-nonblank" = true)))]
@@ -124,6 +121,7 @@ pub struct ClaimWorkItemRequest {
     pub lease_ms: u64,
     #[cfg_attr(feature = "contract-schema", schemars(range(min = 1, max = 4096), extend("x-eg-strict-scalar" = true)))]
     pub max_tenant_in_flight: u64,
+}
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

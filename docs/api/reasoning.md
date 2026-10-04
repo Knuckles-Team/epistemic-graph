@@ -1,6 +1,6 @@
 # Reasoning API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.reasoning.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 14 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.reasoning.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 15 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `GetRdf`
 
@@ -161,6 +161,39 @@ state-backed MutationBatch
 | `result` | boolean | Bool |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/IcvConfigure`, `contract/schemas/result.reasoning.json#/methods/IcvConfigure`.
+
+## `OntologyInspect`
+
+the vocabulary, SHACL targets and canonical digest of inline documents or the composed GraphSchema sources, so orchestration callers need no RDF parser; reads schema, never graph rows
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `validation:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `documents` | array of string | no |  |
+| `source_ids` | array of string | no |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `OntologyInspection` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/OntologyInspect`, `contract/schemas/result.reasoning.json#/methods/OntologyInspect`.
 
 ## `OwlExplain`
 
@@ -358,7 +391,8 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/RunR
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `data_graph` | string | no | The data graph as a Turtle document; empty ⇒ use the request's live graph. |
+| `data_graph` | string | no | The data graph as a Turtle document; empty ⇒ use the request's live graph (unless `data_triples` is given). |
+| `data_triples` | array \| null | no | The data graph as typed triples, for callers that must not build RDF text. Mutually exclusive with a non-empty `data_graph`; at most `MAX_TYPED_TRIPLES`. An explicit empty list validates an empty graph; omitted/null permits the Turtle or live-graph fallback. |
 | `shapes` | string \| null | no | An explicit shapes graph as Turtle. Omitted/empty uses the request graph's composed GraphSchema authority. |
 
 **Result**

@@ -33,8 +33,7 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::protocol::{Method, ResultPayload};
-use epistemic_graph::server::dispatch;
+use epistemic_graph::protocol::{Method, Response, ResultPayload};
 
 const SECRET: &str = "usecase-lifecycle-secret";
 
@@ -60,14 +59,14 @@ async fn ok(state: &test_support::SharedState, id: u64, method: Method) {
 }
 
 async fn hybrid_read(state: &test_support::SharedState, id: u64) -> Vec<String> {
-    let r = Box::pin(dispatch(
+    let r = test_support::dispatch(
         state,
         test_support::commons_request(
             SECRET,
             id,
             test_support::uql("MATCH (:Sensor) |> RANK BY ~[1.0,0.0] |> LIMIT 10"),
         ),
-    ))
+    )
     .await;
     test_support::uql_ids(&r)
 }
@@ -80,7 +79,7 @@ const SHAPES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
       sh:property [ sh:path ex:unit ; sh:minCount 1 ] .\n";
 
 async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: &str) -> bool {
-    let r = Box::pin(dispatch(
+    let r = test_support::dispatch(
         state,
         test_support::commons_request(
             SECRET,
@@ -91,7 +90,7 @@ async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: 
                 data_triples: None,
             },
         ),
-    ))
+    )
     .await;
     assert!(r.error.is_none(), "ShaclValidate error: {:?}", r.error);
     match &r.result {
@@ -101,10 +100,10 @@ async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: 
 }
 
 async fn rdf_snapshot(state: &test_support::SharedState, id: u64) -> serde_json::Value {
-    let response = Box::pin(dispatch(
+    let response = test_support::dispatch(
         state,
         test_support::commons_request(SECRET, id, Method::GetRdf),
-    ))
+    )
     .await;
     assert!(response.error.is_none(), "{:?}", response.error);
     serde_json::to_value(response.result.expect("GetRdf result")).unwrap()
@@ -150,7 +149,7 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
         (4, vec![sensor.clone(), unit], true),
         (8, vec![], true),
     ] {
-        let response = Box::pin(dispatch(
+        let response = test_support::dispatch(
             &state,
             test_support::commons_request(
                 SECRET,
@@ -161,7 +160,7 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
                     data_triples: Some(triples),
                 },
             ),
-        ))
+        )
         .await;
         assert!(response.error.is_none(), "{:?}", response.error);
         match response.result {
@@ -170,7 +169,7 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
         }
         assert_eq!(rdf_snapshot(&state, id + 1).await, before);
     }
-    let response = Box::pin(dispatch(
+    let response = test_support::dispatch(
         &state,
         test_support::commons_request(
             SECRET,
@@ -181,13 +180,33 @@ async fn inline_typed_validation_never_writes_to_the_request_graph() {
                 data_triples: Some(vec![sensor]),
             },
         ),
-    ))
+    )
     .await;
     assert!(
         response.error.is_some(),
         "mixed data inputs must be refused"
     );
     assert_eq!(rdf_snapshot(&state, 7).await, before);
+}
+
+async fn inspect_ontology(
+    state: &test_support::SharedState,
+    id: u64,
+    documents: Vec<String>,
+    source_ids: Vec<String>,
+) -> Response {
+    test_support::dispatch(
+        state,
+        test_support::commons_request(
+            SECRET,
+            id,
+            Method::OntologyInspect {
+                documents,
+                source_ids,
+            },
+        ),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -200,18 +219,7 @@ async fn ontology_inspection_dispatch_reads_inline_and_filtered_composed_sources
         (4, vec![], vec![]),
         (6, vec![], vec!["core:catalog@1".to_string()]),
     ] {
-        let response = Box::pin(dispatch(
-            &state,
-            test_support::commons_request(
-                SECRET,
-                id,
-                Method::OntologyInspect {
-                    documents,
-                    source_ids,
-                },
-            ),
-        ))
-        .await;
+        let response = inspect_ontology(&state, id, documents, source_ids).await;
         assert!(response.error.is_none(), "{:?}", response.error);
         let Some(ResultPayload::Json(report)) = response.result else {
             panic!("expected ontology report");
@@ -237,18 +245,7 @@ async fn ontology_inspection_dispatch_reads_inline_and_filtered_composed_sources
             vec!["core:catalog@1".to_string()],
         ),
     ] {
-        let response = Box::pin(dispatch(
-            &state,
-            test_support::commons_request(
-                SECRET,
-                id,
-                Method::OntologyInspect {
-                    documents,
-                    source_ids,
-                },
-            ),
-        ))
-        .await;
+        let response = inspect_ontology(&state, id, documents, source_ids).await;
         assert!(response.error.is_some(), "invalid inspect must be refused");
         assert_eq!(rdf_snapshot(&state, id + 1).await, before);
     }
@@ -334,7 +331,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         },
     )
     .await;
-    let commit = Box::pin(dispatch(
+    let commit = test_support::dispatch(
         &state,
         test_support::commons_request(
             SECRET,
@@ -344,7 +341,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 idempotency_key: None,
             },
         ),
-    ))
+    )
     .await;
     assert!(
         matches!(
@@ -367,10 +364,10 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         },
     ]);
     let inferred = test_support::unified_ids(
-        &Box::pin(dispatch(
+        &test_support::dispatch(
             &state,
             test_support::commons_request(SECRET, 17, Method::UnifiedQuery { plan: reason }),
-        ))
+        )
         .await,
     );
     assert_eq!(
@@ -417,7 +414,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 },
             )
             .await;
-            let c = Box::pin(dispatch(
+            let c = test_support::dispatch(
                 &state,
                 test_support::commons_request(
                     SECRET,
@@ -427,7 +424,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                         idempotency_key: None,
                     },
                 ),
-            ))
+            )
             .await;
             assert!(matches!(
                 c.result,

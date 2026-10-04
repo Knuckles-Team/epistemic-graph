@@ -8,6 +8,18 @@ where
     Option::<T>::deserialize(deserializer)
 }
 
+// Keep the serde and schema policies together for requests with required nullable fields.
+macro_rules! strict_nullable_request {
+    ($request:item) => {
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "contract-schema", schemars(transform = super::common::require_marked_nullable_fields))]
+        $request
+    };
+}
+pub(super) use strict_nullable_request;
+
 /// Preserve explicit-null wire fields while making their presence mandatory.
 #[cfg(feature = "contract-schema")]
 pub(super) fn require_marked_nullable_fields(schema: &mut schemars::Schema) {
