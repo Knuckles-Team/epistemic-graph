@@ -3863,6 +3863,7 @@ components:
       - "tests/test_check_wheel_completeness.py"
       - "tests/test_check_registry_test_ownership.py"
       - "tests/test_client_capability_contract.py"
+      - "tests/test_client_recipient_binding.py"
       - "tests/test_clippy_census.py"
       - "tests/test_cluster_hierarchy_client.py"
       - "tests/test_cluster_hierarchy_real_engine.py"

@@ -19,6 +19,15 @@ from epistemic_graph.client import EpistemicGraphClient, SyncEpistemicGraphClien
 pytestmark = pytest.mark.no_engine
 
 
+@contextlib.contextmanager
+def _synthetic_admission(claims):
+    # Recipient-only fixtures have no expiring issuer; freshness cases below
+    # use a locked renewable authority with a deterministic clock.
+    if "oidc_token" in claims:
+        assert claims["oidc_token"].startswith("synthetic-proof-")
+    yield
+
+
 def _claims(label="a"):
     return {**request_context(), "oidc_token": "synthetic-proof-" + label}
 
@@ -81,6 +90,7 @@ async def _connect(path, **kwargs):
     return await EpistemicGraphClient.connect(
         socket_path=str(path),
         required_socket_path=str(path),
+        write_admission=_synthetic_admission,
         auth_secret="synthetic-test-secret",
         verified_context=request_context(),
         **kwargs,
@@ -166,6 +176,7 @@ def test_contradictory_transport_rejected(socket_dir, kwargs, monkeypatch):
             await EpistemicGraphClient.connect(
                 required_socket_path=str(socket_dir / "required"),
                 verified_context=_claims(),
+                write_admission=_synthetic_admission,
                 auth_secret="synthetic-test-secret",
                 **kwargs,
             )
@@ -193,7 +204,9 @@ def test_late_proof_and_concurrent_contexts_are_isolated(socket_dir, caplog):
 
                 async def call(label):
                     with client.use_verified_context(
-                        _claims(label), required_socket_path=str(path)
+                        _claims(label),
+                        required_socket_path=str(path),
+                        write_admission=_synthetic_admission,
                     ):
                         await asyncio.sleep(0)
                         await client.health()
@@ -207,7 +220,9 @@ def test_late_proof_and_concurrent_contexts_are_isolated(socket_dir, caplog):
                 with pytest.raises(ValueError, match="Bolt"):
                     client.fresh_bolt_auth_token()
                 with client.use_verified_context(
-                    _claims(), required_socket_path=str(path)
+                    _claims(),
+                    required_socket_path=str(path),
+                    write_admission=_synthetic_admission,
                 ):
                     with pytest.raises(ValueError, match="Bolt"):
                         client.fresh_bolt_auth_token()
@@ -263,7 +278,9 @@ def test_missing_reconnect_then_same_recipient_restart(socket_dir, monkeypatch):
             )
             try:
                 with client.use_verified_context(
-                    _claims(), required_socket_path=str(path)
+                    _claims(),
+                    required_socket_path=str(path),
+                    write_admission=_synthetic_admission,
                 ):
                     with pytest.raises(FileNotFoundError):
                         await client.health()
@@ -292,7 +309,9 @@ def test_guard_after_write_lock_wait_sends_zero_bytes(socket_dir, corruption):
             try:
                 await client._write_lock.acquire()
                 with client.use_verified_context(
-                    _claims(), required_socket_path=str(path)
+                    _claims(),
+                    required_socket_path=str(path),
+                    write_admission=_synthetic_admission,
                 ):
                     call = asyncio.create_task(client.health())
                 for _ in range(50):
@@ -373,7 +392,9 @@ def test_serialized_proof_cannot_follow_redirected_reconnect(
                 monkeypatch.setattr(client, "_python_send_payload", python_payload)
             try:
                 with client.use_verified_context(
-                    _claims(), required_socket_path=str(path)
+                    _claims(),
+                    required_socket_path=str(path),
+                    write_admission=_synthetic_admission,
                 ):
                     with pytest.raises(ValueError, match="required_socket_path"):
                         await client._send(
@@ -396,12 +417,15 @@ def test_sync_context_reaches_loop_and_namespace(socket_dir):
                 client = SyncEpistemicGraphClient.connect(
                     socket_path=str(path),
                     required_socket_path=str(path),
+                    write_admission=_synthetic_admission,
                     auth_secret="synthetic-test-secret",
                     verified_context=request_context(),
                 )
                 try:
                     with client.use_verified_context(
-                        _claims("sync"), required_socket_path=str(path)
+                        _claims("sync"),
+                        required_socket_path=str(path),
+                        write_admission=_synthetic_admission,
                     ):
                         client.health()
                         assert client.nodes.count() == 1
@@ -425,7 +449,9 @@ def test_stale_waiter_does_not_poison_same_recipient_reconnect(socket_dir):
             try:
                 await client._write_lock.acquire()
                 with client.use_verified_context(
-                    _claims("old"), required_socket_path=str(path)
+                    _claims("old"),
+                    required_socket_path=str(path),
+                    write_admission=_synthetic_admission,
                 ):
                     stale = asyncio.create_task(client.health())
                 for _ in range(50):
@@ -444,7 +470,9 @@ def test_stale_waiter_does_not_poison_same_recipient_reconnect(socket_dir):
                 assert not client._closed
                 assert not client._pending
                 with client.use_verified_context(
-                    _claims("new"), required_socket_path=str(path)
+                    _claims("new"),
+                    required_socket_path=str(path),
+                    write_admission=_synthetic_admission,
                 ):
                     await client.health()
                 assert len(frames) == 1
@@ -506,5 +534,383 @@ def test_old_write_failure_leaves_replacement_healthy(socket_dir, monkeypatch, f
                 await client.health()
             finally:
                 await client.close()
+
+    asyncio.run(run())
+
+
+class _RenewableAuthority:
+    """A deterministic model of the AU lease's atomic proof/expiry lock."""
+
+    def __init__(self):
+        import threading
+
+        self.lock = threading.Lock()
+        self.now = 50
+        self.expiry = 100
+        self.claims = _claims("a")
+        self.checked = []
+
+    def renew(self):
+        with self.lock:
+            self.claims = _claims("b")
+            self.expiry = 200
+
+    @contextlib.contextmanager
+    def admit(self, captured):
+        with self.lock:
+            if self.now >= self.expiry or captured != self.claims:
+                # A verifier may accidentally include a bearer; EG must sanitize.
+                raise PermissionError("private-verifier-detail synthetic-proof-a")
+            self.checked.append(captured)
+            yield
+
+
+def _record_writes(monkeypatch, writer, writes):
+    original = writer.write
+
+    def record(data):
+        writes.append(data)
+        original(data)
+
+    monkeypatch.setattr(writer, "write", record)
+
+
+@pytest.mark.parametrize("delay", ["write_lock", "reconnect", "native_codec"])
+@pytest.mark.parametrize("transition", ["expire", "renew", "expire_and_renew"])
+def test_delayed_proof_never_outlives_current_authority(
+    socket_dir, monkeypatch, caplog, delay, transition
+):
+    async def run():
+        path = socket_dir / "engine"
+        authority = _RenewableAuthority()
+        async with _server(path) as (frames, _, _):
+            client = await _connect(path)
+            writes: list[bytes] = []
+            entered, release = asyncio.Event(), asyncio.Event()
+            _record_writes(monkeypatch, client._writer, writes)
+            if delay == "write_lock":
+                await client._write_lock.acquire()
+            elif delay == "reconnect":
+                original_open = client._open_streams
+
+                async def blocked_open(*args, **kwargs):
+                    entered.set()
+                    await release.wait()
+                    reader, writer, resolved = await original_open(*args, **kwargs)
+                    _record_writes(monkeypatch, writer, writes)
+                    return reader, writer, resolved
+
+                monkeypatch.setattr(client, "_open_streams", blocked_open)
+                client._mark_dead(ConnectionError("synthetic reconnect"))
+            else:
+                import threading
+
+                ready, proceed = threading.Event(), threading.Event()
+                monkeypatch.setattr(
+                    client_module, "_sql_source_native_codec", lambda: object()
+                )
+                monkeypatch.setattr(
+                    client_module,
+                    "_snapshot_sql_source_input",
+                    lambda params, codec: params,
+                )
+
+                def prepare(params, **kwargs):
+                    request = client._build_send_request("Health", params, **kwargs)
+                    ready.set()
+                    assert proceed.wait(2)
+                    return msgpack.packb(request, use_bin_type=True)
+
+                monkeypatch.setattr(client, "_build_sql_source_payload", prepare)
+            try:
+                with client.use_verified_context(
+                    authority.claims,
+                    required_socket_path=str(path),
+                    write_admission=authority.admit,
+                ):
+                    pending = asyncio.create_task(
+                        client._send(
+                            "SqlSourceBatch" if delay == "native_codec" else "Health"
+                        )
+                    )
+                if delay == "write_lock":
+                    for _ in range(50):
+                        if client._pending:
+                            break
+                        await asyncio.sleep(0)
+                    assert client._pending
+                elif delay == "reconnect":
+                    await asyncio.wait_for(entered.wait(), 2)
+                else:
+                    assert await asyncio.to_thread(ready.wait, 2)
+                if transition in {"expire", "expire_and_renew"}:
+                    authority.now = 101
+                if transition in {"renew", "expire_and_renew"}:
+                    authority.renew()
+                if delay == "write_lock":
+                    client._write_lock.release()
+                elif delay == "reconnect":
+                    release.set()
+                else:
+                    proceed.set()
+                with pytest.raises(
+                    PermissionError, match="no longer admitted"
+                ) as refused:
+                    await pending
+                assert "synthetic-proof" not in str(refused.value)
+                assert "private-verifier-detail" not in str(refused.value)
+                assert "synthetic-proof" not in caplog.text
+                assert not client._pending
+                assert not client._closed
+                assert writes == frames == []
+                authority.renew()
+                with client.use_verified_context(
+                    authority.claims,
+                    required_socket_path=str(path),
+                    write_admission=authority.admit,
+                ):
+                    await client.health()
+                assert len(frames) == 1
+                assert _proof(frames[0]) == "synthetic-proof-b"
+            finally:
+                await client.close()
+
+    asyncio.run(run())
+
+
+def test_bound_proof_requires_its_own_admission(socket_dir):
+    async def run():
+        path = socket_dir / "engine"
+        async with _server(path) as (_, chunks, _):
+            with pytest.raises(ValueError, match="requires write_admission"):
+                await EpistemicGraphClient.connect(
+                    required_socket_path=str(path),
+                    verified_context=_claims(),
+                    auth_secret="synthetic-test-secret",
+                )
+            client = await _connect(path)
+            try:
+                with pytest.raises(ValueError, match="requires write_admission"):
+                    with client.use_verified_context(
+                        _claims(), required_socket_path=str(path)
+                    ):
+                        pytest.fail("inherited another context's admission")
+                assert chunks == []
+            finally:
+                await client.close()
+
+    asyncio.run(run())
+
+
+def test_connect_proof_and_atomic_lock_cover_both_writes_only(socket_dir, monkeypatch):
+    async def run():
+        path = socket_dir / "engine"
+        authority = _RenewableAuthority()
+        async with _server(path) as (frames, _, _):
+            client = await EpistemicGraphClient.connect(
+                required_socket_path=str(path),
+                verified_context=authority.claims,
+                write_admission=authority.admit,
+                auth_secret="synthetic-test-secret",
+            )
+            write, drain = client._writer.write, client._writer.drain
+            writes: list[bytes] = []
+
+            def checked_write(data):
+                assert not authority.lock.acquire(blocking=False), (
+                    "renewal lock released before frame completion"
+                )
+                writes.append(data)
+                write(data)
+
+            async def checked_drain():
+                assert authority.lock.acquire(blocking=False), (
+                    "renewal lock retained across await"
+                )
+                authority.lock.release()
+                await drain()
+
+            monkeypatch.setattr(client._writer, "write", checked_write)
+            monkeypatch.setattr(client._writer, "drain", checked_drain)
+            try:
+                await client.health()
+                assert len(writes) == 2
+                assert _proof(frames[0]) == "synthetic-proof-a"
+            finally:
+                await client.close()
+
+    asyncio.run(run())
+
+
+def test_concurrent_admission_is_paired_and_defensively_copied(socket_dir):
+    async def run():
+        path = socket_dir / "engine"
+        async with _server(path) as (frames, _, _):
+            client = await _connect(path)
+            checked = []
+
+            @contextlib.contextmanager
+            def admission(expected, captured):
+                assert captured == _claims(expected)
+                checked.append(expected)
+                captured["oidc_token"] = "synthetic-proof-mutated"
+                captured["roles"].append("mutation-must-not-reach-wire")
+                yield
+
+            async def call(label):
+                import functools
+
+                with client.use_verified_context(
+                    _claims(label),
+                    required_socket_path=str(path),
+                    write_admission=functools.partial(admission, label),
+                ):
+                    await asyncio.sleep(0)
+                    await client.health()
+
+            try:
+                await asyncio.gather(call("a"), call("b"))
+                assert sorted(checked) == ["a", "b"]
+                assert all(
+                    json.loads(bytes.fromhex(frame["auth_token"][4:]))["context"][
+                        "roles"
+                    ]
+                    == request_context()["roles"]
+                    for frame in frames
+                )
+                assert {_proof(frame) for frame in frames} == {
+                    "synthetic-proof-a",
+                    "synthetic-proof-b",
+                }
+                assert "oidc_token" not in client._effective_verified_context()
+            finally:
+                await client.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("mode", ["async_enter", "async_exit", "awaitable_enter"])
+def test_async_admission_manager_is_refused_before_bytes(socket_dir, monkeypatch, mode):
+    async def run():
+        path = socket_dir / "engine"
+        async with _server(path):
+            client = await _connect(path)
+            writes: list[bytes] = []
+            monkeypatch.setattr(client._writer, "write", writes.append)
+
+            class Manager:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *args):
+                    return None
+
+            async def asynchronous(*args):
+                raise PermissionError("must run before write")
+
+            if mode == "async_enter":
+                monkeypatch.setattr(Manager, "__enter__", asynchronous)
+            elif mode == "async_exit":
+                monkeypatch.setattr(Manager, "__exit__", asynchronous)
+            else:
+                monkeypatch.setattr(Manager, "__enter__", lambda self: asynchronous())
+            try:
+                with client.use_verified_context(
+                    _claims(),
+                    required_socket_path=str(path),
+                    write_admission=lambda _: Manager(),
+                ):
+                    with pytest.raises(PermissionError, match="no longer admitted"):
+                        await client.health()
+                assert writes == []
+                assert not client._pending
+                assert not client._closed
+            finally:
+                await client.close()
+
+    asyncio.run(run())
+
+
+def test_cleanup_failure_cannot_preserve_a_partial_frame(socket_dir, monkeypatch):
+    async def run():
+        path = socket_dir / "engine"
+        async with _server(path):
+            client = await _connect(path)
+            writes: list[bytes] = []
+
+            def broken_payload(data):
+                writes.append(data)
+                if len(writes) == 2:
+                    raise BrokenPipeError("synthetic payload failure")
+
+            @contextlib.contextmanager
+            def broken_cleanup(captured):
+                try:
+                    yield
+                finally:
+                    raise ValueError("private-verifier-detail synthetic-proof-a")
+
+            monkeypatch.setattr(client._writer, "write", broken_payload)
+            try:
+                with client.use_verified_context(
+                    _claims(),
+                    required_socket_path=str(path),
+                    write_admission=broken_cleanup,
+                ):
+                    with pytest.raises(
+                        ConnectionError, match="admission cleanup failed"
+                    ) as refused:
+                        await client.health()
+                assert "synthetic-proof" not in str(refused.value)
+                assert len(writes) == 2
+                assert client._closed
+                assert not client._pending
+            finally:
+                await client.close()
+
+    asyncio.run(run())
+
+
+def test_sync_delayed_call_rechecks_renewed_proof(socket_dir, monkeypatch):
+    import threading
+
+    async def run():
+        path = socket_dir / "engine"
+        authority = _RenewableAuthority()
+        entered, release = threading.Event(), threading.Event()
+        original_write_frame = EpistemicGraphClient._write_frame
+
+        async def delayed_frame(client, *args, **kwargs):
+            entered.set()
+            assert await asyncio.to_thread(release.wait, 2)
+            await original_write_frame(client, *args, **kwargs)
+
+        monkeypatch.setattr(EpistemicGraphClient, "_write_frame", delayed_frame)
+        async with _server(path) as (frames, chunks, _):
+
+            def call():
+                client = SyncEpistemicGraphClient.connect(
+                    required_socket_path=str(path),
+                    verified_context=request_context(),
+                    auth_secret="synthetic-test-secret",
+                )
+                try:
+                    with client.use_verified_context(
+                        authority.claims,
+                        required_socket_path=str(path),
+                        write_admission=authority.admit,
+                    ):
+                        with pytest.raises(PermissionError, match="no longer admitted"):
+                            client.health()
+                finally:
+                    client.close()
+
+            task = asyncio.create_task(asyncio.to_thread(call))
+            assert await asyncio.to_thread(entered.wait, 2)
+            authority.now = 101
+            authority.renew()
+            release.set()
+            await task
+            assert frames == chunks == []
 
     asyncio.run(run())

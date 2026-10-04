@@ -27,7 +27,11 @@ client = await EpistemicGraphClient.connect(
     auth_secret=auth_secret,
     verified_context=transport_context,
 )
-with client.use_verified_context(current_claims, required_socket_path=recipient):
+with client.use_verified_context(
+    current_claims,
+    required_socket_path=recipient,
+    write_admission=admit_current_claims,
+):
     await client.health()
 ```
 
@@ -47,6 +51,33 @@ The client checks the connected transport and connection generation after
 reconnection and again after acquiring write admission, before any frame bytes.
 A changed admission fails the call; retry only after revalidating application
 authority. Recipient metadata is never added to the request envelope.
+
+A bound context containing `oidc_token` also requires `write_admission`. Both
+`connect()` and `use_verified_context()` accept this synchronous factory:
+`Callable[[RequestContextClaims], ContextManager[None]]`. It receives a defensive
+copy of the exact claims serialized for that request. Its context manager must
+acquire the same lock used for atomic credential renewal, check that the current
+verified proof and authority still match those claims and the intended recipient,
+and reject expired or superseded proof. It must hold that lock through `yield`.
+The client enters it after any reconnect and write-lock wait, checks the actual
+recipient again, and writes both frame parts without awaiting. It releases
+admission before awaiting the transport drain or response.
+
+This is fail-closed admission: if token A was serialized and the lease has since
+expired or renewed to B, the queued A request is refused before any bytes. The
+caller may start a new request with a fresh projection; the client does not
+automatically replay or re-sign it. Claims and their admission factory remain
+paired through concurrent tasks, synchronous calls, and native codec preparation.
+A task-local context must supply its own factory; it never inherits another
+session's factory from the connection. Proof-free transport setup needs none.
+
+Admission factories must be short, synchronous, reusable, and perform no network
+I/O or nested RPC. Their managers must yield `None` and exit synchronously without
+raising. Never hold the renewal lock while calling a synchronous client: the
+client's event-loop thread must acquire it. Entry refusals become a sanitized
+`PermissionError`, clean up the pending call, and leave a healthy transport
+usable. Cleanup failure is transport-fatal because bytes may already have been
+written. No callback or proof material is included in diagnostics or wire fields.
 
 Bound clients refuse `fresh_bolt_auth_token()`, because an exported credential
 could be used on a separate connection outside this restriction. Existing clients

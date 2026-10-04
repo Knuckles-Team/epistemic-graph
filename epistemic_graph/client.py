@@ -14841,6 +14841,97 @@ def _writer_has_recipient(writer: asyncio.StreamWriter, required: str) -> bool:
     )
 
 
+_WriteAdmission = Callable[
+    [RequestContextClaims], contextlib.AbstractContextManager[None]
+]
+
+
+class _VerifiedWriteBinding(NamedTuple):
+    claims: RequestContextClaims
+    admission: _WriteAdmission | None
+
+    def __repr__(self) -> str:
+        return "<verified write binding: redacted>"
+
+
+class _VerifiedWriteRefused(PermissionError):
+    """Authority refusal is not a failure of the shared transport."""
+
+
+def _validate_write_admission(
+    context: RequestContextClaims,
+    required_socket_path: str | None,
+    write_admission: _WriteAdmission | None,
+) -> None:
+    if write_admission is not None and (
+        required_socket_path is None
+        or not callable(write_admission)
+        or inspect.iscoroutinefunction(write_admission)
+        or inspect.isasyncgenfunction(write_admission)
+    ):
+        raise ValueError(
+            "write_admission requires a bound recipient and a synchronous factory"
+        )
+    if (
+        required_socket_path is not None
+        and "oidc_token" in context
+        and write_admission is None
+    ):
+        raise ValueError(
+            "required_socket_path with oidc_token requires write_admission"
+        )
+
+
+@contextlib.contextmanager
+def _admit_verified_write(binding: _VerifiedWriteBinding | None):
+    if binding is None or binding.admission is None:
+        yield
+        return
+    try:
+        manager = binding.admission(copy.deepcopy(binding.claims))
+        if inspect.iscoroutine(manager):
+            manager.close()
+            raise TypeError("write_admission must return a synchronous context manager")
+        enter, leave = manager.__enter__, manager.__exit__
+        if any(
+            not callable(method)
+            or inspect.iscoroutinefunction(method)
+            or inspect.isasyncgenfunction(method)
+            for method in (enter, leave)
+        ):
+            raise TypeError("write_admission must enter and exit synchronously")
+        entered = enter()
+        if entered is not None:
+            if inspect.iscoroutine(entered):
+                entered.close()
+            _exit_write_admission(manager)
+            raise TypeError("write_admission must yield None synchronously")
+    except Exception:
+        # The application's verifier may include credentials in its exception.
+        raise _VerifiedWriteRefused(
+            "verified context is no longer admitted for writing"
+        ) from None
+    try:
+        yield
+    finally:
+        # Ignore suppression: a verifier must never swallow a recipient or
+        # writer failure. Release its renewal lock before any await/drain.
+        try:
+            _exit_write_admission(manager)
+        except Exception:
+            # A partial write may already have occurred. Never treat cleanup
+            # failure as a safe pre-write refusal on a reusable connection.
+            raise ConnectionError("verified write admission cleanup failed") from None
+
+
+def _exit_write_admission(manager: contextlib.AbstractContextManager[None]) -> None:
+    result = manager.__exit__(None, None, None)
+    if inspect.iscoroutine(result):
+        result.close()
+    if inspect.isawaitable(result) or inspect.isasyncgen(result):
+        raise TypeError("write_admission cleanup must be synchronous")
+
+
 class EpistemicGraphClient:
     """CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Core Client
 
@@ -14898,8 +14989,9 @@ class EpistemicGraphClient:
         # binding existed. See `_compute_verified_token`.
         self._node_id = node_id
         self._verified_context = validate_request_context(verified_context)
+        self._write_admission: _WriteAdmission | None = None
         self._verified_context_override: contextvars.ContextVar[
-            RequestContextClaims | None
+            _VerifiedWriteBinding | None
         ] = contextvars.ContextVar("eg_verified_context_override", default=None)
         # Seed from a random base rather than 0. The server derives a durable
         # replay/idempotency identity for row-local mutations (`ClearGraph`,
@@ -15191,6 +15283,7 @@ class EpistemicGraphClient:
         tls_client_key: str | None = None,
         node_id: str | None = None,
         required_socket_path: str | None = None,
+        write_admission: _WriteAdmission | None = None,
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
         if not _secret:
@@ -15200,6 +15293,7 @@ class EpistemicGraphClient:
             required_socket_path = _required_uds_path(required_socket_path)
             if socket_path is None:
                 socket_path = required_socket_path
+        _validate_write_admission(context, required_socket_path, write_admission)
         resolved_tls_server_hostname = (
             str(
                 tls_server_hostname
@@ -15245,6 +15339,7 @@ class EpistemicGraphClient:
         client._tls_context = tls_context
         client._tls_server_hostname = resolved_tls_server_hostname
         client._required_socket_path = required_socket_path
+        client._write_admission = write_admission
         if required_socket_path is not None:
             client._recipient_writer = writer
             client._recipient_generation = client._generation
@@ -15342,7 +15437,8 @@ class EpistemicGraphClient:
         }
 
     def _effective_verified_context(self) -> RequestContextClaims:
-        return self._verified_context_override.get() or self._verified_context
+        binding = self._verified_context_override.get()
+        return binding.claims if binding is not None else self._verified_context
 
     @contextlib.contextmanager
     def use_verified_context(
@@ -15350,6 +15446,7 @@ class EpistemicGraphClient:
         context: RequestContextClaims | dict[str, Any],
         *,
         required_socket_path: str | None = None,
+        write_admission: _WriteAdmission | None = None,
     ):
         """Bind current claims for this task without mutating a shared client.
 
@@ -15365,7 +15462,10 @@ class EpistemicGraphClient:
                     "verified context requires a client bound to required_socket_path"
                 )
         value = validate_request_context(context)
-        token = self._verified_context_override.set(value)
+        _validate_write_admission(value, self._required_socket_path, write_admission)
+        token = self._verified_context_override.set(
+            _VerifiedWriteBinding(value, write_admission)
+        )
         try:
             yield self
         finally:
@@ -15790,6 +15890,7 @@ class EpistemicGraphClient:
         required_socket_path: str | None = None,
         admitted_writer: asyncio.StreamWriter | None = None,
         admitted_generation: int | None = None,
+        verified_binding: _VerifiedWriteBinding | None = None,
     ) -> None:
         """Write ONE length-prefixed frame under the write lock."""
         length_prefix = len(payload).to_bytes(4, byteorder="big")
@@ -15797,15 +15898,17 @@ class EpistemicGraphClient:
         # the round-trip itself is NOT held under any lock — that is what lets
         # independent concurrent calls pipeline on the one connection.
         async with self._write_lock:
-            if required_socket_path is not None:
-                if admitted_writer is None or admitted_generation is None:
-                    raise ConnectionError("missing recipient admission for request")
-                self._check_recipient(
-                    required_socket_path, admitted_writer, admitted_generation
-                )
-            # No await between recipient validation and both frame writes.
-            self._writer.write(length_prefix)
-            self._writer.write(payload)
+            with _admit_verified_write(verified_binding):
+                if required_socket_path is not None:
+                    if admitted_writer is None or admitted_generation is None:
+                        raise ConnectionError("missing recipient admission for request")
+                    self._check_recipient(
+                        required_socket_path, admitted_writer, admitted_generation
+                    )
+                # Keep authority admission through BOTH writes. No await between
+                # current-proof/recipient validation and the last frame byte.
+                self._writer.write(length_prefix)
+                self._writer.write(payload)
             await asyncio.wait_for(self._writer.drain(), write_timeout)
 
     async def _roundtrip(
@@ -15815,6 +15918,7 @@ class EpistemicGraphClient:
         req_id: int,
         method: str,
         required_socket_path: str | None = None,
+        verified_binding: _VerifiedWriteBinding | None = None,
     ) -> dict[str, Any]:
         """Write the frame and await THIS request's demuxed response."""
         timeout, write_timeout = self._send_timeouts(method)
@@ -15837,9 +15941,13 @@ class EpistemicGraphClient:
                 required_socket_path=required_socket_path,
                 admitted_writer=admitted_writer,
                 admitted_generation=admitted_generation,
+                verified_binding=verified_binding,
             )
             # Await ONLY our own response; per-caller ordering is automatic.
             return await asyncio.wait_for(fut, timeout)
+        except _VerifiedWriteRefused:
+            self._pending.pop(req_id, None)
+            raise
         except asyncio.CancelledError:
             # Caller cancellation is not a transport failure: keep the shared
             # connection reusable, but do not leave a cancelled request future
@@ -15995,18 +16103,36 @@ class EpistemicGraphClient:
         # can yield (including the native codec's to_thread path). It is never
         # reconstructed from mutable claims or added to the wire envelope.
         required_socket_path = self._required_socket_path
-        req_id = self._next_id()
-        payload = await self._send_payload_builder(method)(
-            params,
-            req_id=req_id,
-            target_graph=graph or self._graph_name,
-            idempotency_key=idempotency_key,
+        active = self._verified_context_override.get()
+        binding = _VerifiedWriteBinding(
+            validate_request_context(
+                active.claims if active is not None else self._verified_context
+            ),
+            active.admission if active is not None else self._write_admission,
         )
+        _validate_write_admission(
+            binding.claims, required_socket_path, binding.admission
+        )
+        req_id = self._next_id()
+        # Pin the exact claims used by either producer to the admission factory
+        # that will check them after reconnect/write-lock waits. A shared base
+        # context or another task cannot replace either half of this binding.
+        token = self._verified_context_override.set(binding)
+        try:
+            payload = await self._send_payload_builder(method)(
+                params,
+                req_id=req_id,
+                target_graph=graph or self._graph_name,
+                idempotency_key=idempotency_key,
+            )
+        finally:
+            self._verified_context_override.reset(token)
         resp = await self._roundtrip(
             payload,
             req_id=req_id,
             method=method,
             required_socket_path=required_socket_path,
+            verified_binding=binding,
         )
 
         if resp.get("error") is not None:
