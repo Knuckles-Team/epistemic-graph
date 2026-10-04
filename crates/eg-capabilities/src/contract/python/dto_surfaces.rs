@@ -207,6 +207,7 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
             "ShaclValidationReport",
             "ShaclValidationResult",
             "ShaclSeverity",
+            "OntologyInspection",
         ],
         result_model: Some("OwlReasonResult"),
         required: true,

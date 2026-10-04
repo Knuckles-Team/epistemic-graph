@@ -278,6 +278,159 @@
       ],
       "type": "object"
     },
+    "OntologyClassView": {
+      "description": "One named class of an inspected vocabulary.",
+      "properties": {
+        "comment": {
+          "description": "The lexicographically first `rdfs:comment`, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "iri": {
+          "type": "string"
+        },
+        "label": {
+          "description": "The lexicographically first `rdfs:label`, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parents": {
+          "description": "Named `rdfs:subClassOf` parents, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "iri",
+        "parents"
+      ],
+      "type": "object"
+    },
+    "OntologyInspection": {
+      "description": "What `OntologyInspect` read: the vocabulary, SHACL targets and identity of a\nset of ontology/shapes documents.",
+      "properties": {
+        "canonical_digest": {
+          "description": "sha256 of the sorted, newline-joined N-Triples lines of the distinct\ntriples (the `urdna2015-sha256` identity of a blank-node-free graph).\nAbsent when a document has blank nodes, whose labels are not canonical.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "classes": {
+          "items": {
+            "$ref": "#/$defs/OntologyClassView"
+          },
+          "type": "array"
+        },
+        "composed_digest": {
+          "description": "The request graph's composed GraphSchema digest when committed sources\nwere inspected; absent for inline documents.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "datatype_properties": {
+          "items": {
+            "$ref": "#/$defs/OntologyPropertyView"
+          },
+          "type": "array"
+        },
+        "object_properties": {
+          "items": {
+            "$ref": "#/$defs/OntologyPropertyView"
+          },
+          "type": "array"
+        },
+        "ontologies": {
+          "description": "Named `owl:Ontology` subjects, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_digests": {
+          "description": "Sorted sha256 of every document inspected.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "shape_target_classes": {
+          "description": "Named `sh:targetClass` objects, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "triple_count": {
+          "description": "Distinct triples across the inspected documents.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_digests",
+        "triple_count",
+        "ontologies",
+        "classes",
+        "object_properties",
+        "datatype_properties",
+        "shape_target_classes"
+      ],
+      "type": "object"
+    },
+    "OntologyPropertyView": {
+      "description": "One named object or datatype property of an inspected vocabulary.",
+      "properties": {
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domains": {
+          "description": "Named `rdfs:domain` classes, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "iri": {
+          "type": "string"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ranges": {
+          "description": "Named `rdfs:range` classes or datatypes, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "symmetric": {
+          "description": "Declared `owl:SymmetricProperty`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "iri",
+        "domains",
+        "ranges",
+        "symmetric"
+      ],
+      "type": "object"
+    },
     "OwlExplainResult": {
       "description": "Materialized result of a `Method::OwlExplain` run (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). Returned\nvia `ResultPayload::raw`. `tree` is `None` when `sub ⊑ sup` does not hold (nothing\nto explain) — `found` mirrors that as a convenience boolean for callers that only\njson-decode the top level.",
       "properties": {
@@ -1095,6 +1248,18 @@
           "encoding": "Bool",
           "schema": {
             "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OntologyInspect": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/OntologyInspection"
           }
         }
       },

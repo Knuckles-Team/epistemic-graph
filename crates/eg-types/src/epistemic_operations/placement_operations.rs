@@ -99,20 +99,30 @@ pub struct PlacementRouteRequest {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "contract-schema", schemars(transform = super::common::require_marked_nullable_fields))]
 pub struct ClaimWorkItemRequest {
     pub schema_version: ClaimWorkItemRequestSchemaVersion,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-nonblank" = true)))]
     pub tenant_ref: String,
     #[serde(deserialize_with = "deserialize_required_option")]
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-required-presence" = true)))]
     pub work_item_id: Option<String>,
     #[serde(deserialize_with = "deserialize_required_option")]
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-required-presence" = true)))]
     pub queue_ref: Option<String>,
     #[serde(deserialize_with = "deserialize_required_option")]
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-required-presence" = true)))]
     pub resource_class: Option<String>,
     #[serde(deserialize_with = "deserialize_required_option")]
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-required-presence" = true)))]
     pub fairness_group: Option<String>,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-nonblank" = true)))]
     pub worker_ref: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-strict-scalar" = true)))]
     pub now_ms: u64,
+    #[cfg_attr(feature = "contract-schema", schemars(range(min = 1), extend("x-eg-strict-scalar" = true)))]
     pub lease_ms: u64,
+    #[cfg_attr(feature = "contract-schema", schemars(range(min = 1, max = 4096), extend("x-eg-strict-scalar" = true)))]
     pub max_tenant_in_flight: u64,
 }
 

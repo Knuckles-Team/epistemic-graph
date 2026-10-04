@@ -24,6 +24,7 @@ from .graph_schema import (
 )
 from .rdf_report import (
     DatalogReasoningResult,
+    OntologyInspection,
     OwlExplainResult,
     OwlReasonResult,
     ShaclValidationReport,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
     OwlReasonDistributedRequest = _models.MethodOwlReasonDistributedParams
     OwlExplainRequest = _models.MethodOwlExplainParams
     ShaclValidateRequest = _models.MethodShaclValidateParams
+    OntologyInspectRequest = _models.MethodOntologyInspectParams
     IcvConfigureRequest = _models.MethodIcvConfigureParams
     GraphSchemaClassesRequest = _models.MethodGraphSchemaClassesParams
 
@@ -386,6 +388,42 @@ async def send_shacl_validate(
     return ShaclValidationReport.model_validate(payload)
 
 
+async def send_ontology_inspect(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OntologyInspection:
+    """Send one engine-contract request.
+
+    Method:
+        OntologyInspect
+    Authorization:
+        validation:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.reasoning.json
+        #/methods/OntologyInspect
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodOntologyInspectParams.model_validate(params or {})
+    payload = await client._send(
+        "OntologyInspect",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OntologyInspection.model_validate(payload)
+
+
 async def send_icv_configure(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -577,6 +615,7 @@ _REQUEST_METHODS = frozenset(
         "OwlReasonDistributed",
         "OwlExplain",
         "ShaclValidate",
+        "OntologyInspect",
         "IcvConfigure",
         "GraphSchemaClasses",
     }
