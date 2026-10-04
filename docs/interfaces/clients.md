@@ -15,6 +15,46 @@ single-process use and does not traverse the wire.
 
 ## Full vs thin, per language
 
+### Restricting Python credentials to a local recipient
+
+Applications that hold a process proof for one local engine must bind the client
+before its first connection, even if that connection starts without the proof:
+
+```python
+client = await EpistemicGraphClient.connect(
+    socket_path=recipient,
+    required_socket_path=recipient,
+    auth_secret=auth_secret,
+    verified_context=transport_context,
+)
+with client.use_verified_context(current_claims, required_socket_path=recipient):
+    await client.health()
+```
+
+`recipient` must be an explicit canonical absolute filesystem Unix socket path.
+Relative paths, abstract sockets, URI spellings, symlinks, and non-normalized
+paths are refused. Resolve the trusted endpoint before creating the client.
+Omitting `socket_path` uses `required_socket_path` directly. A conflicting socket,
+any TCP selection, or TLS configuration is refused. Missing sockets fail without
+consulting environment defaults or the conventional `/tmp` fallback.
+
+The restriction applies to every request and reconnect for that client, including
+claims supplied later through `use_verified_context`. A task-local restriction
+must equal the connection's restriction; it cannot upgrade an existing unbound
+client. Create a separately bound client instead. Claims remain task-local and
+the synchronous client forwards both APIs, including calls through namespaces.
+The client checks the connected transport and connection generation after
+reconnection and again after acquiring write admission, before any frame bytes.
+A changed admission fails the call; retry only after revalidating application
+authority. Recipient metadata is never added to the request envelope.
+
+Bound clients refuse `fresh_bolt_auth_token()`, because an exported credential
+could be used on a separate connection outside this restriction. Existing clients
+without `required_socket_path` retain their normal remote transport behavior.
+This is local endpoint confinement, not cryptographic peer identity: deployments
+must protect the socket and its parent directories against replacement. Proof
+validation, issuer/audience policy, and credential renewal remain required.
+
 | Language | Location | Scope | Tested |
 |----------|----------|-------|--------|
 | **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/epistemic_graph/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `gen_contract --check` engine-contract gate. |
