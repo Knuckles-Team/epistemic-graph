@@ -1,0 +1,1213 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "BoundedVec_GraphSchemaSourceView_32": {
+      "items": {
+        "$ref": "#/$defs/GraphSchemaSourceView"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_GraphSchemaSourceView_64": {
+      "items": {
+        "$ref": "#/$defs/GraphSchemaSourceView"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_GraphSchemaTermView_1000": {
+      "items": {
+        "$ref": "#/$defs/GraphSchemaTermView"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
+    "DatalogReasoningResult": {
+      "description": "Result of `Method::RunDatalogReasoning`: every inferred triple, each a string map\n(`subject`, `predicate`, `object`, `inference_type`), and their count.",
+      "properties": {
+        "inferred_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inferred_triples": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "schema_digests": {
+          "description": "Exact committed GraphSchema identity used when the request omitted\nad-hoc rules. Explicit caller-supplied rule programs carry an empty set.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_digests",
+        "inferred_count",
+        "inferred_triples"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaClassesView": {
+      "additionalProperties": false,
+      "description": "One page of the composed schema's declared terms.",
+      "properties": {
+        "composed_digest": {
+          "description": "The composition this page was read from; equal on every page of one walk.",
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "next_cursor": {
+          "default": null,
+          "description": "Pass back as `cursor` for the next page; absent on the last page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "terms": {
+          "$ref": "#/$defs/BoundedVec_GraphSchemaTermView_1000"
+        },
+        "total_terms": {
+          "description": "Terms matching the request's `kind` filter, across all pages.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph",
+        "composed_digest",
+        "total_terms",
+        "terms"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaCommitted": {
+      "additionalProperties": false,
+      "description": "What one attach or detach committed.",
+      "properties": {
+        "changed": {
+          "description": "False when the request was a no-op against the current set.",
+          "type": "boolean"
+        },
+        "composed_digest": {
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "graph_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph",
+        "composed_digest",
+        "graph_version",
+        "changed"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaSourceView": {
+      "additionalProperties": false,
+      "description": "One attached source, without its documents.",
+      "properties": {
+        "attached_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ontology_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ontology_sha256": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "$ref": "#/$defs/SchemaSourceOriginView"
+        },
+        "shapes_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shapes_sha256": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "origin",
+        "shapes_bytes",
+        "ontology_bytes",
+        "attached_at_ms"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaSourcesView": {
+      "additionalProperties": false,
+      "description": "The graph's whole schema-source set.",
+      "properties": {
+        "composed_digest": {
+          "description": "Identity of the exact core+dynamic composition.",
+          "type": "string"
+        },
+        "core_catalog_digest": {
+          "description": "Identity of the binary-owned catalog, independent of graph attachments.",
+          "type": "string"
+        },
+        "core_sources": {
+          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_64"
+        },
+        "dynamic_sources": {
+          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_32"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph",
+        "core_catalog_digest",
+        "composed_digest",
+        "core_sources",
+        "dynamic_sources"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaTermKind": {
+      "description": "What a declared term is, by the RDF type that declares it.",
+      "oneOf": [
+        {
+          "const": "class",
+          "description": "`owl:Class` or `rdfs:Class`.",
+          "type": "string"
+        },
+        {
+          "const": "object_property",
+          "description": "`owl:ObjectProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "datatype_property",
+          "description": "`owl:DatatypeProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "annotation_property",
+          "description": "`owl:AnnotationProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "property",
+          "description": "`rdf:Property` (an RDFS property with no OWL typing).",
+          "type": "string"
+        }
+      ]
+    },
+    "GraphSchemaTermView": {
+      "additionalProperties": false,
+      "description": "One declared term of the composed schema.",
+      "properties": {
+        "iri": {
+          "description": "Absolute IRI of the term.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/GraphSchemaTermKind"
+        },
+        "local_name": {
+          "description": "The IRI's fragment, or its last path segment when it has none.",
+          "type": "string"
+        },
+        "source_id": {
+          "description": "The first source (core before dynamic, then by key) declaring the term.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "iri",
+        "local_name",
+        "kind",
+        "source_id"
+      ],
+      "type": "object"
+    },
+    "OwlExplainResult": {
+      "description": "Materialized result of a `Method::OwlExplain` run (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). Returned\nvia `ResultPayload::raw`. `tree` is `None` when `sub ⊑ sup` does not hold (nothing\nto explain) — `found` mirrors that as a convenience boolean for callers that only\njson-decode the top level.",
+      "properties": {
+        "consistent": {
+          "description": "`true` iff the classified ontology is consistent.",
+          "type": "boolean"
+        },
+        "found": {
+          "description": "Whether `sub ⊑ sup` holds under the classification (`tree.is_some()`).",
+          "type": "boolean"
+        },
+        "schema_digests": {
+          "description": "Exact composed GraphSchema authority used to build this proof.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tree": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProofNodeWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reconstructed proof tree, or `None` when `sub ⊑ sup` does not hold."
+        },
+        "unsatisfiable": {
+          "description": "Named classes derived to be unsatisfiable; empty when consistent.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_digests",
+        "found",
+        "consistent",
+        "unsatisfiable"
+      ],
+      "type": "object"
+    },
+    "OwlPropertyFact": {
+      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.",
+      "properties": {
+        "asserted": {
+          "type": "boolean"
+        },
+        "axiom": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "object": {
+          "type": "string"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "premises": {
+          "description": "Ordered fact triples consumed by the first deterministic derivation.",
+          "items": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "description": "`asserted`, `RL-subPropertyOf`, `RL-symmetric`, `RL-inverseOf`, or\n`RL-propertyChain`.",
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "predicate",
+        "object",
+        "asserted",
+        "rule",
+        "premises"
+      ],
+      "type": "object"
+    },
+    "OwlReasonResult": {
+      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.",
+      "properties": {
+        "consistent": {
+          "description": "`true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).",
+          "type": "boolean"
+        },
+        "direct_subclasses": {
+          "description": "Direct named `rdfs:subClassOf` axioms in the classified TBox, before\ntransitive closure. Capability routing uses these edges to preserve an\nexplainable shortest path while `subclasses` remains the full closure.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "instance_conf": {
+          "description": "Per-membership confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index\nwith `instances`: the type fact's confidence (per-node confidence × Ebbinghaus\ndecay) × the subsumption confidence — so an old/decayed or weakly-asserted fact\nyields a lower-confidence membership.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "instances": {
+          "description": "Inferred instance memberships `(instance, class)` — every individual mapped to\nevery class it (provably) belongs to, INCLUDING classes reached only through\nexistential restrictions / role chains. When `target_class` was set, restricted\nto that class's members. Only memberships with confidence `≥ min_confidence`.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "property_facts": {
+          "description": "Asserted and inferred object-property facts.  Inferred rows retain the\nrule, governing axiom and exact premise triples; `schema_digests` above\natomically binds every row to the composed ontology set used.",
+          "items": {
+            "$ref": "#/$defs/OwlPropertyFact"
+          },
+          "type": "array"
+        },
+        "schema_digests": {
+          "description": "Sorted, unique composed GraphSchema digests whose ontology sources were\nincluded in this classification. A single-graph call normally carries\none digest; a distributed call carries the exact set of graph schema\nauthorities it unioned. Consumers cache a derived hierarchy under this\nidentity rather than treating a copied ontology file as authority.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subclass_conf": {
+          "description": "Per-subsumption confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index\nwith `subclasses`. `1.0` for a hard/asserted subsumption; the propagated\n`axiom_conf × ∏ premise_conf` (max over alternative derivations) for an uncertain\none. A fully-hard ontology yields all `1.0`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "subclasses": {
+          "description": "Derived named-class subsumptions `(sub, sup)` (the reflexive/asserted ones are\nincluded; the closure is the full classification hierarchy).",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "unsatisfiable": {
+          "description": "Named classes derived to be unsatisfiable (`A ⊑ ⊥`); empty when consistent.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_digests",
+        "direct_subclasses",
+        "subclasses",
+        "subclass_conf",
+        "instances",
+        "instance_conf",
+        "property_facts",
+        "consistent",
+        "unsatisfiable"
+      ],
+      "type": "object"
+    },
+    "ProofNodeWire": {
+      "description": "One node of a reconstructed OWL proof tree (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — the wire\nprojection of `eg_rdf::owl::ProofNode`. `rule == \"asserted\"` marks a LEAF (a\nreflexive seed or a base fact with no recorded justification — the proof bottoms\nout there); any other `rule` is a completion rule name (`\"CR-sub\"`, `\"CR-some⁺\"`,\n`\"CR-instance\"`, …) that consumed `premises` (each itself a full sub-proof) plus the\ncited `axioms`. Recursive — `premises` nests to the tree's actual depth (never\nflattened), so a client walks it exactly like the reasoner derived it.",
+      "properties": {
+        "axioms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "premises": {
+          "items": {
+            "$ref": "#/$defs/ProofNodeWire"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "sub": {
+          "type": "string"
+        },
+        "sup": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sub",
+        "sup",
+        "rule",
+        "axioms",
+        "confidence",
+        "premises"
+      ],
+      "type": "object"
+    },
+    "RuleFact": {
+      "description": "One fact in a [`RuleReasonResponse`].",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "derived": {
+          "type": "boolean"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleProofNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fact's proof tree when the request asked to `explain`; `None` otherwise."
+        }
+      },
+      "required": [
+        "predicate",
+        "args",
+        "confidence",
+        "derived"
+      ],
+      "type": "object"
+    },
+    "RuleProofNode": {
+      "description": "One node of a rule-derivation proof tree (EH-197) — the rule-side twin of the OWL\nreasoner's `ProofNodeWire`. `rule == \"asserted\"` marks a leaf: a fact whose\nconfidence is its own assertion. Any other `rule` names the rule that fired over\n`premises` (each a full sub-proof, in rule-body order) to give `confidence`.\n`truncated` marks a node whose premises were cut by the proof's depth or size\nbudget, or because the premise is already being proved higher up the same branch.",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "premises": {
+          "items": {
+            "$ref": "#/$defs/RuleProofNode"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "predicate",
+        "args",
+        "rule",
+        "confidence",
+        "premises",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "RuleReasonResponse": {
+      "description": "The serialisable rule-reasoning response.",
+      "properties": {
+        "conflicts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "consistent": {
+          "type": "boolean"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/RuleFact"
+          },
+          "type": "array"
+        },
+        "registered_rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "same_as": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "facts",
+        "same_as",
+        "consistent",
+        "conflicts",
+        "registered_rules"
+      ],
+      "type": "object"
+    },
+    "SchemaSourceOriginView": {
+      "description": "Who attached one source.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "module": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "core",
+              "type": "string"
+            },
+            "set_digest": {
+              "type": "string"
+            },
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "origin",
+            "module",
+            "version",
+            "set_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The pre-X9 integrity policy, lifted into a keyed source.",
+          "properties": {
+            "origin": {
+              "const": "operator",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "admin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "connector": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "pack",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "connector",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mapping": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "ingestion",
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "origin",
+            "mapping",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "EH-403: attached by `AttachApproved` under the named approval lease.",
+          "properties": {
+            "approval_lease_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "approved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "name",
+            "approval_lease_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ShaclSeverity": {
+      "description": "SHACL result severity -- `sh:Violation` / `sh:Warning` / `sh:Info`.",
+      "enum": [
+        "Violation",
+        "Warning",
+        "Info"
+      ],
+      "type": "string"
+    },
+    "ShaclValidationReport": {
+      "description": "An `sh:ValidationReport` (`Method::ShaclValidate`).",
+      "properties": {
+        "composed_digest": {
+          "description": "The request graph's composed digest when committed GraphSchema shapes\nwere used; absent only for explicit ad-hoc shapes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "conforms": {
+          "description": "`sh:conforms` -- true iff there are no results.",
+          "type": "boolean"
+        },
+        "results": {
+          "description": "The `sh:result` list.",
+          "items": {
+            "$ref": "#/$defs/ShaclValidationResult"
+          },
+          "type": "array"
+        },
+        "schema_digests": {
+          "description": "Sorted unique document digests of every committed SHACL source used by\nthis validation. Explicit ad-hoc shapes carry none, so governance\nconsumers can fail closed rather than mistaking caller-supplied\nconstraints for committed authority.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema_digests",
+        "conforms",
+        "results"
+      ],
+      "type": "object"
+    },
+    "ShaclValidationResult": {
+      "description": "One `sh:ValidationResult`. Terms are N-Triples lexical forms.",
+      "properties": {
+        "constraint_component": {
+          "description": "`sh:sourceConstraintComponent`.",
+          "type": "string"
+        },
+        "focus_node": {
+          "description": "`sh:focusNode`.",
+          "type": "string"
+        },
+        "message": {
+          "description": "`sh:resultMessage`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "`sh:resultPath`, for a property-shape result.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "$ref": "#/$defs/ShaclSeverity",
+          "description": "`sh:resultSeverity`."
+        },
+        "source_shape": {
+          "description": "`sh:sourceShape`.",
+          "type": "string"
+        },
+        "value": {
+          "description": "`sh:value`, when the constraint component reports one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "focus_node",
+        "source_shape",
+        "constraint_component",
+        "severity"
+      ],
+      "type": "object"
+    },
+    "ShexNodeResult": {
+      "description": "One entry of a ShEx result shape map: one focus node tested against one shape label.",
+      "properties": {
+        "conforms": {
+          "type": "boolean"
+        },
+        "node": {
+          "description": "The focus node (N-Triples term form).",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the node does not conform, when it does not.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "shape": {
+          "description": "The shape label (an IRI, or `START`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "shape",
+        "conforms"
+      ],
+      "type": "object"
+    },
+    "ShexValidationReport": {
+      "description": "A ShEx validation report over a whole shape map (`Method::ShexValidate`).",
+      "properties": {
+        "conforms": {
+          "description": "True iff every tested (node, shape) pair conforms.",
+          "type": "boolean"
+        },
+        "results": {
+          "description": "One result per shape-map entry, in input order.",
+          "items": {
+            "$ref": "#/$defs/ShexNodeResult"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "conforms",
+        "results"
+      ],
+      "type": "object"
+    },
+    "SparqlObjectKind": {
+      "description": "Whether a SPARQL witness term is a resource or a literal.",
+      "enum": [
+        "resource",
+        "literal"
+      ],
+      "type": "string"
+    },
+    "SparqlProofCoverage": {
+      "description": "Whether a SPARQL row proof certifies the row.",
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every required triple pattern is instantiated by a listed triple of the graph,\nand the binding satisfies every required-scope FILTER.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "The query uses algebra a witness does not certify (property paths, UNION,\nMINUS, aggregates, GRAPH, SERVICE, its own FROM dataset, a non-SELECT form), or\nthe witness search hit its step budget. The listed triples, if any, exist but\ndo not by themselves prove the row.",
+          "type": "string"
+        }
+      ]
+    },
+    "SparqlResult": {
+      "description": "Materialized result of a `Method::Sparql` SELECT (CONCEPT:EG-KG.ontology.concept-11). Returned via\n`ResultPayload::raw`. `vars` is the projected variable order; each row is aligned\nto `vars` with `None` for an unbound (OPTIONAL) variable. Lives in eg-types (the\nwire-DTO crate) so the protocol can embed it; the evaluator lives in eg-rdf.",
+      "properties": {
+        "proofs": {
+          "description": "One witness proof per row, in row order, when the request asked to `explain`\n(EH-197); empty otherwise.",
+          "items": {
+            "$ref": "#/$defs/SparqlRowProof"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "vars": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "vars",
+        "rows",
+        "proofs"
+      ],
+      "type": "object"
+    },
+    "SparqlRowProof": {
+      "description": "The proof of one SPARQL SELECT row (EH-197): the ground triples that instantiate\nthe query's patterns under the row's bindings.",
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/SparqlProofCoverage"
+        },
+        "row": {
+          "description": "Index of the row in the result's `rows`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/SparqlWitnessTriple"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "row",
+        "witnesses",
+        "coverage"
+      ],
+      "type": "object"
+    },
+    "SparqlWitnessTriple": {
+      "description": "One ground triple of the queried graph that a SPARQL row's witness uses (EH-197).\nSubject and a resource object are in the evaluator's `<iri>` / `_:b` form; the\npredicate is a bare IRI; a literal object is its lexical value.",
+      "properties": {
+        "object": {
+          "type": "string"
+        },
+        "object_kind": {
+          "$ref": "#/$defs/SparqlObjectKind"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "predicate",
+        "object",
+        "object_kind"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "GetRdf": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphSchema": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GraphSchemaCommitted"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphSchemaClasses": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GraphSchemaClassesView"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphSchemaList": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GraphSchemaSourcesView"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "IcvConfigure": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OwlExplain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OwlExplainResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OwlReason": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OwlReasonResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OwlReasonDistributed": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OwlReasonResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RunDatalogReasoning": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/DatalogReasoningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RunRules": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/RuleReasonResponse"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ShaclValidate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ShaclValidationReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ShexValidate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ShexValidationReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Sparql": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SparqlResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SparqlVirtual": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SparqlResult"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "reasoning method results"
+}
