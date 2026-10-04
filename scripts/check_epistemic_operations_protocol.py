@@ -327,17 +327,11 @@ def _enclosing_item_delimiters(mask: str, end: int) -> list[tuple[str, int]]:
     return stack
 
 
-def _item_macro_invocation(source: str, mask: str, opening: int) -> str:
-    """Read the whole invocation head, including its path and item attributes.
+def _item_macro_path(
+    tokens: list[re.Match[str]], opening: int
+) -> tuple[list[str], int]:
+    """Consume every path segment, leaving the preceding item context."""
 
-    Walk tokens backward from the delimiter so a qualified path cannot match
-    only a suffix. Only an un-attributed invocation at an item boundary can
-    resolve to the common-module provider.
-    """
-
-    tokens = list(re.finditer(r"::|[A-Za-z_][A-Za-z0-9_]*|[^\s]", mask[:opening]))
-    if not tokens or tokens.pop().group() != "!":
-        raise GateError("unsupported enclosing DTO macro/item context")
     path: list[str] = []
     start = opening
     while tokens:
@@ -351,6 +345,21 @@ def _item_macro_invocation(source: str, mask: str, opening: int) -> str:
         tokens.pop()
         if not tokens:
             raise GateError("absolute DTO macro paths are unsupported")
+    return path, start
+
+
+def _item_macro_invocation(source: str, mask: str, opening: int) -> str:
+    """Read the whole invocation head, including its path and item attributes.
+
+    Walk tokens backward from the delimiter so a qualified path cannot match
+    only a suffix. Only an un-attributed invocation at an item boundary can
+    resolve to the common-module provider.
+    """
+
+    tokens = list(re.finditer(r"::|[A-Za-z_][A-Za-z0-9_]*|[^\s]", mask[:opening]))
+    if not tokens or tokens.pop().group() != "!":
+        raise GateError("unsupported enclosing DTO macro/item context")
+    path, start = _item_macro_path(tokens, opening)
     if len(path) != 3 or path[:2] != ["super", "common"]:
         raise GateError("unsupported DTO macro path")
     if _attribute_block_before(source, start).strip():
