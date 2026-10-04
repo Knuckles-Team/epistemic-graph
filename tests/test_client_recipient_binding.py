@@ -86,6 +86,16 @@ async def _server(path):
         await server.wait_closed()
 
 
+@contextlib.asynccontextmanager
+async def _two_recipients(socket_dir):
+    path, foreign = socket_dir / "engine", socket_dir / "foreign"
+    async with (
+        _server(path) as (_, chunks, _),
+        _server(foreign) as (_, foreign_chunks, _),
+    ):
+        yield path, foreign, chunks, foreign_chunks
+
+
 async def _connect(path, **kwargs):
     return await EpistemicGraphClient.connect(
         socket_path=str(path),
@@ -298,10 +308,11 @@ def test_missing_reconnect_then_same_recipient_restart(socket_dir, monkeypatch):
 @pytest.mark.parametrize("corruption", ["writer", "generation", "endpoint", "closed"])
 def test_guard_after_write_lock_wait_sends_zero_bytes(socket_dir, corruption):
     async def run():
-        path, foreign = socket_dir / "engine", socket_dir / "foreign"
-        async with (
-            _server(path) as (_, chunks, _),
-            _server(foreign) as (_, foreign_chunks, _),
+        async with _two_recipients(socket_dir) as (
+            path,
+            foreign,
+            chunks,
+            foreign_chunks,
         ):
             client = await _connect(path)
             _, foreign_writer = await asyncio.open_unix_connection(str(foreign))
@@ -346,10 +357,11 @@ def test_serialized_proof_cannot_follow_redirected_reconnect(
     socket_dir, monkeypatch, native_producer
 ):
     async def run():
-        path, foreign = socket_dir / "engine", socket_dir / "foreign"
-        async with (
-            _server(path) as (_, chunks, _),
-            _server(foreign) as (_, foreign_chunks, _),
+        async with _two_recipients(socket_dir) as (
+            path,
+            foreign,
+            chunks,
+            foreign_chunks,
         ):
             client = await _connect(path)
             original = client._python_send_payload
@@ -575,6 +587,13 @@ def _record_writes(monkeypatch, writer, writes):
     monkeypatch.setattr(writer, "write", record)
 
 
+def _transition_authority(authority, transition):
+    if transition in {"expire", "expire_and_renew"}:
+        authority.now = 101
+    if transition in {"renew", "expire_and_renew"}:
+        authority.renew()
+
+
 @pytest.mark.parametrize("delay", ["write_lock", "reconnect", "native_codec"])
 @pytest.mark.parametrize("transition", ["expire", "renew", "expire_and_renew"])
 def test_delayed_proof_never_outlives_current_authority(
@@ -643,10 +662,7 @@ def test_delayed_proof_never_outlives_current_authority(
                     await asyncio.wait_for(entered.wait(), 2)
                 else:
                     assert await asyncio.to_thread(ready.wait, 2)
-                if transition in {"expire", "expire_and_renew"}:
-                    authority.now = 101
-                if transition in {"renew", "expire_and_renew"}:
-                    authority.renew()
+                _transition_authority(authority, transition)
                 if delay == "write_lock":
                     client._write_lock.release()
                 elif delay == "reconnect":
