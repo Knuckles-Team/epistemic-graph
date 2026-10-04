@@ -37,7 +37,7 @@ use models::{
     push_decode, push_lazy_request_validation, push_request_resolver, push_type_checking_block,
     ModelSpace,
 };
-use package::package_contract_module;
+use package::{package_contract_errors_module, package_contract_module};
 use runtime::runtime_module;
 use surfaces::{Surfaces, SHARED_MODULE};
 
@@ -1035,6 +1035,10 @@ fn push_package_artifacts(
     out.push(Artifact {
         path: "epistemic_graph/generated/__init__.py".to_string(),
         bytes: normalize(init_module(modules, sends)),
+    });
+    out.push(Artifact {
+        path: "epistemic_graph/contract_errors.py".to_string(),
+        bytes: normalize(package_contract_errors_module()),
     });
     out.push(Artifact {
         path: "epistemic_graph/contract/__init__.py".to_string(),

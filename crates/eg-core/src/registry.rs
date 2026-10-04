@@ -612,7 +612,7 @@ impl GraphRegistry {
     ) -> Result<(), String> {
         validate_graph_name(name)?;
         if self.graphs.contains_key(name) || self.catalog.contains_key(name) {
-            return Err(format!("Graph '{}' already exists", name));
+            return Err(format!("INVALID_ARGUMENT: Graph '{}' already exists", name));
         }
         if incarnation_id.trim().is_empty() {
             return Err("graph incarnation id must not be empty".to_string());
@@ -1535,7 +1535,18 @@ mod tests {
     fn test_duplicate_create_fails() {
         let mut reg = GraphRegistry::new();
         reg.create_graph("test", GraphType::Team, None).unwrap();
-        assert!(reg.create_graph("test", GraphType::Team, None).is_err());
+        assert_eq!(
+            reg.create_graph("test", GraphType::Team, None).unwrap_err(),
+            "INVALID_ARGUMENT: Graph 'test' already exists",
+        );
+        assert!(reg.exists("test"));
+        reg.register_catalog_only("cold:test", GraphType::Team, None);
+        assert_eq!(
+            reg.create_graph("cold:test", GraphType::Team, None)
+                .unwrap_err(),
+            "INVALID_ARGUMENT: Graph 'cold:test' already exists",
+        );
+        assert!(reg.exists("cold:test"));
     }
 
     #[test]
