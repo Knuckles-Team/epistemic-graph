@@ -44,6 +44,18 @@ def _envelope(graph: str, node_id: str, key: str, sequence: int) -> dict[str, An
             "digest": hashlib.sha256(repr(body).encode()).hexdigest(),
             "source_version": {"kind": "sequence", "value": sequence},
         },
+        # Every material object carries its policy proof; the client stamps the
+        # verified tenant onto it.
+        "policies": [
+            {
+                "policy_id": f"policy:{node_id}",
+                "operation": "upsert",
+                "object_id": node_id,
+                "classification": "internal",
+                "policy_version": "policy-v1",
+                "subject_set_digest": "b" * 64,
+            }
+        ],
         "privacy": {
             "policy_version": "privacy-v1",
             "sanitizer_version": "sanitizer-v1",
