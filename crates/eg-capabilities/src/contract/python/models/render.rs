@@ -55,7 +55,46 @@ pub(in super::super) fn render_owned(
         blocks.insert(name.clone(), renderer.definition(name, node));
     }
     renderer.render_minted(&mut blocks);
-    ordered_body(&blocks)
+    let body = ordered_body(&blocks);
+    format!("{}{body}", validation_helpers(&body))
+}
+
+/// Emit shared field validators only in modules that use their annotations.
+fn validation_helpers(body: &str) -> String {
+    let mut helpers = String::new();
+    if body.contains("_eg_utf8_text(") {
+        helpers.push_str(
+            r#"
+
+def _eg_utf8_text(max_bytes):
+    def validate(value):
+        if value is not None:
+            if not value or len(value.encode("utf-8")) > max_bytes:
+                raise ValueError("engine text violates UTF-8 byte bounds")
+            if any(ord(char) < 0x20 for char in value):
+                raise ValueError("engine text contains a control byte")
+        return value
+
+    return validate
+"#,
+        );
+    }
+    if body.contains("_eg_nonblank") {
+        // Rust char::is_whitespace uses Unicode White_Space; Python strip also
+        // treats U+001C..U+001F as whitespace, so spell out the Rust set.
+        helpers.push_str(
+            r#"
+
+def _eg_nonblank(value):
+    whitespace = "\t\n\v\f\r \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004"
+    whitespace += "\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+    if value is not None and not value.strip(whitespace):
+        raise ValueError("engine identifier must not be blank")
+    return value
+"#,
+        );
+    }
+    helpers
 }
 
 /// The variant classes the renderer emits for definition `name` (a tagged union's
@@ -202,6 +241,9 @@ impl Renderer<'_> {
         if width(name) + width(&annotation) + 3 <= WIDTH {
             return format!("\n\n{name} = {annotation}\n");
         }
+        if let Some(text) = self.validated_alias(name, node) {
+            return text;
+        }
         if let Some(members) = union_members(node) {
             return self.union_alias(name, &members);
         }
@@ -216,6 +258,38 @@ impl Renderer<'_> {
         let mut text = String::new();
         push_type_alias(&mut text, name, &annotation);
         text
+    }
+
+    /// Keep outer field validators when a long nullable annotation is hoisted.
+    fn validated_alias(&mut self, name: &str, node: &Value) -> Option<String> {
+        let mut validators = Vec::new();
+        if let Some(limit) = node.get("x-eg-utf8-max-bytes").and_then(Value::as_u64) {
+            validators.push(format!("AfterValidator(_eg_utf8_text({limit}))"));
+        }
+        if node.get("x-eg-nonblank").and_then(Value::as_bool) == Some(true) {
+            validators.push("AfterValidator(_eg_nonblank)".to_string());
+        }
+        if validators.is_empty() {
+            return None;
+        }
+        let mut inner = node.clone();
+        let object = inner
+            .as_object_mut()
+            .expect("validated field schema is an object");
+        for key in [
+            "x-eg-utf8-max-bytes",
+            "x-eg-no-control-bytes",
+            "x-eg-nonblank",
+        ] {
+            object.remove(key);
+        }
+        let inner_name = self.mint(&format!("{name}Value"), &inner);
+        let mut text = format!("\n\n{name} = Annotated[\n    {inner_name},\n");
+        for validator in validators {
+            let _ = writeln!(text, "    {validator},");
+        }
+        text.push_str("]\n");
+        Some(text)
     }
 
     /// A fixed-width tuple: every item that is not a bare name gets its own alias

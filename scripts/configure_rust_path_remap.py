@@ -41,9 +41,9 @@ from pathlib import Path, PurePath
 
 UNIT_SEPARATOR = "\x1f"
 
-# More-specific locations are assigned distinct neutral prefixes.  Any overlap
-# is sorted longest-first before flags are emitted so a checkout below HOME does
-# not get collapsed into the less useful /build/home mapping.
+# More-specific locations are assigned distinct neutral prefixes. path_remaps()
+# returns longest-first for its direct consumers. Rust flags reverse that order:
+# rustc applies the last match, so specific roots must follow broader roots.
 ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
     ("GITHUB_WORKSPACE", "/build/source"),
     ("CARGO_MANIFEST_DIR", "/build/source"),
@@ -207,9 +207,10 @@ def encoded_rustflags(
 
     env = os.environ if environ is None else environ
     existing = _existing_flags(env)
+    # rustc uses the last matching prefix, so specific roots must come last.
     remaps = [
         f"--remap-path-prefix={source}={replacement}"
-        for source, replacement in path_remaps(env, checkout=checkout)
+        for source, replacement in reversed(path_remaps(env, checkout=checkout))
         if not _already_remapped(existing, source)
     ]
     link = [flag for flag in _deterministic_link_flags(target) if flag not in existing]

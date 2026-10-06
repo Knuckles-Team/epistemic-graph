@@ -17,6 +17,9 @@ Run against the freshly-built wheel::
     pip install target/wheels/eg_pyengine-*.whl
     pytest crates/eg-pyengine/tests/test_engine_smoke.py --noconftest -q
 
+Each test explicitly chooses a disposable in-memory engine. Filesystem stores are
+refused until the binding implements durable storage.
+
 The module is discovered as ``epistemic_graph.engine`` (folded build) or
 ``engine`` (standalone wheel) — if neither imports, the test is SKIPPED (a
 no-wheel checkout stays green); a CI job that builds+installs the wheel first
@@ -30,6 +33,8 @@ from typing import Any
 
 import msgpack
 import pytest
+
+from epistemic_graph.client import EngineResponseError
 
 _e: Any = None
 for _name in ("epistemic_graph.engine", "engine"):
@@ -49,7 +54,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_create_graph_add_node_get_properties_round_trip() -> None:
-    engine = _e.Engine()
+    engine = _e.Engine(persist_dir=":memory:")
     engine.create_graph("kg")
 
     properties = {"label": "Person", "name": "Ada"}
@@ -64,28 +69,31 @@ def test_create_graph_add_node_get_properties_round_trip() -> None:
 
 
 def test_get_node_properties_missing_node_is_none() -> None:
-    engine = _e.Engine()
+    engine = _e.Engine(persist_dir=":memory:")
     engine.create_graph("kg")
     assert engine.get_node_properties("kg", "nope") is None
 
 
-def test_unknown_graph_raises_key_error() -> None:
-    engine = _e.Engine()
-    with pytest.raises(KeyError):
+def test_unknown_graph_raises_invalid_argument() -> None:
+    engine = _e.Engine(persist_dir=":memory:")
+    with pytest.raises(EngineResponseError) as exc_info:
         engine.add_node("no-such-graph", "n1", msgpack.packb({}))
+    assert exc_info.value.code == "INVALID_ARGUMENT"
 
 
 def test_duplicate_graph_name_raises() -> None:
-    engine = _e.Engine()
+    engine = _e.Engine(persist_dir=":memory:")
     engine.create_graph("kg")
-    with pytest.raises(KeyError):
+    with pytest.raises(EngineResponseError) as exc_info:
         engine.create_graph("kg")
+    assert exc_info.value.code == "INVALID_ARGUMENT"
 
 
 def test_two_engines_are_isolated() -> None:
     """Each ``Engine()`` owns its own registry — no shared global state."""
-    a, b = _e.Engine(), _e.Engine()
+    a, b = _e.Engine(persist_dir=":memory:"), _e.Engine(persist_dir=":memory:")
     a.create_graph("kg")
     a.add_node("kg", "n1", msgpack.packb({"v": 1}))
-    with pytest.raises(KeyError):
+    with pytest.raises(EngineResponseError) as exc_info:
         b.add_node("kg", "n1", msgpack.packb({"v": 1}))
+    assert exc_info.value.code == "INVALID_ARGUMENT"

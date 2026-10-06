@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 /// Deeper than any schema path a required-only sample follows.
 const MAX_DEPTH: usize = 48;
 const SEMANTIC_DIGEST_PATTERN: &str = "^sha256:[0-9a-f]{64}$";
+const LANE_FINGERPRINT_PATTERN: &str = "^v1:[0-9a-f]{64}$";
 const HEX_DIGEST_PATTERN: &str = "^[0-9a-f]{64}$";
 /// Lowercase hex digits: a valid digest, nonce or opaque text alike.
 const SAMPLE_TEXT: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -181,6 +182,7 @@ fn primary_type(node: &Value) -> &str {
 
 fn string_sample(node: &Value) -> Value {
     match node.get("pattern").and_then(Value::as_str) {
+        Some(LANE_FINGERPRINT_PATTERN) => Value::from(format!("v1:{SAMPLE_TEXT}")),
         Some(SEMANTIC_DIGEST_PATTERN) => Value::from(format!("sha256:{SAMPLE_TEXT}")),
         None | Some(HEX_DIGEST_PATTERN) => {
             let limit = node
@@ -206,4 +208,16 @@ fn integer_sample(node: &Value) -> Value {
         .and_then(Value::as_i64)
         .unwrap_or(i64::MAX);
     Value::from(minimum.min(maximum))
+}
+
+#[cfg(test)]
+mod lane_fingerprint_tests {
+    use super::*;
+
+    #[test]
+    fn lane_fingerprint_sample_has_prefix_and_exact_length() {
+        let value = string_sample(&json!({"type": "string", "pattern": LANE_FINGERPRINT_PATTERN}));
+        assert_eq!(value, json!(format!("v1:{SAMPLE_TEXT}")));
+        assert_eq!(value.as_str().unwrap().len(), 67);
+    }
 }

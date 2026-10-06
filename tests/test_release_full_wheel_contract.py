@@ -92,7 +92,7 @@ def test_current_numeric_docs_match_the_builtin_boundary_contract() -> None:
 
 
 def test_agent_skills_have_one_canonical_owner() -> None:
-    """The engine wheel owns and publishes its operator skills exactly once."""
+    """Every authored skill has one canonical identity in the engine provider."""
 
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     entry_points = project["project"].get("entry-points", {})
@@ -116,15 +116,23 @@ def test_agent_skills_have_one_canonical_owner() -> None:
         # gitignored, generated build output); fall back to a filesystem
         # walk only when this checkout is not inside a git working tree.
         skill_md_files = list(skills.rglob("SKILL.md"))
-    assert {path.parent.name for path in skill_md_files} == {
-        "epistemic-graph-deploy",
-        "epistemic-graph-migrations",
-        "epistemic-graph-troubleshooting",
-        "kg-modality-consensus",
-        "kg-modality-reasoning",
-        "kg-modality-sparql",
-        "kg-modality-sql",
-    }
+    assert skill_md_files, "the engine provider must not publish an empty catalog"
+    identities: set[str] = set()
+    for path in skill_md_files:
+        assert path.resolve().parent.parent == skills.resolve(), (
+            f"skill must have one canonical directory in the engine package: {path}"
+        )
+        document = path.read_text(encoding="utf-8")
+        assert document.startswith("---\n"), f"missing skill frontmatter: {path}"
+        frontmatter = yaml.safe_load(document.split("---", 2)[1])
+        assert isinstance(frontmatter, dict), f"invalid skill frontmatter: {path}"
+        identity = frontmatter.get("name")
+        assert identity == path.parent.name, f"skill identity/path mismatch: {path}"
+        assert identity.casefold() not in identities, f"duplicate skill: {identity}"
+        identities.add(identity.casefold())
+    assert "epistemic-graph-development" in identities, (
+        "the development skill must ship from the engine provider, not a sibling"
+    )
 
 
 def _verified_x86_workflow() -> dict:

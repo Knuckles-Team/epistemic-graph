@@ -178,7 +178,7 @@ pub fn resolve_core(registry: &SharedRegistry, graph: &str) -> Result<Arc<GraphC
         .read()
         .get(graph)
         .map(|entry| Arc::clone(&entry.core))
-        .ok_or_else(|| format!("graph '{graph}' not found"))
+        .ok_or_else(|| format!("INVALID_ARGUMENT: graph '{graph}' not found"))
 }
 
 // ---------------------------------------------------------------------------
@@ -423,9 +423,9 @@ mod py {
             let raw = py.detach(move || -> PyResult<Option<Vec<u8>>> {
                 let core = {
                     let guard = registry.read();
-                    let entry = guard
-                        .get(&graph)
-                        .ok_or_else(|| map_engine_error(format!("graph '{graph}' not found")))?;
+                    let entry = guard.get(&graph).ok_or_else(|| {
+                        map_engine_error(format!("INVALID_ARGUMENT: graph '{graph}' not found"))
+                    })?;
                     authority
                         .require_graph_read(
                             agent_id.as_deref(),
@@ -841,14 +841,20 @@ mod tests {
     #[test]
     fn missing_graph_errors() {
         let registry = new_registry();
-        assert!(resolve_core(&registry, "nope").is_err());
+        assert_eq!(
+            resolve_core(&registry, "nope").err().as_deref(),
+            Some("INVALID_ARGUMENT: graph 'nope' not found"),
+        );
     }
 
     #[test]
     fn duplicate_graph_name_errors() {
         let registry = new_registry();
         create_graph(&registry, "kg").unwrap();
-        assert!(create_graph(&registry, "kg").is_err());
+        assert_eq!(
+            create_graph(&registry, "kg").unwrap_err(),
+            "INVALID_ARGUMENT: Graph 'kg' already exists",
+        );
         // __commons__ is pre-created by GraphRegistry::new(); creating it
         // again is the same "already exists" error the wire dispatch surfaces.
         assert!(create_graph(&registry, "__commons__").is_err());

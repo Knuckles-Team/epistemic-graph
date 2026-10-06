@@ -1,7 +1,8 @@
-use crate::{cluster, elementwise, linalg, random, reductions, stats};
+use crate::{cluster, elementwise, linalg, prototype, random, reductions, stats};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::{PyByteArray, PyBytes, PyMapping, PySequence, PySequenceMethods, PyString};
 
 create_exception!(numeric, LinAlgError, PyException);
 
@@ -227,6 +228,50 @@ fn norm(a: &Bound<'_, PyAny>) -> PyResult<f64> {
 #[pyfunction]
 fn norm_ord(a: &Bound<'_, PyAny>, ord: f64) -> PyResult<f64> {
     Ok(linalg::norm_ord(to_f64_1d(a)?.view(), ord))
+}
+/// One native call for detached ontology prototype matching. Extract rows one
+/// at a time so zero vectors may be ragged as in the legacy AU operation, and
+/// cap the aggregate rather than allocating an unbounded nested Vec.
+#[pyfunction]
+fn best_cosine_prototype(
+    py: Python<'_>,
+    query: &Bound<'_, PyAny>,
+    prototypes: &Bound<'_, PyAny>,
+) -> PyResult<Option<(usize, f64)>> {
+    let query = to_f64_1d(query)?.to_vec();
+    if prototypes.is_instance_of::<PyString>()
+        || prototypes.is_instance_of::<PyBytes>()
+        || prototypes.is_instance_of::<PyByteArray>()
+        || prototypes.cast::<PyMapping>().is_ok()
+    {
+        return Err(PyValueError::new_err(
+            "prototypes must be a sequence of vectors",
+        ));
+    }
+    let rows = prototypes
+        .cast::<PySequence>()
+        .map_err(|_| PyValueError::new_err("prototypes must be a sequence of vectors"))?;
+    let count = rows.len()?;
+    if count > MAX_INPUT_ELEMENTS {
+        return Err(PyValueError::new_err(
+            "prototype count exceeds the element limit",
+        ));
+    }
+    let mut remaining = MAX_INPUT_ELEMENTS.saturating_sub(query.len());
+    let mut vectors = Vec::with_capacity(count);
+    for index in 0..count {
+        let item = rows.get_item(index)?;
+        if item.len()? > remaining {
+            return Err(PyValueError::new_err("prototypes exceed the element limit"));
+        }
+        let row = to_f64_1d(&item)?.to_vec();
+        remaining = remaining
+            .checked_sub(row.len())
+            .ok_or_else(|| PyValueError::new_err("prototypes exceed the element limit"))?;
+        vectors.push(row);
+    }
+    py.detach(|| prototype::best_cosine_prototype(&query, &vectors))
+        .map_err(map_err)
 }
 // Dense-linalg bindings come in three shapes: one matrix in / one array out,
 // a matrix plus a second operand / one array out, and one matrix in / a
@@ -510,6 +555,7 @@ fn numeric(m: &Bound<'_, PyModule>) -> PyResult<()> {
         where_,
         norm,
         norm_ord,
+        best_cosine_prototype,
         dot,
         matmul,
         solve,

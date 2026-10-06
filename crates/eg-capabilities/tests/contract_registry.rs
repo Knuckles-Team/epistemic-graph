@@ -203,9 +203,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
     // 456 -> 458: the tenant-scoped operation audit-append `AuditAppend` and its
     // paired read `AuditReadEvent`.
+    // 458 -> 459: `OntologyInspect`, the read-only typed vocabulary surface.
     assert_eq!(
         variants.len(),
-        458,
+        459,
         "the wire method census changed; update this exact count deliberately"
     );
 }
