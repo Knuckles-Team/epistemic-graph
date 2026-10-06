@@ -407,9 +407,7 @@ pub fn render_owner_store_formats() -> String {
             out.push_str(&format!(
                 "\n## `{code}`: {label}\n\n* Store file: `{file}`\n* Refused generation: {label}\n\
                  * Data lost: {lost}\n* Owner tables of the refused generation: {tables}\n\
-                 * Removal step: stop the engine, move `{file}` aside (keep it until the \
-                 restarted engine is confirmed healthy), and restart; a fresh store is \
-                 created. Backup bundles taken before this release cannot restore this file.\n",
+                 * Removal step: {removal}\n",
                 code = predecessor.error_code(),
                 file = predecessor.file_name,
                 label = predecessor.label,
@@ -420,9 +418,11 @@ pub fn render_owner_store_formats() -> String {
                     .map(|table| format!("`{table}`"))
                     .collect::<Vec<_>>()
                     .join(", "),
+                removal = crate::owner::offline_upgrade::render_removal_step(predecessor),
             ));
         }
     }
+    out.push_str(&crate::owner::offline_upgrade::render_offline_upgrade_procedure());
     out
 }
 

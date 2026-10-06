@@ -244,6 +244,7 @@ pub(super) fn open_persistence(
     let automatic_writer_queue = capacity.writer_queue();
     let queue = bounded_env_override("EPISTEMIC_GRAPH_REDB_WRITER_QUEUE", automatic_writer_queue)
         .unwrap_or(automatic_writer_queue);
+    refuse_upgradable_stores(dir);
     info!("Persistence: authoritative redb (queue {})", queue);
     let backend = server::persistence::redb_backend::RedbBackend::open(dir.to_string(), queue)
         .unwrap_or_else(|error| {
@@ -253,6 +254,42 @@ pub(super) fn open_persistence(
             )
         });
     Some(Arc::new(backend))
+}
+
+/// Log whether the configured SPARQL federation endpoint is reachable.
+///
+/// Best-effort and logged, never enforced: startup continues either way. It
+/// runs the same guarded service client the live `SERVICE <endpoint> {…}`
+/// dispatch uses, so a reachable line is evidence the federation path works.
+/// A no-op unless both `EPISTEMIC_GRAPH_FUSEKI_HEALTH_CHECK_ENDPOINT` (the
+/// endpoint to probe) and `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` (the
+/// fail-closed allowlist) are set.
+pub(super) fn run_fuseki_startup_health_check() {
+    #[cfg(feature = "sparql-fuseki")]
+    {
+        let outcome = epistemic_graph::server::sparql_service::startup_health_check();
+        match outcome {
+            epistemic_graph::server::sparql_service::HealthCheckOutcome::Reachable { .. } => {
+                info!("{}", outcome.summary());
+            }
+            epistemic_graph::server::sparql_service::HealthCheckOutcome::NotConfigured => {
+                tracing::debug!("{}", outcome.summary());
+            }
+            _ => tracing::warn!("{}", outcome.summary()),
+        }
+    }
+}
+
+/// The engine never upgrades a store itself. A data directory holding a store
+/// that a registered offline upgrade applies to is refused before any store is
+/// opened, with that store's named error and the exact operator command.
+#[cfg(feature = "redb")]
+fn refuse_upgradable_stores(dir: &str) {
+    let checked =
+        server::persistence::store_upgrade::refuse_upgradable_stores(std::path::Path::new(dir));
+    if let Err(refusal) = checked {
+        exit_with(refusal, 1);
+    }
 }
 
 /// `RedbBackend` is gated behind the `redb` feature, so a build without it fails

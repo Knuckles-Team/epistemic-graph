@@ -18,6 +18,7 @@
 use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::{layout_digest_over, OwnerLayout};
 use crate::owner::manifest_io::{read_manifest_slot, write_new_manifest};
+use crate::owner::offline_upgrade::{registered_offline_upgrade, OFFLINE_UPGRADE_APPLY_COMMAND};
 use crate::owner::registry::owner_table_names;
 use crate::physical::manifest::{OwnerManifest, TableOwnership};
 use crate::physical::read_only::open_read_only;
@@ -56,12 +57,27 @@ impl LayoutPredecessor {
             |path| path.display().to_string(),
         );
         format!(
-            "{code}: {subject} is a {label} file and this build does not open it; {lost}. \
-             Stop the engine, move {file} aside (keep it until the restarted engine is \
-             confirmed healthy), and restart: a fresh store is created.",
+            "{code}: {subject} is a {label} file and this build does not open it; {lost}. {step}",
             code = self.error_code(),
             label = self.label,
             lost = self.data_lost,
+            step = self.operator_step(),
+        )
+    }
+
+    /// What the operator does about a refused file of this generation: run the
+    /// registered offline upgrade when there is one, otherwise move the file
+    /// aside.
+    pub fn operator_step(&self) -> String {
+        if registered_offline_upgrade(self).is_some() {
+            return format!(
+                "Stop the engine, run `{OFFLINE_UPGRADE_APPLY_COMMAND}` (it upgrades the file \
+                 in place and keeps its rows), and start the engine again."
+            );
+        }
+        format!(
+            "Stop the engine, move {file} aside (keep it until the restarted engine is \
+             confirmed healthy), and restart: a fresh store is created.",
             file = self.file_name,
         )
     }
@@ -97,7 +113,7 @@ pub fn refuse_known_predecessor(
     }
 }
 
-fn read_persisted_manifest(path: &Path) -> Result<OwnerManifest, String> {
+pub(crate) fn read_persisted_manifest(path: &Path) -> Result<OwnerManifest, String> {
     let store = open_read_only(path, None)?;
     let transaction = store
         .database()
