@@ -129,10 +129,7 @@ fn every_declared_predecessor_file_is_refused_by_name_without_a_write() {
                 error.starts_with(&predecessor.error_code()),
                 "{layout:?}: {error}"
             );
-            assert!(
-                error.contains(&format!("move {} aside", predecessor.file_name)),
-                "{error}"
-            );
+            assert!(error.ends_with(&predecessor.operator_step()), "{error}");
             assert_eq!(file_digest(&path), before, "{layout:?}: refusal wrote");
         }
     }
