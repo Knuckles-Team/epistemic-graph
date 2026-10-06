@@ -26775,6 +26775,10 @@
       },
       "result_schema": {
         "bodies": {
+          "attest_self_served_catalog": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "bind": {
             "dynamic": null,
             "encoding": "Raw"

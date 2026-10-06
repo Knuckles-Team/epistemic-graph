@@ -110,6 +110,13 @@ class ConnectorPackOpReconcileCatalog(BaseModel):
     request: McpCatalogReconcileRequest
 
 
+class ConnectorPackOpAttestSelfServedCatalog(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["attest_self_served_catalog"]
+    request: McpSelfServedCatalogAttestRequest
+
+
 class ConnectorPackOpCatalogAuthorityStatus(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -147,6 +154,7 @@ ConnectorPackOp = Annotated[
     | ConnectorPackOpReproject
     | ConnectorPackOpReconcileBodies
     | ConnectorPackOpReconcileCatalog
+    | ConnectorPackOpAttestSelfServedCatalog
     | ConnectorPackOpCatalogAuthorityStatus
     | ConnectorPackOpCatalogOwnerPrincipal
     | ConnectorPackOpCatalogBindingStatus
@@ -236,6 +244,20 @@ class McpCatalogReconcileRequest(BaseModel):
     registration_config_digest: Digest256
     registry_digest: Digest256
     registry_revision: Annotated[int, Field(ge=0)]
+    server_name: str
+
+
+class McpSelfServedCatalogAttestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    context: AgentLibraryMutationContext
+    expected_catalog_generation: Annotated[int, Field(ge=0)] | None = None
+    four_family_digest: Digest256
+    registration_config_digest: Digest256
+    registry_digest: Digest256
+    registry_revision: Annotated[int, Field(ge=0)]
+    server_entry_digest: Digest256
     server_name: str
 
 
@@ -552,6 +574,8 @@ ConnectorPackOpReconcileBodies.model_rebuild()
 
 ConnectorPackOpReconcileCatalog.model_rebuild()
 
+ConnectorPackOpAttestSelfServedCatalog.model_rebuild()
+
 ConnectorPackOpCatalogAuthorityStatus.model_rebuild()
 
 ConnectorPackOpCatalogOwnerPrincipal.model_rebuild()
@@ -577,6 +601,8 @@ DeclaredCost.model_rebuild()
 McpCatalogAuthorityStatusRequest.model_rebuild()
 
 McpCatalogReconcileRequest.model_rebuild()
+
+McpSelfServedCatalogAttestRequest.model_rebuild()
 
 PackAnnotations.model_rebuild()
 
@@ -633,6 +659,7 @@ __all__ = [
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
     "ConnectorPackOp",
+    "ConnectorPackOpAttestSelfServedCatalog",
     "ConnectorPackOpBind",
     "ConnectorPackOpCatalogAuthorityStatus",
     "ConnectorPackOpCatalogBindingStatus",
@@ -657,6 +684,7 @@ __all__ = [
     "McpCatalogAuthorityStatusRequest",
     "McpCatalogReconcileRequest",
     "McpCatalogSnapshotBinding",
+    "McpSelfServedCatalogAttestRequest",
     "Nonce",
     "PackAnnotations",
     "PackArchiveRef",

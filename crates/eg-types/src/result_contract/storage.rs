@@ -102,6 +102,7 @@ method_results! {
     ConnectorPackReproject(ConnectorPack / "reproject") => Raw<PackImportReceipt>;
     ConnectorPackReconcileBodies(ConnectorPack / "reconcile_bodies") => Raw<PackBodyReconcileReport>;
     ConnectorPackReconcileCatalog(ConnectorPack / "reconcile_catalog") => Raw<McpCatalogSnapshotBinding>;
+    ConnectorPackAttestSelfServedCatalog(ConnectorPack / "attest_self_served_catalog") => Raw<McpCatalogSnapshotBinding>;
     ConnectorPackCatalogAuthorityStatus(ConnectorPack / "catalog_authority_status") => Raw<Option<McpCatalogSnapshotBinding>>;
     ConnectorPackCatalogOwnerPrincipal(ConnectorPack / "catalog_owner_principal") => Raw<String>;
     ConnectorPackCatalogBindingStatus(ConnectorPack / "catalog_binding_status") => Raw<Option<McpCatalogSnapshotBinding>>;

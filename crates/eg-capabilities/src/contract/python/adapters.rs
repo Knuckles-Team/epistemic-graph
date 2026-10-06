@@ -94,6 +94,20 @@ pub(super) const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
         result_is_union: true,
     },
     TypedOperationAdapter {
+        method: "ConnectorPack",
+        operation: "attest_self_served_catalog",
+        request_model: "McpSelfServedCatalogAttestRequest",
+        result_model: "McpCatalogSnapshotBinding",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "ConnectorPack",
+        operation: "catalog_authority_status",
+        request_model: "McpCatalogAuthorityStatusRequest",
+        result_model: "McpCatalogSnapshotBinding | None",
+        result_is_union: true,
+    },
+    TypedOperationAdapter {
         method: "PolicyEvolution",
         operation: "put_capability",
         request_model: "OpenWeightPolicyCapability",

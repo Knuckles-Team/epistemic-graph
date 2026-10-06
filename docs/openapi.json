@@ -6665,6 +6665,24 @@
           },
           {
             "additionalProperties": false,
+            "description": "Issue the binding for a catalog the verified attester serves itself,\npinned to the exact server entry of the connector's next pack. Needs\n`connector:catalog-attest` as well as this op's action.",
+            "properties": {
+              "op": {
+                "const": "attest_self_served_catalog",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_McpSelfServedCatalogAttestRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "properties": {
               "op": {
                 "const": "catalog_authority_status",
@@ -16064,6 +16082,63 @@
           "snapshot_digest",
           "child_connection_generation",
           "authorization_scope_digest"
+        ],
+        "type": "object"
+      },
+      "ReqDef_McpSelfServedCatalogAttestRequest": {
+        "additionalProperties": false,
+        "description": "A verified producer asks EG to issue the binding for the catalog it serves\nitself. Tenant, attester principal and authorization scope come from the\nverified request, never from this body.",
+        "properties": {
+          "connector": {
+            "description": "The connector whose pack the binding is issued for; the attester must\nbe its bound importer.",
+            "type": "string"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ReqDef_AgentLibraryMutationContext"
+          },
+          "expected_catalog_generation": {
+            "default": null,
+            "description": "The generation the caller last read; `None` only for the first binding.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "four_family_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256",
+            "description": "Digest of the tools, prompts, resources and resource templates served."
+          },
+          "registration_config_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "registry_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256"
+          },
+          "registry_revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_entry_digest": {
+            "$ref": "#/components/schemas/ReqDef_Digest256",
+            "description": "SHA-256 of the pack's `McpServer` entry body (`index.server.body.sha256`)."
+          },
+          "server_name": {
+            "description": "The registered `__commons__` server name, which is also the name of\nthe pack's `McpServer` entry.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context",
+          "connector",
+          "server_name",
+          "server_entry_digest",
+          "registry_revision",
+          "registry_digest",
+          "registration_config_digest",
+          "four_family_digest"
         ],
         "type": "object"
       },
@@ -99536,6 +99611,24 @@
           },
           {
             "additionalProperties": false,
+            "description": "Issue the binding for a catalog the verified attester serves itself,\npinned to the exact server entry of the connector's next pack. Needs\n`connector:catalog-attest` as well as this op's action.",
+            "properties": {
+              "op": {
+                "const": "attest_self_served_catalog",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_McpSelfServedCatalogAttestRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "properties": {
               "op": {
                 "const": "catalog_authority_status",
@@ -110325,6 +110418,63 @@
           "snapshot_digest",
           "child_connection_generation",
           "authorization_scope_digest"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_McpSelfServedCatalogAttestRequest": {
+        "additionalProperties": false,
+        "description": "A verified producer asks EG to issue the binding for the catalog it serves\nitself. Tenant, attester principal and authorization scope come from the\nverified request, never from this body.",
+        "properties": {
+          "connector": {
+            "description": "The connector whose pack the binding is issued for; the attester must\nbe its bound importer.",
+            "type": "string"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ResDef_Query_AgentLibraryMutationContext"
+          },
+          "expected_catalog_generation": {
+            "default": null,
+            "description": "The generation the caller last read; `None` only for the first binding.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "four_family_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256",
+            "description": "Digest of the tools, prompts, resources and resource templates served."
+          },
+          "registration_config_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "registry_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256"
+          },
+          "registry_revision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "server_entry_digest": {
+            "$ref": "#/components/schemas/ResDef_Query_Digest256",
+            "description": "SHA-256 of the pack's `McpServer` entry body (`index.server.body.sha256`)."
+          },
+          "server_name": {
+            "description": "The registered `__commons__` server name, which is also the name of\nthe pack's `McpServer` entry.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "context",
+          "connector",
+          "server_name",
+          "server_entry_digest",
+          "registry_revision",
+          "registry_digest",
+          "registration_config_digest",
+          "four_family_digest"
         ],
         "type": "object"
       },
@@ -158025,6 +158175,11 @@
       },
       "Res_storage_ConnectorPack": {
         "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResDef_Storage_McpCatalogSnapshotBinding",
+            "x-body": "attest_self_served_catalog",
+            "x-encoding": "Raw"
+          },
           {
             "$ref": "#/components/schemas/ResDef_Storage_ConnectorPackBindingResult",
             "x-body": "bind",

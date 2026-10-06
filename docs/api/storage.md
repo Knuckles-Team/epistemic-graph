@@ -607,6 +607,7 @@ RF-ADR-009 A2 plus RF-021 durable catalog reconciliation; runtime-conditional: s
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
+| `attest_self_served_catalog` | `McpCatalogSnapshotBinding` | Raw |  |
 | `bind` | `ConnectorPackBindingResult` | Raw |  |
 | `catalog_authority_status` | one of: `McpCatalogSnapshotBinding` \| null | Raw |  |
 | `catalog_binding_status` | one of: `McpCatalogSnapshotBinding` \| null | Raw |  |

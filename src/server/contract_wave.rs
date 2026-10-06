@@ -156,6 +156,7 @@ mod dispatch_reachability_tests {
         "DecisionLog.get",
         "DecisionLog.aggregate",
         "AgentComponent.content",
+        "ConnectorPack.attest_self_served_catalog",
         "ConnectorPack.bind",
         "ConnectorPack.catalog_authority_status",
         "ConnectorPack.catalog_binding_status",
