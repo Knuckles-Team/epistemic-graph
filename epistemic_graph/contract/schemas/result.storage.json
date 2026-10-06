@@ -8011,6 +8011,13 @@
     },
     "ConnectorPack": {
       "bodies": {
+        "attest_self_served_catalog": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/McpCatalogSnapshotBinding"
+          }
+        },
         "bind": {
           "dynamic": null,
           "encoding": "Raw",
