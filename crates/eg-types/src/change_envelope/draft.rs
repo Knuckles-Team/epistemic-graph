@@ -45,22 +45,23 @@ pub struct ChangeEnvelopeDraft {
     pub schema_version: u16,
     pub envelope_id: String,
     pub mutation: ChangeMutationDraft,
-    pub content_version: ContentVersion,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<ChangeCursor>,
-    #[serde(default)]
-    pub blobs: Vec<BlobReference>,
-    #[serde(default)]
-    pub features: Vec<FeatureRecord>,
-    #[serde(default)]
-    pub evidence: Vec<EvidenceRecord>,
-    #[serde(default)]
-    pub policies: Vec<PolicyRecord>,
-    #[serde(default)]
-    pub lineage: Vec<LineageRecord>,
     pub privacy: PrivacyAttestation,
     #[serde(default, skip_serializing_if = "MaterialClass::is_attested")]
     pub material_class: MaterialClass,
+    pub content_version: ContentVersion,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ChangeCursor>,
+    // The envelope's material rows, exactly as `ChangeEnvelope` carries them.
+    #[serde(default)]
+    pub lineage: Vec<LineageRecord>,
+    #[serde(default)]
+    pub policies: Vec<PolicyRecord>,
+    #[serde(default)]
+    pub evidence: Vec<EvidenceRecord>,
+    #[serde(default)]
+    pub features: Vec<FeatureRecord>,
+    #[serde(default)]
+    pub blobs: Vec<BlobReference>,
 }
 
 impl ChangeMutationDraft {
