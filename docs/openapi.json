@@ -5737,8 +5737,8 @@
           "schema_version",
           "envelope_id",
           "mutation",
-          "content_version",
-          "privacy"
+          "privacy",
+          "content_version"
         ],
         "type": "object"
       },
@@ -98543,8 +98543,8 @@
           "schema_version",
           "envelope_id",
           "mutation",
-          "content_version",
-          "privacy"
+          "privacy",
+          "content_version"
         ],
         "type": "object"
       },
