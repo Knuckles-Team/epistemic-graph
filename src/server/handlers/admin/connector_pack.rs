@@ -26,6 +26,7 @@ mod catalog_authority;
 mod import;
 pub(crate) mod reconcile;
 pub(crate) mod reproject;
+mod self_served_catalog;
 #[cfg(all(test, feature = "redb", feature = "blob"))]
 mod tests;
 
@@ -58,6 +59,9 @@ pub(crate) async fn handle_connector_pack(
         }
         ConnectorPackOp::ReconcileCatalog { request } => {
             catalog_authority::serve(state, req_id, verified, *request).await
+        }
+        ConnectorPackOp::AttestSelfServedCatalog { request } => {
+            self_served_catalog::serve(state, req_id, verified, *request).await
         }
         ConnectorPackOp::CatalogAuthorityStatus { request } => {
             catalog_authority::serve_status(state, req_id, verified, request).await
@@ -293,6 +297,7 @@ async fn preflight_import(
     if let Some(result) = replay_or_unchanged(request, &status)? {
         return Ok(Preflight::Unchanged(result));
     }
+    honour_self_served_pin(&store, verified, request)?;
     let blob = import_blob_store(state, request).await?;
     let archive = read_import_archive(&blob, verified, request).await?;
     Ok(Preflight::Ready {
@@ -447,7 +452,28 @@ async fn read_import_archive(
     Ok(archive)
 }
 
+/// A connector whose server catalog is self-served imports only under EG's
+/// current binding for it and with exactly the server entry that binding
+/// pinned. The attestation takes this same tenant pack lock, so the row read
+/// here cannot be re-pinned before this import commits.
 #[cfg(all(feature = "redb", feature = "blob"))]
+fn honour_self_served_pin(
+    store: &crate::server::persistence::agent_library::AgentLibraryStore,
+    verified: &VerifiedRequestContext,
+    request: &eg_types::connector_pack::ConnectorPackImportRequest,
+) -> Result<(), String> {
+    let server_name = request.index.server.name.as_str();
+    if !eg_types::result_contract::cluster::is_valid_server_name(server_name) {
+        return Ok(());
+    }
+    let scope = verified.tenant_local_catalog_partition_digest(server_name)?;
+    match store.mcp_self_served_catalog_row(verified.tenant(), server_name, scope)? {
+        Some(row) => eg_types::connector_pack::check_self_served_import(&row, &request.index),
+        None => Ok(()),
+    }
+}
+
+#[cfg(feature = "redb")]
 fn authorize_importer(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     verified: &VerifiedRequestContext,
@@ -463,7 +489,7 @@ fn authorize_importer(
     }
 }
 
-#[cfg(all(feature = "redb", feature = "blob"))]
+#[cfg(feature = "redb")]
 fn bootstrap_importer(connector: &str) -> Option<String> {
     let configured = std::env::var("EPISTEMIC_GRAPH_CONNECTOR_PACK_IMPORTERS").ok()?;
     let mut fallback = None;

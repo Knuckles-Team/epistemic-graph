@@ -1,9 +1,10 @@
 //! Deterministic transition for an EG-owned served MCP catalog authority row.
 //!
 //! The caller must obtain both configuration digests from verified EG reads,
-//! the four-family digest from the mounted child, and the scope digest from a
-//! trusted authorization attestation. This reducer does not authenticate those
-//! sources or persist the row; a handler must do both before issuing a binding.
+//! the four-family digest from the mounted child (or from the verified
+//! self-served producer), and the scope digest from a trusted authorization
+//! attestation. This reducer does not authenticate those sources or persist
+//! the row; a handler must do both before issuing a binding.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,33 @@ use crate::contract::Digest256;
 
 const CONFIG_DOMAIN: &[u8] = b"eg/mcp-served-joined-config/v1";
 const SNAPSHOT_DOMAIN: &[u8] = b"eg/mcp-served-catalog-snapshot/v1";
+const SELF_SERVED_SNAPSHOT_DOMAIN: &[u8] = b"eg/mcp-self-served-catalog-snapshot/v1";
+
+/// Who observed the catalog a scoped authority row binds.
+///
+/// A mounted child reports a catalog EG reaches through a child connection
+/// (`ConnectorPack.reconcile_catalog`). A self-served producer serves its own
+/// catalog in process and has no child connection; EG pins the exact server
+/// entry of `connector`'s next pack instead (`attest_self_served_catalog`).
+/// The two never share a row: a row keeps the kind it was born with.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum McpCatalogAttestation {
+    #[default]
+    MountedChild,
+    SelfServed {
+        connector: String,
+    },
+}
+
+impl McpCatalogAttestation {
+    /// Mounted rows are encoded without the field, byte-identical to rows
+    /// written before self-served attestation existed.
+    pub fn is_mounted_child(&self) -> bool {
+        matches!(self, Self::MountedChild)
+    }
+}
 
 /// Recompute the identity of the verified component and registration inputs.
 pub fn joined_configuration_digest(
@@ -64,6 +92,11 @@ pub struct McpCatalogAuthorityRow {
     pub registration_config_digest: Digest256,
     pub configuration_digest: Digest256,
     pub binding: McpCatalogSnapshotBinding,
+    #[serde(
+        default,
+        skip_serializing_if = "McpCatalogAttestation::is_mounted_child"
+    )]
+    pub attestation: McpCatalogAttestation,
 }
 
 /// Internal reconciliation input, assembled only after source verification.
@@ -85,6 +118,7 @@ pub struct McpCatalogAuthorityCandidate {
     pub child_connection_generation: u64,
     pub authorization_scope_digest: Digest256,
     pub expected_catalog_generation: Option<u64>,
+    pub attestation: McpCatalogAttestation,
 }
 
 /// An authenticated served child asks EG to reconcile its observed catalog.
@@ -138,7 +172,29 @@ pub fn sample_authority_candidate() -> McpCatalogAuthorityCandidate {
         child_connection_generation: 2,
         authorization_scope_digest: Digest256::from_bytes([4; 32]),
         expected_catalog_generation: None,
+        attestation: McpCatalogAttestation::MountedChild,
     }
+}
+
+/// Reduce `candidate` over `prior`, re-deriving the joined configuration the
+/// owner transaction would have loaded beside it (reducer tests only).
+#[cfg(any(test, feature = "test-support"))]
+pub fn reconcile_after_row(
+    prior: Option<&McpCatalogAuthorityRow>,
+    candidate: &McpCatalogAuthorityCandidate,
+) -> Result<McpCatalogAuthorityRow, String> {
+    let prior_config = prior.map(|row| McpJoinedConfigurationRow {
+        tenant_id: row.tenant_id.clone(),
+        server_name: row.server_name.clone(),
+        component_revision: row.component_revision,
+        component_digest: row.component_digest,
+        registry_revision: row.registry_revision,
+        registration_config_digest: row.registration_config_digest,
+        configuration_digest: row.configuration_digest,
+        configuration_revision: row.binding.configuration_revision,
+    });
+    let configuration = reconcile_joined_configuration(prior_config.as_ref(), candidate)?;
+    reconcile_catalog_authority(prior, &configuration, candidate)
 }
 
 fn configuration_source_is_stale(
@@ -148,12 +204,29 @@ fn configuration_source_is_stale(
     registration_config_digest: Digest256,
     candidate: &McpCatalogAuthorityCandidate,
 ) -> bool {
-    candidate.component_revision < component_revision
+    component_source_is_stale(component_revision, component_digest, candidate)
         || candidate.registry_revision < registry_revision
-        || (candidate.component_revision == component_revision
-            && candidate.component_digest != component_digest)
         || (candidate.registry_revision == registry_revision
             && candidate.registration_config_digest != registration_config_digest)
+}
+
+/// A self-served candidate pins component CONTENT, not a published revision:
+/// its pin may name a server entry the next import has yet to publish, so the
+/// catalog-generation compare-and-set fences it instead of revision order.
+fn component_source_is_stale(
+    component_revision: u64,
+    component_digest: Digest256,
+    candidate: &McpCatalogAuthorityCandidate,
+) -> bool {
+    candidate.attestation.is_mounted_child()
+        && (candidate.component_revision < component_revision
+            || (candidate.component_revision == component_revision
+                && candidate.component_digest != component_digest))
+}
+
+/// Revision 0 is a self-served pin on a server entry not yet published.
+fn missing_component_revision(candidate: &McpCatalogAuthorityCandidate) -> bool {
+    candidate.component_revision == 0 && candidate.attestation.is_mounted_child()
 }
 
 /// Advance a global joined-configuration revision before scoped catalog work.
@@ -196,7 +269,7 @@ fn validate_joined_candidate(candidate: &McpCatalogAuthorityCandidate) -> Result
     let zero = Digest256::from_bytes([0; 32]);
     if candidate.tenant_id.is_empty()
         || candidate.server_name.is_empty()
-        || candidate.component_revision == 0
+        || missing_component_revision(candidate)
         || candidate.registry_revision == 0
         || candidate.component_digest == zero
         || candidate.registration_config_digest == zero
@@ -252,21 +325,7 @@ pub fn reconcile_catalog_authority(
         validate_prior_catalog_authority(row, configuration, candidate, zero)?;
     }
     let configuration_revision = configuration.configuration_revision;
-    let snapshot_digest = Digest256::framed(
-        SNAPSHOT_DOMAIN,
-        &[
-            candidate.tenant_id.as_bytes(),
-            candidate.server_name.as_bytes(),
-            &configuration_revision.to_be_bytes(),
-            candidate.four_family_digest.as_bytes(),
-            candidate.registry_digest.as_bytes(),
-            candidate.attester_principal_id.as_bytes(),
-            candidate.child_id.as_bytes(),
-            &candidate.local_catalog_epoch.to_be_bytes(),
-            &candidate.child_connection_generation.to_be_bytes(),
-            candidate.authorization_scope_digest.as_bytes(),
-        ],
-    )?;
+    let snapshot_digest = catalog_snapshot_digest(candidate, configuration_revision)?;
     let catalog_generation = match prior {
         Some(row) if row.binding.snapshot_digest == snapshot_digest => {
             row.binding.catalog_generation
@@ -297,7 +356,49 @@ pub fn reconcile_catalog_authority(
             child_connection_generation: candidate.child_connection_generation,
             authorization_scope_digest: candidate.authorization_scope_digest,
         },
+        attestation: candidate.attestation.clone(),
     })
+}
+
+/// The snapshot identity a binding names.
+///
+/// A self-served snapshot omits the registry digest: that digest covers every
+/// live registration's lease timestamps, so a heartbeat would otherwise mint a
+/// new generation for an unchanged catalog. Its registration content is
+/// already bound through the joined configuration revision.
+fn catalog_snapshot_digest(
+    candidate: &McpCatalogAuthorityCandidate,
+    configuration_revision: u64,
+) -> Result<Digest256, String> {
+    match &candidate.attestation {
+        McpCatalogAttestation::MountedChild => Digest256::framed(
+            SNAPSHOT_DOMAIN,
+            &[
+                candidate.tenant_id.as_bytes(),
+                candidate.server_name.as_bytes(),
+                &configuration_revision.to_be_bytes(),
+                candidate.four_family_digest.as_bytes(),
+                candidate.registry_digest.as_bytes(),
+                candidate.attester_principal_id.as_bytes(),
+                candidate.child_id.as_bytes(),
+                &candidate.local_catalog_epoch.to_be_bytes(),
+                &candidate.child_connection_generation.to_be_bytes(),
+                candidate.authorization_scope_digest.as_bytes(),
+            ],
+        ),
+        McpCatalogAttestation::SelfServed { connector } => Digest256::framed(
+            SELF_SERVED_SNAPSHOT_DOMAIN,
+            &[
+                candidate.tenant_id.as_bytes(),
+                candidate.server_name.as_bytes(),
+                connector.as_bytes(),
+                &configuration_revision.to_be_bytes(),
+                candidate.four_family_digest.as_bytes(),
+                candidate.attester_principal_id.as_bytes(),
+                candidate.authorization_scope_digest.as_bytes(),
+            ],
+        ),
+    }
 }
 
 fn validate_catalog_candidate(
@@ -316,7 +417,7 @@ fn invalid_catalog_identity(candidate: &McpCatalogAuthorityCandidate) -> bool {
         || candidate.attester_principal_id.is_empty()
         || candidate.discovery_tenant != candidate.tenant_id
         || candidate.child_id.is_empty()
-        || candidate.component_revision == 0
+        || missing_component_revision(candidate)
         || candidate.registry_revision == 0
         || candidate.child_connection_generation == 0
         || candidate.local_catalog_epoch == 0
@@ -361,8 +462,20 @@ fn validate_prior_catalog_authority(
     zero: Digest256,
 ) -> Result<(), String> {
     validate_stored_catalog_authority(row, zero)?;
+    validate_same_attestation(row, candidate)?;
     validate_catalog_configuration_history(row, configuration, candidate)?;
     validate_mounted_catalog_child(row, candidate)
+}
+
+/// A row keeps the attestation kind (and self-served connector) it was born with.
+fn validate_same_attestation(
+    row: &McpCatalogAuthorityRow,
+    candidate: &McpCatalogAuthorityCandidate,
+) -> Result<(), String> {
+    if row.attestation != candidate.attestation {
+        return Err("catalog attestation kind or connector changed".into());
+    }
+    Ok(())
 }
 
 fn validate_stored_catalog_authority(
@@ -438,18 +551,7 @@ mod tests {
         prior: Option<&McpCatalogAuthorityRow>,
         candidate: &McpCatalogAuthorityCandidate,
     ) -> Result<McpCatalogAuthorityRow, String> {
-        let prior_config = prior.map(|row| McpJoinedConfigurationRow {
-            tenant_id: row.tenant_id.clone(),
-            server_name: row.server_name.clone(),
-            component_revision: row.component_revision,
-            component_digest: row.component_digest,
-            registry_revision: row.registry_revision,
-            registration_config_digest: row.registration_config_digest,
-            configuration_digest: row.configuration_digest,
-            configuration_revision: row.binding.configuration_revision,
-        });
-        let configuration = reconcile_joined_configuration(prior_config.as_ref(), candidate)?;
-        reconcile_catalog_authority(prior, &configuration, candidate)
+        reconcile_after_row(prior, candidate)
     }
 
     fn candidate() -> McpCatalogAuthorityCandidate {

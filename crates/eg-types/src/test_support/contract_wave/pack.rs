@@ -5,10 +5,10 @@ use crate::connector_pack::{
     ConnectorPackBindRequest, ConnectorPackImportRequest, ConnectorPackIndex, ConnectorPackOp,
     ConnectorPackReconcileRequest, ConnectorPackReprojectRequest, ConnectorPackRetireRequest,
     ConnectorPackStatusRequest, ConnectorPackUnbindRequest, McpCatalogAuthorityStatusRequest,
-    McpCatalogReconcileRequest, McpCatalogSnapshotBinding, PackAnnotations, PackArchiveRef,
-    PackCost, PackDisposition, PackEntry, PackEntryKind, PackHeadRef, PackModelFacts, PackProducer,
-    PackRef, PackSection, PackToolMode, PackViolationCode, PackWarningCode,
-    CONNECTOR_PACK_SCHEMA_VERSION,
+    McpCatalogReconcileRequest, McpCatalogSnapshotBinding, McpSelfServedCatalogAttestRequest,
+    PackAnnotations, PackArchiveRef, PackCost, PackDisposition, PackEntry, PackEntryKind,
+    PackHeadRef, PackModelFacts, PackProducer, PackRef, PackSection, PackToolMode,
+    PackViolationCode, PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
 };
 use crate::contract::{Digest256, ResourceId};
 
@@ -223,6 +223,22 @@ pub fn ops() -> Vec<(&'static str, ConnectorPackOp)> {
                     discovery_tenant: "tenant-a".to_string(),
                     local_catalog_epoch: 3,
                     child_connection_generation: 5,
+                    expected_catalog_generation: Some(4),
+                }),
+            },
+        ),
+        (
+            "ConnectorPack.attest_self_served_catalog",
+            ConnectorPackOp::AttestSelfServedCatalog {
+                request: Box::new(McpSelfServedCatalogAttestRequest {
+                    context: mutation_context(),
+                    connector: connector(),
+                    server_name: "connector-a".to_string(),
+                    server_entry_digest: raw_digest(0xc5),
+                    registry_revision: 11,
+                    registry_digest: raw_digest(0xc4),
+                    registration_config_digest: raw_digest(0xc2),
+                    four_family_digest: raw_digest(0xc3),
                     expected_catalog_generation: Some(4),
                 }),
             },

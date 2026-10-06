@@ -72,7 +72,9 @@ fn verified_owner_principal(
     Ok(owner.to_string())
 }
 
-fn require_catalog_attester(
+/// Both catalog-authority writes need the dedicated attester scope AND the
+/// connector-pack administrative action, in the verified tenant.
+pub(super) fn require_catalog_attester(
     verified: &VerifiedRequestContext,
     tenant_id: &str,
     write: bool,
@@ -228,20 +230,107 @@ fn validate_mounted_attestation(
     Ok(())
 }
 
+/// The [`ObservedRegistration`] a catalog-authority request body carries.
 #[cfg(feature = "redb")]
-fn validate_registration_identity(
-    request: &eg_types::connector_pack::McpCatalogReconcileRequest,
-    registry_revision: u64,
-    registry_digest: eg_types::contract::Digest256,
-    desired: eg_types::result_contract::cluster::ServerDesiredState,
+macro_rules! observed_registration {
+    ($request:expr) => {
+        ObservedRegistration {
+            server_name: &$request.server_name,
+            registry_revision: $request.registry_revision,
+            registry_digest: $request.registry_digest,
+            registration_config_digest: $request.registration_config_digest,
+            context: $request.context.clone(),
+        }
+    };
+}
+#[cfg(feature = "redb")]
+pub(super) use observed_registration;
+
+/// The registration an attester observed, which EG re-reads before binding.
+#[cfg(feature = "redb")]
+pub(super) struct ObservedRegistration<'a> {
+    pub(super) server_name: &'a str,
+    pub(super) registry_revision: u64,
+    pub(super) registry_digest: eg_types::contract::Digest256,
+    pub(super) registration_config_digest: eg_types::contract::Digest256,
+    pub(super) context: eg_types::agent_library::AgentLibraryMutationContext,
+}
+
+/// What an admitted catalog-authority write holds until its rows commit.
+#[cfg(feature = "redb")]
+pub(super) type CatalogWriteAdmission = (
+    tokio::sync::OwnedMutexGuard<()>,
+    Arc<crate::server::persistence::agent_library::AgentLibraryStore>,
+    eg_types::agent_library::AgentLibraryMutationContext,
+);
+
+/// Take the registry graph lock, verify the observed registration under it and
+/// bind the admitted mutation context. Registry mutation takes this same lock;
+/// the caller keeps the guard until both EG authority rows commit, so the
+/// joined registration cannot move between verification and persistence.
+#[cfg(feature = "redb")]
+pub(super) async fn admit_catalog_write(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    observed: ObservedRegistration<'_>,
+) -> Result<CatalogWriteAdmission, String> {
+    let guard = crate::server::mutation_batch::lock_graph("__commons__").await;
+    let context = observed.context.clone();
+    verify_observed_registration(state, verified, observed).await?;
+    let store = state.write().await.ensure_agent_library()?;
+    let context = crate::server::handlers::admin::agent::bind_agent_library_context(
+        &store,
+        req_id,
+        verified,
+        context,
+        "mcp-catalog:reconcile",
+        true,
+    )?;
+    Ok((guard, store, context))
+}
+
+/// The identity of a registration's served configuration: its URL and its
+/// canonical resource map, as compact JSON with sorted keys.
+#[cfg(feature = "redb")]
+pub(crate) fn registration_config_digest(
+    registration: &eg_types::result_contract::cluster::RegisteredServerView,
+) -> Result<eg_types::contract::Digest256, String> {
+    Ok(eg_types::contract::Digest256::sha256(
+        &serde_json::to_vec(&serde_json::json!({
+            "url": registration.url,
+            "resources": registration.resources,
+        }))
+        .map_err(|_| "invalid MCP registration projection")?,
+    ))
+}
+
+/// Require the live, enabled `__commons__` registration to be exactly the one
+/// the attester observed. The caller holds the registry graph lock until its
+/// authority rows commit, so the registration cannot move in between.
+#[cfg(feature = "redb")]
+async fn verify_observed_registration(
+    state: &Arc<RwLock<ServerState>>,
+    verified: &VerifiedRequestContext,
+    observed: ObservedRegistration<'_>,
 ) -> Result<(), String> {
     use eg_types::result_contract::cluster::ServerDesiredState;
 
-    if registry_revision != request.registry_revision
-        || registry_digest != request.registry_digest
-        || desired != ServerDesiredState::Enabled
+    let (registry_revision, registry_digest, registration) =
+        crate::server::dispatch::verified_served_registration(
+            state,
+            verified,
+            observed.server_name,
+        )
+        .await?;
+    if registry_revision != observed.registry_revision
+        || registry_digest != observed.registry_digest
+        || registration.desired != ServerDesiredState::Enabled
     {
         return Err("stale or disabled MCP server registration".into());
+    }
+    if registration_config_digest(&registration)? != observed.registration_config_digest {
+        return Err("MCP registration configuration changed".into());
     }
     Ok(())
 }
@@ -255,56 +344,22 @@ async fn reconcile(
 ) -> Result<eg_types::connector_pack::McpCatalogSnapshotBinding, String> {
     use eg_types::agent_component::AgentComponentKind;
     use eg_types::agent_library::AgentLibraryLifecycle;
-    use eg_types::contract::Digest256;
 
     require_catalog_attester(verified, &request.context.tenant_id, true)?;
     validate_mounted_attestation(verified, &request)?;
     // Registry mutation takes this same graph lock. Keep it until both EG
     // authority rows commit, so the joined registration cannot move between
     // source verification and persistence.
-    let _registry_guard = crate::server::mutation_batch::lock_graph("__commons__").await;
-    let (registry_revision, registry_digest, registration) =
-        crate::server::dispatch::verified_served_registration(
-            state,
-            verified,
-            &request.server_name,
-        )
-        .await?;
-    validate_registration_identity(
-        &request,
-        registry_revision,
-        registry_digest,
-        registration.desired,
-    )?;
-    let registration_digest = Digest256::sha256(
-        &serde_json::to_vec(&serde_json::json!({
-            "url": registration.url,
-            "resources": registration.resources,
-        }))
-        .map_err(|_| "invalid MCP registration projection")?,
-    );
-    if registration_digest != request.registration_config_digest {
-        return Err("MCP registration configuration changed".into());
-    }
-    let store = state.write().await.ensure_agent_library()?;
-    let context = crate::server::handlers::admin::agent::bind_agent_library_context(
-        &store,
-        req_id,
-        verified,
-        request.context,
-        "mcp-catalog:reconcile",
-        true,
-    )?;
+    let (_registry_guard, store, context) =
+        admit_catalog_write(state, req_id, verified, observed_registration!(request)).await?;
     let component = store
         .current_component(verified.tenant(), &request.component_id)?
         .ok_or_else(|| "MCP server component is unavailable".to_string())?;
     let expected_suffix = format!("/mcp_server/{}", request.server_name);
-    let content_digest = Digest256::parse(
-        component
-            .content_digest
-            .strip_prefix("sha256:")
-            .unwrap_or(&component.content_digest),
-    )?;
+    let content_digest =
+        crate::server::persistence::connector_pack::catalog_authority::component_content_digest(
+            &component,
+        )?;
     if component.kind != AgentComponentKind::McpServer
         || component.lifecycle != AgentLibraryLifecycle::Published
         || component.tenant_id != verified.tenant()
@@ -332,6 +387,7 @@ async fn reconcile(
         child_connection_generation: request.child_connection_generation,
         authorization_scope_digest,
         expected_catalog_generation: request.expected_catalog_generation,
+        attestation: eg_types::connector_pack::McpCatalogAttestation::MountedChild,
     };
     store.reconcile_mcp_catalog_authority(context, request.component_id, candidate)
 }

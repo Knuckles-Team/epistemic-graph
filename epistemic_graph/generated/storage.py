@@ -33,6 +33,9 @@ from .connector_pack import (
     ConnectorPackOp,
     ConnectorPackStatus,
     ConnectorPackStatusRequest,
+    McpCatalogAuthorityStatusRequest,
+    McpCatalogSnapshotBinding,
+    McpSelfServedCatalogAttestRequest,
     PackImportResult,
 )
 from .decision import (
@@ -821,6 +824,64 @@ async def send_connector_pack_import(
         idempotency_key=idempotency_key,
     )
     return TypeAdapter(PackImportResult).validate_python(payload)
+
+
+async def send_connector_pack_attest_self_served_catalog(
+    client: Any,
+    request: McpSelfServedCatalogAttestRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> McpCatalogSnapshotBinding:
+    """Send typed ConnectorPack.attest_self_served_catalog.
+
+    Routed through the existing ConnectorPack method.
+    """
+    request = McpSelfServedCatalogAttestRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "attest_self_served_catalog",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return McpCatalogSnapshotBinding.model_validate(payload)
+
+
+async def send_connector_pack_catalog_authority_status(
+    client: Any,
+    request: McpCatalogAuthorityStatusRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> McpCatalogSnapshotBinding | None:
+    """Send typed ConnectorPack.catalog_authority_status.
+
+    Routed through the existing ConnectorPack method.
+    """
+    request = McpCatalogAuthorityStatusRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "catalog_authority_status",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return TypeAdapter(McpCatalogSnapshotBinding | None).validate_python(payload)
 
 
 class WriteBackRequest(BaseModel):

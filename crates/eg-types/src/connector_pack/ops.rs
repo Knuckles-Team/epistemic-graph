@@ -2,7 +2,9 @@
 //!
 //! Five reads (`status`, `catalog_authority_status`, `catalog_owner_principal`,
 //! `catalog_binding_status`, `catalog_request_owner_principal`), one bulk import, and
-//! administrative operations.
+//! administrative operations, including the two catalog-authority writes
+//! (`reconcile_catalog` for a mounted child, `attest_self_served_catalog` for a
+//! producer serving its own catalog).
 //! The read/write split and the authorization action both live on the op, so
 //! the capability ledger and `server::access::requires_write` cannot drift
 //! apart about an operation.
@@ -11,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::catalog_authority::{McpCatalogAuthorityStatusRequest, McpCatalogReconcileRequest};
 use super::index::ConnectorPackIndex;
+use super::self_served_catalog::McpSelfServedCatalogAttestRequest;
 use crate::agent_library::AgentLibraryMutationContext;
 use crate::contract::{BoundedVec, Digest256, ResourceId};
 
@@ -127,6 +130,12 @@ pub enum ConnectorPackOp {
         /// Keep catalog reconciliation from setting the size of every pack operation.
         request: Box<McpCatalogReconcileRequest>,
     },
+    /// Issue the binding for a catalog the verified attester serves itself,
+    /// pinned to the exact server entry of the connector's next pack. Needs
+    /// `connector:catalog-attest` as well as this op's action.
+    AttestSelfServedCatalog {
+        request: Box<McpSelfServedCatalogAttestRequest>,
+    },
     CatalogAuthorityStatus {
         request: McpCatalogAuthorityStatusRequest,
     },
@@ -176,7 +185,9 @@ impl ConnectorPackOp {
             | Self::Retire { .. }
             | Self::Reproject { .. }
             | Self::ReconcileBodies { .. } => "admin:connector-pack",
-            Self::ReconcileCatalog { .. } => "admin:connector-pack",
+            Self::ReconcileCatalog { .. } | Self::AttestSelfServedCatalog { .. } => {
+                "admin:connector-pack"
+            }
             Self::CatalogAuthorityStatus { .. } => "connector:catalog-attest",
             Self::CatalogOwnerPrincipal { .. } => "agent:pack-control",
             Self::CatalogBindingStatus { .. } => "agent:pack-control",
@@ -196,6 +207,7 @@ impl ConnectorPackOp {
             Self::Reproject { request } => &request.context.tenant_id,
             Self::ReconcileBodies { request } => &request.context.tenant_id,
             Self::ReconcileCatalog { request } => &request.context.tenant_id,
+            Self::AttestSelfServedCatalog { request } => &request.context.tenant_id,
             Self::CatalogAuthorityStatus { request } => &request.tenant_id,
             Self::CatalogOwnerPrincipal { request } => &request.tenant_id,
             Self::CatalogBindingStatus { request } => &request.tenant_id,
@@ -215,6 +227,7 @@ impl ConnectorPackOp {
             Self::Reproject { request } => Some(&request.connector),
             Self::ReconcileBodies { .. } => None,
             Self::ReconcileCatalog { .. } => None,
+            Self::AttestSelfServedCatalog { request } => Some(&request.connector),
             Self::CatalogAuthorityStatus { .. } => None,
             Self::CatalogOwnerPrincipal { .. } => None,
             Self::CatalogBindingStatus { .. } => None,
