@@ -25,7 +25,15 @@ struct DraftAuthority<'a> {
 }
 
 impl DraftAuthority<'_> {
-    fn compile(&self, draft: ChangeEnvelopeDraft, key: &str) -> Result<ChangeEnvelope, String> {
+    /// `position` is the draft's place in its request: a coalesced batch
+    /// advances the graph version once per envelope, so an unpinned draft
+    /// expects the version its predecessors leave behind.
+    fn compile(
+        &self,
+        draft: ChangeEnvelopeDraft,
+        key: &str,
+        position: u64,
+    ) -> Result<ChangeEnvelope, String> {
         let methods = draft
             .mutation
             .ordered_operations()?
@@ -46,7 +54,7 @@ impl DraftAuthority<'_> {
                     draft
                         .mutation
                         .expected_graph_version
-                        .unwrap_or(self.current_version),
+                        .unwrap_or(self.current_version.saturating_add(position)),
                 ),
                 fencing_token: draft.mutation.fencing_token,
                 created_at_ms: self.created_at_ms,
@@ -118,7 +126,7 @@ pub(super) async fn compile_change_envelope_drafts(
     let compiled = match std::mem::replace(&mut req.method, Method::Ping) {
         Method::ApplyChangeEnvelopeDraft { draft } => {
             authority
-                .compile(*draft, key)
+                .compile(*draft, key, 0)
                 .map(|envelope| Method::ApplyChangeEnvelope {
                     envelope: Box::new(envelope),
                 })
@@ -154,7 +162,7 @@ fn compile_draft_batch(
     let envelopes = drafts
         .into_iter()
         .enumerate()
-        .map(|(index, draft)| authority.compile(draft, &format!("{key}:{index}")))
+        .map(|(index, draft)| authority.compile(draft, &format!("{key}:{index}"), index as u64))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Method::ApplyChangeEnvelopes { envelopes })
 }
@@ -240,7 +248,9 @@ mod tests {
             verified: &verified,
             created_at_ms: 10,
         };
-        let envelope = authority.compile(draft(), "key-a").expect("draft compiles");
+        let envelope = authority
+            .compile(draft(), "key-a", 0)
+            .expect("draft compiles");
         envelope.validate().expect("envelope validates");
         let method = Method::ApplyChangeEnvelope {
             envelope: Box::new(envelope.clone()),
@@ -279,11 +289,13 @@ mod tests {
             verified: &verified,
             created_at_ms: 10,
         };
-        let honest = authority.compile(draft(), "key-a").expect("draft compiles");
+        let honest = authority
+            .compile(draft(), "key-a", 0)
+            .expect("draft compiles");
         let mut misclassified = draft();
         misclassified.mutation.operations[0].domain = DurabilityDomain::KvStore;
         let compiled = authority
-            .compile(misclassified, "key-a")
+            .compile(misclassified, "key-a", 0)
             .expect("the declared classification is not authority");
         assert_eq!(
             compiled.mutation.operations[0].domain,
@@ -291,6 +303,6 @@ mod tests {
         );
         let mut reordered = draft();
         reordered.mutation.operations[0].ordinal = 1;
-        assert!(authority.compile(reordered, "key-a").is_err());
+        assert!(authority.compile(reordered, "key-a", 0).is_err());
     }
 }
