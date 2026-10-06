@@ -56,7 +56,6 @@ impl DraftAuthority<'_> {
             methods,
             draft.mutation.outbox.clone(),
         )?;
-        draft.mutation.check_compiled(&batch)?;
         Ok(draft.into_envelope(batch))
     }
 }
@@ -158,4 +157,130 @@ fn compile_draft_batch(
         .map(|(index, draft)| authority.compile(draft, &format!("{key}:{index}")))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Method::ApplyChangeEnvelopes { envelopes })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eg_types::change_envelope::{
+        ChangeMutationDraft, ContentVersion, ContentVersionPosition, PrivacyAttestation,
+    };
+    use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
+
+    fn draft() -> ChangeEnvelopeDraft {
+        ChangeEnvelopeDraft {
+            schema_version: crate::change_envelope::CHANGE_ENVELOPE_VERSION,
+            envelope_id: "envelope:doc:1".into(),
+            mutation: ChangeMutationDraft {
+                batch_id: "batch:doc:1".into(),
+                placement_epoch: 0,
+                expected_graph_version: None,
+                fencing_token: None,
+                operations: vec![MutationOperation {
+                    ordinal: 0,
+                    surface: MutationSurface::Graph,
+                    domain: DurabilityDomain::GraphRows,
+                    method: Method::AddNode {
+                        node_id: "doc:1".into(),
+                        properties_msgpack: rmp_serde::to_vec_named(
+                            &serde_json::json!({"type": "Document"}),
+                        )
+                        .unwrap(),
+                    },
+                }],
+                outbox: Vec::new(),
+            },
+            privacy: PrivacyAttestation {
+                policy_version: "privacy-v1".into(),
+                sanitizer_version: "sanitizer-v1".into(),
+                sanitized_payload_digest: "c".repeat(64),
+            },
+            material_class: Default::default(),
+            content_version: ContentVersion {
+                object_id: "doc:1".into(),
+                digest_algorithm: "sha256".into(),
+                digest: "a".repeat(64),
+                previous_digest: None,
+                source_version: ContentVersionPosition::Sequence(1),
+            },
+            cursor: None,
+            lineage: Vec::new(),
+            policies: Vec::new(),
+            evidence: Vec::new(),
+            features: Vec::new(),
+            blobs: Vec::new(),
+        }
+    }
+
+    /// A draft compiles under the verified context into an envelope that
+    /// passes envelope validation and the request material preflight, and
+    /// whose authority binds exactly the verified request.
+    #[test]
+    fn a_draft_compiles_into_a_valid_envelope_bound_to_the_request() {
+        let verified = VerifiedRequestContext::verified_for_test_with_scopes(
+            "ingestor",
+            "tenant-a",
+            &["ingest:write"],
+        );
+        let authority = DraftAuthority {
+            req_id: 7,
+            current_version: 3,
+            graph: "graph-a",
+            principal: verified.principal_persistence_id(),
+            verified: &verified,
+            created_at_ms: 10,
+        };
+        let envelope = authority.compile(draft(), "key-a").expect("draft compiles");
+        envelope.validate().expect("envelope validates");
+        let method = Method::ApplyChangeEnvelope {
+            envelope: Box::new(envelope.clone()),
+        };
+        super::super::request_boundary::preflight_request_msgpack(&method)
+            .expect("material preflight");
+        assert_eq!(
+            eg_types::mutation_batch::batch_request_number(&envelope.mutation),
+            Some(7)
+        );
+        assert_eq!(
+            crate::server::mutation_batch::batch_actor(&envelope.mutation),
+            Some(verified.principal_persistence_id().as_str())
+        );
+        assert_eq!(envelope.mutation.identity.tenant().as_str(), "tenant-a");
+        assert_eq!(
+            envelope
+                .mutation
+                .identity
+                .scope()
+                .graph_name()
+                .map(crate::mutation_batch::LogicalName::as_str),
+            Some("graph-a")
+        );
+    }
+
+    #[test]
+    fn the_engine_classifies_operations_and_refuses_a_reordered_draft() {
+        let verified =
+            VerifiedRequestContext::verified_for_test_with_scopes("ingestor", "tenant-a", &["*"]);
+        let authority = DraftAuthority {
+            req_id: 7,
+            current_version: 3,
+            graph: "graph-a",
+            principal: verified.principal_persistence_id(),
+            verified: &verified,
+            created_at_ms: 10,
+        };
+        let honest = authority.compile(draft(), "key-a").expect("draft compiles");
+        let mut misclassified = draft();
+        misclassified.mutation.operations[0].domain = DurabilityDomain::KvStore;
+        let compiled = authority
+            .compile(misclassified, "key-a")
+            .expect("the declared classification is not authority");
+        assert_eq!(
+            compiled.mutation.operations[0].domain,
+            honest.mutation.operations[0].domain
+        );
+        let mut reordered = draft();
+        reordered.mutation.operations[0].ordinal = 1;
+        assert!(authority.compile(reordered, "key-a").is_err());
+    }
 }

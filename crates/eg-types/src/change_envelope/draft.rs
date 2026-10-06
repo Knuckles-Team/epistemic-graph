@@ -31,8 +31,9 @@ pub struct ChangeMutationDraft {
     pub expected_graph_version: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fencing_token: Option<u64>,
-    /// Ordered operations; `ordinal` must equal the position. The engine
-    /// re-derives each operation's surface and domain and refuses a mismatch.
+    /// Ordered operations; `ordinal` must equal the position. Only each
+    /// operation's method is authored: the engine classifies its surface and
+    /// durability domain itself, whatever the draft declares.
     pub operations: Vec<MutationOperation>,
     #[serde(default)]
     pub outbox: Vec<MutationOutboxIntent>,
@@ -83,25 +84,6 @@ impl ChangeMutationDraft {
             return Err("change mutation draft ordinals must equal their positions".into());
         }
         Ok(&self.operations)
-    }
-
-    /// Require the compiled batch to classify every operation exactly as the
-    /// draft declared it.
-    pub fn check_compiled(&self, compiled: &MutationBatch) -> Result<(), String> {
-        let same = compiled.operations.len() == self.operations.len()
-            && compiled
-                .operations
-                .iter()
-                .zip(&self.operations)
-                .all(|(compiled, drafted)| {
-                    compiled.ordinal == drafted.ordinal
-                        && compiled.surface == drafted.surface
-                        && compiled.domain == drafted.domain
-                });
-        if !same {
-            return Err("change mutation draft classification differs from the engine's".into());
-        }
-        Ok(())
     }
 }
 
