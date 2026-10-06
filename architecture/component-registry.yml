@@ -3997,6 +3997,7 @@ components:
       - "tests/test_txn.py"
       - "tests/test_union_reads.py"
       - "tests/test_uql_client_result.py"
+      - "tests/test_change_envelope_draft_e2e.py"
       - "tests/test_verified_change_client.py"
       - "tests/test_viz_client.py"
       - "tests/test_wheel_contract_surface.py"
