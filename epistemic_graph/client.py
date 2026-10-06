@@ -14864,10 +14864,7 @@ def _validate_write_admission(
     write_admission: _WriteAdmission | None,
 ) -> None:
     if write_admission is not None and (
-        required_socket_path is None
-        or not callable(write_admission)
-        or inspect.iscoroutinefunction(write_admission)
-        or inspect.isasyncgenfunction(write_admission)
+        required_socket_path is None or not _is_sync_callable(write_admission)
     ):
         raise ValueError(
             "write_admission requires a bound recipient and a synchronous factory"
@@ -14882,30 +14879,42 @@ def _validate_write_admission(
         )
 
 
+def _is_sync_callable(value: object) -> bool:
+    """True for a plain callable that is neither a coroutine nor async generator."""
+    return (
+        callable(value)
+        and not inspect.iscoroutinefunction(value)
+        and not inspect.isasyncgenfunction(value)
+    )
+
+
+def _enter_write_admission(
+    binding: _VerifiedWriteBinding,
+) -> contextlib.AbstractContextManager[None]:
+    """Build and synchronously enter the application's admission manager."""
+    manager = binding.admission(copy.deepcopy(binding.claims))
+    if inspect.iscoroutine(manager):
+        manager.close()
+        raise TypeError("write_admission must return a synchronous context manager")
+    enter, leave = manager.__enter__, manager.__exit__
+    if not (_is_sync_callable(enter) and _is_sync_callable(leave)):
+        raise TypeError("write_admission must enter and exit synchronously")
+    entered = enter()
+    if entered is not None:
+        if inspect.iscoroutine(entered):
+            entered.close()
+        _exit_write_admission(manager)
+        raise TypeError("write_admission must yield None synchronously")
+    return manager
+
+
 @contextlib.contextmanager
 def _admit_verified_write(binding: _VerifiedWriteBinding | None):
     if binding is None or binding.admission is None:
         yield
         return
     try:
-        manager = binding.admission(copy.deepcopy(binding.claims))
-        if inspect.iscoroutine(manager):
-            manager.close()
-            raise TypeError("write_admission must return a synchronous context manager")
-        enter, leave = manager.__enter__, manager.__exit__
-        if any(
-            not callable(method)
-            or inspect.iscoroutinefunction(method)
-            or inspect.isasyncgenfunction(method)
-            for method in (enter, leave)
-        ):
-            raise TypeError("write_admission must enter and exit synchronously")
-        entered = enter()
-        if entered is not None:
-            if inspect.iscoroutine(entered):
-                entered.close()
-            _exit_write_admission(manager)
-            raise TypeError("write_admission must yield None synchronously")
+        manager = _enter_write_admission(binding)
     except Exception:
         # The application's verifier may include credentials in its exception.
         raise _VerifiedWriteRefused(
@@ -14930,6 +14939,48 @@ def _exit_write_admission(manager: contextlib.AbstractContextManager[None]) -> N
         result.close()
     if inspect.isawaitable(result) or inspect.isasyncgen(result):
         raise TypeError("write_admission cleanup must be synchronous")
+
+
+def _refuse_unbound_transport(
+    required_socket_path: str,
+    socket_path: str | None,
+    tcp_addr: str | None,
+    tls_context: ssl.SSLContext | None,
+    tls_server_hostname: str | None,
+) -> None:
+    """Reject any endpoint selection other than the one required local socket."""
+    if (
+        socket_path != required_socket_path
+        or tcp_addr is not None
+        or tls_context is not None
+        or tls_server_hostname is not None
+    ):
+        raise ValueError("required_socket_path conflicts with the selected transport")
+
+
+async def _refuse_unexpected_recipient(
+    writer: asyncio.StreamWriter, required_socket_path: str
+) -> None:
+    """Close and refuse a freshly dialled stream whose peer is not the required one."""
+    if _writer_has_recipient(writer, required_socket_path):
+        return
+    writer.close()
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(writer.wait_closed(), _CLOSE_TIMEOUT)
+    raise ConnectionError("connected transport does not match required_socket_path")
+
+
+def _required_socket_kwargs(required_socket_path: str | None) -> dict[str, str]:
+    """``_open_streams`` keyword for a bound recipient; empty for an unbound client."""
+    if required_socket_path is None:
+        return {}
+    return {"required_socket_path": required_socket_path}
+
+
+def _resolve_tls_server_hostname(tls_server_hostname: str | None) -> str | None:
+    """Explicit TLS server name, else the endpoint profile's, else none."""
+    name = tls_server_hostname or os.environ.get("GRAPH_SERVICE_TLS_SERVER_NAME", "")
+    return str(name or "").strip() or None
 
 
 class EpistemicGraphClient:
@@ -15229,15 +15280,13 @@ class EpistemicGraphClient:
         _conn_to = connect_timeout if connect_timeout else None
         if required_socket_path is not None:
             required_socket_path = _required_uds_path(required_socket_path)
-            if (
-                socket_path != required_socket_path
-                or tcp_addr is not None
-                or tls_context is not None
-                or tls_server_hostname is not None
-            ):
-                raise ValueError(
-                    "required_socket_path conflicts with the selected transport"
-                )
+            _refuse_unbound_transport(
+                required_socket_path,
+                socket_path,
+                tcp_addr,
+                tls_context,
+                tls_server_hostname,
+            )
         if tcp_addr:
             reader, writer = await _open_tcp_stream(
                 tcp_addr,
@@ -15253,15 +15302,8 @@ class EpistemicGraphClient:
             )
         except (asyncio.TimeoutError, TimeoutError) as e:
             raise TimeoutError("epistemic-graph local connection timed out") from e
-        if required_socket_path is not None and not _writer_has_recipient(
-            writer, required_socket_path
-        ):
-            writer.close()
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(writer.wait_closed(), _CLOSE_TIMEOUT)
-            raise ConnectionError(
-                "connected transport does not match required_socket_path"
-            )
+        if required_socket_path is not None:
+            await _refuse_unexpected_recipient(writer, required_socket_path)
         logger.info("Connected to epistemic-graph via a private local socket")
         return reader, writer, _socket
 
@@ -15294,14 +15336,7 @@ class EpistemicGraphClient:
             if socket_path is None:
                 socket_path = required_socket_path
         _validate_write_admission(context, required_socket_path, write_admission)
-        resolved_tls_server_hostname = (
-            str(
-                tls_server_hostname
-                or os.environ.get("GRAPH_SERVICE_TLS_SERVER_NAME", "")
-                or ""
-            ).strip()
-            or None
-        )
+        resolved_tls_server_hostname = _resolve_tls_server_hostname(tls_server_hostname)
         tls_context = cls._resolve_tls(
             tls,
             client_cert=tls_client_cert,
@@ -15315,11 +15350,7 @@ class EpistemicGraphClient:
             connect_timeout,
             tls_context,
             resolved_tls_server_hostname,
-            **(
-                {"required_socket_path": required_socket_path}
-                if required_socket_path is not None
-                else {}
-            ),
+            **_required_socket_kwargs(required_socket_path),
         )
 
         client = cls(
@@ -15383,11 +15414,7 @@ class EpistemicGraphClient:
             self._connect_timeout,
             self._tls_context,
             self._tls_server_hostname,
-            **(
-                {"required_socket_path": self._required_socket_path}
-                if self._required_socket_path is not None
-                else {}
-            ),
+            **_required_socket_kwargs(self._required_socket_path),
         )
         # New lifecycle generation: a reader task bound to the OLD generation
         # (already awaited above, but kept as a hard guard) can never mark
@@ -15863,24 +15890,47 @@ class EpistemicGraphClient:
         """Fail before any frame bytes when request admission has changed."""
         if required is None:
             return
-        if (
-            self._closing
-            or self._closed
-            or self._required_socket_path != required
-            or self._socket_path != required
-            or self._tcp_addr is not None
-            or self._tls_context is not None
-            or self._tls_server_hostname is not None
-            or self._writer is not writer
-            or self._recipient_writer is not writer
-            or self._generation != generation
-            or self._recipient_generation != generation
-            or not _writer_has_recipient(writer, required)
-            or os.path.realpath(required) != required
+        if not (
+            self._is_bound_to(required)
+            and self._is_current(writer, generation)
+            and self._recipient_writer is writer
+            and self._recipient_generation == generation
+            and _writer_has_recipient(writer, required)
+            and os.path.realpath(required) == required
         ):
             raise ConnectionError(
                 "request transport no longer matches required_socket_path"
             )
+
+    def _is_bound_to(self, required: str) -> bool:
+        """The open client still targets exactly the required local socket."""
+        if self._closing or self._closed:
+            return False
+        if self._tcp_addr is not None or self._tls_context is not None:
+            return False
+        return (
+            self._tls_server_hostname is None
+            and self._required_socket_path == required
+            and self._socket_path == required
+        )
+
+    def _is_current(self, writer: asyncio.StreamWriter, generation: int | None) -> bool:
+        """``writer``/``generation`` still name the live connection."""
+        return self._writer is writer and self._generation == generation
+
+    def _mark_dead_if_current(
+        self,
+        writer: asyncio.StreamWriter,
+        generation: int,
+        exc: BaseException,
+    ) -> None:
+        """Mark dead only the connection a request was admitted on.
+
+        A waiter admitted on an older generation must not poison the
+        replacement connection when it fails.
+        """
+        if self._is_current(writer, generation):
+            self._mark_dead(exc)
 
     async def _write_frame(
         self,
@@ -15962,24 +16012,22 @@ class EpistemicGraphClient:
             # stream; the demux already kept the wire in sync, but a timeout still
             # means the peer is unhealthy.
             self._pending.pop(req_id, None)
-            if (
-                self._writer is admitted_writer
-                and self._generation == admitted_generation
-            ):
-                self._mark_dead(
-                    TimeoutError(f"epistemic-graph RPC {method!r} timed out")
-                )
+            self._mark_dead_if_current(
+                admitted_writer,
+                admitted_generation,
+                TimeoutError(f"epistemic-graph RPC {method!r} timed out"),
+            )
             raise TimeoutError(
                 f"epistemic-graph RPC {method!r} timed out (connection closed; "
                 "retry will reconnect)"
             ) from e
         except asyncio.IncompleteReadError as e:
             self._pending.pop(req_id, None)
-            if (
-                self._writer is admitted_writer
-                and self._generation == admitted_generation
-            ):
-                self._mark_dead(ConnectionError("Connection closed by server"))
+            self._mark_dead_if_current(
+                admitted_writer,
+                admitted_generation,
+                ConnectionError("Connection closed by server"),
+            )
             raise ConnectionError("Connection closed by server") from e
         except OSError as e:
             # Any transport-level error during write/drain — broken pipe, reset,
@@ -15990,11 +16038,7 @@ class EpistemicGraphClient:
             self._pending.pop(req_id, None)
             # A waiter admitted on an older generation must not poison the
             # replacement connection when its final recipient check refuses.
-            if (
-                self._writer is admitted_writer
-                and self._generation == admitted_generation
-            ):
-                self._mark_dead(e)
+            self._mark_dead_if_current(admitted_writer, admitted_generation, e)
             raise
         finally:
             # A reconnect may fail this future while it waits for write admission.
