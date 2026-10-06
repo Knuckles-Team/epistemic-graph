@@ -46,13 +46,10 @@ def _envelope() -> dict[str, Any]:
         "schema_version": 1,
         "envelope_id": "envelope-fixture",
         "mutation": {
-            "schema_version": 2,
             "batch_id": "batch-fixture",
-            "context": {"request_id": 0, "principal": "caller-value"},
-            "tenant": "caller-value",
             "graph": "graph-fixture",
-            "placement_epoch": 0,
             "idempotency_key": "idempotency-fixture",
+            "expected_graph_version": 0,
             "operations": [
                 {
                     "ordinal": 0,
@@ -68,7 +65,6 @@ def _envelope() -> dict[str, Any]:
                 }
             ],
             "outbox": [],
-            "created_at_ms": 1,
         },
         "content_version": {
             "object_id": "node-fixture",
@@ -98,7 +94,10 @@ def _envelope() -> dict[str, Any]:
     }
 
 
-def test_change_binding_uses_verified_tenant_and_opaque_principal() -> None:
+def test_change_draft_carries_no_caller_authority() -> None:
+    """The draft body is only what a caller may author: the engine mints the
+    scope identity, version expectation and admission envelope from the
+    verified request, so no tenant, principal or request id is sent."""
     client = EpistemicGraphClient(
         unused_reader(),
         unused_writer(),
@@ -106,35 +105,35 @@ def test_change_binding_uses_verified_tenant_and_opaque_principal() -> None:
         "graph-fixture",
         verified_context=_context(),
     )
-    canonical = ChangeEnvelopeClient._canonical(_envelope())
+    draft, graph, key = ChangeEnvelopeClient._draft(
+        ChangeEnvelopeClient._canonical(_envelope())
+    )
+    assert (graph, key) == ("graph-fixture", "idempotency-fixture")
+    assert list(draft["mutation"]) == [
+        "batch_id",
+        "placement_epoch",
+        "expected_graph_version",
+        "operations",
+        "outbox",
+    ]
     bound = client._bind_change_envelope(
-        {"envelope": canonical}, request_id=7, graph="graph-fixture"
+        {"draft": draft}, request_id=7, graph="graph-fixture"
     )
-    mutation = bound["envelope"]["mutation"]
-    assert mutation["tenant"] == "tenant-fixture"
-    assert mutation["context"]["request_id"] == 7
-    assert mutation["context"]["principal"] == (
-        "principal:sha256:" + hashlib.sha256(b"subject-opaque").hexdigest()
-    )
-    assert mutation["context"]["principal"] != "subject-opaque"
-    assert bound["envelope"]["policies"][0]["tenant"] == "tenant-fixture"
+    assert bound["draft"]["mutation"] == draft["mutation"]
+    assert bound["draft"]["policies"][0]["tenant"] == "tenant-fixture"
 
 
-def test_change_canonical_rejects_old_or_incomplete_mutation_contract() -> None:
-    old = _envelope()
-    old["mutation"]["schema_version"] = 1
-    with pytest.raises(ValueError, match="schema_version must be 2"):
-        ChangeEnvelopeClient._canonical(old)
+def test_change_canonical_rejects_retired_or_incomplete_mutation_draft() -> None:
+    for retired in ("context", "tenant", "created_at_ms", "schema_version"):
+        old = _envelope()
+        old["mutation"][retired] = 1
+        with pytest.raises(ValueError, match=f"unsupported fields: {retired}"):
+            ChangeEnvelopeClient._canonical(old)
 
     missing_outbox = _envelope()
     del missing_outbox["mutation"]["outbox"]
     with pytest.raises(ValueError, match="missing required fields: outbox"):
         ChangeEnvelopeClient._canonical(missing_outbox)
-
-    unknown = _envelope()
-    unknown["mutation"]["retired_domain_hint"] = "graph"
-    with pytest.raises(ValueError, match="unsupported fields: retired_domain_hint"):
-        ChangeEnvelopeClient._canonical(unknown)
 
 
 def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal() -> (

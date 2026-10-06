@@ -141,6 +141,8 @@ method_results! {
     MultiGraphBatchUpdate(MultiGraphBatchUpdate) => Json<MultiGraphBatchReport>;
     ApplyChangeEnvelope(ApplyChangeEnvelope) => Json<ChangeEnvelopeApplied>;
     ApplyChangeEnvelopes(ApplyChangeEnvelopes) => Json<ChangeEnvelopeBatch>;
+    ApplyChangeEnvelopeDraft(ApplyChangeEnvelopeDraft) => Json<ChangeEnvelopeApplied>;
+    ApplyChangeEnvelopeDrafts(ApplyChangeEnvelopeDrafts) => Json<ChangeEnvelopeBatch>;
     ApplyMultisigMutation(ApplyMultisigMutation) => Json<SparqlUpdateReport>;
     BeginTxn(BeginTxn) => Text<String>;
     TxnAddNode(TxnAddNode) => Bool<bool>;

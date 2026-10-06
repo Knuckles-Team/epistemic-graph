@@ -448,6 +448,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::FinanceAlphaCombinationEngine { .. }
         | Method::QueryWorkItemReservation { .. }
         | Method::ApplyChangeEnvelopes { .. }
+        | Method::ApplyChangeEnvelopeDraft { .. }
+        | Method::ApplyChangeEnvelopeDrafts { .. }
         | Method::GetShortestPath { .. }
         | Method::TsGapFill { .. }
         | Method::GetChangeCursor { .. }

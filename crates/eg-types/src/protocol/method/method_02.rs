@@ -397,6 +397,23 @@ $($variants)*
         envelopes: Vec<crate::change_envelope::ChangeEnvelope>,
     },
 
+    /// Submit one externally sourced change as a caller DRAFT. The request
+    /// boundary compiles the draft's operations, outbox and fences into the
+    /// governed `MutationBatch` -- scope identity, version expectation and
+    /// admission envelope minted from the verified request context -- and the
+    /// result is exactly `ApplyChangeEnvelope`'s. This is the client path:
+    /// `ApplyChangeEnvelope` itself carries server-minted authority.
+    ApplyChangeEnvelopeDraft {
+        draft: Box<crate::change_envelope::ChangeEnvelopeDraft>,
+    },
+
+    /// The batch form of `ApplyChangeEnvelopeDraft`, with
+    /// `ApplyChangeEnvelopes`' per-graph atomicity, ordering and result.
+    /// Bounded by `MAX_ENVELOPES_PER_BATCH`.
+    ApplyChangeEnvelopeDrafts {
+        drafts: Vec<crate::change_envelope::ChangeEnvelopeDraft>,
+    },
+
     /// Read a committed envelope by stable identity for retry reconciliation.
     GetChangeEnvelope {
         envelope_id: String,

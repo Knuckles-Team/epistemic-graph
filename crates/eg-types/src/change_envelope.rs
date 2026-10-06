@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::mutation_batch::MutationBatch;
 
+mod draft;
 mod material;
+pub use draft::{ChangeEnvelopeDraft, ChangeMutationDraft};
 pub use material::MaterialClass;
 use material::TextRule;
 
