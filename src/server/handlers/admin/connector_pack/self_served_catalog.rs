@@ -46,7 +46,7 @@ async fn attest(
     request: eg_types::connector_pack::McpSelfServedCatalogAttestRequest,
 ) -> Result<eg_types::connector_pack::McpCatalogSnapshotBinding, String> {
     use super::catalog_authority::{
-        require_catalog_attester, verify_observed_registration, ObservedRegistration,
+        admit_catalog_write, observed_registration, require_catalog_attester, ObservedRegistration,
     };
     use crate::server::persistence::connector_pack::catalog_authority::published_server_content;
     use eg_types::connector_pack::{
@@ -62,28 +62,9 @@ async fn attest(
     // pack lock, so no import interleaves with a re-pin. Then the registry
     // lock, held until the authority rows commit, as on the mounted path.
     let _pack_guard = super::tenant_pack_lock(verified.tenant()).await?;
-    let _registry_guard = crate::server::mutation_batch::lock_graph("__commons__").await;
-    verify_observed_registration(
-        state,
-        verified,
-        ObservedRegistration {
-            server_name: &request.server_name,
-            registry_revision: request.registry_revision,
-            registry_digest: request.registry_digest,
-            registration_config_digest: request.registration_config_digest,
-        },
-    )
-    .await?;
-    let store = state.write().await.ensure_agent_library()?;
+    let (_registry_guard, store, context) =
+        admit_catalog_write(state, req_id, verified, observed_registration!(request)).await?;
     super::authorize_importer(&store, verified, &request.connector)?;
-    let context = crate::server::handlers::admin::agent::bind_agent_library_context(
-        &store,
-        req_id,
-        verified,
-        request.context.clone(),
-        "mcp-catalog:reconcile",
-        true,
-    )?;
     let component_id = pack_component_id(
         request.connector.as_str(),
         PackEntryKind::McpServer,

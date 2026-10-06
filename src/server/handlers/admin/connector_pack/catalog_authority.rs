@@ -230,6 +230,20 @@ fn validate_mounted_attestation(
     Ok(())
 }
 
+/// The [`ObservedRegistration`] a catalog-authority request body carries.
+macro_rules! observed_registration {
+    ($request:expr) => {
+        ObservedRegistration {
+            server_name: &$request.server_name,
+            registry_revision: $request.registry_revision,
+            registry_digest: $request.registry_digest,
+            registration_config_digest: $request.registration_config_digest,
+            context: $request.context.clone(),
+        }
+    };
+}
+pub(super) use observed_registration;
+
 /// The registration an attester observed, which EG re-reads before binding.
 #[cfg(feature = "redb")]
 pub(super) struct ObservedRegistration<'a> {
@@ -237,6 +251,41 @@ pub(super) struct ObservedRegistration<'a> {
     pub(super) registry_revision: u64,
     pub(super) registry_digest: eg_types::contract::Digest256,
     pub(super) registration_config_digest: eg_types::contract::Digest256,
+    pub(super) context: eg_types::agent_library::AgentLibraryMutationContext,
+}
+
+/// What an admitted catalog-authority write holds until its rows commit.
+#[cfg(feature = "redb")]
+pub(super) type CatalogWriteAdmission = (
+    tokio::sync::OwnedMutexGuard<()>,
+    Arc<crate::server::persistence::agent_library::AgentLibraryStore>,
+    eg_types::agent_library::AgentLibraryMutationContext,
+);
+
+/// Take the registry graph lock, verify the observed registration under it and
+/// bind the admitted mutation context. Registry mutation takes this same lock;
+/// the caller keeps the guard until both EG authority rows commit, so the
+/// joined registration cannot move between verification and persistence.
+#[cfg(feature = "redb")]
+pub(super) async fn admit_catalog_write(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    observed: ObservedRegistration<'_>,
+) -> Result<CatalogWriteAdmission, String> {
+    let guard = crate::server::mutation_batch::lock_graph("__commons__").await;
+    let context = observed.context.clone();
+    verify_observed_registration(state, verified, observed).await?;
+    let store = state.write().await.ensure_agent_library()?;
+    let context = crate::server::handlers::admin::agent::bind_agent_library_context(
+        &store,
+        req_id,
+        verified,
+        context,
+        "mcp-catalog:reconcile",
+        true,
+    )?;
+    Ok((guard, store, context))
 }
 
 /// The identity of a registration's served configuration: its URL and its
@@ -258,7 +307,7 @@ pub(crate) fn registration_config_digest(
 /// the attester observed. The caller holds the registry graph lock until its
 /// authority rows commit, so the registration cannot move in between.
 #[cfg(feature = "redb")]
-pub(super) async fn verify_observed_registration(
+async fn verify_observed_registration(
     state: &Arc<RwLock<ServerState>>,
     verified: &VerifiedRequestContext,
     observed: ObservedRegistration<'_>,
@@ -299,27 +348,8 @@ async fn reconcile(
     // Registry mutation takes this same graph lock. Keep it until both EG
     // authority rows commit, so the joined registration cannot move between
     // source verification and persistence.
-    let _registry_guard = crate::server::mutation_batch::lock_graph("__commons__").await;
-    verify_observed_registration(
-        state,
-        verified,
-        ObservedRegistration {
-            server_name: &request.server_name,
-            registry_revision: request.registry_revision,
-            registry_digest: request.registry_digest,
-            registration_config_digest: request.registration_config_digest,
-        },
-    )
-    .await?;
-    let store = state.write().await.ensure_agent_library()?;
-    let context = crate::server::handlers::admin::agent::bind_agent_library_context(
-        &store,
-        req_id,
-        verified,
-        request.context,
-        "mcp-catalog:reconcile",
-        true,
-    )?;
+    let (_registry_guard, store, context) =
+        admit_catalog_write(state, req_id, verified, observed_registration!(request)).await?;
     let component = store
         .current_component(verified.tenant(), &request.component_id)?
         .ok_or_else(|| "MCP server component is unavailable".to_string())?;
