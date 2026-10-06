@@ -231,6 +231,7 @@ fn validate_mounted_attestation(
 }
 
 /// The [`ObservedRegistration`] a catalog-authority request body carries.
+#[cfg(feature = "redb")]
 macro_rules! observed_registration {
     ($request:expr) => {
         ObservedRegistration {
@@ -242,6 +243,7 @@ macro_rules! observed_registration {
         }
     };
 }
+#[cfg(feature = "redb")]
 pub(super) use observed_registration;
 
 /// The registration an attester observed, which EG re-reads before binding.
