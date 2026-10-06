@@ -29,6 +29,8 @@ _TYPED_OPERATION_SENDS = {
     "send_agent_component_content",
     "send_agent_component_current",
     "send_agent_component_search",
+    "send_connector_pack_attest_self_served_catalog",
+    "send_connector_pack_catalog_authority_status",
     "send_connector_pack_import",
     "send_connector_pack_status",
     "send_fleet_catalog_clear_override",
