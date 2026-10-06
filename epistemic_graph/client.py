@@ -5907,6 +5907,15 @@ class ChangeEnvelopeClient:
         return mutation
 
     @staticmethod
+    def _one_graph(split: list[tuple[dict[str, Any], str, str]]) -> str:
+        graph = split[0][1]
+        if any(entry[1] != graph for entry in split):
+            raise ValueError(
+                "changes.apply_batch requires every envelope to target one graph"
+            )
+        return graph
+
+    @staticmethod
     def _draft(canonical: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
         """Split a canonical envelope into its wire draft, graph and key."""
         draft = dict(canonical)
@@ -6044,11 +6053,7 @@ class ChangeEnvelopeClient:
         if not envelopes:
             return []
         split = [self._draft(self._canonical(envelope)) for envelope in envelopes]
-        graph = split[0][1]
-        if any(entry[1] != graph for entry in split):
-            raise ValueError(
-                "changes.apply_batch requires every envelope to target one graph"
-            )
+        graph = self._one_graph(split)
         # Deterministic transport idempotency key over the batch's per-envelope
         # keys; the engine qualifies each draft's replay key by its position.
         material = "\0".join(sorted(entry[2] for entry in split)).encode("utf-8")

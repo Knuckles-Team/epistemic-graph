@@ -88,6 +88,8 @@ SEND_BY_METHOD = {
     "AnalyticsJob": coordination.send_analytics_job,
     "AppendStep": graph.send_append_step,
     "ApplyChangeEnvelope": transactions.send_apply_change_envelope,
+    "ApplyChangeEnvelopeDraft": transactions.send_apply_change_envelope_draft,
+    "ApplyChangeEnvelopeDrafts": transactions.send_apply_change_envelope_drafts,
     "ApplyChangeEnvelopes": transactions.send_apply_change_envelopes,
     "ApplyLedger": storage.send_apply_ledger,
     "ApplyMultisigMutation": transactions.send_apply_multisig_mutation,

@@ -5663,6 +5663,137 @@
         ],
         "type": "object"
       },
+      "ReqDef_ChangeEnvelopeDraft": {
+        "description": "A [`ChangeEnvelope`] whose mutation is still a caller draft.",
+        "properties": {
+          "blobs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_BlobReference"
+            },
+            "type": "array"
+          },
+          "content_version": {
+            "$ref": "#/components/schemas/ReqDef_ContentVersion"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReqDef_ChangeCursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "evidence": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_EvidenceRecord"
+            },
+            "type": "array"
+          },
+          "features": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_FeatureRecord"
+            },
+            "type": "array"
+          },
+          "lineage": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_LineageRecord"
+            },
+            "type": "array"
+          },
+          "material_class": {
+            "$ref": "#/components/schemas/ReqDef_MaterialClass"
+          },
+          "mutation": {
+            "$ref": "#/components/schemas/ReqDef_ChangeMutationDraft"
+          },
+          "policies": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_PolicyRecord"
+            },
+            "type": "array"
+          },
+          "privacy": {
+            "$ref": "#/components/schemas/ReqDef_PrivacyAttestation"
+          },
+          "schema_version": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "envelope_id",
+          "mutation",
+          "content_version",
+          "privacy"
+        ],
+        "type": "object"
+      },
+      "ReqDef_ChangeMutationDraft": {
+        "additionalProperties": false,
+        "description": "What a caller may author of an envelope's mutation.",
+        "properties": {
+          "batch_id": {
+            "description": "Stable batch identity for status lookup and outbox correlation.",
+            "type": "string"
+          },
+          "expected_graph_version": {
+            "description": "The graph version this change was prepared against (optimistic\ncompare-and-set). `None` binds the authoritative version the engine\nreads when it compiles the draft, so a concurrent write still refuses.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fencing_token": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "operations": {
+            "description": "Ordered operations; `ordinal` must equal the position. The engine\nre-derives each operation's surface and domain and refuses a mismatch.",
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_MutationOperation"
+            },
+            "type": "array"
+          },
+          "outbox": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_MutationOutboxIntent"
+            },
+            "type": "array"
+          },
+          "placement_epoch": {
+            "default": 0,
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batch_id",
+          "operations"
+        ],
+        "type": "object"
+      },
       "ReqDef_ChannelType": {
         "description": "Channel type for dynamic communication.",
         "oneOf": [
@@ -21084,6 +21215,63 @@
                 },
                 "required": [
                   "envelopes"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Submit one externally sourced change as a caller DRAFT. The request\nboundary compiles the draft's operations, outbox and fences into the\ngoverned `MutationBatch` -- scope identity, version expectation and\nadmission envelope minted from the verified request context -- and the\nresult is exactly `ApplyChangeEnvelope`'s. This is the client path:\n`ApplyChangeEnvelope` itself carries server-minted authority.",
+            "properties": {
+              "method": {
+                "const": "ApplyChangeEnvelopeDraft",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "draft": {
+                    "$ref": "#/components/schemas/ReqDef_ChangeEnvelopeDraft"
+                  }
+                },
+                "required": [
+                  "draft"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The batch form of `ApplyChangeEnvelopeDraft`, with\n`ApplyChangeEnvelopes`' per-graph atomicity, ordering and result.\nBounded by `MAX_ENVELOPES_PER_BATCH`.",
+            "properties": {
+              "method": {
+                "const": "ApplyChangeEnvelopeDrafts",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "drafts": {
+                    "items": {
+                      "$ref": "#/components/schemas/ReqDef_ChangeEnvelopeDraft"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "drafts"
                 ],
                 "type": "object"
               }
@@ -49666,6 +49854,63 @@
             },
             "required": [
               "envelope"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_ApplyChangeEnvelopeDraft": {
+        "additionalProperties": false,
+        "description": "Submit one externally sourced change as a caller DRAFT. The request\nboundary compiles the draft's operations, outbox and fences into the\ngoverned `MutationBatch` -- scope identity, version expectation and\nadmission envelope minted from the verified request context -- and the\nresult is exactly `ApplyChangeEnvelope`'s. This is the client path:\n`ApplyChangeEnvelope` itself carries server-minted authority.",
+        "properties": {
+          "method": {
+            "const": "ApplyChangeEnvelopeDraft",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "draft": {
+                "$ref": "#/components/schemas/ReqDef_ChangeEnvelopeDraft"
+              }
+            },
+            "required": [
+              "draft"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_ApplyChangeEnvelopeDrafts": {
+        "additionalProperties": false,
+        "description": "The batch form of `ApplyChangeEnvelopeDraft`, with\n`ApplyChangeEnvelopes`' per-graph atomicity, ordering and result.\nBounded by `MAX_ENVELOPES_PER_BATCH`.",
+        "properties": {
+          "method": {
+            "const": "ApplyChangeEnvelopeDrafts",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "drafts": {
+                "items": {
+                  "$ref": "#/components/schemas/ReqDef_ChangeEnvelopeDraft"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "drafts"
             ],
             "type": "object"
           }
@@ -98224,6 +98469,85 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_ChangeEnvelopeDraft": {
+        "description": "A [`ChangeEnvelope`] whose mutation is still a caller draft.",
+        "properties": {
+          "blobs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_BlobReference"
+            },
+            "type": "array"
+          },
+          "content_version": {
+            "$ref": "#/components/schemas/ResDef_Query_ContentVersion"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResDef_Query_ChangeCursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "evidence": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_EvidenceRecord"
+            },
+            "type": "array"
+          },
+          "features": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_FeatureRecord"
+            },
+            "type": "array"
+          },
+          "lineage": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_LineageRecord"
+            },
+            "type": "array"
+          },
+          "material_class": {
+            "$ref": "#/components/schemas/ResDef_Query_MaterialClass"
+          },
+          "mutation": {
+            "$ref": "#/components/schemas/ResDef_Query_ChangeMutationDraft"
+          },
+          "policies": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_PolicyRecord"
+            },
+            "type": "array"
+          },
+          "privacy": {
+            "$ref": "#/components/schemas/ResDef_Query_PrivacyAttestation"
+          },
+          "schema_version": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "envelope_id",
+          "mutation",
+          "content_version",
+          "privacy"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_ChangeEnvelopeRecord": {
         "properties": {
           "committed_at_ms": {
@@ -98238,6 +98562,58 @@
         "required": [
           "envelope",
           "committed_at_ms"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_ChangeMutationDraft": {
+        "additionalProperties": false,
+        "description": "What a caller may author of an envelope's mutation.",
+        "properties": {
+          "batch_id": {
+            "description": "Stable batch identity for status lookup and outbox correlation.",
+            "type": "string"
+          },
+          "expected_graph_version": {
+            "description": "The graph version this change was prepared against (optimistic\ncompare-and-set). `None` binds the authoritative version the engine\nreads when it compiles the draft, so a concurrent write still refuses.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fencing_token": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "operations": {
+            "description": "Ordered operations; `ordinal` must equal the position. The engine\nre-derives each operation's surface and domain and refuses a mismatch.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_MutationOperation"
+            },
+            "type": "array"
+          },
+          "outbox": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_MutationOutboxIntent"
+            },
+            "type": "array"
+          },
+          "placement_epoch": {
+            "default": 0,
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batch_id",
+          "operations"
         ],
         "type": "object"
       },
@@ -115100,6 +115476,63 @@
                 },
                 "required": [
                   "envelopes"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Submit one externally sourced change as a caller DRAFT. The request\nboundary compiles the draft's operations, outbox and fences into the\ngoverned `MutationBatch` -- scope identity, version expectation and\nadmission envelope minted from the verified request context -- and the\nresult is exactly `ApplyChangeEnvelope`'s. This is the client path:\n`ApplyChangeEnvelope` itself carries server-minted authority.",
+            "properties": {
+              "method": {
+                "const": "ApplyChangeEnvelopeDraft",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "draft": {
+                    "$ref": "#/components/schemas/ResDef_Query_ChangeEnvelopeDraft"
+                  }
+                },
+                "required": [
+                  "draft"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The batch form of `ApplyChangeEnvelopeDraft`, with\n`ApplyChangeEnvelopes`' per-graph atomicity, ordering and result.\nBounded by `MAX_ENVELOPES_PER_BATCH`.",
+            "properties": {
+              "method": {
+                "const": "ApplyChangeEnvelopeDrafts",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "drafts": {
+                    "items": {
+                      "$ref": "#/components/schemas/ResDef_Query_ChangeEnvelopeDraft"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "drafts"
                 ],
                 "type": "object"
               }
@@ -157878,6 +158311,14 @@
         "$ref": "#/components/schemas/ResDef_Transactions_ChangeEnvelopeApplied",
         "x-encoding": "Json"
       },
+      "Res_transactions_ApplyChangeEnvelopeDraft": {
+        "$ref": "#/components/schemas/ResDef_Transactions_ChangeEnvelopeApplied",
+        "x-encoding": "Json"
+      },
+      "Res_transactions_ApplyChangeEnvelopeDrafts": {
+        "$ref": "#/components/schemas/ResDef_Transactions_ChangeEnvelopeBatch",
+        "x-encoding": "Json"
+      },
       "Res_transactions_ApplyChangeEnvelopes": {
         "$ref": "#/components/schemas/ResDef_Transactions_ChangeEnvelopeBatch",
         "x-encoding": "Json"
@@ -157977,7 +158418,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 459 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 461 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -192868,6 +193309,176 @@
           "CANCELLED",
           "CAPACITY_DENIED",
           "CARRIER_INNER_METHOD_REFUSED",
+          "CHANGE_BATCH_TOO_LARGE",
+          "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
+          "CONFLICT",
+          "CORRUPT_MUTATION_LEDGER",
+          "ENGINE_DEADLINE_EXCEEDED",
+          "ENGINE_INTERNAL_METHOD",
+          "ENGINE_RESOURCE_EXHAUSTED",
+          "ENGINE_UNAVAILABLE",
+          "IDEMPOTENCY_CONFLICT",
+          "INTERNAL",
+          "INVALID_ARGUMENT",
+          "METHOD_NOT_YET_SERVED",
+          "NODE_MISMATCH",
+          "OPERATION_REDIRECTED",
+          "READ_ONLY",
+          "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
+          "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
+          "TIMEOUT"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
+      }
+    },
+    "/rpc/transactions/ApplyChangeEnvelopeDraft": {
+      "post": {
+        "operationId": "ApplyChangeEnvelopeDraft",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_ApplyChangeEnvelopeDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_transactions_ApplyChangeEnvelopeDraft"
+                }
+              }
+            },
+            "description": "`ApplyChangeEnvelopeDraft` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "Client path: the request boundary mints scope identity, version expectation and admission envelope from the verified context",
+        "tags": [
+          "transactions"
+        ],
+        "x-audited": true,
+        "x-authz-action": "ingest:write",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": true,
+        "x-error-set": [
+          "ACCESS_DENIED",
+          "AUTHENTICATION_REQUIRED",
+          "AUTH_AUDIENCE_MISMATCH",
+          "AUTH_POLICY_VERSION_MISMATCH",
+          "AUTH_TENANT_MISMATCH",
+          "BUSY",
+          "CANCELLED",
+          "CAPACITY_DENIED",
+          "CARRIER_INNER_METHOD_REFUSED",
+          "CHANGE_BATCH_TOO_LARGE",
+          "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
+          "CONFLICT",
+          "CORRUPT_MUTATION_LEDGER",
+          "ENGINE_DEADLINE_EXCEEDED",
+          "ENGINE_INTERNAL_METHOD",
+          "ENGINE_RESOURCE_EXHAUSTED",
+          "ENGINE_UNAVAILABLE",
+          "IDEMPOTENCY_CONFLICT",
+          "INTERNAL",
+          "INVALID_ARGUMENT",
+          "METHOD_NOT_YET_SERVED",
+          "NODE_MISMATCH",
+          "OPERATION_REDIRECTED",
+          "READ_ONLY",
+          "REDIRECTED",
+          "REPLAY_NONCE_CONSUMED",
+          "STALE_GRAPH_VERSION",
+          "STALE_OUTBOX_LEASE",
+          "STALE_ROUTE",
+          "TIMEOUT"
+        ],
+        "x-idempotent": true,
+        "x-mutates": true,
+        "x-replay-class": "OperationIdentity",
+        "x-stability": "stable",
+        "x-txn-participation": "Atomic"
+      }
+    },
+    "/rpc/transactions/ApplyChangeEnvelopeDrafts": {
+      "post": {
+        "operationId": "ApplyChangeEnvelopeDrafts",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_ApplyChangeEnvelopeDrafts"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_transactions_ApplyChangeEnvelopeDrafts"
+                }
+              }
+            },
+            "description": "`ApplyChangeEnvelopeDrafts` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "Client batch path: drafts compiled into governed envelopes by the request boundary from the verified context",
+        "tags": [
+          "transactions"
+        ],
+        "x-audited": true,
+        "x-authz-action": "ingest:write",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "GraphRedb",
+        "x-emits-cdc": true,
+        "x-error-set": [
+          "ABORTED_ATOMIC_GRAPH_BATCH",
+          "ACCESS_DENIED",
+          "AUTHENTICATION_REQUIRED",
+          "AUTH_AUDIENCE_MISMATCH",
+          "AUTH_POLICY_VERSION_MISMATCH",
+          "AUTH_TENANT_MISMATCH",
+          "BUSY",
+          "CANCELLED",
+          "CAPACITY_DENIED",
           "CHANGE_BATCH_TOO_LARGE",
           "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
           "CONFLICT",

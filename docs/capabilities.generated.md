@@ -455,7 +455,9 @@
 | `BatchUpdate` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |
 | `MultiGraphBatchUpdate` | true | ControlRedb | `node:write` | true | false | false | Saga | durable parent coordinator with per-graph MutationBatch children |
 | `ApplyChangeEnvelope` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory |
+| `ApplyChangeEnvelopeDraft` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Client path: the request boundary mints scope identity, version expectation and admission envelope from the verified context |
 | `ApplyChangeEnvelopes` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Batch envelope coordinator: one coalesced graph transaction per shard-partition; same policy class as ApplyChangeEnvelope |
+| `ApplyChangeEnvelopeDrafts` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Client batch path: drafts compiled into governed envelopes by the request boundary from the verified context |
 | `ApplyMultisigMutation` | true | GraphRedb | `security:admin` | true | true | true | Saga | threshold validation translates into the graph MutationBatch gateway |
 | `BeginTxn` | true | ControlRedb | `txn:control` | false | false | false | Saga | encrypted Raft-native transaction staging authority |
 | `TxnAddNode` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native staging; Commit owns graph publication |

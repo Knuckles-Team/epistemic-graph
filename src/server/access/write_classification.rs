@@ -397,6 +397,8 @@ pub(crate) fn requires_write(method: &Method) -> bool {
                 | Method::RunDatalogReasoning { .. }
                 | Method::ApplyChangeEnvelope { .. }
                 | Method::ApplyChangeEnvelopes { .. }
+                | Method::ApplyChangeEnvelopeDraft { .. }
+                | Method::ApplyChangeEnvelopeDrafts { .. }
                 | Method::SourceIngest { .. }
                 | Method::TelemetryDerive { .. }
                 | Method::Reconcile { .. }

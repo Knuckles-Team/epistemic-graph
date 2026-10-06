@@ -5773,6 +5773,85 @@
       ],
       "type": "object"
     },
+    "ChangeEnvelopeDraft": {
+      "description": "A [`ChangeEnvelope`] whose mutation is still a caller draft.",
+      "properties": {
+        "blobs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BlobReference"
+          },
+          "type": "array"
+        },
+        "content_version": {
+          "$ref": "#/$defs/ContentVersion"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChangeCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "envelope_id": {
+          "type": "string"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/EvidenceRecord"
+          },
+          "type": "array"
+        },
+        "features": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FeatureRecord"
+          },
+          "type": "array"
+        },
+        "lineage": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LineageRecord"
+          },
+          "type": "array"
+        },
+        "material_class": {
+          "$ref": "#/$defs/MaterialClass"
+        },
+        "mutation": {
+          "$ref": "#/$defs/ChangeMutationDraft"
+        },
+        "policies": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PolicyRecord"
+          },
+          "type": "array"
+        },
+        "privacy": {
+          "$ref": "#/$defs/PrivacyAttestation"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "envelope_id",
+        "mutation",
+        "content_version",
+        "privacy"
+      ],
+      "type": "object"
+    },
     "ChangeEnvelopeRecord": {
       "properties": {
         "committed_at_ms": {
@@ -5787,6 +5866,58 @@
       "required": [
         "envelope",
         "committed_at_ms"
+      ],
+      "type": "object"
+    },
+    "ChangeMutationDraft": {
+      "additionalProperties": false,
+      "description": "What a caller may author of an envelope's mutation.",
+      "properties": {
+        "batch_id": {
+          "description": "Stable batch identity for status lookup and outbox correlation.",
+          "type": "string"
+        },
+        "expected_graph_version": {
+          "description": "The graph version this change was prepared against (optimistic\ncompare-and-set). `None` binds the authoritative version the engine\nreads when it compiles the draft, so a concurrent write still refuses.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "operations": {
+          "description": "Ordered operations; `ordinal` must equal the position. The engine\nre-derives each operation's surface and domain and refuses a mismatch.",
+          "items": {
+            "$ref": "#/$defs/MutationOperation"
+          },
+          "type": "array"
+        },
+        "outbox": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MutationOutboxIntent"
+          },
+          "type": "array"
+        },
+        "placement_epoch": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "batch_id",
+        "operations"
       ],
       "type": "object"
     },
@@ -22649,6 +22780,63 @@
               },
               "required": [
                 "envelopes"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Submit one externally sourced change as a caller DRAFT. The request\nboundary compiles the draft's operations, outbox and fences into the\ngoverned `MutationBatch` -- scope identity, version expectation and\nadmission envelope minted from the verified request context -- and the\nresult is exactly `ApplyChangeEnvelope`'s. This is the client path:\n`ApplyChangeEnvelope` itself carries server-minted authority.",
+          "properties": {
+            "method": {
+              "const": "ApplyChangeEnvelopeDraft",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "draft": {
+                  "$ref": "#/$defs/ChangeEnvelopeDraft"
+                }
+              },
+              "required": [
+                "draft"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The batch form of `ApplyChangeEnvelopeDraft`, with\n`ApplyChangeEnvelopes`' per-graph atomicity, ordering and result.\nBounded by `MAX_ENVELOPES_PER_BATCH`.",
+          "properties": {
+            "method": {
+              "const": "ApplyChangeEnvelopeDrafts",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "drafts": {
+                  "items": {
+                    "$ref": "#/$defs/ChangeEnvelopeDraft"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "drafts"
               ],
               "type": "object"
             }

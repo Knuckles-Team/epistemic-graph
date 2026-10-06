@@ -12,14 +12,14 @@
 
 [[artifact]]
 path = "clients/go/eg_method_codec.wasm"
-sha256 = "150cbc083de588e923b8a24076bffcce00a0be80c1313470c1a61e207d7066f0"
+sha256 = "5bf5b12907990886eb7f2cc4390742204fd19fcefe650d786966439fd43a78ae"
 reproducer = "python3 scripts/build_method_codec_wasm.py --check"
 proven_by = "language-clients"
 reason = "The eg2 method-body codec (crates/eg-method-codec, wasm32-unknown-unknown) the Go client embeds with //go:embed, which cannot reach outside the Go module, so the module must carry the bytes. --check rebuilds it and requires the committed copy byte-identical."
 
 [[artifact]]
 path = "clients/js/eg_method_codec.wasm"
-sha256 = "150cbc083de588e923b8a24076bffcce00a0be80c1313470c1a61e207d7066f0"
+sha256 = "5bf5b12907990886eb7f2cc4390742204fd19fcefe650d786966439fd43a78ae"
 reproducer = "python3 scripts/build_method_codec_wasm.py --check"
 proven_by = "language-clients"
 reason = "The same eg2 method-body codec, shipped inside the JavaScript client package so it loads without a build step. --check rebuilds it and requires the committed copy byte-identical."

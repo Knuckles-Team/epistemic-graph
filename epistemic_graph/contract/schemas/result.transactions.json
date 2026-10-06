@@ -837,6 +837,30 @@
       },
       "selected_by": null
     },
+    "ApplyChangeEnvelopeDraft": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ChangeEnvelopeApplied"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ApplyChangeEnvelopeDrafts": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ChangeEnvelopeBatch"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "ApplyChangeEnvelopes": {
       "bodies": {
         "result": {
