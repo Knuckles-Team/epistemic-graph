@@ -62,6 +62,9 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
         "ConnectorPack",
         &[
             "PACK_",
+            // A pack head whose schema source did not advance past the
+            // attached one (reproject of an unchanged head).
+            "SCHEMA_SOURCE_REGRESSION",
             "CONNECTOR_PACK_",
             "CONNECTOR_RELATIONSHIP_",
             "ARCHIVE_",
