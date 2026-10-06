@@ -84,6 +84,7 @@ async fn load_commons(
     verified: &VerifiedRequestContext,
     grants: &[Digest256],
 ) -> Result<CommonsView, String> {
+    crate::server::dispatch::ensure_graph_resident(state, REGISTRY_GRAPH).await;
     let _registry_guard = crate::server::mutation_batch::lock_graph(REGISTRY_GRAPH).await;
     let (core, authority) = {
         let current = timed_read(state).await;
