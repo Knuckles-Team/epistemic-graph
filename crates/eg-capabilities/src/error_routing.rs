@@ -103,7 +103,10 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     // `ChangeEnvelope::validate` refuses carried engine-internal/native operations.
     ("ApplyChangeEnvelope", &["CARRIER_INNER_METHOD_REFUSED"]),
-    ("ApplyChangeEnvelopeDraft", &["CARRIER_INNER_METHOD_REFUSED"]),
+    (
+        "ApplyChangeEnvelopeDraft",
+        &["CARRIER_INNER_METHOD_REFUSED"],
+    ),
     ("GetNodes", &["RESULT_TOO_LARGE"]),
     ("GetEdges", &["RESULT_TOO_LARGE"]),
     (

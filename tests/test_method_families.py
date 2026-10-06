@@ -208,6 +208,9 @@ _UNCONDITIONAL_WRITES_AT_BASE = (
         "RunDatalogReasoning",
         "ApplyChangeEnvelope",
         "ApplyChangeEnvelopes",
+        # Boundary-compiled into ApplyChangeEnvelope(s); added after the base.
+        "ApplyChangeEnvelopeDraft",
+        "ApplyChangeEnvelopeDrafts",
         "Reconcile",
         "ApplyMutation",
         "ApplyMultisigMutation",
