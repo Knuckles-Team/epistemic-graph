@@ -94,6 +94,6 @@ def test_changes_apply_batch_commits_every_draft(clean_graph):
             for index in range(3)
         ]
     )
-    assert [result["status"] for result in results] == ["applied"] * 3
+    assert [result["status"] for result in results] == ["applied"] * 3, results
     for index in range(3):
         assert clean_graph.nodes.properties(f"doc:batch-{index}") is not None
