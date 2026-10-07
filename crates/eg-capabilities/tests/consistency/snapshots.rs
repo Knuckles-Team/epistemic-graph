@@ -12,6 +12,10 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "AddTriples",
     "AppendStep",
     "ApplyChangeEnvelope",
+    // A draft becomes ApplyChangeEnvelope(s) at the request boundary, so it
+    // carries their mutation, durability, audit and CDC effects.
+    "ApplyChangeEnvelopeDraft",
+    "ApplyChangeEnvelopeDrafts",
     "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",
@@ -251,6 +255,10 @@ pub(crate) const MUTATION_APPLY_DURABLE_GRAPHREDB: &[&str] = &[
 /// outside the per-method graph mutation-applier classifier.
 pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "ApplyChangeEnvelope",
+    // A draft becomes ApplyChangeEnvelope(s) at the request boundary, so it
+    // carries their mutation, durability, audit and CDC effects.
+    "ApplyChangeEnvelopeDraft",
+    "ApplyChangeEnvelopeDrafts",
     "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",
@@ -369,6 +377,10 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "AddTriples",
     "AppendStep",
     "ApplyChangeEnvelope",
+    // A draft becomes ApplyChangeEnvelope(s) at the request boundary, so it
+    // carries their mutation, durability, audit and CDC effects.
+    "ApplyChangeEnvelopeDraft",
+    "ApplyChangeEnvelopeDrafts",
     "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",
@@ -508,6 +520,10 @@ pub(crate) const CDC_RS_EMITS_CDC: &[&str] = &[
     "AddEdge",
     "AddNode",
     "ApplyChangeEnvelope",
+    // A draft becomes ApplyChangeEnvelope(s) at the request boundary, so it
+    // carries their mutation, durability, audit and CDC effects.
+    "ApplyChangeEnvelopeDraft",
+    "ApplyChangeEnvelopeDrafts",
     "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",

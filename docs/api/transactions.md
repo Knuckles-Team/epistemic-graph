@@ -1,6 +1,6 @@
 # Transactions API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.transactions.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 21 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.transactions.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 23 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `ApplyChangeEnvelope`
 
@@ -34,6 +34,72 @@ Engine-native object/material/governance/version/cursor/outbox commit; verified 
 | `result` | `ChangeEnvelopeApplied` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/ApplyChangeEnvelope`, `contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelope`.
+
+## `ApplyChangeEnvelopeDraft`
+
+Client path: the request boundary mints scope identity, version expectation and admission envelope from the verified context
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `ingest:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `true` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CARRIER_INNER_METHOD_REFUSED`, `CHANGE_BATCH_TOO_LARGE`, `CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `READ_ONLY`, `REDIRECTED`, `REPLAY_NONCE_CONSUMED`, `STALE_GRAPH_VERSION`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `draft` | `ChangeEnvelopeDraft` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `ChangeEnvelopeApplied` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/ApplyChangeEnvelopeDraft`, `contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelopeDraft`.
+
+## `ApplyChangeEnvelopeDrafts`
+
+Client batch path: drafts compiled into governed envelopes by the request boundary from the verified context
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `ingest:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `true` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `ABORTED_ATOMIC_GRAPH_BATCH`, `ACCESS_DENIED`, `AUTHENTICATION_REQUIRED`, `AUTH_AUDIENCE_MISMATCH`, `AUTH_POLICY_VERSION_MISMATCH`, `AUTH_TENANT_MISMATCH`, `BUSY`, `CANCELLED`, `CAPACITY_DENIED`, `CHANGE_BATCH_TOO_LARGE`, `CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT`, `CONFLICT`, `CORRUPT_MUTATION_LEDGER`, `ENGINE_DEADLINE_EXCEEDED`, `ENGINE_INTERNAL_METHOD`, `ENGINE_RESOURCE_EXHAUSTED`, `ENGINE_UNAVAILABLE`, `IDEMPOTENCY_CONFLICT`, `INTERNAL`, `INVALID_ARGUMENT`, `METHOD_NOT_YET_SERVED`, `NODE_MISMATCH`, `OPERATION_REDIRECTED`, `READ_ONLY`, `REDIRECTED`, `REPLAY_NONCE_CONSUMED`, `STALE_GRAPH_VERSION`, `STALE_OUTBOX_LEASE`, `STALE_ROUTE`, `TIMEOUT` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `drafts` | array of `ChangeEnvelopeDraft` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `ChangeEnvelopeBatch` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/ApplyChangeEnvelopeDrafts`, `contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelopeDrafts`.
 
 ## `ApplyChangeEnvelopes`
 

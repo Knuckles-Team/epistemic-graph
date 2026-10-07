@@ -2080,6 +2080,8 @@ mod tests {
         ("MultiGraphBatchUpdate", "cluster placement fanout emits one typed graph command per child; standalone mode uses a durable parent saga"),
         ("ApplyChangeEnvelope", "governed envelope coordinator commits typed graph/object/provenance rows, cursor, version, and outbox through one native MutationBatch"),
         ("ApplyChangeEnvelopes", "batch envelope coordinator groups envelopes by graph and commits each graph's page as one coalesced native MutationBatch transaction; fans out per graph like MultiGraphBatchUpdate"),
+        ("ApplyChangeEnvelopeDraft", "client draft compiled at the request boundary into ApplyChangeEnvelope under the verified context, then committed by that same native coordinator"),
+        ("ApplyChangeEnvelopeDrafts", "client draft batch compiled at the request boundary into ApplyChangeEnvelopes under the verified context, then committed by that same native coordinator"),
         ("SourceIngest", "RF-ADR-009 stages raw CAS and an authoritative Connector Manifest mapping, then delegates its sole canonical graph/provenance/cursor commit to ApplyChangeEnvelope"),
         ("IndexRepository", "EH-280 runtime-conditional: an unscoped batch is a stateless parse; a scoped batch lowers its :Blob/:FileVersion/:Branch projection and delegates its sole graph commit to ApplyChangeEnvelope, exactly like SourceIngest"),
         ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
@@ -2242,6 +2244,10 @@ mod tests {
         covered.extend(SELF_ROUTED_ADMIN_METHODS.iter().copied());
         covered.extend(plan::LOCAL_ONLY_METHODS.iter().copied());
         covered.insert("ApplyChangeEnvelope");
+        // Drafts become ApplyChangeEnvelope(s) at the request boundary, before
+        // consensus routing, so the cluster sees only the governed form.
+        covered.insert("ApplyChangeEnvelopeDraft");
+        covered.insert("ApplyChangeEnvelopeDrafts");
         covered.insert("SourceIngest");
         covered.insert("IndexRepository");
         covered.insert("ServedModality");

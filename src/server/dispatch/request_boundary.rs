@@ -330,6 +330,12 @@ async fn dispatch_preamble_checks(
         return Err(Response::err(req.id, refusal));
     }
 
+    // A client change-envelope draft becomes its governed envelope here, after
+    // authorization and before material preflight, consensus and dispatch.
+    let req =
+        super::change_envelope_draft::compile_change_envelope_drafts(state, req, verified_context)
+            .await?;
+
     if let Err(error) = preflight_request_msgpack(&req.method) {
         return Err(Response::err(req.id, error));
     }

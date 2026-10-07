@@ -2193,6 +2193,23 @@ class ChangeEnvelopeConflict(BaseModel):
     error: str
 
 
+class ChangeEnvelopeDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    blobs: list[BlobReference] = Field(default_factory=list)
+    content_version: ContentVersion
+    cursor: ChangeCursor | None = None
+    envelope_id: str
+    evidence: list[EvidenceRecord] = Field(default_factory=list)
+    features: list[FeatureRecord] = Field(default_factory=list)
+    lineage: list[LineageRecord] = Field(default_factory=list)
+    material_class: MaterialClass | None = None
+    mutation: ChangeMutationDraft
+    policies: list[PolicyRecord] = Field(default_factory=list)
+    privacy: PrivacyAttestation
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
 class ChangeEnvelopeOutcomeApplied(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2224,6 +2241,17 @@ class ChangeEnvelopeRecord(BaseModel):
 
     committed_at_ms: Annotated[int, Field(ge=0)]
     envelope: ChangeEnvelope
+
+
+class ChangeMutationDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    batch_id: str
+    expected_graph_version: Annotated[int, Field(ge=0)] | None = None
+    fencing_token: Annotated[int, Field(ge=0)] | None = None
+    operations: list[MutationOperation]
+    outbox: list[MutationOutboxIntent] = Field(default_factory=list)
+    placement_epoch: Annotated[int, Field(ge=0)] | None = None
 
 
 class ChangedBeliefWire(BaseModel):
@@ -8220,6 +8248,20 @@ class MethodApplyChangeEnvelopes(BaseModel):
     params: MethodApplyChangeEnvelopesParams
 
 
+class MethodApplyChangeEnvelopeDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ApplyChangeEnvelopeDraft"]
+    params: MethodApplyChangeEnvelopeDraftParams
+
+
+class MethodApplyChangeEnvelopeDrafts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ApplyChangeEnvelopeDrafts"]
+    params: MethodApplyChangeEnvelopeDraftsParams
+
+
 class MethodGetChangeEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10491,6 +10533,8 @@ Method = Annotated[
     | MethodRunDatalogReasoning
     | MethodApplyChangeEnvelope
     | MethodApplyChangeEnvelopes
+    | MethodApplyChangeEnvelopeDraft
+    | MethodApplyChangeEnvelopeDrafts
     | MethodGetChangeEnvelope
     | MethodGetContentVersion
     | MethodGetChangeCursor
@@ -10886,6 +10930,18 @@ class MethodAppendStepParams(BaseModel):
     state_ref: str | None = None
     t: Annotated[int, Field(ge=0)]
     traj_id: str
+
+
+class MethodApplyChangeEnvelopeDraftParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    draft: ChangeEnvelopeDraft
+
+
+class MethodApplyChangeEnvelopeDraftsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    drafts: list[ChangeEnvelopeDraft]
 
 
 class MethodApplyChangeEnvelopeParams(BaseModel):
@@ -23421,11 +23477,13 @@ __all__ = [
     "ChangeEnvelopeApplied",
     "ChangeEnvelopeBatch",
     "ChangeEnvelopeConflict",
+    "ChangeEnvelopeDraft",
     "ChangeEnvelopeOutcome",
     "ChangeEnvelopeOutcomeApplied",
     "ChangeEnvelopeOutcomeConflict",
     "ChangeEnvelopeOutcomeIdempotentSkip",
     "ChangeEnvelopeRecord",
+    "ChangeMutationDraft",
     "ChangedBeliefWire",
     "ChannelCreated",
     "ChannelDeparture",
@@ -24298,6 +24356,10 @@ __all__ = [
     "MethodAppendStep",
     "MethodAppendStepParams",
     "MethodApplyChangeEnvelope",
+    "MethodApplyChangeEnvelopeDraft",
+    "MethodApplyChangeEnvelopeDraftParams",
+    "MethodApplyChangeEnvelopeDrafts",
+    "MethodApplyChangeEnvelopeDraftsParams",
     "MethodApplyChangeEnvelopeParams",
     "MethodApplyChangeEnvelopes",
     "MethodApplyChangeEnvelopesParams",

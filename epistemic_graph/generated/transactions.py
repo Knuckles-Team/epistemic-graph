@@ -22,7 +22,9 @@ if TYPE_CHECKING:
     BatchUpdateRequest = _models.MethodBatchUpdateParams
     MultiGraphBatchUpdateRequest = _models.MethodMultiGraphBatchUpdateParams
     ApplyChangeEnvelopeRequest = _models.MethodApplyChangeEnvelopeParams
+    ApplyChangeEnvelopeDraftRequest = _models.MethodApplyChangeEnvelopeDraftParams
     ApplyChangeEnvelopesRequest = _models.MethodApplyChangeEnvelopesParams
+    ApplyChangeEnvelopeDraftsRequest = _models.MethodApplyChangeEnvelopeDraftsParams
     ApplyMultisigMutationRequest = _models.MethodApplyMultisigMutationParams
     BeginTxnRequest = _models.MethodBeginTxnParams
     TxnAddNodeRequest = _models.MethodTxnAddNodeParams
@@ -181,6 +183,55 @@ def decode_apply_change_envelope(result: OpaqueResult) -> _models.ChangeEnvelope
     return decode_result("ApplyChangeEnvelope", models().ChangeEnvelopeApplied, result)
 
 
+async def send_apply_change_envelope_draft(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyChangeEnvelopeDraft
+    Authorization:
+        ingest:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/ApplyChangeEnvelopeDraft
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyChangeEnvelopeDraftParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyChangeEnvelopeDraft",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ApplyChangeEnvelopeDraft", payload)
+
+
+def decode_apply_change_envelope_draft(
+    result: OpaqueResult,
+) -> _models.ChangeEnvelopeApplied:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ApplyChangeEnvelopeDraft", models().ChangeEnvelopeApplied, result
+    )
+
+
 async def send_apply_change_envelopes(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -224,6 +275,55 @@ async def send_apply_change_envelopes(
 def decode_apply_change_envelopes(result: OpaqueResult) -> _models.ChangeEnvelopeBatch:
     """Validate this method's result against its contract model."""
     return decode_result("ApplyChangeEnvelopes", models().ChangeEnvelopeBatch, result)
+
+
+async def send_apply_change_envelope_drafts(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyChangeEnvelopeDrafts
+    Authorization:
+        ingest:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/ApplyChangeEnvelopeDrafts
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyChangeEnvelopeDraftsParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyChangeEnvelopeDrafts",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ApplyChangeEnvelopeDrafts", payload)
+
+
+def decode_apply_change_envelope_drafts(
+    result: OpaqueResult,
+) -> _models.ChangeEnvelopeBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ApplyChangeEnvelopeDrafts", models().ChangeEnvelopeBatch, result
+    )
 
 
 async def send_apply_multisig_mutation(
@@ -929,7 +1029,9 @@ _REQUEST_METHODS = frozenset(
         "BatchUpdate",
         "MultiGraphBatchUpdate",
         "ApplyChangeEnvelope",
+        "ApplyChangeEnvelopeDraft",
         "ApplyChangeEnvelopes",
+        "ApplyChangeEnvelopeDrafts",
         "ApplyMultisigMutation",
         "BeginTxn",
         "TxnAddNode",

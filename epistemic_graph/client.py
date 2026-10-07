@@ -915,22 +915,21 @@ _CAPACITY_PRIORITIES = frozenset(
 _CAPACITY_RESOURCE_CLASSES = frozenset(
     {"llm_generator", "llm_embedding", "gpu", "worker", "cpu", "broker"}
 )
+# A caller authors only the draft of an envelope's mutation; the engine mints
+# its scope identity, version expectation and admission envelope from the
+# verified request. ``graph`` and ``idempotency_key`` route the request and are
+# not part of the draft body.
 _CHANGE_MUTATION_REQUIRED = frozenset(
     {
-        "schema_version",
         "batch_id",
-        "context",
-        "tenant",
         "graph",
-        "placement_epoch",
         "idempotency_key",
         "operations",
         "outbox",
-        "created_at_ms",
     }
 )
 _CHANGE_MUTATION_OPTIONAL = frozenset(
-    {"expected_graph_version", "fencing_token", "authoritative_state"}
+    {"placement_epoch", "expected_graph_version", "fencing_token"}
 )
 _CLAIM_WORK_ITEM_REQUEST_FIELDS = frozenset(
     {
@@ -5813,8 +5812,6 @@ class ChangeEnvelopeClient:
             _CHANGE_MUTATION_REQUIRED,
             _CHANGE_MUTATION_OPTIONAL,
         )
-        if _integer("mutation.schema_version", mutation_in["schema_version"]) != 2:
-            raise ValueError("mutation.schema_version must be 2")
         mutation = cls._canonical_mutation(mutation_in)
 
         result: dict[str, Any] = {
@@ -5835,24 +5832,6 @@ class ChangeEnvelopeClient:
             "sanitized_payload_digest": privacy["sanitized_payload_digest"],
         }
         return result
-
-    @staticmethod
-    def _canonical_context(context_in: Any) -> dict[str, Any]:
-        """The request context: two required claims plus explicit optionals."""
-        context_in = _closed_mapping(
-            "mutation.context",
-            context_in,
-            frozenset({"request_id", "principal"}),
-            frozenset({"purpose", "policy_fingerprint", "trace_id"}),
-        )
-        context: dict[str, Any] = {
-            "request_id": int(context_in["request_id"]),
-            "principal": str(context_in["principal"]),
-        }
-        for key in ("purpose", "policy_fingerprint", "trace_id"):
-            if context_in.get(key) is not None:
-                context[key] = context_in[key]
-        return context
 
     @staticmethod
     def _canonical_operation(operation_value: Any, index: int) -> dict[str, Any]:
@@ -5882,28 +5861,6 @@ class ChangeEnvelopeClient:
         }
 
     @staticmethod
-    def _canonical_authoritative_state(state_in: Any) -> dict[str, Any]:
-        """The optional authoritative-state digest pair."""
-        state = _exact_mapping(
-            "mutation.authoritative_state",
-            state_in,
-            frozenset(
-                {
-                    "algorithm",
-                    "digest",
-                    "source_graph_version",
-                    "target_graph_version",
-                }
-            ),
-        )
-        return {
-            "algorithm": state["algorithm"],
-            "digest": state["digest"],
-            "source_graph_version": int(state["source_graph_version"]),
-            "target_graph_version": int(state["target_graph_version"]),
-        }
-
-    @staticmethod
     def _canonical_outbox(outbox_in: Any) -> list[dict[str, Any]]:
         """The outbox intents, each with key-sorted headers."""
         outbox: list[dict[str, Any]] = []
@@ -5927,34 +5884,46 @@ class ChangeEnvelopeClient:
 
     @classmethod
     def _canonical_mutation(cls, mutation_in: dict[str, Any]) -> dict[str, Any]:
-        """The canonical mutation body, in Rust declaration order."""
-        # Validation order is load-bearing for which error surfaces first:
-        # context, then operations, then authoritative_state -- as before.
-        context = cls._canonical_context(mutation_in["context"])
+        """The mutation draft, in Rust declaration order, plus its routing.
+
+        ``graph`` and ``idempotency_key`` are request routing, kept here only
+        until :meth:`apply` lifts them off the draft body.
+        """
         operations = [
             cls._canonical_operation(value, index)
             for index, value in enumerate(mutation_in["operations"])
         ]
         mutation: dict[str, Any] = {
-            "schema_version": 2,
             "batch_id": mutation_in["batch_id"],
-            "context": context,
-            "tenant": mutation_in["tenant"],
-            "graph": mutation_in["graph"],
-            "placement_epoch": int(mutation_in["placement_epoch"]),
-            "idempotency_key": mutation_in["idempotency_key"],
+            "placement_epoch": int(mutation_in.get("placement_epoch", 0)),
         }
         for key in ("expected_graph_version", "fencing_token"):
             if mutation_in.get(key) is not None:
                 mutation[key] = int(mutation_in[key])
-        if mutation_in.get("authoritative_state") is not None:
-            mutation["authoritative_state"] = cls._canonical_authoritative_state(
-                mutation_in["authoritative_state"]
-            )
         mutation["operations"] = operations
         mutation["outbox"] = cls._canonical_outbox(mutation_in["outbox"])
-        mutation["created_at_ms"] = int(mutation_in["created_at_ms"])
+        mutation["graph"] = mutation_in["graph"]
+        mutation["idempotency_key"] = mutation_in["idempotency_key"]
         return mutation
+
+    @staticmethod
+    def _one_graph(split: list[tuple[dict[str, Any], str, str]]) -> str:
+        graph = split[0][1]
+        if any(entry[1] != graph for entry in split):
+            raise ValueError(
+                "changes.apply_batch requires every envelope to target one graph"
+            )
+        return graph
+
+    @staticmethod
+    def _draft(canonical: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
+        """Split a canonical envelope into its wire draft, graph and key."""
+        draft = dict(canonical)
+        mutation = dict(draft["mutation"])
+        graph = mutation.pop("graph")
+        key = mutation.pop("idempotency_key")
+        draft["mutation"] = mutation
+        return draft, graph, key
 
     @classmethod
     def _canonical_content_version(cls, version_in: dict[str, Any]) -> dict[str, Any]:
@@ -6047,14 +6016,15 @@ class ChangeEnvelopeClient:
         ]
 
     async def apply(self, envelope: dict[str, Any]) -> dict[str, Any]:
-        canonical = self._canonical(envelope)
-        mutation = canonical["mutation"]
+        """Commit one envelope draft as ``ApplyChangeEnvelopeDraft``; the engine
+        mints its mutation authority from this verified request."""
+        draft, graph, key = self._draft(self._canonical(envelope))
         return (
-            await _gen.transactions.send_apply_change_envelope(
+            await _gen.transactions.send_apply_change_envelope_draft(
                 self._client,
-                {"envelope": canonical},
-                graph=mutation["graph"],
-                idempotency_key=mutation["idempotency_key"],
+                {"draft": draft},
+                graph=graph,
+                idempotency_key=key,
             )
         ).payload
 
@@ -6062,7 +6032,7 @@ class ChangeEnvelopeClient:
         self, envelopes: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Commit a batch of envelopes that all target ONE graph in a single
-        ``ApplyChangeEnvelopes`` round-trip
+        ``ApplyChangeEnvelopeDrafts`` round-trip
         (CONCEPT:EG-KG.ingest.batched-change-envelopes).
 
         The engine lands the whole group in ONE coalesced redb transaction and returns
@@ -6082,23 +6052,16 @@ class ChangeEnvelopeClient:
         """
         if not envelopes:
             return []
-        canonicals = [self._canonical(envelope) for envelope in envelopes]
-        graph = canonicals[0]["mutation"]["graph"]
-        for canonical in canonicals:
-            if canonical["mutation"]["graph"] != graph:
-                raise ValueError(
-                    "changes.apply_batch requires every envelope to target one graph"
-                )
-        # Deterministic transport idempotency key over the batch's per-envelope keys;
-        # per-envelope idempotency is enforced authoritatively server-side.
-        material = "\0".join(
-            sorted(canonical["mutation"]["idempotency_key"] for canonical in canonicals)
-        ).encode("utf-8")
+        split = [self._draft(self._canonical(envelope)) for envelope in envelopes]
+        graph = self._one_graph(split)
+        # Deterministic transport idempotency key over the batch's per-envelope
+        # keys; the engine qualifies each draft's replay key by its position.
+        material = "\0".join(sorted(entry[2] for entry in split)).encode("utf-8")
         batch_key = "change-batch:sha256:" + hashlib.sha256(material).hexdigest()
         result = (
-            await _gen.transactions.send_apply_change_envelopes(
+            await _gen.transactions.send_apply_change_envelope_drafts(
                 self._client,
-                {"envelopes": canonicals},
+                {"drafts": [entry[0] for entry in split]},
                 graph=graph,
                 idempotency_key=batch_key,
             )
@@ -10433,8 +10396,8 @@ _CLOSE_TIMEOUT = float(os.environ.get("GRAPH_SERVICE_CLOSE_TIMEOUT", "5") or 5)
 # The two RPCs whose params carry a change envelope that must be bound to the
 # request id + target graph before signing.  Dispatch table, not a branch chain.
 _CHANGE_ENVELOPE_BINDERS = {
-    "ApplyChangeEnvelope": "_bind_change_envelope",
-    "ApplyChangeEnvelopes": "_bind_change_envelopes",
+    "ApplyChangeEnvelopeDraft": "_bind_change_envelope",
+    "ApplyChangeEnvelopeDrafts": "_bind_change_envelopes",
 }
 
 _OPERATION_RESULT_FIELDS = frozenset(
@@ -15345,32 +15308,11 @@ class EpistemicGraphClient:
         request_id: int,
         graph: str,
     ) -> dict[str, Any]:
-        verified_context = self._effective_verified_context()
+        """Stamp the verified tenant onto a draft's policy rows. The engine
+        mints every mutation authority field from the verified request."""
+        del request_id, graph
         bound = copy.deepcopy(params)
-        envelope = bound["envelope"]
-        mutation = envelope["mutation"]
-        if mutation["graph"] != graph:
-            raise ValueError(
-                "ChangeEnvelope mutation graph does not match the request graph"
-            )
-        tenant = str(verified_context["tenant"])
-        mutation["tenant"] = tenant
-        context_in = mutation["context"]
-        context: dict[str, Any] = {
-            "request_id": int(request_id),
-            "principal": "principal:sha256:"
-            + hashlib.sha256(
-                str(verified_context["principal"]).encode("utf-8")
-            ).hexdigest(),
-        }
-        if context_in.get("purpose") is not None:
-            context["purpose"] = context_in["purpose"]
-        context["policy_fingerprint"] = str(verified_context["policy_version"])
-        if context_in.get("trace_id") is not None:
-            context["trace_id"] = context_in["trace_id"]
-        mutation["context"] = context
-        for policy in envelope.get("policies", []):
-            policy["tenant"] = tenant
+        self._stamp_policy_tenant([bound["draft"]])
         return bound
 
     def _bind_change_envelopes(
@@ -15380,40 +15322,17 @@ class EpistemicGraphClient:
         request_id: int,
         graph: str,
     ) -> dict[str, Any]:
-        """Stamp the verified request authority into EVERY envelope of a batch — the
-        plural of :meth:`_bind_change_envelope`. All envelopes must target ``graph``."""
-        verified_context = self._effective_verified_context()
+        """The plural of :meth:`_bind_change_envelope`."""
+        del request_id, graph
         bound = copy.deepcopy(params)
-        tenant = str(verified_context["tenant"])
-        principal = (
-            "principal:sha256:"
-            + hashlib.sha256(
-                str(verified_context["principal"]).encode("utf-8")
-            ).hexdigest()
-        )
-        policy_version = str(verified_context["policy_version"])
-        for envelope in bound["envelopes"]:
-            mutation = envelope["mutation"]
-            if mutation["graph"] != graph:
-                raise ValueError(
-                    "ChangeEnvelope batch mutation graph does not match the request "
-                    "graph"
-                )
-            mutation["tenant"] = tenant
-            context_in = mutation["context"]
-            context: dict[str, Any] = {
-                "request_id": int(request_id),
-                "principal": principal,
-            }
-            if context_in.get("purpose") is not None:
-                context["purpose"] = context_in["purpose"]
-            context["policy_fingerprint"] = policy_version
-            if context_in.get("trace_id") is not None:
-                context["trace_id"] = context_in["trace_id"]
-            mutation["context"] = context
-            for policy in envelope.get("policies", []):
-                policy["tenant"] = tenant
+        self._stamp_policy_tenant(bound["drafts"])
         return bound
+
+    def _stamp_policy_tenant(self, drafts: list[dict[str, Any]]) -> None:
+        tenant = str(self._effective_verified_context()["tenant"])
+        for draft in drafts:
+            for policy in draft.get("policies", []):
+                policy["tenant"] = tenant
 
     def _compute_verified_token(
         self, request: dict[str, Any], idempotency_key: str | None

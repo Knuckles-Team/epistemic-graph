@@ -204,9 +204,11 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 456 -> 458: the tenant-scoped operation audit-append `AuditAppend` and its
     // paired read `AuditReadEvent`.
     // 458 -> 459: `OntologyInspect`, the read-only typed vocabulary surface.
+    // 459 -> 461: `ApplyChangeEnvelopeDraft(s)`, the client path whose mutation
+    // authority the request boundary mints.
     assert_eq!(
         variants.len(),
-        459,
+        461,
         "the wire method census changed; update this exact count deliberately"
     );
 }

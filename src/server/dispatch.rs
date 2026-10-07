@@ -441,6 +441,7 @@ const MIN_REGISTER_SERVER_TTL_SECS: u64 = 1;
 const MAX_REGISTER_SERVER_TTL_SECS: u64 = 24 * 60 * 60;
 
 mod change_envelope;
+mod change_envelope_draft;
 mod consensus;
 mod elevation;
 mod graph_pipeline;

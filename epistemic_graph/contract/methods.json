@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 459,
+  "method_count": 461,
   "methods": [
     {
       "consumer_profiles": [
@@ -28751,6 +28751,78 @@
       ],
       "domain": "transactions",
       "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "CARRIER_INNER_METHOD_REFUSED",
+        "CHANGE_BATCH_TOO_LARGE",
+        "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
+        "CONFLICT",
+        "CORRUPT_MUTATION_LEDGER",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "IDEMPOTENCY_CONFLICT",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "READ_ONLY",
+        "REDIRECTED",
+        "REPLAY_NONCE_CONSUMED",
+        "STALE_GRAPH_VERSION",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "ApplyChangeEnvelopeDraft",
+      "is_wire_callable": true,
+      "note": "Client path: the request boundary mints scope identity, version expectation and admission envelope from the verified context",
+      "policy": {
+        "audited": true,
+        "authz_action": "ingest:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ApplyChangeEnvelopeDraft"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelopeDraft",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "transactions",
+      "error_set": [
         "ABORTED_ATOMIC_GRAPH_BATCH",
         "ACCESS_DENIED",
         "AUTHENTICATION_REQUIRED",
@@ -28813,6 +28885,78 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelopes",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "transactions",
+      "error_set": [
+        "ABORTED_ATOMIC_GRAPH_BATCH",
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "CHANGE_BATCH_TOO_LARGE",
+        "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
+        "CONFLICT",
+        "CORRUPT_MUTATION_LEDGER",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "IDEMPOTENCY_CONFLICT",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "READ_ONLY",
+        "REDIRECTED",
+        "REPLAY_NONCE_CONSUMED",
+        "STALE_GRAPH_VERSION",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "ApplyChangeEnvelopeDrafts",
+      "is_wire_callable": true,
+      "note": "Client batch path: drafts compiled into governed envelopes by the request boundary from the verified context",
+      "policy": {
+        "audited": true,
+        "authz_action": "ingest:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ApplyChangeEnvelopeDrafts"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelopeDrafts",
         "selected_by": null
       },
       "stability": "stable"
