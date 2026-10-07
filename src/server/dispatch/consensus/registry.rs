@@ -245,6 +245,7 @@ pub(in crate::server::dispatch) async fn handle_list_registered_servers(
     verified_context: &VerifiedRequestContext,
     request: RegisteredServerListRequest,
 ) -> Response {
+    crate::server::dispatch::ensure_graph_resident(state, REGISTRY_GRAPH).await;
     let _registry_guard = crate::server::mutation_batch::lock_graph(REGISTRY_GRAPH).await;
     let (raw_core, read_authority) = {
         let current = timed_read(state).await;
@@ -283,7 +284,9 @@ pub(in crate::server::dispatch) async fn handle_list_registered_servers(
 }
 
 /// Read one live registration while the caller holds the registry graph lock.
-/// The lock must remain held through its dependent authority-row commit.
+/// The lock must remain held through its dependent authority-row commit; the
+/// caller makes the registry resident (`ensure_graph_resident`) before taking
+/// it, since opening a cold graph takes that same lock.
 pub(crate) async fn verified_served_registration(
     state: &Arc<RwLock<ServerState>>,
     verified: &VerifiedRequestContext,

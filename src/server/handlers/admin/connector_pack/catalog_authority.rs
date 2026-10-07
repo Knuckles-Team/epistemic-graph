@@ -275,6 +275,7 @@ pub(super) async fn admit_catalog_write(
     verified: &VerifiedRequestContext,
     observed: ObservedRegistration<'_>,
 ) -> Result<CatalogWriteAdmission, String> {
+    crate::server::dispatch::ensure_graph_resident(state, "__commons__").await;
     let guard = crate::server::mutation_batch::lock_graph("__commons__").await;
     let context = observed.context.clone();
     verify_observed_registration(state, verified, observed).await?;

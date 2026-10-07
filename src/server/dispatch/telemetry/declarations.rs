@@ -56,6 +56,7 @@ pub(super) async fn read(
     graph: &str,
     verified: &VerifiedRequestContext,
 ) -> Result<ReadDeclarations, String> {
+    crate::server::dispatch::ensure_graph_resident(state, graph).await;
     let (core, authority) = {
         let current = timed_read(state).await;
         crate::server::dispatch::authorized_graph_read(
