@@ -5768,7 +5768,7 @@
             ]
           },
           "operations": {
-            "description": "Ordered operations; `ordinal` must equal the position. The engine\nre-derives each operation's surface and domain and refuses a mismatch.",
+            "description": "Ordered operations; `ordinal` must equal the position. Only each\noperation's method is authored: the engine classifies its surface and\ndurability domain itself, whatever the draft declares.",
             "items": {
               "$ref": "#/components/schemas/ReqDef_MutationOperation"
             },
@@ -98666,7 +98666,7 @@
             ]
           },
           "operations": {
-            "description": "Ordered operations; `ordinal` must equal the position. The engine\nre-derives each operation's surface and domain and refuses a mismatch.",
+            "description": "Ordered operations; `ordinal` must equal the position. Only each\noperation's method is authored: the engine classifies its surface and\ndurability domain itself, whatever the draft declares.",
             "items": {
               "$ref": "#/components/schemas/ResDef_Query_MutationOperation"
             },
